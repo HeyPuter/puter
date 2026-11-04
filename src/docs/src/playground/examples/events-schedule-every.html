@@ -1,0 +1,35 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            if (!await puter.perms.request('backgroundEvents')) {
+                puter.print('background events were not allowed<br>');
+                return;
+            }
+
+            // (1) Every 15 minutes, 3 times. Each run adds one to a counter in the key-value store
+            const key = `runs-${puter.randName()}`;
+            const schedule = await puter.events.onSchedule({
+                every: '15m',
+                maxRuns: 3,
+                handler: async ({ ctx, user }) => {
+                    const runs = (await user.kv.get(ctx.key)) ?? 0;
+                    await user.kv.set(ctx.key, runs + 1);
+                },
+                context: { key },
+            });
+            puter.print(`first run at ${new Date(schedule.nextRunAt).toLocaleTimeString()}<br>`);
+
+            // (2) The page reads what the handler wrote. Nothing has run yet, so this is 0
+            puter.print(`runs so far: ${(await puter.kv.get(key)) ?? 0}<br>`);
+
+            // (3) Cleanup: end the schedule, remove its handler, delete the counter
+            await schedule.off();
+            await puter.events.handlers.remove(schedule.handlerName, { scope: 'user' });
+            await puter.kv.del(key);
+            puter.print('removed<br>');
+        })();
+    </script>
+</body>
+</html>

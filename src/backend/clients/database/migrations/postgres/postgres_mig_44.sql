@@ -15,9 +15,25 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- notification (user_id, audience, app_uid, id). See
--- sqlite/0101_notification-scope-id-index.sql for the rationale. Idempotent via
--- IF NOT EXISTS.
+-- Handlers an app's user published into their own scope. See
+-- sqlite/0101_user-scoped-handlers.sql for the column rationale.
+-- Idempotent via IF NOT EXISTS.
 
-CREATE INDEX IF NOT EXISTS idx_notification_scope_id
-    ON notification (user_id, audience, app_uid, id);
+CREATE TABLE IF NOT EXISTS event_user_handlers (
+    id BIGSERIAL PRIMARY KEY,
+    app_uid VARCHAR(40) NOT NULL,
+    holder_user_id INTEGER NOT NULL,
+    name VARCHAR(128) NOT NULL,
+    source TEXT NOT NULL,
+    source_hash VARCHAR(64) NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    scope_since BIGINT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_user_handlers_app_holder_name
+    ON event_user_handlers (app_uid, holder_user_id, name);
+CREATE INDEX IF NOT EXISTS idx_event_user_handlers_holder_app
+    ON event_user_handlers (holder_user_id, app_uid);
+
+ALTER TABLE event_subscriptions ADD COLUMN IF NOT EXISTS handler_scope smallint NOT NULL DEFAULT 0;

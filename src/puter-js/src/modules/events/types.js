@@ -208,18 +208,21 @@
  *   takes, e.g. `fs:~/Documents` or `fs:~/inbox/*.json:add`.
  * @property {boolean} [queue] Work-queue delivery: each event goes to one
  *   consumer at a time and is offered again until acknowledged. Requires a
- *   `handlerName`. Without it, every event runs the app's published handler
+ *   `handlerName` or an inline `handler`. Without it, every event runs the app's published handler
  *   in its events worker and also reaches every connected client, once each.
  * @property {'broadcast' | 'single'} [delivery] Deprecated: use `queue`.
  *   `'single'` is the same as `queue: true`.
  * @property {unknown[]} [targets] Deprecated and ignored.
  * @property {string} [handlerName] The published handler this subscription
- *   binds to. Required for `queue`.
+ *   binds to.
+ * @property {'app' | 'user'} [handlerScope] Where `handlerName` is looked up.
+ *   `'user'` binds to a handler in the signed-in user's own scope.
  * @property {Function | string | { file: string }} [handler] The handler
- *   source this subscription was written against. Sent as a hash, not as
- *   source: the subscription binds only if it matches what is published under
- *   `handlerName`, which is also required when this is given. A function also
- *   runs in this client for each delivery it receives.
+ *   source. With a `handlerName`, it is sent as a hash, not as source: the
+ *   subscription binds only if it matches what is published under that name.
+ *   Without one, the source is sent and stored in the signed-in user's own
+ *   scope, and runs for this user's events only. A function also runs in this
+ *   client for each delivery it receives.
  * @property {Record<string, unknown>} [context] Values the handler needs,
  *   evaluated **now** and delivered as a frozen `ctx` on every invocation.
  *   Capped at 4 KB serialized.
@@ -272,6 +275,8 @@
  * @property {boolean} includeValue Whether its `kv:` deliveries carry the
  *   key's new value.
  * @property {string | null} handlerName The handler it is bound to.
+ * @property {'user'} [handlerScope] Present when it is bound to a handler in
+ *   the user's own scope.
  * @property {string | null} appUid The app that created it, or `null` for one
  *   an account session made.
  * @property {string[] | null} contextKeys Key names of its stored context,
@@ -355,11 +360,15 @@
  *   run, inclusive.
  * @property {number} [maxRuns] Stop after this many runs (1 to 100,000). With
  *   `expiresAt` too, the earlier end wins.
- * @property {string} handlerName The published handler each run calls.
+ * @property {string} [handlerName] The published handler each run calls.
+ *   Required unless `handler` is given.
+ * @property {'app' | 'user'} [handlerScope] Where `handlerName` is looked up.
+ *   `'user'` binds to a handler in the signed-in user's own scope.
  * @property {ScheduleHandler | string | { file: string }} [handler] The handler
- *   source this schedule was written against. Sent as a hash: the schedule is
- *   refused unless it matches what is published under `handlerName`. It never
- *   runs in this client.
+ *   source. With a `handlerName`, it is sent as a hash: the schedule is refused
+ *   unless it matches what is published under that name. Without one, the
+ *   source is sent and stored in the signed-in user's own scope. It never runs
+ *   in this client.
  * @property {string} [handlerHash] The SHA-256 hex digest of that source, in
  *   place of `handler`.
  * @property {Record<string, unknown>} [context] Values the handler needs,
@@ -378,7 +387,10 @@
  *   and `cron`, `once` for `at`, `deferred` for a delayed notification.
  * @property {string} appUid The app that created it.
  * @property {string | null} handlerName The handler each run calls, or `null`
- *   once the schedule has ended.
+ *   once the schedule has ended. For an inline handler, the name the server
+ *   gave it, which starts with `@`.
+ * @property {'user'} [handlerScope] Present when the handler is in the user's
+ *   own scope.
  * @property {string[] | null} contextKeys Key names of its context, or `null`
  *   when it has none or has ended.
  * @property {string | null} contextHash Hash of its context.
@@ -433,6 +445,12 @@
  *   | 'events_schedule_sending'
  *   | 'events_schedule_busy'
  *   | 'events_handler_required'
+ *   | 'events_handler_forbidden'
+ *   | 'events_handler_limit'
+ *   | 'events_handler_name_invalid'
+ *   | 'events_worker_too_large'
+ *   | 'events_user_handlers_disabled'
+ *   | 'insufficient_funds'
  *   | 'events_handler_name_required'
  *   | 'events_handler_invalid'
  *   | 'events_handler_hash_unavailable'
@@ -454,6 +472,8 @@
  *   `events_handler_conflict`.
  * @property {string} [appUid] The app to publish into. Required when the
  *   caller is an account session rather than an app.
+ * @property {'app' | 'user'} [scope] `'user'` works on the signed-in user's own
+ *   handlers for the app instead of the app's. Default `'app'`.
  */
 
 /**
@@ -504,6 +524,8 @@
  * worker standing behind them.
  *
  * @typedef {Object} EventsWorkerSummary
+ * @property {'app' | 'user'} scope Whose handlers it runs: the app's, or the
+ *   caller's own inside the app.
  * @property {string} appUid
  * @property {string} appName
  * @property {string} appTitle
@@ -512,7 +534,8 @@
  *   being — its earliest published handler. Unix seconds.
  * @property {number} updatedAt Its most recently published or updated handler.
  *   Unix seconds.
- * @property {string} script The deployed script name, for support/diagnosis.
+ * @property {string} [script] The deployed script name, for support/diagnosis.
+ *   Only on `scope: 'app'` items.
  */
 
 /**
@@ -532,6 +555,7 @@
  *
  * @typedef {Object} DestroyedEventsWorker
  * @property {string} appUid
+ * @property {'user'} [scope] Present when a user scope was destroyed.
  * @property {number} removed How many handlers were deleted.
  * @property {number} suspended How many subscriptions were suspended as a
  *   result, across all of them.

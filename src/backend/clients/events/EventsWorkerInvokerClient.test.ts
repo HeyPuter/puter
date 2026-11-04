@@ -23,16 +23,20 @@
  */
 
 import type { fetch as undiciFetch } from 'undici';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../types.js';
 import {
     DispatcherInvokeTransport,
     EVENTS_DEPLOYED_HEADER,
+    EVENTS_DEADLINE_MARGIN_MS,
     EVENTS_DISPATCH_BATCH_PATH,
     EVENTS_DISPATCH_ERROR_HEADER,
     EVENTS_DISPATCH_PATH,
     EVENTS_ERROR_HEADER,
     EVENTS_HANDLED_HEADER,
+    EVENTS_HOLDER_HEADER,
+    EVENTS_INVOKE_TIMEOUT_MS,
+    EVENTS_WORKER_LEASE_FACTOR,
     EventsWorkerInvokerClient,
     INVOKE_CONNECTIONS,
     SCHEDULE_INVOKE_CONNECTIONS,
@@ -1301,4 +1305,218 @@ describe('outcomeForStatus', () => {
             expect(outcomeForStatus(status, handled, errorCode)).toBe(expected);
         },
     );
+});
+
+describe('EventsWorkerInvokerClient overall deadline', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    const LEASE_MS = EVENTS_INVOKE_TIMEOUT_MS * EVENTS_WORKER_LEASE_FACTOR;
+
+    /**
+     * A transport on a fake clock: each send costs what `cost` says, and
+     * answers a miss until the deployed header, then a handled 200.
+     */
+    const timedTransport = (cost: (deployed: boolean) => number) => {
+        const sends: Array<{ deployed: boolean; timeoutMs: number }> = [];
+        const transport = {
+            send: async (call: {
+                deployed?: boolean;
+                timeoutMs: number;
+            }): Promise<unknown> => {
+                const deployed = call.deployed === true;
+                sends.push({ deployed, timeoutMs: call.timeoutMs });
+                // A send never outlasts its own timeout.
+                vi.advanceTimersByTime(
+                    Math.min(cost(deployed), call.timeoutMs * 1.5),
+                );
+                return deployed
+                    ? { status: 200, handled: true }
+                    : {
+                          status: null,
+                          dispatchReason: 'missing',
+                          error: 'dispatcher: missing (404)',
+                      };
+            },
+        };
+        return { transport, sends };
+    };
+
+    const run = async (
+        cost: (deployed: boolean) => number,
+        deployMs: number,
+    ) => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const { transport, sends } = timedTransport(cost);
+        const client = makeClient();
+        client.setTransport(transport as never);
+        client.setMissHandler(async () => {
+            vi.advanceTimersByTime(deployMs);
+            return 'deployed';
+        });
+        const started = Date.now();
+        const result = await client.invoke(REQUEST);
+        return { result, sends, elapsed: Date.now() - started };
+    };
+
+    it('leaves a fast miss as it was: a full-timeout resend', async () => {
+        const { result, sends } = await run(() => 100, 2_000);
+        expect(result).toEqual({ outcome: 'settled', status: 200 });
+        expect(sends).toEqual([
+            { deployed: false, timeoutMs: EVENTS_INVOKE_TIMEOUT_MS },
+            { deployed: true, timeoutMs: EVENTS_INVOKE_TIMEOUT_MS },
+        ]);
+    });
+
+    it('shortens the resend after a slow deploy, so the call ends before the lease', async () => {
+        // A miss that took 12 s, a deploy that took 30 s, and a resend that
+        // would use everything it is given.
+        const { result, sends, elapsed } = await run(
+            (deployed) => (deployed ? 1e9 : 12_000),
+            30_000,
+        );
+        expect(result.outcome).toBe('settled');
+        expect(sends[1].deployed).toBe(true);
+        expect(sends[1].timeoutMs).toBeLessThan(EVENTS_INVOKE_TIMEOUT_MS);
+        expect(elapsed).toBeLessThanOrEqual(
+            LEASE_MS - EVENTS_DEADLINE_MARGIN_MS,
+        );
+    });
+
+    it('gives up on a deploy that never settles before the lease, leaving it running', async () => {
+        vi.useFakeTimers();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { transport, sends } = timedTransport(() => 0);
+        const client = makeClient();
+        client.setTransport(transport as never);
+        let rejectDeploy!: (err: Error) => void;
+        client.setMissHandler(
+            () =>
+                new Promise<string>((_resolve, reject) => {
+                    rejectDeploy = reject;
+                }),
+        );
+        let finished: unknown = null;
+        const pending = client.invoke(REQUEST).then((r) => (finished = r));
+
+        // Up to where the call must have ended, and no further.
+        await vi.advanceTimersByTimeAsync(LEASE_MS - EVENTS_DEADLINE_MARGIN_MS);
+        expect(finished).toMatchObject({
+            outcome: 'unavailable',
+            status: null,
+        });
+        await pending;
+        expect(sends).toHaveLength(1);
+        // The deploy was not cancelled; its late failure is logged, not thrown.
+        rejectDeploy(new Error('stalled'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(warn).toHaveBeenCalledWith(
+            '[events] deploy failed late',
+            expect.any(Error),
+        );
+        warn.mockRestore();
+    });
+
+    it('does not resend when the deploy leaves less than the margin', async () => {
+        const { result, sends } = await run(
+            () => 100,
+            LEASE_MS - EVENTS_DEADLINE_MARGIN_MS * 2 + 1_000,
+        );
+        expect(sends).toHaveLength(1);
+        expect(result).toMatchObject({ outcome: 'unavailable', status: null });
+    });
+});
+
+describe('the holder of a user scope on the wire', () => {
+    const HOLDER = 'user-uuid-1';
+
+    it('sends the holder header on a single invoke, and none for an app scope', async () => {
+        const seen: Array<Record<string, string>> = [];
+        const fetchImpl = (async (_url: string, init?: RequestInit) => {
+            seen.push((init?.headers ?? {}) as Record<string, string>);
+            return new Response(null, {
+                status: 200,
+                headers: { [EVENTS_HANDLED_HEADER]: '1' },
+            });
+        }) as unknown as FetchImpl;
+        const client = makeClient();
+        client.setTransport(
+            new DispatcherInvokeTransport('http://dispatcher', 's', {
+                fetchImpl,
+                batchSize: 1,
+            }),
+        );
+
+        await client.invoke({ ...REQUEST, holder: HOLDER });
+        await client.invoke(REQUEST);
+
+        expect(seen[0][EVENTS_HOLDER_HEADER]).toBe(HOLDER);
+        expect(EVENTS_HOLDER_HEADER in seen[1]).toBe(false);
+    });
+
+    it('puts a holder field on a batch call of a user scope only', async () => {
+        const bodies: Array<{ calls: Array<Record<string, unknown>> }> = [];
+        const fetchImpl = (async (_url: string, init?: RequestInit) => {
+            bodies.push(JSON.parse(String(init?.body)));
+            return new Response(
+                '{"i":0,"status":200,"handled":true}\n{"i":1,"status":200,"handled":true}\n',
+                { status: 200 },
+            );
+        }) as unknown as FetchImpl;
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            { fetchImpl },
+        );
+
+        await Promise.all([
+            transport.send({ ...CALL, holder: HOLDER }),
+            transport.send(CALL),
+        ]);
+
+        expect(bodies).toHaveLength(1);
+        expect(bodies[0].calls[0].holder).toBe(HOLDER);
+        expect('holder' in bodies[0].calls[1]).toBe(false);
+    });
+
+    it('hands the holder to the miss handler, and nothing for an app scope', async () => {
+        const seen: Array<{ holder?: string }> = [];
+        const client = makeClient();
+        client.setTransport(
+            new DispatcherInvokeTransport('http://dispatcher', 's', {
+                fetchImpl: missUntilDeployedFetch([]),
+                batchSize: 1,
+            }),
+        );
+        client.setMissHandler(async (_appUid, _script, options) => {
+            seen.push(options);
+            return 'deployed';
+        });
+
+        await client.invoke({ ...REQUEST, holder: HOLDER });
+        await client.invoke(REQUEST);
+
+        expect(seen[0].holder).toBe(HOLDER);
+        expect('holder' in seen[1]).toBe(false);
+    });
+
+    it('keeps the holder out of the body the script sees', async () => {
+        const bodies: string[] = [];
+        const client = makeClient();
+        client.setTransport({
+            send: async (call) => {
+                bodies.push(call.body);
+                expect(call.holder).toBe(HOLDER);
+                return { status: 200, handled: true };
+            },
+        });
+        await client.invoke({ ...REQUEST, holder: HOLDER });
+        expect(Object.keys(JSON.parse(bodies[0])).sort()).toEqual([
+            'ctx',
+            'event',
+            'handler',
+            'token',
+        ]);
+    });
 });

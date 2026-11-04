@@ -666,9 +666,18 @@ export type EventMap = {
     // and going away (1→0, whether by removing the last handler or by the
     // destroy route). `actor.user` is the app's owner, not the caller — a
     // developer session publishing for an app it owns is the common case, but
-    // billing follows ownership.
-    'events.worker.create': { actor: Actor; appUid: string };
-    'events.worker.destroy': { actor: Actor; appUid: string };
+    // billing follows ownership. For `scope: 'user'` the unit is one user's
+    // handlers in one app instead, and `actor.user` is that user.
+    'events.worker.create': {
+        actor: Actor;
+        appUid: string;
+        scope: 'app' | 'user';
+    };
+    'events.worker.destroy': {
+        actor: Actor;
+        appUid: string;
+        scope: 'app' | 'user';
+    };
 
     // ---- Outer / GUI broadcast ----
     'outer.cacheUpdate': {
@@ -1032,11 +1041,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1047,10 +1055,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    | 'received'
-    | 'unreceived'
-    | 'no-socket'
-    | 'remote-only';
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

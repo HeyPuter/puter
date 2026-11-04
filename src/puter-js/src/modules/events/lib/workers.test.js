@@ -59,6 +59,18 @@ describe('list', () => {
     });
 });
 
+describe('list scopes', () => {
+    it('returns app and user items as the server sends them', async () => {
+        const items = [
+            { scope: 'app', appUid: 'app-1', handlerCount: 1, script: 's' },
+            { scope: 'user', appUid: 'app-2', appName: 'n', handlerCount: 2 },
+        ];
+        mockRequest.mockResolvedValue({ items, cursor: 'user:x', deployable: true });
+        const page = await makeModule().list();
+        expect(page).toEqual({ items, cursor: 'user:x', deployable: true });
+    });
+});
+
 describe('destroy', () => {
     it('posts appUid to /events/workers/destroy', async () => {
         mockRequest.mockResolvedValue({ appUid: 'app-1', removed: 2, suspended: 1 });
@@ -67,6 +79,19 @@ describe('destroy', () => {
         expect(routeOf()).toBe('/events/workers/destroy');
         expect(bodyOf()).toEqual({ appUid: 'app-1' });
         expect(result).toEqual({ appUid: 'app-1', removed: 2, suspended: 1 });
+    });
+
+    it('sends `scope: user` and reports it back', async () => {
+        mockRequest.mockResolvedValue({
+            appUid: 'app-1',
+            removed: 1,
+            suspended: 0,
+            scope: 'user',
+        });
+        const result = await makeModule().destroy('app-1', { scope: 'user' });
+
+        expect(bodyOf()).toEqual({ appUid: 'app-1', scope: 'user' });
+        expect(result.scope).toBe('user');
     });
 
     it('rejects client-side for a non-string appUid, without calling the server', async () => {
@@ -87,5 +112,16 @@ describe('destroy', () => {
         await new EventsWorkers(module).destroy('app-1');
 
         expect([...module.handlers.known.keys()]).toEqual(['app-2|c']);
+    });
+
+    it('drops only the destroyed scope`s cached bases', async () => {
+        const module = { puter: { APIOrigin: 'https://api.test' }, handlers: new EventHandlers({}) };
+        module.handlers.known.set('app-1|a', 'hash-a');
+        module.handlers.known.set('user:app-1|a', 'hash-u');
+        module.handlers.known.set('user:app-2|a', 'hash-v');
+
+        await new EventsWorkers(module).destroy('app-1', { scope: 'user' });
+
+        expect([...module.handlers.known.keys()].sort()).toEqual(['app-1|a', 'user:app-2|a']);
     });
 });

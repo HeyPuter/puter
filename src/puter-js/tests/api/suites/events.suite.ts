@@ -144,12 +144,13 @@ const asApp = async <T>(
     t: TestContext,
     appUid: string,
     run: () => Promise<T>,
+    account: { token: string } = t.env.users.user,
 ): Promise<T> => {
     const response = await fetch(`${t.env.apiOrigin}/auth/get-user-app-token`, {
         method: 'POST',
         headers: {
             'content-type': 'application/json',
-            authorization: `Bearer ${t.env.users.user.token}`,
+            authorization: `Bearer ${account.token}`,
         },
         body: JSON.stringify({ app_uid: appUid }),
     });
@@ -664,14 +665,64 @@ export default suite('events', {
 
     // -- Persistent subscriptions ------------------------------------
 
-    'refuses an inline handler with no name to publish it under': async (t) => {
-        const error = await t.assert.rejects(() =>
-            t.puter.events.onPersistent({
-                subject: `fs:/${t.env.users.user.username}`,
+    'creates an inline handler with no name, and binds the subscription to it': async (
+        t,
+    ) => {
+        const dir = await makeDir(t, 'events-inline');
+        const appUid = await makeApp(t);
+        await t.puter.perms.grantApp(appUid, `fs:${dir}:list`);
+        await t.puter.perms.grantApp(appUid, 'events:background');
+
+        await asApp(t, appUid, async () => {
+            const sub = await t.puter.events.onPersistent({
+                subject: `fs:${dir}`,
                 handler: HANDLER,
-            }),
-        );
-        t.assert.equal(codeOf(error), 'events_handler_name_required');
+            });
+            t.assert.ok(
+                /^@[0-9a-f]{64}$/.test(sub.handlerName ?? ''),
+                `the server names it by its hash, got ${sub.handlerName}`,
+            );
+            t.assert.equal(
+                (sub as { handlerScope?: string }).handlerScope,
+                'user',
+            );
+
+            // The same source again binds to the same handler.
+            const again = await t.puter.events.onPersistent({
+                subject: `fs:${dir}/other`,
+                queue: true,
+                handler: HANDLER,
+            });
+            t.assert.equal(again.handlerName, sub.handlerName);
+            t.assert.equal(again.queue, true);
+
+            await sub.off!();
+            await again.off!();
+        });
+    },
+
+    'creates an inline schedule with no handler name': async (t) => {
+        const appUid = await makeApp(t);
+        await t.puter.perms.grantApp(appUid, 'events:background');
+
+        await asApp(t, appUid, async () => {
+            let schedule;
+            try {
+                schedule = await t.puter.events.onSchedule({
+                    every: '1h',
+                    handler: HANDLER,
+                });
+            } catch (error) {
+                // Without a schedules service every schedule call is refused.
+                if (codeOf(error) === 'events_disabled') return;
+                throw error;
+            }
+            t.assert.ok(
+                /^@[0-9a-f]{64}$/.test(schedule.handlerName ?? ''),
+                `the server names it by its hash, got ${schedule.handlerName}`,
+            );
+            await schedule.off();
+        });
     },
 
     'refuses a handler that closes over something it cannot carry': async (t) => {
@@ -1114,6 +1165,85 @@ export default suite('events', {
     },
 
     // -- Events workers -----------------------------------------------
+
+    'publishes, lists and destroys a handler in the user scope': async (t) => {
+        const appUid = await makeApp(t);
+
+        await asApp(t, appUid, async () => {
+            const published = await t.puter.events.handlers.publish(
+                'mine',
+                HANDLER,
+                { scope: 'user' },
+            );
+            t.assert.equal(published.name, 'mine');
+            t.assert.equal(published.outcome, 'created');
+
+            const listed = await t.puter.events.handlers.list({ scope: 'user' });
+            t.assert.deepEqual(
+                listed.map((row) => row.name),
+                ['mine'],
+            );
+            t.assert.deepEqual(
+                await t.puter.events.handlers.list(),
+                [],
+                'the app scope does not see it',
+            );
+
+            const page = await t.puter.events.workers.list();
+            const worker = page.items.find(
+                (row) => row.scope === 'user' && row.appUid === appUid,
+            );
+            t.assert.ok(worker, 'the user scope is listed with its scope');
+            t.assert.equal(worker?.handlerCount, 1);
+
+            const destroyed = await t.puter.events.workers.destroy(appUid, {
+                scope: 'user',
+            });
+            t.assert.equal(destroyed.removed, 1);
+            t.assert.deepEqual(
+                await t.puter.events.handlers.list({ scope: 'user' }),
+                [],
+            );
+        });
+    },
+
+    'keeps one user\'s scope out of another\'s': async (t) => {
+        const appUid = await makeApp(t);
+
+        await asApp(t, appUid, () =>
+            t.puter.events.handlers.publish('mine', HANDLER, { scope: 'user' }),
+        );
+
+        await asApp(
+            t,
+            appUid,
+            async () => {
+                t.assert.deepEqual(
+                    await t.puter.events.handlers.list({ scope: 'user' }),
+                    [],
+                    'the other user sees none of it',
+                );
+                const page = await t.puter.events.workers.list();
+                t.assert.equal(
+                    page.items.find((row) => row.appUid === appUid),
+                    undefined,
+                );
+                const removed = await t.puter.events.handlers.remove('mine', {
+                    scope: 'user',
+                });
+                t.assert.equal(removed.removed, false);
+            },
+            t.env.users.other,
+        );
+
+        await asApp(t, appUid, async () => {
+            t.assert.equal(
+                (await t.puter.events.handlers.list({ scope: 'user' })).length,
+                1,
+            );
+            await t.puter.events.workers.destroy(appUid, { scope: 'user' });
+        });
+    },
 
     'exposes the workers surface': async (t) => {
         for (const method of ['list', 'destroy'] as const) {

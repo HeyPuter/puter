@@ -11,7 +11,7 @@ The Events API tells your app when a user's data changes. Subscribe to a file, a
 There are two kinds of subscription:
 
 - **Session subscriptions** ([`onLocal()`](/Events/onLocal/)) belong to the open page and end when it closes. Use them to keep a UI in sync.
-- **Persistent subscriptions** ([`onPersistent()`](/Events/onPersistent/)) are stored on the account and keep running while your app is closed. Each change runs a [handler](/Events/handlers/) your app published. Use them for background work, such as processing uploads as they arrive.
+- **Persistent subscriptions** ([`onPersistent()`](/Events/onPersistent/)) are stored on the account and keep running while your app is closed. Each change runs a [handler](/Events/handlers/), either inline code you pass in the call or one your app published. Use them for background work, such as processing uploads as they arrive.
 
 What you watch is written as a subject string:
 
@@ -25,15 +25,20 @@ What you watch is written as a subject string:
 
 [Subjects and events](/Events/subjects/) has the full subject syntax and the shape of each event.
 
-To run a handler on a timer instead of when data changes, create a schedule with [`onSchedule()`](/Events/onSchedule/). It runs your handler at an interval, on a cron expression in the user's time zone, or once at a set time, even while your app is closed:
+To run a handler on a timer instead of when data changes, create a schedule with [`onSchedule()`](/Events/onSchedule/). It runs your handler at an interval, on a cron expression in the user's time zone, or once at a set time, even while your app is closed. Pass the handler inline, and Puter stores it in the signed-in user's own [user scope](/Events/handlers/#user-scope) of your app:
 
 ```js
 await puter.events.onSchedule({
     cron: '0 9 * * 1-5',
     tz: 'America/New_York',
-    handlerName: 'sendDigest',
+    handler: async ({ ctx, user }) => {
+        await user.notifications.notify({ title: `Good morning, ${ctx.name}` });
+    },
+    context: { name: 'Ana' },
 });
 ```
+
+To ship one handler to every user, the app's owner can publish it under a name and each schedule or subscription binds to it with `handlerName`.
 
 With the [User-Pays Model](/user-pays-model/), deliveries and schedule runs are billed to the user holding the subscription or schedule, not to you. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for limits and costs.
 
@@ -161,25 +166,24 @@ With the [User-Pays Model](/user-pays-model/), deliveries and schedule runs are 
 
 #### Keep watching with a handler after the page closes
 
-Publishing a handler needs an app you own, so this runs in your own app rather than in the playground.
+The handler goes in with the subscription and runs in the events worker. It's stored in the signed-in user's own [user scope](/Events/handlers/#user-scope) of your app. The playground examples below run this form.
 
 ```js
-// Once, as the app's developer
-await puter.events.handlers.publish('ingestUpload', async ({ event, ctx }) => {
-    await fetch(ctx.endpoint, { method: 'POST', body: event.path });
-});
-
-// In your app, for each user
 await puter.perms.request('backgroundEvents');
 const sub = await puter.events.onPersistent({
     subject: 'fs:inbox',
-    handlerName: 'ingestUpload',
+    handler: async ({ event, ctx }) => {
+        await fetch(ctx.endpoint, { method: 'POST', body: event.path });
+    },
     context: { endpoint: 'https://example.com/ingest' },
 });
 
-// It outlives the page. End it when it's no longer needed.
+// It outlives the page. End it, and remove its handler, when it's no longer needed.
 await puter.events.unsubscribe(sub.subId);
+await puter.events.handlers.remove(sub.handlerName, { scope: 'user' });
 ```
+
+To share one handler between all your users, the app's owner publishes it once under a name and each subscription binds to it with `handlerName`. See [`puter.events.handlers`](/Events/handlers/).
 
 </div>
 
@@ -262,8 +266,8 @@ These Events features are supported out of the box when using Puter.js:
 - **[`puter.events.getSchedule()`](/Events/getSchedule/)** - Read one schedule
 - **[`puter.events.removeSchedule()`](/Events/removeSchedule/)** - End a schedule
 - **[`puter.events.fetch()`](/Events/fetch/)** - Read the notifications you missed while nothing was listening
-- **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers persistent subscriptions run
-- **[`puter.events.workers`](/Events/workers/)** - List and destroy an app's events worker
+- **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers persistent subscriptions and schedules run, for the app or for one user
+- **[`puter.events.workers`](/Events/workers/)** - List and destroy an app's events worker, or a user's own
 - **[Subjects and events](/Events/subjects/)** - The subject syntax and the shape of every event
 
 ## Examples
@@ -280,10 +284,16 @@ You can see various Puter.js Events features in action from the following exampl
   - [Find Suspended Subscriptions](/playground/events-list-suspended/)
   - [Change a Subscription's Context](/playground/events-update/)
   - [End a Persistent Subscription](/playground/events-unsubscribe/)
+  - [Run an Inline Handler on a Folder](/playground/events-persistent-inline/)
+  - [Queue Events for an Inline Handler](/playground/events-persistent-queue-inline/)
 - Schedules
   - [List Schedules](/playground/events-list-schedules/)
   - [Read a Schedule](/playground/events-get-schedule/)
   - [Remove a Schedule](/playground/events-remove-schedule/)
+  - [Run Code Once at a Set Time](/playground/events-schedule-inline/)
+  - [Run Code on Weekday Mornings](/playground/events-schedule-cron-tz/)
+  - [Run Code Every 15 Minutes](/playground/events-schedule-every/)
+  - [Share a Handler Across Schedules](/playground/events-handlers-user-scope/)
 - Catching up
   - [Catch Up on Notifications](/playground/events-fetch/)
   - [Catch Up, Then Keep Listening](/playground/events-fetch-then-listen/)

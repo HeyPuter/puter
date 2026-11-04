@@ -140,14 +140,36 @@ describe('onSchedule', () => {
         expect(bodyOf(1)).not.toHaveProperty('handlerHash');
     });
 
-    it('needs a handler name before it calls anything', async () => {
+    it('sends an inline handler with no name as source, never as a hash', async () => {
+        await makeModule().onSchedule({ every: '1h', handler: HANDLER });
+
+        expect(bodyOf()).toEqual({
+            every: '1h',
+            handlerSource: Function.prototype.toString.call(HANDLER),
+        });
+    });
+
+    it('passes `handlerScope` through for a named binding', async () => {
+        await makeModule().onSchedule({
+            every: '1h',
+            handlerName: 'poll',
+            handlerScope: 'user',
+        });
+        expect(bodyOf()).toEqual({
+            every: '1h',
+            handlerName: 'poll',
+            handlerScope: 'user',
+        });
+    });
+
+    it('needs a handler name or an inline handler before it calls anything', async () => {
         const unnamed = await rejects(() => makeModule().onSchedule({ every: '1h' }));
         expect(unnamed.code).toBe('events_handler_required');
 
-        const inline = await rejects(() =>
-            makeModule().onSchedule({ every: '1h', handler: HANDLER }),
+        const hashOnly = await rejects(() =>
+            makeModule().onSchedule({ every: '1h', handlerHash: 'a'.repeat(64) }),
         );
-        expect(inline.code).toBe('events_handler_name_required');
+        expect(hashOnly.code).toBe('events_handler_required');
 
         const none = await rejects(() => makeModule().onSchedule());
         expect(none.code).toBe('invalid_request');

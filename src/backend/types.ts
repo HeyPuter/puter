@@ -256,12 +256,7 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        | 'sms'
-        | 'rcs'
-        | 'whatsapp'
-        | 'viber'
-        | 'zalo'
-        | 'telegram';
+        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
 }
 
 /**
@@ -1270,6 +1265,11 @@ interface IConfigOptional {
      *   through a handle both reject with `events_kv_handles_disabled`, and a
      *   handle row already made stops delivering. Nothing on the write path
      *   reads it.
+     * - `userHandlers` — whether an app may publish handlers into a signed-in
+     *   user's own scope, including inline handlers created with a
+     *   subscription. Absent means off: user-scope publishing and inline
+     *   creates reject with `events_user_handlers_disabled`; app-scope handlers
+     *   are unaffected.
      * - `workerRuntime` — whether publishing handlers deploys a per-app events
      *   worker and delivery invokes it. Absent means off: publish stores rows
      *   and nothing is deployed, and the invoker keeps its null resolver, so
@@ -1286,6 +1286,7 @@ interface IConfigOptional {
         crossAppKv?: boolean;
         notificationsFoldIn?: boolean;
         kvHandles?: boolean;
+        userHandlers?: boolean;
         workerRuntime?: boolean;
         forwardSession?: boolean;
         /** How long a handler has to answer an invocation. Default 30 s. */
@@ -1307,6 +1308,12 @@ interface IConfigOptional {
          * default: deploys refuse rather than land somewhere public.
          */
         workerNamespace?: string;
+        /**
+         * Per-invocation CPU limit, in milliseconds, set on every events worker
+         * at deploy. Unset means no limit. Scripts already deployed pick it up
+         * on their next deploy.
+         */
+        workerCpuMs?: number;
         /**
          * Where the events dispatcher answers `POST /invoke` — its own
          * hostname, since it carries no zone route. Unset means invocations
@@ -1379,7 +1386,8 @@ export interface ServerDrainInfo {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];
