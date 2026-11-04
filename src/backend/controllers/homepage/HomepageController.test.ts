@@ -236,6 +236,18 @@ describe('HomepageController shell routes', () => {
             expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
         }
     });
+
+    it('serves the shell on a path inside a public folder, /@:username/*splat', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/@:username/*splat',
+            makeReq({ path: '/@alice/photos/cat.png' }),
+            res,
+        );
+        expect(captured.statusCode).toBe(200);
+        expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
+    });
 });
 
 // ── /app/:name ──────────────────────────────────────────────────────

@@ -138,7 +138,10 @@ export class HomepageController extends PuterController {
 
         router.get('/action/*splat', {}, (req, res) => sendShell(req, res));
 
+        // `/@<user>/<path>` names something in that user's Public folder; the
+        // GUI opens it.
         router.get('/@:username', {}, (req, res) => sendShell(req, res));
+        router.get('/@:username/*splat', {}, (req, res) => sendShell(req, res));
 
         // -- /app/:name - app metadata baked into the shell ----------
 
