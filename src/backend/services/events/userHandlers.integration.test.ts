@@ -1549,6 +1549,40 @@ describe('cached rows written by a node without scope markers', () => {
         ).toBe(null);
     });
 
+    it('fails the read like a database outage, returning no row as app scope', async () => {
+        const created = await subscribe(userToken, {
+            subject: `fs:${anchor}`,
+            queue: true,
+            handlerSource: SOURCE,
+        });
+        const subId = String(created.body.subId);
+        const row = await asOldNodeCached(subId);
+        const db = env.server.clients.db;
+        const down = new Error('db down');
+        const read = vi.spyOn(db, 'read').mockRejectedValue(down);
+        const pread = vi.spyOn(db, 'pread').mockRejectedValue(down);
+        const invoke = vi.fn();
+        const previous = events().worker;
+        events().worker = { invoke } as never;
+        onTestFinished(() => {
+            events().worker = previous;
+        });
+
+        await expect(
+            sub().getForTokens(row.ownerUserId, [row.token]),
+        ).rejects.toThrow('db down');
+        await expect(
+            sub().getForTokens(row.ownerUserId, [row.token], { perToken: 5 }),
+        ).rejects.toThrow('db down');
+        expect(invoke).not.toHaveBeenCalled();
+
+        // Once the table answers, the entry resolves as the user row it is.
+        read.mockRestore();
+        pread.mockRestore();
+        const [again] = await sub().getForTokens(row.ownerUserId, [row.token]);
+        expect(again.handlerScope).toBe('user');
+    });
+
     it('does not bring back a row dropped while it was being resolved', async () => {
         const created = await subscribe(userToken, {
             subject: `fs:${anchor}`,

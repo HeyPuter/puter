@@ -1307,48 +1307,52 @@ export class EventSubscriptionStore extends PuterStore {
         }
         if (unmarked.length === 0) return;
 
+        // A failed lookup throws, as a table read that fails does for the
+        // rest of dispatch: a row of unknown scope must never be returned,
+        // since it would read as an app row.
+        const scopes = new Map<string, number>();
+        const lookup = async (
+            read: 'read' | 'pread',
+            ids: string[],
+        ): Promise<void> => {
+            const found = await this.clients.db[read](
+                'SELECT `sub_id`, `handler_scope` FROM `event_subscriptions` ' +
+                    `WHERE \`sub_id\` IN (${ids.map(() => '?').join(', ')})`,
+                ids,
+            );
+            for (const row of found)
+                scopes.set(String(row.sub_id), Number(row.handler_scope));
+        };
+        for (let i = 0; i < unmarked.length; i += SCOPE_LOOKUP_BATCH) {
+            const ids = unmarked
+                .slice(i, i + SCOPE_LOOKUP_BATCH)
+                .map((row) => row.subId);
+            await lookup('read', ids);
+            const missing = ids.filter((id) => !scopes.has(id));
+            if (missing.length > 0) await lookup('pread', missing);
+        }
+
+        // In neither the replica nor the primary: a ghost entry. Dropped,
+        // as the normal path treats a row that is gone, so it is not
+        // resolved again on every read.
+        const ghosts = unmarked.filter((row) => !scopes.has(row.subId));
+        if (ghosts.length > 0) {
+            const drop = this.clients.redis.pipeline();
+            for (const row of ghosts)
+                drop.hdel(tokenKey(ownerUserId, row.token), row.subId);
+            await drop.exec();
+            for (const row of ghosts) rows.splice(rows.indexOf(row), 1);
+        }
+
+        const resolved = unmarked.filter((row) => scopes.has(row.subId));
+        for (const row of resolved)
+            if (scopes.get(row.subId) === 1)
+                (row as DurableSubscription).handlerScope = 'user';
+
+        // Rewritten only where the entry still stands, so a row dropped
+        // meanwhile is not brought back. Failing to rewrite costs a
+        // repeat lookup, not a wrong answer.
         try {
-            const scopes = new Map<string, number>();
-            const lookup = async (
-                read: 'read' | 'pread',
-                ids: string[],
-            ): Promise<void> => {
-                const found = await this.clients.db[read](
-                    'SELECT `sub_id`, `handler_scope` FROM `event_subscriptions` ' +
-                        `WHERE \`sub_id\` IN (${ids.map(() => '?').join(', ')})`,
-                    ids,
-                );
-                for (const row of found)
-                    scopes.set(String(row.sub_id), Number(row.handler_scope));
-            };
-            for (let i = 0; i < unmarked.length; i += SCOPE_LOOKUP_BATCH) {
-                const ids = unmarked
-                    .slice(i, i + SCOPE_LOOKUP_BATCH)
-                    .map((row) => row.subId);
-                await lookup('read', ids);
-                const missing = ids.filter((id) => !scopes.has(id));
-                if (missing.length > 0) await lookup('pread', missing);
-            }
-
-            // In neither the replica nor the primary: a ghost entry. Dropped,
-            // as the normal path treats a row that is gone, so it is not
-            // resolved again on every read.
-            const ghosts = unmarked.filter((row) => !scopes.has(row.subId));
-            if (ghosts.length > 0) {
-                const drop = this.clients.redis.pipeline();
-                for (const row of ghosts)
-                    drop.hdel(tokenKey(ownerUserId, row.token), row.subId);
-                await drop.exec();
-                for (const row of ghosts) rows.splice(rows.indexOf(row), 1);
-            }
-
-            const resolved = unmarked.filter((row) => scopes.has(row.subId));
-            for (const row of resolved)
-                if (scopes.get(row.subId) === 1)
-                    (row as DurableSubscription).handlerScope = 'user';
-
-            // Rewritten only where the entry still stands, so a row dropped
-            // meanwhile is not brought back.
             const check = this.clients.redis.pipeline();
             for (const row of resolved)
                 check.hexists(tokenKey(ownerUserId, row.token), row.subId);
@@ -1364,7 +1368,7 @@ export class EventSubscriptionStore extends PuterStore {
             });
             await write.exec();
         } catch (err) {
-            console.warn('[events] could not resolve cached row scopes', err);
+            console.warn('[events] could not mark cached row scopes', err);
         }
     }
 
