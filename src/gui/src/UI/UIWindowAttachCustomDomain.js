@@ -140,7 +140,9 @@ async function UIWindowAttachCustomDomain (options) {
                             <p class="app-feedback-note custom-domain-apex" style="display:none;">${i18n('custom_domain_apex_hint')}</p>
                             <button type="button" class="app-feedback-btn custom-domain-use-www" style="display:none;">${i18n('custom_domain_no_root_alias')}</button>
                             <p class="app-feedback-error" role="alert" style="display:none;"></p>
+                            <p class="app-feedback-note custom-domain-remove-note" style="display:none;">${i18n('custom_domain_remove_confirm')}</p>
                             <div class="app-feedback-actions">
+                                <button type="button" class="app-feedback-btn custom-domain-remove-chosen">${i18n('custom_domain_remove')}</button>
                                 <button type="button" class="app-feedback-btn custom-domain-check">${i18n('custom_domain_check_status')}</button>
                                 <button type="button" class="app-feedback-btn app-feedback-btn-primary custom-domain-done">${i18n('done')}</button>
                             </div>
@@ -237,25 +239,47 @@ async function UIWindowAttachCustomDomain (options) {
 
         // -- List ---------------------------------------------------------
 
+        let listed = [];
+        const metaFor = (item) => item.site !== subdomain
+            ? i18n('custom_domain_serves', [`${item.site}.${window.hosting_domain}`], false)
+            : i18n('custom_domain_serves_this', [], false);
+
+        // One row asks for confirmation at a time; asking on another puts the
+        // first back.
+        const resetConfirming = () => {
+            $overlay.find('.custom-domain-row.custom-domain-confirming').each(function () {
+                const $row = $(this);
+                $row.removeClass('custom-domain-confirming').removeAttr('data-confirming');
+                $row.find('.custom-domain-row-meta').text(metaFor($row.data('item')));
+                $row.find('.custom-domain-use').text(text('custom_domain_use'));
+                $row.find('.custom-domain-remove').text(text('custom_domain_remove'));
+            });
+        };
+        const confirmOn = ($row, kind) => {
+            resetConfirming();
+            $row.addClass('custom-domain-confirming').attr('data-confirming', kind);
+        };
+
         const renderList = (items) => {
+            listed = items;
             const $list = $overlay.find('.custom-domain-list').empty();
             $overlay.find('.custom-domain-empty').toggle(items.length === 0);
             for ( const item of items ) {
-                const elsewhere = item.site !== subdomain;
                 const $row = $(`
                     <li class="custom-domain-row">
                         <div class="custom-domain-row-main">
                             <div class="custom-domain-row-host"></div>
                             <div class="custom-domain-row-meta"></div>
                         </div>
+                        <button type="button" class="app-feedback-btn custom-domain-remove">${i18n('custom_domain_remove')}</button>
                         <button type="button" class="app-feedback-btn custom-domain-use">${i18n('custom_domain_use')}</button>
                     </li>
                 `);
+                $row.data('item', item);
                 $row.find('.custom-domain-row-host').text(item.hostname);
-                $row.find('.custom-domain-row-meta').text(elsewhere
-                    ? i18n('custom_domain_serves', [`${item.site}.${window.hosting_domain}`], false)
-                    : i18n('custom_domain_serves_this', [], false));
+                $row.find('.custom-domain-row-meta').text(metaFor(item));
                 $row.find('.custom-domain-use').on('click', () => use(item, $row));
+                $row.find('.custom-domain-remove').on('click', () => remove(item, $row));
                 $list.append($row);
             }
         };
@@ -267,10 +291,8 @@ async function UIWindowAttachCustomDomain (options) {
                 return;
             }
             // Moving takes the domain off another site, so say so first.
-            if ( ! $row.hasClass('custom-domain-confirming') ) {
-                $overlay.find('.custom-domain-confirming').removeClass('custom-domain-confirming')
-                    .find('.custom-domain-use').text(text('custom_domain_use'));
-                $row.addClass('custom-domain-confirming');
+            if ( $row.attr('data-confirming') !== 'move' ) {
+                confirmOn($row, 'move');
                 $row.find('.custom-domain-row-meta').text(i18n('custom_domain_move_confirm', [
                     `${item.site}.${window.hosting_domain}`,
                     site_host,
@@ -292,6 +314,45 @@ async function UIWindowAttachCustomDomain (options) {
             } finally {
                 setBusy(false);
             }
+        };
+
+        /**
+         * Removes the domain from the account, which also stops its rent.
+         * True once it's gone, including when it already was.
+         */
+        const deleteDomain = async (item, pane) => {
+            setBusy(true);
+            try {
+                const res = await api('DELETE', `/${encodeURIComponent(item.uuid)}`);
+                if ( ! res.ok && res.status !== 404 ) {
+                    showError(pane, errorFor(res));
+                    return false;
+                }
+                // A removed domain is no answer to hand the caller.
+                if ( chosen?.uuid === item.uuid ) chosen = null;
+                return true;
+            } catch ( e ) {
+                console.error('custom-domain: remove failed', e);
+                showError(pane, text('custom_domain_error_generic'));
+                return false;
+            } finally {
+                setBusy(false);
+            }
+        };
+
+        // Removing takes the domain offline at once, so say so first.
+        const remove = async (item, $row) => {
+            if ( busy ) return;
+            if ( $row.attr('data-confirming') !== 'remove' ) {
+                confirmOn($row, 'remove');
+                $row.find('.custom-domain-row-meta').text(text('custom_domain_remove_confirm'));
+                $row.find('.custom-domain-remove').text(text('confirm'));
+                return;
+            }
+            if ( ! await deleteDomain(item, 'list') ) return;
+            $row.remove();
+            listed = listed.filter((i) => i.uuid !== item.uuid);
+            $overlay.find('.custom-domain-empty').toggle(listed.length === 0);
         };
 
         // -- Add ----------------------------------------------------------
@@ -362,7 +423,14 @@ async function UIWindowAttachCustomDomain (options) {
 
         // -- Records --------------------------------------------------------
 
+        const resetRemoveChosen = () => {
+            $overlay.find('.custom-domain-remove-chosen')
+                .removeClass('custom-domain-confirming').text(text('custom_domain_remove'));
+            $overlay.find('.custom-domain-remove-note').hide();
+        };
+
         const renderRecords = (domain) => {
+            resetRemoveChosen();
             const key = domain.status === 'active'
                 ? 'custom_domain_status_active'
                 : domain.status === 'failed'
@@ -453,13 +521,27 @@ async function UIWindowAttachCustomDomain (options) {
                 setBusy(false);
             }
         });
+        // Undoes an add made by mistake, or drops a domain the user is done
+        // with, without leaving the dialog.
+        $overlay.find('.custom-domain-remove-chosen').on('click', async function () {
+            if ( busy || ! chosen ) return;
+            const $btn = $(this);
+            if ( ! $btn.hasClass('custom-domain-confirming') ) {
+                $btn.addClass('custom-domain-confirming').text(text('confirm'));
+                $overlay.find('.custom-domain-remove-note').show();
+                return;
+            }
+            if ( ! await deleteDomain(chosen, 'records') ) return;
+            resetRemoveChosen();
+            await loadList();
+        });
         $overlay.find('.custom-domain-done').on('click', () => {
             if ( ! busy ) close();
         });
 
         // -- Load -------------------------------------------------------------
 
-        (async () => {
+        const loadList = async () => {
             try {
                 const res = await api('GET');
                 if ( closed ) return;
@@ -487,7 +569,8 @@ async function UIWindowAttachCustomDomain (options) {
                 console.error('custom-domain: list failed', e);
                 if ( ! closed ) showUnavailable('custom_domain_error_generic');
             }
-        })();
+        };
+        loadList();
     });
 }
 

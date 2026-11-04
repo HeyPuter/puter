@@ -2063,6 +2063,10 @@ input.myapps-group-name:focus {
     flex: none;
     padding: 6px 14px;
 }
+.custom-domain-row[data-confirming="remove"] .custom-domain-remove,
+.custom-domain-remove-chosen.custom-domain-confirming {
+    color: var(--afb-error);
+}
 .custom-domain-empty {
     margin: 4px 0 0;
     font-size: 14px;
