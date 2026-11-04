@@ -867,7 +867,7 @@ const TabFiles = {
             e.currentTarget.removeAttribute('aria-invalid');
         });
         this.$el_window.on('focusout', '.files-tab .path-editor', () => {
-            if ( ! this.pathEditorBusy ) this.closePathEditor();
+            if ( ! this.pathLookup ) this.closePathEditor();
         });
     },
 
@@ -901,6 +901,8 @@ const TabFiles = {
         const $path = this.$el_window?.find('.files-tab .header .path');
         if ( ! $path?.hasClass('path-editing') ) return;
         $path.removeClass('path-editing');
+        // A lookup still running for the closed field is called off.
+        this.pathLookup = null;
         // Hidden, the crumbs lost their scroll position.
         this.revealCurrentCrumb();
         if ( refocus ) this.focusListing();
@@ -915,7 +917,7 @@ const TabFiles = {
     async submitPathEditor () {
         // A second Enter during the lookup would look it up again, and a
         // path to nothing would get a second alert.
-        if ( this.pathEditorBusy ) return;
+        if ( this.pathLookup ) return;
         const input = this.$el_window.find('.files-tab .path-editor')[0];
         const typed = input.value.trim();
         const target = resolveTypedPath(typed, {
@@ -934,7 +936,7 @@ const TabFiles = {
         if ( target !== window.shared_path && target !== '/' ) {
             // The stat and the alert take the focus from the field, which
             // would close it.
-            this.pathEditorBusy = true;
+            const lookup = this.pathLookup = {};
             try {
                 let entry;
                 try {
@@ -942,6 +944,7 @@ const TabFiles = {
                 } catch {
                     entry = undefined;
                 }
+                if ( this.pathLookup !== lookup ) return;
                 if ( ! entry ) {
                     input.setAttribute('aria-invalid', 'true');
                     // Settled on close: Escape closes the alert without
@@ -959,7 +962,7 @@ const TabFiles = {
                     folder = path.dirname(file);
                 }
             } finally {
-                this.pathEditorBusy = false;
+                if ( this.pathLookup === lookup ) this.pathLookup = null;
             }
         }
 

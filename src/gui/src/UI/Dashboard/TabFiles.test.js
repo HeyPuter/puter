@@ -1627,6 +1627,28 @@ describe('TabFiles path field', () => {
         expect(UIAlert).toHaveBeenCalledTimes(1);
     });
 
+    it('calls off a lookup on Escape, and takes a new path at once', async () => {
+        mountHeader();
+        const render = vi.spyOn(TabFiles, 'renderDirectory').mockResolvedValue();
+        let settle;
+        window.puter.fs.stat.mockImplementationOnce(() => new Promise(resolve => {
+            settle = resolve;
+        }));
+        TabFiles.openPathEditor();
+        editor().value = '/alice/Gone';
+
+        const calledOff = TabFiles.submitPathEditor();
+        keydown(editor(), 'Escape');
+        TabFiles.openPathEditor();
+        editor().value = '/alice/Pictures';
+        await TabFiles.submitPathEditor();
+        settle(undefined);
+        await calledOff;
+
+        expect(render.mock.calls).toEqual([['/alice/Pictures']]);
+        expect(UIAlert).not.toHaveBeenCalled();
+    });
+
     it('leaves Enter and Escape to an IME composing a name', () => {
         mountHeader();
         const submit = vi.spyOn(TabFiles, 'submitPathEditor').mockResolvedValue();
