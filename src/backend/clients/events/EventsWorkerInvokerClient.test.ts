@@ -1384,6 +1384,40 @@ describe('EventsWorkerInvokerClient overall deadline', () => {
         );
     });
 
+    it('gives up on a deploy that never settles before the lease, leaving it running', async () => {
+        vi.useFakeTimers();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { transport, sends } = timedTransport(() => 0);
+        const client = makeClient();
+        client.setTransport(transport as never);
+        let rejectDeploy!: (err: Error) => void;
+        client.setMissHandler(
+            () =>
+                new Promise<string>((_resolve, reject) => {
+                    rejectDeploy = reject;
+                }),
+        );
+        let finished: unknown = null;
+        const pending = client.invoke(REQUEST).then((r) => (finished = r));
+
+        // Up to where the call must have ended, and no further.
+        await vi.advanceTimersByTimeAsync(LEASE_MS - EVENTS_DEADLINE_MARGIN_MS);
+        expect(finished).toMatchObject({
+            outcome: 'unavailable',
+            status: null,
+        });
+        await pending;
+        expect(sends).toHaveLength(1);
+        // The deploy was not cancelled; its late failure is logged, not thrown.
+        rejectDeploy(new Error('stalled'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(warn).toHaveBeenCalledWith(
+            '[events] deploy failed late',
+            expect.any(Error),
+        );
+        warn.mockRestore();
+    });
+
     it('does not resend when the deploy leaves less than the margin', async () => {
         const { result, sends } = await run(
             () => 100,

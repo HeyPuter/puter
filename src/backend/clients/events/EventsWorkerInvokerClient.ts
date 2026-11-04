@@ -171,6 +171,39 @@ export type WorkerMissHandler = (
     options: WorkerMissOptions,
 ) => Promise<'deployed' | string>;
 
+/**
+ * `work`'s result, or null once `ms` has passed. The work keeps running, and a
+ * failure after the cutoff is logged since nothing else would see it.
+ */
+const withinTime = async <T>(
+    work: Promise<T>,
+    ms: number,
+): Promise<T | null> => {
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<null>((resolve) => {
+        timer = setTimeout(
+            () => {
+                timedOut = true;
+                resolve(null);
+            },
+            Math.max(0, ms),
+        );
+    });
+    void (async () => {
+        try {
+            await work;
+        } catch (err) {
+            if (timedOut) console.warn('[events] deploy failed late', err);
+        }
+    })();
+    try {
+        return await Promise.race([work, limit]);
+    } finally {
+        clearTimeout(timer);
+    }
+};
+
 /** How long a handler has to answer before the attempt is abandoned. */
 export const EVENTS_INVOKE_TIMEOUT_MS = 30_000;
 
@@ -401,14 +434,16 @@ export class EventsWorkerInvokerClient extends PuterClient {
 
         let result = await send(false);
         if (this.#missHandler && selfDeployable(result)) {
-            const outcome = await this.#missHandler(
-                request.appUid,
-                request.script,
-                {
+            // The deploy may be shared with other callers, so it is left
+            // running when this call runs out of time for it.
+            const outcome = await withinTime(
+                this.#missHandler(request.appUid, request.script, {
                     lane: options.lane,
                     ...(request.holder ? { holder: request.holder } : {}),
-                },
+                }),
+                deadline - Date.now() - margin,
             );
+            if (outcome === null) return outOfTime();
             if (outcome !== 'deployed')
                 return {
                     outcome: 'unavailable',
