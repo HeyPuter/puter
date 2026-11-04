@@ -6030,6 +6030,10 @@ const TabFiles = {
 
         this.$el_window.find('.files-tab .files .row.selected').removeClass('selected');
         rows.addClass('selected');
+        // The arrow keys and Shift+click go on from here, not from a row
+        // selected before.
+        window.active_element = rows[0];
+        window.latest_selected_item = rows[0];
         this.updateFooterStats();
         rows[0].scrollIntoView({ block: 'nearest' });
     },

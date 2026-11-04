@@ -1538,6 +1538,22 @@ describe('TabFiles path field', () => {
         expect($('.files .row.selected').attr('data-path')).toBe('/alice/Pictures/cat.png');
     });
 
+    it('moves the arrow keys\' starting row to a typed file in the folder on screen', async () => {
+        mountHeader('/alice/Pictures');
+        $('.files').html(['a.png', 'cat.png', 'z.png'].map(name => `<div class="row item" data-name="${name}" data-path="/alice/Pictures/${name}"></div>`).join(''));
+        const [first, cat] = $('.files .row').toArray();
+        first.classList.add('selected');
+        window.latest_selected_item = first;
+        TabFiles.openPathEditor();
+        editor().value = 'cat.png';
+
+        await TabFiles.submitPathEditor();
+
+        expect($('.files .row.selected').toArray()).toEqual([cat]);
+        expect(window.latest_selected_item).toBe(cat);
+        expect(window.active_element).toBe(cat);
+    });
+
     it('stays open, marked, on a path to nothing', async () => {
         mountHeader();
         const render = vi.spyOn(TabFiles, 'renderDirectory');
