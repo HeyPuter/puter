@@ -42,4 +42,25 @@ CREATE TABLE IF NOT EXISTS `event_user_handlers` (
     KEY `idx_event_user_handlers_holder_app` (`holder_user_id`, `app_uid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CALL _puter_add_col('event_subscriptions', 'handler_scope', '`handler_scope` tinyint unsigned NOT NULL DEFAULT 0');
+-- Guarded here rather than through `_puter_add_col`, so the file also applies
+-- on its own to a database that never ran the earlier migrations.
+DROP PROCEDURE IF EXISTS _puter_add_event_subscriptions_handler_scope;
+DELIMITER //
+CREATE PROCEDURE _puter_add_event_subscriptions_handler_scope()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'event_subscriptions'
+      AND COLUMN_NAME = 'handler_scope'
+  ) THEN
+    ALTER TABLE `event_subscriptions`
+      ADD COLUMN `handler_scope` tinyint unsigned NOT NULL DEFAULT 0,
+      ALGORITHM=INSTANT;
+  END IF;
+END//
+DELIMITER ;
+
+CALL _puter_add_event_subscriptions_handler_scope();
+
+DROP PROCEDURE IF EXISTS _puter_add_event_subscriptions_handler_scope;
