@@ -2038,9 +2038,11 @@ input.myapps-group-name:focus {
 .custom-domain-modal svg {
     flex: none;
 }
+/* A hostname moves to the next line whole, and breaks only when it's wider
+   than the line. */
 .custom-domain-modal strong {
     font-weight: 600;
-    word-break: break-all;
+    overflow-wrap: anywhere;
 }
 .custom-domain-sr {
     position: absolute;
