@@ -95,4 +95,22 @@ describe('UIWindowAttachCustomDomain', () => {
         await flush();
         expect(dialog.result()).toMatchObject({ uuid: 'd1' });
     });
+
+    it('starts each step scrolled to the top of the floating modal', async () => {
+        await open();
+        // jsdom has no layout, so stand in for a modal scrolled down the list.
+        const modal = document.querySelector('.custom-domain-modal');
+        let scrollTop = 240;
+        Object.defineProperty(modal, 'scrollTop', {
+            configurable: true,
+            get: () => scrollTop,
+            set: (value) => {
+                scrollTop = value;
+            },
+        });
+
+        $('.custom-domain-row .custom-domain-use').trigger('click');
+        expect(visiblePane()).toBe('records');
+        expect(scrollTop).toBe(0);
+    });
 });

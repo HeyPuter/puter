@@ -211,7 +211,8 @@ async function UIWindowAttachCustomDomain (options) {
             $overlay.find('.custom-domain-pane').hide();
             $overlay.find('.app-feedback-error').hide();
             $overlay.find(`.custom-domain-pane[data-pane="${pane}"]`).show();
-            $overlay.find('.custom-domain-body').scrollTop(0);
+            // The modal scrolls when it floats, the body when it fills the page.
+            $overlay.find('.custom-domain-modal, .custom-domain-body').scrollTop(0);
         };
         // Plain strings into `.text()`: i18n's HTML encoding would show up
         // literally.
