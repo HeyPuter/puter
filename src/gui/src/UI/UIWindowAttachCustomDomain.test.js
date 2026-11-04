@@ -171,6 +171,44 @@ describe('UIWindowAttachCustomDomain', () => {
         });
     });
 
+    describe('copy buttons', () => {
+        afterEach(() => {
+            delete navigator.clipboard;
+            delete document.execCommand;
+        });
+
+        const copyCnameValue = async () => {
+            await open();
+            $('.custom-domain-row .custom-domain-use').trigger('click');
+            const $btn = $('[data-pane="records"] .custom-domain-copy').eq(1);
+            $btn.trigger('click');
+            await flush();
+            return $btn;
+        };
+
+        it('copy with the clipboard API', async () => {
+            const writeText = vi.fn(async () => {});
+            Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+            const $btn = await copyCnameValue();
+            expect(writeText).toHaveBeenCalledWith('mysite.puter.site');
+            expect($btn.hasClass('is-copied')).toBe(true);
+        });
+
+        it('fall back to selecting and copying when there is no clipboard API', async () => {
+            document.execCommand = vi.fn(() => true);
+            const $btn = await copyCnameValue();
+            expect(document.execCommand).toHaveBeenCalledWith('copy');
+            expect(window.getSelection().toString()).toBe('mysite.puter.site');
+            expect($btn.hasClass('is-copied')).toBe(true);
+        });
+
+        it('leave the value selected when nothing can copy it', async () => {
+            const $btn = await copyCnameValue();
+            expect(window.getSelection().toString()).toBe('mysite.puter.site');
+            expect($btn.hasClass('is-copied')).toBe(false);
+        });
+    });
+
     it('takes no more input on a removed row while it fades out', async () => {
         await open([pendingDomain({ site: 'other' })]);
         const row = document.querySelector('.custom-domain-row');
