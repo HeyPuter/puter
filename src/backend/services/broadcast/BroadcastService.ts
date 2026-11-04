@@ -20,7 +20,9 @@
 import axios from 'axios';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
+import { resolve } from 'node:path';
 import { IBroadcastPeerConfig } from '../../types.js';
+import { buildId } from '../../util/buildId.js';
 import { PuterService } from '../types.js';
 
 // -- Wire types ------------------------------------------------------
@@ -71,6 +73,9 @@ const ADDRESSED_REQUEST_TIMEOUT_MS = 5_000;
 /** What a deployment with no configured identity calls itself. */
 const DEFAULT_REGION_ID = 'local';
 
+/** The backend tree this process runs, compiled or source. */
+const BACKEND_ROOT = resolve(__dirname, '..', '..');
+
 // -- Webhook fan-out -------------------------------------------------
 
 /** Largest webhook body by default; peers accept up to 50 MB. */
@@ -113,8 +118,12 @@ export class BroadcastService extends PuterService {
     #peersByKey: Record<string, IBroadcastPeerConfig> = {};
     /** Subset of peers with `webhook: true`, used for outbound fan-out. */
     #webhookPeers: IBroadcastPeerConfig[] = [];
+    /** This process, among the nodes that share its `serverId`. */
+    #instanceId = randomUUID();
     /** Identifier used to tell what server a redis fan-out is coming from. */
-    #redisSourceId: string = `${this.config.serverId}:${randomUUID()}`;
+    #redisSourceId: string = `${this.config.serverId}:${this.#instanceId}`;
+    /** Computed once: the tree is read on the first announcement only. */
+    #buildId: string | null | undefined;
 
     /** Serialized outbound events, oldest first; identical ones coalesce. */
     #outboundQueue = new Set<string>();
@@ -162,6 +171,10 @@ export class BroadcastService extends PuterService {
         this.#loadConfig();
         this.#subscribeOutbound();
         this.#subscribeRedisOutbound();
+        this.clients.event.on('pubsub.server.started', (_key, data) =>
+            this.#siblingStarted(data),
+        );
+        this.announceStart();
     }
 
     override async onServerPrepareShutdown(): Promise<void> {
@@ -181,6 +194,56 @@ export class BroadcastService extends PuterService {
             this.#redisSub.quit();
             this.#redisSub = null;
         }
+    }
+
+    // -- Node replacement --------------------------------------------
+
+    /**
+     * Tells the cluster this node is serving. A rolling deployment starts the
+     * new node first and the load balancer moves traffic to it before the old
+     * node hears anything, so this message is the old node's only cue to ask
+     * its long-lived connections to move while they are still open.
+     */
+    announceStart(): void {
+        this.clients.event.emit(
+            'pubsub.server.started',
+            {
+                serverId: this.config.serverId ?? null,
+                instanceId: this.#instanceId,
+                build: this.#build(),
+            },
+            {},
+        );
+    }
+
+    #build(): string | null {
+        if (this.#buildId === undefined) this.#buildId = buildId(BACKEND_ROOT);
+        return this.#buildId;
+    }
+
+    /**
+     * Another process with this node's `serverId` is up. One from the same
+     * build is a scale-out, which replaces nothing; one from another build, or
+     * an unknown one, is a deployment replacing this node.
+     */
+    #siblingStarted(data: {
+        serverId: string | null;
+        instanceId: string;
+        build: string | null;
+    }): void {
+        if (!this.config.serverId || data.serverId !== this.config.serverId)
+            return;
+        if (data.instanceId === this.#instanceId) return;
+        const build = this.#build();
+        if (build && data.build && build === data.build) return;
+        console.log(
+            `[broadcast] node ${data.instanceId} started with build ${data.build ?? 'unknown'} for ${this.config.serverId}; this node (build ${build ?? 'unknown'}) is being replaced`,
+        );
+        this.clients.event.emit(
+            'serverReplacementStarted',
+            { instanceId: data.instanceId },
+            {},
+        );
     }
 
     // -- Public API used by BroadcastController ----------------------

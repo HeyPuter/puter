@@ -1404,7 +1404,13 @@ export class Conversation extends RealtimeEvents {
                 return;
             }
         }
-        if (event.type === RECONNECT_NOTICE && !this.#handover) {
+        if (
+            event.type === RECONNECT_NOTICE &&
+            (!this.#handover || this.#handover.refused)
+        ) {
+            // A repeated notice means the restart is still pending, so attempts
+            // that gave up start over, within the same per-minute budget.
+            this.#endHandover();
             /** @type {ConvoHandover} */
             const handover = {
                 reason:

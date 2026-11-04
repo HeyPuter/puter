@@ -2131,6 +2131,108 @@ describe('OpenAIRealtimeRelayService relay', () => {
         }
     });
 
+    it('asks sessions on a replaced node to move, through the real cluster pubsub path', async () => {
+        const config = {
+            domain: 'puter.localhost',
+            serverId: 'replaced-node',
+            realtime: {
+                upstreamUrl: `ws://127.0.0.1:${(upstream.address() as AddressInfo).port}`,
+            },
+            providers: { 'openai-completion': { apiKey: 'sk-test' } },
+            broadcast: {
+                peers: [],
+                webhook: {
+                    peerId: 'relay-replaced',
+                    secret: 'test-cluster-secret',
+                },
+            },
+        } as IConfig;
+        const event = new EventClient(config);
+        const remoteClients = { ...server.clients, event };
+        const broadcast = new BroadcastService(
+            config,
+            remoteClients,
+            server.stores,
+            server.services,
+        );
+        const relay = new OpenAIRealtimeRelayService(
+            config,
+            remoteClients,
+            server.stores,
+            server.services,
+        );
+        const http = createServer();
+        relay.attachHttpServer(http);
+        broadcast.onServerStart();
+        relay.onServerStart();
+        await new Promise<void>((resolve) =>
+            http.listen(0, '127.0.0.1', resolve),
+        );
+        const url = (query = '') =>
+            `ws://127.0.0.1:${(http.address() as AddressInfo).port}${REALTIME_PATH}?auth_token=${user.token}${query}`;
+        const host = { host: 'api.puter.localhost' };
+        const notices = (c: ReturnType<typeof open>) =>
+            c.events.filter((e) => e.type === 'puter.reconnect');
+        const opened: ReturnType<typeof open>[] = [];
+        const connect = (target: string, headers?: Record<string, string>) => {
+            const c = open(target, undefined, headers);
+            opened.push(c);
+            return c;
+        };
+        const a = connect(url(), host);
+        try {
+            await a.waitFor('session.created');
+            // The new node announces itself on the main server's bus: the same
+            // serverId as the replaced node, from another build.
+            server.clients.event.emit(
+                'pubsub.server.started',
+                {
+                    serverId: 'replaced-node',
+                    instanceId: 'newcomer',
+                    build: 'other-build',
+                },
+                {},
+            );
+            const notice = await a.waitFor('puter.reconnect');
+            expect(notice).toMatchObject({ reason: 'server_restarting' });
+            expect(notice).not.toHaveProperty('close_in_ms');
+            // The session keeps working until the client moves.
+            a.ws.send('{"type":"test.alive"}');
+            await a.waitForEcho('test.alive');
+
+            // A handover connect is turned away so it reaches the new node.
+            const probe = connect(url('&purpose=handover'), host);
+            expect(await probe.waitFor('error')).toMatchObject({
+                error: { code: 'server_restarting' },
+            });
+            expect((await probe.closed).code).toBe(1012);
+
+            // An ordinary connect is still served, and asked to move once its
+            // provider session exists.
+            const late = connect(url(), host);
+            await late.waitFor('session.created');
+            await late.waitFor('puter.reconnect');
+            late.ws.send('{"type":"test.alive"}');
+            await late.waitForEcho('test.alive');
+            expect(notices(a)).toHaveLength(1);
+
+            // The main server has another serverId, so it is not replaced:
+            // handover connects land there.
+            const elsewhere = connect(
+                `${relayUrl}?auth_token=${user.token}&purpose=handover`,
+            );
+            await elsewhere.waitFor('session.created');
+            elsewhere.ws.send('{"type":"test.alive"}');
+            await elsewhere.waitForEcho('test.alive');
+            expect(notices(elsewhere)).toHaveLength(0);
+        } finally {
+            for (const c of opened) c.ws.terminate();
+            await relay.onServerPrepareShutdown();
+            await broadcast.onServerPrepareShutdown();
+            await new Promise<void>((resolve) => http.close(() => resolve()));
+        }
+    });
+
     it('backpressures audio until an exhausted transcription window settles and renews', async () => {
         const holder = await createTestUser(server, {
             username: 'transcription-renewal',

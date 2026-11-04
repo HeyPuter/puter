@@ -192,6 +192,10 @@ const CLOSE_TRY_AGAIN_LATER = 1013;
 export const RECONNECT_EVENT = 'puter.reconnect';
 // A session is sent the reconnect notice at most this often.
 const RECONNECT_NOTICE_INTERVAL_MS = 60_000;
+// After a replacement node starts, how long this node keeps repeating the
+// notice and turning handover connects away. A node still serving afterwards
+// wasn't replaced.
+const REPLACEMENT_WINDOW_MS = 10 * 60_000;
 const TRANSCRIPTION_DONE =
     'conversation.item.input_audio_transcription.completed';
 const METERING_DRIVER = 'openai-realtime';
@@ -567,6 +571,9 @@ export class OpenAIRealtimeRelayService extends PuterService {
     // One re-authentication per token at a time, shared by its sessions.
     #authChecks = new Map<string, Promise<Actor | null>>();
     #draining = false;
+    // When the window after a replacement node's start ends; 0 outside it.
+    #replacedUntil = 0;
+    #replacementTimer: ReturnType<typeof setInterval> | null = null;
     #authenticating = 0;
     #pendingUpgrades = 0;
     #sweeping = false;
@@ -713,7 +720,10 @@ export class OpenAIRealtimeRelayService extends PuterService {
         }
     }
 
-    /** A host extension can announce a restart before the drain starts. */
+    /**
+     * A host extension, or the node replacing this one, can announce a restart
+     * before the drain starts.
+     */
     override onServerStart(): void {
         this.clients.event.on('outer.auth.sessions.revoked', (_key, data) => {
             this.clients.event.emit(
@@ -747,6 +757,9 @@ export class OpenAIRealtimeRelayService extends PuterService {
         this.clients.event.on('serverRestartAnnounced', (_key, data) =>
             this.#announceRestart(data?.closeInMs),
         );
+        this.clients.event.on('serverReplacementStarted', () =>
+            this.#replaced(),
+        );
     }
 
     /**
@@ -776,6 +789,40 @@ export class OpenAIRealtimeRelayService extends PuterService {
     }
 
     /**
+     * A node with this node's serverId has started to take its place. The load
+     * balancer will cut the open connections without telling this process, so
+     * every session is asked to move now and again once a minute while the
+     * window lasts, a session opened meanwhile is asked once its provider
+     * session exists, and handover connects are refused so they reach the new
+     * node.
+     */
+    #replaced(): void {
+        this.#replacedUntil = Date.now() + REPLACEMENT_WINDOW_MS;
+        console.info(
+            `[realtime] replacement node started; ${this.#sessions.size} sessions asked to move`,
+        );
+        this.#announceRestart(undefined);
+        this.#replacementTimer ??= setInterval(() => {
+            if (!this.#beingReplaced()) {
+                this.#endReplacement();
+                return;
+            }
+            this.#announceRestart(undefined);
+        }, RECONNECT_NOTICE_INTERVAL_MS);
+        this.#replacementTimer.unref?.();
+    }
+
+    #beingReplaced(): boolean {
+        return Date.now() < this.#replacedUntil;
+    }
+
+    #endReplacement(): void {
+        this.#replacedUntil = 0;
+        if (this.#replacementTimer) clearInterval(this.#replacementTimer);
+        this.#replacementTimer = null;
+    }
+
+    /**
      * Each session gets a moment to finish its in-flight response, then closes
      * with 1012 so the client reconnects to another node.
      */
@@ -783,6 +830,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
         this.#draining = true;
         if (this.#heartbeatTimer) clearInterval(this.#heartbeatTimer);
         if (this.#authTimer) clearInterval(this.#authTimer);
+        this.#endReplacement();
         await Promise.all([...this.#sessions].map((s) => s.drain()));
         this.#wss?.close();
     }
@@ -1144,6 +1192,18 @@ export class OpenAIRealtimeRelayService extends PuterService {
             );
             return;
         }
+        // A handover connect is looking for the node that stays up.
+        if (
+            this.#beingReplaced() &&
+            url.searchParams.get('purpose') === 'handover'
+        ) {
+            reject(
+                'server_restarting',
+                'Server is restarting; reconnect',
+                CLOSE_RESTART,
+            );
+            return;
+        }
 
         setupTimer = setTimeout(
             () =>
@@ -1435,6 +1495,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                         providerReady = true;
                         if (setupTimer) clearTimeout(setupTimer);
                         void pumpPending();
+                        if (this.#beingReplaced()) session.notify(undefined);
                     }
                     break;
                 case 'conversation.item.input_audio_transcription.failed':

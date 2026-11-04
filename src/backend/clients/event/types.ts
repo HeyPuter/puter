@@ -84,6 +84,27 @@ export type EventMap = {
         /** How long until the server stops, when known. */
         closeInMs?: number;
     };
+    /**
+     * A node with this node's `serverId` and another build has started, so a
+     * deployment is replacing this node: the load balancer will stop routing
+     * here and cut its open connections without telling the process first.
+     * Long-lived connections ask their clients to move to the new node.
+     */
+    serverReplacementStarted: {
+        /** The new node's `pubsub.server.started` instance id. */
+        instanceId: string;
+    };
+    /**
+     * A node has started serving. Fanned out to the cluster so the node it
+     * replaces can announce its restart before the load balancer cuts it off.
+     */
+    'pubsub.server.started': {
+        serverId: string | null;
+        /** One id per process. */
+        instanceId: string;
+        /** The build the process runs, from `util/buildId`; null if unknown. */
+        build: string | null;
+    };
 
     // ---- AI ----
     'ai.prompt.validate': {
@@ -1038,11 +1059,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1053,10 +1073,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    | 'received'
-    | 'unreceived'
-    | 'no-socket'
-    | 'remote-only';
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

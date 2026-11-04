@@ -1102,12 +1102,93 @@ describe('BroadcastService — same-cluster pub/sub fan-out', () => {
 
     beforeAll(async () => {
         server = await setupTestServer({
+            serverId: 'cluster-node',
             broadcast: {
                 webhook: { peerId: SELF_PEER_ID, secret: SELF_SECRET },
                 peers: [],
                 outbound_flush_ms: 60_000,
             },
         } as never);
+    });
+
+    type Started = {
+        serverId: string | null;
+        instanceId: string;
+        build: string | null;
+    };
+    /** What this node tells the cluster when it starts. */
+    const ownStart = (): Started => {
+        const published: string[] = [];
+        const publishSpy = vi
+            .spyOn(server.clients.redis, 'publish')
+            .mockImplementation(async (channel: string, message: string) => {
+                if (channel === 'pubsub') published.push(message);
+                return 1;
+            });
+        try {
+            server.services.broadcast.announceStart();
+        } finally {
+            publishSpy.mockRestore();
+        }
+        expect(published).toHaveLength(1);
+        const parsed = JSON.parse(published[0]);
+        expect(parsed.key).toBe('pubsub.server.started');
+        return parsed.data as Started;
+    };
+
+    it('announces its start to the cluster with its serverId and build', () => {
+        expect(ownStart()).toEqual({
+            serverId: 'cluster-node',
+            instanceId: expect.any(String),
+            build: expect.stringMatching(/^[0-9a-f]{16}$/),
+        });
+        // One id per process, and one build.
+        expect(ownStart()).toEqual(ownStart());
+    });
+
+    it('is replaced by a node with its serverId from another or an unknown build', () => {
+        const own = ownStart();
+        const replacements: unknown[] = [];
+        const onReplaced = (_key: string, data: unknown) => {
+            replacements.push(data);
+        };
+        server.clients.event.on('serverReplacementStarted', onReplaced);
+        // As the fan-out delivers a sibling's message.
+        const arrived = (data: Started) =>
+            server.clients.event.emit('pubsub.server.started', data, {
+                from_fanout: true,
+                from_outside: true,
+            });
+        try {
+            // Its own announcement, back from the bus.
+            arrived(own);
+            // A scale-out: another process of the same build.
+            arrived({ ...own, instanceId: 'sibling' });
+            // Another region's node.
+            arrived({
+                serverId: 'other-region',
+                instanceId: 'elsewhere',
+                build: 'other-build',
+            });
+            expect(replacements).toEqual([]);
+
+            arrived({
+                serverId: 'cluster-node',
+                instanceId: 'newcomer',
+                build: 'other-build',
+            });
+            arrived({
+                serverId: 'cluster-node',
+                instanceId: 'unknown-build',
+                build: null,
+            });
+            expect(replacements).toEqual([
+                { instanceId: 'newcomer' },
+                { instanceId: 'unknown-build' },
+            ]);
+        } finally {
+            server.clients.event.off('serverReplacementStarted', onReplaced);
+        }
     });
 
     afterAll(async () => {

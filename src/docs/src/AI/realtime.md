@@ -94,7 +94,7 @@ Connection loss ends the session. Reconnecting creates a new conversation. Tool 
 
 ## Server restarts
 
-When Puter knows ahead of time that the server a session runs on will restart, it sends each open session this event, at most once a minute:
+When Puter knows ahead of time that the server a session runs on will restart, it sends each open session this event. While the restart stays pending, the event repeats about once a minute, and a session opened on that server in the meantime gets it right after `session.created`:
 
 ```json
 {
@@ -105,7 +105,7 @@ When Puter knows ahead of time that the server a session runs on will restart, i
 }
 ```
 
-The `reason` field is `server_restarting`. The `close_in_ms` field, when present, is about how long until the server closes the session itself. The session keeps working until then. Open a new connection after a short, randomized delay, and once it gets `session.created` and your client is idle, with no response generating and no user turn in progress, move to it and close the old one. A connection that reaches a server that is also restarting gets a `server_restarting` error and closes with 1012. In that case keep the old session and try again after a short, randomized delay. If the server closes the old session first, the close code is 1012, and your client reconnects the same way. A restart can also drop the connection without any notice, so treat an unexpected close the same way.
+The `reason` field is `server_restarting`. The `close_in_ms` field, when present, is about how long until the server closes the session itself. Without it, the connection is cut by the infrastructure at a time the server doesn't know. The session keeps working until then. Open a new connection with `purpose=handover` in the query string after a short, randomized delay, and once it gets `session.created` and your client is idle, with no response generating and no user turn in progress, move to it and close the old one. A connection that reaches a server that is restarting gets a `server_restarting` error and closes with 1012. In that case keep the old session and try again after a short, randomized delay, and start over when the event repeats. If the server closes the old session first, the close code is 1012, and your client reconnects the same way. A restart can also drop the connection without any notice, so treat an unexpected close the same way.
 
 A new connection starts an empty conversation. To keep context, add earlier items back with `conversation.item.create` before you request a response. Event types that start with `puter.` come from Puter, not the provider.
 

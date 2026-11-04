@@ -208,6 +208,27 @@ describe('bounded overlapping handovers', () => {
         expect(FakeWebSocket.instances).toHaveLength(count);
     });
 
+    it('starts over on a later notice once its probes have given up', async () => {
+        const c = await connected();
+        fakeTime();
+        const original = socket();
+        original.deliver({ type: 'puter.reconnect', reason: 'restart' });
+        await vi.advanceTimersByTimeAsync(31_000);
+        const count = FakeWebSocket.instances.length;
+        original.deliver({ type: 'puter.reconnect', reason: 'restart' });
+        await vi.advanceTimersByTimeAsync(SPREAD);
+        expect(FakeWebSocket.instances).toHaveLength(count + 1);
+        const replacement = socket();
+        expect(new URL(replacement.url).searchParams.get('purpose')).toBe(
+            'handover',
+        );
+        replacement.deliver({ type: 'session.created', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(original.readyState).toBe(3);
+        await settle(replacement);
+        expect(c.state).toBe('connected');
+    });
+
     it('keeps busy originals and reserves capacity for dropped connections', async () => {
         vi.useFakeTimers();
         const puter = owner();

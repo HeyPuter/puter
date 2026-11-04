@@ -256,12 +256,7 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        | 'sms'
-        | 'rcs'
-        | 'whatsapp'
-        | 'viber'
-        | 'zalo'
-        | 'telegram';
+        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
 }
 
 /**
@@ -686,7 +681,11 @@ interface IConfigOptional {
     keep_alive_on_uncaught: boolean;
     /** Server version. Falls back to `npm_package_version`. */
     version: string;
-    /** Stable node identity. Enables pager alerts and graceful shutdown delay. */
+    /**
+     * Stable node identity. Enables pager alerts, the graceful shutdown delay,
+     * and restart notices when a node from another build starts with the same
+     * id, as a rolling deployment's replacement does.
+     */
     serverId: string;
 
     // -- Networking / URLs -------------------------------------------
@@ -1379,7 +1378,8 @@ export interface ServerDrainInfo {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];
