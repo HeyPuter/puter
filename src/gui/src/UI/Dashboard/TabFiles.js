@@ -937,7 +937,12 @@ const TabFiles = {
                 }
                 if ( ! entry ) {
                     input.setAttribute('aria-invalid', 'true');
-                    await UIAlert(i18n('path_not_found', [typed], false));
+                    // Settled on close: Escape closes the alert without
+                    // settling what UIAlert returns.
+                    await new Promise(resolve => UIAlert({
+                        message: i18n('path_not_found', [typed], false),
+                        window_options: { on_close: resolve },
+                    }));
                     input.focus();
                     input.select();
                     return;

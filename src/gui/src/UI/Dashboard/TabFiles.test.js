@@ -1544,15 +1544,37 @@ describe('TabFiles path field', () => {
         TabFiles.openPathEditor();
         editor().value = '/alice/Gone';
         // The alert takes the focus, which must not close the field.
-        UIAlert.mockImplementation(async () => editor().blur());
+        UIAlert.mockImplementation(async ({ window_options }) => {
+            editor().blur();
+            window_options.on_close();
+            return true;
+        });
 
         await TabFiles.submitPathEditor();
 
-        expect(UIAlert).toHaveBeenCalledWith(expect.stringContaining('/alice/Gone'));
+        expect(UIAlert.mock.calls[0][0].message).toContain('/alice/Gone');
         expect(render).not.toHaveBeenCalled();
         expect(editing()).toBe(true);
         expect(editor().getAttribute('aria-invalid')).toBe('true');
         expect(document.activeElement).toBe(editor());
+    });
+
+    it('takes the field back when the alert is closed without its button', async () => {
+        mountHeader();
+        TabFiles.openPathEditor();
+        editor().value = '/alice/Gone';
+        // Escape removes the alert, and what UIAlert returns never settles.
+        UIAlert.mockImplementation(({ window_options }) => {
+            editor().blur();
+            window_options.on_close();
+            return new Promise(() => {});
+        });
+
+        await TabFiles.submitPathEditor();
+
+        expect(document.activeElement).toBe(editor());
+        editor().blur();
+        expect(editing()).toBe(false);
     });
 
     it('gives the crumbs back on Escape or when it loses the focus', () => {
