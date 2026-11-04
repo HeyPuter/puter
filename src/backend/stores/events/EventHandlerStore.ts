@@ -220,6 +220,14 @@ export interface UnboundUserHandler {
     name: string;
 }
 
+/**
+ * One entry of a scope's handler set. `updatedAt` (unix seconds) is set for a
+ * user scope and absent from entries cached without it, meaning unknown.
+ */
+export type HandlerSetEntry = Pick<EventHandler, 'name' | 'sourceHash'> & {
+    updatedAt?: number;
+};
+
 export interface PublishHandlerInput {
     scope: HandlerScope;
     name: string;
@@ -491,6 +499,30 @@ export class EventHandlerStore extends PuterStore {
         return true;
     }
 
+    /**
+     * Mark one user-scope handler as just used, so the unbound sweep (which
+     * only takes rows last touched before its cutoff) leaves it alone. False
+     * when the handler is gone.
+     */
+    async touchUserHandler(
+        scope: HandlerScope,
+        name: string,
+    ): Promise<boolean> {
+        if (!isUserScope(scope)) return false;
+        assertScope(scope);
+        const result = await this.clients.db.write(
+            `UPDATE \`${USER_TABLE}\` SET \`updated_at\` = ? ` +
+                'WHERE `app_uid` = ? AND `holder_user_id` = ? AND `name` = ?',
+            [nowSeconds(), scope.appUid, scope.holder, name],
+        );
+        return Boolean(result.anyRowsAffected);
+    }
+
+    /** Drop this region's cached sets of a scope, without telling peers. */
+    async forgetScopeCache(scope: HandlerScope): Promise<void> {
+        await this.#forgetSet(scope, false);
+    }
+
     // -- Reads -------------------------------------------------------
 
     /**
@@ -548,10 +580,11 @@ export class EventHandlerStore extends PuterStore {
     async setForApp(
         scope: HandlerScope,
         options: { replica?: boolean } = {},
-    ): Promise<Pick<EventHandler, 'name' | 'sourceHash'>[]> {
+    ): Promise<HandlerSetEntry[]> {
         const { where, params: whereParams } = scopeFilter(scope);
+        const withAge = isUserScope(scope);
         const sql =
-            'SELECT `name`, `source_hash` ' +
+            `SELECT \`name\`, \`source_hash\`${withAge ? ', `updated_at`' : ''} ` +
             `FROM \`${tableOf(scope)}\` WHERE ${where} ` +
             'ORDER BY `name` LIMIT ?';
         const params = [...whereParams, handlerCapOf(scope)];
@@ -561,6 +594,7 @@ export class EventHandlerStore extends PuterStore {
         return rows.map((row) => ({
             name: String(row.name),
             sourceHash: String(row.source_hash),
+            ...(withAge ? { updatedAt: Number(row.updated_at) || 0 } : {}),
         }));
     }
 
@@ -580,7 +614,7 @@ export class EventHandlerStore extends PuterStore {
             missRead?: 'primary' | 'replica';
             handlerName?: string;
         } = {},
-    ): Promise<Pick<EventHandler, 'name' | 'sourceHash'>[]> {
+    ): Promise<HandlerSetEntry[]> {
         const replica = options.missRead === 'replica';
         // A set without the handler may be from before its publish.
         const usable = (set: Pick<EventHandler, 'name'>[]) =>
@@ -598,7 +632,7 @@ export class EventHandlerStore extends PuterStore {
                 Array.isArray(cached) &&
                 usable(cached as Pick<EventHandler, 'name'>[])
             )
-                return cached as Pick<EventHandler, 'name' | 'sourceHash'>[];
+                return cached as HandlerSetEntry[];
         } catch {
             // Read the table instead.
         }

@@ -1074,8 +1074,13 @@ describe('user scopes', () => {
         await expect(
             handlers().getByName(scope, 'daily'),
         ).resolves.toMatchObject({ name: 'daily', source: SOURCE });
+        // A user scope's entries say when each handler was last touched.
         expect(await handlers().setForApp(scope)).toEqual([
-            { name: 'daily', sourceHash: hashContent(SOURCE) },
+            {
+                name: 'daily',
+                sourceHash: hashContent(SOURCE),
+                updatedAt: expect.any(Number),
+            },
         ]);
         expect((await handlers().allForApp(scope)).map((h) => h.name)).toEqual([
             'daily',

@@ -534,6 +534,81 @@ describe('inline create', () => {
         expect(publishSpends).toBe(primaryBefore);
     });
 
+    describe('reusing a handler the sweep could collect', () => {
+        const DAY = 24 * 60 * 60;
+        const name = `@${hashContent(SOURCE)}`;
+        const ageHandler = (seconds: number) =>
+            env.server.clients.db.write(
+                'UPDATE `event_user_handlers` SET `updated_at` = ? WHERE `app_uid` = ? AND `name` = ?',
+                [Math.floor(Date.now() / 1000) - seconds, appUid, name],
+            );
+        const updatedAt = async () =>
+            (await store().getByName(userScope(userId), name))?.updatedAt;
+        const bound = async (subId: string) =>
+            (await env.server.stores.durableSubscription.getBySubId(subId))
+                ?.handlerName;
+
+        it('touches an old handler once on the primary before binding to it', async () => {
+            const actor = await actorOf(userToken);
+            await events().ensureInlineHandler(actor, appUid, SOURCE);
+            await ageHandler(DAY - 60);
+            await store().cachedSetForApp(userScope(userId));
+            const writes = vi.spyOn(env.server.clients.db, 'write');
+
+            const created = await inline(userToken, SOURCE);
+
+            const touches = writes.mock.calls.filter(([sql]) =>
+                String(sql).startsWith('UPDATE `event_user_handlers`'),
+            );
+            expect(touches).toHaveLength(1);
+            expect(
+                Math.floor(Date.now() / 1000) - (await updatedAt())!,
+            ).toBeLessThan(60);
+            // The sweep can no longer take it.
+            expect(await events().sweepUnboundUserHandlers()).toBe(0);
+            expect(await bound(String(created.body.subId))).toBe(name);
+            expect(await store().getByName(userScope(userId), name)).not.toBe(
+                null,
+            );
+        });
+
+        it('publishes again when the sweep collected it after the cache check', async () => {
+            const actor = await actorOf(userToken);
+            await events().ensureInlineHandler(actor, appUid, SOURCE);
+            await ageHandler(2 * DAY);
+            await store().cachedSetForApp(userScope(userId));
+            const real = store().cachedSetForApp.bind(store());
+            const check = vi
+                .spyOn(store(), 'cachedSetForApp')
+                .mockImplementationOnce(async (...args) => {
+                    const set = await real(...args);
+                    // Collected between the check and the insert.
+                    await events().sweepUnboundUserHandlers();
+                    return set;
+                });
+
+            const created = await inline(userToken, SOURCE);
+
+            expect(check).toHaveBeenCalled();
+            expect(created.status).toBe(200);
+            expect(await store().getByName(userScope(userId), name)).not.toBe(
+                null,
+            );
+            expect(await bound(String(created.body.subId))).toBe(name);
+        });
+
+        it('leaves a fresh handler read- and write-free', async () => {
+            const actor = await actorOf(userToken);
+            await events().ensureInlineHandler(actor, appUid, SOURCE);
+            await events().ensureInlineHandler(actor, appUid, SOURCE);
+            const calls = dbCalls();
+
+            await events().ensureInlineHandler(actor, appUid, SOURCE);
+
+            expect(calls()).toBe(0);
+        });
+    });
+
     it('reads the primary and spends the budget once for the first create in an empty scope', async () => {
         const actor = await actorOf(userToken);
         const calls = dbCalls();

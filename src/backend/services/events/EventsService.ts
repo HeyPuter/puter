@@ -859,6 +859,11 @@ const USER_HANDLER_GC_JOB = 'events.userHandlers.gc';
 const USER_HANDLER_GC_EVERY_MS = 60 * 60 * 1000;
 const USER_HANDLER_GC_LEASE_MS = 15 * 60 * 1000;
 const USER_HANDLER_GC_MIN_AGE_SECONDS = 24 * 60 * 60;
+/**
+ * An inline create that finds a handler this much short of the sweep's age
+ * touches it before binding, so the sweep cannot take it from under the row.
+ */
+const USER_HANDLER_REUSE_MARGIN_SECONDS = 60 * 60;
 /** Handlers one page takes, and pages one run takes at most. */
 const USER_HANDLER_GC_BATCH = 200;
 const USER_HANDLER_GC_MAX_BATCHES = 50;
@@ -3773,8 +3778,26 @@ export class EventsService extends PuterService {
         const held = await this.stores.eventHandler.cachedSetForApp(scope, {
             handlerName: name,
         });
-        if (held.some((h) => h.name === name && h.sourceHash === hash))
-            return view;
+        const present = held.find(
+            (h) => h.name === name && h.sourceHash === hash,
+        );
+        if (present) {
+            // Fresh enough that the sweep cannot reach it: no read, no write.
+            const idle =
+                present.updatedAt === undefined
+                    ? Infinity
+                    : Math.floor(Date.now() / 1000) - present.updatedAt;
+            if (
+                idle <
+                USER_HANDLER_GC_MIN_AGE_SECONDS -
+                    USER_HANDLER_REUSE_MARGIN_SECONDS
+            )
+                return view;
+            if (await this.stores.eventHandler.touchUserHandler(scope, name))
+                return view;
+            // Collected since the set was cached: publish it again.
+            await this.stores.eventHandler.forgetScopeCache(scope);
+        }
 
         await assertActorHasCredits(this.services.metering, actor, this.config);
         await this.#spendHandlerBudget(actor);
