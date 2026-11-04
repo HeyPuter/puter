@@ -26,6 +26,7 @@ import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
 import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedirect.js';
 import { authLogoHeader, wireAuthLogoHeader } from '../helpers/authLogoHeader.js';
 import { isAttestedOrigin } from '../helpers/attestedOrigin.js';
+import { signupUtmQuery } from '../helpers/signupUtm.js';
 
 async function UIWindowLogin (options) {
     options = options ?? {};
@@ -222,6 +223,7 @@ async function UIWindowLogin (options) {
                         if ( window.signup_bonus_code ) {
                             url += `&bonusCode=${encodeURIComponent(window.signup_bonus_code)}`;
                         }
+                        url += signupUtmQuery(window.signup_utm);
                         if ( window.embedded_in_popup && window.url_query_params?.get('msg_id') ) {
                             url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
                             if ( window.openerOrigin ) {

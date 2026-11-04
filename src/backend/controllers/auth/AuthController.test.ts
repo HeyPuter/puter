@@ -1073,6 +1073,62 @@ describe('AuthController.handleSignup', () => {
         ).toBe(true);
     });
 
+    it('announces the utm params a form signup carried', async () => {
+        const baseline = heardSignupSuccess.length;
+        const username = `utm_${uniq()}`;
+        await controller.handleSignup(
+            makeReq({
+                username,
+                email: `${username}@test.local`,
+                password: 'correct-horse-battery',
+                utm_source: 'newsletter',
+                utm_campaign: 'launch',
+                utm_id: 'not-tracked',
+            }),
+            makeRes(),
+        );
+
+        const evt = heardSignupSuccess
+            .slice(baseline)
+            .find((e) => e.username === username);
+        expect(evt?.utm).toEqual({ source: 'newsletter', campaign: 'launch' });
+        expect(evt).not.toHaveProperty('password');
+    });
+
+    it('announces utm on a temp signup without exposing its placeholder email', async () => {
+        const baseline = heardSignupSuccess.length;
+        const res = makeRes();
+        await controller.handleSignup(
+            makeReq({ is_temp: true, utm_source: 'ads' }),
+            res,
+        );
+
+        const evt = heardSignupSuccess
+            .slice(baseline)
+            .find((e) => e.is_temp === true);
+        expect(evt?.utm).toEqual({ source: 'ads' });
+        expect(evt?.email).toBeNull();
+    });
+
+    it('leaves utm off the event when the signup carried none', async () => {
+        const baseline = heardSignupSuccess.length;
+        const username = `noutm_${uniq()}`;
+        await controller.handleSignup(
+            makeReq({
+                username,
+                email: `${username}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+
+        const evt = heardSignupSuccess
+            .slice(baseline)
+            .find((e) => e.username === username);
+        expect(evt).toBeDefined();
+        expect(evt).not.toHaveProperty('utm');
+    });
+
     it('still allows claiming a pseudo-user row when registration is disabled', async () => {
         const authConfig = server.controllers.auth.config as {
             disable_user_signup?: boolean;

@@ -77,6 +77,7 @@ import {
     isAbsentBonusCode,
     normalizeBonusCode,
 } from '../../util/signupBonus.js';
+import { readSignupUtm } from '../../util/signupUtm.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
 import { buildUserDetails, scrubSensitive } from '../../util/userDetails.js';
 import {
@@ -888,6 +889,7 @@ export class AuthController extends PuterController {
             isTemp: is_temp,
             fingerprint,
             bonusCode,
+            utm: readSignupUtm(body),
         });
         await this.#completeLogin(req, res, user);
     }

@@ -33,6 +33,11 @@ import {
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { normalizeBonusCode } from '../../util/signupBonus.js';
+import {
+    normalizeSignupUtm,
+    readSignupUtm,
+    type SignupUtm,
+} from '../../util/signupUtm.js';
 import { parseMaskedSharePath } from '../../services/fs/sharePathMask.js';
 import {
     SHARE_DEEP_LINK_ITEMS_LIMIT,
@@ -88,6 +93,7 @@ function resolutionErrorCode(code: string | undefined): string {
 interface OIDCSignupOptions {
     referrer?: string | null;
     bonusCode?: string | null;
+    utm?: SignupUtm | null;
 }
 
 function signupOptionsFromState(
@@ -98,6 +104,7 @@ function signupOptionsFromState(
         // Normalized when the state was signed; re-checked since this is the
         // value signup acts on.
         bonusCode: normalizeBonusCode(stateDecoded.bonus_code),
+        utm: normalizeSignupUtm(stateDecoded.utm),
     };
 }
 
@@ -495,8 +502,10 @@ export class OIDCController extends PuterController {
                     ? req.query.bonusCode[0]
                     : req.query.bonusCode;
                 const bonusCode = normalizeBonusCode(rawBonusCode);
-                if (bonusCode && (flow === 'login' || flow === 'signup')) {
-                    statePayload.bonus_code = bonusCode;
+                const utm = readSignupUtm(req.query);
+                if (flow === 'login' || flow === 'signup') {
+                    if (bonusCode) statePayload.bonus_code = bonusCode;
+                    if (utm) statePayload.utm = utm;
                 }
                 if (embeddedInPopup && msgId) {
                     statePayload.embedded_in_popup = true;
@@ -887,7 +896,7 @@ if (window.opener) {
             provider,
             userinfo as { sub: string; email?: string },
             signup.referrer ?? null,
-            { bonusCode: signup.bonusCode ?? null },
+            { bonusCode: signup.bonusCode ?? null, utm: signup.utm ?? null },
         );
         // A concurrent callback (a second tab, a provider retry) created the
         // account between step 2 and the insert. Nothing went wrong for the

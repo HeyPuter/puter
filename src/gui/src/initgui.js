@@ -67,6 +67,7 @@ import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
 import { readSignupBonusCode } from './helpers/signupBonusCode.js';
+import { rememberSignupUtm } from './helpers/signupUtm.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
@@ -1413,6 +1414,13 @@ window.initgui = async function (options) {
     // GET query params provided
     window.url_query_params = new URLSearchParams(window.location.search);
     window.signup_bonus_code = readSignupBonusCode(window.url_query_params);
+    let sessionStore = null;
+    try {
+        sessionStore = window.sessionStorage;
+    } catch {
+        // storage blocked; utm from this page load still applies
+    }
+    window.signup_utm = rememberSignupUtm(window.url_query_params, sessionStore);
 
     // Install device signal helpers; collection is lazy. The fingerprint is
     // on by default (gui_params.thumbmarkEnabled = false kills it); the Prelude
@@ -2575,6 +2583,7 @@ window.initgui = async function (options) {
             // if this is a popup, show a spinner
             let spinner_init_ts = Date.now();
             const requestData = {
+                ...window.signup_utm,
                 referrer: referrer,
                 is_temp: true,
             };

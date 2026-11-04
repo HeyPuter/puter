@@ -30,6 +30,7 @@ import { Context } from '../../core';
 import { HttpError } from '../../core/http/HttpError.js';
 import crypto from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
+import type { SignupUtm } from '../../util/signupUtm.js';
 import { verifyOidcIdToken, type JwksCacheEntry } from './oidcIdToken';
 
 const GOOGLE_DISCOVERY_URL =
@@ -492,13 +493,17 @@ export class OIDCService extends PuterService {
      * re-resolve rather than surface an error — see
      * `#resolveOrCreateOIDCUser`.
      *
-     * `bonusCode` must already be canonical (`normalizeBonusCode`).
+     * `bonusCode` must already be canonical (`normalizeBonusCode`) and `utm`
+     * already shaped (`normalizeSignupUtm`).
      */
     async createUserFromOIDC(
         providerId: string,
         claims: OIDCUserInfo,
         referrer?: string | null,
-        { bonusCode = null }: { bonusCode?: string | null } = {},
+        {
+            bonusCode = null,
+            utm = null,
+        }: { bonusCode?: string | null; utm?: SignupUtm | null } = {},
     ): Promise<{
         success: boolean;
         user?: UserRow;
@@ -686,6 +691,7 @@ export class OIDCService extends PuterService {
             bonusCode,
             emailConfirmed: true,
             saveAccount: true,
+            utm,
         });
 
         return { success: true, user };

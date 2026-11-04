@@ -29,6 +29,7 @@ import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedire
 import { authLogoHeader, wireAuthLogoHeader } from '../helpers/authLogoHeader.js';
 import { isAttestedOrigin } from '../helpers/attestedOrigin.js';
 import { bonusRequirementsKey, checkSignupBonusCode } from '../helpers/signupBonusCode.js';
+import { signupUtmQuery } from '../helpers/signupUtm.js';
 
 // What a checked bonus code grants, above the form (and the provider buttons).
 function renderBonusNotice(el_window, result) {
@@ -324,6 +325,7 @@ function UIWindowSignup(options) {
                                     if (window.signup_bonus_code) {
                                         url += `&bonusCode=${encodeURIComponent(window.signup_bonus_code)}`;
                                     }
+                                    url += signupUtmQuery(window.signup_utm);
                                     if (
                                         window.embedded_in_popup &&
                                         window.url_query_params?.get('msg_id')
@@ -560,6 +562,7 @@ function UIWindowSignup(options) {
 
                 // Include captcha in request only if required
                 const requestData = {
+                    ...window.signup_utm,
                     username: username,
                     email: email,
                     password: password,

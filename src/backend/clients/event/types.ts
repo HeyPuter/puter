@@ -22,6 +22,7 @@ import type {
 import { Actor } from '../../core';
 import type { UsageInput } from '../../services/metering/types';
 import { FSEntry } from '../../stores/fs/FSEntry';
+import type { SignupUtm } from '../../util/signupUtm';
 
 // GUI write events spread an entry plus per-event metadata into `response`.
 // The exact field set varies by emit site (FSController / LegacyFSController /
@@ -250,6 +251,8 @@ export type EventMap = {
         is_temp?: boolean;
         /** The bonus code `puter.signup-bonus.validate` accepted, if any. */
         bonus_code?: string;
+        /** The `utm_*` params the signup carried, if any. Client-supplied. */
+        utm?: SignupUtm;
         [key: string]: unknown;
     };
     // Signup bonus codes are pure mechanism here: an extension decides what a

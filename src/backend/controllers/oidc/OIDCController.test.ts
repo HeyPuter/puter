@@ -2386,4 +2386,46 @@ describe('OIDC signup bonus codes', () => {
         expect(captured.redirectUrl).toContain('message=signup_blocked');
         expect(captured.redirectUrl).toContain('bonusCode=startup3mabcd1234');
     });
+
+    it('carries shaped utm params in the signed state', async () => {
+        const decoded = await startState({
+            flow: 'signup',
+            utm_source: 'ads',
+            utm_campaign: 'launch',
+            utm_id: 'not-tracked',
+            utm_medium: '',
+        });
+        expect(decoded.utm).toEqual({ source: 'ads', campaign: 'launch' });
+    });
+
+    it('leaves utm out of the state when none were sent', async () => {
+        const decoded = await startState({ flow: 'signup' });
+        expect(decoded).not.toHaveProperty('utm');
+    });
+
+    it('announces the state utm on the new account, re-shaped', async () => {
+        const email = `utm-${rand()}@test.local`;
+        stubIdp(`sub-${rand()}`, email);
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: TEST_ORIGIN + '/',
+            utm: { source: 'ads', medium: 7, extra: 'x' },
+        });
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/signup',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+
+        expect(captured.cookies).toHaveLength(1);
+        const deadline = Date.now() + 2000;
+        let success: Record<string, unknown> | undefined;
+        while (!success && Date.now() < deadline) {
+            success = heardSignupSuccess.find((e) => e.email === email);
+            if (!success) await new Promise((r) => setTimeout(r, 10));
+        }
+        expect(success?.utm).toEqual({ source: 'ads' });
+    });
 });

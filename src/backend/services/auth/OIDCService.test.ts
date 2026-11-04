@@ -1164,6 +1164,31 @@ describe('OIDCService.createUserFromOIDC', () => {
         server.clients.event.off('puter.signup.success', onSignup);
     });
 
+    it('announces the utm it was given', async () => {
+        const email = `utm-${crypto.randomBytes(4).toString('hex')}@example.com`;
+        const signups: Array<Record<string, unknown>> = [];
+        const onSignup = (_k: string, data: unknown) =>
+            signups.push(data as Record<string, unknown>);
+        server.clients.event.on('puter.signup.success', onSignup);
+        try {
+            const result = await runWithContext({ req }, () =>
+                oidc().createUserFromOIDC(
+                    'google',
+                    { sub: `utm-sub-${email}`, email, email_verified: true },
+                    null,
+                    { utm: { source: 'ads', campaign: 'launch' } },
+                ),
+            );
+            expect(result.success).toBe(true);
+            expect(signups[0]?.utm).toEqual({
+                source: 'ads',
+                campaign: 'launch',
+            });
+        } finally {
+            server.clients.event.off('puter.signup.success', onSignup);
+        }
+    });
+
     it('retries the generated username when its home path is already occupied', async () => {
         // The RNG is input to the candidate generator, not the code under
         // test: compute the same first candidate the service will try.

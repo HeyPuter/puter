@@ -32,6 +32,7 @@ import {
     checkSignupBonus,
     validateSignupBonus,
 } from '../../util/signupBonus.js';
+import type { SignupUtm } from '../../util/signupUtm.js';
 import { isUsernameTaken } from '../../util/username.js';
 import { isEmailGateLast } from '../../util/verificationOrder.js';
 import {
@@ -83,6 +84,7 @@ export interface SignupInput {
     isTemp: boolean;
     fingerprint: string | null;
     bonusCode: string | null;
+    utm?: SignupUtm | null;
 }
 
 /** The trusted client address; `req.ip` honors `trust proxy`. */
@@ -278,7 +280,7 @@ export class SignupService extends PuterService {
      * refused signup answers with.
      */
     async signup(input: SignupInput): Promise<UserRow> {
-        const { req, body, isTemp, fingerprint, bonusCode } = input;
+        const { req, body, isTemp, fingerprint, bonusCode, utm } = input;
 
         // Runs before the duplicate checks so a disabled endpoint doesn't
         // reveal which usernames or emails exist. Claiming a pre-existing
@@ -547,6 +549,7 @@ export class SignupService extends PuterService {
             // The created/claimed row: a claimed placeholder has credentials.
             isTemp: user.password === null && user.email === null,
             saveAccount: !isTemp,
+            utm,
         });
         return user;
     }
@@ -566,6 +569,7 @@ export class SignupService extends PuterService {
             /** The provider verified the address, so this is its confirmation. */
             emailConfirmed?: boolean;
             saveAccount: boolean;
+            utm?: SignupUtm | null;
         },
     ): void {
         if (opts.emailConfirmed) this.#emitEmailConfirmed(user);
@@ -587,6 +591,7 @@ export class SignupService extends PuterService {
                     // counters are written under one key and read under another.
                     ip: opts.ip,
                     ...(opts.bonusCode ? { bonus_code: opts.bonusCode } : {}),
+                    ...(opts.utm ? { utm: opts.utm } : {}),
                 },
                 {},
             );
