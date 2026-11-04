@@ -801,9 +801,6 @@ function UIContextMenu (options) {
             $(options.parent_element).css('overflow', 'scroll');
 
             $(options.parent_element).removeClass('has-open-contextmenu');
-            if ( $(options.parent_element).hasClass('taskbar-item') ) {
-                window.make_taskbar_sortable();
-            }
         }
     });
 

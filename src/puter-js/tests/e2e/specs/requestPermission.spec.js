@@ -1143,7 +1143,7 @@ test.describe('request-permission action hardening', () => {
         );
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
         // Give the post-auth action a chance to run before asserting absence.
-        await page.locator('.desktop').waitFor({ timeout: 60_000 });
+        await page.locator('.window-dashboard').waitFor({ timeout: 60_000 });
         await expect(page.locator('dialog.perm-dialog')).toHaveCount(0);
     });
 
@@ -1279,7 +1279,7 @@ test.describe('request-permission action hardening', () => {
                 `&origin=${encodeURIComponent('https://not-the-requester.example/')}`,
         );
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
-        await page.locator('.desktop').waitFor({ timeout: 60_000 });
+        await page.locator('.window-dashboard').waitFor({ timeout: 60_000 });
         await expect(page.locator('dialog.perm-dialog')).toHaveCount(0);
     });
 

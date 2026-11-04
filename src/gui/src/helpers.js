@@ -684,15 +684,9 @@ window.update_auth_data = async (auth_token, user) => {
 
     // ----------------------------------------------------
 
-    const to_storable_user = user => {
-        const storable_user = { ...user };
-        delete storable_user.taskbar_items;
-        return storable_user;
-    };
-
     // update this session's user data
     window.user = user;
-    localStorage.setItem('user', JSON.stringify(to_storable_user(user)));
+    localStorage.setItem('user', JSON.stringify(user));
 
     // re-initialize the Puter.js objects with the new auth token
     puter.setAuthToken(auth_token, window.api_origin);
@@ -715,7 +709,7 @@ window.update_auth_data = async (auth_token, user) => {
             window.logged_in_users.push(userobj);
         }
         // update local storage
-        localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users.map(to_storable_user)));
+        localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users));
     }
 
     window.desktop_path = `/${ window.user.username }/Desktop`;
@@ -728,11 +722,6 @@ window.update_auth_data = async (auth_token, user) => {
     window.home_path = `/${ window.user.username}`;
     window.public_path = `/${ window.user.username }/Public`;
     window.shared_path = 'puter://shared';
-
-    if ( window.user !== null && !window.user.is_temp ) {
-        $('.user-options-login-btn, .user-options-create-account-btn').hide();
-        $('.user-options-menu-btn').show();
-    }
 
     // Search and store user templates (non-blocking)
     window.available_templates();
@@ -1084,7 +1073,6 @@ window.show_save_account_notice_if_needed = function (message) {
                         reload_on_success: true,
                         send_confirmation_code: false,
                         window_options: {
-                            show_in_taskbar: false,
                             backdrop: true,
                             close_on_backdrop_click: false,
                         },
@@ -1706,14 +1694,13 @@ window.trigger_download = (paths) => {
 
 /**
  * Updates every Trash icon in the UI to reflect whether the trash is empty:
- * the taskbar item, desktop items (and shortcuts to Trash), open explorer
- * window head icons, and the Dashboard's Files-tab sidebar.
+ * items (and shortcuts to Trash), open explorer window head icons, and the
+ * Dashboard's Files-tab sidebar.
  *
  * @param {boolean} is_empty - Whether the trash is empty
  */
 window.update_trash_icons = function (is_empty) {
     const icon = is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'];
-    $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', icon);
     $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', icon);
     $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', icon);
     $('.directories [data-folder="Trash"] img').attr('src', icon);
@@ -2168,34 +2155,17 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 };
 
 /**
- * Refreshes the desktop background based on the user's settings.
- * If the user has set a custom desktop background URL or color, it will use that.
- * If not, it defaults to a specific wallpaper image.
- *
- * @global
- * @function
- * @fires set_desktop_background - Calls this global function to set the desktop background.
- *
- * @example
- * // This will refresh the desktop background according to the user's preference or defaults.
- * window.refresh_desktop_background();
+ * Paints the default wallpaper behind the pages that show before the
+ * dashboard: the saved-session list and `/action/<name>` dialogs.
  */
 window.refresh_desktop_background = function () {
-    if ( window.user && (window.user.desktop_bg_url !== null || window.user.desktop_bg_color !== null) ) {
-        window.set_desktop_background({
-            url: window.user.desktop_bg_url,
-            fit: window.user.desktop_bg_fit,
-            color: window.user.desktop_bg_color,
-        });
-    }
-    // default background
-    else {
-        let wallpaper = (window.gui_env === 'prod') ? 'https://puter-assets.b-cdn.net/wallpaper.webp' : '/src/images/wallpaper.webp';
-        window.set_desktop_background({
-            url: wallpaper,
-            fit: 'cover',
-        });
-    }
+    const wallpaper = (window.gui_env === 'prod') ? 'https://puter-assets.b-cdn.net/wallpaper.webp' : '/src/images/wallpaper.webp';
+    $('body').css({
+        'background-image': `url(${wallpaper})`,
+        'background-size': 'cover',
+        'background-repeat': 'no-repeat',
+        'background-position': 'center center',
+    });
 };
 
 window.determine_website_url = function (fsentry_path) {
@@ -3425,57 +3395,6 @@ window.undo_delete = async (items) => {
         let metadata = $(el).attr('data-metadata') === '' ? {} : JSON.parse($(el).attr('data-metadata'));
         window.move_items([el], path.dirname(metadata.original_path), true);
     }
-};
-
-window.store_auto_arrange_preference = (preference) => {
-    // localStorage still carries it for this device either way.
-    puter.kv.set('user_preferences.auto_arrange_desktop', preference)
-        .catch(err => console.warn('Could not save auto_arrange_desktop:', err));
-    localStorage.setItem('auto_arrange', preference);
-};
-
-window.get_auto_arrange_data = async () => {
-    // Best-effort, like every other preference read: falling back to the
-    // default keeps the desktop arranging itself rather than not appearing.
-    const preferenceValue = await puter.kv.get('user_preferences.auto_arrange_desktop').catch(() => null);
-    window.is_auto_arrange_enabled = preferenceValue === null ? true : preferenceValue;
-    const positions = await puter.kv.get('desktop_item_positions').catch(() => null);
-    window.desktop_item_positions = (!positions || typeof positions !== 'object' || Array.isArray(positions)) ? {} : positions;
-};
-
-window.clear_desktop_item_positions = async (el_desktop) => {
-    $(el_desktop).find('.item').each(function () {
-        const el_item = $(this)[0];
-        $(el_item).css('position', '');
-        $(el_item).css('left', '');
-        $(el_item).css('top', '');
-    });
-    if ( window.reset_item_positions ) {
-        window.delete_desktop_item_positions();
-    }
-};
-
-window.set_desktop_item_positions = async (el_desktop) => {
-    $(el_desktop).find('.item').each(async function () {
-        const position = window.desktop_item_positions[$(this).attr('data-uid')];
-        const el_item = $(this)[0];
-        if ( position ) {
-            $(el_item).css('position', 'absolute');
-            $(el_item).css('left', `${position.left }px`);
-            $(el_item).css('top', `${position.top }px`);
-        }
-    });
-};
-
-window.save_desktop_item_positions = () => {
-    puter.kv.set('desktop_item_positions', window.desktop_item_positions)
-        .catch(err => console.warn('Could not save desktop_item_positions:', err));
-};
-
-window.delete_desktop_item_positions = () => {
-    window.desktop_item_positions = {};
-    puter.kv.del('desktop_item_positions')
-        .catch(err => console.warn('Could not clear desktop_item_positions:', err));
 };
 
 // Finds the `.window` element for the given app instance ID

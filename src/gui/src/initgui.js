@@ -21,7 +21,6 @@ import UIDashboard from './UI/Dashboard/UIDashboard.js';
 import TabApps from './UI/Dashboard/TabApps.js';
 import UIAlert from './UI/UIAlert.js';
 import UIComponentWindow from './UI/UIComponentWindow.js';
-import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
@@ -67,7 +66,10 @@ import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
 import { readSignupBonusCode } from './helpers/signupBonusCode.js';
-import { parse_url_paths } from './helpers/urlPaths.js';
+import { drop_desktop_prefix, parse_url_paths } from './helpers/urlPaths.js';
+import { legacy_landing } from './helpers/legacyLanding.js';
+import { open_path_target } from './helpers/openPathTarget.js';
+import download_url_to_desktop from './helpers/downloadUrlToDesktop.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
 import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
@@ -233,23 +235,9 @@ const postAuthActions = async (action) => {
     }
 
     // -------------------------------------------------------------------------------------
-    // Load desktop, only if we're not embedded in a popup and not on the dashboard page
+    // Dashboard, unless we're embedded in a popup
     // -------------------------------------------------------------------------------------
-    if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
-        if ( window.is_fullpage_mode ) {
-            // In fullpage mode, skip loading desktop items and background
-            UIDesktop({});
-        } else {
-            await window.get_auto_arrange_data();
-            puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
-                UIDesktop({ desktop_fsentry: desktop_fsentry });
-            });
-        }
-    }
-    // -------------------------------------------------------------------------------------
-    // Dashboard mode
-    // -------------------------------------------------------------------------------------
-    else if ( window.is_dashboard_mode ) {
+    if ( window.is_dashboard_mode ) {
         // Paint in the language this browser last loaded, so the dashboard
         // doesn't wait on the saved preferences; a different saved language
         // reloads into it.
@@ -264,19 +252,59 @@ const postAuthActions = async (action) => {
                 window.dashboard_object.renderDirectory(window.dashboard_object.currentPath);
             }
         });
+        // A URL that used to open the desktop, or a `/?download=<url>` link,
+        // is acted on once the dashboard is up. It's read by now, so the
+        // address bar is swapped for the dashboard's own URL first.
+        const legacy = window.dashboard_legacy_landing;
+        const download_url = window.url_paths.length === 0
+            ? window.url_query_params.get('download')
+            : null;
+        if ( legacy || download_url ) {
+            const params = new URLSearchParams(window.location.search);
+            for ( const key of ['app', 'path', 'download'] ) params.delete(key);
+            const search = params.toString();
+            window.history.replaceState(null, '', `/${search ? `?${search}` : ''}${window.location.hash}`);
+        }
+        // A linked folder is where Files opens; a linked file opens in its
+        // app once the dashboard is up.
+        let linked_file = null;
+        if ( legacy?.open_path ) {
+            try {
+                const stat = await puter.fs.stat({ path: legacy.open_path, consistency: 'eventual' });
+                if ( stat.is_dir ) {
+                    window.dashboard_initial_route = { tab: 'files', path: legacy.open_path };
+                } else {
+                    linked_file = stat;
+                }
+            } catch ( e ) {
+                UIAlert({ message: i18n('error_user_or_path_not_found'), type: 'error' });
+            }
+        }
         const el_dashboard_promise = UIDashboard();
+        if ( legacy?.invalid_username ) {
+            UIAlert({ message: i18n('error_invalid_username') });
+        } else if ( linked_file ) {
+            el_dashboard_promise
+                .then(() => open_path_target(legacy.open_path, linked_file))
+                .catch(err => console.error('Could not open the linked file:', err));
+        }
+        if ( download_url ) {
+            el_dashboard_promise
+                .then(() => download_url_to_desktop(download_url))
+                .catch(err => console.error('Could not start the linked download:', err));
+        }
         // Direct landing on /app/<name>: open the app in the dashboard the
         // same way a tile launch does. The dashboard's route is slotted
         // underneath first (replaceState) and the launch re-claims
         // /app/<name> as a real history entry, so Back minimizes to the
         // dashboard exactly like an in-dashboard launch. (`?c` suppresses
-        // the auto-launch, mirroring the desktop URL-launch flow.)
+        // the auto-launch.)
         if ( window.url_paths[0]?.toLocaleLowerCase() === 'app'
             && window.url_paths[1]
             && ! window.url_query_params.has('c') ) {
             const app_name = window.url_paths[1];
             // any query param that doesn't start with 'puter.' is passed
-            // through to the app (mirrors the desktop URL-launch flow)
+            // through to the app
             const app_query_params = {};
             for ( const [key, value] of window.url_query_params ) {
                 if ( ! key.startsWith('puter.') ) {
@@ -1135,41 +1163,36 @@ if (jQuery) {
     };
 }
 
-// are we in dashboard mode?
-// The dashboard is the default interface at the root path; `/dashboard` is kept as an
-// alias, and `/desktop` loads the desktop instead. Direct app landings (`/app/<name>`)
-// open in the dashboard too: the app comes up maximized in-page with the dashboard
-// route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
-// To land the same app on the desktop instead, prefix the path:
-// `/desktop/app/<name>` doesn't match the dashboard paths below, so it falls
-// through to the desktop.
-// URLs that carry a desktop-only flow keep booting the desktop: auth popups
-// (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
-// fullpage mode (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
-// from an email) lands in the dashboard: Files, on Shared, with the items it names
-// picked out; `/desktop?shared=` opens the item on the desktop instead. App metadata
-// like fullpage_on_landing does NOT opt a landing out of the dashboard; it only
-// affects boots that still go through the desktop flow.
+// Every boot except an auth popup opens the dashboard. Direct app landings
+// (`/app/<name>`) come up maximized in-page with the dashboard route slotted
+// underneath (see postAuthActions), so Back minimizes to the dashboard. A share
+// link (`?shared=`, from an email) lands in Files, on Shared, with the items it
+// names picked out. URLs that used to open the desktop land on their dashboard
+// equivalent: a `/desktop` prefix is dropped here, and the rest are resolved by
+// legacy_landing once the dashboard is up.
 {
-    const pathname = window.location.pathname;
     const search_params = new URLSearchParams(window.location.search);
     if (['true', '1'].includes(search_params.get('embedded_in_popup'))) {
         window.embedded_in_popup = true;
     }
-    // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
-    const in_iframe = window.location !== window.parent.location;
-    const needs_desktop_at_root =
-        window.embedded_in_popup ||
-        in_iframe ||
-        search_params.has('puter.fullpage') ||
-        search_params.has('app') ||
-        search_params.has('download');
-    const is_dashboard_alias =
-        pathname === '/dashboard' || pathname === '/dashboard/';
-    const is_app_landing = /^\/app\/[^/]+\/?$/.test(pathname);
-    if (is_dashboard_alias || ((pathname === '/' || is_app_landing) && !needs_desktop_at_root)) {
+    const pathname = drop_desktop_prefix(window.location.pathname);
+    if (pathname !== window.location.pathname) {
+        window.history.replaceState(
+            null,
+            '',
+            `${pathname}${window.location.search}${window.location.hash}`,
+        );
+    }
+    if (!window.embedded_in_popup) {
         window.is_dashboard_mode = true;
         window.dashboard_initial_route = parseDashboardRoute();
+        window.dashboard_legacy_landing = legacy_landing(
+            parse_url_paths(window.location.pathname),
+            search_params,
+        );
+        if (window.dashboard_legacy_landing?.route) {
+            window.dashboard_initial_route = window.dashboard_legacy_landing.route;
+        }
         // A share link outranks the hash: Files, on Shared, with what it names
         // picked out. The values go through raw — the Files tab validates them.
         if (search_params.has('shared')) {
@@ -1403,10 +1426,6 @@ window.initgui = async function (options) {
     const oidcChallenge = takeOidcLoginChallenge();
     const url = new URL(window.location).href;
     window.url = url;
-    // Route segments with a leading `/desktop` dropped, so the route checks
-    // downstream (app landings, actions) never have to know about the prefix:
-    // `/desktop/app/<name>` opens the app on the desktop the same way
-    // `/app/<name>` opens it in the dashboard.
     const url_paths = parse_url_paths(window.location.pathname);
     window.url_paths = url_paths;
 
@@ -1533,27 +1552,8 @@ window.initgui = async function (options) {
         return;
     }
 
-    //--------------------------------------------------------------------------------------
-    // Determine if we are in full-page mode
-    // i.e. https://puter.com/app/<app_name>/?puter.fullpage=true
-    //--------------------------------------------------------------------------------------
-    if (
-        window.url_query_params.has('puter.fullpage') &&
-        (window.url_query_params.get('puter.fullpage') === 'false' ||
-            window.url_query_params.get('puter.fullpage') === '0')
-    ) {
-        window.is_fullpage_mode = false;
-    } else if (
-        window.url_query_params.has('puter.fullpage') &&
-        (window.url_query_params.get('puter.fullpage') === 'true' ||
-            window.url_query_params.get('puter.fullpage') === '1')
-    ) {
-        // In fullpage mode, we want to hide the taskbar for better UX
-        window.taskbar_height = 0;
-
-        // Puter is in fullpage mode.
-        window.is_fullpage_mode = true;
-    } else if (window.is_dashboard_mode) {
+    // The dashboard fills the page; only an auth popup isn't in fullpage mode.
+    if (window.is_dashboard_mode) {
         window.is_fullpage_mode = true;
     }
 
@@ -1851,37 +1851,10 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Early check for fullpage mode from app metadata
-    // If the user navigated to /app/<app_name> and the app has fullpage_on_landing,
-    // set fullpage mode now so we can skip loading the desktop background and items.
-    // Dashboard mode never reaches the fetch (it sets is_fullpage_mode itself): app
-    // landings open in the dashboard regardless of fullpage_on_landing — the flag only
-    // matters for the boots that still go through the desktop flow (embeds, popups).
-    //--------------------------------------------------------------------------------------
-    if (
-        !window.is_fullpage_mode &&
-        window.url_paths[0]?.toLocaleLowerCase() === 'app' &&
-        window.url_paths[1]
-    ) {
-        try {
-            const app_info = await puter.apps.get(window.url_paths[1], {
-                icon_size: 64,
-            });
-            if (app_info?.metadata?.fullpage_on_landing) {
-                window.is_fullpage_mode = true;
-                window.taskbar_height = 0;
-                window.app_launched_from_url = app_info;
-            }
-        } catch (e) {
-            // App metadata fetch failed; will retry later in UIDesktop
-        }
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Desktop background (early)
-    // Set before action=login/signup so OIDC error redirects show the background behind the form.
+    // Wallpaper behind `/action/<name>` pages, whose dialogs (a password reset,
+    // an OIDC error on login) show before the dashboard does
     // -------------------------------------------------------------------------------------
-    if (!window.is_fullpage_mode && !window.embedded_in_popup) {
+    if (window.url_paths[0]?.toLowerCase() === 'action' && !window.embedded_in_popup) {
         window.refresh_desktop_background();
     }
 
@@ -2144,7 +2117,7 @@ window.initgui = async function (options) {
             } catch (e) { /* sessionStorage unavailable */ }
         }
         // remove the token from URL, keeping the current path (e.g. `/` or
-        // `/desktop`) and hash (dashboard tab links like /#usage).
+        // `/app/<name>`) and hash (dashboard tab links like /#usage).
         //
         // `replaceState`, not `pushState`: pushing leaves the token-bearing URL
         // as the previous history entry, so Back returns to a URL containing a
@@ -2280,15 +2253,9 @@ window.initgui = async function (options) {
         $('.window').close();
         // close all ctxmenus
         $('.context-menu').remove();
-        // remove desktop
-        $('.desktop').remove();
-        // remove taskbar
-        $('.taskbar').remove();
         // disable native browser exit confirmation
         window.onbeforeunload = null;
-        // go back to the interface the user was in: dashboard users to the root
-        // dashboard, desktop users to /desktop
-        window.location.replace(window.is_dashboard_mode ? '/' : '/desktop');
+        window.location.replace('/');
     });
 
     $(document).ajaxError(async function (event, jqxhr) {
@@ -2437,14 +2404,6 @@ window.initgui = async function (options) {
             // ----------------------------------------------------------
             window.update_sites_cache();
         }
-    }
-    // -------------------------------------------------------------------------------------
-    // Desktop Background
-    // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background
-    // because it's not visible anyway and it's a waste of bandwidth
-    // -------------------------------------------------------------------------------------
-    if (!window.is_fullpage_mode && !window.embedded_in_popup) {
-        window.refresh_desktop_background();
     }
     // -------------------------------------------------------------------------------------
     // Un-authed but not first visit -> try to log in/sign up
@@ -2845,28 +2804,6 @@ window.initgui = async function (options) {
         // close all windows
         $('.window').close();
 
-        // -------------------------------------------------------------------------------------
-        // Early check for fullpage mode from app metadata (after login)
-        // -------------------------------------------------------------------------------------
-        if (
-            !window.is_fullpage_mode &&
-            window.url_paths[0]?.toLocaleLowerCase() === 'app' &&
-            window.url_paths[1]
-        ) {
-            try {
-                const app_info = await puter.apps.get(window.url_paths[1], {
-                    icon_size: 64,
-                });
-                if (app_info?.metadata?.fullpage_on_landing) {
-                    window.is_fullpage_mode = true;
-                    window.taskbar_height = 0;
-                    window.app_launched_from_url = app_info;
-                }
-            } catch (e) {
-                // App metadata fetch failed; will retry later in UIDesktop
-            }
-        }
-
         await postAuthActions(action);
     });
 
@@ -2908,10 +2845,6 @@ window.initgui = async function (options) {
 
         // click on anything will close all popovers, but there are some exceptions
         if (
-            !$(e.target).hasClass('start-app') &&
-            !$(e.target).hasClass('launch-search') &&
-            !$(e.target).hasClass('launch-search-clear') &&
-            $(e.target).closest('.start-app').length === 0 &&
             !isMobile.phone &&
             !isMobile.tablet &&
             !$(e.target).hasClass('popover') &&
@@ -2959,21 +2892,6 @@ window.initgui = async function (options) {
     // Window Activation
     //--------------------------------------------------------
     $(document).on('mousedown', function (e) {
-        // if taskbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('taskbar') ||
-            $(e.target).closest('.taskbar').length > 0
-        ) {
-            return;
-        }
-        // if toolbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('toolbar') ||
-            $(e.target).closest('.toolbar').length > 0
-        ) {
-            return;
-        }
-
         // if close or minimize button clicked, drop the event
         if (
             document
@@ -3057,15 +2975,6 @@ $(document).on('click', '.generic-close-window-button', function (e) {
     $(this).closest('.window').close();
 });
 
-$(document).on('click', function (e) {
-    if (
-        !$(e.target).hasClass('window-search') &&
-        $(e.target).closest('.window-search').length === 0 &&
-        !$(e.target).is('.toolbar-btn.search-btn')
-    ) {
-        $('.window-search').close();
-    }
-});
 
 // Re-calculate desktop height and width on window resize and re-position the login and signup windows
 $(window).on('resize', function () {

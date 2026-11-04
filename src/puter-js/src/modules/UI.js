@@ -89,7 +89,9 @@ import { checkPermissions } from './perms/lib/holds.js';
  * minimize, and maximize buttons.
  * @property {number} [height] Height of the window in pixels.
  * @property {boolean} [is_resizable] If `true`, the user can resize the window.
- * @property {boolean} [show_in_taskbar] If `true`, the window is represented in the taskbar.
+ * @property {boolean} [show_in_taskbar] Has no effect: Puter no longer has a taskbar. Still accepted, so
+ * existing calls keep working.
+ * @deprecated
  * @property {string} [title] Title of the window.
  * @property {number} [width] Width of the window in pixels.
  */
@@ -106,8 +108,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  * @property {FSItem[]} [items] `FSItem` objects to open with the launched app.
  * @property {string} [pseudonym] A pseudonym to launch the app under.
  * @property {boolean} [background] If `true`, the app starts with its window hidden, for an app
- * launched to do work rather than to be looked at. It still appears in the taskbar, so the user can
- * show it (or close it) at any time, and it can show itself with `puter.ui.showWindow()`.
+ * launched to do work rather than to be looked at. It can show itself with `puter.ui.showWindow()`.
  * @property {(connection: AppConnection) => void} [callback]
  */
 

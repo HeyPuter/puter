@@ -1416,7 +1416,6 @@ describe('AuthController.handleLogin', () => {
             is_user_token: true,
         });
         expect(body.user.directories).toBeTypeOf('object');
-        expect(Array.isArray(body.user.taskbar_items)).toBe(true);
     });
 
     // A deleted row still answering from cache reaches the session INSERT.

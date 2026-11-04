@@ -20,7 +20,6 @@
 import UIAlert from './UIAlert.js';
 import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
-import UITaskbarItem from './UITaskbarItem.js';
 import UIWindowLogin from './UIWindowLogin.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
@@ -117,7 +116,6 @@ async function UIWindow (options) {
     options.on_close = options.on_close ?? undefined;
     options.parent_uuid = options.parent_uuid ?? null;
     options.selectable_body = (options.selectable_body === undefined || options.selectable_body === true) ? true : false;
-    options.show_in_taskbar = options.show_in_taskbar ?? true;
     options.show_maximize_button = options.show_maximize_button ?? true;
     options.single_instance = options.single_instance ?? false;
     options.sort_by = options.sort_by ?? 'name';
@@ -526,17 +524,7 @@ async function UIWindow (options) {
 
     // backdrop
     if ( options.backdrop ) {
-        let backdrop_zindex;
-        // backdrop should also cover over taskbar
-        let taskbar_zindex = $('.taskbar').css('z-index');
-        if ( taskbar_zindex === null || taskbar_zindex === undefined )
-        {
-            backdrop_zindex = zindex;
-        }
-        else {
-            taskbar_zindex = parseInt(taskbar_zindex);
-            backdrop_zindex = taskbar_zindex > zindex ? taskbar_zindex : zindex;
-        }
+        let backdrop_zindex = zindex;
 
         // dominant backdrop will cover over toolbar as well
         if ( options.backdrop_covers_toolbar )
@@ -585,56 +573,6 @@ async function UIWindow (options) {
     const el_openfiledialog_open_btn = document.querySelector(`#window-${win_id} .openfiledialog-open-btn`);
     const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
     const el_window_filedialog_upload_here = document.querySelector(`#window-${win_id} .window-filedialog-upload-here`);
-
-    // Add Taskbar Item
-    // data-in_taskbar records that this window is one of the item's
-    // data-open-windows, so the close path only decrements a count this
-    // window actually added to (see the close handler) — the two must stay
-    // in step, and a window that never took an item must not take one away.
-    const add_taskbar_item = () => {
-        $(el_window).attr('data-in_taskbar', '1');
-        // add icon if there is no similar app already open
-        if ( $(`.taskbar-item[data-app="${options.app}"]`).length === 0 ) {
-            UITaskbarItem({
-                icon: options.icon,
-                name: options.title,
-                app: options.app,
-                open_windows_count: 1,
-                before_trash: true,
-                onClick: function () {
-                    let open_window_count = parseInt($(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows'));
-                    if ( open_window_count === 0 ) {
-                        launch_app({
-                            name: options.app,
-                        });
-                    } else {
-                        return false;
-                    }
-                },
-            });
-            if ( options.app )
-            {
-                $(`.taskbar-item[data-app="${options.app}"] .active-taskbar-indicator`).show();
-            }
-        } else {
-            if ( options.app ) {
-                $(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows', parseInt($(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows')) + 1);
-                $(`.taskbar-item[data-app="${options.app}"] .active-taskbar-indicator`).show();
-            }
-        }
-    };
-    if ( !options.is_openFileDialog && !options.is_saveFileDialog && !options.is_directoryPicker && options.show_in_taskbar ) {
-        // A window started hidden by a background launch gets no taskbar item
-        // yet: it runs for the app that launched it, and an item would both
-        // advertise and hand out an instance the user never asked for. The
-        // item is what the window earns the moment it first becomes visible
-        // — makeWindowVisible calls this, whether the app showed itself with
-        // puter.ui.showWindow() or something else revealed it. An app that is
-        // ALWAYS windowless never reaches here: launch_app leaves
-        // show_in_taskbar false for it, so it keeps having no item at all.
-        if ( options.launched_hidden ) el_window._add_taskbar_item = add_taskbar_item;
-        else add_taskbar_item();
-    }
 
     if ( el_window_filedialog_upload_here ) {
         el_window_filedialog_upload_here.addEventListener('click', function () {
@@ -1923,7 +1861,6 @@ async function UIWindow (options) {
                     snap_trigger_timeout = undefined;
                 }
                 hideSnapPlaceholder();
-                $('.toolbar').css('pointer-events', 'none');
                 // if window is snapped, unsnap it and reset its position to where it was before snapping
                 if ( options.is_resizable && window_is_snapped ) {
                     window_is_snapped = false;
@@ -2018,7 +1955,6 @@ async function UIWindow (options) {
 
                 $(el_window_app_iframe).css('pointer-events', 'all');
                 $('.window').css('pointer-events', 'initial');
-                $('.toolbar').css('pointer-events', 'auto');
 
                 if ( options.is_resizable && snap_placeholder_active && !window_is_snapped ) {
                     window_will_snap = true;
@@ -2859,7 +2795,7 @@ async function UIWindow (options) {
     if ( options.is_fullpage ) {
         $(el_window).hide();
         setTimeout(function () {
-            window.enter_fullpage_mode(el_window);
+            enter_fullpage_mode(el_window);
             $(el_window).show();
         }, 50);
     }
@@ -3651,32 +3587,8 @@ $.fn.close = async function (options) {
             let window_uuid = $(this).attr('data-element_uuid');
             // remove all instances of win_id from window.window_stack
             window.window_stack = window.window_stack.filter(id => id !== win_id);
-            // taskbar update — only for a window that IS one of the item's
-            // open windows (data-in_taskbar, stamped when it took its place
-            // in the count). A window that never counted must not decrement:
-            // an unseen background instance closing alongside the user's own
-            // window would otherwise zero the count and take the item away
-            // while that window is still open.
-            if ( $(this).attr('data-in_taskbar') === '1' ) {
-                let open_window_count = parseInt($(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows'));
-                // update open window count of corresponding taskbar item
-                if ( open_window_count > 0 ) {
-                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows', open_window_count - 1);
-                }
-                // decide whether to remove taskbar item
-                if ( open_window_count === 1 ) {
-                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
-                    window.remove_taskbar_item($(`.taskbar-item[data-app="${$(this).attr('data-app')}"][data-keep-in-taskbar="false"]`));
-                }
-                // if no more windows of this app are open, remove taskbar item
-                if ( open_window_count - 1 === 0 )
-                {
-                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
-                }
-            }
-            // if a fullpage window is closed, show desktop and taskbar
             if ( $(this).attr('data-is_fullpage') === '1' ) {
-                window.exit_fullpage_mode();
+                exit_fullpage_mode();
             }
 
             // FileDialog closed
@@ -3797,9 +3709,6 @@ $.fn.close = async function (options) {
                 document.activeElement.blur();
                 $('input').blur();
             }
-            // focus back to desktop
-            $('.desktop').find('.item-blurred').removeClass('item-blurred');
-            window.active_item_container = $('.desktop.item-container').get(0);
         }
     });
 
@@ -3824,11 +3733,6 @@ window.scale_window = (el_window) => {
 
         // Use taskbar position-aware window positioning
         window.update_maximized_window_for_taskbar(el_window);
-
-        // hide toolbar
-        if ( !isMobile.phone && !isMobile.tablet ) {
-            window.hide_toolbar();
-        }
     }
     //shrink
     else {
@@ -3953,15 +3857,11 @@ $.fn.makeWindowVisible = function (options) {
             // Seen by the user, so no longer a window that exists purely to
             // serve whoever launched it: it outlives its launcher from here on
             // (see the close path's cleanup of background children), and it
-            // becomes a window the user can act on — hence the taskbar item
-            // its launch deferred, and the dashboard tile's running dot.
-            // Both happen BEFORE the window shows: focusWindow() below marks
-            // the app's taskbar item active, which needs the item to exist.
+            // becomes a window the user can act on — hence the dashboard
+            // tile's running dot.
             const was_launched_hidden = $(this).attr('data-launched_hidden') === '1';
             $(this).removeAttr('data-launched_hidden');
             if ( was_launched_hidden ) {
-                this._add_taskbar_item?.();
-                delete this._add_taskbar_item;
                 if ( window.is_dashboard_mode && $(this).attr('data-app') ) {
                     document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
                 }
@@ -4233,8 +4133,7 @@ $.fn.focusWindow = function (event) {
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
         // Update the tab title to the focused window. The URL itself is
-        // deliberately NOT touched here: on the desktop it stays /desktop
-        // (apps don't rewrite it), and in dashboard mode the open app owns
+        // deliberately NOT touched here: in dashboard mode the open app owns
         // it through real history entries (push_dashboard_app_url).
         if ( ! window.is_dashboard_mode ) {
             const update_window_url = $(this).attr('data-update_window_url');
@@ -4242,10 +4141,8 @@ $.fn.focusWindow = function (event) {
                 document.title = $(this).attr('data-name');
             }
         }
-        $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).addClass('taskbar-item-active');
     } else {
         $('.window').find('.item-selected').addClass('item-blurred');
-        $('.desktop').find('.item-blurred').removeClass('item-blurred');
     }
 
     return this;
@@ -5224,230 +5121,167 @@ function morph_window_from_tile (el_window, tile, morph_options = {}) {
 $.fn.hideWindow = async function (options) {
     $(this).each(async function () {
         if ( $(this).hasClass('window') ) {
-            // get taskbar item location
-            let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
+            // If the app's tile is visible on the Apps tab's current page,
+            // shrink the window into it so the user sees where the app went;
+            // otherwise simply hide the window in place. Either way the
+            // geometry is untouched afterwards and showWindow() un-hides via
+            // the data-minimized_in_place flag.
+            const el_window = this;
+            const $win = $(this);
+            const reduce_motion = window.matchMedia
+                && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            // (A morph already in flight — either direction — owns the
+            // window's inline transform/opacity and will restore them at
+            // its end, so don't start another on top; fall back to the
+            // plain fade below, exactly as before the morphs existed.)
+            const tile = (reduce_motion
+                || $win.attr('data-window_morphing') === '1')
+                ? null
+                : dashboard_tile_in_view($win.attr('data-app'));
 
-            // No taskbar item to animate toward (e.g. dashboard mode, which
-            // has no taskbar): if the app's tile is visible on the Apps tab's
-            // current page, shrink the window into it so the user sees where
-            // the app went; otherwise simply hide the window in place. Either
-            // way the geometry is untouched afterwards and showWindow()
-            // un-hides via the data-minimized_in_place flag.
-            if ( ! taskbar_item_pos ) {
-                const el_window = this;
-                const $win = $(this);
-                const reduce_motion = window.matchMedia
-                    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-                // (A morph already in flight — either direction — owns the
-                // window's inline transform/opacity and will restore them at
-                // its end, so don't start another on top; fall back to the
-                // plain fade below, exactly as before the morphs existed.)
-                const tile = (reduce_motion
-                    || $win.attr('data-window_morphing') === '1')
-                    ? null
-                    : dashboard_tile_in_view($win.attr('data-app'));
+            if ( tile ) {
+                // iOS-style zoom-to-icon morph, two congruent layers on
+                // the same 450ms decelerating path so it reads as ONE
+                // object transforming:
+                //   1. the LIVE window scales onto the tile's icon box,
+                //      its corner radius growing toward the squircle,
+                //      fading OUT once it has mostly shrunk;
+                //   2. an enlarged clone of the icon ("ghost") starts
+                //      covering the window and flies/shrinks with it,
+                //      fading IN as the window fades out, landing exactly
+                //      on the real icon's slot (the real icon is hidden
+                //      until the ghost lands, so nothing doubles).
+                // Transform + opacity animate on the compositor (no
+                // per-frame reflow of the app's iframe); the window's
+                // geometry (top/left/width/height) is never touched, so
+                // restore is trivial.
+                const icon = tile.querySelector('.myapps-tile-icon') || tile;
+                const win_rect = el_window.getBoundingClientRect();
+                const icon_rect = icon.getBoundingClientRect();
+                if ( win_rect.width > 0 && win_rect.height > 0
+                    && icon_rect.width > 0 && icon_rect.height > 0 ) {
+                    // Everything touched is restored from these exact
+                    // inline values once the animation ends.
+                    const orig_style = {
+                        transform: el_window.style.transform,
+                        transformOrigin: el_window.style.transformOrigin,
+                        opacity: el_window.style.opacity,
+                        borderRadius: el_window.style.borderRadius,
+                        overflow: el_window.style.overflow,
+                        willChange: el_window.style.willChange,
+                        pointerEvents: el_window.style.pointerEvents,
+                        transition: el_window.style.transition,
+                    };
+                    const icon_orig_visibility = icon.style.visibility;
+                    // Map the window rect exactly onto the icon rect (and
+                    // the ghost the exact inverse: icon rect onto window
+                    // rect), so the two layers stay congruent throughout.
+                    const scale_x = icon_rect.width / win_rect.width;
+                    const scale_y = icon_rect.height / win_rect.height;
+                    const dx = icon_rect.left - win_rect.left;
+                    const dy = icon_rect.top - win_rect.top;
 
-                if ( tile ) {
-                    // iOS-style zoom-to-icon morph, two congruent layers on
-                    // the same 450ms decelerating path so it reads as ONE
-                    // object transforming:
-                    //   1. the LIVE window scales onto the tile's icon box,
-                    //      its corner radius growing toward the squircle,
-                    //      fading OUT once it has mostly shrunk;
-                    //   2. an enlarged clone of the icon ("ghost") starts
-                    //      covering the window and flies/shrinks with it,
-                    //      fading IN as the window fades out, landing exactly
-                    //      on the real icon's slot (the real icon is hidden
-                    //      until the ghost lands, so nothing doubles).
-                    // Transform + opacity animate on the compositor (no
-                    // per-frame reflow of the app's iframe); the window's
-                    // geometry (top/left/width/height) is never touched, so
-                    // restore is trivial.
-                    const icon = tile.querySelector('.myapps-tile-icon') || tile;
-                    const win_rect = el_window.getBoundingClientRect();
-                    const icon_rect = icon.getBoundingClientRect();
-                    if ( win_rect.width > 0 && win_rect.height > 0
-                        && icon_rect.width > 0 && icon_rect.height > 0 ) {
-                        // Everything touched is restored from these exact
-                        // inline values once the animation ends.
-                        const orig_style = {
-                            transform: el_window.style.transform,
-                            transformOrigin: el_window.style.transformOrigin,
-                            opacity: el_window.style.opacity,
-                            borderRadius: el_window.style.borderRadius,
-                            overflow: el_window.style.overflow,
-                            willChange: el_window.style.willChange,
-                            pointerEvents: el_window.style.pointerEvents,
-                            transition: el_window.style.transition,
-                        };
-                        const icon_orig_visibility = icon.style.visibility;
-                        // Map the window rect exactly onto the icon rect (and
-                        // the ghost the exact inverse: icon rect onto window
-                        // rect), so the two layers stay congruent throughout.
-                        const scale_x = icon_rect.width / win_rect.width;
-                        const scale_y = icon_rect.height / win_rect.height;
-                        const dx = icon_rect.left - win_rect.left;
-                        const dy = icon_rect.top - win_rect.top;
+                    const ghost = icon.cloneNode(true);
+                    ghost.style.position = 'fixed';
+                    ghost.style.left = `${icon_rect.left}px`;
+                    ghost.style.top = `${icon_rect.top}px`;
+                    ghost.style.width = `${icon_rect.width}px`;
+                    ghost.style.height = `${icon_rect.height}px`;
+                    ghost.style.margin = '0';
+                    ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 1;
+                    ghost.style.pointerEvents = 'none';
+                    ghost.style.transformOrigin = 'top left';
+                    ghost.style.willChange = 'transform, opacity';
+                    ghost.style.opacity = '0';
+                    // UNIFORM start scale so the icon stays square (a
+                    // rect-onto-rect mapping stretches it), sized to fit
+                    // INSIDE the window (contain, centered) — a covering
+                    // square would protrude past the card's short edge
+                    // and the protruding halo pops in mid-crossfade
+                    // (visible jitter). Contained, the ghost's side
+                    // tracks the card's short edge exactly for the whole
+                    // flight (both interpolate linearly between the same
+                    // start and end sizes), so the card's rectangular
+                    // flanks simply melt away around a steady square.
+                    const ghost_scale = Math.min(
+                        win_rect.width / icon_rect.width,
+                        win_rect.height / icon_rect.height,
+                    );
+                    const ghost_left = win_rect.left + (win_rect.width - icon_rect.width * ghost_scale) / 2;
+                    const ghost_top = win_rect.top + (win_rect.height - icon_rect.height * ghost_scale) / 2;
+                    ghost.style.transform = `translate(${ghost_left - icon_rect.left}px, ${ghost_top - icon_rect.top}px) scale(${ghost_scale})`;
+                    document.body.appendChild(ghost);
+                    icon.style.visibility = 'hidden';
 
-                        const ghost = icon.cloneNode(true);
-                        ghost.style.position = 'fixed';
-                        ghost.style.left = `${icon_rect.left}px`;
-                        ghost.style.top = `${icon_rect.top}px`;
-                        ghost.style.width = `${icon_rect.width}px`;
-                        ghost.style.height = `${icon_rect.height}px`;
-                        ghost.style.margin = '0';
-                        ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 1;
-                        ghost.style.pointerEvents = 'none';
-                        ghost.style.transformOrigin = 'top left';
-                        ghost.style.willChange = 'transform, opacity';
-                        ghost.style.opacity = '0';
-                        // UNIFORM start scale so the icon stays square (a
-                        // rect-onto-rect mapping stretches it), sized to fit
-                        // INSIDE the window (contain, centered) — a covering
-                        // square would protrude past the card's short edge
-                        // and the protruding halo pops in mid-crossfade
-                        // (visible jitter). Contained, the ghost's side
-                        // tracks the card's short edge exactly for the whole
-                        // flight (both interpolate linearly between the same
-                        // start and end sizes), so the card's rectangular
-                        // flanks simply melt away around a steady square.
-                        const ghost_scale = Math.min(
-                            win_rect.width / icon_rect.width,
-                            win_rect.height / icon_rect.height,
-                        );
-                        const ghost_left = win_rect.left + (win_rect.width - icon_rect.width * ghost_scale) / 2;
-                        const ghost_top = win_rect.top + (win_rect.height - icon_rect.height * ghost_scale) / 2;
-                        ghost.style.transform = `translate(${ghost_left - icon_rect.left}px, ${ghost_top - icon_rect.top}px) scale(${ghost_scale})`;
-                        document.body.appendChild(ghost);
-                        icon.style.visibility = 'hidden';
+                    $win.attr({
+                        'data-is_minimized': true,
+                        'data-minimized_in_place': '1',
+                        'data-window_morphing': '1',
+                    });
+                    el_window.style.transformOrigin = 'top left';
+                    el_window.style.overflow = 'hidden'; // let the radius clip the content
+                    el_window.style.willChange = 'transform, opacity';
+                    el_window.style.pointerEvents = 'none';
+                    // Flush the starting state (both layers) so the
+                    // transitions animate from it rather than snapping.
+                    void el_window.offsetWidth;
+                    // The handoff: by ~130ms the decelerating curve has
+                    // done ~80% of the shrink — the ghost fades in just
+                    // before (80→240ms) and the window fades out just
+                    // after (120→320ms). The overlap means there is never
+                    // a hole, and since both ride the same path the swap
+                    // is invisible: the window "becomes" the icon.
+                    el_window.style.transition = [
+                        'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                        'border-radius 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                        'opacity 0.2s ease-out 0.12s',
+                    ].join(', ');
+                    el_window.style.transform = `translate(${dx}px, ${dy}px) scale(${scale_x}, ${scale_y})`;
+                    // Percentage radius stays proportional under the
+                    // scale — ~22% is the icon-squircle look.
+                    el_window.style.borderRadius = '22%';
+                    el_window.style.opacity = '0';
+                    ghost.style.transition = [
+                        'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                        'opacity 0.16s ease-in 0.08s',
+                    ].join(', ');
+                    ghost.style.transform = 'none';
+                    ghost.style.opacity = '1';
 
-                        $win.attr({
-                            'data-is_minimized': true,
-                            'data-minimized_in_place': '1',
-                            'data-window_morphing': '1',
-                        });
-                        el_window.style.transformOrigin = 'top left';
-                        el_window.style.overflow = 'hidden'; // let the radius clip the content
-                        el_window.style.willChange = 'transform, opacity';
-                        el_window.style.pointerEvents = 'none';
-                        // Flush the starting state (both layers) so the
-                        // transitions animate from it rather than snapping.
-                        void el_window.offsetWidth;
-                        // The handoff: by ~130ms the decelerating curve has
-                        // done ~80% of the shrink — the ghost fades in just
-                        // before (80→240ms) and the window fades out just
-                        // after (120→320ms). The overlap means there is never
-                        // a hole, and since both ride the same path the swap
-                        // is invisible: the window "becomes" the icon.
-                        el_window.style.transition = [
-                            'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
-                            'border-radius 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
-                            'opacity 0.2s ease-out 0.12s',
-                        ].join(', ');
-                        el_window.style.transform = `translate(${dx}px, ${dy}px) scale(${scale_x}, ${scale_y})`;
-                        // Percentage radius stays proportional under the
-                        // scale — ~22% is the icon-squircle look.
-                        el_window.style.borderRadius = '22%';
-                        el_window.style.opacity = '0';
-                        ghost.style.transition = [
-                            'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
-                            'opacity 0.16s ease-in 0.08s',
-                        ].join(', ');
-                        ghost.style.transform = 'none';
-                        ghost.style.opacity = '1';
-
+                    setTimeout(() => {
+                        // End of the zoom: the ghost has landed on the
+                        // real icon's slot — swap them back in the same
+                        // frame, hide the window, and put every touched
+                        // inline property back while nothing is visible.
+                        // If the user re-opened the window mid-animation
+                        // (tile click → showWindow cleared the flags),
+                        // restore but leave it visible.
+                        ghost.remove();
+                        icon.style.visibility = icon_orig_visibility;
+                        $win.attr('data-window_morphing', '0');
+                        const minimized = $win.attr('data-is_minimized');
+                        if ( minimized === '1' || minimized === 'true' ) $win.hide();
+                        el_window.style.transition = 'none';
+                        el_window.style.transform = orig_style.transform;
+                        el_window.style.transformOrigin = orig_style.transformOrigin;
+                        el_window.style.opacity = orig_style.opacity;
+                        el_window.style.borderRadius = orig_style.borderRadius;
+                        el_window.style.overflow = orig_style.overflow;
+                        el_window.style.willChange = orig_style.willChange;
+                        el_window.style.pointerEvents = orig_style.pointerEvents;
                         setTimeout(() => {
-                            // End of the zoom: the ghost has landed on the
-                            // real icon's slot — swap them back in the same
-                            // frame, hide the window, and put every touched
-                            // inline property back while nothing is visible.
-                            // If the user re-opened the window mid-animation
-                            // (tile click → showWindow cleared the flags),
-                            // restore but leave it visible.
-                            ghost.remove();
-                            icon.style.visibility = icon_orig_visibility;
-                            $win.attr('data-window_morphing', '0');
-                            const minimized = $win.attr('data-is_minimized');
-                            if ( minimized === '1' || minimized === 'true' ) $win.hide();
-                            el_window.style.transition = 'none';
-                            el_window.style.transform = orig_style.transform;
-                            el_window.style.transformOrigin = orig_style.transformOrigin;
-                            el_window.style.opacity = orig_style.opacity;
-                            el_window.style.borderRadius = orig_style.borderRadius;
-                            el_window.style.overflow = orig_style.overflow;
-                            el_window.style.willChange = orig_style.willChange;
-                            el_window.style.pointerEvents = orig_style.pointerEvents;
-                            setTimeout(() => {
-                                el_window.style.transition = orig_style.transition;
-                            }, 50);
-                        }, 480);
-                        return;
-                    }
+                            el_window.style.transition = orig_style.transition;
+                        }, 50);
+                    }, 480);
+                    return;
                 }
-
-                $win.attr({
-                    'data-is_minimized': true,
-                    'data-minimized_in_place': '1',
-                });
-                $win.fadeOut(150);
-                return;
             }
 
-            // Calculate animation target based on taskbar position
-            let animationTarget = {};
-            const taskbarPosition = window.taskbar_position || 'bottom';
-
-            if ( taskbarPosition === 'bottom' ) {
-                // taskbar position is center of window minus half of taskbar item width
-                taskbar_item_pos.left = taskbar_item_pos.left + ($(window).width() / 2) - ($('.taskbar').width() / 2);
-                animationTarget = {
-                    top: 'calc(100% - 60px)',
-                    left: taskbar_item_pos.left + 14.5,
-                };
-            } else if ( taskbarPosition === 'left' ) {
-                animationTarget = {
-                    top: taskbar_item_pos.top + ($(window).height() / 2) - ($('.taskbar').height() / 2) + 14.5,
-                    left: '5px',
-                };
-            } else if ( taskbarPosition === 'right' ) {
-                animationTarget = {
-                    top: taskbar_item_pos.top + ($(window).height() / 2) - ($('.taskbar').height() / 2) + 14.5,
-                    left: 'calc(100% - 60px)',
-                };
-            }
-
-            $(this).attr({
-                'data-orig-width': $(this).width(),
-                'data-orig-height': $(this).height(),
-                'data-orig-top': $(this).position().top,
-                'data-orig-left': $(this).position().left,
+            $win.attr({
                 'data-is_minimized': true,
+                'data-minimized_in_place': '1',
             });
-
-            $(this).css({
-                ...(!isMobile.phone ? {
-                    'transition': 'top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s',
-                } : {}),
-                width: '0',
-                height: '0',
-                ...animationTarget,
-            });
-
-            // remove transitions a good while after setting css to make sure
-            // it doesn't interfere with an ongoing animation
-            setTimeout(() => {
-                $(this).css({
-                    'transition': 'none',
-                    'transform': 'none',
-                });
-            }, 250);
-
-            // reset the tab title (the URL is not touched — apps never
-            // rewrite it on the desktop) — only if this window owned it
-            const update_window_url = $(this).attr('data-update_window_url');
-            if ( ! window.is_dashboard_mode && (update_window_url === 'true' || update_window_url === null) ) {
-                document.title = i18n('window_title_puter');
-            }
+            $win.fadeOut(150);
         }
     });
     return this;
@@ -5587,6 +5421,26 @@ async function saveSidebarOrder (order) {
     } catch ( err ) {
         console.error('Error saving sidebar order:', err);
     }
+}
+
+/**
+ * Fill the page with a fullpage window (the dashboard): no head, no rounding.
+ * @param {HTMLElement} el_window
+ */
+function enter_fullpage_mode (el_window) {
+    $(el_window).find('.window-head').hide();
+    $('body').addClass('fullpage-mode');
+    $(el_window).css({
+        width: '100%',
+        height: '100%',
+        top: `${window.toolbar_height}px`,
+        left: 0,
+        'border-radius': 0,
+    });
+}
+
+function exit_fullpage_mode () {
+    $('body').removeClass('fullpage-mode');
 }
 
 // Function to update maximized window positioning based on taskbar position

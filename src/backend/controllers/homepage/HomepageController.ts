@@ -25,7 +25,6 @@ import type { PuterRouter } from '../../core/http/PuterRouter';
 import type {
     PuterHomepageService,
     PageMeta,
-    LaunchOptions,
 } from '../../services/homepage/PuterHomepageService';
 
 /** Longest description/og:description/twitter:description on `/app/<name>`. */
@@ -43,9 +42,9 @@ const APP_LANDING_LIMIT = {
 };
 
 /**
- * App descriptions can run long; search snippets and social cards want a
- * short blurb. Collapses whitespace, then cuts at a word boundary with an
- * ellipsis so the result never exceeds `APP_META_DESCRIPTION_MAX`.
+ * App descriptions can run long; search snippets and social cards want a short
+ * blurb. Collapses whitespace, then cuts at a word boundary with an ellipsis so
+ * the result never exceeds `APP_META_DESCRIPTION_MAX`.
  */
 export function appMetaDescription(text: string): string {
     const clean = text.replace(/\s+/g, ' ').trim();
@@ -89,7 +88,6 @@ export class HomepageController extends PuterController {
             req: express.Request,
             res: express.Response,
             metaOverrides: Partial<PageMeta> = {},
-            launch: LaunchOptions = {},
         ) => {
             const meta = { ...defaultMeta(req), ...metaOverrides };
             const actor =
@@ -98,7 +96,7 @@ export class HomepageController extends PuterController {
                         actor?: Parameters<typeof homepage.send>[0]['actor'];
                     }
                 ).actor ?? null;
-            await homepage.send({ req, res, actor }, meta, launch);
+            await homepage.send({ req, res, actor }, meta);
         };
 
         // -- Root + path-aliased shell routes ------------------------
@@ -111,17 +109,38 @@ export class HomepageController extends PuterController {
         router.get('/dashboard', {}, (req, res) => sendShell(req, res));
         router.get('/dashboard/', {}, (req, res) => sendShell(req, res));
 
-        router.get('/desktop', {}, (req, res) => sendShell(req, res));
-        router.get('/desktop/', {}, (req, res) => sendShell(req, res));
+        // `/desktop` used to pick the desktop interface. What follows it is
+        // the same route at the root, so it redirects there, keeping the query
+        // (`?shared=`, `?download=`); the browser carries the hash over.
+        const redirectWithoutDesktop = (
+            req: express.Request,
+            res: express.Response,
+            target: string,
+        ) => {
+            const url = req.originalUrl ?? req.url ?? '';
+            const query = url.includes('?') ? url.slice(url.indexOf('?')) : '';
+            res.redirect(302, `${target}${query}`);
+        };
+
+        router.get('/desktop', {}, (req, res) =>
+            redirectWithoutDesktop(req, res, '/'),
+        );
+        router.get('/desktop/', {}, (req, res) =>
+            redirectWithoutDesktop(req, res, '/'),
+        );
+        router.get('/desktop/app/:name', {}, (req, res) =>
+            redirectWithoutDesktop(
+                req,
+                res,
+                `/app/${encodeURIComponent(String(req.params.name))}`,
+            ),
+        );
 
         router.get('/action/*splat', {}, (req, res) => sendShell(req, res));
 
         router.get('/@:username', {}, (req, res) => sendShell(req, res));
 
         // -- /app/:name - app metadata baked into the shell ----------
-        // `/desktop/app/:name` is the same landing booted on the desktop
-        // instead of the dashboard; the GUI strips the prefix and treats the
-        // rest of the path identically, so both render the same shell.
 
         const sendAppShell = async (
             req: express.Request,
@@ -176,27 +195,10 @@ export class HomepageController extends PuterController {
             { rateLimit: APP_LANDING_LIMIT },
             sendAppShell,
         );
-        router.get(
-            '/desktop/app/:name',
-            { rateLimit: APP_LANDING_LIMIT },
-            sendAppShell,
-        );
 
-        // -- /show/* - launch explorer with the requested file path --
+        // -- /show/* - the GUI opens the path that follows ----------
 
-        router.get('/show/*splat', {}, (req, res) => {
-            const filePath = req.path.slice('/show'.length);
-            const launch: LaunchOptions = {
-                on_initialized: [
-                    {
-                        $: 'window-call',
-                        fn_name: 'launch_app',
-                        args: [{ name: 'explorer', path: filePath }],
-                    },
-                ],
-            };
-            return sendShell(req, res, {}, launch);
-        });
+        router.get('/show/*splat', {}, (req, res) => sendShell(req, res));
 
         // -- /sw.js - the service worker, scoped to the whole origin --
 

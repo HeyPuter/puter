@@ -220,9 +220,6 @@ window.feature_flags = {
     download_directory: true,
 };
 
-window.is_auto_arrange_enabled = true;
-window.desktop_item_positions = {};
-window.reset_item_positions = true; // The variable decides if the item positions should be reset when the user enabled auto arrange
 
 window.file_templates = [];
 

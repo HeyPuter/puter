@@ -64,7 +64,7 @@ const makeUser = async () => {
 };
 
 describe('buildUserDetails', () => {
-    it('builds the desktop payload for a user actor', async () => {
+    it('builds the GUI payload for a user actor', async () => {
         const user = await makeUser();
         const details = await buildUserDetails(user, deps(), {
             isUser: true,
@@ -85,15 +85,18 @@ describe('buildUserDetails', () => {
             [`/${user.username}/Desktop`]: user.desktop_uuid,
             [`/${user.username}/Trash`]: user.trash_uuid,
         });
-        expect(Array.isArray(details.taskbar_items)).toBe(true);
+        // The desktop's taskbar and wallpaper are gone with it.
+        expect(details).not.toHaveProperty('taskbar_items');
+        expect(details).not.toHaveProperty('desktop_bg_url');
+        expect(details).not.toHaveProperty('desktop_bg_color');
+        expect(details).not.toHaveProperty('desktop_bg_fit');
     });
 
-    it('leaves the desktop-only parts out for an app actor', async () => {
+    it('leaves the GUI-only parts out for an app actor', async () => {
         const user = await makeUser();
         const details = await buildUserDetails(user, deps(), {
             isUser: false,
         });
-        expect(details).not.toHaveProperty('taskbar_items');
         expect(details).not.toHaveProperty('directories');
         expect(details.card_fallback_available).toBe(false);
     });
@@ -124,7 +127,7 @@ describe('buildUserDetails lookups', () => {
         return keys.slice(keys.indexOf('hasDevAccountAccess') + 1);
     };
 
-    it('reads the linked provider, taskbar and seat together, listed in a fixed order', async () => {
+    it('reads the linked provider and seat together, listed in a fixed order', async () => {
         const user = {
             ...(await makeUser()),
             password: null,
@@ -162,7 +165,6 @@ describe('buildUserDetails lookups', () => {
         );
         expect(tailKeys(details)).toEqual([
             'oidc_revalidate_url',
-            'taskbar_items',
             'directories',
             'team',
             'last_activity_ts',
@@ -177,7 +179,6 @@ describe('buildUserDetails lookups', () => {
         const user = {
             ...(await makeUser()),
             password: null,
-            taskbar_items: JSON.stringify([{ type: 'app', name: 'editor' }]),
             last_activity_ts: '2026-01-02 03:04:05',
         };
         const events: string[] = [];
@@ -199,15 +200,6 @@ describe('buildUserDetails lookups', () => {
                         },
                     },
                     stores: Object.assign(Object.create(d.stores), {
-                        app: {
-                            getByNames: () =>
-                                timed(events, 'taskbar', 20, () => {
-                                    throw new Error('taskbar down');
-                                }),
-                            getByUids: async () => new Map(),
-                            getByIds: async () => new Map(),
-                        },
-                        // Fails first, but is reported after the taskbar.
                         team: {
                             getOrgSeat: () =>
                                 timed(events, 'seat', 5, () => {
@@ -219,18 +211,12 @@ describe('buildUserDetails lookups', () => {
                 { isUser: true },
             );
             expect(warn.mock.calls).toEqual([
-                ['[user-details] taskbar_items failed:', expect.any(Error)],
                 ['[user-details] team lookup failed:', expect.any(Error)],
             ]);
         } finally {
             warn.mockRestore();
         }
-        expect(tailKeys(details)).toEqual([
-            'taskbar_items',
-            'directories',
-            'last_activity_ts',
-        ]);
-        expect(details.taskbar_items).toEqual([]);
+        expect(tailKeys(details)).toEqual(['directories', 'last_activity_ts']);
     });
 });
 

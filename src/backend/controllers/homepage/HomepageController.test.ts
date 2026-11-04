@@ -78,11 +78,13 @@ interface CapturedResponse {
     statusCode: number;
     body: unknown;
     contentType?: string;
+    location?: string;
 }
 
 const makeReq = (init: {
     params?: Record<string, unknown>;
     path?: string;
+    originalUrl?: string;
     actor?: Actor;
     hostname?: string;
     protocol?: string;
@@ -93,6 +95,7 @@ const makeReq = (init: {
         headers: {},
         params: init.params ?? {},
         path: init.path ?? '/',
+        originalUrl: init.originalUrl ?? init.path ?? '/',
         hostname: init.hostname ?? 'test.local',
         protocol: init.protocol ?? 'http',
         actor: init.actor,
@@ -128,6 +131,11 @@ const makeRes = () => {
         }),
         type: vi.fn((value: string) => {
             captured.contentType = value;
+            return res;
+        }),
+        redirect: vi.fn((code: number, location: string) => {
+            captured.statusCode = code;
+            captured.location = location;
             return res;
         }),
     };
@@ -213,14 +221,12 @@ describe('HomepageController shell routes', () => {
         expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
     });
 
-    it('serves the shell on /settings, /dashboard, /desktop, /action, /@:username', async () => {
+    it('serves the shell on /settings, /dashboard, /action, /@:username', async () => {
         for (const path of [
             '/settings',
             '/settings/*splat',
             '/dashboard',
             '/dashboard/',
-            '/desktop',
-            '/desktop/',
             '/action/*splat',
             '/@:username',
         ]) {
@@ -359,49 +365,6 @@ describe('HomepageController GET /app/:name', () => {
         expect(html).not.toContain('owner_user_id');
     });
 
-    it('serves the same app shell under /desktop/app/:name', async () => {
-        const { userId } = await makeUser();
-        const name = `desk-${Math.random().toString(36).slice(2, 10)}`;
-        await server.stores.app.create(
-            {
-                name,
-                title: 'Desktop App',
-                description: 'opens on the desktop instead of the dashboard',
-                index_url: `https://example.com/${name}/`,
-                approved_for_listing: 1,
-            },
-            { ownerUserId: userId },
-        );
-
-        const { res, captured } = makeRes();
-        await callRoute(
-            'get',
-            '/desktop/app/:name',
-            makeReq({ params: { name }, path: `/desktop/app/${name}` }),
-            res,
-        );
-
-        expect(captured.statusCode).toBe(200);
-        const html = String(captured.body);
-        expect(html).toMatch(/<!DOCTYPE html>/i);
-        expect(html).toContain('Desktop App');
-    });
-
-    it('returns 404 under /desktop/app/:name when the app is unknown', async () => {
-        const { res, captured } = makeRes();
-        await callRoute(
-            'get',
-            '/desktop/app/:name',
-            makeReq({
-                params: { name: 'no-such-app' },
-                path: '/desktop/app/no-such-app',
-            }),
-            res,
-        );
-        expect(captured.statusCode).toBe(404);
-        expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
-    });
-
     it('omits index_url even for a public app — the shell is not the launch authority', async () => {
         const { userId } = await makeUser();
         const name = `pub-${Math.random().toString(36).slice(2, 10)}`;
@@ -433,8 +396,8 @@ describe('HomepageController GET /app/:name', () => {
 // -- app landing rate limit --
 
 describe('HomepageController app landing rate limit', () => {
-    it('rate-limits /app/:name and /desktop/app/:name per network', () => {
-        for (const path of ['/app/:name', '/desktop/app/:name']) {
+    it('rate-limits /app/:name per network', () => {
+        for (const path of ['/app/:name']) {
             const route = router.routes.find(
                 (r) => r.method === 'get' && r.path === path,
             );
@@ -452,7 +415,7 @@ describe('HomepageController app landing rate limit', () => {
 // ── /show/* ─────────────────────────────────────────────────────────
 
 describe('HomepageController GET /show/*splat', () => {
-    it('emits a launch_app explorer call with the post-/show path', async () => {
+    it('serves the plain shell; the GUI opens the path itself', async () => {
         const { res, captured } = makeRes();
         await callRoute(
             'get',
@@ -460,13 +423,52 @@ describe('HomepageController GET /show/*splat', () => {
             makeReq({ path: '/show/alice/Documents' }),
             res,
         );
-        // The launch payload is JSON-serialized into the rendered HTML.
-        // We assert the rendered shell included the explorer launch hint
-        // pointing at the expected (slashed) path.
         const html = String(captured.body);
-        expect(html).toContain('launch_app');
-        expect(html).toContain('explorer');
-        expect(html).toContain('/alice/Documents');
+        expect(html).toMatch(/<!DOCTYPE html>/i);
+        // No boot-time launch hook: the one it used to carry named a GUI
+        // global that no longer exists, which stopped the GUI booting.
+        expect(html).not.toContain('launch_app');
+    });
+});
+
+// ── /desktop ────────────────────────────────────────────────────────
+
+describe('HomepageController GET /desktop', () => {
+    it('redirects /desktop to the root, keeping the query', async () => {
+        for (const path of ['/desktop', '/desktop/']) {
+            const { res, captured } = makeRes();
+            await callRoute('get', path, makeReq({ path }), res);
+            expect(captured.statusCode).toBe(302);
+            expect(captured.location).toBe('/');
+        }
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/desktop',
+            makeReq({
+                path: '/desktop',
+                originalUrl: '/desktop?shared=%2Falice%2Fx%2Fy&download=a',
+            }),
+            res,
+        );
+        expect(captured.location).toBe('/?shared=%2Falice%2Fx%2Fy&download=a');
+    });
+
+    it('redirects /desktop/app/:name to the app landing', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/desktop/app/:name',
+            makeReq({
+                params: { name: 'editor' },
+                path: '/desktop/app/editor',
+                originalUrl: '/desktop/app/editor?file=%2Falice%2Fa.txt',
+            }),
+            res,
+        );
+        expect(captured.statusCode).toBe(302);
+        expect(captured.location).toBe('/app/editor?file=%2Falice%2Fa.txt');
     });
 });
 

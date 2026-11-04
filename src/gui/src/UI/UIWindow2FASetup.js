@@ -782,7 +782,6 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
         width: Math.min(480, window.innerWidth - 24),
         height: 'auto',
         dominant: true,
-        show_in_taskbar: false,
         is_draggable: false,
         backdrop: true,
         on_before_exit: async () => {

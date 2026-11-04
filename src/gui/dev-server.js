@@ -118,7 +118,7 @@ const startServer = (attempt, useAnyFreePort = false) => {
 
         if ( process.env.PUTER_NO_BROWSER ) return;
         // Open the GUI rather than the sign-in link directly: it's idempotent.
-        // An already-signed-in GUI loads straight to the desktop instead of
+        // An already-signed-in GUI loads straight to the dashboard instead of
         // re-prompting for consent on every restart.
         open(guiUrl).catch((e) => {
             console.log(chalk.dim(`  (could not open a browser: ${e.message})`));

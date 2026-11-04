@@ -235,7 +235,6 @@ const cs = {
         "open_in_new_tab": "Otevřít na nové kartě",
         "open_in_new_window": "Otevřít v novém okně",
         "new_email": "Nový e-mail",
-        "open_desktop": "Otevřít plochu",
         "new_username": "Nové uživatelské jméno",
         "open_with_ai": "Otevřít pomocí AI",
         "os": "Operační systém",

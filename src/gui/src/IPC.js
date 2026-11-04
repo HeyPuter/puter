@@ -522,7 +522,6 @@ const ipc_listener = async (event, handled) => {
                 is_resizable: event.data.options.is_resizable,
                 has_head: event.data.options.has_head,
                 center: event.data.options.center,
-                show_in_taskbar: event.data.options.show_in_taskbar,
                 iframe_srcdoc: event.data.options.content,
                 parent_uuid: event.data.appInstanceID,
             });

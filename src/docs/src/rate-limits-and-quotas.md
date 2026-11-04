@@ -398,7 +398,7 @@ For long-lived mounts, sign in with a `-token` username and an API token as the 
 | ------------------------------------------------------------------ | ------------------------------- | ----------- |
 | `nameAvailable`                                                    | 60/min                          |             |
 | App icon                                                           | 12,000/min                      | Per network |
-| App landing page (`/app/<name>`, `/desktop/app/<name>`)            | 600/min                         | Per network |
+| App landing page (`/app/<name>`)                                   | 600/min                         | Per network |
 | Names per batch app lookup (`GET /apps/:names`, `POST /query/app`) | 200, up to 200 characters each  |             |
 | `metadata`                                                         | 16 KiB, measured as JSON        |             |
 | `filetypeAssociations`                                             | 200 entries, 60 characters each |             |

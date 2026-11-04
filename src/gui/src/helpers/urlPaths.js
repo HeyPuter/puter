@@ -21,22 +21,20 @@
  * Splits a GUI pathname into the route segments the boot code matches on
  * (`window.url_paths`), dropping empty segments.
  *
- * A leading `desktop` segment is dropped with them: `/desktop` only picks the
- * interface, and everything after it is the same route it would be at the
- * root. So `/desktop/app/<name>` yields `['app', '<name>']` — the app landing
- * every route check downstream already understands — and the only difference
- * from `/app/<name>` is that the dashboard-mode check (see initgui.js) doesn't
- * claim the path, leaving the app to open on the desktop.
- *
- * @param {string} pathname - the pathname to parse, e.g. `/desktop/app/editor`
+ * @param {string} pathname - the pathname to parse, e.g. `/app/editor`
  * @returns {string[]} route segments
  */
-export const parse_url_paths = (pathname) => {
-    const paths = String(pathname ?? '')
-        .split('/')
-        .filter((element) => element);
-    if ( paths[0]?.toLocaleLowerCase() === 'desktop' ) {
-        paths.shift();
-    }
-    return paths;
-};
+export const parse_url_paths = (pathname) => String(pathname ?? '')
+    .split('/')
+    .filter((element) => element);
+
+/**
+ * The pathname with a leading `/desktop` segment dropped. `/desktop` used to
+ * pick the desktop interface, and what follows it is the same route at the
+ * root: `/desktop/app/<name>` is `/app/<name>`.
+ *
+ * @param {string} pathname - e.g. `/desktop/app/editor`
+ * @returns {string} e.g. `/app/editor`; `/` when nothing follows the prefix
+ */
+export const drop_desktop_prefix = (pathname) =>
+    String(pathname ?? '').replace(/^\/desktop(?=\/|$)/i, '') || '/';

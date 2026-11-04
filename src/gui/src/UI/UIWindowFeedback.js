@@ -91,7 +91,6 @@ async function UIWindowFeedback (options) {
             width: 380,
             height: 'auto',
             dominant: true,
-            show_in_taskbar: false,
             ...options.window_options,
             onAppend: function (this_window) {
                 $(this_window).find('.feedback-message').get(0).focus({ preventScroll: true });

@@ -30,7 +30,6 @@ import truncate_filename from '../helpers/truncateFilename.js';
 import launch_app from '../helpers/launchApp.js';
 import open_item from '../helpers/openItem.js';
 import publish_as_website from '../helpers/publishAsWebsite.js';
-import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/pathOwner.js';
 import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
@@ -237,17 +236,6 @@ async function UIItem (options) {
         window.update_explorer_footer_item_count(el_window);
     }
 
-    // manual positioning
-    if ( !window.is_auto_arrange_enabled &&
-        options.position &&
-        // item is on the desktop (must be desktop itself and not a window, hence the '.desktop' class check)
-        $(el_item).closest('.item-container.desktop').attr('data-path') === window.desktop_path
-    ) {
-        el_item.style.position = 'absolute';
-        el_item.style.left = `${options.position.left }px`;
-        el_item.style.top = `${options.position.top }px`;
-    }
-
     // --------------------------------------------------------
     // Dragster
     // allow dragging of local files on this window, if it's is_dir
@@ -327,7 +315,6 @@ async function UIItem (options) {
             last_window_dragged_over = null;
 
             window.an_item_is_being_dragged = true;
-            $('.toolbar').css('pointer-events', 'none');
         },
         drag: function (event, ui) {
             // Constrain item within desktop bounds
@@ -413,20 +400,6 @@ async function UIItem (options) {
             }
         },
         stop: function (event, ui) {
-            // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
-            if ( $(el_item).closest('.item-container').attr('data-path') === window.desktop_path &&
-                !window.is_auto_arrange_enabled && $(el_item).attr('data-path') !== window.trash_path && !ui.helper.data('dropped') &&
-                // Item must be dropped on the Desktop and not on the taskbar
-                window.mouseover_window === undefined && ui.position.top <= window.desktop_height - window.taskbar_height - 15 ) {
-
-                el_item.style.position = 'absolute';
-                el_item.style.left = `${ui.position.left }px`;
-                el_item.style.top = `${ui.position.top }px`;
-                $('.ui-draggable-dragging').remove();
-                window.desktop_item_positions[$(el_item).attr('data-uid')] = ui.position;
-                window.save_desktop_item_positions();
-            }
-
             $('.item-selected-clone').remove();
             $('.draggable-count-badge').remove();
             // re-enable all droppable UIItems that are not a dir
@@ -437,7 +410,6 @@ async function UIItem (options) {
             clearTimeout(longer_hover_timeout);
             last_window_dragged_over = null;
             window.an_item_is_being_dragged = false;
-            $('.toolbar').css('pointer-events', 'auto');
         },
     });
 
@@ -546,10 +518,6 @@ async function UIItem (options) {
                 }
                 // Otherwise, move items
                 else if ( options.is_dir ) {
-                    if ( $(el_item).closest('.item-container').attr('data-path') === window.desktop_path ) {
-                        delete window.desktop_item_positions[$(el_item).attr('data-uid')];
-                        window.save_desktop_item_positions();
-                    }
                     window.move_items(items_to_move, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
                 }
             }
@@ -1342,48 +1310,6 @@ async function UIItem (options) {
                 });
             }
             // -------------------------------------------
-            // Set as Wallpaper
-            // -------------------------------------------
-            const mime_type = mime.getType($(el_item).attr('data-name')) ??
-                'application/octet-stream';
-            if ( !is_trashed && !is_trash && !options.is_dir && mime_type.startsWith('image/') ) {
-                menu_items.push({
-                    html: i18n('set_as_background'),
-                    onClick: async function () {
-                        const read_url = await puter.fs.sign(undefined, { uid: $(el_item).attr('data-uid'), action: 'read' });
-                        window.set_desktop_background({
-                            url: read_url.items.read_url,
-                            fit: window.desktop_bg_fit,
-                        });
-                        try {
-                            $.ajax({
-                                url: `${window.api_origin }/set-desktop-bg`,
-                                type: 'POST',
-                                data: JSON.stringify({
-                                    url: window.desktop_bg_url,
-                                    color: window.desktop_bg_color,
-                                    fit: window.desktop_bg_fit,
-                                }),
-                                async: true,
-                                contentType: 'application/json',
-                                headers: {
-                                    'Authorization': `Bearer ${window.auth_token}`,
-                                },
-                                statusCode: {
-                                    401: function (xhr) {
-                        window.handle401(xhr);
-                    },
-                                },
-                            });
-                            $(el_window).close();
-                            resolve(true);
-                        } catch ( err ) {
-                            // Ignore
-                        }
-                    },
-                });
-            }
-            // -------------------------------------------
             // Zip
             // -------------------------------------------
             if ( !is_trash && !is_trashed && !$(el_item).attr('data-path').endsWith('.zip') ) {
@@ -1638,7 +1564,7 @@ async function UIItem (options) {
 
         // Create ContextMenu
         UIContextMenu({
-            parent_element: ($(options.appendTo).hasClass('desktop') ? undefined : options.appendTo),
+            parent_element: options.appendTo,
             items: menu_items,
         });
 

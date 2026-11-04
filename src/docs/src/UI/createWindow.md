@@ -23,7 +23,7 @@ A set of key/value pairs that configure the window.
 * `has_head` (Boolean): if set to `true`, window will have a head which contains the icon and close, minimize, and maximize buttons.
 * `height` (Float): height of window in pixels.
 * `is_resizable` (Boolean): if set to `true`, user will be able to resize the window.
-* `show_in_taskbar` (Boolean): if set to `true`, window will be represented in the taskbar.
+* `show_in_taskbar` (Boolean): deprecated, and has no effect. Puter no longer has a taskbar.
 * `title` (String): title of the window.
 * `width` (Float): width of window in pixels.
 
@@ -46,7 +46,6 @@ A `Promise` that resolves to a window handle object with an `id` (String) proper
             is_resizable: false,
             has_head: true,
             center: true,
-            show_in_taskbar: false,
         })
     </script>
 </body>

@@ -82,7 +82,6 @@ async function UIWindowSessionList (options) {
             width: 350,
             height: 'auto',
             dominant: true,
-            show_in_taskbar: false,
             update_window_url: false,
             cover_page: options.cover_page ?? false,
             window_class: 'window-session-list',

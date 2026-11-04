@@ -139,9 +139,6 @@ const launch_app = async (options) => {
         const launchAttributes = {
             'launch.app': options?.name ?? options?.app_obj?.name ?? 'unknown',
             'launch.dashboard_mode': !! window.is_dashboard_mode,
-            // url_paths has the `/desktop` prefix stripped, so this counts the
-            // desktop-booted landing (`/desktop/app/<name>`) as the app URL
-            // it is.
             'launch.from_app_url':
                 window.url_paths?.[0]?.toLocaleLowerCase() === 'app'
                 && !! window.url_paths?.[1],
@@ -679,18 +676,6 @@ const launch_app = async (options) => {
             title = options.file_path ? path.basename(options.file_path) : title;
         }
 
-        // show_in_taskbar
-        // Deliberately keyed on the app's own `background`, not on this launch's:
-        // an app that always runs windowless has nothing to put in the taskbar,
-        // ever. A background *launch* is a normal app that happens to start
-        // hidden, so it keeps asking for an item — UIWindow just holds it back
-        // until the window is first shown (see its taskbar block).
-        let show_in_taskbar = app_info.background ? false : window_options?.show_in_taskbar;
-        if ( window_options?.show_in_taskbar !== undefined )
-        {
-            show_in_taskbar = window_options.show_in_taskbar;
-        }
-
         // has_head
         let has_head = app_info.metadata?.has_head !== undefined ? app_info.metadata.has_head : window_options?.has_head;
         if ( app_info.metadata?.hide_titlebar !== undefined && typeof app_info.metadata.hide_titlebar === 'boolean' && app_info.metadata.hide_titlebar === true )
@@ -749,7 +734,6 @@ const launch_app = async (options) => {
             ...window_options,
             is_resizable: window_resizable,
             has_head: has_head,
-            show_in_taskbar: show_in_taskbar,
             update_window_url: update_window_url,
             custom_path: custom_path,
         });

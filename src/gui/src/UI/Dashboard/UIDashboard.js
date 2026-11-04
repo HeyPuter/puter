@@ -205,8 +205,8 @@ async function UIDashboard (options) {
         $item.addClass('active').attr('aria-current', 'page');
     };
 
-    // Remove `?ref=...` from the URL, keeping the path and tab hash (mirrors
-    // UIDesktop). Replaced, not pushed, so Back leaves the dashboard.
+    // Remove `?ref=...` from the URL, keeping the path and tab hash.
+    // Replaced, not pushed, so Back leaves the dashboard.
     if ( window.url_query_params?.has('ref') ) {
         window.history.replaceState(null, document.title, window.location.pathname + window.location.hash);
     }
@@ -273,7 +273,6 @@ async function UIDashboard (options) {
 
     // =========================================================================
     // Socket initialization
-    // In dashboard mode, UIDesktop is never loaded, so we create the socket here.
     // This runs inside the function (not at module level) to ensure window.gui_origin
     // and window.auth_token are already set.
     // =========================================================================
@@ -368,8 +367,8 @@ async function UIDashboard (options) {
     // =========================================================================
     // Item event handlers
     // Incremental DOM updates using UIDashboardFileItem for item creation and
-    // direct jQuery manipulation for removals/updates. Mirrors UIDesktop's
-    // approach but adapted for Dashboard's list-view structure.
+    // direct jQuery manipulation for removals/updates, adapted for the
+    // dashboard's list-view structure.
     // =========================================================================
 
     // A row taken away from elsewhere: keep the footer's count and size in
@@ -601,7 +600,7 @@ async function UIDashboard (options) {
     window.addEventListener('popstate', handleRouteChange);
 
     // Sidebar item click handler — only tab items ([data-section]); plain links
-    // like the "Open Desktop" button navigate natively
+    // navigate natively
     $el_window.on('click', '.dashboard-sidebar-item[data-section]', function (e) {
         // A modified click opens the tab's link in a new browser tab, natively.
         if ( e.metaKey || e.ctrlKey || e.shiftKey ) return;

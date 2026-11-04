@@ -127,7 +127,6 @@ async function UIWindowShare (options) {
         width: 420,
         height: 'auto',
         dominant: true,
-        show_in_taskbar: false,
         onAppend: function (this_window) {
             $(this_window).find('.share-recipient').get(0)?.focus({ preventScroll: true });
         },

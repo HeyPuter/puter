@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parse_url_paths } from './urlPaths.js';
+import { drop_desktop_prefix, parse_url_paths } from './urlPaths.js';
 
 describe('parse_url_paths', () => {
     it('splits a pathname into non-empty segments', () => {
@@ -27,30 +27,20 @@ describe('parse_url_paths', () => {
         expect(parse_url_paths('/')).toEqual([]);
         expect(parse_url_paths('')).toEqual([]);
     });
+});
 
+describe('drop_desktop_prefix', () => {
     it('drops a leading desktop segment so the rest reads as a root route', () => {
-        expect(parse_url_paths('/desktop/app/editor')).toEqual([
-            'app',
-            'editor',
-        ]);
-        expect(parse_url_paths('/DeskTop/app/editor')).toEqual([
-            'app',
-            'editor',
-        ]);
-        expect(parse_url_paths('/desktop')).toEqual([]);
-        expect(parse_url_paths('/desktop/')).toEqual([]);
+        expect(drop_desktop_prefix('/desktop/app/editor')).toBe('/app/editor');
+        expect(drop_desktop_prefix('/DeskTop/app/editor')).toBe('/app/editor');
+        expect(drop_desktop_prefix('/desktop')).toBe('/');
+        expect(drop_desktop_prefix('/desktop/')).toBe('/');
     });
 
     it('only drops the prefix, not a later or lookalike segment', () => {
-        expect(parse_url_paths('/app/desktop')).toEqual(['app', 'desktop']);
-        expect(parse_url_paths('/desktops/app/editor')).toEqual([
-            'desktops',
-            'app',
-            'editor',
-        ]);
-        expect(parse_url_paths('/desktop/desktop/app')).toEqual([
-            'desktop',
-            'app',
-        ]);
+        expect(drop_desktop_prefix('/')).toBe('/');
+        expect(drop_desktop_prefix('/app/desktop')).toBe('/app/desktop');
+        expect(drop_desktop_prefix('/desktops/app/editor')).toBe('/desktops/app/editor');
+        expect(drop_desktop_prefix('/desktop/desktop/app')).toBe('/desktop/app');
     });
 });

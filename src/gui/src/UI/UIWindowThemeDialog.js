@@ -52,7 +52,6 @@ const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
         selectable_body: false,
         draggable_body: false,
         allow_context_menu: false,
-        show_in_taskbar: false,
         window_class: 'window-alert',
         dominant: true,
         width: 350,

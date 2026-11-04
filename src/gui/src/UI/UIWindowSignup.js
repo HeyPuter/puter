@@ -207,11 +207,7 @@ function UIWindowSignup(options) {
                     $(el_window)
                         .find('.auth-logo')
                         .on('click', function () {
-                            // keep desktop users on the desktop; everyone else goes to the root dashboard
-                            window.location.href =
-                                window.location.pathname === '/desktop'
-                                    ? '/desktop'
-                                    : '/';
+                            window.location.href = '/';
                         });
                 }
 
