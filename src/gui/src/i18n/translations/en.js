@@ -467,6 +467,7 @@ const en = {
         publish_website_intro: 'Serves %strong% at a public address anyone can visit.',
         publish_worker_intro: 'Runs %strong% at a public address anyone can call.',
         push_app_turn_off_failed: "Couldn't turn that off. Please try again.",
+        push_app_unnamed_website: 'Unnamed website',
         push_apps: 'Apps that can send you notifications',
         push_apps_empty: 'No apps can send you push notifications.',
         push_browser_blocked: 'Notifications are blocked in your browser settings',

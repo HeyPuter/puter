@@ -127,12 +127,21 @@ export const isLoadableIcon = (url) => {
     }
 };
 
+const APP_UID_PATTERN = /^app-[0-9a-f-]{36}$/;
+
+/** @param {import('../../helpers/notificationApi.js').PushApp} app @returns {string} Encoded */
+const appTitleHtml = (app) => {
+    const title = app.title || app.name || '';
+    if ( ! APP_UID_PATTERN.test(title) ) return html_encode(title);
+    return i18n('push_app_unnamed_website');
+};
+
 /** @param {import('../../helpers/notificationApi.js').PushApp} app */
 export const appCardHtml = (app) => {
     const icon = isLoadableIcon(app.icon) ? app.icon : '';
     return card({
         icon: `<img ${appIconAttrs({ icon }, window.icons?.['app.svg'] ?? '')} alt="">`,
-        title: html_encode(app.title || app.name || ''),
+        title: appTitleHtml(app),
         action: `<button type="button" class="button push-revoke-app" data-app-uid="${html_encode(app.uid)}">${i18n('push_turn_off')}</button>`,
         extraClass: 'push-app-card',
     });

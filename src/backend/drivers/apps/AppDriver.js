@@ -31,7 +31,7 @@ import {
     normalizeRawBase64ImageString,
     validateIconDataUrl,
 } from '../../util/appIcon.js';
-import { toAppReadView } from '../../util/appView.js';
+import { isOriginBootstrapApp, toAppReadView } from '../../util/appView.js';
 import { awaitLater } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
@@ -1088,22 +1088,6 @@ export class AppDriver extends PuterDriver {
         }
     }
 
-    /**
-     * Origin-bootstrap detection: rows auto-created when an unknown origin
-     * first needed an app row (no human-supplied metadata). Marker is `name ===
-     * uid && title === uid` and a description starting with "App created from
-     * origin ". Only these rows are eligible for same-owner merging — refusing
-     * to merge arbitrary same-owner apps prevents accidental data loss.
-     */
-    #isOriginBootstrapApp(app) {
-        if (!app || typeof app !== 'object') return false;
-        if (typeof app.uid !== 'string' || !app.uid) return false;
-        if (app.name !== app.uid) return false;
-        if (app.title !== app.uid) return false;
-        if (typeof app.description !== 'string') return false;
-        return app.description.startsWith('App created from origin ');
-    }
-
     // -- Canonical-uid alias kvstore pair -----------------------------
     //
     // After a merge, the source app uid → canonical uid mapping is
@@ -1266,7 +1250,7 @@ export class AppDriver extends PuterDriver {
         if (
             Number.isInteger(conflictOwnerUserId) &&
             conflictOwnerUserId === user.id &&
-            !this.#isOriginBootstrapApp(appToJoin)
+            !isOriginBootstrapApp(appToJoin)
         ) {
             // Prevent merging arbitrary same-owner apps; only allow the
             // auto-created origin bootstrap row to be absorbed.
