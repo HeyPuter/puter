@@ -1426,3 +1426,143 @@ describe('TabFiles listSharedView', () => {
         expect(rows[1].holder_team).toEqual(team);
     });
 });
+
+describe('TabFiles path field', () => {
+    let UIAlert;
+
+    /** The tab's real header and an empty listing, its listeners bound. */
+    const mountHeader = (currentPath = '/alice/Documents') => {
+        // Drag and drop is jQuery UI's, which isn't loaded here.
+        $.fn.droppable ??= function () {
+            return this;
+        };
+        $.fn.draggable ??= function () {
+            return this;
+        };
+        document.body.innerHTML = `<div class="window">${TabFiles.html()}</div>`;
+        TabFiles.$el_window = $('.window');
+        TabFiles.currentPath = currentPath;
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        $('.path-breadcrumbs').html(TabFiles.renderPath(currentPath));
+        TabFiles.bindPathEditor();
+    };
+    const editor = () => $('.path-editor')[0];
+    const editing = () => $('.header .path').hasClass('path-editing');
+    const keydown = (el, key) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+
+    beforeEach(async () => {
+        ({ default: UIAlert } = await import('../UIAlert.js'));
+        UIAlert.mockClear();
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.shared_path = 'puter://shared';
+        window.byte_format = bytes => `${bytes} B`;
+        window.dashboard_nav_history = ['/alice/Documents'];
+        window.dashboard_nav_history_current_position = 0;
+        Element.prototype.scrollIntoView ??= () => {};
+        window.puter = { fs: {
+            readdir: vi.fn(async () => []),
+            stat: vi.fn(async ({ path }) => {
+                if ( path === '/alice/Pictures' ) return { path, is_dir: true };
+                if ( path === '/alice/Pictures/cat.png' ) return { path, is_dir: false };
+                throw { code: 'subject_does_not_exist' };
+            }),
+        } };
+    });
+
+    afterEach(() => {
+        TabFiles.$el_window.off();
+        $(document).off('keydown.tabfiles');
+        vi.restoreAllMocks();
+    });
+
+    it('opens with the current path selected on a click past the crumbs', () => {
+        mountHeader();
+
+        $('.path-breadcrumbs')[0].click();
+
+        expect(editing()).toBe(true);
+        expect(document.activeElement).toBe(editor());
+        expect(editor().value).toBe('/alice/Documents');
+        expect(editor().selectionStart).toBe(0);
+        expect(editor().selectionEnd).toBe('/alice/Documents'.length);
+    });
+
+    it('stays closed on a click on a crumb', () => {
+        mountHeader();
+        vi.spyOn(TabFiles, 'renderDirectory').mockResolvedValue();
+
+        $('.path-breadcrumbs .dirname').first()[0].click();
+
+        expect(editing()).toBe(false);
+    });
+
+    it('opens on a typed slash, holding just the slash', () => {
+        mountHeader();
+        vi.spyOn(TabFiles, 'isDashboardFilesActive').mockReturnValue(true);
+        TabFiles.typeSearchTerm = '';
+        TabFiles.setupKeyboardShortcuts();
+
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '/', which: 191, bubbles: true }));
+
+        expect(editing()).toBe(true);
+        expect(editor().value).toBe('/');
+    });
+
+    it('goes into the folder typed, and Back returns', async () => {
+        mountHeader();
+        TabFiles.openPathEditor();
+        editor().value = '../Pictures';
+
+        await TabFiles.submitPathEditor();
+
+        expect(TabFiles.currentPath).toBe('/alice/Pictures');
+        expect(window.dashboard_nav_history).toEqual(['/alice/Documents', '/alice/Pictures']);
+        expect(editing()).toBe(false);
+    });
+
+    it('opens a typed file\'s folder with the file selected', async () => {
+        mountHeader();
+        window.puter.fs.readdir = vi.fn(async () => [{ name: 'cat.png', path: '/alice/Pictures/cat.png', is_dir: false, uid: 'u-cat', size: 1, modified: 0 }]);
+        vi.spyOn(TabFiles, 'renderItem').mockImplementation(async (file) => {
+            $('.files').append(`<div class="row item" data-uid="${file.uid}" data-path="${file.path}"></div>`);
+        });
+        TabFiles.openPathEditor();
+        editor().value = '~/Pictures/cat.png';
+
+        await TabFiles.submitPathEditor();
+
+        expect(TabFiles.currentPath).toBe('/alice/Pictures');
+        expect($('.files .row.selected').attr('data-path')).toBe('/alice/Pictures/cat.png');
+    });
+
+    it('stays open, marked, on a path to nothing', async () => {
+        mountHeader();
+        const render = vi.spyOn(TabFiles, 'renderDirectory');
+        TabFiles.openPathEditor();
+        editor().value = '/alice/Gone';
+        // The alert takes the focus, which must not close the field.
+        UIAlert.mockImplementation(async () => editor().blur());
+
+        await TabFiles.submitPathEditor();
+
+        expect(UIAlert).toHaveBeenCalledWith(expect.stringContaining('/alice/Gone'));
+        expect(render).not.toHaveBeenCalled();
+        expect(editing()).toBe(true);
+        expect(editor().getAttribute('aria-invalid')).toBe('true');
+        expect(document.activeElement).toBe(editor());
+    });
+
+    it('gives the crumbs back on Escape or when it loses the focus', () => {
+        mountHeader();
+        TabFiles.openPathEditor();
+        keydown(editor(), 'Escape');
+        expect(editing()).toBe(false);
+
+        TabFiles.openPathEditor();
+        editor().blur();
+        expect(editing()).toBe(false);
+    });
+});

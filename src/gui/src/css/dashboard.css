@@ -4421,6 +4421,46 @@ body.myapps-reordering .myapps-tile {
     overflow-x: auto;
     white-space: nowrap;
     scrollbar-width: none;
+    /* The row's empty space is the bar's, so a click there can open the
+       path for typing (see openPathEditor). */
+    flex: 1 1 auto;
+    align-self: stretch;
+    cursor: text;
+}
+
+/* Keeps a click target past the last crumb when a deep path fills the row. */
+.dashboard-section-files .header .path-breadcrumbs:not(:empty)::after {
+    content: '';
+    flex: 0 0 24px;
+    align-self: stretch;
+}
+
+.dashboard-section-files .header .path-editor {
+    display: none;
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 28px;
+    margin: 0 0 0 10px;
+    padding: 0 8px;
+    box-sizing: border-box;
+    font-size: 13px;
+    border: 1px solid var(--select-color);
+    border-radius: 6px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text);
+    outline: none;
+}
+
+.dashboard-section-files .header .path-editor[aria-invalid="true"] {
+    border-color: var(--dashboard-danger-text);
+}
+
+.dashboard-section-files .header .path.path-editing .path-editor {
+    display: block;
+}
+
+.dashboard-section-files .header .path.path-editing .path-breadcrumbs {
+    display: none;
 }
 
 .dashboard-section-files .header .path-breadcrumbs::-webkit-scrollbar {
@@ -6096,6 +6136,12 @@ body.myapps-reordering .myapps-tile {
         border-bottom: 1px solid var(--dashboard-border);
     }
 
+    .dashboard-section-files .header .path-editor {
+        order: 1;
+        flex: 0 1 100%;
+        margin: 0 0 8px 0;
+    }
+
     .dashboard-section-files .header .path-nav-buttons {
         order: 2;
         border-right: none;
@@ -6278,6 +6324,13 @@ body.myapps-reordering .myapps-tile {
         margin-left: 50px;
         box-sizing: content-box;
         min-height: 40px;
+    }
+
+    .dashboard-section-files .header .path-editor {
+        margin-left: 50px;
+        height: 40px;
+        /* Under 16px, iOS zooms the page in on focus. */
+        font-size: 16px;
     }
 
     /* Finger-sized crumbs, in that row */

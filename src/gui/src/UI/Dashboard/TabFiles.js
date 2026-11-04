@@ -39,6 +39,7 @@ import { openPublishWebsiteDialog, openPublishWorkerDialog } from './UIPublishDi
 import { dedupedName } from '../../helpers/dedupedName.js';
 import { compareEntries, compareNames } from './sortEntries.js';
 import { middleTruncate } from './middleTruncate.js';
+import { resolveTypedPath } from './typedPath.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
 
 import { icons } from '../../helpers/actionIcons.js';
@@ -163,6 +164,7 @@ const TabFiles = {
                                 <img draggable="false" class="path-btn path-btn-forward path-btn-disabled" tabindex="-1" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_forward')}" src="${html_encode(window.icons['arrow-right-thin.svg'])}" title="${i18n('window_click_to_go_forward')}">
                                 <img draggable="false" class="path-btn path-btn-up path-btn-disabled" tabindex="-1" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_up')}" src="${html_encode(window.icons['arrow-up-thin.svg'])}" title="${i18n('window_click_to_go_up')}">
                             </div>
+                            <input type="text" class="path-editor" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="${i18n('path')}">
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
                                 <button class="path-action-btn select-mode-btn" title="${i18n('select')}" aria-pressed="false">${icons.select}</button>
@@ -837,6 +839,127 @@ const TabFiles = {
     },
 
     /**
+     * Lets the path bar be typed into: a click on it anywhere but on a crumb
+     * turns it into a text field, as in an Explorer window.
+     *
+     * @returns {void}
+     */
+    bindPathEditor () {
+        this.$el_window.on('click', '.files-tab .path-breadcrumbs', (e) => {
+            if ( $(e.target).closest('.dirname').length ) return;
+            this.openPathEditor();
+        });
+        this.$el_window.on('keydown', '.files-tab .path-editor', (e) => {
+            if ( e.key === 'Enter' ) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.submitPathEditor();
+            } else if ( e.key === 'Escape' ) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.closePathEditor({ refocus: true });
+            }
+        });
+        this.$el_window.on('input', '.files-tab .path-editor', (e) => {
+            e.currentTarget.removeAttribute('aria-invalid');
+        });
+        this.$el_window.on('focusout', '.files-tab .path-editor', () => {
+            if ( ! this.pathEditorBusy ) this.closePathEditor();
+        });
+    },
+
+    /**
+     * Swaps the breadcrumbs for a text field to type a path into.
+     *
+     * @param {string} [initial] - Text to start from, with the caret after
+     *   it; by default the current path, selected
+     * @returns {void}
+     */
+    openPathEditor (initial) {
+        const $path = this.$el_window?.find('.files-tab .header .path');
+        const input = $path?.find('.path-editor')[0];
+        if ( !input || !this.currentPath ) return;
+        input.value = initial ?? this.currentPath;
+        input.removeAttribute('aria-invalid');
+        $path.addClass('path-editing');
+        input.focus();
+        if ( initial === undefined ) input.select();
+        else input.setSelectionRange(input.value.length, input.value.length);
+    },
+
+    /**
+     * Puts the breadcrumbs back in place of the path field.
+     *
+     * @param {{ refocus?: boolean }} [options] - refocus hands the keyboard
+     *   back to the listing
+     * @returns {void}
+     */
+    closePathEditor ({ refocus = false } = {}) {
+        const $path = this.$el_window?.find('.files-tab .header .path');
+        if ( ! $path?.hasClass('path-editing') ) return;
+        $path.removeClass('path-editing');
+        // Hidden, the crumbs lost their scroll position.
+        this.revealCurrentCrumb();
+        if ( refocus ) this.focusListing();
+    },
+
+    /**
+     * Goes where the path field says: into a folder, or to a file's folder
+     * with the file selected. A path to nothing leaves the field open.
+     *
+     * @returns {Promise<void>}
+     */
+    async submitPathEditor () {
+        const input = this.$el_window.find('.files-tab .path-editor')[0];
+        const typed = input.value.trim();
+        const target = resolveTypedPath(typed, {
+            currentPath: this.currentPath,
+            homePath: window.home_path,
+            sharedPath: window.shared_path,
+        });
+        if ( target === undefined || target === this.currentPath ) {
+            this.closePathEditor({ refocus: true });
+            return;
+        }
+
+        let folder = target;
+        let file;
+        if ( target !== window.shared_path ) {
+            // The stat and the alert take the focus from the field, which
+            // would close it.
+            this.pathEditorBusy = true;
+            try {
+                let entry;
+                try {
+                    entry = await puter.fs.stat({ path: target, consistency: 'eventual' });
+                } catch {
+                    entry = undefined;
+                }
+                if ( ! entry ) {
+                    input.setAttribute('aria-invalid', 'true');
+                    await UIAlert(i18n('path_not_found', [typed], false));
+                    input.focus();
+                    input.select();
+                    return;
+                }
+                if ( ! entry.is_dir ) {
+                    file = entry.path ?? target;
+                    folder = path.dirname(file);
+                }
+            } finally {
+                this.pathEditorBusy = false;
+            }
+        }
+
+        this.closePathEditor({ refocus: true });
+        if ( folder !== this.currentPath ) {
+            this.pushNavHistory(folder);
+            await this.renderDirectory(folder);
+        }
+        if ( file ) this.selectRowsWhere(row => row.getAttribute('data-path') === file);
+    },
+
+    /**
      * Checks if the Dashboard Files tab is currently active and visible.
      *
      * @returns {boolean} True if Dashboard is visible and Files tab is active
@@ -1253,6 +1376,14 @@ const TabFiles = {
                 return false;
             }
 
+            // No name holds a slash, so typing one starts a path to go to.
+            if ( e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && _this.typeSearchTerm === '' ) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                _this.openPathEditor('/');
+                return false;
+            }
+
             // Type-to-select: letter/number keys search items by name
             if ( !e.ctrlKey && !e.metaKey && e.key.length === 1 ) {
                 e.preventDefault();
@@ -1413,6 +1544,8 @@ const TabFiles = {
             if ( $(this).attr('aria-disabled') === 'true' ) return;
             this.click();
         });
+
+        this.bindPathEditor();
 
         const el_window_navbar_back_btn = document.querySelector(`.path-btn-back`);
         const el_window_navbar_forward_btn = document.querySelector(`.path-btn-forward`);
