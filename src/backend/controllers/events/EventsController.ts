@@ -134,7 +134,8 @@ export class EventsController extends PuterController {
      *
      * Stateless: no subscription, no stored position, nothing written. The
      * cursor comes back to the caller and goes out again as `cursor` (or
-     * `after`, the name it first shipped under).
+     * `after`, the name it first shipped under). `from=end` with no cursor
+     * starts at the newest row instead of the oldest.
      */
     @Get('/fetch', {
         subdomain: 'api',
@@ -145,9 +146,16 @@ export class EventsController extends PuterController {
     async fetch(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         const query = (req.query ?? {}) as Record<string, unknown>;
+        const from = query.from as 'start' | 'end' | undefined;
+        if (from !== undefined && from !== 'start' && from !== 'end') {
+            throw new HttpError(400, '`from` must be `start` or `end`', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         const page = await this.services.events.fetchMissed(actor, {
             subject: typeof query.subject === 'string' ? query.subject : '',
+            from,
             cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
             after: typeof query.after === 'string' ? query.after : undefined,
             limit: normalizeLimit(query.limit, {

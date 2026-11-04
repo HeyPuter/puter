@@ -192,12 +192,21 @@ export class NotificationFeed {
             let ok = false;
             try {
                 let ended = false;
+                // A server that ignores `from` answers with the oldest page.
+                let fromEnd = source === 'baseline' && !this.#cursor;
                 for (let page = 0; page < MAX_PAGES && !this.#stopped; page++) {
                     const result = await this.#puter.events.fetch({
                         subject: SUBJECT,
                         limit: PAGE_SIZE,
                         ...(this.#cursor ? { cursor: this.#cursor } : {}),
+                        ...(fromEnd ? { from: 'end' } : {}),
                     });
+                    if (fromEnd && result.items.length === 0 && result.cursor) {
+                        this.#cursor = result.cursor;
+                        ended = true;
+                        break;
+                    }
+                    fromEnd = false;
                     for (const event of result.items) {
                         this.#deliver(event, source);
                     }

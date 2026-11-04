@@ -206,6 +206,7 @@ import {
     notifFetchPosition,
     projectNotifRow,
     resolveNotifFetch,
+    type NotifFetchScope,
 } from './notifFetch.js';
 import {
     lookupFsSubject,
@@ -489,6 +490,8 @@ export interface FetchRequest {
     cursor?: string;
     /** The name `cursor` shipped under first; still read when it is absent. */
     after?: string;
+    /** With no cursor, `'end'` answers an empty page at the newest row. */
+    from?: 'start' | 'end';
     limit?: number;
 }
 
@@ -2217,6 +2220,13 @@ export class EventsService extends PuterService {
             if (!visible) return { items: [] };
         }
 
+        const opened = openCursor(
+            request.cursor ?? request.after,
+            this.config.jwt_secret_v2,
+        );
+        if (opened === undefined && request.from === 'end')
+            return this.#fetchEnd(user.id, scope);
+
         const asked = Math.floor(Number(request.limit));
         const limit = Math.min(
             Number.isFinite(asked) && asked > 0
@@ -2224,12 +2234,7 @@ export class EventsService extends PuterService {
                 : EVENTS_FETCH_LIMIT_DEFAULT,
             EVENTS_FETCH_LIMIT_CAP,
         );
-        const from = notifFetchPosition(
-            openCursor(
-                request.cursor ?? request.after,
-                this.config.jwt_secret_v2,
-            ),
-        );
+        const from = notifFetchPosition(opened);
 
         // One extra row answers "is there another page" without a count.
         // The generic slice is the desktop's view of the mailbox, so it leaves
@@ -2275,6 +2280,32 @@ export class EventsService extends PuterService {
                       ),
                   }
                 : {}),
+        };
+    }
+
+    /**
+     * An empty page whose cursor sits at the newest row of `scope` and at its
+     * latest replacement: reads from it return rows inserted or replaced
+     * later.
+     */
+    async #fetchEnd(
+        userId: number,
+        scope: NotifFetchScope,
+    ): Promise<PageResult<ProjectedNotifEvent>> {
+        const slice = { audience: scope.audience, appUid: scope.appUid };
+        const [latest, replaced] = await Promise.all([
+            this.stores.notification.latestScopedId(userId, slice),
+            this.stores.notification.latestScopedReplacement(userId, slice),
+        ]);
+        return {
+            items: [],
+            cursor: sealCursor(
+                notifFetchCursor({
+                    id: latest ?? 0,
+                    replaced: replaced ?? { replacedAt: 0, id: 0 },
+                }),
+                this.config.jwt_secret_v2,
+            ),
         };
     }
 

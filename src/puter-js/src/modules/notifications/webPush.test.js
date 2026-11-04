@@ -915,6 +915,60 @@ describe('onPush', () => {
         });
     });
 
+    it('starts its feed from the newest notification in one read', async () => {
+        const fetches = [];
+        let receive = () => {};
+        const pages = [
+            { items: [], cursor: 'end-1' },
+            {
+                items: [
+                    {
+                        id: 'n2',
+                        op: 'post',
+                        uid: 'n2',
+                        type: 'app.message',
+                        notification: { title: 'Hi', channel: 'chat' },
+                        ts: 1,
+                    },
+                ],
+            },
+        ];
+        const events = {
+            onLocal: vi.fn(async (_subject, handler) => {
+                receive = handler;
+                return { off: async () => {} };
+            }),
+            fetch: vi.fn(async (options) => {
+                fetches.push(options);
+                return pages.shift() ?? { items: [] };
+            }),
+        };
+        const module = new NotificationsModule({
+            ...puter,
+            events,
+            getAppIDFromAuthToken: () => 'app-1',
+            onAuthStateChanged: () => () => {},
+        });
+        const chat = vi.fn();
+
+        const listener = await module.onPush('chat', chat);
+        await vi.waitFor(() => expect(fetches).toHaveLength(1));
+        expect(fetches[0]).toEqual({
+            subject: 'notif:app-user',
+            limit: 200,
+            from: 'end',
+        });
+
+        receive({ event: { op: 'gap', reason: 'reconnect' } });
+        await vi.waitFor(() => expect(chat).toHaveBeenCalledTimes(1));
+        expect(fetches).toEqual([
+            { subject: 'notif:app-user', limit: 200, from: 'end' },
+            { subject: 'notif:app-user', limit: 200, cursor: 'end-1' },
+        ]);
+        expect(chat.mock.calls[0][0]).toMatchObject({ uid: 'n2' });
+        await listener.off();
+    });
+
     it('saves the handler for the worker and runs it for its channel only', async () => {
         const { module, feed } = makeModule();
         const chat = vi.fn();

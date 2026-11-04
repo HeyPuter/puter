@@ -1457,6 +1457,40 @@ export default suite('events', {
         );
     },
 
+    'starts from the newest notification with `from: end`': async (t) => {
+        await postNotification(t, unique('before-end'));
+
+        const end = await t.puter.events.fetch({
+            subject: 'notif:account',
+            from: 'end',
+        });
+        t.assert.equal(end.items.length, 0);
+        t.assert.ok(end.cursor, 'an end read comes back with a cursor');
+
+        const title = unique('after-end');
+        await postNotification(t, title);
+        const next = await t.puter.events.fetch({
+            subject: 'notif:account',
+            cursor: end.cursor,
+        });
+        t.assert.deepEqual(
+            next.items.map(
+                (event) => (event.notification as { title?: string }).title,
+            ),
+            [title],
+        );
+    },
+
+    'rejects a `from` that is neither start nor end': async (t) => {
+        const error = await t.assert.rejects(() =>
+            t.puter.events.fetch({
+                subject: 'notif:account',
+                from: 'middle' as 'end',
+            }),
+        );
+        t.assert.equal(codeOf(error), 'invalid_request');
+    },
+
     'refuses to publish into an app this account does not own': async (t) => {
         const error = await t.assert.rejects(() =>
             t.puter.events.handlers.publish('ingestUpload', HANDLER, {

@@ -315,6 +315,57 @@ export class NotificationStore extends PuterStore {
         return rows.map((r) => this.#normalizeRow(r));
     }
 
+    /**
+     * The newest row id in a mailbox slice, or null when it has none, from the
+     * primary. Scoped like `listScoped`; rows of every type count.
+     *
+     * @param {number} userId
+     * @param {{ audience: string; appUid?: string | null }} scope
+     * @returns {Promise<number | null>}
+     */
+    async latestScopedId(userId, { audience, appUid }) {
+        const { where, params } = sliceWhere(userId, {
+            audience,
+            appUid,
+            excludeTypes: [],
+        });
+        const [row] = await this.clients.db.pread(
+            `SELECT \`id\` FROM \`notification\`
+             WHERE ${where.join(' AND ')}
+             ORDER BY \`id\` DESC
+             LIMIT 1`,
+            params,
+        );
+        return row ? Number(row.id) : null;
+    }
+
+    /**
+     * The latest replacement in a mailbox slice by (`replaced_at`, `id`), or
+     * null when none was replaced, from the primary. Scoped like `listScoped`.
+     *
+     * @param {number} userId
+     * @param {{ audience: string; appUid?: string | null }} scope
+     * @returns {Promise<{ replacedAt: number; id: number } | null>}
+     */
+    async latestScopedReplacement(userId, { audience, appUid }) {
+        const { where, params } = sliceWhere(userId, {
+            audience,
+            appUid,
+            excludeTypes: [],
+        });
+        where.push('`replaced_at` IS NOT NULL');
+        const [row] = await this.clients.db.pread(
+            `SELECT \`replaced_at\`, \`id\` FROM \`notification\`
+             WHERE ${where.join(' AND ')}
+             ORDER BY \`replaced_at\` DESC, \`id\` DESC
+             LIMIT 1`,
+            params,
+        );
+        return row
+            ? { replacedAt: Number(row.replaced_at), id: Number(row.id) }
+            : null;
+    }
+
     // -- Writes -------------------------------------------------------
 
     /**

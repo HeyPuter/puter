@@ -110,6 +110,10 @@
  *   returns notifications replaced since, even ones from earlier pages.
  * @property {string} [after] The older name for `cursor`, still accepted.
  *   `cursor` wins when both are given.
+ * @property {'start' | 'end'} [from] Where a read with no cursor starts:
+ *   `'start'` (the default) at the oldest notification still kept, `'end'` past
+ *   the newest, answering an empty page whose `cursor` returns only what comes
+ *   after it. Ignored when a cursor is given.
  * @property {number} [limit] Events per page. Capped at 200; defaults to 50.
  */
 
