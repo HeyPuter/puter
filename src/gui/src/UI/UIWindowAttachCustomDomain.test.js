@@ -170,4 +170,15 @@ describe('UIWindowAttachCustomDomain', () => {
             expect(document.activeElement).toBe($(rowB).find('.custom-domain-remove').get(0));
         });
     });
+
+    it('takes no more input on a removed row while it fades out', async () => {
+        await open([pendingDomain({ site: 'other' })]);
+        const row = document.querySelector('.custom-domain-row');
+        $(row).find('.custom-domain-remove').trigger('click');
+        $(row).find('.custom-domain-confirm-go').trigger('click');
+        await flush();
+        await flush();
+        expect(row.isConnected).toBe(true);
+        expect(row.hasAttribute('inert')).toBe(true);
+    });
 });

@@ -529,7 +529,8 @@ async function UIWindowAttachCustomDomain (options) {
                 focusOn($other.find('.custom-domain-remove').get(0)
                     ?? $overlay.find('.custom-domain-to-add').get(0));
             }
-            $row.addClass('is-leaving');
+            // Gone server-side: its buttons can't act on it again as it fades.
+            $row.addClass('is-leaving').attr('inert', '');
             setTimeout(() => {
                 $row.remove();
                 toggleEmpty();
