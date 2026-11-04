@@ -1517,6 +1517,38 @@ describe('cached rows written by a node without scope markers', () => {
         expect(reads()).toBe(0);
     });
 
+    it('drops a cached entry no table row backs, paying the lookup once', async () => {
+        const created = await subscribe(userToken, {
+            subject: `fs:${anchor}`,
+            queue: true,
+            handlerSource: SOURCE,
+        });
+        const row = (await env.server.stores.durableSubscription.getBySubId(
+            String(created.body.subId),
+        ))!;
+        const ghost = { ...row, subId: `ghost-${uuidv4()}` };
+        const { handlerScope: _scope, ...bare } = ghost;
+        void _scope;
+        await env.server.clients.redis.hset(
+            keyOf(row),
+            ghost.subId,
+            JSON.stringify(bare),
+        );
+        const reads = dbReads();
+
+        const first = await sub().getForTokens(row.ownerUserId, [row.token]);
+        const afterFirst = reads();
+        const second = await sub().getForTokens(row.ownerUserId, [row.token]);
+
+        expect(first.map((r) => r.subId)).not.toContain(ghost.subId);
+        expect(second.map((r) => r.subId)).not.toContain(ghost.subId);
+        expect(afterFirst).toBeGreaterThan(0);
+        expect(reads()).toBe(afterFirst);
+        expect(
+            await env.server.clients.redis.hget(keyOf(row), ghost.subId),
+        ).toBe(null);
+    });
+
     it('does not bring back a row dropped while it was being resolved', async () => {
         const created = await subscribe(userToken, {
             subject: `fs:${anchor}`,

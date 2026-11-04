@@ -99,7 +99,7 @@ puter.events.handlers.publish(name, handler, options)
 - `handler` (Function | String | Object) (required): A function (serialized with `toString()`), a source string, or `{ file: '~/AppData/…/handler.js' }`. A file is read at this call, so later edits to it take effect only when you publish again.
 - `options.replace` (Boolean): Overwrite whatever is published under the name.
 - `options.scope` (String): `'app'` or `'user'`. Defaults to `'app'`. `'user'` publishes into the signed-in user's own [user scope](#user-scope) of the app.
-- `options.appUid` (String): The app to publish into. Required outside an app. Inside an app, it can only name that app. With `scope: 'user'` it can only name the app making the call, and needs no value.
+- `options.appUid` (String): The app to publish into. Required outside an app. Inside an app, it can only name that app. With `scope: 'user'` it can only name the app making the call, and needs no value. Only [`workers.destroy()`](/Events/workers/) can name another app for a user scope, from an account session.
 
 Resolves to `{ name, hash, updatedAt, outcome, resumed }`. Its `outcome` is `'created'`, `'updated'`, or `'unchanged'` (the same source was already published), and `resumed` counts the suspended subscriptions this publish brought back.
 
@@ -167,7 +167,7 @@ All four methods reject with `{ message, code }`:
 | `events_handler_name_invalid` | The name is empty, too long, or has characters that aren't allowed. Names starting with `@` are reserved for inline handlers. |
 | `events_handler_conflict` | Someone else published different source under this name since you last saw it. Pass `replace: true` to overwrite. |
 | `events_handler_app_required` | The call was made outside an app without `appUid`. |
-| `events_handler_forbidden` | For app scope, the signed-in user doesn't own the app, the app doesn't exist, `appUid` names a different app than the one making the call, or the caller is a scoped access token. For `scope: 'user'`, the caller isn't an app acting for a signed-in user: a scoped access token, a temporary account, or a different app. |
+| `events_handler_forbidden` | For app scope, the signed-in user doesn't own the app, the app doesn't exist, `appUid` names a different app than the one making the call, or the caller is a scoped access token. For `scope: 'user'`, publishing, listing and removing need an app acting for a signed-in user, so the caller was a scoped access token, a temporary account, or a different app. [`workers.destroy()`](/Events/workers/) also accepts an account session. |
 | `events_user_handlers_disabled` | `scope: 'user'` was used to publish, and this server doesn't have user-scope handlers turned on. |
 | `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. Arrives as HTTP 402. |
 | `forbidden` | The user already holds as many [worker units](/rate-limits-and-quotas/#worker-units) as their plan allows, so a new user scope can't be created. |

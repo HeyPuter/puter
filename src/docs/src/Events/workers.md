@@ -44,7 +44,7 @@ puter.events.workers.destroy(appUid)
 puter.events.workers.destroy(appUid, options)
 ```
 
-- `options.scope` (String): `'app'` or `'user'`. Defaults to `'app'`. `'user'` removes the signed-in user's own scope of the app, and `appUid` can only name the app making the call.
+- `options.scope` (String): `'app'` or `'user'`. Defaults to `'app'`. `'user'` removes the signed-in user's own scope of the app. Inside an app, `appUid` can only name that app. With an account session, outside an app such as the desktop or Node.js with your account token, `appUid` can name any app you hold a user scope in, and it works even when the server has user-scope handlers turned off.
 
 Removes every handler the app has published, or every handler in the user's scope with `scope: 'user'`, the same as calling [`puter.events.handlers.remove()`](/Events/handlers/) on each. Their subscriptions and schedules are suspended with `handler_not_found`, not deleted, and publishing the handlers again resumes them.
 
@@ -61,7 +61,7 @@ Both methods reject with `{ message, code }`:
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `events_worker_owner_only` | `list()` was called with a scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL. |
 | `events_handler_not_found` | `destroy()` named an app with no published handlers. |
-| `events_handler_forbidden` | The signed-in user doesn't own the app, the app doesn't exist, the call came from a different app, or the caller is a scoped access token. For `scope: 'user'`, the caller isn't an app acting for a signed-in user. |
+| `events_handler_forbidden` | The signed-in user doesn't own the app, the app doesn't exist, the call came from a different app, or the caller is a scoped access token. For `scope: 'user'`, the caller is a scoped access token, a temporary account, or an app naming a different app than its own. |
 | `too_many_requests` | Over the publish and remove rate limit, or the listing rate limit. |
 | `events_disabled` | Events aren't enabled on this server. |
 | `events_failed` | The server sent a response the SDK couldn't read. |
@@ -85,7 +85,7 @@ console.log(`removed ${destroyed.removed}, suspended ${destroyed.suspended}`);
 
 <strong class="example-title">Remove the signed-in user's scope of your app</strong>
 
-This runs in your app. The user scope belongs to the user, so it needs no owner step.
+The user scope belongs to the user, so it needs no owner step. In your app, name the app itself. With an account session outside an app, name any app you hold a scope in.
 
 ```js
 const destroyed = await puter.events.workers.destroy(puter.appID, { scope: 'user' });

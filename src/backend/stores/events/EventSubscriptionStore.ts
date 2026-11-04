@@ -1330,6 +1330,18 @@ export class EventSubscriptionStore extends PuterStore {
                 if (missing.length > 0) await lookup('pread', missing);
             }
 
+            // In neither the replica nor the primary: a ghost entry. Dropped,
+            // as the normal path treats a row that is gone, so it is not
+            // resolved again on every read.
+            const ghosts = unmarked.filter((row) => !scopes.has(row.subId));
+            if (ghosts.length > 0) {
+                const drop = this.clients.redis.pipeline();
+                for (const row of ghosts)
+                    drop.hdel(tokenKey(ownerUserId, row.token), row.subId);
+                await drop.exec();
+                for (const row of ghosts) rows.splice(rows.indexOf(row), 1);
+            }
+
             const resolved = unmarked.filter((row) => scopes.has(row.subId));
             for (const row of resolved)
                 if (scopes.get(row.subId) === 1)
