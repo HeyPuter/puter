@@ -30,6 +30,12 @@ import type { FsOp } from '../../services/events/subjects.js';
  */
 
 /**
+ * Which handler set a subscription's `handlerName` refers to: the app's own
+ * (`'app'`) or the holder's scope of that app (`'user'`). Stored as 0 and 1.
+ */
+export type HandlerScopeKind = 'app' | 'user';
+
+/**
  * Whether a row's events also run the app's published handler in its events
  * worker. Only an app has a worker, and only a named handler can be run.
  */
@@ -97,6 +103,8 @@ export interface DispatchSubscription {
     durable?: true;
     delivery?: DeliveryClass;
     handlerName?: string | null;
+    /** Durable rows only: absent means `'app'`. */
+    handlerScope?: HandlerScopeKind;
     /** Durable rows only: handed to the handler, and read nowhere else. */
     context?: string | null;
 }

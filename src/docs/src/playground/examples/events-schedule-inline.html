@@ -1,0 +1,29 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            if (!await puter.perms.request('backgroundEvents')) {
+                puter.print('background events were not allowed<br>');
+                return;
+            }
+
+            // (1) The code goes in with the schedule, and runs in the events worker
+            const schedule = await puter.events.onSchedule({
+                at: Date.now() + 2 * 60 * 1000,
+                handler: async ({ ctx, user }) => {
+                    await user.notifications.notify({ title: ctx.message });
+                },
+                context: { message: 'Two minutes have passed' },
+            });
+            puter.print(`runs at ${new Date(schedule.nextRunAt).toLocaleTimeString()}<br>`);
+            puter.print(`handler stored as ${schedule.handlerName}<br>`);
+
+            // (2) Cleanup: end the schedule, then remove the handler it created
+            await schedule.off();
+            await puter.events.handlers.remove(schedule.handlerName, { scope: 'user' });
+            puter.print('removed<br>');
+        })();
+    </script>
+</body>
+</html>
