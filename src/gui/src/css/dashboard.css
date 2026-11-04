@@ -2007,28 +2007,167 @@ input.myapps-group-name:focus {
 }
 
 /* Custom domain modal (puter.hosting.attach), on the app feedback shell. */
+.custom-domain-overlay {
+    --cd-accent: var(--dashboard-button-primary, #4a67f5);
+    --cd-subtle: rgba(15, 23, 42, 0.035);
+    --cd-success: #16a34a;
+    --cd-success-bg: rgba(34, 197, 94, 0.14);
+    --cd-warn: #b45309;
+    --cd-warn-bg: rgba(245, 158, 11, 0.14);
+    --cd-danger: #dc2626;
+    --cd-danger-bg: rgba(220, 38, 38, 0.08);
+    --cd-skeleton: rgba(15, 23, 42, 0.07);
+}
+@media (prefers-color-scheme: dark) {
+    .custom-domain-overlay {
+        --cd-subtle: rgba(255, 255, 255, 0.04);
+        --cd-success: #4ade80;
+        --cd-success-bg: rgba(74, 222, 128, 0.14);
+        --cd-warn: #fbbf24;
+        --cd-warn-bg: rgba(251, 191, 36, 0.14);
+        --cd-danger: #f87171;
+        --cd-danger-bg: rgba(248, 113, 113, 0.12);
+        --cd-skeleton: rgba(255, 255, 255, 0.08);
+    }
+}
 .custom-domain-modal {
     width: min(520px, 100%);
+    display: flex;
+    flex-direction: column;
+}
+.custom-domain-modal svg {
+    flex: none;
+}
+.custom-domain-modal strong {
+    font-weight: 600;
+    word-break: break-all;
+}
+.custom-domain-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+/* -- Header -- */
+.custom-domain-head {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 20px 16px 4px 20px;
+}
+.custom-domain-head-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex: none;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--cd-accent) 12%, transparent);
+    color: var(--cd-accent);
+}
+.custom-domain-head-icon svg {
+    width: 22px;
+    height: 22px;
+}
+.custom-domain-head-text {
+    flex: 1;
+    min-width: 0;
+    padding-top: 1px;
 }
 .custom-domain-intro,
 .custom-domain-requester {
-    margin: 0 0 12px;
-    font-size: 14px;
+    margin: 3px 0 0;
+    font-size: 13px;
     line-height: 1.45;
+    color: var(--afb-muted);
     word-break: break-word;
 }
+.custom-domain-intro strong {
+    color: var(--afb-fg);
+}
 .custom-domain-requester {
-    margin-top: -6px;
+    margin-top: 2px;
     font-size: 12px;
+}
+.custom-domain-body {
+    padding-top: 16px;
+}
+
+/* -- Loading -- */
+.custom-domain-skeleton {
+    padding: 14px 12px;
+    border: 1px solid var(--afb-border);
+    border-radius: 12px;
+}
+.custom-domain-skeleton + .custom-domain-skeleton {
+    margin-top: 8px;
+}
+.custom-domain-skeleton span {
+    display: block;
+    height: 10px;
+    width: 46%;
+    border-radius: 5px;
+    background: var(--cd-skeleton);
+    animation: custom-domain-pulse 1.2s ease-in-out infinite;
+}
+.custom-domain-skeleton span + span {
+    width: 30%;
+    margin-top: 8px;
+    height: 8px;
+}
+@keyframes custom-domain-pulse {
+    50% { opacity: 0.45; }
+}
+
+/* -- Empty, unavailable -- */
+.custom-domain-state {
+    text-align: center;
+    padding: 18px 12px 6px;
+}
+.custom-domain-state-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 12px;
+    border-radius: 50%;
+    background: var(--cd-subtle);
+    border: 1px solid var(--afb-border);
     color: var(--afb-muted);
 }
+.custom-domain-state-icon svg {
+    width: 24px;
+    height: 24px;
+}
+.custom-domain-state-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+}
+.custom-domain-state-text {
+    margin: 4px 0 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--afb-muted);
+}
+.custom-domain-empty {
+    border: 1px dashed var(--afb-field-border);
+    border-radius: 12px;
+    padding: 24px 16px;
+}
+
+/* -- Domain list -- */
 .custom-domain-list {
     list-style: none;
     margin: 0;
     padding: 0;
-    border: 1px solid var(--afb-border);
-    border-radius: 10px;
-    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 }
 .custom-domain-list:empty {
     display: none;
@@ -2037,117 +2176,605 @@ input.myapps-group-name:focus {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 12px;
+    padding: 10px 10px 10px 12px;
+    border: 1px solid var(--afb-border);
+    border-radius: 12px;
+    transition: border-color 0.12s ease, background-color 0.12s ease, opacity 0.18s ease, transform 0.18s ease;
 }
-.custom-domain-row + .custom-domain-row {
-    border-top: 1px solid var(--afb-border);
+@media (hover: hover) {
+    .custom-domain-row:hover {
+        border-color: var(--afb-field-border);
+        background: var(--cd-subtle);
+    }
+}
+.custom-domain-row.is-current {
+    border-color: color-mix(in srgb, var(--cd-accent) 45%, transparent);
+}
+.custom-domain-row.is-leaving {
+    opacity: 0;
+    transform: scale(0.98);
+}
+.custom-domain-row-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    flex: none;
+    border-radius: 9px;
+    background: var(--cd-subtle);
+    border: 1px solid var(--afb-border);
+    color: var(--afb-muted);
+}
+.custom-domain-row-icon svg {
+    width: 18px;
+    height: 18px;
 }
 .custom-domain-row-main {
     flex: 1;
     min-width: 0;
 }
+.custom-domain-row-title {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+}
 .custom-domain-row-host {
+    min-width: 0;
     font-size: 14px;
     font-weight: 600;
     word-break: break-all;
 }
 .custom-domain-row-meta {
     font-size: 12px;
+    line-height: 1.4;
     color: var(--afb-muted);
     margin-top: 2px;
+    word-break: break-word;
 }
-.custom-domain-confirming .custom-domain-row-meta {
+.custom-domain-row-actions,
+.custom-domain-row-confirm {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
+}
+.custom-domain-row-confirm,
+.custom-domain-row[data-confirming] .custom-domain-row-actions {
+    display: none;
+}
+.custom-domain-row[data-confirming] .custom-domain-row-confirm {
+    display: flex;
+}
+.custom-domain-row[data-confirming] .custom-domain-row-meta {
     color: var(--afb-fg);
 }
+.custom-domain-row[data-confirming="remove"] {
+    border-color: color-mix(in srgb, var(--cd-danger) 40%, transparent);
+    background: var(--cd-danger-bg);
+}
+.custom-domain-row[data-confirming="move"] {
+    border-color: color-mix(in srgb, var(--cd-accent) 45%, transparent);
+    background: color-mix(in srgb, var(--cd-accent) 6%, transparent);
+}
 .custom-domain-row .app-feedback-btn {
-    flex: none;
     padding: 6px 14px;
+    font-size: 13px;
 }
-.custom-domain-row[data-confirming="remove"] .custom-domain-remove,
-.custom-domain-remove-chosen.custom-domain-confirming {
-    color: var(--afb-error);
+.custom-domain-row[data-confirming="move"] .custom-domain-confirm-go {
+    border-color: var(--cd-accent);
+    background: var(--cd-accent);
+    color: #fff;
 }
-.custom-domain-empty {
-    margin: 4px 0 0;
-    font-size: 14px;
+.custom-domain-row[data-confirming="remove"] .custom-domain-confirm-go {
+    border-color: var(--cd-danger);
+    background: var(--cd-danger);
+    color: #fff;
+}
+@media (hover: hover) {
+    .custom-domain-row[data-confirming] .custom-domain-confirm-go:hover:not(:disabled) {
+        filter: brightness(0.92);
+    }
+}
+
+/* Status pill next to a hostname. */
+.custom-domain-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 1px 8px 1px 7px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 18px;
+    border-radius: 999px;
+    white-space: nowrap;
+    color: var(--cd-warn);
+    background: var(--cd-warn-bg);
+}
+.custom-domain-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.custom-domain-badge[data-status="active"] {
+    color: var(--cd-success);
+    background: var(--cd-success-bg);
+}
+.custom-domain-badge[data-status="failed"] {
+    color: var(--cd-danger);
+    background: var(--cd-danger-bg);
+}
+
+/* Icon-only button: trash on a row. */
+.custom-domain-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: none;
     color: var(--afb-muted);
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
 }
+.custom-domain-icon-btn svg {
+    width: 16px;
+    height: 16px;
+}
+@media (hover: hover) {
+    .custom-domain-icon-btn:hover:not(:disabled) {
+        background: var(--cd-danger-bg);
+        color: var(--cd-danger);
+    }
+}
+.custom-domain-icon-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* -- Buttons -- */
+.custom-domain-modal .app-feedback-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+.custom-domain-modal .app-feedback-btn svg {
+    width: 15px;
+    height: 15px;
+}
+.custom-domain-modal .app-feedback-btn:focus-visible,
+.custom-domain-icon-btn:focus-visible,
+.custom-domain-copy:focus-visible,
+.custom-domain-link-btn:focus-visible {
+    outline: 2px solid var(--cd-accent);
+    outline-offset: 2px;
+}
+/* The clicked button holds its size and shows a spinner while it works. */
+.custom-domain-modal .app-feedback-btn.is-loading {
+    color: transparent !important;
+    opacity: 1;
+}
+.custom-domain-modal .app-feedback-btn.is-loading::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    margin: -9px 0 0 -9px;
+    border: 2px solid var(--afb-muted);
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: share-modal-spin 0.7s linear infinite;
+}
+.custom-domain-modal .app-feedback-btn-primary.is-loading::after,
+.custom-domain-row[data-confirming] .custom-domain-confirm-go.is-loading::after {
+    border-color: #fff;
+    border-right-color: transparent;
+}
+.custom-domain-modal .app-feedback-btn.is-loading svg {
+    visibility: hidden;
+}
+.custom-domain-btn-danger-text {
+    margin-right: auto;
+    border-color: transparent;
+    background: none;
+    color: var(--cd-danger);
+    padding-left: 10px;
+    padding-right: 10px;
+}
+@media (hover: hover) {
+    .custom-domain-modal .app-feedback-btn.custom-domain-btn-danger-text:hover:not(:disabled) {
+        background: var(--cd-danger-bg);
+    }
+}
+.custom-domain-btn-danger-text.custom-domain-confirming {
+    border-color: var(--cd-danger);
+    background: var(--cd-danger);
+    color: #fff;
+}
+@media (hover: hover) {
+    .custom-domain-modal .app-feedback-btn.custom-domain-btn-danger-text.custom-domain-confirming:hover:not(:disabled) {
+        background: var(--cd-danger);
+        filter: brightness(0.92);
+    }
+}
+.custom-domain-link-btn {
+    display: block;
+    margin: 10px 0 0;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    color: var(--cd-accent);
+    cursor: pointer;
+}
+@media (hover: hover) {
+    .custom-domain-link-btn:hover:not(:disabled) {
+        text-decoration: underline;
+    }
+}
+
+/* -- Add form -- */
 .custom-domain-label {
     display: block;
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     margin-bottom: 6px;
 }
-.custom-domain-input {
+.custom-domain-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+.custom-domain-field svg {
+    position: absolute;
+    left: 12px;
+    width: 16px;
+    height: 16px;
+    color: var(--afb-muted);
+    pointer-events: none;
+}
+.custom-domain-field .custom-domain-input {
     display: block;
     width: 100%;
     box-sizing: border-box;
-    padding: 9px 12px;
+    height: 42px;
+    padding: 0 12px 0 36px;
     font: inherit;
-    font-size: 14px;
+    font-size: 15px;
     color: var(--afb-fg);
     background: var(--afb-field-bg);
     border: 1px solid var(--afb-field-border);
-    border-radius: 8px;
+    border-radius: 10px;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
-.custom-domain-input:focus {
+.custom-domain-field .custom-domain-input::placeholder {
+    color: var(--afb-muted);
+    opacity: 0.7;
+}
+.custom-domain-field .custom-domain-input:focus {
     outline: none;
-    border-color: #088ef0;
-    box-shadow: 0 0 0 3px rgba(8, 142, 240, 0.18);
+    padding: 0 12px 0 36px;
+    border: 1px solid var(--cd-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--cd-accent) 20%, transparent);
+}
+.custom-domain-hint {
+    margin-top: 6px;
+}
+.custom-domain-callout {
+    margin: 12px 0 0;
+    padding: 10px 12px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    border-radius: 10px;
+    background: var(--cd-subtle);
+    border: 1px solid var(--afb-border);
+    color: var(--afb-muted);
+}
+.custom-domain-callout-warn {
+    color: var(--afb-fg);
+    background: var(--cd-warn-bg);
+    border-color: color-mix(in srgb, var(--cd-warn) 30%, transparent);
+}
+.custom-domain-callout-danger {
+    color: var(--afb-fg);
+    background: var(--cd-danger-bg);
+    border-color: color-mix(in srgb, var(--cd-danger) 30%, transparent);
+}
+
+/* -- Status and DNS records -- */
+.custom-domain-status-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--cd-warn-bg);
+    border: 1px solid color-mix(in srgb, var(--cd-warn) 25%, transparent);
+}
+.custom-domain-status-card[data-status="active"] {
+    background: var(--cd-success-bg);
+    border-color: color-mix(in srgb, var(--cd-success) 25%, transparent);
+}
+.custom-domain-status-card[data-status="failed"] {
+    background: var(--cd-danger-bg);
+    border-color: color-mix(in srgb, var(--cd-danger) 25%, transparent);
+}
+.custom-domain-status-icon {
+    display: flex;
+    color: var(--cd-warn);
+    padding-top: 1px;
+}
+.custom-domain-status-card[data-status="active"] .custom-domain-status-icon {
+    color: var(--cd-success);
+}
+.custom-domain-status-card[data-status="failed"] .custom-domain-status-icon {
+    color: var(--cd-danger);
+}
+.custom-domain-status-icon svg {
+    width: 20px;
+    height: 20px;
+}
+.custom-domain-status-main {
+    flex: 1;
+    min-width: 0;
 }
 .custom-domain-status {
-    margin: 0 0 8px;
+    margin: 0;
     font-size: 14px;
     line-height: 1.45;
     word-break: break-word;
 }
 .custom-domain-status-detail {
-    display: block;
-    margin-top: 4px;
+    margin: 3px 0 0;
     font-size: 12px;
+    line-height: 1.4;
     color: var(--afb-muted);
+    word-break: break-word;
+}
+.custom-domain-records-c2a {
+    margin: 16px 0 0;
+    font-size: 13px;
+    line-height: 1.45;
 }
 .custom-domain-records {
-    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     margin-top: 10px;
-    border-collapse: collapse;
-    font-size: 12px;
-    table-layout: fixed;
 }
-.custom-domain-records th {
-    text-align: left;
+.custom-domain-records:empty {
+    display: none;
+}
+.custom-domain-record {
+    padding: 10px 12px;
+    border: 1px solid var(--afb-border);
+    border-radius: 12px;
+    background: var(--cd-subtle);
+}
+.custom-domain-record-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.custom-domain-record-type {
+    padding: 1px 7px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 18px;
+    border-radius: 6px;
+    color: var(--cd-accent);
+    background: color-mix(in srgb, var(--cd-accent) 12%, transparent);
+}
+.custom-domain-record-optional {
+    font-size: 11px;
+    color: var(--afb-muted);
+}
+.custom-domain-record-field {
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+}
+.custom-domain-record-label {
+    font-size: 11px;
     font-weight: 500;
     color: var(--afb-muted);
-    padding: 0 6px 6px 0;
 }
-.custom-domain-records th:first-child {
-    width: 86px;
-}
-.custom-domain-records td {
-    padding: 6px 6px 6px 0;
-    border-top: 1px solid var(--afb-border);
-    vertical-align: top;
-}
-.custom-domain-redirect strong {
-    color: var(--afb-fg);
+.custom-domain-record-field code {
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px;
     word-break: break-all;
-}
-.custom-domain-use-www {
-    display: block;
-    width: 100%;
-    margin-top: 10px;
-    font-size: 13px;
+    user-select: all;
 }
 .custom-domain-copy {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: none;
+    color: var(--afb-muted);
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.custom-domain-copy svg {
+    width: 15px;
+    height: 15px;
+}
+.custom-domain-copy svg + svg,
+.custom-domain-copy.is-copied svg:first-child {
+    display: none;
+}
+.custom-domain-copy.is-copied svg + svg {
     display: block;
-    word-break: break-all;
-    cursor: copy;
-    border-radius: 4px;
+    animation: custom-domain-pop 0.2s ease-out;
+}
+.custom-domain-copy.is-copied {
+    color: var(--cd-success);
 }
 @media (hover: hover) {
-    .custom-domain-copy:hover {
-        background: var(--afb-hover);
+    .custom-domain-copy:hover:not(:disabled) {
+        border-color: var(--afb-border);
+        background: var(--afb-bg);
+        color: var(--afb-fg);
     }
+    .custom-domain-copy.is-copied:hover:not(:disabled) {
+        color: var(--cd-success);
+    }
+}
+.custom-domain-claim .custom-domain-records {
+    margin-top: 8px;
+}
+
+/* -- Success -- */
+.custom-domain-success {
+    padding: 28px 10px 16px;
+}
+.custom-domain-success .app-feedback-success-check {
+    width: 60px;
+    height: 60px;
+    background: var(--cd-success-bg);
+    color: var(--cd-success);
+    animation: custom-domain-pop 0.32s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+.custom-domain-success .app-feedback-success-check svg {
+    width: 30px;
+    height: 30px;
+    stroke-dasharray: 24;
+    stroke-dashoffset: 24;
+    animation: custom-domain-draw 0.32s 0.14s ease-out forwards;
+}
+.custom-domain-success-note {
+    margin-top: 6px;
+    font-size: 13px;
+    word-break: break-word;
+}
+@keyframes custom-domain-pop {
+    from { transform: scale(0.6); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+@keyframes custom-domain-draw {
+    to { stroke-dashoffset: 0; }
+}
+
+/* -- Panes -- */
+.custom-domain-pane {
+    animation: custom-domain-fade 0.16s ease-out;
+}
+@keyframes custom-domain-fade {
+    from { opacity: 0; transform: translateY(4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .custom-domain-pane,
+    .custom-domain-success .app-feedback-success-check,
+    .custom-domain-copy.is-copied svg + svg {
+        animation: none;
+    }
+    .custom-domain-success .app-feedback-success-check svg {
+        animation: none;
+        stroke-dashoffset: 0;
+    }
+    .custom-domain-skeleton span {
+        animation: none;
+    }
+}
+
+@media (max-width: 500px) {
+    .custom-domain-row {
+        flex-wrap: wrap;
+    }
+    .custom-domain-row-main {
+        flex-basis: calc(100% - 46px);
+    }
+    .custom-domain-row-actions,
+    .custom-domain-row-confirm {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}
+
+/* In a popup that exists only for this dialog, the dialog is the page: a
+   centered column, with the actions pinned to the bottom edge. */
+.custom-domain-fullpage {
+    --cd-column: min(552px, 100% - 48px);
+    padding: 0;
+    align-items: stretch;
+    background: var(--afb-bg);
+}
+.custom-domain-fullpage .custom-domain-modal {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
+    padding-bottom: 0;
+    overflow: hidden;
+}
+.custom-domain-fullpage .app-feedback-x {
+    display: none;
+}
+.custom-domain-fullpage .custom-domain-head {
+    width: var(--cd-column);
+    margin: 0 auto;
+    padding: 28px 0 4px;
+}
+.custom-domain-fullpage .custom-domain-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 20px 0 0;
+}
+.custom-domain-fullpage .custom-domain-pane {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+}
+.custom-domain-fullpage .custom-domain-pane > :not(.app-feedback-actions, .app-feedback-success-check, .custom-domain-state-icon) {
+    box-sizing: border-box;
+    width: var(--cd-column);
+    margin-left: auto;
+    margin-right: auto;
+}
+/* Keeps the actions off the content when it fills the page. */
+.custom-domain-fullpage .custom-domain-pane::after {
+    content: '';
+    flex: 1 0 20px;
+    order: 1;
+}
+.custom-domain-fullpage .app-feedback-actions {
+    order: 2;
+    position: sticky;
+    bottom: 0;
+    margin: 0;
+    padding: 14px max(24px, calc((100% - 552px) / 2)) calc(14px + env(safe-area-inset-bottom, 0px));
+    background: var(--afb-bg);
+    border-top: 1px solid var(--afb-border);
+}
+.custom-domain-fullpage .custom-domain-state .app-feedback-actions {
+    justify-content: center;
 }
 
 /* Add-an-app chooser (see showAddAppModal): the three ways to get an app, as

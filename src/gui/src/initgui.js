@@ -1001,6 +1001,7 @@ const postAuthActions = async (action) => {
             domain = await UIWindowAttachCustomDomain({
                 subdomain,
                 requester: target_origin,
+                fullpage: window.embedded_in_popup === true,
             });
         } catch (e) {
             console.error('attach-custom-domain action failed', e);
