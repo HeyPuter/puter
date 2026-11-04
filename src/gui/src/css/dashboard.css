@@ -2428,6 +2428,26 @@ input.myapps-group-name:focus {
         text-decoration: underline;
     }
 }
+.custom-domain-link-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+/* Working: full strength, with a spinner after the label. */
+.custom-domain-link-btn.is-loading {
+    opacity: 1;
+}
+.custom-domain-link-btn.is-loading::after {
+    content: '';
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-left: 6px;
+    vertical-align: -1px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: share-modal-spin 0.7s linear infinite;
+}
 
 /* -- Add form -- */
 .custom-domain-label {
