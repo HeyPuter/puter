@@ -850,6 +850,9 @@ const TabFiles = {
             this.openPathEditor();
         });
         this.$el_window.on('keydown', '.files-tab .path-editor', (e) => {
+            // Enter and Escape mid-composition belong to the IME; jQuery's
+            // event doesn't carry isComposing, the browser's does.
+            if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
             if ( e.key === 'Enter' ) {
                 e.preventDefault();
                 e.stopPropagation();

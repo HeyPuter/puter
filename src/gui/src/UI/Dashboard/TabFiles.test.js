@@ -1589,6 +1589,20 @@ describe('TabFiles path field', () => {
         expect(UIAlert).toHaveBeenCalledTimes(1);
     });
 
+    it('leaves Enter and Escape to an IME composing a name', () => {
+        mountHeader();
+        const submit = vi.spyOn(TabFiles, 'submitPathEditor').mockResolvedValue();
+        TabFiles.openPathEditor();
+
+        for ( const key of ['Enter', 'Escape'] ) {
+            editor().dispatchEvent(new KeyboardEvent('keydown', { key, isComposing: true, bubbles: true }));
+            editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Process', keyCode: 229, bubbles: true }));
+        }
+
+        expect(submit).not.toHaveBeenCalled();
+        expect(editing()).toBe(true);
+    });
+
     it('gives the crumbs back on Escape or when it loses the focus', () => {
         mountHeader();
         TabFiles.openPathEditor();
