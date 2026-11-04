@@ -2015,6 +2015,8 @@ input.myapps-group-name:focus {
     --cd-warn: #b45309;
     --cd-warn-bg: rgba(245, 158, 11, 0.14);
     --cd-danger: #dc2626;
+    /* Under white text, so it stays this dark in both themes (4.8:1). */
+    --cd-danger-fill: #dc2626;
     --cd-danger-bg: rgba(220, 38, 38, 0.08);
     --cd-skeleton: rgba(15, 23, 42, 0.07);
 }
@@ -2270,8 +2272,8 @@ input.myapps-group-name:focus {
     color: #fff;
 }
 .custom-domain-row[data-confirming="remove"] .custom-domain-confirm-go {
-    border-color: var(--cd-danger);
-    background: var(--cd-danger);
+    border-color: var(--cd-danger-fill);
+    background: var(--cd-danger-fill);
     color: #fff;
 }
 @media (hover: hover) {
@@ -2399,13 +2401,13 @@ input.myapps-group-name:focus {
     }
 }
 .custom-domain-btn-danger-text.custom-domain-confirming {
-    border-color: var(--cd-danger);
-    background: var(--cd-danger);
+    border-color: var(--cd-danger-fill);
+    background: var(--cd-danger-fill);
     color: #fff;
 }
 @media (hover: hover) {
     .custom-domain-modal .app-feedback-btn.custom-domain-btn-danger-text.custom-domain-confirming:hover:not(:disabled) {
-        background: var(--cd-danger);
+        background: var(--cd-danger-fill);
         filter: brightness(0.92);
     }
 }
