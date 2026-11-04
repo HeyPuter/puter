@@ -7,7 +7,12 @@
 // It shows each Puter push, running the handler the page saved with
 // `puter.notifications.onPush(key, handler)`, and routes taps back to the app.
 // A handler that needs imports can be registered in the worker itself with
-// `puterPush.onPush(key, handler)`, which wins over a saved one.
+// `puterPush.onPush(key, handler)`, which wins over a saved one. After
+// `puterPush.savedHandlers(false)` only those run, and saved source never does.
+//
+// To serve a fixed copy instead, self-host this file or import it from npm, such
+// as https://cdn.jsdelivr.net/npm/@heyputer/puter.js@<version>/src/push-sw.js,
+// and update it whenever the page's puter.js changes.
 //
 // No install, activate or fetch handlers, so importing it into an existing
 // worker leaves that worker's lifecycle alone. Pushes without a `puter`
@@ -36,6 +41,7 @@
     const SHOWN_FIELDS = ['title', 'body', 'icon', 'badge', 'image', 'tag', 'url'];
 
     const registered = new Map();
+    let useSavedHandlers = true;
     const pendingClickAcks = new Map();
     let nextClickId = 0;
 
@@ -112,6 +118,7 @@
     async function handlerFor (channel) {
         if ( ! channel ) return null;
         if ( registered.has(channel) ) return registered.get(channel);
+        if ( ! useSavedHandlers ) return null;
         const source = await idb(HANDLERS, 'readonly', (s) => s.get(channel));
         if ( typeof source !== 'string' ) return null;
         const fn = new Function(`"use strict"; return (${source});`)();
@@ -435,6 +442,11 @@
                 throw new TypeError('onPush(key, handler) takes a string and a function');
             }
             registered.set(key, handler);
+        },
+        /** With `false`, pushes without a handler registered here show their own title and text. */
+        savedHandlers (on) {
+            if ( typeof on !== 'boolean' ) throw new TypeError('savedHandlers(on) takes a boolean');
+            useSavedHandlers = on;
         },
     };
 })();

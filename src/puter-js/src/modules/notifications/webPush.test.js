@@ -954,6 +954,50 @@ describe('tapUrl', () => {
     });
 });
 
+/** Web Locks for this test's tabs only, with shared mode and `ifAvailable`. */
+const fakeLocks = () => {
+    const locks = new Map();
+    const lockFor = (name) => {
+        if (!locks.has(name))
+            locks.set(name, { mode: null, held: 0, queue: [] });
+        return locks.get(name);
+    };
+    const free = (lock, mode) =>
+        lock.held === 0 || (mode === 'shared' && lock.mode === 'shared');
+    const grant = (lock, { name, mode, callback, resolve, reject }) => {
+        lock.mode = mode;
+        lock.held++;
+        Promise.resolve()
+            .then(() => callback({ name, mode }))
+            .then(resolve, reject)
+            .finally(() => {
+                if (--lock.held === 0) lock.mode = null;
+                while (lock.queue.length && free(lock, lock.queue[0].mode))
+                    grant(lock, lock.queue.shift());
+            });
+    };
+    return {
+        request: (name, options, callback) =>
+            new Promise((resolve, reject) => {
+                const lock = lockFor(name);
+                const ask = {
+                    name,
+                    mode: options.mode ?? 'exclusive',
+                    callback,
+                    resolve,
+                    reject,
+                };
+                if (lock.queue.length === 0 && free(lock, ask.mode))
+                    grant(lock, ask);
+                else if (options.ifAvailable)
+                    Promise.resolve()
+                        .then(() => callback(null))
+                        .then(resolve, reject);
+                else lock.queue.push(ask);
+            }),
+    };
+};
+
 /** A module with a stand-in feed: `feed.deliver` hands it a notification. */
 const makeModule = (over = {}) => {
     const authListeners = new Set();
@@ -1140,6 +1184,119 @@ describe('onPush', () => {
             module.onPush('chat', { chat() {} }.chat),
         ).resolves.toBeDefined();
         expect(store.size).toBe(0);
+    });
+
+    describe('across tabs', () => {
+        beforeEach(() => {
+            Object.defineProperty(globalThis.navigator, 'locks', {
+                value: fakeLocks(),
+                configurable: true,
+            });
+        });
+        afterEach(() => {
+            delete globalThis.navigator.locks;
+        });
+
+        it('keeps the saved handler while another tab still uses it, and removes it with the last', async () => {
+            const chat = (n) => ({ title: n.text });
+            const tabA = await makeModule().module.onPush('chat', chat);
+            const tabB = await makeModule().module.onPush('chat', chat);
+            await tabA.off();
+            expect(store.get('handlers:chat')).toBe(chat.toString());
+            await tabB.off();
+            expect(store.has('handlers:chat')).toBe(false);
+        });
+
+        it('keeps the saved handler for a tab that adds one while the last one leaves', async () => {
+            const chat = (n) => ({ title: n.text });
+            const tabA = await makeModule().module.onPush('chat', chat);
+            const leaving = tabA.off();
+            const tabB = makeModule().module.onPush('chat', chat);
+            await Promise.all([leaving, tabB]);
+            expect(store.get('handlers:chat')).toBe(chat.toString());
+        });
+
+        describe('in the back/forward cache', () => {
+            let page;
+            beforeEach(() => {
+                page = new EventTarget();
+                globalThis.addEventListener = page.addEventListener.bind(page);
+            });
+            afterEach(() => {
+                delete globalThis.addEventListener;
+            });
+            const pageEvent = (type, persisted) =>
+                page.dispatchEvent(
+                    Object.assign(new Event(type), { persisted }),
+                );
+
+            it('lets go of the lock while hidden, so another tab can remove the saved handler', async () => {
+                const chat = (n) => ({ title: n.text });
+                await makeModule().module.onPush('chat', chat);
+                const tabB = await makeModule().module.onPush('chat', chat);
+                pageEvent('pagehide', true);
+                await flush();
+                await tabB.off();
+                expect(store.has('handlers:chat')).toBe(false);
+            });
+
+            it('takes the lock again and saves its handler again when restored', async () => {
+                const chat = (n) => ({ title: n.text });
+                const { module } = makeModule();
+                const cached = await module.onPush('chat', chat);
+                const tabB = await makeModule().module.onPush('chat', chat);
+                pageEvent('pagehide', true);
+                await flush();
+                await tabB.off();
+                expect(store.has('handlers:chat')).toBe(false);
+                pageEvent('pageshow', true);
+                await vi.waitFor(() =>
+                    expect(store.get('handlers:chat')).toBe(chat.toString()),
+                );
+                const tabC = await makeModule().module.onPush('chat', chat);
+                await tabC.off();
+                expect(store.get('handlers:chat')).toBe(chat.toString());
+                await cached.off();
+                expect(store.has('handlers:chat')).toBe(false);
+            });
+
+            it('changes nothing on a pageshow that is not a restore', async () => {
+                const chat = (n) => ({ title: n.text });
+                await makeModule().module.onPush('chat', chat);
+                const tabB = await makeModule().module.onPush('chat', chat);
+                pageEvent('pageshow', false);
+                await tabB.off();
+                expect(store.get('handlers:chat')).toBe(chat.toString());
+            });
+        });
+
+        it('lets each key go on its own', async () => {
+            const tabA = await makeModule().module.onPush('chat', () => {});
+            await makeModule().module.onPush('mail', () => {});
+            await tabA.off();
+            expect(store.has('handlers:chat')).toBe(false);
+            expect(store.has('handlers:mail')).toBe(true);
+        });
+    });
+
+    describe('without Web Locks', () => {
+        beforeEach(() => {
+            Object.defineProperty(globalThis.navigator, 'locks', {
+                value: undefined,
+                configurable: true,
+            });
+        });
+        afterEach(() => {
+            delete globalThis.navigator.locks;
+        });
+
+        it('keeps the saved handler, since it cannot tell whether another tab uses it', async () => {
+            const { module } = makeModule();
+            const listener = await module.onPush('chat', () => {});
+            expect(store.has('handlers:chat')).toBe(true);
+            await listener.off();
+            expect(store.has('handlers:chat')).toBe(true);
+        });
     });
 
     describe('tap base', () => {
@@ -2862,6 +3019,13 @@ describe('where the browser refuses Web Locks, as in a sandboxed frame', () => {
     });
     afterEach(() => {
         delete globalThis.navigator.locks;
+    });
+
+    it('keeps the saved handler, since it cannot tell whether another tab uses it', async () => {
+        const { module } = makeModule();
+        const listener = await module.onPush('chat', () => {});
+        await listener.off();
+        expect(store.has('handlers:chat')).toBe(true);
     });
 
     it('signs out without rejecting and still ends the subscription', async () => {

@@ -20,7 +20,7 @@ On a website, pushes arrive on your own origin through a service worker that loa
 importScripts('https://js.puter.com/push-sw.js');
 ```
 
-To use another worker, such as one your site already has, pass its path as `serviceWorker`, and pass the same path to [`enable()`](/Notifications/enable/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). [Push notifications for your app](/Notifications/push/#1-serve-the-service-worker) has the setup and the rules the worker follows. Inside the Puter desktop, pushes go through Puter and no worker is needed.
+To use another worker, such as one your site already has, pass its path as `serviceWorker`, and pass the same path to [`enable()`](/Notifications/enable/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). [Push notifications for your app](/Notifications/push/#1-serve-the-service-worker) has the setup and the rules the worker follows, and how to [serve your own copy](/Notifications/push/#serving-your-own-copy) of `push-sw.js` from npm. Inside the Puter desktop, pushes go through Puter and no worker is needed.
 
 ## Syntax
 ```js
@@ -57,8 +57,10 @@ On a website, the handler is saved as source in this browser and run again in yo
 - **Fast.** It has 5 seconds. After that, or if it throws, the push shows the notification's own title and text.
 - **Something always shows.** Browsers show a notification for every push, so a handler can change what shows but can't hide it.
 - **Small input.** A push carries about 4 KB, with `data` at most 1 KB. Put IDs in `data` and fetch the rest.
-- **`eval`.** It's re-created with `new Function`, so a Content-Security-Policy on your worker has to allow `'unsafe-eval'`.
+- **`eval`.** It's re-created with `new Function`, so a Content-Security-Policy on your worker has to allow `'unsafe-eval'`, unless the worker turns saved handlers off ([below](#handlers-in-the-worker)).
 - **Errors.** An error it throws in the worker shows only in the service worker's console, not the page's.
+
+### Handlers in the worker
 
 A handler that needs more, such as imported code, can be registered in the worker itself, where it takes priority over the saved one:
 
@@ -67,8 +69,16 @@ importScripts('https://js.puter.com/push-sw.js', '/my-formatting.js');
 puterPush.onPush('chat', (n) => ({ title: formatTitle(n) }));
 ```
 
+To run only the handlers registered in the worker, call `puterPush.savedHandlers(false)` after `importScripts()`. The worker then never re-creates a handler from the source your pages saved, and a push for a key with no handler in the worker shows the notification's own title and text. Saved handlers are on by default, and `puterPush.savedHandlers(true)` turns them back on.
+
+```js
+importScripts('https://js.puter.com/push-sw.js', '/my-formatting.js');
+puterPush.savedHandlers(false);
+puterPush.onPush('chat', (n) => ({ title: formatTitle(n) }));
+```
+
 ## Return value
-A `Promise` that resolves to `{ off }`. Calling `off()` stops the handler in this page. When no other handler for `key` is left in the page, it also removes the saved one.
+A `Promise` that resolves to `{ off }`. Calling `off()` stops the handler in this page. The saved handler is removed when no tab on this browser still uses a handler for `key`. Where the browser has no Web Locks, such as in some sandboxed frames, it stays.
 
 It rejects with an error carrying `message` and `code`:
 

@@ -106,6 +106,52 @@ const withPushLock = async (run) => {
     }
 };
 
+/** Held shared by every tab with a saved handler for `key`. */
+const handlerLock = (key) => `puter-push-handler:${key}`;
+
+/** Holds lock `name` shared until `release()`; without Web Locks, holds nothing. */
+const holdShared = (name) => {
+    let release = () => {};
+    const held = new Promise((resolve) => {
+        release = resolve;
+    });
+    let onGranted = () => {};
+    const granted = new Promise((resolve) => {
+        onGranted = resolve;
+    });
+    let released;
+    try {
+        released = globalThis.navigator.locks
+            .request(name, { mode: 'shared' }, () => {
+                onGranted();
+                return held;
+            })
+            .catch(() => {});
+    } catch {
+        released = Promise.resolve();
+    }
+    void released.then(onGranted);
+    return { granted, released, release };
+};
+
+/** Runs `run` only when lock `name` is free; never without Web Locks. */
+const ifNoTabHolds = async (name, run) => {
+    let started = false;
+    try {
+        await globalThis.navigator.locks.request(
+            name,
+            { ifAvailable: true },
+            (lock) => {
+                if (!lock) return;
+                started = true;
+                return run();
+            },
+        );
+    } catch (error) {
+        if (started) throw error;
+    }
+};
+
 /** Hidden, or in a window without focus. */
 const pageAway = () => {
     const doc = globalThis.document;
@@ -243,6 +289,9 @@ export class NotificationsModule extends EventListener {
      * @type {Map<string, Promise<void>>}
      */
     #sourceWrites = new Map();
+    /** This page's hold on each key's handler lock, with its handler count. */
+    #handlerLocks = new Map();
+    #watchingPageCache = false;
     #receipts = new ReceiptLog(() => this.#showsOwn());
     /**
      * Whether the signed-in user turned push on here, as last read or set. A
@@ -327,7 +376,7 @@ export class NotificationsModule extends EventListener {
     /**
      * `onPush`'s live side: one notifications feed for every key. With
      * `source`, the handler is also saved for the worker until the last handler
-     * for `key` goes.
+     * for `key` on this browser goes.
      *
      * @param {string} key
      * @param {Function} handler
@@ -351,6 +400,7 @@ export class NotificationsModule extends EventListener {
         if (worker) this.#useWorker(worker);
         this.#startPushFeed();
         if (source !== null) {
+            await this.#holdHandlerLock(key, source);
             await this.#writeSource(key, () =>
                 idbPut(HANDLERS_STORE, key, source),
             );
@@ -370,11 +420,15 @@ export class NotificationsModule extends EventListener {
                 const stopping =
                     this.#pushHandlers.size === 0 ? this.#stopPushFeed() : null;
                 if (source !== null) {
+                    const released = this.#releaseHandlerLock(key);
                     await this.#writeSource(key, async () => {
-                        // A handler added since, here or in another tab, keeps its own.
+                        await released;
+                        // A handler added here since keeps its own.
                         if (this.#pushHandlers.has(key)) return;
-                        if ((await idbGet(HANDLERS_STORE, key)) === source)
-                            await idbDelete(HANDLERS_STORE, key);
+                        await ifNoTabHolds(handlerLock(key), async () => {
+                            if ((await idbGet(HANDLERS_STORE, key)) === source)
+                                await idbDelete(HANDLERS_STORE, key);
+                        });
                     });
                 }
                 await stopping;
@@ -889,6 +943,50 @@ export class NotificationsModule extends EventListener {
         this.#stopVerifying.abort();
         this.#stopVerifying = new AbortController();
         this.#syncs.clear();
+    }
+
+    /** Holds the key's handler lock for one more handler; resolves once held. */
+    #holdHandlerLock(key, source) {
+        this.#watchPageCache();
+        let hold = this.#handlerLocks.get(key);
+        if (!hold) {
+            hold = { count: 0, source, lock: holdShared(handlerLock(key)) };
+            this.#handlerLocks.set(key, hold);
+        }
+        hold.count++;
+        hold.source = source;
+        return hold.lock.granted;
+    }
+
+    /** Lets go of the key's handler lock with its last handler. */
+    #releaseHandlerLock(key) {
+        const hold = this.#handlerLocks.get(key);
+        if (!hold) return Promise.resolve();
+        if (--hold.count > 0) return Promise.resolve();
+        this.#handlerLocks.delete(key);
+        hold.lock.release();
+        return hold.lock.released;
+    }
+
+    /** Browsers keep no page holding a Web Lock in the back/forward cache. */
+    #watchPageCache() {
+        if (this.#watchingPageCache || !globalThis.addEventListener) return;
+        this.#watchingPageCache = true;
+        globalThis.addEventListener('pagehide', () => {
+            for (const hold of this.#handlerLocks.values()) hold.lock.release();
+        });
+        globalThis.addEventListener('pageshow', (event) => {
+            if (!event.persisted) return;
+            for (const [key, hold] of this.#handlerLocks) {
+                hold.lock = holdShared(handlerLock(key));
+                const { granted } = hold.lock;
+                // Another tab may have removed the saved handler meanwhile.
+                void this.#writeSource(key, async () => {
+                    await granted;
+                    await idbPut(HANDLERS_STORE, key, hold.source);
+                });
+            }
+        });
     }
 
     /**

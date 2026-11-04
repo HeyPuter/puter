@@ -232,6 +232,47 @@ describe('push-sw push', () => {
         expect(worker.shown[0].title).toBe('worker');
     });
 
+    describe('with savedHandlers(false)', () => {
+        // Rebuilding this source throws, so a test can tell whether it ran.
+        const SAVED = '(() => { throw new Error("rebuilt") })()';
+        const chatPush = { data: pushData({ puter: { uid: 'n1', title: 'Hi', body: 'there', channel: 'chat' } }) };
+        const rebuilds = (warn) => warn.mock.calls.filter(([, error]) => error?.message === 'rebuilt').length;
+
+        it('never rebuilds a saved handler and shows the notification`s own title and text', async () => {
+            const worker = loadWorker({ handlers: { chat: SAVED } });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            worker.context.puterPush.savedHandlers(false);
+            await worker.fire('push', chatPush);
+            expect(rebuilds(warn)).toBe(0);
+            expect(worker.shown[0].title).toBe('Hi');
+            expect(worker.shown[0].options.body).toBe('there');
+            warn.mockRestore();
+        });
+
+        it('still runs a handler registered in the worker', async () => {
+            const worker = loadWorker({ handlers: { chat: SAVED } });
+            worker.context.puterPush.savedHandlers(false);
+            worker.context.puterPush.onPush('chat', () => ({ title: 'worker' }));
+            await worker.fire('push', chatPush);
+            expect(worker.shown[0].title).toBe('worker');
+        });
+
+        it('rebuilds saved handlers again after savedHandlers(true)', async () => {
+            const worker = loadWorker({ handlers: { chat: SAVED } });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            worker.context.puterPush.savedHandlers(false);
+            worker.context.puterPush.savedHandlers(true);
+            await worker.fire('push', chatPush);
+            expect(rebuilds(warn)).toBe(1);
+            warn.mockRestore();
+        });
+
+        it('takes only a boolean', () => {
+            const worker = loadWorker();
+            expect(() => worker.context.puterPush.savedHandlers('no')).toThrow(TypeError);
+        });
+    });
+
     it('still shows the defaults when the handler throws', async () => {
         const worker = loadWorker({ handlers: { chat: '() => { throw new Error("x") }' } });
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
