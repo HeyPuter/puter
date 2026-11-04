@@ -4440,7 +4440,8 @@ body.myapps-reordering .myapps-tile {
     flex: 1 1 auto;
     min-width: 0;
     height: 28px;
-    margin: 0 0 0 10px;
+    /* Clear of the action buttons by their own 10px gap */
+    margin: 0 10px;
     padding: 0 8px;
     box-sizing: border-box;
     font-size: 13px;
