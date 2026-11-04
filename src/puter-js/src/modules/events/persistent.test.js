@@ -127,13 +127,54 @@ describe('onPersistent', () => {
         expect(JSON.stringify(bodyOf())).not.toContain('fetch(');
     });
 
-    it('refuses an inline handler with no name to publish it under', async () => {
-        const error = await rejects(() =>
-            makeModule().onPersistent({ subject: SUBJECT, handler: HANDLER }),
-        );
+    it('sends an inline handler with no name as source, never as a hash', async () => {
+        await makeModule().onPersistent({ subject: SUBJECT, handler: HANDLER });
 
-        expect(error.code).toBe('events_handler_name_required');
-        expect(mockRequest).not.toHaveBeenCalled();
+        expect(bodyOf()).toEqual({
+            subject: SUBJECT,
+            handlerSource: Function.prototype.toString.call(HANDLER),
+        });
+        expect(bodyOf().handlerHash).toBeUndefined();
+        expect(mockRequest.mock.calls[0][1]).toBe('/events/subscribe');
+    });
+
+    it('sends the source whose hash the named path would send', async () => {
+        const { hashSource } = await import('./lib/handlerSource.js');
+        await makeModule().onPersistent({ subject: SUBJECT, handler: HANDLER });
+        expect(await hashSource(bodyOf().handlerSource)).toBe(handlerHash);
+    });
+
+    it('sends a `queue` subscription with an inline handler and no name', async () => {
+        for ( const options of [{ queue: true }, { delivery: 'single' }] ) {
+            mockRequest.mockClear();
+            await makeModule().onPersistent({
+                subject: SUBJECT,
+                handler: HANDLER,
+                ...options,
+            });
+            expect(bodyOf().handlerSource).toBeTypeOf('string');
+            expect(bodyOf().handlerName).toBeUndefined();
+        }
+    });
+
+    it('passes `handlerScope` through for a named binding', async () => {
+        await makeModule().onPersistent({
+            subject: SUBJECT,
+            handlerName: 'ingestUpload',
+            handlerScope: 'user',
+        });
+        expect(bodyOf()).toEqual({
+            subject: SUBJECT,
+            handlerName: 'ingestUpload',
+            handlerScope: 'user',
+        });
+    });
+
+    it('still runs an inline function handler in this client', async () => {
+        const module = makeModule();
+        mockRequest.mockResolvedValueOnce({ subId: 'sub-1' });
+        await module.onPersistent({ subject: SUBJECT, handler: HANDLER });
+        expect(module.channel.registered.map((row) => row.subId)).toEqual(['sub-1']);
     });
 
     it('rejects an inline handler that closes over something', async () => {

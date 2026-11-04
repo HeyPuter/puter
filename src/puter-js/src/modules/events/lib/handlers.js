@@ -25,8 +25,13 @@ import { prepareHandler } from './handlerSource.js';
  * rejects `auth_canceled` if the visitor closes it.
  */
 
-/** One name in one app. The same name means different code in another. */
-const baseKey = (appUid, name) => `${appUid ?? ''}|${name}`;
+/**
+ * One name in one app, in one scope. The same name means different code in
+ * another app, and in the user's scope of the same app.
+ */
+const keyPrefix = (appUid, scope) =>
+    `${scope === 'user' ? 'user:' : ''}${appUid ?? ''}|`;
+const baseKey = (appUid, name, scope) => `${keyPrefix(appUid, scope)}${name}`;
 
 const invalidName = () =>
     new PuterJSError(
@@ -44,7 +49,7 @@ export class EventHandlers {
          *   base a publish claims it is updating. Empty until this client has
          *   published or listed, which is what makes a first publish
          *   create-or-idempotent. Keyed by app as well as name because one
-         *   name means different code in two apps.
+         *   name means different code in two apps, and in the two scopes.
          * @type {Map<string, string>}
          */
         this.known = new Map();
@@ -67,7 +72,7 @@ export class EventHandlers {
     async publish (name, handler, options = {}) {
         const [published] = await this.#send(
             [{ name, handler, replace: options.replace }],
-            options.appUid,
+            options,
             '/events/handlers/publish',
         );
         return published;
@@ -89,7 +94,7 @@ export class EventHandlers {
                 'invalid_request',
             );
         }
-        return this.#send(handlers, options.appUid, '/events/handlers/publishAll');
+        return this.#send(handlers, options, '/events/handlers/publishAll');
     }
 
     /**
@@ -104,11 +109,16 @@ export class EventHandlers {
             this.module.puter,
             '/events/handlers/list',
             undefined,
-            options.appUid ? { appUid: options.appUid } : undefined,
+            options.appUid || options.scope
+                ? {
+                    ...(options.appUid ? { appUid: options.appUid } : {}),
+                    ...(options.scope ? { scope: options.scope } : {}),
+                }
+                : undefined,
         );
         const handlers = /** @type {HandlerSummary[]} */ (response.handlers ?? []);
         for ( const handler of handlers )
-            this.known.set(baseKey(options.appUid, handler.name), handler.hash);
+            this.known.set(baseKey(options.appUid, handler.name, options.scope), handler.hash);
         return handlers;
     }
 
@@ -127,9 +137,10 @@ export class EventHandlers {
             await request(this.module.puter, '/events/handlers/remove', {
                 name,
                 ...(options.appUid ? { appUid: options.appUid } : {}),
+                ...(options.scope ? { scope: options.scope } : {}),
             })
         );
-        this.known.delete(baseKey(options.appUid, name));
+        this.known.delete(baseKey(options.appUid, name, options.scope));
         return removed;
     }
 
@@ -140,10 +151,13 @@ export class EventHandlers {
      *   too: those are an app token's own app, which is the only app it can
      *   have emptied.
      * @param {string} appUid
+     * @param {'app' | 'user'} [scope] The scope that was emptied.
      */
-    forget (appUid) {
+    forget (appUid, scope) {
+        const prefix = keyPrefix(appUid, scope);
+        const implicit = keyPrefix(undefined, scope);
         for ( const key of [...this.known.keys()] ) {
-            if ( key.startsWith(`${appUid}|`) || key.startsWith('|') )
+            if ( key.startsWith(prefix) || key.startsWith(implicit) )
                 this.known.delete(key);
         }
     }
@@ -152,18 +166,19 @@ export class EventHandlers {
      * @internal Serialize, scan and send one or more publications, then record
      *   what is now published so the next publish can name its base.
      * @param {HandlerPublication[]} items
-     * @param {string | undefined} appUid
+     * @param {HandlerOptions} options
      * @param {string} route
      * @returns {Promise<PublishedHandler[]>}
      */
-    async #send (items, appUid, route) {
+    async #send (items, options, route) {
+        const { appUid, scope } = options;
         const handlers = [];
         for ( const item of items ) {
             const name = item?.name;
             if ( typeof name !== 'string' || name.trim().length === 0 ) throw invalidName();
 
             const { source } = await prepareHandler(this.module.puter, item.handler);
-            const ifHash = this.known.get(baseKey(appUid, name));
+            const ifHash = this.known.get(baseKey(appUid, name, scope));
             handlers.push({
                 name,
                 source,
@@ -174,6 +189,7 @@ export class EventHandlers {
 
         const body = {
             ...(appUid ? { appUid } : {}),
+            ...(scope ? { scope } : {}),
             ...(handlers.length === 1 && route.endsWith('/publish')
                 ? handlers[0]
                 : { handlers }),
@@ -184,7 +200,7 @@ export class EventHandlers {
             Array.isArray(response.handlers) ? response.handlers : [response]
         );
         for ( const handler of published )
-            this.known.set(baseKey(appUid, handler.name), handler.hash);
+            this.known.set(baseKey(appUid, handler.name, scope), handler.hash);
         return published;
     }
 }

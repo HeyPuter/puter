@@ -24,6 +24,7 @@ import {
     HANDLER_NAME_MAX_LENGTH,
     hashContent,
 } from '../../stores/events/EventHandlerStore.js';
+import type { HandlerScopeKind } from '../../stores/events/types.js';
 
 /** Request and response pieces the subscription and schedule verbs share. */
 
@@ -51,6 +52,27 @@ export const parseHandlerHash = (value: unknown): string | null => {
             'bad_request',
         );
     return value;
+};
+
+/** Source of an inline handler; the store enforces the size and content rules. */
+export const parseHandlerSource = (value: unknown): string | null => {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== 'string' || value.trim().length === 0)
+        throw badRequest(
+            'handlerSource must be a non-empty string',
+            'bad_request',
+        );
+    return value;
+};
+
+/** Which handler set a request is about; absent means the app's. */
+export const parseHandlerScopeKind = (
+    value: unknown,
+    field: string,
+): HandlerScopeKind => {
+    if (value === undefined || value === null || value === 'app') return 'app';
+    if (value === 'user') return 'user';
+    throw badRequest(`${field} must be 'app' or 'user'`, 'bad_request');
 };
 
 /** Stored as JSON text; the byte cap is the store's to enforce. */

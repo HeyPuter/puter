@@ -3,6 +3,7 @@
 //  however the interactions with the Puter API are
 import {
     afterAll,
+    afterEach,
     beforeAll,
     beforeEach,
     describe,
@@ -13,6 +14,7 @@ import {
 import { Actor, makeActor as resolveActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
+import { DEFAULT_FREE_SUBSCRIPTION } from '../../services/metering/consts.js';
 import {
     setupPuterTestEnv,
     setupTestServer,
@@ -794,6 +796,174 @@ describe('WorkerDriver', () => {
         it('returns an empty array (workers have no cost reporting)', () => {
             const rows = target.getReportedCosts();
             expect(rows).toEqual([]);
+        });
+    });
+
+    describe('rented-unit cap', () => {
+        const FREE_CAP = 16;
+        const PAID_CAP = 100;
+
+        // The cap sits after the deploy-credentials gate, so the driver needs
+        // credentials to reach it; a create under the cap then fails on the
+        // missing source file, which is what tells it past the cap check.
+        let originalWorkersConfig: unknown;
+        let originalEvents: unknown;
+        beforeAll(() => {
+            const driverConfig = (
+                target as unknown as { config: Record<string, unknown> }
+            ).config;
+            originalEvents = driverConfig.events;
+            driverConfig.events = { userHandlers: true };
+            originalWorkersConfig = driverConfig.workers;
+            driverConfig.workers = {
+                XAUTHKEY: 'test-key',
+                ACCOUNTID: 'test-account',
+            };
+        });
+        afterAll(() => {
+            const driverConfig = (
+                target as unknown as { config: Record<string, unknown> }
+            ).config;
+            driverConfig.workers = originalWorkersConfig;
+            driverConfig.events = originalEvents;
+        });
+
+        const holding = (
+            plan: string,
+            held: { workers?: number; scopes?: number; owned?: number },
+        ) => {
+            vi.spyOn(
+                server.services.metering,
+                'getActorSubscription',
+            ).mockResolvedValue({ id: plan } as never);
+            vi.spyOn(
+                server.stores.subdomain,
+                'countByUserIdAndPrefix',
+            ).mockResolvedValue(held.workers ?? 0);
+            vi.spyOn(
+                server.stores.eventHandler,
+                'countUserScopesWithHandlersForUser',
+            ).mockResolvedValue(held.scopes ?? 0);
+            vi.spyOn(
+                server.stores.eventHandler,
+                'countAppsWithHandlersForOwner',
+            ).mockResolvedValue(held.owned ?? 0);
+        };
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        const createWorker = () =>
+            inCtx(() =>
+                target.create({
+                    appId: 'test-app',
+                    workerName: 'capped',
+                    filePath: '/test.js',
+                }),
+            );
+
+        it('keeps the flat 100-worker cap over ordinary workers with user scopes off', async () => {
+            const driverConfig = (
+                target as unknown as { config: Record<string, unknown> }
+            ).config;
+            driverConfig.events = { userHandlers: false };
+            try {
+                // 16 workers is fine here, and scopes and owned apps don't count.
+                holding(DEFAULT_FREE_SUBSCRIPTION, {
+                    workers: 16,
+                    scopes: 50,
+                    owned: 50,
+                });
+                const list = vi
+                    .spyOn(server.stores.subdomain, 'listByUserIdAndPrefix')
+                    .mockResolvedValue(
+                        Array.from({ length: 16 }, () => ({})) as never,
+                    );
+                await expect(createWorker()).rejects.not.toMatchObject({
+                    statusCode: 403,
+                });
+
+                list.mockResolvedValue(
+                    Array.from({ length: 100 }, () => ({})) as never,
+                );
+                await expect(createWorker()).rejects.toMatchObject({
+                    statusCode: 403,
+                    message: 'Worker limit reached (max 100)',
+                    legacyCode: 'forbidden',
+                });
+            } finally {
+                driverConfig.events = { userHandlers: true };
+            }
+        });
+
+        it('refuses a free user one unit past the cap, across all three sources', async () => {
+            for (const held of [
+                { workers: FREE_CAP },
+                { scopes: FREE_CAP },
+                { owned: FREE_CAP },
+                { workers: 10, scopes: 4, owned: 2 },
+            ]) {
+                holding(DEFAULT_FREE_SUBSCRIPTION, held);
+                await expect(createWorker()).rejects.toMatchObject({
+                    statusCode: 403,
+                    legacyCode: 'forbidden',
+                });
+            }
+        });
+
+        it('lets a free user create up to the cap', async () => {
+            holding(DEFAULT_FREE_SUBSCRIPTION, {
+                workers: 10,
+                scopes: 3,
+                owned: 2,
+            });
+            await expect(createWorker()).rejects.not.toMatchObject({
+                statusCode: 403,
+            });
+        });
+
+        it('refuses a paid user the unit after 100', async () => {
+            holding('paid-plan', { workers: 90, scopes: 5, owned: 5 });
+            await expect(createWorker()).rejects.toMatchObject({
+                statusCode: 403,
+            });
+            holding('paid-plan', { workers: 90, scopes: 5, owned: 4 });
+            await expect(createWorker()).rejects.not.toMatchObject({
+                statusCode: 403,
+            });
+            expect(PAID_CAP).toBe(100);
+        });
+
+        it('keeps a free user over the cap, redeploys what they hold, and refuses a new one', async () => {
+            holding(DEFAULT_FREE_SUBSCRIPTION, { workers: 20 });
+            const user = actor.user;
+            const exists = vi
+                .spyOn(server.stores.subdomain, 'getBySubdomain')
+                .mockImplementation(
+                    async (name: string) =>
+                        (name === 'workers.puter.capped'
+                            ? { user_id: user.id, uuid: 'existing-uuid' }
+                            : null) as never,
+                );
+            const noApp = makeActor({ app: undefined });
+            const create = (workerName: string) =>
+                inCtx(
+                    () =>
+                        target.create({
+                            appId: '',
+                            workerName,
+                            filePath: '/test.js',
+                        }),
+                    noApp,
+                );
+
+            await expect(create('capped')).rejects.not.toMatchObject({
+                statusCode: 403,
+            });
+            await expect(create('another')).rejects.toMatchObject({
+                statusCode: 403,
+            });
+            exists.mockRestore();
         });
     });
 

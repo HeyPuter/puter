@@ -22,6 +22,7 @@ import type {
     WorkerInvokeOptions,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
 import type { Actor } from '../../core/actor.js';
+import type { HandlerScopeKind } from '../../stores/events/types.js';
 import type { DeliverableEvent, ScheduleEvent } from './registry.js';
 
 export type { ScheduleEvent } from './registry.js';
@@ -42,6 +43,8 @@ export interface WorkerInvocation {
     /** The app whose handler runs, or null for an account-owned row. */
     appUid: string | null;
     handlerName: string | null;
+    /** Whose handler set `handlerName` is in: absent means the app's own. */
+    handlerScope?: HandlerScopeKind;
     event: DeliverableEvent | ScheduleEvent;
     /** The subscription's stored context, delivered to the handler as `ctx`. */
     context: string | null;
@@ -58,11 +61,7 @@ export interface WorkerInvocation {
  * toward the run that suspends a subscription.
  */
 export type WorkerInvocationOutcome =
-    | 'settled'
-    | 'terminal'
-    | 'retriable'
-    | 'unavailable'
-    | 'deferred';
+    'settled' | 'terminal' | 'retriable' | 'unavailable' | 'deferred';
 
 export interface WorkerInvocationResult {
     outcome: WorkerInvocationOutcome;
@@ -96,21 +95,25 @@ export interface AddressOptions {
     missRead?: 'primary' | 'replica';
     /** A handler the set must have; a set without it is re-read on the primary. */
     handlerName?: string;
+    /** Absent means the app's own set. */
+    handlerScope?: HandlerScopeKind;
+    /** The user whose scope it is, for `handlerScope: 'user'`. */
+    holderUserId?: number;
 }
 
 /**
- * The script an app's handlers deploy as and its invocation key; null when the
- * app has no handlers or no events secret is configured.
+ * The script a handler deploys as and its invocation key; null when it has none
+ * to run, no events secret is configured, or (in a user scope) the holder is
+ * gone or suspended. `holder` is the holder's uuid, for a user scope.
  */
 export type EventsWorkerAddresser = (
     appUid: string,
     options?: AddressOptions,
-) => Promise<{ script: string; key: string } | null>;
+) => Promise<{ script: string; key: string; holder?: string } | null>;
 
 /** What one run came to, including why nothing was invoked. */
 export type WorkerRunResult =
-    | WorkerInvocationResult
-    | { outcome: MintRefusal | 'deploy-busy' };
+    WorkerInvocationResult | { outcome: MintRefusal | 'deploy-busy' };
 
 /** How {@link EventsWorkerInvoker.run} reaches the worker. */
 export type WorkerRunOptions = WorkerInvokeOptions & AddressOptions;
@@ -131,6 +134,7 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
     readonly #mintToken: SubscriberTokenMinter;
     readonly #address: EventsWorkerAddresser;
     readonly #available: () => boolean;
+    readonly #userHandlersEnabled: () => boolean;
     /**
      * Script -> when it was last logged, so a failing script floods once a
      * minute.
@@ -142,11 +146,13 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
         mintToken: SubscriberTokenMinter,
         address: EventsWorkerAddresser,
         available: () => boolean,
+        userHandlersEnabled: () => boolean = () => true,
     ) {
         this.#client = client;
         this.#mintToken = mintToken;
         this.#address = address;
         this.#available = available;
+        this.#userHandlersEnabled = userHandlersEnabled;
     }
 
     available(): boolean {
@@ -178,6 +184,10 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
         const { appUid, handlerName } = invocation;
         if (!appUid || !handlerName) return { outcome: 'deferred' };
         if (!this.#available()) return { outcome: 'unavailable' };
+        // Owed, not failed: nothing resolves a user scope while it is off.
+        const { handlerScope } = invocation;
+        if (handlerScope === 'user' && !this.#userHandlersEnabled())
+            return { outcome: 'unavailable' };
 
         const minted = await this.#mintToken(invocation);
         if ('refused' in minted) return { outcome: minted.refused };
@@ -188,6 +198,9 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
         const address = await this.#address(appUid, {
             missRead: options.missRead,
             handlerName,
+            ...(handlerScope === 'user'
+                ? { handlerScope, holderUserId: invocation.holderUserId }
+                : {}),
         });
         if (address === null) return { outcome: 'retriable' };
 
@@ -196,6 +209,7 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
                 script: address.script,
                 key: address.key,
                 appUid,
+                ...(address.holder ? { holder: address.holder } : {}),
                 handler: handlerName,
                 token: minted.token,
                 event: invocation.event,

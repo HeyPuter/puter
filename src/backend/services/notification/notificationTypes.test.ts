@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -53,6 +54,9 @@ describe('NOTIFICATION_TYPES', () => {
             audience: 'developer',
             appScoped: true,
         });
+        expect(
+            findNotificationType('app.events.handler_suspended'),
+        ).toMatchObject({ audience: 'app-user', appScoped: true });
         expect(findNotificationType('app.events.ended')).toMatchObject({
             audience: 'app-user',
             appScoped: false,
@@ -61,9 +65,9 @@ describe('NOTIFICATION_TYPES', () => {
 
     it('projects a subject naming the app, or the recipient when there is none', () => {
         const account = findNotificationType('share.received')!;
-        expect(
-            account.subject({ userUuid: 'user-uuid', appUid: null }),
-        ).toBe('notif:user-uuid:account');
+        expect(account.subject({ userUuid: 'user-uuid', appUid: null })).toBe(
+            'notif:user-uuid:account',
+        );
 
         const developer = findNotificationType('app.events.suspended')!;
         expect(
@@ -130,18 +134,20 @@ describe('resolveNotificationWrite', () => {
     });
 
     it('requires an app uid for an app message', () => {
-        expect(resolveNotificationWrite('app.message', 'app-1')).toMatchObject(
-            { audience: 'app-user', appScoped: true, groupable: true },
-        );
+        expect(resolveNotificationWrite('app.message', 'app-1')).toMatchObject({
+            audience: 'app-user',
+            appScoped: true,
+            groupable: true,
+        });
         expect(() => resolveNotificationWrite('app.message', null)).toThrow(
             'requires an app uid',
         );
     });
 
     it('lets a subscription an account made end without naming an app', () => {
-        expect(resolveNotificationWrite('app.events.ended', null).audience).toBe(
-            'app-user',
-        );
+        expect(
+            resolveNotificationWrite('app.events.ended', null).audience,
+        ).toBe('app-user');
     });
 });
 

@@ -70,6 +70,12 @@ const EXPECTED_JOBS = {
         nearPrimary: true,
         leaseMs: 15 * MINUTE,
     },
+    'events.userHandlers.gc': {
+        every: HOUR,
+        scope: 'fleet',
+        nearPrimary: true,
+        leaseMs: 15 * MINUTE,
+    },
     'events.subscriptions.creditSweep': {
         every: 15 * MINUTE,
         scope: 'fleet',

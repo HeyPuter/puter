@@ -45,7 +45,10 @@ import {
     EVENTS_WORKER_SOURCE_MAX_BYTES,
 } from '../../controllers/events/limits.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
-import { hashContent } from '../../stores/events/EventHandlerStore.js';
+import {
+    appHandlerScope,
+    hashContent,
+} from '../../stores/events/EventHandlerStore.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import type { DurableSubscriptionView } from './EventsService.js';
@@ -532,7 +535,7 @@ describe('what a publish reads', () => {
                 if (sql.includes(BY_NAME_SQL) && !landed) {
                     landed = true;
                     await env.server.stores.eventHandler.publish({
-                        appUid,
+                        scope: appHandlerScope(appUid),
                         name: 'ingestUpload',
                         source: NEXT_SOURCE,
                         replace: true,
@@ -590,7 +593,7 @@ describe('what a publish reads', () => {
             pread.mockRestore();
         }
         const standing = await env.server.stores.eventHandler.getByName(
-            appUid,
+            appHandlerScope(appUid),
             'ingestUpload',
         );
         expect(standing?.sourceHash).toBe(hashContent(THIRD_SOURCE));
@@ -603,7 +606,7 @@ describe('what a publish reads', () => {
             if (sql.includes(BY_NAME_SQL) && !beaten) {
                 beaten = true;
                 await env.server.stores.eventHandler.publish({
-                    appUid,
+                    scope: appHandlerScope(appUid),
                     name: 'ingestUpload',
                     source: THIRD_SOURCE,
                 });
@@ -659,7 +662,7 @@ describe('what a publish reads', () => {
             pread.mockRestore();
         }
         await expect(
-            env.server.stores.eventHandler.countForApp(appUid),
+            env.server.stores.eventHandler.countForApp(appHandlerScope(appUid)),
         ).resolves.toBe(0);
     });
 

@@ -69,6 +69,8 @@ export interface ScheduleView {
     appUid: string;
     /** `null` once ended: the handler binding goes with the schedule. */
     handlerName: string | null;
+    /** Set only when the handler lives in the holder's own scope. */
+    handlerScope?: 'user';
     contextKeys: string[] | null;
     contextHash: string | null;
     /** Interval of an `every` schedule. */

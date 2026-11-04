@@ -44,6 +44,7 @@ import {
     SCHEDULE_TOKEN_PREFIX,
     scheduleToken,
     type DurableSubscription,
+    type HandlerScopeKind,
     type SubscriptionPermission,
 } from './types.js';
 
@@ -100,6 +101,8 @@ export interface DurableSubscriptionInput {
     op: FsOp | null;
     delivery: DeliveryClass;
     handlerName: string | null;
+    /** Which set `handlerName` refers to. Omitted means the app's. */
+    handlerScope?: HandlerScopeKind;
     context: string | null;
     permission: SubscriptionPermission;
     expiresAt: number | null;
@@ -307,6 +310,9 @@ const toRow = (row: Record<string, unknown>): DurableSubscription => ({
         row.handler_name === null || row.handler_name === undefined
             ? null
             : String(row.handler_name),
+    ...(Number(row.handler_scope) === 1
+        ? { handlerScope: 'user' as const }
+        : {}),
     context:
         row.context === null || row.context === undefined
             ? null
@@ -324,7 +330,7 @@ const toRow = (row: Record<string, unknown>): DurableSubscription => ({
 const SELECT_COLUMNS =
     '`id`, `sub_id`, `token`, `owner_user_id`, `holder_user_id`, `app_uid`, ' +
     '`subject`, `anchor_uid`, `anchor_path`, `match`, `delivery`, `ops`, ' +
-    '`handler_name`, `context`, `permission`, `include_value`, ' +
+    '`handler_name`, `handler_scope`, `context`, `permission`, `include_value`, ' +
     '`suspended_at`, `suspended_reason`, `expires_at`, `created_at`';
 
 export class DurableSubscriptionStore extends PuterStore {
@@ -376,6 +382,9 @@ export class DurableSubscriptionStore extends PuterStore {
             permission: input.permission,
             delivery: input.delivery,
             handlerName: input.handlerName,
+            ...(input.handlerScope === 'user'
+                ? { handlerScope: 'user' as const }
+                : {}),
             context: input.context,
             ...(input.includeValue ? { includeValue: true } : {}),
             expiresAt: input.expiresAt,
@@ -398,6 +407,7 @@ export class DurableSubscriptionStore extends PuterStore {
             delivery: row.delivery,
             ops: row.op,
             handler_name: row.handlerName,
+            handler_scope: row.handlerScope === 'user' ? 1 : 0,
             targets: legacyTargets(row.appUid),
             context: row.context,
             permission: row.permission,
@@ -811,8 +821,11 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     /**
-     * The rows bound to one of an app's handler names. What a removal has to
+     * The rows bound to one of a scope's handler names. What a removal has to
      * suspend, and — asking for the suspended half — what a republish resumes.
+     * `holder` is read for user scope only. App scope never returns user-scope
+     * rows; user scope is read through the holder index, so it never walks the
+     * other holders of a popular app.
      *
      * Bounded by the per-account quota times nothing: a widely-used handler can
      * carry more rows than one read should return, so this is a page and the
@@ -820,11 +833,28 @@ export class DurableSubscriptionStore extends PuterStore {
      */
     async listByHandler(
         appUid: string,
+        scope: HandlerScopeKind,
+        holder: number,
         handlerName: string,
         options: { suspendedReason?: SuspendedReason; limit?: number } = {},
     ): Promise<DurableSubscription[]> {
-        const where = ['`app_uid` = ?', '`handler_name` = ?'];
-        const params: unknown[] = [appUid, handlerName];
+        const where =
+            scope === 'user'
+                ? [
+                      '`holder_user_id` = ?',
+                      '`app_uid` = ?',
+                      '`handler_scope` = 1',
+                      '`handler_name` = ?',
+                  ]
+                : [
+                      '`app_uid` = ?',
+                      '`handler_scope` = 0',
+                      '`handler_name` = ?',
+                  ];
+        const params: unknown[] =
+            scope === 'user'
+                ? [holder, appUid, handlerName]
+                : [appUid, handlerName];
         if (options.suspendedReason === undefined) {
             where.push('`suspended_at` IS NULL');
         } else {
@@ -965,7 +995,8 @@ export class DurableSubscriptionStore extends PuterStore {
     /**
      * A `LEFT JOIN` of the row a schedule owns, as `alias`, on `subIdColumn`,
      * and the columns it selects: `sub_row_id`, `sub_suspended_at`,
-     * `sub_suspended_reason`, `sub_handler_name` and `sub_context`.
+     * `sub_suspended_reason`, `sub_handler_name`, `sub_handler_scope` and
+     * `sub_context`.
      */
     scheduleSubscriptionJoin(
         alias: string,
@@ -977,6 +1008,7 @@ export class DurableSubscriptionStore extends PuterStore {
                 `${alias}.\`suspended_at\` AS \`sub_suspended_at\`, ` +
                 `${alias}.\`suspended_reason\` AS \`sub_suspended_reason\`, ` +
                 `${alias}.\`handler_name\` AS \`sub_handler_name\`, ` +
+                `${alias}.\`handler_scope\` AS \`sub_handler_scope\`, ` +
                 `${alias}.\`context\` AS \`sub_context\``,
             join: `LEFT JOIN \`${TABLE}\` ${alias} ON ${alias}.\`sub_id\` = ${subIdColumn}`,
         };
