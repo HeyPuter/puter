@@ -11,7 +11,7 @@ Clicks reach your app in two ways:
 - **On a website**, from a tap on a push, or on a notification a page of your site showed itself. When a page of your site is open, the tap focuses it and calls its `click` handlers. A page without a `click` handler goes to the notification's `url` instead, which is the `url` your [`onPush()`](/Notifications/onPush/) handler returned, or else the notification's `target`. When no page is open, the tap opens that `url`, and the new page's first `click` handler gets the click.
 - **Inside the Puter desktop**, from a tap on a push that Puter shows. Puter opens your app, or brings it to the front, and delivers the click.
 
-A click that arrives before your first `click` handler is added, such as the one that opened your app, goes to that first handler, once. Handlers added after it don't get it, so add your handler early during startup.
+A click that arrives before your first `click` handler is added, such as the one that opened your app, goes to that first handler, once. Handlers added after it don't get it, so add your handler early during startup. On a website, a page a tap opened drops the click when no `click` handler is added within 10 seconds of the page loading.
 
 To remove a handler, call [`puter.notifications.off('click', handler)`](/Notifications/on/).
 

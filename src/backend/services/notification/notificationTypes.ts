@@ -115,6 +115,15 @@ export const NOTIFICATION_TYPES = [
         groupable: false,
         subject: subjectFor('developer'),
     },
+    // A handler the user published into their own scope stopped taking
+    // deliveries: the code is theirs, so the notice is too.
+    {
+        type: 'app.events.handler_suspended',
+        audience: 'app-user',
+        appScoped: true,
+        groupable: false,
+        subject: subjectFor('app-user'),
+    },
     // The only type apps create; its kind goes in the value's `channel`. A
     // newer one replaces the newest with the same `group` unless that one was
     // shown or dismissed.

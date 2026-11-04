@@ -269,6 +269,12 @@ export const KV_SHARE_NOTIFY_LIMITS = [
  */
 export const EVENTS_HANDLERS_PER_APP = 100;
 
+/**
+ * Handlers one user may hold in their own scope of one app. Each is a script of
+ * its own, so the cap is tighter than the app's.
+ */
+export const EVENTS_USER_HANDLERS_PER_SCOPE = 20;
+
 /** Longest a serialized handler may be. */
 export const EVENTS_HANDLER_SOURCE_MAX_BYTES = 64 * 1024;
 
@@ -280,6 +286,9 @@ export const EVENTS_HANDLER_SOURCE_MAX_BYTES = 64 * 1024;
  */
 export const EVENTS_WORKER_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
 
+/** Source one user scope may hold, all its handlers combined. */
+export const EVENTS_USER_SCOPE_SOURCE_MAX_BYTES = 1024 * 1024;
+
 /**
  * Deploys one app's events worker may trigger per hour.
  *
@@ -288,6 +297,16 @@ export const EVENTS_WORKER_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
  * namespace miss) counts the same as a publish-triggered deploy.
  */
 export const EVENTS_WORKER_DEPLOYS_PER_HOUR = 30;
+
+/** Deploys one user scope may trigger per hour. */
+export const EVENTS_USER_WORKER_DEPLOYS_PER_HOUR = 10;
+
+/**
+ * Units one user may rent at once: ordinary workers, user scopes, and the
+ * events workers of apps they own. Only creating a unit is refused; holdings
+ * over the cap are kept.
+ */
+export const RENTED_UNITS_PER_USER = tiered(100, 16, 16);
 
 /**
  * Handlers one `publishAll` may carry. A build step publishes its whole set in

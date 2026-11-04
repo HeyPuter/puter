@@ -5,15 +5,19 @@ import { cancel } from './cancel.js';
 import { disable } from './disable.js';
 import { enable } from './enable.js';
 import { enablePush } from './enablePush.js';
+import { request } from './lib/api.js';
 import {
-    CLICKS_STORE,
+    CLICK_KEEP_MS,
     HANDLERS_STORE,
+    TAP_BASE_PREFIX,
+    forgetOldClicks,
     forgetPushState,
     hasOptIn,
     idbDelete,
     idbGet,
     idbPut,
     setOptIn,
+    takeClick,
 } from './lib/pushStore.js';
 import { ReceiptLog } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
@@ -21,9 +25,11 @@ import {
     currentWebPush,
     removeWebPush,
     syncWebPush,
+    unsubscribeWebPush,
     webPushState,
     webPushSupported,
     workerFor,
+    workerScope,
 } from './lib/webPush.js';
 import { listDevices } from './listDevices.js';
 import { notify } from './notify.js';
@@ -48,11 +54,15 @@ export const CLICK_PARAM = 'puter.notification';
 
 /** Where a site's tabs tell each other that a user's opt-in changed. */
 const OPT_IN_CHANNEL = 'puter-push-opt-in';
+/** Held by a site's tabs while one changes this browser's subscription. */
+const PUSH_LOCK = 'puter-push';
 
 /** As long as `push-sw.js` gives a handler. */
 const HANDLER_TIMEOUT_MS = 5_000;
 /** How long an older `push-sw.js`, which never answers, is waited for. */
 const WORKER_SHOW_TIMEOUT_MS = 2_000;
+/** How long after load a page a tap opened waits for a `click` handler. */
+const UNREAD_TAP_MS = 10_000;
 /** Sync failures that are the server's or the user's choice, not a fault. */
 const QUIET_SYNC_ERRORS = new Set([
     'push_device_removed',
@@ -60,6 +70,8 @@ const QUIET_SYNC_ERRORS = new Set([
     'push_revoked',
     'push_unavailable',
     'push_verification_canceled',
+    'reauth_required',
+    'token_auth_failed',
     'too_many_requests',
 ]);
 
@@ -71,6 +83,21 @@ const warnStorage = (error) => {
         '[puter.notifications] IndexedDB is unavailable, so pushes show without their onPush handlers',
         error,
     );
+};
+
+/** Runs `run` alone among the site's tabs, or as is where Web Locks refuse. */
+const withPushLock = async (run) => {
+    let started = false;
+    const start = () => {
+        started = true;
+        return run();
+    };
+    try {
+        return await globalThis.navigator.locks.request(PUSH_LOCK, start);
+    } catch (error) {
+        if (started) throw error;
+        return await start();
+    }
 };
 
 /** Hidden, or in a window without focus. */
@@ -103,18 +130,39 @@ const withinHandlerTime = async (promise) => {
     }
 };
 
-/**
- * Where a tap goes: on this origin, with relative paths read from the worker's
- * scope.
- */
-export const tapUrl = (url, scope) => {
-    const base = new URL(scope);
+/** Where a tap goes: on `base`'s origin, with relative paths read from it. */
+export const tapUrl = (url, base) => {
+    const from = new URL(base);
     try {
-        const resolved = new URL(url ?? '', base);
-        return resolved.origin === base.origin ? resolved.href : base.href;
+        const resolved = new URL(url ?? '', from);
+        return resolved.origin === from.origin ? resolved.href : from.href;
     } catch {
-        return base.href;
+        return from.href;
     }
+};
+
+/** Where taps resolve: the worker's scope if this page is in it, else `/`. */
+const tapBaseFor = (worker, pageUrl) => {
+    const scope = workerScope(worker);
+    return {
+        scope,
+        base: pageUrl.startsWith(scope) ? scope : new URL('/', scope).href,
+    };
+};
+
+/** The tap base a page saved for `scope`, else `scope`. */
+const savedTapBase = async (scope) => {
+    try {
+        const base = await idbGet(HANDLERS_STORE, TAP_BASE_PREFIX + scope);
+        if (
+            typeof base === 'string' &&
+            new URL(base).origin === new URL(scope).origin
+        )
+            return base;
+    } catch {
+        // Nothing saved, or IndexedDB is unavailable.
+    }
+    return scope;
 };
 
 /**
@@ -204,6 +252,11 @@ export class NotificationsModule extends EventListener {
      * doesn't register this browser after them.
      */
     #stopVerifying = new AbortController();
+    /** The cleanup after a user change, which `enable()` waits for. */
+    #userChange = Promise.resolve();
+    /** The token whose push state sign-out already ended. */
+    #forgottenToken = null;
+    #sweptClicks = false;
 
     /** @param {import('../../index.js').Puter} puter */
     constructor(puter) {
@@ -229,6 +282,10 @@ export class NotificationsModule extends EventListener {
             'removeDevice',
         ]) {
             methods[name] = methods[name].bind(this);
+        }
+        if (puter.env === 'web') {
+            this.#watchUser();
+            this.#dropUnreadTap();
         }
     }
 
@@ -331,12 +388,16 @@ export class NotificationsModule extends EventListener {
 
     /**
      * `onPush`'s sync on load, once per worker: only for a user who turned push
-     * on here with `enable()`.
+     * on here with `enable()`, else Puter's subscription here ends.
      *
      * @param {{ url: string; scope?: string }} worker
      * @internal
      */
     _syncPushOnLoad(worker) {
+        if (!this.#sweptClicks) {
+            this.#sweptClicks = true;
+            forgetOldClicks().catch(() => {});
+        }
         if (!this.#syncs.has(worker.url)) {
             this.#syncs.set(worker.url, this.#syncIfOptedIn(worker));
         }
@@ -362,7 +423,9 @@ export class NotificationsModule extends EventListener {
      * @internal
      */
     async _enableWebPush(worker) {
+        await this.#userChange;
         this.#useWorker(worker);
+        this.#listenForOptInChanges();
         /** @type {() => void} */
         let pending = () => {};
         const sent = new Promise((resolve) => {
@@ -374,6 +437,9 @@ export class NotificationsModule extends EventListener {
             onPending: pending,
             signal,
             renewRemoved: true,
+            interactive: true,
+            withLock: withPushLock,
+            onAnnounced: () => this.#recordOptIn(true),
         });
         try {
             // The GUI reads the registered device right after.
@@ -392,7 +458,6 @@ export class NotificationsModule extends EventListener {
             );
         }
         this.#workerRegistered = true;
-        await this.#recordOptIn(true);
         void this.#finishSync(
             syncing,
             worker,
@@ -402,19 +467,19 @@ export class NotificationsModule extends EventListener {
 
     /**
      * `disable()`: ends this browser's subscription and forgets every opt-in
-     * here.
+     * here. A website without a `worker` ends Puter's wherever it is.
      *
-     * @param {{ url: string; scope?: string }} worker
+     * @param {{ url: string; scope?: string } | null} worker
      * @returns {Promise<boolean>}
      * @internal
      */
     async _disableWebPush(worker) {
-        this.#cancelVerification();
-        try {
-            return await removeWebPush(this.puter, { worker });
-        } finally {
+        this.#stopSyncs();
+        if (this.puter.env === 'web') this.#optInChanged('off');
+        return await withPushLock(async () => {
             if (this.puter.env === 'web') await this.#forgetOptIns();
-        }
+            return await removeWebPush(this.puter, { worker });
+        });
     }
 
     /**
@@ -452,34 +517,83 @@ export class NotificationsModule extends EventListener {
     }
 
     /**
-     * Sign-out on a website: removes this browser's subscription with the token
-     * of the user leaving, and forgets their opt-in and taps. Never throws.
+     * Sign-out on a website: forgets every opt-in and tap here, ends Puter's
+     * subscription in the browser, then removes it with the token of the user
+     * leaving. Never throws.
      *
      * @param {string | null | undefined} authToken
      * @internal
      */
     async _forgetPush(authToken) {
         if (this.puter.env !== 'web') return;
-        this.#syncs.clear();
-        this.#cancelVerification();
-        try {
-            if (authToken && webPushSupported()) {
-                await removeWebPush(this.puter, {
-                    worker: this.#worker ?? workerFor('web'),
-                    authToken,
-                });
+        this.#forgottenToken = authToken ?? null;
+        this.#stopSyncs();
+        this.#optInChanged('off');
+        await withPushLock(async () => {
+            await this.#forgetOptIns();
+            if (!webPushSupported()) return;
+            try {
+                await (authToken
+                    ? removeWebPush(this.puter, { authToken, keepalive: true })
+                    : unsubscribeWebPush(this.puter));
+            } catch (error) {
+                console.warn(
+                    '[puter.notifications] could not remove the push subscription at sign-out',
+                    error,
+                );
             }
-        } catch (error) {
-            console.warn(
-                '[puter.notifications] could not remove the push subscription at sign-out',
-                error,
-            );
-        }
-        await this.#forgetOptIns();
+        });
+    }
+
+    /** Another user signing in here ends push for the last one, as sign-out. */
+    #watchUser() {
+        /** @type {{ token: string; user: Promise<string | null> } | null} */
+        let last = null;
+        const note = () => {
+            const token = this.puter.authToken;
+            // Signed in again with it, so a later change cleans up again.
+            if (token && token === this.#forgottenToken)
+                this.#forgottenToken = null;
+            if (!token || token === last?.token) return;
+            const previous = last;
+            last = { token, user: this.#tokenUser(token) };
+            if (previous) {
+                this.#userChange = Promise.all([
+                    this.#userChange,
+                    this.#forgetIfAnotherUser(previous, last),
+                ]);
+            }
+        };
+        note();
+        this.puter.onAuthStateChanged?.(note);
+    }
+
+    async #forgetIfAnotherUser(previous, current) {
+        if (previous.token === this.#forgottenToken) return;
+        const [was, now] = await Promise.all([previous.user, current.user]);
+        if (was && now && was !== now) await this._forgetPush(previous.token);
+    }
+
+    /** The user `token` names: its `uu` claim, else its cached `/whoami`. */
+    async #tokenUser(token) {
+        const claim = this.puter.decodeJwtPayload?.(token)?.uu;
+        const named =
+            typeof claim === 'string'
+                ? this.puter
+                      .decodeCompressedAppID?.(claim)
+                      ?.replace(/^app-/, '')
+                : null;
+        if (named) return named;
+        // `setAuthToken` starts that lookup right after telling its listeners.
+        await null;
+        if (this.puter.authToken !== token) return null;
+        const user = await this.puter.whoamiCache_;
+        return typeof user?.uuid === 'string' ? user.uuid : null;
     }
 
     #useWorker(worker) {
         this.#worker = worker;
+        if (this.puter.env === 'web') void this.#saveTapBase(worker);
         void (async () => {
             try {
                 const registration =
@@ -492,6 +606,18 @@ export class NotificationsModule extends EventListener {
                 if (this.#worker === worker) this.#workerRegistered = false;
             }
         })();
+    }
+
+    async #saveTapBase(worker) {
+        try {
+            const { scope, base } = tapBaseFor(
+                worker,
+                globalThis.location.href,
+            );
+            await idbPut(HANDLERS_STORE, TAP_BASE_PREFIX + scope, base);
+        } catch {
+            // Taps then open the worker's scope.
+        }
     }
 
     /** Whether this page shows a browser notification itself while it is away. */
@@ -510,8 +636,14 @@ export class NotificationsModule extends EventListener {
         const known =
             this.puter.whoami ?? (await this.puter.whoamiCache_) ?? null;
         if (typeof known?.uuid === 'string') return known.uuid;
-        const user = await this.puter.auth?.whoami?.();
-        return typeof user?.uuid === 'string' ? user.uuid : null;
+        try {
+            const user = await request(this.puter, 'GET', '/whoami', null, {
+                interactiveReauth: false,
+            });
+            return typeof user?.uuid === 'string' ? user.uuid : null;
+        } catch {
+            return null;
+        }
     }
 
     async #recordOptIn(on) {
@@ -541,28 +673,30 @@ export class NotificationsModule extends EventListener {
         this.#optInVersion++;
     }
 
-    /** The signed-in user's opt-in, read from IndexedDB into `#optedIn`. */
+    /** The user's opt-in, read into `#optedIn`; null when it can't be read. */
     async #readOptIn() {
         this.#listenForOptInChanges();
         const version = this.#optInVersion;
+        /** @type {boolean | null} */
         let on = false;
         try {
-            const uuid = needsSignIn(this.puter)
-                ? null
-                : await this.#userUuid();
-            on = !!uuid && (await hasOptIn(uuid));
+            if (!needsSignIn(this.puter)) {
+                const uuid = await this.#userUuid();
+                on = uuid ? await hasOptIn(uuid) : null;
+            }
         } catch (error) {
             warnStorage(error);
+            on = null;
         }
-        if (version === this.#optInVersion) this.#optedIn = on;
+        if (version === this.#optInVersion) this.#optedIn = on === true;
         return on;
     }
 
-    /** Other tabs of the site re-read the opt-in this one just wrote. */
-    #optInChanged() {
+    /** Other tabs re-read the opt-in; `off` also stops their syncs. */
+    #optInChanged(kind = 'changed') {
         this.#listenForOptInChanges();
         try {
-            this.#optInChannel?.postMessage('changed');
+            this.#optInChannel?.postMessage(kind);
         } catch {
             // A closed channel; the other tabs read it on their next sync.
         }
@@ -575,19 +709,38 @@ export class NotificationsModule extends EventListener {
         )
             return;
         this.#optInChannel = new BroadcastChannel(OPT_IN_CHANNEL);
-        this.#optInChannel.onmessage = () => void this.#readOptIn();
+        this.#optInChannel.onmessage = (event) => {
+            if (event.data === 'off') this.#stopSyncs();
+            void this.#readOptIn();
+        };
     }
 
     async #syncIfOptedIn(worker) {
-        if (!(await this.#readOptIn())) return;
+        const optedIn = await this.#readOptIn();
+        if (optedIn === false) await this.#endUnwanted();
+        if (!optedIn) return;
         await this.#finishSync(
             syncWebPush(this.puter, {
                 worker,
                 signal: this.#stopVerifying.signal,
+                stillWanted: async () => (await this.#readOptIn()) === true,
+                withLock: withPushLock,
             }),
             worker,
             'could not keep the push subscription current',
         );
+    }
+
+    /** Ends a subscription left here without an opt-in, in the browser only. */
+    async #endUnwanted() {
+        await withPushLock(async () => {
+            if ((await this.#readOptIn()) !== false) return;
+            try {
+                await unsubscribeWebPush(this.puter);
+            } catch {
+                // The next load tries again.
+            }
+        });
     }
 
     /** Settles a sync nobody waits on; quiet about the expected failures. */
@@ -625,9 +778,11 @@ export class NotificationsModule extends EventListener {
         await this.#recordOptIn(false);
     }
 
-    #cancelVerification() {
+    /** Ends this page's syncs in flight; the next `onPush` syncs again. */
+    #stopSyncs() {
         this.#stopVerifying.abort();
         this.#stopVerifying = new AbortController();
+        this.#syncs.clear();
     }
 
     /**
@@ -772,7 +927,7 @@ export class NotificationsModule extends EventListener {
                         uid: notification.uid,
                         target: sensitive ? null : notification.target,
                         data: sensitive ? null : notification.data,
-                        url: tapUrl(url, scope),
+                        url: tapUrl(url, await savedTapBase(scope)),
                     },
                 },
             };
@@ -797,21 +952,35 @@ export class NotificationsModule extends EventListener {
             if (event.data?.type !== WORKER_CLICK_MESSAGE) return;
             const click = toClick(event.data.notification);
             if (!click || !this._hasListeners('click')) return;
-            if (event.data.id !== undefined) {
-                event.source?.postMessage?.({
-                    type: WORKER_CLICK_ACK_MESSAGE,
-                    id: event.data.id,
-                });
+            const take = () => {
+                if (event.data.id !== undefined) {
+                    event.source?.postMessage?.({
+                        type: WORKER_CLICK_ACK_MESSAGE,
+                        id: event.data.id,
+                    });
+                }
+                this.emit('click', click);
+            };
+            if (event.data.kept !== true) {
+                take();
+                return;
             }
-            this.emit('click', click);
+            // A tap the worker kept runs only if this page takes it first.
+            void (async () => {
+                let claimed = false;
+                try {
+                    claimed = !!(await takeClick(click.uid, event.data.id));
+                } catch {
+                    // Left to the worker, which opens it when nobody acks.
+                }
+                if (claimed) take();
+            })();
         });
         container?.startMessages?.();
 
-        const url = globalThis.location
-            ? new URL(globalThis.location.href)
-            : null;
-        const uid = url?.searchParams.get(CLICK_PARAM);
+        const uid = this.#tapInUrl();
         if (!uid) return;
+        const url = new URL(globalThis.location.href);
         url.searchParams.delete(CLICK_PARAM);
         globalThis.history?.replaceState?.(
             globalThis.history.state,
@@ -820,8 +989,11 @@ export class NotificationsModule extends EventListener {
         );
         void (async () => {
             try {
-                const click = toClick(await idbGet(CLICKS_STORE, uid));
-                await idbDelete(CLICKS_STORE, uid);
+                const kept = await takeClick(uid);
+                const click =
+                    kept?.at > Date.now() - CLICK_KEEP_MS
+                        ? toClick(kept)
+                        : null;
                 if (click) firstHandler(click);
             } catch (error) {
                 console.warn(
@@ -830,6 +1002,29 @@ export class NotificationsModule extends EventListener {
                 );
             }
         })();
+    }
+
+    /** The tap this page was opened for, from its URL. */
+    #tapInUrl() {
+        try {
+            return new URL(globalThis.location.href).searchParams.get(
+                CLICK_PARAM,
+            );
+        } catch {
+            return null;
+        }
+    }
+
+    /** A tap that opened this page is dropped when no `click` handler reads it. */
+    #dropUnreadTap() {
+        const uid = this.#tapInUrl();
+        if (!uid) return;
+        const drop = () =>
+            setTimeout(() => {
+                if (!this.#listening) takeClick(uid).catch(() => {});
+            }, UNREAD_TAP_MS);
+        if (globalThis.document?.readyState === 'complete') drop();
+        else globalThis.addEventListener?.('load', drop, { once: true });
     }
 }
 

@@ -283,6 +283,7 @@ const en = {
         items_selected: '{{items}} selected',
         folder_empty: 'No files in this directory.',
         folder_open_failed: 'This folder couldn\'t be opened.',
+        path_not_found: 'Couldn\'t find "%%". Check the path and try again.',
         reserved_name_not_allowed: 'The name "{{name}}" is not allowed, because it is a reserved name. Please choose another name.',
         upload_some_failed: 'Some uploads failed:',
         upload_to_trash_not_allowed: 'Uploading to trash is not allowed!',

@@ -60,6 +60,10 @@ const scriptUrl = (worker) => {
     }
 };
 
+/** The scope `worker` registers at: its own, else its script's folder. */
+export const workerScope = (worker) =>
+    new URL(worker.scope ?? './', scriptUrl(worker)).href;
+
 const workerConflict = (worker, other) =>
     new PuterJSError(
         `Another service worker (${other.scriptURL}) runs where ${worker.url} would. ` +
@@ -121,7 +125,7 @@ const siteWorkerAt = async (nav, worker) => {
     let scope;
     let existing;
     try {
-        scope = new URL('./', scriptUrl(worker)).href;
+        scope = workerScope(worker);
         existing = await nav.serviceWorker.getRegistration(scope);
     } catch {
         return null;
@@ -220,22 +224,77 @@ const subscribeWith = async (registration, key) => {
 };
 
 /** Tells the server about `subscription`; `active` or `pending`. */
-const announce = (puter, subscription, label) =>
-    request(puter, 'POST', '/push/web/subscriptions', {
-        subscription: subscriptionBody(subscription),
-        ...(label ? { label } : {}),
-    });
+const announce = (puter, subscription, label, interactive) =>
+    request(
+        puter,
+        'POST',
+        '/push/web/subscriptions',
+        {
+            subscription: subscriptionBody(subscription),
+            ...(label ? { label } : {}),
+        },
+        { interactiveReauth: interactive },
+    );
+
+const turnedOff = () =>
+    new PuterJSError(
+        'Push notifications were turned off before this browser was confirmed',
+        'push_verification_canceled',
+    );
+
+/** The key Puter last subscribed this origin with, or null. */
+const storedPuterKey = async () => {
+    try {
+        const stored = await idbGet(HANDLERS_STORE, SERVER_KEY_ENTRY);
+        return typeof stored === 'string' ? fromBase64Url(stored) : null;
+    } catch {
+        return null;
+    }
+};
 
 /** Whether `buffer` is the key Puter last subscribed this origin with. */
 const earlierPuterKey = async (buffer) => {
+    const stored = await storedPuterKey();
+    return !!stored && sameKey(buffer, stored);
+};
+
+/** Puter's key as stored here, else as the server gives it, else null. */
+const puterKey = async (puter, authToken) => {
+    const stored = await storedPuterKey();
+    if (stored) return stored;
     try {
-        const stored = await idbGet(HANDLERS_STORE, SERVER_KEY_ENTRY);
-        return (
-            typeof stored === 'string' && sameKey(buffer, fromBase64Url(stored))
+        const { publicKey } = await request(
+            puter,
+            'GET',
+            '/push/web/key',
+            undefined,
+            { authToken, interactiveReauth: false },
         );
+        return typeof publicKey === 'string' && publicKey !== ''
+            ? fromBase64Url(publicKey)
+            : null;
     } catch {
-        return false;
+        return null;
     }
+};
+
+/** Subscriptions with Puter's key, at `worker` or anywhere on the origin. */
+const puterSubscriptions = async (puter, { worker, authToken, nav }) => {
+    const registrations = worker
+        ? [await nav.serviceWorker.getRegistration(worker.scope ?? worker.url)]
+        : await nav.serviceWorker.getRegistrations();
+    const subscriptions = (
+        await Promise.all(
+            registrations.map((r) => r?.pushManager.getSubscription()),
+        )
+    ).filter(Boolean);
+    // The GUI's own worker carries Puter's subscription only.
+    if (subscriptions.length === 0 || puter.env === 'gui') return subscriptions;
+    const key = await puterKey(puter, authToken);
+    if (!key) return [];
+    return subscriptions.filter((subscription) =>
+        sameKey(subscription.options?.applicationServerKey, key),
+    );
 };
 
 const rememberPuterKey = async (publicKey) => {
@@ -265,41 +324,49 @@ const currentSubscription = async (puter, registration, key) => {
     return null;
 };
 
-/**
- * Announces `subscription` and, for one the server doesn't have yet, waits for
- * the confirmation push and verifies it.
- */
+/** Announces what `subscribe` gives, then confirms it if the server asks. */
 const register = async (
     puter,
     nav,
-    subscription,
-    { label, onPending, signal },
+    subscribe,
+    { label, onPending, signal, interactive, whileWanted, onAnnounced },
 ) => {
-    // Listening first: the confirmation can arrive before the POST returns.
-    const challenge = nextChallenge(nav, signal);
+    /** @type {ReturnType<typeof nextChallenge> | null} */
+    let challenge = null;
     try {
-        const result = await announce(puter, subscription, label);
+        const { subscription, result } = await whileWanted(async () => {
+            const subscription = await subscribe();
+            // Before the POST: the confirmation can arrive before it returns.
+            challenge = nextChallenge(nav, signal);
+            const result = await announce(
+                puter,
+                subscription,
+                label,
+                interactive,
+            );
+            if (signal?.aborted) throw turnedOff();
+            await onAnnounced?.();
+            return { subscription, result };
+        });
         if (result.status === 'active') return result.device;
         onPending?.();
         const answer = await challenge.promise;
-        if (answer === null) {
-            throw new PuterJSError(
-                'Push notifications were turned off before this browser was confirmed',
-                'push_verification_canceled',
-            );
-        }
-        const { device } = await request(
-            puter,
-            'POST',
-            '/push/web/subscriptions/verify',
-            {
-                subscription: subscriptionBody(subscription),
-                challenge: answer,
-            },
+        if (answer === null) throw turnedOff();
+        const { device } = await whileWanted(() =>
+            request(
+                puter,
+                'POST',
+                '/push/web/subscriptions/verify',
+                {
+                    subscription: subscriptionBody(subscription),
+                    challenge: answer,
+                },
+                { interactiveReauth: false },
+            ),
         );
         return device;
     } finally {
-        challenge.cancel();
+        challenge?.cancel();
     }
 };
 
@@ -316,12 +383,20 @@ const register = async (
  *     onPending?: () => void;
  *     signal?: AbortSignal;
  *     renewRemoved?: boolean;
+ *     interactive?: boolean;
+ *     stillWanted?: () => boolean | Promise<boolean>;
+ *     withLock?: <T>(run: () => Promise<T>) => Promise<T>;
+ *     onAnnounced?: () => Promise<void>;
  * }} options
  *   `onPending` runs once the server has the subscription and only its
  *   confirmation is left. Aborting `signal` stops waiting for that
  *   confirmation, with `push_verification_canceled`. `renewRemoved` replaces a
  *   subscription the user removed in Puter instead of rejecting with
- *   `push_device_removed`.
+ *   `push_device_removed`. `interactive` lets a rejected token open Puter's
+ *   sign-in for the key and the subscription; the confirmation never does.
+ *   Subscribing and confirming each run in `withLock` while `stillWanted`
+ *   holds, else reject with `push_verification_canceled`. `onAnnounced` runs in
+ *   the same lock once the server has the subscription.
  * @returns {Promise<Record<string, unknown>>} The server's device record.
  */
 export async function syncWebPush(
@@ -333,9 +408,19 @@ export async function syncWebPush(
         onPending,
         signal,
         renewRemoved = false,
+        interactive = false,
+        stillWanted = () => true,
+        withLock = (run) => run(),
+        onAnnounced,
     },
 ) {
-    const { publicKey } = await request(puter, 'GET', '/push/web/key');
+    const { publicKey } = await request(
+        puter,
+        'GET',
+        '/push/web/key',
+        undefined,
+        { interactiveReauth: interactive },
+    );
     if (typeof publicKey !== 'string' || publicKey === '') {
         throw new PuterJSError(
             "Push notifications aren't available on this deployment",
@@ -347,24 +432,51 @@ export async function syncWebPush(
         keepSiteWorker: puter.env !== 'gui',
     });
 
-    let subscription =
-        (await currentSubscription(puter, registration, key)) ??
-        (await subscribeWith(registration, key));
-    await rememberPuterKey(publicKey);
-
-    const options = { label, onPending, signal };
+    /** @type {PushSubscription | null} */
+    let subscription = null;
+    const options = {
+        label,
+        onPending,
+        signal,
+        interactive,
+        onAnnounced,
+        whileWanted: (run) =>
+            withLock(async () => {
+                if (signal?.aborted || !(await stillWanted()))
+                    throw turnedOff();
+                return await run();
+            }),
+    };
     try {
-        return await register(puter, nav, subscription, options);
+        return await register(
+            puter,
+            nav,
+            async () => {
+                subscription =
+                    (await currentSubscription(puter, registration, key)) ??
+                    (await subscribeWith(registration, key));
+                await rememberPuterKey(publicKey);
+                return subscription;
+            },
+            options,
+        );
     } catch (error) {
         const renewable =
             RENEWABLE_SUBSCRIPTION_ERRORS.has(error?.code) ||
             (renewRemoved && error?.code === 'push_device_removed');
-        if (!renewable || signal?.aborted) throw error;
+        if (!renewable || !subscription || signal?.aborted) throw error;
         // A brand-new subscription the push service doesn't know yet, an
         // endpoint another account turned off here, or one the user removed.
-        await subscription.unsubscribe();
-        subscription = await subscribeWith(registration, key);
-        return await register(puter, nav, subscription, options);
+        const stale = subscription;
+        return await register(
+            puter,
+            nav,
+            async () => {
+                await stale.unsubscribe();
+                return await subscribeWith(registration, key);
+            },
+            options,
+        );
     }
 }
 
@@ -389,31 +501,53 @@ export async function webPushState(puter, endpoint) {
     }
 }
 
-/**
- * Ends this browser's subscription for `worker` and tells the server, with
- * `authToken` in place of the live token when given.
- */
+/** Ends Puter's subscriptions in the browser only; resolves their endpoints. */
+export async function unsubscribeWebPush(
+    puter,
+    { worker = null, authToken, nav = globalThis.navigator } = {},
+) {
+    const subscriptions = await puterSubscriptions(puter, {
+        worker,
+        authToken,
+        nav,
+    });
+    for (const subscription of subscriptions) {
+        try {
+            await subscription.unsubscribe();
+        } catch {
+            // Already gone, or the browser can't tell.
+        }
+    }
+    return subscriptions.map((subscription) => subscription.endpoint);
+}
+
+/** `unsubscribeWebPush`, then the server; resolves whether there was one. */
 export async function removeWebPush(
     puter,
-    { worker, authToken, nav = globalThis.navigator } = {},
+    {
+        worker = null,
+        authToken,
+        keepalive = false,
+        nav = globalThis.navigator,
+    } = {},
 ) {
-    const registration = await nav.serviceWorker.getRegistration(
-        worker.scope ?? worker.url,
+    const endpoints = await unsubscribeWebPush(puter, {
+        worker,
+        authToken,
+        nav,
+    });
+    await Promise.all(
+        endpoints.map((endpoint) =>
+            request(
+                puter,
+                'DELETE',
+                '/push/web/subscriptions',
+                { endpoint },
+                { authToken, interactiveReauth: false, keepalive },
+            ),
+        ),
     );
-    const subscription = await registration?.pushManager.getSubscription();
-    if (!subscription) return false;
-    try {
-        await request(
-            puter,
-            'DELETE',
-            '/push/web/subscriptions',
-            { endpoint: subscription.endpoint },
-            { authToken },
-        );
-    } finally {
-        await subscription.unsubscribe();
-    }
-    return true;
+    return endpoints.length > 0;
 }
 
 /** This browser's subscription for `worker`, or null. */

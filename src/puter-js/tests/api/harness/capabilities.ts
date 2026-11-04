@@ -126,8 +126,14 @@ export const loadPuterJsTestOptions = (
         // on too: `watch` shares and `kv:<handle>` subjects need `kvHandles`,
         // and `read`/`write` shares and handle-addressed KV calls need
         // `kv.shareHandles`. The fold-in routes notifications through events,
-        // which `onNotification` reads.
-        events: { enabled: true, kvHandles: true, notificationsFoldIn: true },
+        // which `onNotification` reads. User-scope handlers and inline creates
+        // are behind `userHandlers`.
+        events: {
+            enabled: true,
+            kvHandles: true,
+            notificationsFoldIn: true,
+            userHandlers: true,
+        },
         kv: { shareHandles: true },
     };
 

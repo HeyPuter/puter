@@ -26,6 +26,13 @@
     </script>
     <script src="/dist/puter.dev.js"></script>
     <script>
+        // With ?push, a user known from an earlier load keeps push current.
+        if (new URLSearchParams(location.search).has('push')) {
+            puter.whoami = { uuid: 'boot-reauth-user' };
+            puter.notifications.onPush('boot', () => {}, { onError: () => {} });
+        }
+    </script>
+    <script>
         const statusEl = document.getElementById('status');
 
         function ready() {

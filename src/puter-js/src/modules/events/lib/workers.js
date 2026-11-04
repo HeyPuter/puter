@@ -42,7 +42,9 @@ export class EventsWorkers {
 
     /**
      * The caller's own events workers: one per app it owns with at least one
-     * published handler, or — for an app token — its own worker alone.
+     * published handler, or — for an app token — its own worker alone. Items
+     * carry `scope`: `'user'` items are the caller's own scopes inside an app,
+     * which may belong to another developer.
      *
      * @param {EventsWorkersListOptions} [options]
      * @returns {Promise<EventsWorkerPage>}
@@ -70,14 +72,19 @@ export class EventsWorkers {
      * the same as removing each by name — never deleted.
      *
      * @param {string} appUid
+     * @param {{ scope?: 'app' | 'user' }} [options] `scope: 'user'` removes
+     *   this user's own scope of the app instead of the app's.
      * @returns {Promise<DestroyedEventsWorker>}
      */
-    async destroy (appUid) {
+    async destroy (appUid, options = {}) {
         if ( typeof appUid !== 'string' || appUid.trim().length === 0 ) throw invalidAppUid();
         const destroyed = /** @type {DestroyedEventsWorker} */ (
-            await request(this.module.puter, '/events/workers/destroy', { appUid })
+            await request(this.module.puter, '/events/workers/destroy', {
+                appUid,
+                ...(options?.scope ? { scope: options.scope } : {}),
+            })
         );
-        this.module.handlers?.forget(appUid);
+        this.module.handlers?.forget(appUid, options?.scope);
         return destroyed;
     }
 }

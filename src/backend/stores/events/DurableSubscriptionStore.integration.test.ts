@@ -265,6 +265,114 @@ describe('creating a subscription', () => {
     });
 });
 
+describe('handler scope', () => {
+    const appUid = 'app-scoped';
+
+    it('round-trips through create and every select path', async () => {
+        const { row: user } = await durable().create(
+            input({ appUid, handlerName: 'h', handlerScope: 'user' }),
+        );
+        const { row: app } = await durable().create(
+            input({ appUid, handlerName: 'h' }),
+        );
+        expect(user.handlerScope).toBe('user');
+        expect(app).not.toHaveProperty('handlerScope');
+
+        await expect(durable().getBySubId(user.subId)).resolves.toMatchObject({
+            handlerScope: 'user',
+        });
+        await expect(
+            durable().getBySubId(app.subId),
+        ).resolves.not.toHaveProperty('handlerScope');
+        const listed = await durable().listForHolder(userId, { appUid });
+        expect(
+            new Map(listed.items.map((r) => [r.subId, r.handlerScope])),
+        ).toEqual(
+            new Map<string, string | undefined>([
+                [user.subId, 'user'],
+                [app.subId, undefined],
+            ]),
+        );
+        const stored = await env.server.clients.db.read(
+            'SELECT `sub_id`, `handler_scope` FROM `event_subscriptions` WHERE `app_uid` = ?',
+            [appUid],
+        );
+        expect(
+            Object.fromEntries(stored.map((r) => [r.sub_id, r.handler_scope])),
+        ).toEqual({ [user.subId]: 1, [app.subId]: 0 });
+    });
+
+    it('lists by scope and holder, never across scopes', async () => {
+        const { row: appRow } = await durable().create(
+            input({ appUid, handlerName: 'h' }),
+        );
+        const { row: mine } = await durable().create(
+            input({ appUid, handlerName: 'h', handlerScope: 'user' }),
+        );
+        const { row: theirs } = await durable().create(
+            input({
+                appUid,
+                handlerName: 'h',
+                handlerScope: 'user',
+                holderUserId: otherUserId,
+                ownerUserId: otherUserId,
+                token: `f#other-${uuidv4()}`,
+            }),
+        );
+        const ids = async (scope: 'app' | 'user', holder: number, name = 'h') =>
+            (await durable().listByHandler(appUid, scope, holder, name))
+                .map((r) => r.subId)
+                .sort();
+
+        expect(await ids('app', 0)).toEqual([appRow.subId]);
+        // Holder is ignored for app scope.
+        expect(await ids('app', userId)).toEqual([appRow.subId]);
+        expect(await ids('user', userId)).toEqual([mine.subId]);
+        expect(await ids('user', otherUserId)).toEqual([theirs.subId]);
+        expect(await ids('user', userId, 'missing')).toEqual([]);
+    });
+
+    it('lists the suspended half of a user scope', async () => {
+        const { row } = await durable().create(
+            input({ appUid, handlerName: 'h', handlerScope: 'user' }),
+        );
+        await env.server.clients.db.write(
+            'UPDATE `event_subscriptions` SET `suspended_at` = 1, `suspended_reason` = ? WHERE `sub_id` = ?',
+            ['handler_not_found', row.subId],
+        );
+        await expect(
+            durable().listByHandler(appUid, 'user', userId, 'h'),
+        ).resolves.toEqual([]);
+        await expect(
+            durable().listByHandler(appUid, 'user', userId, 'h', {
+                suspendedReason: 'handler_not_found',
+            }),
+        ).resolves.toEqual([expect.objectContaining({ subId: row.subId })]);
+    });
+
+    it('reads a user scope through the holder index', async () => {
+        const pread = vi.spyOn(env.server.clients.db, 'pread');
+        try {
+            await durable().listByHandler(appUid, 'user', userId, 'h');
+            const [statement, params] = pread.mock.calls[0]!;
+            const plan = await env.server.clients.db.read(
+                `EXPLAIN QUERY PLAN ${statement}`,
+                params,
+            );
+            const detail = plan.map((r) => String(r.detail)).join('\n');
+            expect(detail).toContain('idx_event_subscriptions_holder');
+            expect(detail).not.toContain('idx_event_subscriptions_app_handler');
+        } finally {
+            pread.mockRestore();
+        }
+    });
+
+    it('carries the scope through the schedule join', async () => {
+        const join = durable().scheduleSubscriptionJoin('s', 'x.`sub_id`');
+        expect(join.columns).toContain('`sub_handler_scope`');
+    });
+});
+
 describe('validation at the row write', () => {
     it('refuses a context past the hard cap', async () => {
         await expect(
@@ -1099,7 +1207,7 @@ describe('rows a schedule owns', () => {
     it('are found by handler and by app, like any other row', async () => {
         const { row } = await durable().create(scheduleInput());
         await expect(
-            durable().listByHandler('app-scheduler', 'tick'),
+            durable().listByHandler('app-scheduler', 'app', 0, 'tick'),
         ).resolves.toEqual([expect.objectContaining({ subId: row.subId })]);
         await expect(
             durable().listHolderIdsForApp('app-scheduler'),

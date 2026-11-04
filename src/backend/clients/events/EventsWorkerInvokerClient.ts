@@ -35,6 +35,7 @@ import { PuterClient } from '../types.js';
  *     x-puter-internal-auth:  <internal secret>
  *     x-puter-events-script:  <script the handler set deploys as>
  *     x-puter-events-app:     <app uid, for the deploy-on-miss callback>
+ *     x-puter-events-holder:  <holder uuid of a user scope; absent for app scope>
  *     x-puter-events-key:     <key derived for that script>
  *     { handler, event, ctx, token }
  *
@@ -48,7 +49,7 @@ import { PuterClient } from '../types.js';
  *
  *     POST <events dispatcher>/invoke-batch
  *     x-puter-internal-auth:  <internal secret>
- *     { calls: [{ script, appUid, key, deployed?, body, waitMs }] }
+ *     { calls: [{ script, appUid, holder?, key, deployed?, body, waitMs }] }
  *
  * The dispatcher runs a few at a time, in order, and streams NDJSON: `{ i,
  * started: true }` when a call goes to its worker, then `{ i, status, handled?,
@@ -128,6 +129,12 @@ const PLATFORM_ERROR_CODES = new Set([
 export const EVENTS_DEPLOYED_HEADER = 'x-puter-events-deployed';
 
 /**
+ * Names the user whose scope a script belongs to, so a miss deploys it from
+ * their handlers. Absent for an app's own scope.
+ */
+export const EVENTS_HOLDER_HEADER = 'x-puter-events-holder';
+
+/**
  * Dispatch-error reasons this backend can resolve itself by deploying, rather
  * than wait on the rehydrate callback finding a backend behind the dispatcher's
  * own hostname. `deploy-timeout` is not one of them: it is only ever answered
@@ -150,6 +157,11 @@ const ALREADY_DEPLOYED_MISS_REASONS = new Set(['deploy-timeout']);
 /** Whose call asked for the deploy, for the share of deploys it may take. */
 export interface WorkerMissOptions {
     lane?: InvokeLane;
+    /**
+     * Holder uuid of the user scope the script belongs to; absent for app
+     * scope.
+     */
+    holder?: string;
 }
 
 /** What a self-deploy attempt did, and to which app/script it applies. */
@@ -159,8 +171,54 @@ export type WorkerMissHandler = (
     options: WorkerMissOptions,
 ) => Promise<'deployed' | string>;
 
+/**
+ * `work`'s result, or null once `ms` has passed. The work keeps running, and a
+ * failure after the cutoff is logged since nothing else would see it.
+ */
+const withinTime = async <T>(
+    work: Promise<T>,
+    ms: number,
+): Promise<T | null> => {
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<null>((resolve) => {
+        timer = setTimeout(
+            () => {
+                timedOut = true;
+                resolve(null);
+            },
+            Math.max(0, ms),
+        );
+    });
+    void (async () => {
+        try {
+            await work;
+        } catch (err) {
+            if (timedOut) console.warn('[events] deploy failed late', err);
+        }
+    })();
+    try {
+        return await Promise.race([work, limit]);
+    } finally {
+        clearTimeout(timer);
+    }
+};
+
 /** How long a handler has to answer before the attempt is abandoned. */
 export const EVENTS_INVOKE_TIMEOUT_MS = 30_000;
+
+/**
+ * How many invoke timeouts a delivery's worker lease lasts. The lease store
+ * reads this, and `invoke()` keeps a whole call, deploy and resend included,
+ * inside it.
+ */
+export const EVENTS_WORKER_LEASE_FACTOR = 2;
+
+/**
+ * Left unspent at the end of the lease, and the least a resend is worth
+ * starting with: below it the call is given up as `unavailable` and retried.
+ */
+export const EVENTS_DEADLINE_MARGIN_MS = 5_000;
 
 /**
  * Connections held open to the dispatcher, so a busy fleet is not
@@ -194,6 +252,8 @@ export interface WorkerInvokeRequest {
     /** Script the app's current handler set deploys as. */
     script: string;
     appUid: string;
+    /** Holder uuid, when the handler lives in a user scope. */
+    holder?: string;
     handler: string;
     /** The subscriber's app session token. */
     token: string;
@@ -207,6 +267,8 @@ export interface WorkerInvokeRequest {
 export interface EventsInvokeCall {
     script: string;
     appUid: string;
+    /** Holder uuid of the user scope the script belongs to. */
+    holder?: string;
     /** Value the script compares against its own invoke-key binding. */
     key: string;
     /** Serialized `{ handler, event, ctx, token }`. */
@@ -255,10 +317,7 @@ export interface EventsInvokeTransport {
  * handler); retried like `retriable` but never the handler's fault.
  */
 export type WorkerInvokeOutcome =
-    | 'settled'
-    | 'terminal'
-    | 'retriable'
-    | 'unavailable';
+    'settled' | 'terminal' | 'retriable' | 'unavailable';
 
 export interface WorkerInvokeResult {
     outcome: WorkerInvokeOutcome;
@@ -329,25 +388,62 @@ export class EventsWorkerInvokerClient extends PuterClient {
                 ctx: request.ctx,
                 token: request.token,
             });
-        const send = (deployed: boolean): Promise<EventsInvokeAnswer> =>
+        const timeoutMs = this.#timeoutMs();
+        // The whole call, deploy and resend included, ends before the lease a
+        // delivery holds would let it be claimed again mid-run.
+        // A short configured timeout gets a proportionally short margin.
+        const margin = Math.min(EVENTS_DEADLINE_MARGIN_MS, timeoutMs / 2);
+        const deadline =
+            Date.now() + timeoutMs * EVENTS_WORKER_LEASE_FACTOR - margin;
+        const send = (
+            deployed: boolean,
+            sendTimeoutMs = timeoutMs,
+        ): Promise<EventsInvokeAnswer> =>
             transport.send({
                 script: request.script,
                 appUid: request.appUid,
+                ...(request.holder ? { holder: request.holder } : {}),
                 key: request.key,
                 body: render(),
-                timeoutMs: this.#timeoutMs(),
+                timeoutMs: sendTimeoutMs,
                 ...(deployed ? { deployed: true } : {}),
                 ...(options.lane ? { lane: options.lane } : {}),
                 ...(stampEvent ? { render } : {}),
             });
 
+        // A send may wait for a connection for half its timeout before the
+        // run's own timeout starts, so it is given what is left divided by that.
+        const resend = (): Promise<EventsInvokeAnswer> | null => {
+            const remaining = deadline - Date.now();
+            if (remaining < margin) return null;
+            return send(
+                true,
+                Math.floor(
+                    Math.min(
+                        timeoutMs,
+                        remaining / (1 + CONNECTION_WAIT_SHARE),
+                    ),
+                ),
+            );
+        };
+        const outOfTime = (): WorkerInvokeResult => ({
+            outcome: 'unavailable',
+            status: null,
+            error: 'out of time to resend after deploy',
+        });
+
         let result = await send(false);
         if (this.#missHandler && selfDeployable(result)) {
-            const outcome = await this.#missHandler(
-                request.appUid,
-                request.script,
-                { lane: options.lane },
+            // The deploy may be shared with other callers, so it is left
+            // running when this call runs out of time for it.
+            const outcome = await withinTime(
+                this.#missHandler(request.appUid, request.script, {
+                    lane: options.lane,
+                    ...(request.holder ? { holder: request.holder } : {}),
+                }),
+                deadline - Date.now() - margin,
             );
+            if (outcome === null) return outOfTime();
             if (outcome !== 'deployed')
                 return {
                     outcome: 'unavailable',
@@ -355,7 +451,9 @@ export class EventsWorkerInvokerClient extends PuterClient {
                     error: `deploy: ${outcome}`,
                     ...(outcome === DEPLOY_BUSY ? { deployBusy: true } : {}),
                 };
-            result = await send(true);
+            const resent = await resend();
+            if (!resent) return outOfTime();
+            result = resent;
         } else if (
             result.status === null &&
             result.dispatchReason &&
@@ -363,7 +461,9 @@ export class EventsWorkerInvokerClient extends PuterClient {
         ) {
             // No deploy to trigger — just give propagation the one retry
             // it usually needs, without spending an upload on it.
-            result = await send(true);
+            const resent = await resend();
+            if (!resent) return outOfTime();
+            result = resent;
         }
 
         const { status, handled, error, timedOut, retryAfterMs } = result;
@@ -546,6 +646,9 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                         'x-puter-internal-auth': this.#secret,
                         'x-puter-events-script': call.script,
                         'x-puter-events-app': call.appUid,
+                        ...(call.holder
+                            ? { [EVENTS_HOLDER_HEADER]: call.holder }
+                            : {}),
                         'x-puter-events-key': call.key,
                         ...(call.deployed
                             ? { [EVENTS_DEPLOYED_HEADER]: '1' }
@@ -610,6 +713,7 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
             calls: batch.map(({ call }, i) => ({
                 script: call.script,
                 appUid: call.appUid,
+                ...(call.holder ? { holder: call.holder } : {}),
                 key: call.key,
                 ...(call.deployed ? { deployed: true } : {}),
                 body: call.render ? call.render() : call.body,

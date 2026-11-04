@@ -677,6 +677,18 @@ const examples = [
                 source: '/playground/examples/events-unsubscribe.html',
             },
             {
+                title: 'Run an Inline Handler on a Folder',
+                description: 'Watch a folder in the background with a handler you pass inline, using the Puter.js Events API. Run it in the playground.',
+                slug: 'events-persistent-inline',
+                source: '/playground/examples/events-persistent-inline.html',
+            },
+            {
+                title: 'Queue Events for an Inline Handler',
+                description: 'Send each change to one inline handler that acknowledges it, using the Puter.js Events API. Run it in the playground.',
+                slug: 'events-persistent-queue-inline',
+                source: '/playground/examples/events-persistent-queue-inline.html',
+            },
+            {
                 title: 'List Schedules',
                 description: 'List the schedules and stored notifications an app holds for a user with the Puter.js Events API. Run and experiment with this example in the playground.',
                 slug: 'events-list-schedules',
@@ -693,6 +705,30 @@ const examples = [
                 description: 'End a schedule with the Puter.js Events API, then read the ended schedule. Run it in the playground.',
                 slug: 'events-remove-schedule',
                 source: '/playground/examples/events-remove-schedule.html',
+            },
+            {
+                title: 'Run Code Once at a Set Time',
+                description: 'Schedule an inline handler to run once in two minutes with the Puter.js Events API, then remove it. Run it in the playground.',
+                slug: 'events-schedule-inline',
+                source: '/playground/examples/events-schedule-inline.html',
+            },
+            {
+                title: 'Run Code on Weekday Mornings',
+                description: 'Schedule an inline handler on a cron expression in the browser time zone with the Puter.js Events API. Run it in the playground.',
+                slug: 'events-schedule-cron-tz',
+                source: '/playground/examples/events-schedule-cron-tz.html',
+            },
+            {
+                title: 'Run Code Every 15 Minutes',
+                description: 'Schedule an inline handler at an interval with a run limit, and read what it wrote, using the Puter.js Events API. Run it in the playground.',
+                slug: 'events-schedule-every',
+                source: '/playground/examples/events-schedule-every.html',
+            },
+            {
+                title: 'Share a Handler Across Schedules',
+                description: 'Publish a named handler into your own user scope, bind two schedules to it, and update it, using the Puter.js Events API. Run it in the playground.',
+                slug: 'events-handlers-user-scope',
+                source: '/playground/examples/events-handlers-user-scope.html',
             },
             {
                 title: 'Catch Up on Notifications',

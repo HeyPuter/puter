@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 96;
+const CURRENT_SCHEMA_VERSION = 97;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -733,6 +733,74 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
             'PRAGMA index_info(`idx_notification_send_key`)',
         );
         expect(columns.map((c) => String(c.name))).toEqual(['send_key']);
+    });
+
+    it('creates event_user_handlers with its unique and holder indexes', async () => {
+        const columns = await client.read(
+            'PRAGMA table_info(`event_user_handlers`)',
+        );
+        expect(columns.map((c) => String(c.name))).toEqual([
+            'id',
+            'app_uid',
+            'holder_user_id',
+            'name',
+            'source',
+            'source_hash',
+            'created_at',
+            'updated_at',
+            'scope_since',
+        ]);
+        const indexes = await client.read(
+            'PRAGMA index_list(`event_user_handlers`)',
+        );
+        expect(
+            indexes.find(
+                (i) => i.name === 'idx_event_user_handlers_app_holder_name',
+            ),
+        ).toMatchObject({ unique: 1 });
+        expect(
+            indexes.find((i) => i.name === 'idx_event_user_handlers_holder_app'),
+        ).toMatchObject({ unique: 0 });
+        const columnsOf = async (index: string) =>
+            (await client.read(`PRAGMA index_info(\`${index}\`)`)).map((c) =>
+                String(c.name),
+            );
+        expect(await columnsOf('idx_event_user_handlers_app_holder_name')).toEqual(
+            ['app_uid', 'holder_user_id', 'name'],
+        );
+        expect(await columnsOf('idx_event_user_handlers_holder_app')).toEqual([
+            'holder_user_id',
+            'app_uid',
+        ]);
+    });
+
+    it('leaves event_handlers as it was', async () => {
+        const columns = await client.read('PRAGMA table_info(`event_handlers`)');
+        expect(columns.map((c) => String(c.name))).toEqual([
+            'id',
+            'app_uid',
+            'name',
+            'source',
+            'source_hash',
+            'created_at',
+            'updated_at',
+        ]);
+    });
+
+    it('adds event_subscriptions.handler_scope, app scope for existing rows', async () => {
+        const columns = await client.read(
+            'PRAGMA table_info(`event_subscriptions`)',
+        );
+        expect(columns.find((c) => c.name === 'handler_scope')).toMatchObject({
+            notnull: 1,
+            dflt_value: '0',
+        });
+        const indexes = await client.read(
+            'PRAGMA index_list(`event_subscriptions`)',
+        );
+        expect(indexes.map((i) => String(i.name))).toContain(
+            'idx_event_subscriptions_holder',
+        );
     });
 
     it('leaves an already-migrated database untouched on a second boot', async () => {

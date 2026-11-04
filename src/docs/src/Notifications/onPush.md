@@ -37,7 +37,7 @@ The `channel` your notifications are sent with. 1 to 32 lowercase letters, digit
 A plain `function` or an arrow function. It's called with the notification, in the same shape [`onNotification()`](/Notifications/onNotification/) delivers. It may return, or resolve to, an object that changes what the browser shows:
 
 - `title`, `body`, `icon`, `badge`, `image`, `tag` (String): As in the browser's `showNotification()`. A notification sent with a `group` gets a `tag` from it by default, so a later one in the group replaces it on screen.
-- `url` (String): A path or URL on your origin, resolved against your worker's scope. Defaults to the notification's `target`. A URL on another origin is replaced with your worker's scope. When no page of your site is open, a tap opens it. When a page is open, the tap focuses that page and goes to [`on('click')`](/Notifications/on/). A page without a `click` handler goes to `url` instead.
+- `url` (String): A path or URL on your origin. Defaults to the notification's `target`. A relative path is read from your site's root, or from your worker's folder when your pages are inside it ([requirements](/Notifications/push/#requirements)). A URL on another origin is replaced with that root or folder. When no page of your site is open, a tap opens it. When a page is open, the tap focuses that page and goes to [`on('click')`](/Notifications/on/). A page without a `click` handler goes to `url` instead.
 
 Returning nothing shows the notification's own `title` and `text`. Inside the Puter desktop, the result isn't used, and a push shows the notification's own title and text.
 

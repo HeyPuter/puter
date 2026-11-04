@@ -1,0 +1,61 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            if (!await puter.perms.request('backgroundEvents')) {
+                puter.print('background events were not allowed<br>');
+                return;
+            }
+
+            // (1) Publish a named handler into this user's own scope of the app
+            const name = `reminder-${Date.now()}`;
+            const v1 = await puter.events.handlers.publish(
+                name,
+                async ({ ctx, user }) => {
+                    await user.notifications.notify({ title: `${ctx.label} (v1)` });
+                },
+                { scope: 'user' },
+            );
+            puter.print(`published ${v1.name}: ${v1.outcome}<br>`);
+
+            // (2) Bind two schedules to it
+            const hour = 60 * 60 * 1000;
+            const schedules = [
+                await puter.events.onSchedule({
+                    every: '1h',
+                    handlerName: name,
+                    handlerScope: 'user',
+                    context: { label: 'Stretch' },
+                }),
+                await puter.events.onSchedule({
+                    at: Date.now() + 2 * hour,
+                    handlerName: name,
+                    handlerScope: 'user',
+                    context: { label: 'Lunch' },
+                }),
+            ];
+
+            // (3) Publishing again moves both schedules to the new code
+            const v2 = await puter.events.handlers.publish(
+                name,
+                async ({ ctx, user }) => {
+                    await user.notifications.notify({ title: `${ctx.label} (v2)` });
+                },
+                { scope: 'user' },
+            );
+            puter.print(`republished: ${v2.outcome}<br>`);
+
+            // (4) The scope's handlers, and how many schedules each one carries
+            for (const handler of await puter.events.handlers.list({ scope: 'user' })) {
+                puter.print(`${handler.name}: ${handler.subscriptions} bound<br>`);
+            }
+
+            // (5) Cleanup: end the schedules, then remove the handler
+            for (const schedule of schedules) await schedule.off();
+            await puter.events.handlers.remove(name, { scope: 'user' });
+            puter.print('removed<br>');
+        })();
+    </script>
+</body>
+</html>

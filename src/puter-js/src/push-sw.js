@@ -21,8 +21,11 @@
     const CLICKS = 'clicks';
     const HANDLER_TIMEOUT_MS = 5000;
     const CLICK_KEEP_MS = 5 * 60 * 1000;
-    // Browsers allow openWindow only shortly after the click.
     const CLICK_ACK_BUDGET_MS = 600;
+    // Firefox allows openWindow for 1 s after the click; this leaves room for it.
+    const CLICK_OPEN_BUDGET_MS = 800;
+    // Saved by the page; the worker's scope is used when there is none.
+    const TAP_BASE_PREFIX = 'puter:tap-base:';
     const DEFAULT_TITLE = 'New notification';
     const CHALLENGE_MESSAGE = 'puter-push-challenge';
     const CLICK_MESSAGE = 'puter-notification-click';
@@ -144,20 +147,32 @@
         return shown;
     }
 
-    // Taps only ever open this origin; relative paths are read from the worker's scope.
-    function sameOriginUrl (url) {
+    async function tapBase () {
         const scope = self.registration.scope ?? `${self.location.origin}/`;
         try {
-            const parsed = new URL(url ?? '', scope);
-            return parsed.origin === self.location.origin ? parsed.href : scope;
+            const base = await idb(HANDLERS, 'readonly', (s) => s.get(TAP_BASE_PREFIX + scope));
+            if ( typeof base === 'string' && new URL(base).origin === self.location.origin ) return base;
         } catch {
-            return scope;
+            // nothing saved, or IndexedDB is unavailable
+        }
+        return scope;
+    }
+
+    // Taps only ever open this origin; relative paths are read from the tap base.
+    async function sameOriginUrl (url) {
+        const base = await tapBase();
+        try {
+            const parsed = new URL(url ?? '', base);
+            return parsed.origin === self.location.origin ? parsed.href : base;
+        } catch {
+            return base;
         }
     }
 
-    async function windows () {
+    async function windows ({ topLevel = false } = {}) {
         const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
         return all.filter((c) => {
+            if ( topLevel && c.frameType === 'nested' ) return false;
             try {
                 return new URL(c.url).origin === self.location.origin;
             } catch {
@@ -184,7 +199,7 @@
                 uid: notification.uid,
                 target: notification.target,
                 data: notification.data,
-                url: sameOriginUrl(url),
+                url: await sameOriginUrl(url),
             },
         };
         try {
@@ -201,7 +216,7 @@
 
     // A page that got a notification live while away; held back while another window of the app has focus.
     async function showForPage (message, source) {
-        for ( const win of await windows() ) {
+        for ( const win of await windows({ topLevel: true }) ) {
             if ( win.focused && win.id !== source?.id ) return false;
         }
         const options = message.options && typeof message.options === 'object' ? message.options : {};
@@ -227,6 +242,33 @@
         });
     }
 
+    // One readwrite get+delete, so only the page or the worker gets the tap.
+    async function claimClick (uid, id) {
+        const matches = (kept) => !!kept && (id === undefined || kept.id === id);
+        const kept = await idb(CLICKS, 'readwrite', (s) => {
+            const req = s.get(uid);
+            req.addEventListener('success', () => {
+                if ( matches(req.result) ) s.delete(uid);
+            });
+            return req;
+        });
+        return matches(kept) ? kept : null;
+    }
+
+    // Like claimClick, but keeps the copy, without its id, for the page opened next.
+    async function reclaimClick (uid, id) {
+        const kept = await idb(CLICKS, 'readwrite', (s) => {
+            const req = s.get(uid);
+            req.addEventListener('success', () => {
+                if ( req.result?.id !== id ) return;
+                const { id: _, ...copy } = req.result;
+                s.put({ ...copy, at: Date.now() }, uid);
+            });
+            return req;
+        });
+        return kept?.id === id ? kept : null;
+    }
+
     function waitForClickAck (id, timeoutMs) {
         return new Promise((resolve) => {
             const timer = setTimeout(() => {
@@ -241,37 +283,49 @@
         });
     }
 
-    // Kept for the page the tap opens, which reads it from the URL.
-    async function keepClick (click) {
-        if ( ! click.uid ) return;
+    // Kept for the page that claims it: an open one by `id`, or one the tap opens.
+    async function keepClick (click, id) {
+        if ( ! click.uid ) return false;
         try {
-            await forgetOldClicks();
-            await idb(CLICKS, 'readwrite', (s) => s.put({ ...click, at: Date.now() }, click.uid));
+            await idb(CLICKS, 'readwrite', (s) => s.put({ ...click, at: Date.now(), ...(id ? { id } : {}) }, click.uid));
+            return true;
         } catch ( err ) {
             console.warn('[puter] could not keep a tap', err);
+            return false;
         }
     }
 
     // An open window with a click handler takes the tap; otherwise one opens its URL.
     async function routeClick (puter, startedAt = Date.now()) {
         const click = { uid: puter.uid, target: puter.target ?? null, data: puter.data ?? null };
-        const url = sameOriginUrl(puter.url);
-        const open = await windows();
+        const url = await sameOriginUrl(puter.url);
+        const open = await windows({ topLevel: true });
         const win = open.find((c) => c.url === url) ?? open.find((c) => c.focused) ?? open[0];
         if ( win ) {
-            const id = `click-${++nextClickId}`;
-            const acked = waitForClickAck(id, Math.max(0, startedAt + CLICK_ACK_BUDGET_MS - Date.now()));
-            win.postMessage({ type: CLICK_MESSAGE, id, notification: click });
+            const id = `click-${Date.now()}-${++nextClickId}`;
+            const kept = await keepClick(click, id);
+            const postedAt = Date.now();
+            const deadline = Math.min(postedAt + CLICK_ACK_BUDGET_MS, startedAt + CLICK_OPEN_BUDGET_MS);
+            const acked = waitForClickAck(id, Math.max(0, deadline - postedAt));
+            win.postMessage({ type: CLICK_MESSAGE, id, notification: click, ...(kept ? { kept: true } : {}) });
             try {
                 await win.focus();
             } catch {
                 // focus is refused once the click's window has passed
             }
-            if ( await acked ) return;
-            // Already there: reloading would only lose what the user had open.
+            if ( await acked ) {
+                // A page that took the tap removed it; an older page leaves it.
+                if ( kept ) await claimClick(click.uid, id).catch(() => null);
+                return;
+            }
+            // Already there: the page may still take its copy; reloading would lose its state.
             if ( win.url === url ) return;
+            // A failed claim counts as the page's, so the tap runs at most once.
+            if ( kept && ! await reclaimClick(click.uid, id).catch(() => null) ) return;
+            if ( ! kept ) await keepClick(click);
+        } else {
+            await keepClick(click);
         }
-        await keepClick(click);
         const opened = new URL(url);
         if ( click.uid ) opened.searchParams.set(CLICK_PARAM, click.uid);
         if ( win?.navigate ) {
@@ -285,10 +339,12 @@
         await self.clients.openWindow(opened.href);
     }
 
+    const forgetOldClicksQuietly = () => forgetOldClicks().catch(() => {});
+
     self.addEventListener('push', (event) => {
         const message = readMessage(event.data);
         if ( ! message ) return;
-        event.waitUntil(showPush(message));
+        event.waitUntil(Promise.all([showPush(message), forgetOldClicksQuietly()]));
     });
 
     self.addEventListener('message', (event) => {
@@ -314,7 +370,7 @@
         if ( ! puter || typeof puter !== 'object' ) return;
         const startedAt = Date.now();
         event.notification.close();
-        event.waitUntil(routeClick(puter, startedAt));
+        event.waitUntil(Promise.all([routeClick(puter, startedAt), forgetOldClicksQuietly()]));
     });
 
     self.addEventListener('pushsubscriptionchange', (event) => {

@@ -136,7 +136,8 @@ done, run a handler at that time instead with
 checks the task and sends the notification itself.
 
 Publish the handler once, as the app's developer, from a deploy script or
-your browser console. [Run Code on a Schedule](/recipes/run-code-on-a-schedule/)
+your browser console, or pass the same function as `handler` to `onSchedule()`
+to store it in the user's own [user scope](/Events/handlers/#user-scope). [Run Code on a Schedule](/recipes/run-code-on-a-schedule/)
 explains handlers and the `user` object they get:
 
 ```js

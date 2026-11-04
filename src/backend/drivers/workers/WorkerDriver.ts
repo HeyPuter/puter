@@ -43,6 +43,7 @@ import { PuterDriver } from '../types.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { awaitLater } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { assertRentedUnitRoom } from '../../util/rentedUnits.js';
 import { loadFileInput } from '../util/fileInput.js';
 import {
     normalizeLimit,
@@ -57,6 +58,7 @@ const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 export const WORKER_COMPATIBILITY_DATE = '2025-07-15';
 export const WORKER_COMPATIBILITY_FLAGS = ['global_fetch_strictly_public'];
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
+/** Cap on ordinary workers while user-scope handlers are off. */
 const MAX_WORKERS_PER_USER = 100;
 
 /**
@@ -179,12 +181,17 @@ export interface InternalDeployTarget {
      * scripts belong to what.
      */
     tags?: string[];
+    /**
+     * Per-invocation CPU limit in milliseconds, sent with the upload. Unset
+     * sends no limit. Ignored by the local runtime.
+     */
+    cpuMs?: number;
 }
 
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
 // How far to scan an app's child apps when resolving which workers it may
-// see. A user is capped at MAX_WORKERS_PER_USER workers, so only that many
-// child apps can actually own one; the ceiling is generous slack over that.
+// see. A user is capped at their plan's rented units, so only that many
+// child apps can actually own a worker; the ceiling is generous slack over that.
 const CHILD_APP_SCAN_LIMIT = 1000;
 
 // -- Preamble --------------------------------------------------------
@@ -452,26 +459,34 @@ export class WorkerDriver extends PuterDriver {
 
         this.#requireCfConfig();
 
-        // Quota check — count existing workers.puter.* subdomains owned by user
-        //
-        // A deploy target creates no such row, so this count can neither see
-        // its scripts nor be grown by them; running it would only make an
-        // unrelated worker quota decide whether these deploy. Whatever bounds
-        // them has to be counted where they actually live, and belongs to the
-        // caller that owns their lifecycle.
-        const existingWorkers =
-            skipAdmission || deployTarget
-                ? []
-                : await this.stores.subdomain.listByUserIdAndPrefix(
-                      actor.user.id,
-                      WORKER_SUBDOMAIN_PREFIX,
-                  );
-        if (existingWorkers.length >= MAX_WORKERS_PER_USER) {
-            throw new HttpError(
-                403,
-                `Worker limit reached (max ${MAX_WORKERS_PER_USER})`,
-                { legacyCode: 'forbidden' },
-            );
+        // With user scopes on, a new worker is one more rented unit under the
+        // plan's cap, and redeploying an existing worker is never refused.
+        // Deploy targets create no worker row and are bounded by their caller.
+        if (this.config.events?.userHandlers === true) {
+            if (!skipAdmission && !deployTarget && !existingSub) {
+                await assertRentedUnitRoom(
+                    {
+                        stores: this.stores,
+                        metering: this.services.metering,
+                    },
+                    actor,
+                );
+            }
+        } else {
+            const existingWorkers =
+                skipAdmission || deployTarget
+                    ? []
+                    : await this.stores.subdomain.listByUserIdAndPrefix(
+                          actor.user.id,
+                          WORKER_SUBDOMAIN_PREFIX,
+                      );
+            if (existingWorkers.length >= MAX_WORKERS_PER_USER) {
+                throw new HttpError(
+                    403,
+                    `Worker limit reached (max ${MAX_WORKERS_PER_USER})`,
+                    { legacyCode: 'forbidden' },
+                );
+            }
         }
 
         // Read source file. loadFileInput runs the read-ACL check internally
@@ -940,6 +955,7 @@ export class WorkerDriver extends PuterDriver {
             compatibility_flags: WORKER_COMPATIBILITY_FLAGS,
             compatibility_date: WORKER_COMPATIBILITY_DATE,
             ...(target?.tags ? { tags: target.tags } : {}),
+            ...(target?.cpuMs ? { limits: { cpu_ms: target.cpuMs } } : {}),
             bindings: [
                 // A script deployed without a token gets no binding at all,
                 // rather than an empty one for its code to find.

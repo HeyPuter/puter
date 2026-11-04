@@ -12,12 +12,12 @@ each file a user adds to a folder, or posting to a chat when a report is saved.
 On other platforms you'd use a webhook, a background job, or a cloud function
 that runs on upload.
 
-In Puter, you publish a function once, and each user's persistent subscription
+In Puter, you give each user's persistent subscription a function, and it
 runs it when their files change. A persistent subscription, created with
 [`puter.events.onPersistent()`](/Events/onPersistent/), is saved to the user's
 account and keeps running after your app closes. Puter runs the function in
-your app's [events worker](/Events/workers/), a serverless function that
-belongs to your app, so you don't run a server. To update a page while it's
+an [events worker](/Events/workers/), a serverless function, so you don't run
+a server. To update a page while it's
 open, use the subscriptions in
 [Watch for Changes](/recipes/watch-for-changes/) instead.
 
@@ -27,10 +27,15 @@ so the app can list them later.
 
 ## Publish the Handler
 
-A handler is the function a subscription runs. Publish it with
-[`puter.events.handlers.publish()`](/Events/handlers/). This is a developer
+A handler is the function a subscription runs. There are two ways to give one
+to a subscription. The simplest is to [pass it inline](#pass-the-handler-inline),
+which any signed-in user's session can do from your app. The other is to publish
+it once under a name with [`puter.events.handlers.publish()`](/Events/handlers/),
+and have every user's subscription bind to that name. Publishing is a developer
 step, like a deploy, and only the account that owns the app can do it, so run it
-from a deploy script or your browser console:
+from a deploy script or your browser console. Use it when you want one copy of
+the code that you can update for every user at once. This section and the ones
+after it use a published handler:
 
 ```js
 const app = await puter.apps.get('drop-box');    // your app's name
@@ -77,6 +82,42 @@ Write the handler's output outside the folder it watches, as this one does with
 the key-value store. A file it writes into `Inbox` is a new change that runs the
 handler again, and Puter stops that loop after a few runs without an error.
 [Handler chains](/rate-limits-and-quotas/#handler-chains) has the numbers.
+
+## Pass the Handler Inline
+
+To skip the deploy step, pass the function as `handler` and leave out
+`handlerName`. Puter stores the code in the signed-in user's own
+[user scope](/Events/handlers/#user-scope) of your app, and runs it for that
+user's events only:
+
+```js
+const inbox = `~/AppData/${puter.appID}/Inbox`;
+
+const sub = await puter.events.onPersistent({
+    subject: `fs:${inbox}`,
+    queue: true,
+    handler: async ({ event, user }) => {
+        const arrived = event.op === 'add' || (event.op === 'move' && !event.from);
+        if (!arrived) return;
+
+        await user.kv.set(`uploads:${event.uid}`, {
+            name: event.path.split('/').pop(),
+            addedAt: event.ts,
+        });
+    },
+});
+```
+
+The handler follows the same rules as a published one, and gets its settings
+through `context` in the same way. The handler is private to that user, so one
+user's copy can't be changed by anyone else, including you. It also counts
+toward that user's [limits](/rate-limits-and-quotas/#handlers) and bills to the
+user like their own workers, and publishing needs credit on a hosted Puter
+server. Changing the code later makes a new handler, so the old subscription
+keeps running the old code. To roll out new code, unsubscribe and subscribe
+again, or [publish a named handler into the user scope](/Events/handlers/#user-scope).
+[Clean Up Background Work](/recipes/clean-up-background-work/#remove-a-user-scope)
+covers removing what a user's scope holds.
 
 ## Ask for Permission
 
