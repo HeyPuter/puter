@@ -285,6 +285,8 @@ Each call is also capped, the same for every account:
 
 A `get()` or batch `set()` over its cap, or an `offset` over 5,000, is rejected with `bad_request` and nothing is read or written. A `limit` over 1,000 is lowered to 1,000, and the page's `cursor` picks up from there.
 
+Internal metering reads check up to 20 counters in Redis concurrently per call. Store-backed metering reads make up to 3 attempts when a flush overlaps the read. Each metering flush writes up to 20 counters concurrently.
+
 ### Filesystem
 
 Per minute unless stated:

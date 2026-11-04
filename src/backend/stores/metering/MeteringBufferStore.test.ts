@@ -698,6 +698,347 @@ describe('MeteringBufferStore', () => {
             }
         });
 
+        for (const shape of ['single', 'array', 'exact'] as const) {
+            it(`does not retry a ${shape} store read when only new increments arrive`, async () => {
+                await kv.incr({ key, pathAndAmountMap: { total: 100 } });
+                await target.incrAux({ key, pathAndAmountMap: { total: 10 } });
+                const dynamo = server.clients.dynamo;
+                const realGet = dynamo.get.bind(dynamo);
+                const realBatchGet = dynamo.batchGet.bind(dynamo);
+                let storeReads = 0;
+                const increment = async () => {
+                    storeReads++;
+                    await target.incrAux({
+                        key,
+                        pathAndAmountMap: { total: 5 },
+                    });
+                };
+                const get = vi
+                    .spyOn(dynamo, 'get')
+                    .mockImplementation(async (...args) => {
+                        const result = await realGet(...args);
+                        if (args[1].key === key) await increment();
+                        return result;
+                    });
+                const batchGet = vi
+                    .spyOn(dynamo, 'batchGet')
+                    .mockImplementation(async (...args) => {
+                        const result = await realBatchGet(...args);
+                        if (args[0].some(({ items }) => items.key === key))
+                            await increment();
+                        return result;
+                    });
+                const redis = server.clients.redis as unknown as {
+                    meterRead: (...args: string[]) => Promise<unknown>;
+                };
+                const read = vi.spyOn(redis, 'meterRead');
+                try {
+                    const { res } =
+                        shape === 'exact'
+                            ? await target.readExact({ key })
+                            : await target.get({
+                                  key: shape === 'single' ? key : [key],
+                              });
+                    const value = (
+                        shape === 'array' ? (res as unknown[])[0] : res
+                    ) as { total: number };
+                    expect(value.total).toBe(110);
+                    expect(storeReads).toBe(1);
+                    expect(read).toHaveBeenCalledTimes(2);
+                } finally {
+                    get.mockRestore();
+                    batchGet.mockRestore();
+                    read.mockRestore();
+                }
+                expect(await readTotal()).toBe(115);
+            });
+
+            it(`retries a ${shape} read when new increments hide a completed flush`, async () => {
+                await kv.incr({ key, pathAndAmountMap: { total: 0 } });
+                await target.incrAux({ key, pathAndAmountMap: { total: 10 } });
+                const dynamo = server.clients.dynamo;
+                const write = holdCalls(dynamo, 'update');
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                const realGet = dynamo.get.bind(dynamo);
+                const realBatchGet = dynamo.batchGet.bind(dynamo);
+                let storeReads = 0;
+                const land = async () => {
+                    if (++storeReads !== 1) return;
+                    write.release();
+                    await flushing;
+                    await target.incrAux({
+                        key,
+                        pathAndAmountMap: { total: 20 },
+                    });
+                };
+                const get = vi
+                    .spyOn(dynamo, 'get')
+                    .mockImplementation(async (...args) => {
+                        if (args[1].key === key) await land();
+                        return realGet(...args);
+                    });
+                const batchGet = vi
+                    .spyOn(dynamo, 'batchGet')
+                    .mockImplementation(async (...args) => {
+                        if (args[0].some(({ items }) => items.key === key))
+                            await land();
+                        return realBatchGet(...args);
+                    });
+                try {
+                    const { res } =
+                        shape === 'exact'
+                            ? await target.readExact({ key })
+                            : await target.get({
+                                  key: shape === 'single' ? key : [key],
+                              });
+                    const value = (
+                        shape === 'array' ? (res as unknown[])[0] : res
+                    ) as { total: number };
+                    expect(value.total).toBe(30);
+                    expect(storeReads).toBe(2);
+                } finally {
+                    get.mockRestore();
+                    batchGet.mockRestore();
+                    write.release();
+                    await flushing;
+                    write.spy.mockRestore();
+                }
+            });
+        }
+
+        it('keeps changed counters together in a batch retry', async () => {
+            const keys = [`${key}:a`, `${key}:b`];
+            await Promise.all(
+                keys.map((k) =>
+                    kv.incr({ key: k, pathAndAmountMap: { total: 0 } }),
+                ),
+            );
+            await Promise.all(
+                keys.map((k) =>
+                    target.incrAux({ key: k, pathAndAmountMap: { total: 10 } }),
+                ),
+            );
+            const dynamo = server.clients.dynamo;
+            const realBatchGet = dynamo.batchGet.bind(dynamo);
+            const write = holdCalls(dynamo, 'update');
+            const flushing = target.flushCycle();
+            await vi.waitFor(() => expect(write.spy).toHaveBeenCalledTimes(2));
+            const batches: string[][] = [];
+            const batchGet = vi
+                .spyOn(dynamo, 'batchGet')
+                .mockImplementation(async (...args) => {
+                    batches.push(
+                        args[0].map(({ items }) => items.key as string),
+                    );
+                    if (batches.length === 1) {
+                        write.release();
+                        await flushing;
+                    }
+                    return realBatchGet(...args);
+                });
+            const get = vi.spyOn(dynamo, 'get');
+            try {
+                expect((await target.get({ key: keys })).res).toEqual([
+                    { total: 10 },
+                    { total: 10 },
+                ]);
+                expect(batches).toHaveLength(2);
+                expect(batches.map((batch) => batch.sort())).toEqual([
+                    keys,
+                    keys,
+                ]);
+                expect(get).not.toHaveBeenCalled();
+            } finally {
+                batchGet.mockRestore();
+                get.mockRestore();
+                write.release();
+                await flushing;
+                write.spy.mockRestore();
+            }
+        });
+
+        it('detects a whole flush between snapshots with no outstanding claim', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 0 } });
+            await target.incrAux({ key, pathAndAmountMap: { total: 10 } });
+            const dynamo = server.clients.dynamo;
+            const realGet = dynamo.get.bind(dynamo);
+            let reads = 0;
+            const get = vi
+                .spyOn(dynamo, 'get')
+                .mockImplementation(async (...args) => {
+                    if (args[1].key === key && ++reads === 1) {
+                        await target.flushCycle();
+                        await target.incrAux({
+                            key,
+                            pathAndAmountMap: { total: 20 },
+                        });
+                    }
+                    return realGet(...args);
+                });
+            try {
+                expect(await readTotal()).toBe(30);
+                expect(reads).toBe(2);
+            } finally {
+                get.mockRestore();
+            }
+        });
+
+        it('retries a decreasing buffer even when the flush metadata is unchanged', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 100 } });
+            await target.incrAux({ key, pathAndAmountMap: { total: 10 } });
+            const dynamo = server.clients.dynamo;
+            const realGet = dynamo.get.bind(dynamo);
+            let reads = 0;
+            const get = vi
+                .spyOn(dynamo, 'get')
+                .mockImplementation(async (...args) => {
+                    const result = await realGet(...args);
+                    if (args[1].key === key && ++reads === 1) {
+                        await target.incrAux({
+                            key,
+                            pathAndAmountMap: { total: -5 },
+                        });
+                    }
+                    return result;
+                });
+            try {
+                expect(await readTotal()).toBe(105);
+                expect(reads).toBe(2);
+            } finally {
+                get.mockRestore();
+            }
+        });
+
+        it('detects applied paths while the claim id and fence token stay unchanged', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 0 } });
+            await target.incrAux({ key, pathAndAmountMap: { total: 10 } });
+            const dynamo = server.clients.dynamo;
+            const redis = server.clients.redis as unknown as {
+                meterSettle: (...args: string[]) => Promise<number>;
+            };
+            const write = holdCalls(dynamo, 'update');
+            const settle = holdCalls(redis, 'meterSettle');
+            const flushing = target.flushCycle();
+            await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+            const realGet = dynamo.get.bind(dynamo);
+            let reads = 0;
+            const get = vi
+                .spyOn(dynamo, 'get')
+                .mockImplementation(async (...args) => {
+                    if (args[1].key === key && ++reads === 1) {
+                        write.release();
+                        await vi.waitFor(() =>
+                            expect(settle.spy).toHaveBeenCalled(),
+                        );
+                        await target.incrAux({
+                            key,
+                            pathAndAmountMap: { total: 20 },
+                        });
+                    }
+                    return realGet(...args);
+                });
+            try {
+                expect(await readTotal()).toBe(30);
+                expect(reads).toBe(2);
+            } finally {
+                get.mockRestore();
+                write.release();
+                settle.release();
+                await flushing;
+                write.spy.mockRestore();
+                settle.spy.mockRestore();
+            }
+        });
+
+        it('does not retry unchanged amounts when another counter advances the bucket token', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 100 } });
+            let other = `${key}:other`;
+            for (let i = 0; bucketTag(other) !== bucketTag(key); i++)
+                other = `${key}:${i}`;
+            await kv.incr({ key: other, pathAndAmountMap: { total: 0 } });
+            await target.incrAux({
+                key: other,
+                pathAndAmountMap: { total: 10 },
+            });
+            const dynamo = server.clients.dynamo;
+            const realGet = dynamo.get.bind(dynamo);
+            let reads = 0;
+            const get = vi
+                .spyOn(dynamo, 'get')
+                .mockImplementation(async (...args) => {
+                    if (args[1].key === key && ++reads === 1)
+                        await target.flushCycle();
+                    return realGet(...args);
+                });
+            try {
+                expect(await readTotal()).toBe(100);
+                expect(reads).toBe(1);
+            } finally {
+                get.mockRestore();
+            }
+        });
+
+        it('recovers a failed initial cache snapshot before retrying the batch', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 100 } });
+            await target.incrAux({ key, pathAndAmountMap: { total: 10 } });
+            const redis = server.clients.redis as unknown as {
+                meterRead: (...args: string[]) => Promise<unknown>;
+            };
+            const read = vi
+                .spyOn(redis, 'meterRead')
+                .mockRejectedValueOnce(new Error('cache unavailable'));
+            const batchGet = vi.spyOn(server.clients.dynamo, 'batchGet');
+            try {
+                expect((await target.get({ key: [key] })).res).toEqual([
+                    { total: 110 },
+                ]);
+                expect(batchGet).toHaveBeenCalledTimes(2);
+            } finally {
+                read.mockRestore();
+                batchGet.mockRestore();
+            }
+        });
+
+        it('bounds concurrent cache reads while preserving array order', async () => {
+            const keys = Array.from({ length: 25 }, (_, i) => `${key}:${i}`);
+            await Promise.all(
+                keys.map((k, i) =>
+                    target.incrAux({
+                        key: k,
+                        pathAndAmountMap: { total: i + 1 },
+                    }),
+                ),
+            );
+            const redis = server.clients.redis as unknown as {
+                meterRead: (...args: string[]) => Promise<unknown>;
+            };
+            const realRead = redis.meterRead.bind(redis);
+            let active = 0;
+            let peak = 0;
+            const read = vi
+                .spyOn(redis, 'meterRead')
+                .mockImplementation(async (...args) => {
+                    active++;
+                    peak = Math.max(peak, active);
+                    try {
+                        await new Promise((resolve) => setTimeout(resolve, 1));
+                        return await realRead(...args);
+                    } finally {
+                        active--;
+                    }
+                });
+            try {
+                expect((await target.get({ key: keys })).res).toEqual(
+                    keys.map((_, i) => ({ total: i + 1 })),
+                );
+                expect(peak).toBe(20);
+                expect(active).toBe(0);
+            } finally {
+                read.mockRestore();
+            }
+        });
+
         it('reads an unknown counter as absent', async () => {
             const { res } = await target.get({ key });
             expect(res).toBeNull();
