@@ -1577,6 +1577,18 @@ describe('TabFiles path field', () => {
         expect(editing()).toBe(false);
     });
 
+    it('looks a path up once, however often Enter is pressed meanwhile', async () => {
+        mountHeader();
+        TabFiles.openPathEditor();
+        editor().value = '/alice/Gone';
+        UIAlert.mockImplementation(async ({ window_options }) => window_options.on_close());
+
+        await Promise.all([TabFiles.submitPathEditor(), TabFiles.submitPathEditor()]);
+
+        expect(window.puter.fs.stat).toHaveBeenCalledTimes(1);
+        expect(UIAlert).toHaveBeenCalledTimes(1);
+    });
+
     it('gives the crumbs back on Escape or when it loses the focus', () => {
         mountHeader();
         TabFiles.openPathEditor();

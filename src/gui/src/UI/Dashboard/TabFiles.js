@@ -910,6 +910,9 @@ const TabFiles = {
      * @returns {Promise<void>}
      */
     async submitPathEditor () {
+        // A second Enter during the lookup would look it up again, and a
+        // path to nothing would get a second alert.
+        if ( this.pathEditorBusy ) return;
         const input = this.$el_window.find('.files-tab .path-editor')[0];
         const typed = input.value.trim();
         const target = resolveTypedPath(typed, {
