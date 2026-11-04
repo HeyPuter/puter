@@ -200,6 +200,16 @@ export type EventMap = {
     };
 
     // ---- Auth / signup ----
+    /**
+     * Which signup methods are open, emitted via `emitAndWait` before every
+     * signup and whenever the GUI reads the provider list. A listener sets
+     * `oidcOnly` to refuse form and temp signups, leaving OIDC and team
+     * provisioning open; `message` is what a refused form signup is told.
+     */
+    'puter.signup.policy': {
+        oidcOnly: boolean;
+        message: string | null;
+    };
     'puter.signup.validate': {
         allow: boolean;
         email?: string;
@@ -1041,10 +1051,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1055,7 +1066,10 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    'received' | 'unreceived' | 'no-socket' | 'remote-only';
+    | 'received'
+    | 'unreceived'
+    | 'no-socket'
+    | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {
