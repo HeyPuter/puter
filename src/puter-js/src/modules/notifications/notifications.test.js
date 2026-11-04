@@ -8,7 +8,8 @@ vi.mock('../../lib/networkUtils.js', () => ({
 }));
 
 const { NotificationsModule } = await import('./index.js');
-const { webPushState } = await import('./lib/webPush.js');
+const { webPushCheck, webPushState } = await import('./lib/webPush.js');
+const { forgetPushState } = await import('./lib/pushStore.js');
 const { request } = await import('./lib/api.js');
 const { PuterJSError } = await import('../../lib/PuterJSError.js');
 
@@ -1511,6 +1512,67 @@ describe('webPushState', () => {
         await expect(
             webPushState(host, 'https://push.example/1'),
         ).resolves.toBe(null);
+    });
+});
+
+describe('webPushCheck', () => {
+    const host = { APIOrigin: 'https://api.test' };
+
+    it('gives the key the server names along with the state', async () => {
+        mockFetchUrl.mockResolvedValue(
+            jsonResponse({ state: 'active', publicKey: 'BKey' }),
+        );
+        await expect(
+            webPushCheck(host, 'https://push.example/1'),
+        ).resolves.toEqual({ state: 'active', publicKey: 'BKey' });
+    });
+
+    it('gives no key for a server that names none', async () => {
+        mockFetchUrl.mockResolvedValue(jsonResponse({ state: 'active' }));
+        await expect(
+            webPushCheck(host, 'https://push.example/1'),
+        ).resolves.toEqual({ state: 'active', publicKey: null });
+    });
+});
+
+describe('forgetPushState', () => {
+    it('forgets opt-ins, confirmed syncs and replaced-subscription marks, and every kept tap', async () => {
+        const calls = [];
+        const request = (call) => {
+            calls.push(call);
+            const req = {};
+            queueMicrotask(() => req.onsuccess?.());
+            return req;
+        };
+        const db = {
+            transaction: (store) => ({
+                objectStore: () => ({
+                    delete: (range) => request(['delete', store, range]),
+                    clear: () => request(['clear', store]),
+                }),
+            }),
+            close: () => {},
+        };
+        const idb = {
+            open: () => {
+                const req = { result: db };
+                queueMicrotask(() => req.onsuccess());
+                return req;
+            },
+        };
+        const previous = globalThis.IDBKeyRange;
+        globalThis.IDBKeyRange = { bound: (lower) => lower };
+        try {
+            await forgetPushState(idb);
+        } finally {
+            globalThis.IDBKeyRange = previous;
+        }
+        expect(calls).toEqual([
+            ['delete', 'handlers', 'puter:opt-in:'],
+            ['delete', 'handlers', 'puter:synced:'],
+            ['delete', 'handlers', 'puter:subscription-changed:'],
+            ['clear', 'clicks'],
+        ]);
     });
 });
 

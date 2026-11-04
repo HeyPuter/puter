@@ -44,7 +44,7 @@ It rejects with an error carrying `message` and `code`:
 | `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click, then call [`enable()`](/Notifications/enable/) again. |
 | `push_worker_unavailable` | The service worker couldn't be registered or didn't start, for example because nothing is served at its path. |
 | `push_worker_conflict` | Another service worker controls the scope. Add the `importScripts()` line to that worker and pass its path as `serviceWorker`. |
-| `push_subscription_conflict` | The worker already has a push subscription from another service, such as Firebase or OneSignal. Give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. |
+| `push_subscription_conflict` | The worker already has a push subscription from another service, such as Firebase or OneSignal. Give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. A subscription Puter made earlier, even with a key Puter has since changed, is replaced instead. |
 | `push_subscribe_failed` | The browser couldn't create a push subscription, usually because it couldn't reach its push service. |
 | `push_subscription_invalid` | The browser's push service refused the subscription, even after a fresh one. |
 | `push_endpoint_revoked` | Another Puter account turned your app off on this browser's subscription, and a fresh subscription couldn't replace it. |

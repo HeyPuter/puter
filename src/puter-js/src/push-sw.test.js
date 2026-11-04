@@ -34,6 +34,13 @@ const fakeIndexedDB = (stores) => {
             get: (key) => request(() => map.get(key)),
             put: (value, key) => request(() => void map.set(key, value)),
             delete: (key) => request(() => void map.delete(key)),
+            count: (range) =>
+                request(
+                    () =>
+                        [...map.keys()].filter(
+                            (key) => key >= range.lower && key <= range.upper,
+                        ).length,
+                ),
             openCursor: () => {
                 const keys = [...map.keys()];
                 const cursorAt = (req, i) =>
@@ -84,6 +91,7 @@ const loadWorker = ({
     windows = [],
     matchAllDelayMs = 0,
     scope: registrationScope = `${ORIGIN}/`,
+    subscription = null,
 } = {}) => {
     const listeners = {};
     const shown = [];
@@ -103,6 +111,10 @@ const loadWorker = ({
             showNotification: vi.fn(async (title, options) => {
                 shown.push({ title, options });
             }),
+            pushManager: {
+                getSubscription: vi.fn(async () => subscription),
+                subscribe: vi.fn(async () => ({ endpoint: 'https://push.example/new' })),
+            },
         },
         clients: {
             matchAll: vi.fn(async () => {
@@ -130,6 +142,8 @@ const loadWorker = ({
         Number,
         Function,
         indexedDB: fakeIndexedDB(stores),
+        IDBKeyRange: { bound: (lower, upper) => ({ lower, upper }) },
+        atob,
     });
     context.self = context;
     vm.runInContext(SOURCE, context);
@@ -155,6 +169,10 @@ const loadWorker = ({
 const pushData = (payload) => ({ json: () => payload });
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const TAP_BASE = 'puter:tap-base:';
+// 65 bytes, 0x04 first, as base64url.
+const KEY = Buffer.from([4, ...Array(64).fill(7)]).toString('base64url');
+const OLD_KEY = Buffer.from([4, ...Array(64).fill(3)]).toString('base64url');
+const CHANGED = `puter:subscription-changed:${ORIGIN}/`;
 
 describe('push-sw push', () => {
     it('leaves a push without a Puter message to the app', async () => {
@@ -595,5 +613,81 @@ describe('push-sw notifications a page shows', () => {
         await worker.fire('message', { data: { type: 'something-else' } });
         await worker.fire('message', { data: null });
         expect(worker.shown).toEqual([]);
+    });
+});
+
+describe('push-sw pushsubscriptionchange', () => {
+    const keyOf = (value) => ({ options: { applicationServerKey: new Uint8Array(Buffer.from(value, 'base64url')).buffer } });
+    const optedIn = { 'puter:opt-in:u-1': true, 'puter:server-key': KEY };
+
+    it('marks the change and subscribes again with Puter`s key when the browser gave no new subscription', async () => {
+        const win = windowClient(`${ORIGIN}/`);
+        const worker = loadWorker({ handlers: optedIn, windows: [win] });
+        await worker.fire('pushsubscriptionchange', { oldSubscription: keyOf(KEY), newSubscription: null });
+        expect(worker.stores.handlers.get(CHANGED)).toEqual(expect.any(Number));
+        const { subscribe } = worker.scope.registration.pushManager;
+        expect(subscribe).toHaveBeenCalledTimes(1);
+        expect([...subscribe.mock.calls[0][0].applicationServerKey]).toEqual([...Buffer.from(KEY, 'base64url')]);
+        expect(subscribe.mock.calls[0][0].userVisibleOnly).toBe(true);
+        expect(win.postMessage).toHaveBeenCalledWith({ type: 'puter-push-subscription-changed' });
+    });
+
+    it('keeps the new subscription the browser gave', async () => {
+        const worker = loadWorker({ handlers: optedIn });
+        await worker.fire('pushsubscriptionchange', { oldSubscription: keyOf(KEY), newSubscription: { endpoint: 'https://push.example/2' } });
+        expect(worker.stores.handlers.has(CHANGED)).toBe(true);
+        expect(worker.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('subscribes with the current key after one the server listed as earlier', async () => {
+        const worker = loadWorker({ handlers: { ...optedIn, 'puter:server-keys': [KEY, OLD_KEY] } });
+        await worker.fire('pushsubscriptionchange', { oldSubscription: keyOf(OLD_KEY) });
+        expect(worker.stores.handlers.has(CHANGED)).toBe(true);
+        const [[options]] = worker.scope.registration.pushManager.subscribe.mock.calls;
+        expect([...options.applicationServerKey]).toEqual([...Buffer.from(KEY, 'base64url')]);
+    });
+
+    it('only tells the open windows when nobody turned push on here', async () => {
+        const win = windowClient(`${ORIGIN}/`);
+        const worker = loadWorker({ handlers: { 'puter:server-key': KEY }, windows: [win] });
+        await worker.fire('pushsubscriptionchange', { oldSubscription: keyOf(KEY) });
+        expect(worker.stores.handlers.has(CHANGED)).toBe(false);
+        expect(worker.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(win.postMessage).toHaveBeenCalledWith({ type: 'puter-push-subscription-changed' });
+    });
+
+    it('leaves another service`s subscription to it', async () => {
+        const worker = loadWorker({ handlers: optedIn });
+        await worker.fire('pushsubscriptionchange', { oldSubscription: keyOf(Buffer.from([4, 1, 2]).toString('base64url')) });
+        expect(worker.stores.handlers.has(CHANGED)).toBe(false);
+        expect(worker.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('without the old subscription, subscribes only a worker a Puter page used', async () => {
+        const unused = loadWorker({ handlers: optedIn });
+        await unused.fire('pushsubscriptionchange', {});
+        expect(unused.stores.handlers.has(CHANGED)).toBe(true);
+        expect(unused.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+
+        const used = loadWorker({ handlers: { ...optedIn, [`${TAP_BASE}${ORIGIN}/`]: `${ORIGIN}/` } });
+        await used.fire('pushsubscriptionchange', {});
+        expect(used.scope.registration.pushManager.subscribe).toHaveBeenCalledTimes(1);
+    });
+
+    it('subscribes nothing when the browser already has a subscription again', async () => {
+        const worker = loadWorker({ handlers: optedIn, subscription: { endpoint: 'https://push.example/3' } });
+        await worker.fire('pushsubscriptionchange', {});
+        expect(worker.stores.handlers.has(CHANGED)).toBe(true);
+        expect(worker.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('still tells the open windows when IndexedDB fails', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const win = windowClient(`${ORIGIN}/`);
+        const worker = loadWorker({ handlers: optedIn, windows: [win] });
+        worker.stores.broken = true;
+        await worker.fire('pushsubscriptionchange', {});
+        expect(win.postMessage).toHaveBeenCalledWith({ type: 'puter-push-subscription-changed' });
+        warn.mockRestore();
     });
 });

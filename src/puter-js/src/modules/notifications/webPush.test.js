@@ -18,6 +18,9 @@ vi.mock('./lib/pushStore.js', () => {
         HANDLERS_STORE: 'handlers',
         CLICKS_STORE: 'clicks',
         SERVER_KEY_ENTRY: 'puter:server-key',
+        SERVER_KEYS_ENTRY: 'puter:server-keys',
+        SYNCED_PREFIX: 'puter:synced:',
+        SUBSCRIPTION_CHANGED_PREFIX: 'puter:subscription-changed:',
         TAP_BASE_PREFIX: 'puter:tap-base:',
         CLICK_KEEP_MS: 5 * 60 * 1000,
         takeClick: stored(async (uid, id) => {
@@ -43,8 +46,14 @@ vi.mock('./lib/pushStore.js', () => {
                 : void store.delete(optIn(uuid)),
         ),
         forgetPushState: stored(async () => {
+            const forgotten = [
+                optIn(''),
+                'handlers:puter:synced:',
+                'handlers:puter:subscription-changed:',
+                'clicks:',
+            ];
             for (const key of [...store.keys()]) {
-                if (key.startsWith(optIn('')) || key.startsWith('clicks:'))
+                if (forgotten.some((prefix) => key.startsWith(prefix)))
                     store.delete(key);
             }
         }),
@@ -281,6 +290,46 @@ describe('syncWebPush', () => {
         );
         expect(theirs.unsubscribe).not.toHaveBeenCalled();
         expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    describe('with the earlier keys the server lists', () => {
+        const listing = () =>
+            mockRequest.mockImplementation(async (_p, method, route) =>
+                route === '/push/web/key'
+                    ? { publicKey: KEY, previousKeys: [OLD_KEY] }
+                    : { status: 'active', device: { uid: 'd1' } },
+            );
+
+        it('replaces a subscription made with one, though none is stored here', async () => {
+            const stale = makeSubscription(fromBase64Url(OLD_KEY));
+            const nav = makeNav({ existing: stale });
+            listing();
+            await syncWebPush(puter, { worker, nav });
+            expect(stale.unsubscribe).toHaveBeenCalled();
+            expect(nav.pushManager.subscribe).toHaveBeenCalled();
+            expect(store.get(SERVER_KEY)).toBe(KEY);
+            expect(store.get('handlers:puter:server-keys')).toEqual([
+                KEY,
+                OLD_KEY,
+            ]);
+        });
+
+        it('still leaves a subscription made with a key it doesn`t list', async () => {
+            const theirs = makeSubscription(new Uint8Array([4, 1, 2]));
+            const nav = makeNav({ existing: theirs });
+            listing();
+            await expect(
+                syncWebPush(puter, { worker, nav }),
+            ).rejects.toMatchObject({ code: 'push_subscription_conflict' });
+            expect(theirs.unsubscribe).not.toHaveBeenCalled();
+        });
+
+        it('stores none from a server that lists none', async () => {
+            const nav = makeNav({ existing: makeSubscription() });
+            server();
+            await syncWebPush(puter, { worker, nav });
+            expect(store.has('handlers:puter:server-keys')).toBe(false);
+        });
     });
 
     it('replaces any other subscription on the GUI`s own worker', async () => {
@@ -793,6 +842,30 @@ describe('removeWebPush', () => {
         ]);
         expect(ours.unsubscribe).toHaveBeenCalled();
         expect(theirs.unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('without a worker, also ends one made with a key the server listed as Puter`s', async () => {
+        store.set(SERVER_KEY, KEY);
+        store.set('handlers:puter:server-keys', [KEY, OLD_KEY]);
+        const theirs = makeSubscription(theirKey, 'https://push.example/site');
+        const older = makeSubscription(fromBase64Url(OLD_KEY));
+        const nav = navWith({ '/': theirs, '/push/': older });
+        mockRequest.mockResolvedValue({ removed: true });
+        await expect(removeWebPush(puter, { nav })).resolves.toBe(true);
+        expect(older.unsubscribe).toHaveBeenCalled();
+        expect(theirs.unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('takes the earlier keys from the server when none is stored', async () => {
+        const older = makeSubscription(fromBase64Url(OLD_KEY));
+        const nav = navWith({ '/push/': older });
+        mockRequest.mockImplementation(async (_p, method, route) =>
+            route === '/push/web/key'
+                ? { publicKey: KEY, previousKeys: [OLD_KEY] }
+                : { removed: true },
+        );
+        await expect(removeWebPush(puter, { nav })).resolves.toBe(true);
+        expect(older.unsubscribe).toHaveBeenCalled();
     });
 
     it('touches nothing when Puter`s key can`t be told', async () => {
@@ -1358,6 +1431,255 @@ describe('onPush', () => {
                 expect.objectContaining({ code: 'internal_error' }),
             );
             error.mockRestore();
+        });
+    });
+
+    describe('on load after the server confirmed this browser', () => {
+        const ENDPOINT = 'https://push.example/send/abc';
+        const SYNCED = 'handlers:puter:synced:u-1';
+        const CHANGED = `handlers:puter:subscription-changed:${ORIGIN}/`;
+        const NEW_KEY = Buffer.from([4, ...Array(64).fill(5)]).toString(
+            'base64url',
+        );
+        const routes = () => mockRequest.mock.calls.map(([, , r]) => r);
+        const confirmed = (over = {}) => {
+            store.set(OPT_IN, true);
+            store.set(SERVER_KEY, KEY);
+            store.set(SYNCED, { endpoint: ENDPOINT, at: Date.now(), ...over });
+        };
+        const statusSays = (answer) =>
+            mockRequest.mockImplementation(async (_p, _m, route) => {
+                if (route === '/push/web/subscriptions/status') {
+                    if (answer instanceof Error) throw answer;
+                    return answer;
+                }
+                if (route === '/push/web/key') return { publicKey: KEY };
+                return { status: 'active', device: { uid: 'd1' } };
+            });
+        const load = async () => {
+            const { module } = makeModule();
+            await module.onPush('chat', () => {}, { onError: () => {} });
+            for (let i = 0; i < 5; i++) await flush();
+            return module;
+        };
+
+        it.each([
+            ['a server that names no key', { state: 'active' }],
+            [
+                'a server that names the same key',
+                { state: 'active', publicKey: KEY },
+            ],
+        ])(
+            'only asks the server about the subscription, on %s',
+            async (_label, answer) => {
+                confirmed();
+                withBrowser(makeNav({ existing: makeSubscription() }));
+                statusSays(answer);
+                await load();
+                expect(routes()).toEqual(['/push/web/subscriptions/status']);
+            },
+        );
+
+        it('has the browser look for a newer worker script, without waiting for it', async () => {
+            confirmed();
+            const nav = makeNav({ existing: makeSubscription() });
+            nav.registration.update = vi.fn(() => new Promise(() => {}));
+            withBrowser(nav);
+            statusSays({ state: 'active' });
+            await load();
+            expect(nav.registration.update).toHaveBeenCalledTimes(1);
+            expect(routes()).toEqual(['/push/web/subscriptions/status']);
+        });
+
+        it('ends a subscription the user removed in Puter, after only asking', async () => {
+            confirmed();
+            const subscription = makeSubscription();
+            const nav = makeNav({ existing: subscription });
+            withBrowser(nav);
+            statusSays({ state: 'removed' });
+            await load();
+            expect(routes()).toEqual(['/push/web/subscriptions/status']);
+            expect(subscription.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(store.has(OPT_IN)).toBe(false);
+            expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        });
+
+        it('keeps pushes off once the user turned the app off in Puter, after only asking', async () => {
+            confirmed();
+            const subscription = makeSubscription();
+            withBrowser(makeNav({ existing: subscription }));
+            statusSays({ state: 'revoked' });
+            await load();
+            expect(routes()).toEqual(['/push/web/subscriptions/status']);
+            expect(store.has(OPT_IN)).toBe(false);
+            expect(subscription.unsubscribe).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ['removed', 'a new subscription'],
+            ['revoked', 'a new subscription'],
+            ['removed', 'a new confirmation'],
+        ])(
+            'leaves things alone when the server says %s but another tab`s enable() made %s meanwhile',
+            async (state, change) => {
+                confirmed();
+                const stale = makeSubscription();
+                const fresh = makeSubscription(
+                    fromBase64Url(KEY),
+                    'https://push.example/send/new',
+                );
+                const nav = makeNav({ existing: stale });
+                withBrowser(nav);
+                let answer;
+                mockRequest.mockImplementation(
+                    () =>
+                        new Promise((resolve) => {
+                            answer = resolve;
+                        }),
+                );
+                await load();
+                expect(routes()).toEqual(['/push/web/subscriptions/status']);
+                if (change === 'a new subscription') {
+                    nav.pushManager.getSubscription.mockResolvedValue(fresh);
+                    store.set(SYNCED, {
+                        endpoint: fresh.endpoint,
+                        at: Date.now() + 1,
+                    });
+                } else {
+                    store.set(SYNCED, {
+                        endpoint: ENDPOINT,
+                        at: Date.now() + 1,
+                    });
+                }
+                answer({ state });
+                for (let i = 0; i < 5; i++) await flush();
+                expect(stale.unsubscribe).not.toHaveBeenCalled();
+                expect(fresh.unsubscribe).not.toHaveBeenCalled();
+                expect(store.get(OPT_IN)).toBe(true);
+            },
+        );
+
+        it.each([
+            [
+                'a sync over a day old',
+                { at: Date.now() - 25 * 60 * 60 * 1000 },
+                { state: 'active' },
+            ],
+            [
+                'another subscription',
+                { endpoint: 'https://push.example/send/other' },
+                { state: 'active' },
+            ],
+            ['an unknown subscription', {}, { state: 'unknown' }],
+            [
+                'a server that can`t tell',
+                {},
+                new PuterJSError('Not Found', 'not_found'),
+            ],
+            ['a new key', {}, { state: 'active', publicKey: NEW_KEY }],
+        ])('registers again after %s', async (_label, over, answer) => {
+            confirmed(over);
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            statusSays(answer);
+            await load();
+            expect(routes()).toEqual(
+                expect.arrayContaining([
+                    '/push/web/key',
+                    '/push/web/subscriptions',
+                ]),
+            );
+            expect(store.get(SYNCED).at).toBeGreaterThan(
+                Date.now() - 60 * 1000,
+            );
+        });
+
+        it('remembers a confirmed subscription, so the next load only asks', async () => {
+            store.set(OPT_IN, true);
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            statusSays({ state: 'active' });
+            await load();
+            expect(routes()).toEqual([
+                '/push/web/key',
+                '/push/web/subscriptions',
+            ]);
+            expect(store.get(SYNCED)).toEqual({
+                endpoint: ENDPOINT,
+                at: expect.any(Number),
+            });
+
+            mockRequest.mockClear();
+            await load();
+            expect(routes()).toEqual(['/push/web/subscriptions/status']);
+        });
+
+        it('remembers a subscription once its confirmation is verified', async () => {
+            store.set(OPT_IN, true);
+            const nav = makeNav();
+            withBrowser(nav);
+            server((route) =>
+                route === '/push/web/subscriptions'
+                    ? { status: 'pending' }
+                    : { device: { uid: 'd2' } },
+            );
+            await load();
+            expect(store.has(SYNCED)).toBe(false);
+            nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+            await vi.waitFor(() =>
+                expect(store.get(SYNCED)?.endpoint).toBe(ENDPOINT),
+            );
+        });
+
+        it('registers again, and forgets the mark, after the worker saw the browser replace the subscription', async () => {
+            confirmed();
+            store.set(CHANGED, 1);
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            statusSays({ state: 'active' });
+            await load();
+            expect(routes()).toEqual([
+                '/push/web/key',
+                '/push/web/subscriptions',
+            ]);
+            expect(store.has(CHANGED)).toBe(false);
+        });
+
+        it('registers in full when the worker says the browser replaced the subscription', async () => {
+            confirmed();
+            const nav = makeNav({ existing: makeSubscription() });
+            withBrowser(nav);
+            statusSays({ state: 'active' });
+            await load();
+            expect(routes()).toEqual(['/push/web/subscriptions/status']);
+            nav.post({ type: 'puter-push-subscription-changed' });
+            await vi.waitFor(() =>
+                expect(routes()).toEqual([
+                    '/push/web/subscriptions/status',
+                    '/push/web/key',
+                    '/push/web/subscriptions',
+                ]),
+            );
+        });
+
+        it('lets enable() register in full', async () => {
+            confirmed();
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            statusSays({ state: 'active' });
+            const { module } = makeModule();
+            await expect(module.enable()).resolves.toBe(true);
+            expect(routes()).toEqual([
+                '/push/web/key',
+                '/push/web/subscriptions',
+            ]);
+        });
+
+        it('is forgotten by disable()', async () => {
+            confirmed();
+            store.set(CHANGED, 1);
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            mockRequest.mockResolvedValue({ removed: true });
+            const { module } = makeModule();
+            await module.disable();
+            expect(store.has(SYNCED)).toBe(false);
+            expect(store.has(CHANGED)).toBe(false);
         });
     });
 
