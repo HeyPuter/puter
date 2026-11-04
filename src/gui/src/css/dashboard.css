@@ -6136,10 +6136,24 @@ body.myapps-reordering .myapps-tile {
         border-bottom: 1px solid var(--dashboard-border);
     }
 
+    /* Sized as a crumb is, so the header doesn't jump as the field opens */
     .dashboard-section-files .header .path-editor {
         order: 1;
         flex: 0 1 100%;
         margin: 0 0 8px 0;
+        height: auto;
+        padding: 3px 8px;
+        line-height: inherit;
+    }
+
+    /* The crumbs' divider, kept while the field stands in for them */
+    .dashboard-section-files .header .path.path-editing::after {
+        content: '';
+        order: 1;
+        flex: 0 1 100%;
+        height: 1px;
+        margin-bottom: 8px;
+        background: var(--dashboard-border);
     }
 
     .dashboard-section-files .header .path-nav-buttons {
@@ -6331,6 +6345,10 @@ body.myapps-reordering .myapps-tile {
         height: 40px;
         /* Under 16px, iOS zooms the page in on focus. */
         font-size: 16px;
+    }
+
+    .dashboard-section-files .header .path.path-editing::after {
+        margin-left: 50px;
     }
 
     /* Finger-sized crumbs, in that row */
