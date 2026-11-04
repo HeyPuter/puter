@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS event_user_handlers (
     source TEXT NOT NULL,
     source_hash VARCHAR(64) NOT NULL,
     created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL
+    updated_at BIGINT NOT NULL,
+    scope_since BIGINT NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_event_user_handlers_app_holder_name

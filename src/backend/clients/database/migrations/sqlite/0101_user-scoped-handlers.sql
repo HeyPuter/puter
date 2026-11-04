@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS `event_user_handlers` (
     "source" TEXT NOT NULL,
     "source_hash" TEXT NOT NULL,
     "created_at" INTEGER NOT NULL,    -- unix seconds
-    "updated_at" INTEGER NOT NULL
+    "updated_at" INTEGER NOT NULL,
+    "scope_since" INTEGER NOT NULL    -- unix seconds; the scope's first handler, kept across churn
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS `idx_event_user_handlers_app_holder_name`

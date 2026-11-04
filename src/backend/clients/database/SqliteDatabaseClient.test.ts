@@ -748,6 +748,7 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
             'source_hash',
             'created_at',
             'updated_at',
+            'scope_since',
         ]);
         const indexes = await client.read(
             'PRAGMA index_list(`event_user_handlers`)',

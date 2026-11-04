@@ -218,7 +218,7 @@ describe.skipIf(!process.env.PUTER_TEST_MYSQL_PORT)(
             const app = `app-${uuidv4()}`;
             const insert = (holder: number) =>
                 conn.query(
-                    'INSERT INTO `event_user_handlers` (`app_uid`, `holder_user_id`, `name`, `source`, `source_hash`, `created_at`, `updated_at`) VALUES (?, ?, ?, ?, ?, 1, 1)',
+                    'INSERT INTO `event_user_handlers` (`app_uid`, `holder_user_id`, `name`, `source`, `source_hash`, `created_at`, `updated_at`, `scope_since`) VALUES (?, ?, ?, ?, ?, 1, 1, 1)',
                     [app, holder, 'daily', SOURCE, hashContent(SOURCE)],
                 );
             await handlers().publish({

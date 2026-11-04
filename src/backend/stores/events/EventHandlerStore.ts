@@ -742,7 +742,7 @@ export class EventHandlerStore extends PuterStore {
         const params: unknown[] = [userId];
         let having = '';
         if (opts.createdBefore !== undefined) {
-            having = ' HAVING MIN(`created_at`) < ?';
+            having = ' HAVING MIN(`scope_since`) < ?';
             params.push(Math.ceil(opts.createdBefore / 1000));
         }
         const rows = await this.clients.db.pread(
@@ -971,14 +971,31 @@ export class EventHandlerStore extends PuterStore {
         sourceHash: string,
         broadcast: boolean,
     ): Promise<EventHandler> {
-        if ((await this.countForApp(scope)) >= handlerCapOf(scope))
+        // A user scope's count read also yields when the scope began, so its
+        // age survives the handlers that held it.
+        let scopeSince: number | null = null;
+        if (isUserScope(scope)) {
+            const [state] = await this.clients.db.pread(
+                'SELECT COUNT(*) AS `total`, MIN(`scope_since`) AS `since` ' +
+                    `FROM \`${USER_TABLE}\` WHERE \`app_uid\` = ? AND \`holder_user_id\` = ?`,
+                [scope.appUid, scope.holder],
+            );
+            if (Number(state?.total ?? 0) >= handlerCapOf(scope))
+                throw tooManyHandlers(scope);
+            scopeSince = state?.since == null ? null : Number(state.since);
+        } else if ((await this.countForApp(scope)) >= handlerCapOf(scope))
             throw tooManyHandlers(scope);
 
         const at = nowSeconds();
         try {
             await this.clients.db.insert(tableOf(scope), {
                 app_uid: scope.appUid,
-                ...(isUserScope(scope) ? { holder_user_id: scope.holder } : {}),
+                ...(isUserScope(scope)
+                    ? {
+                          holder_user_id: scope.holder,
+                          scope_since: scopeSince ?? at,
+                      }
+                    : {}),
                 name,
                 source,
                 source_hash: sourceHash,

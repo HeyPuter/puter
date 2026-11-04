@@ -1172,8 +1172,8 @@ describe('user scopes', () => {
         // The index decides a lost create race, not the read before it.
         const raw = (scope: string) =>
             env.server.clients.db.write(
-                'INSERT INTO `event_user_handlers` (`app_uid`, `holder_user_id`, `name`, `source`, `source_hash`, `created_at`, `updated_at`) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [appUid, HOLDER_A, scope, SOURCE, hashContent(SOURCE), 1, 1],
+                'INSERT INTO `event_user_handlers` (`app_uid`, `holder_user_id`, `name`, `source`, `source_hash`, `created_at`, `updated_at`, `scope_since`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [appUid, HOLDER_A, scope, SOURCE, hashContent(SOURCE), 1, 1, 1],
             );
         await expect(raw('daily')).rejects.toThrow();
     });
@@ -1660,6 +1660,59 @@ describe('user scopes', () => {
             ]);
         });
 
+        it("keeps a scope's age when its oldest handler is replaced", async () => {
+            const scope = userScope(appUid, HOLDER_A);
+            const OCT = 1_760_000_000;
+            const NOV_1_MS = 1_762_000_000_000;
+            await handlers().publish({ scope, name: 'old', source: SOURCE });
+            await env.server.clients.db.write(
+                'UPDATE `event_user_handlers` SET `created_at` = ?, `updated_at` = ?, `scope_since` = ?',
+                [OCT, OCT, OCT],
+            );
+            // New code ships in November and GC drops the October handler.
+            await handlers().publish({
+                scope,
+                name: 'new',
+                source: OTHER_SOURCE,
+            });
+            await expect(
+                handlers().deleteUserHandlerIfUnbound(
+                    scope,
+                    'old',
+                    Math.floor(Date.now() / 1000),
+                ),
+            ).resolves.toBe(true);
+
+            expect(await handlers().countForApp(scope)).toBe(1);
+            expect(
+                await handlers().countUserScopesWithHandlersForUser(HOLDER_A, {
+                    createdBefore: NOV_1_MS,
+                }),
+            ).toBe(1);
+        });
+
+        it("restarts a scope's age when it empties and is created again", async () => {
+            const scope = userScope(appUid, HOLDER_A);
+            const OCT = 1_760_000_000;
+            await handlers().publish({ scope, name: 'old', source: SOURCE });
+            await env.server.clients.db.write(
+                'UPDATE `event_user_handlers` SET `scope_since` = ?',
+                [OCT],
+            );
+            await handlers().remove(scope, 'old');
+            await handlers().publish({ scope, name: 'again', source: SOURCE });
+
+            expect(
+                await handlers().countUserScopesWithHandlersForUser(HOLDER_A, {
+                    createdBefore: 1_762_000_000_000,
+                }),
+            ).toBe(0);
+            const [row] = await env.server.clients.db.read(
+                'SELECT `scope_since`, `created_at` FROM `event_user_handlers`',
+            );
+            expect(Number(row!.scope_since)).toBe(Number(row!.created_at));
+        });
+
         it('counts scopes for rent, honouring createdBefore', async () => {
             const early = await makeApp(ownerUserId);
             const late = await makeApp(ownerUserId);
@@ -1679,11 +1732,10 @@ describe('user scopes', () => {
                 source: SOURCE,
             });
             await env.server.clients.db.write(
-                'UPDATE `event_user_handlers` SET `created_at` = ? WHERE `app_uid` = ?',
-                [1_000, early],
+                'UPDATE `event_user_handlers` SET `created_at` = ?, `scope_since` = ? WHERE `app_uid` = ?',
+                [1_000, 1_000, early],
             );
-            // A second handler in `late`, older than the first: the scope's age
-            // is its earliest handler.
+            // A later handler does not move the scope's age.
             await handlers().publish({
                 scope: userScope(late, HOLDER_A),
                 name: 'b',

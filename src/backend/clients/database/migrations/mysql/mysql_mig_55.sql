@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS `event_user_handlers` (
     `source_hash` char(64) NOT NULL,
     `created_at` bigint NOT NULL,
     `updated_at` bigint NOT NULL,
+    -- When the scope first held a handler; kept across handler churn, so the
+    -- rent sweep sees the scope's age, not its oldest remaining handler's.
+    `scope_since` bigint NOT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `idx_event_user_handlers_app_holder_name` (`app_uid`, `holder_user_id`, `name`),
     KEY `idx_event_user_handlers_holder_app` (`holder_user_id`, `app_uid`)
