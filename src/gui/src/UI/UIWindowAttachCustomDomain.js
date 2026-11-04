@@ -274,6 +274,10 @@ async function UIWindowAttachCustomDomain (options) {
                 resetConfirming();
                 return;
             }
+            if ( $overlay.find('.custom-domain-remove-chosen.custom-domain-confirming').length ) {
+                resetRemoveChosen();
+                return;
+            }
             close();
         });
         $overlay.on('mousedown', (e) => {
