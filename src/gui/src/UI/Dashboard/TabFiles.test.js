@@ -1531,6 +1531,20 @@ describe('TabFiles path field', () => {
         expect(editing()).toBe(false);
     });
 
+    it('goes to the root, which can\'t be looked up, from / or ..', async () => {
+        for ( const typed of ['/', '..'] ) {
+            mountHeader('/alice');
+            TabFiles.openPathEditor();
+            editor().value = typed;
+
+            await TabFiles.submitPathEditor();
+
+            expect(TabFiles.currentPath).toBe('/');
+        }
+        expect(window.puter.fs.stat).not.toHaveBeenCalled();
+        expect(UIAlert).not.toHaveBeenCalled();
+    });
+
     it('opens a typed file\'s folder with the file selected', async () => {
         mountHeader();
         window.puter.fs.readdir = vi.fn(async () => [{ name: 'cat.png', path: '/alice/Pictures/cat.png', is_dir: false, uid: 'u-cat', size: 1, modified: 0 }]);

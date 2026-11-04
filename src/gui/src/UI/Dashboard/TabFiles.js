@@ -930,7 +930,8 @@ const TabFiles = {
 
         let folder = target;
         let file;
-        if ( target !== window.shared_path ) {
+        // Neither Shared nor the root can be stat'ed, and both are folders.
+        if ( target !== window.shared_path && target !== '/' ) {
             // The stat and the alert take the focus from the field, which
             // would close it.
             this.pathEditorBusy = true;
