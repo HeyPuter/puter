@@ -196,7 +196,9 @@ async function UIWindowAttachCustomDomain (options) {
         const $overlay = $(h);
         $('body').append($overlay);
         requestAnimationFrame(() => $overlay.addClass('app-feedback-open'));
-        $overlay.find('.custom-domain-modal').get(0)?.focus({ preventScroll: true });
+        const modalEl = $overlay.find('.custom-domain-modal').get(0);
+        const focusOn = (el) => el?.focus({ preventScroll: true });
+        focusOn(modalEl);
 
         const close = () => {
             if ( closed ) return;
@@ -207,12 +209,20 @@ async function UIWindowAttachCustomDomain (options) {
             resolve(chosen);
         };
 
+        let currentPane = 'loading';
+        const paneOf = (el) => $(el).closest('.custom-domain-pane').attr('data-pane');
+        // A focused control that gets hidden or disabled hands focus to the
+        // page behind the dialog; keep it in the dialog instead.
+        const focusLost = () => ! document.activeElement || document.activeElement === document.body;
         const showPane = (pane) => {
+            const from = paneOf(document.activeElement);
             $overlay.find('.custom-domain-pane').hide();
             $overlay.find('.app-feedback-error').hide();
             $overlay.find(`.custom-domain-pane[data-pane="${pane}"]`).show();
+            currentPane = pane;
             // The modal scrolls when it floats, the body when it fills the page.
             $overlay.find('.custom-domain-modal, .custom-domain-body').scrollTop(0);
+            if ( focusLost() || (from && from !== pane) ) focusOn(modalEl);
         };
         // Plain strings into `.text()`: i18n's HTML encoding would show up
         // literally.
@@ -226,13 +236,21 @@ async function UIWindowAttachCustomDomain (options) {
                 .text(message).show();
         };
         /** `$trigger` shows the spinner; every other control just waits. */
+        let focusedBeforeBusy = null;
         const setBusy = (value, $trigger) => {
             busy = value;
+            if ( value ) focusedBeforeBusy = document.activeElement;
             $overlay.find('button').prop('disabled', value);
             $overlay.find('.custom-domain-input').prop('readonly', value);
             $overlay.find('.is-loading').removeClass('is-loading');
             if ( value && $trigger ) $trigger.addClass('is-loading');
-            if ( ! value ) updateAddButton();
+            if ( value ) return;
+            updateAddButton();
+            if ( focusLost() && focusedBeforeBusy?.isConnected && paneOf(focusedBeforeBusy) === currentPane ) {
+                focusOn(focusedBeforeBusy);
+            }
+            if ( focusLost() ) focusOn(modalEl);
+            focusedBeforeBusy = null;
         };
 
         const api = async (method, path = '', body) => {
@@ -375,8 +393,14 @@ async function UIWindowAttachCustomDomain (options) {
         const resetConfirming = () => {
             $overlay.find('.custom-domain-row[data-confirming]').each(function () {
                 const $row = $(this);
+                const kind = $row.attr('data-confirming');
+                const hadFocus = $.contains($row.find('.custom-domain-row-confirm').get(0), document.activeElement);
                 $row.removeAttr('data-confirming');
                 $row.find('.custom-domain-row-meta').text(metaFor($row.data('item')));
+                // Back to the button that asked, rather than one now hidden.
+                if ( hadFocus ) {
+                    focusOn($row.find(kind === 'move' ? '.custom-domain-use' : '.custom-domain-remove').get(0));
+                }
             });
         };
         const confirmOn = ($row, kind, message) => {
@@ -497,6 +521,14 @@ async function UIWindowAttachCustomDomain (options) {
             if ( busy ) return;
             if ( ! await deleteDomain(item, 'list', $btn) ) return;
             listed = listed.filter((i) => i.uuid !== item.uuid);
+            // Focus moves to the next row, else the previous one, else to
+            // adding a domain.
+            if ( $.contains($row.get(0), document.activeElement) ) {
+                const $next = $row.nextAll('.custom-domain-row:not(.is-leaving)').first();
+                const $other = $next.length ? $next : $row.prevAll('.custom-domain-row:not(.is-leaving)').first();
+                focusOn($other.find('.custom-domain-remove').get(0)
+                    ?? $overlay.find('.custom-domain-to-add').get(0));
+            }
             $row.addClass('is-leaving');
             setTimeout(() => {
                 $row.remove();

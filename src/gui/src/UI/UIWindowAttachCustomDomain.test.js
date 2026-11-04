@@ -113,4 +113,61 @@ describe('UIWindowAttachCustomDomain', () => {
         expect(visiblePane()).toBe('records');
         expect(scrollTop).toBe(0);
     });
+
+    describe('keyboard focus', () => {
+        const otherSite = (uuid, hostname) => pendingDomain({ uuid, hostname, site: 'other' });
+
+        it('moves into the dialog when the focused control\'s step is hidden', async () => {
+            await open();
+            const use = document.querySelector('.custom-domain-use');
+            use.focus();
+            $(use).trigger('click');
+            expect(visiblePane()).toBe('records');
+            expect(document.activeElement).toBe(document.querySelector('.custom-domain-modal'));
+        });
+
+        it('returns to the button that asked when a row confirmation is backed out', async () => {
+            await open([otherSite('a', 'a.example.com')]);
+            const $row = $('.custom-domain-row');
+            $row.find('.custom-domain-use').trigger('click');
+            expect(document.activeElement).toBe($row.find('.custom-domain-confirm-go').get(0));
+            pressEscape();
+            expect(document.activeElement).toBe($row.find('.custom-domain-use').get(0));
+
+            $row.find('.custom-domain-remove').trigger('click');
+            $row.find('.custom-domain-confirm-cancel').trigger('click');
+            expect(document.activeElement).toBe($row.find('.custom-domain-remove').get(0));
+        });
+
+        it('comes back to the clicked button once a request finishes', async () => {
+            await open();
+            $('.custom-domain-row .custom-domain-use').trigger('click');
+            const check = document.querySelector('.custom-domain-check');
+            check.focus();
+            // A browser drops focus to the page once the focused control is
+            // disabled; jsdom doesn't, so drop it by hand.
+            globalThis.fetch = vi.fn(async () => {
+                const elsewhere = document.createElement('input');
+                document.body.append(elsewhere);
+                elsewhere.focus();
+                elsewhere.remove();
+                return json(200, pendingDomain());
+            });
+            $(check).trigger('click');
+            await flush();
+            await flush();
+            expect(check.disabled).toBe(false);
+            expect(document.activeElement).toBe(check);
+        });
+
+        it('moves to the next row when a row is removed', async () => {
+            await open([otherSite('a', 'a.example.com'), otherSite('b', 'b.example.com')]);
+            const [rowA, rowB] = $('.custom-domain-row').toArray();
+            $(rowA).find('.custom-domain-remove').trigger('click');
+            $(rowA).find('.custom-domain-confirm-go').trigger('click');
+            await flush();
+            await flush();
+            expect(document.activeElement).toBe($(rowB).find('.custom-domain-remove').get(0));
+        });
+    });
 });
