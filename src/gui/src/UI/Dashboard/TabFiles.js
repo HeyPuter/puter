@@ -164,7 +164,7 @@ const TabFiles = {
                                 <img draggable="false" class="path-btn path-btn-forward path-btn-disabled" tabindex="-1" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_forward')}" src="${html_encode(window.icons['arrow-right-thin.svg'])}" title="${i18n('window_click_to_go_forward')}">
                                 <img draggable="false" class="path-btn path-btn-up path-btn-disabled" tabindex="-1" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_up')}" src="${html_encode(window.icons['arrow-up-thin.svg'])}" title="${i18n('window_click_to_go_up')}">
                             </div>
-                            <input type="text" class="path-editor" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="${i18n('path')}">
+                            <input type="text" class="path-editor" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" enterkeyhint="go" aria-label="${i18n('path')}">
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
                                 <button class="path-action-btn select-mode-btn" title="${i18n('select')}" aria-pressed="false">${icons.select}</button>

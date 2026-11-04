@@ -1490,6 +1490,14 @@ describe('TabFiles path field', () => {
         expect(editor().selectionEnd).toBe('/alice/Documents'.length);
     });
 
+    it('keeps a phone keyboard from rewriting the path, and offers Go', () => {
+        mountHeader();
+
+        expect(editor().getAttribute('autocorrect')).toBe('off');
+        expect(editor().getAttribute('autocapitalize')).toBe('off');
+        expect(editor().getAttribute('enterkeyhint')).toBe('go');
+    });
+
     it('stays closed on a click on a crumb', () => {
         mountHeader();
         vi.spyOn(TabFiles, 'renderDirectory').mockResolvedValue();
