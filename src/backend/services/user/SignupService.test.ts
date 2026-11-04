@@ -167,6 +167,10 @@ describe('SignupService.signup', () => {
                 fingerprint: null,
                 is_temp: false,
                 ip: '198.51.100.7',
+                signup_data: {
+                    username,
+                    email: `${username}@example.com`,
+                },
             },
         ]);
     });

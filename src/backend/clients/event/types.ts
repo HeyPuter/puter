@@ -250,6 +250,12 @@ export type EventMap = {
         is_temp?: boolean;
         /** The bonus code `puter.signup-bonus.validate` accepted, if any. */
         bonus_code?: string;
+        /**
+         * The signup request body without `password`, for form and temp
+         * signups. Client-supplied and unvalidated beyond the fields signup
+         * reads.
+         */
+        signup_data?: Record<string, unknown>;
         [key: string]: unknown;
     };
     // Signup bonus codes are pure mechanism here: an extension decides what a

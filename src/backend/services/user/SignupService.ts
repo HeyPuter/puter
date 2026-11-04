@@ -547,6 +547,7 @@ export class SignupService extends PuterService {
             // The created/claimed row: a claimed placeholder has credentials.
             isTemp: user.password === null && user.email === null,
             saveAccount: !isTemp,
+            signupData: body,
         });
         return user;
     }
@@ -566,9 +567,15 @@ export class SignupService extends PuterService {
             /** The provider verified the address, so this is its confirmation. */
             emailConfirmed?: boolean;
             saveAccount: boolean;
+            /**
+             * The signup request body; the password is stripped before
+             * emitting.
+             */
+            signupData?: Record<string, unknown>;
         },
     ): void {
         if (opts.emailConfirmed) this.#emitEmailConfirmed(user);
+        const { password: _password, ...signupData } = opts.signupData ?? {};
         try {
             this.clients.event?.emit(
                 'puter.signup.success',
@@ -587,6 +594,7 @@ export class SignupService extends PuterService {
                     // counters are written under one key and read under another.
                     ip: opts.ip,
                     ...(opts.bonusCode ? { bonus_code: opts.bonusCode } : {}),
+                    ...(opts.signupData ? { signup_data: signupData } : {}),
                 },
                 {},
             );

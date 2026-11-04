@@ -1073,6 +1073,32 @@ describe('AuthController.handleSignup', () => {
         ).toBe(true);
     });
 
+    it('carries the signup body without the password on puter.signup.success', async () => {
+        const baseline = heardSignupSuccess.length;
+        const username = `sd_${uniq()}`;
+        await controller.handleSignup(
+            makeReq({
+                username,
+                email: `${username}@test.local`,
+                password: 'correct-horse-battery',
+                utm_source: 'newsletter',
+                utm_campaign: 'launch',
+            }),
+            makeRes(),
+        );
+
+        const evt = heardSignupSuccess
+            .slice(baseline)
+            .find((e) => e.username === username);
+        const signupData = evt?.signup_data as Record<string, unknown>;
+        expect(signupData).toMatchObject({
+            username,
+            utm_source: 'newsletter',
+            utm_campaign: 'launch',
+        });
+        expect(signupData).not.toHaveProperty('password');
+    });
+
     it('still allows claiming a pseudo-user row when registration is disabled', async () => {
         const authConfig = server.controllers.auth.config as {
             disable_user_signup?: boolean;
