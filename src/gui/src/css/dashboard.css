@@ -2700,11 +2700,10 @@ input.myapps-group-name:focus {
 }
 
 @media (max-width: 500px) {
+    /* The full-width actions wrap below; the name fills the line beside
+       the icon. */
     .custom-domain-row {
         flex-wrap: wrap;
-    }
-    .custom-domain-row-main {
-        flex-basis: calc(100% - 46px);
     }
     .custom-domain-row-actions,
     .custom-domain-row-confirm {
