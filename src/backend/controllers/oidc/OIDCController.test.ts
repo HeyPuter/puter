@@ -244,7 +244,10 @@ describe('OIDCController GET /auth/oidc/providers', () => {
         await callRoute('get', '/auth/oidc/providers', makeReq({}), res);
         // We configured a single `custom` provider; the live service
         // walks the config and returns its id.
-        expect(captured.body).toEqual({ providers: ['custom'] });
+        expect(captured.body).toEqual({
+            providers: ['custom'],
+            signupOidcOnly: false,
+        });
     });
 });
 
