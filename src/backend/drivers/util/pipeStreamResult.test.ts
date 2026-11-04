@@ -129,6 +129,27 @@ describe('pipeStreamResult', () => {
         expect(warn).not.toHaveBeenCalled();
     });
 
+    it('adds at most two close listeners to the response', async () => {
+        // The response already carries close listeners from metering,
+        // compression and tracing; Node warns past ten.
+        let added = -1;
+        server = createServer((_req, res) => {
+            const before = res.listenerCount('close');
+            pipeStreamResult(Readable.from(['a', 'b']), res, 'test.run');
+            added = res.listenerCount('close') - before;
+        });
+        await new Promise<void>((resolve) => server!.listen(0, resolve));
+        const { port } = server.address() as AddressInfo;
+        await new Promise<void>((resolve) =>
+            get(`http://127.0.0.1:${port}/`, (res) => {
+                res.resume();
+                res.on('end', () => resolve());
+            }),
+        );
+        expect(added).toBeGreaterThan(0);
+        expect(added).toBeLessThanOrEqual(2);
+    });
+
     it('drops the source, without throwing, when the client left before the result was ready', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const source = Readable.from(['late']);

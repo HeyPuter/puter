@@ -14,10 +14,9 @@ did. For example, sending a summary every weekday morning, clearing out old
 data every night, or checking a feed every hour. On other platforms you'd use
 a cron job or a scheduled cloud function.
 
-In Puter, you write a function, publish it once, and give each user a
-schedule that runs it. Puter runs it in your app's
-[events worker](/Events/workers/), a serverless function that belongs to your
-app, at the times the schedule says. You don't need to run a server.
+In Puter, you write a function and give each user a schedule that runs it.
+Puter runs it in an [events worker](/Events/workers/), a serverless function,
+at the times the schedule says. You don't need to run a server.
 
 [Run Code in the Background](/recipes/run-code-in-the-background/) runs a
 function when a user's files change. This recipe runs one at set times
@@ -27,10 +26,14 @@ weekday morning, in their own time zone, with how many tasks they have open.
 
 ## Publish the Handler
 
-The function a schedule runs is called a handler. Publish it with
-[`puter.events.handlers.publish()`](/Events/handlers/). This is a developer
-step, like a deploy, and it only works for the account that owns the app. Run
-it from a deploy script or your browser console:
+The function a schedule runs is called a handler. You can
+[pass it inline](#pass-the-handler-inline) to `onSchedule()`, or publish it once
+under a name with [`puter.events.handlers.publish()`](/Events/handlers/) and
+have every user's schedule bind to that name. Publishing is a developer step,
+like a deploy, and it only works for the account that owns the app, so run it
+from a deploy script or your browser console. Use it when you want one copy of
+the code that you can update for every user at once. This section and the ones
+after it use a published handler:
 
 ```js
 const app = await puter.apps.get('task-list');    // your app's name
@@ -67,6 +70,40 @@ when none is open and the user turned pushes on.
 [Reach a User When Your App Is Closed](/recipes/reach-a-user-when-your-app-is-closed/) shows how
 to set pushes up. The `group` makes each morning's summary replace the one
 before it.
+
+## Pass the Handler Inline
+
+Without a deploy step, pass the function as `handler` and leave out
+`handlerName`. Puter stores the code in the signed-in user's own
+[user scope](/Events/handlers/#user-scope) of your app, and runs it for that
+user's schedule only:
+
+```js
+await puter.events.onSchedule({
+    cron: '0 8 * * 1-5',
+    tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    handler: async ({ user }) => {
+        const tasks = (await user.kv.get('tasks')) ?? [];
+        const open = tasks.filter((task) => !task.done);
+        if (open.length === 0) return;
+
+        await user.notifications.notify({
+            title: 'Good morning',
+            text: `You have ${open.length} open tasks today.`,
+            group: 'morning-summary',
+        });
+    },
+});
+```
+
+A schedule keeps running the code it was created with. To change it, remove the
+schedule and create a new one, or publish a named handler into the user scope
+with `scope: 'user'` and bind schedules to it with `handlerScope: 'user'`. The
+handler counts toward the user's [limits](/rate-limits-and-quotas/#handlers) and
+bills to the user like their own workers, and creating the schedule needs credit
+on a hosted Puter server.
+[Clean Up Background Work](/recipes/clean-up-background-work/#remove-a-user-scope)
+covers removing what a user's scope holds.
 
 ## Ask for Permission
 
