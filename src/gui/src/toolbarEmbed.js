@@ -156,7 +156,7 @@ async function mount () {
     if ( !user.uuid ) throw new Error('Missing account');
     $root.html(`<nav class="toolbar-row" aria-label="${i18n('toolbar_label')}">
         ${shouldShowUpgrade(user) ? `<a class="toolbar-upgrade" href="/dashboard?upgrade=1#usage" target="_blank" rel="noopener noreferrer">${i18n('toolbar_upgrade')}</a>` : ''}
-        <button type="button" class="toolbar-button" data-panel="apps" aria-expanded="false" aria-label="${i18n('toolbar_apps')}"><span class="toolbar-grid" aria-hidden="true">${'<i></i>'.repeat(9)}</span></button>
+        <button type="button" class="toolbar-button toolbar-apps-toggle" data-panel="apps" aria-expanded="false" aria-label="${i18n('toolbar_apps')}"><span class="toolbar-grid" aria-hidden="true">${'<i></i>'.repeat(9)}</span></button>
         <button type="button" class="toolbar-button toolbar-avatar" data-panel="account" aria-expanded="false" aria-label="${i18n('account')}">${escape(user.username?.[0]?.toUpperCase() || '?')}</button>
         </nav>`);
     $root.find('[data-panel]').on('click', event => showPanel(event.currentTarget.dataset.panel));

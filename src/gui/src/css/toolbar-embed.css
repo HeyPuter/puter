@@ -14,6 +14,9 @@ html, body {
 .toolbar-button:hover, .toolbar-close:hover, .toolbar-item:hover, .toolbar-account:hover { background: var(--dashboard-input-background, #edf0f6); }
 .toolbar-upgrade { background: var(--dashboard-button-primary); color: #fff; border-radius: 8px; padding: 10px 16px; text-decoration: none; font-size: 14px; font-weight: 600; }
 .toolbar-upgrade:hover { background: var(--dashboard-button-primary-hover); }
+/* The row sits on the host page, whose theme may differ from this one; the apps toggle carries its own surface so its glyph stays legible. */
+.toolbar-apps-toggle { background: var(--dashboard-input-background); border-radius: 50%; }
+.toolbar-apps-toggle:hover { background: var(--dashboard-hover); }
 .toolbar-grid { display: grid; grid-template-columns: repeat(3, 4px); gap: 3px; }
 .toolbar-grid i { width: 4px; height: 4px; border-radius: 1px; background: currentColor; }
 .toolbar-avatar { border-radius: 50%; background: #e5eaff; color: #3755c4; font-size: 18px; font-weight: 600; flex-shrink: 0; }
@@ -31,6 +34,7 @@ html, body {
 .toolbar-account .toolbar-avatar { display: flex; width: 36px; height: 36px; align-items: center; justify-content: center; }
 .toolbar-accounts { border-bottom: 1px solid var(--dashboard-border); }
 .toolbar-error, .toolbar-unavailable { font-size: 13px; padding: 8px; margin: 0; }
+.toolbar-unavailable { background: var(--dashboard-background); border-radius: 8px; }
 #puter-toolbar :focus-visible { outline: 2px solid var(--dashboard-link, #5271ff); outline-offset: -2px; }
 
 #puter-toolbar [hidden] { display: none; }

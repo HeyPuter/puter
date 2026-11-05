@@ -323,6 +323,26 @@ describe('embedded toolbar', () => {
         } finally { await context.close(); }
     });
 
+    it.each(['light', 'dark'])('draws the apps toggle on its own surface over a host of either theme (%s)', async colorScheme => {
+        const { context, toolbar } = await openToolbar(undefined, sessionToken, [], { colorScheme });
+        try {
+            const colors = await toolbar.locator('[data-panel="apps"]').evaluate(el => ({
+                surface: getComputedStyle(el).backgroundColor,
+                glyph: getComputedStyle(el.querySelector('i')).backgroundColor,
+            }));
+            const luminance = color => {
+                const [r, g, b] = color.match(/\d+/g).slice(0, 3).map(v => {
+                    const c = Number(v) / 255;
+                    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+                });
+                return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            };
+            expect(colors.surface).toMatch(/^rgb\(/);
+            const [light, dark] = [luminance(colors.surface), luminance(colors.glyph)].sort((a, b) => b - a);
+            expect((light + 0.05) / (dark + 0.05)).toBeGreaterThanOrEqual(4.5);
+        } finally { await context.close(); }
+    });
+
     it('labels controls with translated text encoded once', async () => {
         const { context, toolbar } = await openToolbar(undefined, sessionToken, [{ name: 'user_preferences', value: '{"language":"de"}' }]);
         try {
