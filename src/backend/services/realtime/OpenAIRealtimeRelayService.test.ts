@@ -1493,8 +1493,11 @@ describe('OpenAIRealtimeRelayService relay', () => {
         const actor = { user: row } as never;
         const c = open(`${relayUrl}?auth_token=${user.token}`);
         await enableTranscription(c);
-        expect(await server.services.metering.getOutstandingHolds(actor)).toBe(
-            64 * 10_896_000,
+        // Spare items at the selected model's price, not a whole window.
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(2 * 10_896_000),
         );
         c.ws.send(JSON.stringify({ type: 'test.delayedTranscription' }));
         await c.waitFor('input_audio_buffer.committed');
@@ -1577,29 +1580,295 @@ describe('OpenAIRealtimeRelayService relay', () => {
         );
     });
 
-    it('refuses a second transcription-only session against the same reserved budget', async () => {
-        const a = open(`${relayUrl}?auth_token=${user.token}`);
-        const b = open(`${relayUrl}?auth_token=${user.token}`);
-        await enableTranscription(a);
-        await b.waitFor('session.created');
-        const before = upstreamEvents.length;
-        b.ws.send(
-            JSON.stringify({
-                type: 'session.update',
-                session: {
-                    input_audio_transcription: { model: 'gpt-4o-transcribe' },
-                },
-            }),
+    it('admits concurrent transcription sessions on one allowance', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-concurrent',
+            password: 'transcription-concurrent-password',
+        });
+        const sessions = Array.from({ length: 5 }, () =>
+            open(`${relayUrl}?auth_token=${holder.token}`),
         );
-        expect(await b.waitFor('error')).toMatchObject({
+        await Promise.all(sessions.map((c) => enableTranscription(c)));
+        expect(
+            sessions.some((c) => c.events.some((e) => e.type === 'error')),
+        ).toBe(false);
+        const row = await server.stores.user.getByUsername(holder.username);
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds({
+                    user: row,
+                } as never),
+            ).toBe(5 * 2 * 10_896_000),
+        );
+        for (const c of sessions) c.ws.close();
+    });
+
+    const transcriptionUpdate = (model: string) =>
+        JSON.stringify({
+            type: 'session.update',
+            session: { input_audio_transcription: { model } },
+        });
+
+    it('prices the transcription reservation at the selected model', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-selected',
+            password: 'transcription-selected-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        paidPolicy.monthUsageAllowance = 20_000_000;
+        server.services.metering.invalidateActorSubscription(row!.uuid);
+        const costly = open(`${relayUrl}?auth_token=${holder.token}`);
+        const cheap = open(`${relayUrl}?auth_token=${holder.token}`);
+        await Promise.all([
+            costly.waitFor('session.created'),
+            cheap.waitFor('session.created'),
+        ]);
+        // Leaves room for a few whisper-1 items but not one gpt-4o-transcribe
+        // item.
+        const blocker =
+            await server.services.metering.reserveCreditsIfAffordable(
+                actor,
+                10_000_000,
+            );
+        expect(blocker).not.toBeNull();
+        const before = upstreamEvents.length;
+        costly.ws.send(transcriptionUpdate('gpt-4o-transcribe'));
+        expect(await costly.waitFor('error')).toMatchObject({
             error: { code: 'insufficient_funds' },
         });
+        await costly.closed;
         expect(
             upstreamEvents
                 .slice(before)
                 .some((event) => event.type === 'session.update'),
         ).toBe(false);
-        a.ws.close();
+
+        cheap.ws.send(transcriptionUpdate('whisper-1'));
+        await cheap.waitForEcho('session.update');
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(10_000_000 + 2 * 1_600_000),
+        );
+        cheap.ws.close();
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(10_000_000),
+        );
+        await blocker!.release();
+    });
+
+    it('reprices spare transcription items when the model changes', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-reprice',
+            password: 'transcription-reprice-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await enableTranscription(c);
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(2 * 10_896_000),
+        );
+        c.ws.send(transcriptionUpdate('gpt-4o-mini-transcribe'));
+        await c.waitForEcho('session.update');
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(2 * 5_448_000),
+        );
+        c.ws.close();
+    });
+
+    it('waits for pending items to free credit before refusing more audio', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-exhausted',
+            password: 'transcription-exhausted-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        paidPolicy.monthUsageAllowance = 20_000_000;
+        server.services.metering.invalidateActorSubscription(row!.uuid);
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await c.waitFor('session.created');
+        // Room for one gpt-4o-transcribe item at a time.
+        const blocker =
+            await server.services.metering.reserveCreditsIfAffordable(
+                actor,
+                8_000_000,
+            );
+        expect(blocker).not.toBeNull();
+        await enableTranscription(c);
+        providerEvent(c, {
+            type: 'input_audio_buffer.committed',
+            item_id: 'only',
+        });
+        await c.waitFor('input_audio_buffer.committed');
+        expect(await server.services.metering.getOutstandingHolds(actor)).toBe(
+            8_000_000 + 10_896_000,
+        );
+        const before = upstreamEvents.length;
+        c.ws.send(
+            JSON.stringify({ type: 'input_audio_buffer.append', audio: '' }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(
+            upstreamEvents
+                .slice(before)
+                .some((event) => event.type === 'input_audio_buffer.append'),
+        ).toBe(false);
+        expect(c.events.some((e) => e.type === 'error')).toBe(false);
+        // Client reads are paused, so the provider sends this one directly.
+        [...upstream.clients][0].send(
+            JSON.stringify({
+                type: 'conversation.item.input_audio_transcription.completed',
+                item_id: 'only',
+                usage: { type: 'duration', seconds: 0.001 },
+            }),
+        );
+        await c.waitForEcho('input_audio_buffer.append');
+        expect(c.events.some((e) => e.type === 'error')).toBe(false);
+        c.ws.close();
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(8_000_000),
+        );
+        await blocker!.release();
+    });
+
+    it.each(['upstreamDrop', 'clientClose'] as const)(
+        'bills audio whose commit acknowledgement is lost after an earlier item (%s)',
+        async (ending) => {
+            const holder = await createTestUser(server, {
+                username: `transcription-lost-ack-${ending}`,
+                password: 'transcription-lost-ack-password',
+            });
+            const row = await server.stores.user.getByUsername(holder.username);
+            const actor = { user: row } as never;
+            const recorded = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            const c = open(`${relayUrl}?auth_token=${holder.token}`);
+            await enableTranscription(c);
+            const append = JSON.stringify({
+                type: 'input_audio_buffer.append',
+                audio: 'AAAA',
+            });
+            c.ws.send(append);
+            await c.waitForEcho('input_audio_buffer.append');
+            providerEvent(c, {
+                type: 'input_audio_buffer.committed',
+                item_id: 'A',
+            });
+            providerEvent(c, {
+                type: 'conversation.item.input_audio_transcription.completed',
+                item_id: 'A',
+                usage: {
+                    type: 'tokens',
+                    input_tokens: 4,
+                    input_token_details: { audio_tokens: 4 },
+                },
+            });
+            await c.waitFor(
+                'conversation.item.input_audio_transcription.completed',
+            );
+            // B's audio is committed, but its acknowledgement never arrives.
+            c.ws.send(append);
+            c.ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+            await c.waitForEcho('input_audio_buffer.commit');
+            if (ending === 'upstreamDrop') {
+                c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            } else {
+                c.ws.close();
+            }
+            const transcriptionRows = () =>
+                recorded.mock.calls
+                    .flatMap(([, rows]) => rows)
+                    .filter((r) => r.usageType.includes('transcription_'))
+                    .map((r) => [r.usageType, r.costOverride]);
+            await vi.waitFor(
+                () =>
+                    expect(transcriptionRows()).toEqual([
+                        [
+                            'openai:gpt-4o-transcribe:realtime:transcription_audio_input',
+                            2400,
+                        ],
+                        [
+                            'openai:gpt-4o-transcribe:realtime:transcription_unreported',
+                            10_896_000,
+                        ],
+                    ]),
+                { timeout: 7_000 },
+            );
+            await vi.waitFor(async () =>
+                expect(
+                    await server.services.metering.getOutstandingHolds(actor),
+                ).toBe(0),
+            );
+            expect(transcriptionRows()).toHaveLength(2);
+        },
+        10_000,
+    );
+
+    it('charges no fallback for audio whose commit was acknowledged', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-acked',
+            password: 'transcription-acked-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const recorded = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await enableTranscription(c);
+        for (const item of ['A', 'B']) {
+            c.ws.send(
+                JSON.stringify({
+                    type: 'input_audio_buffer.append',
+                    audio: 'AAAA',
+                }),
+            );
+            await c.waitForEcho('input_audio_buffer.append');
+            providerEvent(c, {
+                type: 'input_audio_buffer.committed',
+                item_id: item,
+            });
+            providerEvent(c, {
+                type: 'conversation.item.input_audio_transcription.completed',
+                item_id: item,
+                usage: { type: 'duration', seconds: 1 },
+            });
+        }
+        await vi.waitFor(() =>
+            expect(
+                c.events.filter(
+                    (e) =>
+                        e.type ===
+                        'conversation.item.input_audio_transcription.completed',
+                ),
+            ).toHaveLength(2),
+        );
+        c.ws.close();
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0),
+        );
+        const rows = recorded.mock.calls
+            .flatMap(([, rows]) => rows)
+            .filter((r) => r.usageType.includes('transcription_'));
+        expect(rows).toHaveLength(2);
+        expect(
+            rows.some((r) => r.usageType.endsWith('transcription_unreported')),
+        ).toBe(false);
     });
 
     it('refuses an unpriced initial provider model before forwarding buffered client frames', async () => {
@@ -1818,8 +2087,10 @@ describe('OpenAIRealtimeRelayService relay', () => {
                     'openai:gpt-4o-transcribe:realtime:transcription_unreported',
             ),
         ).toHaveLength(1);
+        // Each item is billed at its own model's budget; the overflow at the
+        // highest one.
         expect(rows.reduce((sum, row) => sum + row.costOverride!, 0)).toBe(
-            65 * 10_896_000,
+            2 * 10_896_000 + 63 * 5_448_000,
         );
         const row = await server.stores.user.getByUsername(holder.username);
         await vi.waitFor(async () =>
@@ -2003,7 +2274,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
         }
     });
 
-    it('backpressures audio until an exhausted transcription window settles and renews', async () => {
+    it('backpressures audio while the pending transcription cap is full', async () => {
         const holder = await createTestUser(server, {
             username: 'transcription-renewal',
             password: 'transcription-renewal-password',
@@ -2012,6 +2283,8 @@ describe('OpenAIRealtimeRelayService relay', () => {
             server.services.metering,
             'batchIncrementUsages',
         );
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
         const c = open(`${relayUrl}?auth_token=${holder.token}`);
         await enableTranscription(c);
         const provider = [...upstream.clients][0];
@@ -2029,25 +2302,36 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 ),
             ).toHaveLength(64),
         );
+        // The pool grew one item per commit, with nothing spare at the cap.
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(64 * 10_896_000),
+        );
         const before = upstreamEvents.length;
         c.ws.send(
             JSON.stringify({ type: 'input_audio_buffer.append', audio: '' }),
         );
-        await new Promise(setImmediate);
+        await new Promise((resolve) => setTimeout(resolve, 50));
         expect(
             upstreamEvents
                 .slice(before)
                 .some((event) => event.type === 'input_audio_buffer.append'),
         ).toBe(false);
+        const complete = (i: number) =>
+            provider.send(
+                JSON.stringify({
+                    type: 'conversation.item.input_audio_transcription.completed',
+                    item_id: `renew${i}`,
+                    usage: { type: 'duration', seconds: 0.001 },
+                }),
+            );
+        complete(0);
+        await c.waitForEcho('input_audio_buffer.append');
+        // In batches, so the usage queue stays under its cap.
         for (let batch = 0; batch < 8; batch++) {
-            for (let i = batch * 8; i < (batch + 1) * 8; i++)
-                provider.send(
-                    JSON.stringify({
-                        type: 'conversation.item.input_audio_transcription.completed',
-                        item_id: `renew${i}`,
-                        usage: { type: 'duration', seconds: 0.001 },
-                    }),
-                );
+            for (let i = Math.max(1, batch * 8); i < (batch + 1) * 8; i++)
+                complete(i);
             await vi.waitFor(() =>
                 expect(
                     recorded.mock.calls
@@ -2058,18 +2342,17 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 ).toHaveLength((batch + 1) * 8),
             );
         }
-        await c.waitForEcho('input_audio_buffer.append');
-        const row = await server.stores.user.getByUsername(holder.username);
-        const actor = { user: row } as never;
-        expect(await server.services.metering.getOutstandingHolds(actor)).toBe(
-            64 * 10_896_000,
-        );
         expect(
             recorded.mock.calls
                 .flatMap(([, rows]) => rows)
                 .filter((row) => row.usageType.includes('transcription_'))
                 .reduce((sum, row) => sum + row.costOverride!, 0),
         ).toBe(640);
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(2 * 10_896_000),
+        );
         c.ws.close();
         await vi.waitFor(async () =>
             expect(

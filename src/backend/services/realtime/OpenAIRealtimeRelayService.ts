@@ -167,14 +167,19 @@ const RESPONSE_HOLD_INPUT_TOKENS = 8_000;
 const RESPONSE_HOLD_OUTPUT_TOKENS = 4_096;
 // Committed input items whose transcription hasn't completed.
 const MAX_PENDING_TRANSCRIPTIONS = 64;
+// Reserved items kept ahead of the audio; each commit takes one and the pool
+// refills in the background.
+const SPARE_TRANSCRIPTIONS = 2;
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
+const TRANSCRIPTION_HOLD_TTL_MS = 90_000;
 const TRANSCRIPTION_AUDIO_SECONDS = 160;
-const TRANSCRIPTION_TOKEN_BUDGET = [8_000 * 600, 8_000 * 250, 4_096 * 1000];
-const TRANSCRIPTION_HOLD = Math.max(
-    TRANSCRIPTION_TOKEN_BUDGET.reduce((sum, cost) => sum + cost, 0),
-    TRANSCRIPTION_AUDIO_SECONDS *
-        Math.max(...Object.values(TRANSCRIPTION_SECOND_PRICES)),
-);
+// G.711 uses the fewest bytes per second of the supported input formats.
+const MAX_UNCOMMITTED_AUDIO_BYTES = 8_000 * TRANSCRIPTION_AUDIO_SECONDS;
+const TRANSCRIPTION_BUDGET_TOKENS = {
+    audioIn: 8_000,
+    textIn: 8_000,
+    textOut: 4_096,
+};
 // Credentials are re-authenticated once their kv entry expires.
 const AUTH_RECHECK_SEC = 60;
 const AUTH_SWEEP_MS = 15_000;
@@ -407,13 +412,42 @@ const unreportedResponseRows = (model: string, count: number): UsageInput[] => [
     },
 ];
 
+const tokenItemBudget = (price: {
+    audioIn: number;
+    textIn: number;
+    textOut: number;
+}): number =>
+    TRANSCRIPTION_BUDGET_TOKENS.audioIn * price.audioIn +
+    TRANSCRIPTION_BUDGET_TOKENS.textIn * price.textIn +
+    TRANSCRIPTION_BUDGET_TOKENS.textOut * price.textOut;
+const TRANSCRIPTION_ITEM_BUDGETS: Record<string, number> = Object.fromEntries([
+    ...Object.entries(TRANSCRIPTION_TOKEN_PRICES).map(([name, price]) => [
+        name,
+        tokenItemBudget(price),
+    ]),
+    ...Object.entries(TRANSCRIPTION_SECOND_PRICES).map(([name, price]) => [
+        name,
+        TRANSCRIPTION_AUDIO_SECONDS * price,
+    ]),
+]);
+TRANSCRIPTION_ITEM_BUDGETS.unknown = Math.max(
+    ...Object.values(TRANSCRIPTION_ITEM_BUDGETS),
+);
+
+/**
+ * Credit, before cost factors, that one input transcription item holds and is
+ * billed when its usage never arrives, at the given model's rates.
+ */
+const transcriptionItemBudget = (model: string | undefined): number =>
+    TRANSCRIPTION_ITEM_BUDGETS[transcriptionBillingModel(model)];
+
 const unreportedTranscriptionRows = (
     model: string | undefined,
 ): UsageInput[] => [
     {
         usageType: `openai:${transcriptionBillingModel(model)}:realtime:transcription_unreported`,
         usageAmount: 1,
-        costOverride: TRANSCRIPTION_HOLD,
+        costOverride: transcriptionItemBudget(model),
     },
 ];
 
@@ -831,23 +865,38 @@ export class OpenAIRealtimeRelayService extends PuterService {
         let requested = 0;
         // Credit holds of responses whose usage isn't recorded yet.
         const responseHolds = new Map<string, Promise<CreditHold | null>>();
-        // The transcription model in force when each input item was committed.
+        // Committed input items awaiting usage, each with the transcription
+        // model in force at commit and the credit held for it.
         const pendingTranscriptions = new Map<
             string,
             {
                 model: string | undefined;
                 timer: ReturnType<typeof setTimeout>;
-                hold: CreditHold;
+                hold: Promise<CreditHold | null>;
             }
         >();
-        let transcriptionPool: {
-            hold: CreditHold;
-            available: number;
-            outstanding: number;
-            audioBytes: number;
-        } | null = null;
+        // Reserved items not yet committed, priced at `spareModel`.
+        const spareTranscriptions: CreditHold[] = [];
+        let spareModel: string | undefined;
+        let toppingUp = false;
+        // Transcription holds of this session not yet released.
+        let heldTranscriptions = 0;
+        let reservations: Promise<unknown> = Promise.resolve();
+        // Decoded audio forwarded since the provider last acknowledged a commit
+        // or clear; it bills as one item if the upstream closes first.
+        let uncommittedAudio = 0;
+        // The transcription model last requested or reported.
+        let selectedTranscriptionModel: string | undefined;
         let wantsTranscription = false;
         let pumping = false;
+        let pumpAgain = false;
+        const releaseSpareTranscriptions = () => {
+            for (const hold of spareTranscriptions.splice(0)) {
+                hold.release().catch((err) =>
+                    console.warn('[realtime] credit hold release failed', err),
+                );
+            }
+        };
         let providerReady = false;
         const finishedTranscriptions = new BoundedTtlMap<string, true>({
             maxEntries: MAX_PENDING_TRANSCRIPTIONS * 2,
@@ -896,13 +945,13 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 (inFlight === 0 &&
                     requested === 0 &&
                     pendingTranscriptions.size === 0 &&
-                    !transcriptionPool?.audioBytes)
+                    uncommittedAudio === 0)
             ) {
                 endUpstream();
                 return;
             }
             if (up.isPaused) up.resume();
-            if (transcriptionPool?.audioBytes)
+            if (uncommittedAudio > 0)
                 up.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
             settleTimer = setTimeout(endUpstream, SETTLE_MS);
             // A requested response is cancelled once it starts.
@@ -962,13 +1011,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     client.close(code, reason);
                 }
                 settleUpstream();
-                if (
-                    !transcriptionPool?.audioBytes &&
-                    transcriptionPool?.outstanding === 0
-                ) {
-                    void transcriptionPool.hold.release();
-                    transcriptionPool = null;
-                }
+                // Uncommitted audio may still need a reserved item to bill.
+                if (uncommittedAudio === 0) releaseSpareTranscriptions();
             },
             // Called every HEARTBEAT_MS; a client that missed the last ping is
             // gone without a close frame.
@@ -979,8 +1023,13 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 }
                 alive = false;
                 if (client.readyState === WebSocket.OPEN) client.ping();
-                void transcriptionPool?.hold
-                    .extend?.()
+                void Promise.all([
+                    ...spareTranscriptions,
+                    ...[...pendingTranscriptions.values()].map((p) => p.hold),
+                ])
+                    .then((held) =>
+                        Promise.all(held.map((hold) => hold?.extend?.())),
+                    )
                     .catch(() =>
                         reject(
                             'internal_error',
@@ -1295,6 +1344,125 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
         };
 
+        // One transcription item's credit at `name`'s price and cost factor,
+        // or null when the account can't cover it. Reservations run one at a
+        // time, so a session's own holds don't race each other's balance check.
+        const reserveTranscription = (
+            name: string,
+        ): Promise<CreditHold | null> => {
+            const next = reservations.then(async () => {
+                const hold = await this.#metering.reserveAiCredits(
+                    actor!,
+                    `openai:${name}:realtime:transcription_unreported`,
+                    transcriptionItemBudget(name),
+                    { ttlMs: TRANSCRIPTION_HOLD_TTL_MS },
+                );
+                if (!hold) return null;
+                heldTranscriptions++;
+                let released = false;
+                return {
+                    release: async () => {
+                        if (released) return;
+                        released = true;
+                        try {
+                            await hold.release();
+                        } finally {
+                            heldTranscriptions--;
+                            // Freed credit may admit audio waiting for an item.
+                            pumpPending();
+                        }
+                    },
+                    extend: async () => {
+                        if (!released) await hold.extend?.();
+                    },
+                } satisfies CreditHold;
+            });
+            reservations = next.catch(() => {});
+            return next;
+        };
+        // Adds one spare item at the current price. False when refused.
+        const reserveSpareTranscription = async (): Promise<boolean> => {
+            const name = spareModel ?? 'unknown';
+            const hold = await reserveTranscription(name);
+            if (!hold) return false;
+            if (
+                closed ||
+                name !== (spareModel ?? 'unknown') ||
+                pendingTranscriptions.size + spareTranscriptions.length >=
+                    MAX_PENDING_TRANSCRIPTIONS
+            ) {
+                await hold.release();
+            } else {
+                spareTranscriptions.push(hold);
+            }
+            return true;
+        };
+        const topUpTranscriptions = () => {
+            if (
+                spareModel === undefined ||
+                toppingUp ||
+                closed ||
+                spareTranscriptions.length >= SPARE_TRANSCRIPTIONS ||
+                pendingTranscriptions.size + spareTranscriptions.length >=
+                    MAX_PENDING_TRANSCRIPTIONS
+            )
+                return;
+            toppingUp = true;
+            reserveSpareTranscription().then(
+                (reserved) => {
+                    toppingUp = false;
+                    if (reserved) topUpTranscriptions();
+                },
+                (err) => {
+                    toppingUp = false;
+                    console.warn('[realtime] transcription hold failed', err);
+                },
+            );
+        };
+        // Spare items priced at another model are swapped for this one's.
+        const priceTranscriptionsAt = (requested: string | undefined) => {
+            const name = transcriptionBillingModel(requested);
+            if (name === spareModel) return;
+            releaseSpareTranscriptions();
+            spareModel = name;
+        };
+        // The credit for an item the provider committed with no spare left.
+        const holdCommittedTranscription = (
+            name: string | undefined,
+        ): Promise<CreditHold | null> => {
+            const spare = spareTranscriptions.shift();
+            if (spare) return Promise.resolve(spare);
+            if (closed) return Promise.resolve(null);
+            return (async (): Promise<CreditHold | null> => {
+                const provisional = await planProvisional();
+                const hold = await reserveTranscription(
+                    transcriptionBillingModel(name),
+                );
+                if (!hold && !closed) {
+                    await refuse(
+                        'insufficient_funds',
+                        'No transcription budget left',
+                        provisional,
+                    );
+                }
+                return hold;
+            })().catch((err): null => {
+                console.warn('[realtime] transcription hold failed', err);
+                return null;
+            });
+        };
+        const settleTranscription = (itemId: string) => {
+            const pending = pendingTranscriptions.get(itemId);
+            if (!pending) return undefined;
+            pendingTranscriptions.delete(itemId);
+            finishedTranscriptions.set(itemId, true);
+            clearTimeout(pending.timer);
+            // A slot under the pending cap may admit waiting audio.
+            pumpPending();
+            topUpTranscriptions();
+            return pending;
+        };
+
         // Upstream state the meter and the settle need. Runs for every
         // upstream event, before (and regardless of) forwarding.
         const track = (event: RealtimeEvent) => {
@@ -1334,12 +1502,16 @@ export class OpenAIRealtimeRelayService extends PuterService {
                             closed &&
                             requested === 0 &&
                             pendingTranscriptions.size === 0 &&
-                            !transcriptionPool?.audioBytes
+                            uncommittedAudio === 0
                         )
                             endUpstream();
                     }
                     break;
+                case 'input_audio_buffer.cleared':
+                    uncommittedAudio = 0;
+                    break;
                 case 'input_audio_buffer.committed': {
+                    uncommittedAudio = 0;
                     if (
                         !transcriptionModel ||
                         typeof event.item_id !== 'string' ||
@@ -1347,55 +1519,27 @@ export class OpenAIRealtimeRelayService extends PuterService {
                         finishedTranscriptions.has(event.item_id)
                     )
                         break;
-                    const pool = transcriptionPool;
-                    if (!pool || pool.available === 0) {
+                    if (
+                        pendingTranscriptions.size >= MAX_PENDING_TRANSCRIPTIONS
+                    ) {
                         finishedTranscriptions.set(event.item_id, true);
                         reject(
                             'rate_limit_exceeded',
                             'Transcription capacity exceeded',
                             CLOSE_TRY_AGAIN_LATER,
                         );
-                        // Work beyond the admitted window has no reliable identity.
-                        meter([
-                            {
-                                usageType:
-                                    'openai:unknown:realtime:transcription_unreported',
-                                usageAmount: 1,
-                                costOverride: TRANSCRIPTION_HOLD,
-                            },
-                        ]);
+                        // Work beyond the pending cap has no reliable identity.
+                        meter(unreportedTranscriptionRows(undefined));
                         endUpstream();
                         break;
                     }
-                    pool.available--;
-                    pool.outstanding++;
-                    let released = false;
-                    const hold: CreditHold = {
-                        release: async () => {
-                            if (released) return;
-                            released = true;
-                            pool.outstanding--;
-                            if (
-                                pool.outstanding === 0 &&
-                                (closed || pool.available === 0)
-                            ) {
-                                await pool.hold.release();
-                                if (transcriptionPool === pool)
-                                    transcriptionPool = null;
-                                releaseClient('transcription');
-                                void pumpPending();
-                            }
-                        },
-                    };
                     const itemId = event.item_id;
                     const timer = setTimeout(() => {
-                        const pending = pendingTranscriptions.get(itemId);
+                        const pending = settleTranscription(itemId);
                         if (!pending) return;
-                        pendingTranscriptions.delete(itemId);
-                        finishedTranscriptions.set(itemId, true);
                         meter(
                             unreportedTranscriptionRows(pending.model),
-                            Promise.resolve(pending.hold),
+                            pending.hold,
                         );
                         reject(
                             'upstream_error',
@@ -1406,14 +1550,23 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     pendingTranscriptions.set(itemId, {
                         model: transcriptionModel,
                         timer,
-                        hold,
+                        hold: holdCommittedTranscription(transcriptionModel),
                     });
-                    if (pool.available === 0) holdClient('transcription');
+                    topUpTranscriptions();
                     break;
                 }
                 case 'session.created':
                 case 'session.updated':
                     transcriptionModel = transcriptionModelOf(event.session);
+                    // The provider's model reprices spare items; disabling
+                    // keeps them, since audio already sent may still commit.
+                    if (transcriptionModel) {
+                        selectedTranscriptionModel = transcriptionModel;
+                        if (spareModel !== undefined) {
+                            priceTranscriptionsAt(transcriptionModel);
+                            topUpTranscriptions();
+                        }
+                    }
                     {
                         const nextModel = realtimeBillingModel(
                             event.session,
@@ -1434,18 +1587,15 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     if (event.type === 'session.created') {
                         providerReady = true;
                         if (setupTimer) clearTimeout(setupTimer);
-                        void pumpPending();
+                        pumpPending();
                     }
                     break;
                 case 'conversation.item.input_audio_transcription.failed':
                 case TRANSCRIPTION_DONE: {
                     const itemId = event.item_id;
                     if (typeof itemId !== 'string') break;
-                    const pending = pendingTranscriptions.get(itemId);
+                    const pending = settleTranscription(itemId);
                     if (!pending) break;
-                    pendingTranscriptions.delete(itemId);
-                    finishedTranscriptions.set(itemId, true);
-                    clearTimeout(pending.timer);
                     const rows =
                         event.type !== TRANSCRIPTION_DONE
                             ? unreportedTranscriptionRows(pending.model)
@@ -1461,14 +1611,10 @@ export class OpenAIRealtimeRelayService extends PuterService {
                                     ),
                                 )
                               : unreportedTranscriptionRows(pending.model);
-                    meter(rows, Promise.resolve(pending.hold));
+                    meter(rows, pending.hold);
                     if (!pendingTranscriptions.size && inFlight === 0) {
                         onIdle?.();
-                        if (
-                            closed &&
-                            requested === 0 &&
-                            !transcriptionPool?.audioBytes
-                        )
+                        if (closed && requested === 0 && uncommittedAudio === 0)
                             endUpstream();
                     }
                     break;
@@ -1493,120 +1639,122 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (up.bufferedAmount >= HIGH_WATER_BYTES) holdClient('upstream');
         };
 
-        const pumpPending = async () => {
+        // Reserves a spare item. Waits, with client reads paused, while the
+        // pending cap is full or the account can't cover another item but
+        // this session's held items may still free credit; refuses once
+        // nothing is left to wait for.
+        const admitTranscription = async (): Promise<boolean> => {
+            while (!spareTranscriptions.length) {
+                if (pendingTranscriptions.size >= MAX_PENDING_TRANSCRIPTIONS) {
+                    holdClient('transcription');
+                    return false;
+                }
+                const provisional = await planProvisional();
+                const reserved = await reserveSpareTranscription();
+                if (closed) return false;
+                if (reserved) continue;
+                if (heldTranscriptions > 0) {
+                    holdClient('transcription');
+                    return false;
+                }
+                await refuse(
+                    'insufficient_funds',
+                    'No transcription budget left',
+                    provisional,
+                );
+                return false;
+            }
+            return true;
+        };
+
+        // Forwards queued client events in order. Returns a promise only while
+        // an event waits for a transcription reservation.
+        const forwardPending = (): Promise<void> | undefined => {
+            while (pending.length && !closed) {
+                const next = pending[0];
+                const event = parseEvent(next.data as Buffer)!;
+                const requestedModel =
+                    event.type === 'session.update'
+                        ? transcriptionModelOf(event.session)
+                        : undefined;
+                if (requestedModel) wantsTranscription = true;
+                if (
+                    (wantsTranscription || transcriptionModel) &&
+                    (event.type === 'input_audio_buffer.append' ||
+                        requestedModel)
+                ) {
+                    priceTranscriptionsAt(
+                        requestedModel ?? selectedTranscriptionModel,
+                    );
+                    if (!spareTranscriptions.length) {
+                        return admitTranscription().then((admitted) =>
+                            admitted ? forwardPending() : undefined,
+                        );
+                    }
+                    releaseClient('transcription');
+                    topUpTranscriptions();
+                    if (requestedModel)
+                        selectedTranscriptionModel = requestedModel;
+                    const audio = (event as unknown as { audio?: unknown })
+                        .audio;
+                    if (typeof audio === 'string') {
+                        const bytes = Buffer.byteLength(audio, 'base64');
+                        if (
+                            uncommittedAudio + bytes >
+                            MAX_UNCOMMITTED_AUDIO_BYTES
+                        ) {
+                            reject(
+                                'rate_limit_exceeded',
+                                'Transcription audio budget exceeded',
+                                CLOSE_TRY_AGAIN_LATER,
+                            );
+                            return undefined;
+                        }
+                        uncommittedAudio += bytes;
+                    }
+                }
+                pending.shift();
+                pendingBytes -= (next.data as Buffer).length;
+                if (event.type === 'response.create') requested++;
+                sendUpstream(next.data, next.isBinary);
+            }
+            return undefined;
+        };
+
+        const pumpPending = (): void => {
             if (
-                pumping ||
                 closed ||
                 !providerReady ||
                 upstream?.readyState !== WebSocket.OPEN
             )
                 return;
+            if (pumping) {
+                pumpAgain = true;
+                return;
+            }
             pumping = true;
-            try {
-                while (pending.length && !closed) {
-                    const next = pending[0];
-                    const event = parseEvent(next.data as Buffer)!;
-                    const requestedModel =
-                        event.type === 'session.update'
-                            ? transcriptionModelOf(event.session)
-                            : undefined;
-                    if (requestedModel) wantsTranscription = true;
-                    if (
-                        (wantsTranscription || transcriptionModel) &&
-                        (event.type === 'input_audio_buffer.append' ||
-                            requestedModel)
-                    ) {
-                        if (transcriptionPool?.available === 0) break;
-                        if (!transcriptionPool) {
-                            const provisional = await planProvisional();
-                            const factors = await Promise.all(
-                                [
-                                    ...Object.keys(TRANSCRIPTION_TOKEN_PRICES),
-                                    ...Object.keys(TRANSCRIPTION_SECOND_PRICES),
-                                    'unknown',
-                                ].map((name) =>
-                                    this.#metering.costFactor(
-                                        actor!,
-                                        `openai:${name}`,
-                                    ),
-                                ),
-                            );
-                            const factor = Math.max(...factors);
-                            const tokenBudget =
-                                TRANSCRIPTION_TOKEN_BUDGET.reduce(
-                                    (sum, cost) =>
-                                        sum + Math.ceil(cost * factor),
-                                    0,
-                                );
-                            const hold =
-                                await this.services.metering.reserveCreditsIfAffordable(
-                                    actor!,
-                                    MAX_PENDING_TRANSCRIPTIONS *
-                                        Math.max(
-                                            tokenBudget,
-                                            Math.ceil(
-                                                TRANSCRIPTION_HOLD * factor,
-                                            ),
-                                        ),
-                                    { ttlMs: 90_000 },
-                                );
-                            if (!hold) {
-                                await refuse(
-                                    'insufficient_funds',
-                                    'No transcription budget left',
-                                    provisional,
-                                );
-                                break;
-                            }
-                            if (closed) {
-                                await hold.release();
-                                break;
-                            }
-                            transcriptionPool = {
-                                hold,
-                                available: MAX_PENDING_TRANSCRIPTIONS,
-                                outstanding: 0,
-                                audioBytes: 0,
-                            };
-                        }
-                        const audio = (event as unknown as { audio?: unknown })
-                            .audio;
-                        if (typeof audio === 'string') {
-                            // G.711 uses the fewest bytes per second of the supported input formats.
-                            transcriptionPool.audioBytes += Buffer.byteLength(
-                                audio,
-                                'base64',
-                            );
-                            if (
-                                transcriptionPool.audioBytes >
-                                8_000 *
-                                    TRANSCRIPTION_AUDIO_SECONDS *
-                                    MAX_PENDING_TRANSCRIPTIONS
-                            ) {
-                                reject(
-                                    'rate_limit_exceeded',
-                                    'Transcription audio budget exceeded',
-                                    CLOSE_TRY_AGAIN_LATER,
-                                );
-                                break;
-                            }
-                        }
-                    }
-                    if (closed) break;
-                    pending.shift();
-                    pendingBytes -= (next.data as Buffer).length;
-                    if (event.type === 'response.create') requested++;
-                    sendUpstream(next.data, next.isBinary);
-                }
-            } catch {
+            pumpAgain = false;
+            const finish = () => {
+                pumping = false;
+                if (pumpAgain) pumpPending();
+            };
+            const failed = () => {
                 reject(
                     'internal_error',
                     'Could not reserve transcription budget',
                     1011,
                 );
-            } finally {
-                pumping = false;
+                finish();
+            };
+            let waiting: Promise<void> | undefined;
+            try {
+                waiting = forwardPending();
+            } catch {
+                failed();
+                return;
             }
+            if (waiting) waiting.then(finish, failed);
+            else finish();
         };
 
         client.on('message', (data, isBinary) => {
@@ -1654,7 +1802,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
             pending.push({ data, isBinary });
             pendingBytes += size;
-            void pumpPending();
+            pumpPending();
         });
 
         if (!Object.hasOwn(REALTIME_MODELS, model)) {
@@ -1822,7 +1970,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
 
         up.on('open', () => {
             if (closed) return;
-            void pumpPending();
+            pumpPending();
         });
         up.on('message', (data, isBinary) => {
             const buf = data as Buffer;
@@ -1898,24 +2046,22 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 transcriptionRows.push(
                     ...unreportedTranscriptionRows(pending.model),
                 );
-                transcriptionHolds.push(Promise.resolve(pending.hold));
+                transcriptionHolds.push(pending.hold);
+            }
+            pendingTranscriptions.clear();
+            // Audio whose commit was never acknowledged is one more item.
+            if (uncommittedAudio > 0) {
+                uncommittedAudio = 0;
+                transcriptionRows.push(
+                    ...unreportedTranscriptionRows(
+                        transcriptionModel ?? spareModel,
+                    ),
+                );
+                const spare = spareTranscriptions.shift();
+                if (spare) transcriptionHolds.push(Promise.resolve(spare));
             }
             meter(transcriptionRows, ...transcriptionHolds);
-            pendingTranscriptions.clear();
-            if (transcriptionPool?.outstanding === 0) {
-                if (
-                    transcriptionPool.audioBytes &&
-                    transcriptionPool.available === MAX_PENDING_TRANSCRIPTIONS
-                ) {
-                    meter(
-                        unreportedTranscriptionRows(transcriptionModel),
-                        Promise.resolve(transcriptionPool.hold),
-                    );
-                } else {
-                    void transcriptionPool.hold.release();
-                }
-                transcriptionPool = null;
-            }
+            releaseSpareTranscriptions();
             const holds = [...responseHolds.values()];
             responseHolds.clear();
             if (inFlight === 0) {

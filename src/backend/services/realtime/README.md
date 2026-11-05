@@ -75,14 +75,24 @@ Upgrades use Express's configured proxy trust policy and the `ip.validate` gate.
 Authentication uses `touch: false` on both initial connection and rechecks, so
 opening or maintaining a realtime socket does not update session activity metadata.
 
-Input transcription takes a reservation before its configuration or audio is
-forwarded. One window covers 64 items at a conservative fixed budget per item.
-The account must cover the entire window, including the largest supported AI
-cost factor. Client reads pause when the window is consumed. Once its accepted
-items have been recorded, its hold is released and another window can be reserved.
-Each committed item retains its model until completion, failure, or bounded
-settlement. Missing usage is billed the item's fixed budget. Overflow closes the
-connection without evicting existing pending identities.
+Input transcription holds credit per item, at a fixed budget for the selected
+transcription model and that model's cost factor. Audio and the configuration
+that enables transcription are forwarded only while a reserved spare item
+exists. Each provider commit takes one, and the pool refills to two spares in
+the background, up to 64 pending plus spare items. A commit with no spare left
+reserves its own item. A model change, requested or reported, releases the spares
+and reserves new ones at the new model's price. Committed items keep their hold
+and model. Disabling transcription keeps the spares until the connection ends.
+If the account can't cover another item, client reads pause while the session
+still holds items that may free credit, and the session is refused with
+`insufficient_funds` once it holds none.
+
+Audio forwarded since the provider last acknowledged a commit or clear is
+tracked apart from the pool. If the upstream closes before that audio's commit
+is acknowledged, it is billed as one item. Each committed item retains its model
+until completion, failure, or bounded settlement. Missing usage is billed the
+item's fixed budget. Overflow closes the connection without evicting existing
+pending identities.
 
 Text, transcripts and raw audio are forwarded without new content logging.
 The relay does not invoke `ai.prompt.validate`. A realtime adapter needs the host
