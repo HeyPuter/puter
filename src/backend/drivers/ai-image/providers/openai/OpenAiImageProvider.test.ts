@@ -235,6 +235,56 @@ describe('OpenAiImageProvider.generate argument validation', () => {
 // ── Credit gate ─────────────────────────────────────────────────────
 
 describe('OpenAiImageProvider.generate credit gate', () => {
+    it('waits for the real usage write before returning an image', async () => {
+        const actor = makeActor({
+            user: {
+                id: 62,
+                uuid: `image-write-${Date.now()}`,
+                username: 'metered',
+            },
+        });
+        const redis = server.clients.redis as unknown as {
+            meterIncr: (...args: string[]) => Promise<unknown>;
+        };
+        const realIncr = redis.meterIncr.bind(redis);
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let blocked = false;
+        vi.spyOn(redis, 'meterIncr').mockImplementation(async (...args) => {
+            if (!blocked && args[5].includes(`:actor:${actor.user!.uuid}:`)) {
+                blocked = true;
+                await held;
+            }
+            return realIncr(...args);
+        });
+        generateMock.mockResolvedValueOnce({
+            data: [{ url: 'https://image.example/result.png' }],
+        });
+        const provider = makeProvider();
+        let finished = false;
+        const generating = withTestActor(
+            () =>
+                provider.generate({
+                    model: 'gpt-image-2',
+                    prompt: 'an image',
+                    ratio: { w: 1024, h: 1024 },
+                }),
+            actor,
+        ).then((result) => {
+            finished = true;
+            return result;
+        });
+        try {
+            await vi.waitFor(() => expect(blocked).toBe(true));
+            expect(finished).toBe(false);
+        } finally {
+            release();
+            await generating;
+        }
+    });
+
     it('throws 402 BEFORE hitting OpenAI when actor lacks credits', async () => {
         const provider = makeProvider();
         hasCreditsSpy.mockResolvedValueOnce(false);

@@ -110,3 +110,32 @@ export function awaitLater<T>(promise: Promise<T>): Promise<T> {
     })();
     return promise;
 }
+
+/**
+ * Waits for `promise` for at most `ms`, without rejecting. Resolves `true` if
+ * it settled in time, `false` if the time ran out first.
+ */
+export async function settleWithin(
+    promise: Promise<unknown>,
+    ms: number,
+): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settled = async () => {
+        try {
+            await promise;
+        } catch {
+            // Callers report work failures.
+        }
+        return true;
+    };
+    try {
+        return await Promise.race([
+            settled(),
+            new Promise<boolean>((resolve) => {
+                timer = setTimeout(() => resolve(false), ms);
+            }),
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
