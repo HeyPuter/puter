@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { validate as validateUuid } from 'uuid';
 import type { EventClient } from '../../clients/event/EventClient.js';
+import type { Actor } from '../../core/actor.js';
 import type {
     EventMap,
     NotifDeliveryOutcome,
@@ -53,7 +55,10 @@ import type { IConfig } from '../../types.js';
  */
 
 export type NotifWire =
-    'notif.message' | 'notif.unreads' | 'notif.ack' | 'notif.removed';
+    | 'notif.message'
+    | 'notif.unreads'
+    | 'notif.ack'
+    | 'notif.removed';
 
 export const NOTIF_DELIVERY_EVENT = 'outer.notif.delivery';
 
@@ -66,6 +71,15 @@ export const DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS = 5_000;
  * }` when it never does.
  */
 export const NOTIF_RECEIPT_EVENT = 'notif.receipt';
+
+/**
+ * Sent by a page with `{ uid }` when it got that notification live while
+ * visible and focused, so a region that didn't ask the page can still hear it.
+ */
+export const NOTIF_HANDLED_EVENT = 'notif.handled';
+
+/** `notif.handled` reports one user's sockets may send per minute. */
+export const NOTIF_HANDLED_PER_MINUTE = 60;
 
 /** One unread as the replay payload carries it. */
 export interface UnreadNotification {
@@ -122,11 +136,15 @@ const responderOf = (response: unknown): NotifDeliveryResponder | null => {
         ...(typeof answer.focused === 'boolean'
             ? { focused: answer.focused }
             : {}),
-        ...(typeof answer.showsOwn === 'boolean'
-            ? { showsOwn: answer.showsOwn }
-            : {}),
     };
 };
+
+/**
+ * Visible and focused. An older client doesn't say whether it's focused, so it
+ * counts while visible.
+ */
+export const handledBy = (responder: NotifDeliveryResponder): boolean =>
+    responder.visibilityState === 'visible' && responder.focused !== false;
 
 interface AdapterDeps {
     event: EventClient;
@@ -138,6 +156,13 @@ interface AdapterDeps {
         userId: number,
         appUid: string | null,
     ) => Promise<boolean>;
+    /** Spends one of the user's `notif.handled` reports; false past the limit. */
+    allowHandled: (userId: number) => Promise<boolean>;
+}
+
+/** The part of a socket `attachSocket` installs its verb on. */
+export interface NotifSocket {
+    on(event: string, listener: (...args: never[]) => void): unknown;
 }
 
 type SettledDelivery = EventMap['notif.delivery.settled'];
@@ -253,6 +278,7 @@ export class NotificationSocketAdapter {
                 complete: asked.complete,
                 peerRegions,
                 responders,
+                handled: responders.some(handledBy),
             };
             this.#deps.event.emit(
                 'notif.delivery.settled',
@@ -264,6 +290,28 @@ export class NotificationSocketAdapter {
             console.warn('[notification] receipt failed', err);
             return null;
         }
+    }
+
+    /**
+     * Relays a page's `notif.handled` as the node-local `notif.handled` event,
+     * scoped to the socket's user and app.
+     */
+    attachSocket(socket: NotifSocket, actor: Actor): void {
+        const userId = actor.user?.id;
+        if (userId === undefined) return;
+        const appUid = actor.effectiveApp?.uid;
+        socket.on(NOTIF_HANDLED_EVENT, ((payload: unknown) => {
+            const uid = (payload as { uid?: unknown } | null)?.uid;
+            if (typeof uid !== 'string' || !validateUuid(uid)) return;
+            void this.#deps.allowHandled(userId).then((ok) => {
+                if (!ok) return;
+                this.#deps.event.emit(
+                    'notif.handled',
+                    { userId, uid, ...(appUid ? { appUid } : {}) },
+                    {},
+                );
+            });
+        }) as (...args: never[]) => void);
     }
 
     /** Whether this region holds a socket for the recipient right now. */

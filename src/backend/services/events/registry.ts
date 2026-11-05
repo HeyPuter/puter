@@ -121,7 +121,9 @@ export interface ProjectedNotifEvent extends ProjectedEventBase {
 }
 
 export type ProjectedEvent =
-    ProjectedFsEvent | ProjectedKvEvent | ProjectedNotifEvent;
+    | ProjectedFsEvent
+    | ProjectedKvEvent
+    | ProjectedNotifEvent;
 
 export type GapReason =
     | 'matched_subscription_limit'
@@ -270,7 +272,9 @@ export interface NotifPublicSubject extends SubjectSpec<
 }
 
 export type PublicSubject =
-    FsPublicSubject | KvPublicSubject | NotifPublicSubject;
+    | FsPublicSubject
+    | KvPublicSubject
+    | NotifPublicSubject;
 
 export interface UnpublishedInternalEvent {
     event: EventKey;
@@ -507,6 +511,10 @@ export const UNPUBLISHED_INTERNAL_EVENTS = [
     {
         event: 'notif.delivery.settled',
         reason: 'A node-local report on how the live socket copy of a notification went; the notification itself publishes through `notif.created`.',
+    },
+    {
+        event: 'notif.handled',
+        reason: 'A node-local report that a page saw a notification live, for extensions deciding whether to push it; not a change to the notification.',
     },
 ] as const satisfies readonly UnpublishedInternalEvent[];
 

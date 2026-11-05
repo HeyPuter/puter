@@ -636,6 +636,18 @@ export type EventMap = {
         /** A peer region holds a socket for the user. */
         peerRegions: boolean;
         responders: NotifDeliveryResponder[];
+        /** A page here got it live while visible and focused. */
+        handled: boolean;
+    };
+    /**
+     * A page reported that it got a notification live while visible and
+     * focused. Node-local; `appUid` is the reporting socket's app, absent for
+     * the desktop.
+     */
+    'notif.handled': {
+        userId: number;
+        appUid?: string;
+        uid: string;
     };
 
     // ---- Metering ----
@@ -1067,10 +1079,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1081,18 +1094,16 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    'received' | 'unreceived' | 'no-socket' | 'remote-only';
+    | 'received'
+    | 'unreceived'
+    | 'no-socket'
+    | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {
     visibilityState: 'visible' | 'hidden' | 'unknown';
     /** The page's window has focus. Absent from older clients. */
     focused?: boolean;
-    /**
-     * The page shows its own browser notification while hidden or unfocused.
-     * Absent from older clients.
-     */
-    showsOwn?: boolean;
 }
 
 export type EventMetadata = {

@@ -61,7 +61,7 @@ import {
     setPushTapHandler,
     storedTapHandler,
 } from '../helpers/notificationTap.js';
-import { closeLocalBanner, showLocalBanner, startPushWorker } from '../helpers/pushWorker.js';
+import { closeLocalBanner, startPushWorker } from '../helpers/pushWorker.js';
 import { syncBrowserPush } from '../helpers/pushSync.js';
 import { get_app_by_uid } from '../helpers/getAppByUid.js';
 import { httpsIconFor, notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
@@ -289,7 +289,6 @@ async function UIDesktop (options) {
      * row isn't marked twice.
      */
     const show_notification = ({ uid, notification, app_uid }, { replay = false } = {}) => {
-        void showLocalBanner({ uid, notification }, { replay });
         // A notification can be re-sent under its own uid when what it says has
         // grown — several people sharing with you is one notification that
         // counts them. Refresh the one on screen rather than stacking a copy.

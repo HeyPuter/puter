@@ -407,7 +407,7 @@ describe('notification receipts', () => {
         expect(notificationSocketAcks(undefined)).toEqual([]);
     });
 
-    it('notes each live notif.message and answers asks from the log', () => {
+    it('notes each live notif.message with the socket it came on and answers asks from the log', () => {
         const sdk = sdkWithLog();
         const socket = fakeSocket();
         answerNotificationReceipts(socket, sdk);
@@ -416,7 +416,7 @@ describe('notification receipts', () => {
         const ack = vi.fn();
         socket.handlers['notif.receipt'][0]({ uid: 'n-1' }, ack);
 
-        expect(sdk.notifications._noteReceived).toHaveBeenCalledWith('n-1');
+        expect(sdk.notifications._noteReceived).toHaveBeenCalledWith('n-1', undefined, socket);
         expect(sdk.notifications._answerReceipt).toHaveBeenCalledWith({ uid: 'n-1' }, ack);
     });
 
@@ -429,7 +429,7 @@ describe('notification receipts', () => {
         socket.handlers['notif.message'][0]({ uid: 'n-3', notification: { type: 'share.received' } });
 
         expect(sdk.notifications._noteReceived).toHaveBeenCalledTimes(1);
-        expect(sdk.notifications._noteReceived).toHaveBeenCalledWith('n-3');
+        expect(sdk.notifications._noteReceived).toHaveBeenCalledWith('n-3', undefined, socket);
     });
 
     it('registers nothing with a puter.js that has no log', () => {

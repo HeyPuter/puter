@@ -32,7 +32,10 @@ import {
 import type { EventMap } from '../../clients/event/types.js';
 import type { PuterServer } from '../../server.js';
 import { accountSocketRoom, SocketService } from '../socket/SocketService.js';
-import { NOTIF_RECEIPT_EVENT } from './notificationSocket.js';
+import {
+    NOTIF_HANDLED_EVENT,
+    NOTIF_RECEIPT_EVENT,
+} from './notificationSocket.js';
 import {
     allocateEphemeralPort,
     createTestUser,
@@ -309,12 +312,13 @@ describe('live notification delivery receipts', () => {
             complete: true,
             peerRegions: false,
             responders: [{ visibilityState: 'hidden' }],
+            handled: false,
         };
         expect(settled).toEqual(expected);
         expect(state.settled).toEqual([expected]);
     });
 
-    it('passes a tab`s focus and own display through, typed strictly', async () => {
+    it('passes a tab`s focus through, typed strictly', async () => {
         const answers = [
             {
                 received: true,
@@ -326,7 +330,6 @@ describe('live notification delivery receipts', () => {
                 received: true,
                 visibilityState: 'nope',
                 focused: 1,
-                showsOwn: 'yes',
             },
         ];
         for (const answer of answers) {
@@ -341,11 +344,39 @@ describe('live notification delivery receipts', () => {
         expect(settled.outcome).toBe('received');
         expect(settled.responders).toEqual(
             expect.arrayContaining([
-                { visibilityState: 'hidden', focused: false, showsOwn: true },
+                { visibilityState: 'hidden', focused: false },
                 { visibilityState: 'unknown' },
             ]),
         );
         expect(settled.responders).toHaveLength(2);
+        expect(settled.handled).toBe(false);
+    });
+
+    it('counts as handled only a visible tab that is focused, or an older one that is visible', async () => {
+        const cases: Array<[Record<string, unknown>, boolean]> = [
+            [{ visibilityState: 'visible', focused: true }, true],
+            [{ visibilityState: 'visible', focused: false }, false],
+            [{ visibilityState: 'hidden', focused: true }, false],
+            [{ visibilityState: 'visible' }, true],
+        ];
+        for (const [answer, handled] of cases) {
+            const tab = await connect({ acks: [NOTIF_RECEIPT_EVENT] });
+            tab.on(NOTIF_RECEIPT_EVENT, (_data: unknown, ack: Ack) =>
+                ack({ received: true, ...answer }),
+            );
+
+            const { settled } = await ask();
+
+            expect(settled.handled, JSON.stringify(answer)).toBe(handled);
+            tab.disconnect();
+            await vi.waitFor(() =>
+                expect(
+                    state.server.services.socket.has({
+                        room: accountSocketRoom(state.userId),
+                    }),
+                ).toBe(false),
+            );
+        }
     });
 
     it('settles as unreceived when every tab answers that it never got it', async () => {
@@ -549,6 +580,7 @@ describe('live receipts from an app’s own sockets', () => {
             complete: true,
             peerRegions: false,
             responders: [{ visibilityState: 'visible' }],
+            handled: true,
         };
         expect(settled).toEqual(expected);
         expect(state.settled).toEqual([expected]);
@@ -717,5 +749,61 @@ describe('app receipts where the adapter cannot count servers', () => {
             everySocketAcks: false,
             complete: false,
         });
+    });
+});
+
+describe('a page reporting a notification it handled', () => {
+    const { state, connect, appSocket } = withAppReceipts({ cluster: true });
+    const reports: Array<EventMap['notif.handled']> = [];
+    const onHandled = (_key: string, data: unknown) => {
+        reports.push(data as EventMap['notif.handled']);
+    };
+
+    beforeAll(() => {
+        state.server.clients.event.on('notif.handled', onHandled);
+    });
+
+    afterEach(() => {
+        reports.length = 0;
+    });
+
+    afterAll(() => {
+        state.server?.clients.event.off('notif.handled', onHandled);
+    });
+
+    it('relays a desktop tab`s report for its user, without an app', async () => {
+        const tab = await connect({});
+        const uid = uuidv4();
+
+        tab.emit(NOTIF_HANDLED_EVENT, { uid });
+
+        await vi.waitFor(() =>
+            expect(reports).toEqual([{ userId: state.userId, uid }]),
+        );
+    });
+
+    it('relays an app page`s report with the app it acts as', async () => {
+        const page = await appSocket();
+        const uid = uuidv4();
+
+        page.emit(NOTIF_HANDLED_EVENT, { uid });
+
+        await vi.waitFor(() =>
+            expect(reports).toEqual([
+                { userId: state.userId, uid, appUid: OWN_APP },
+            ]),
+        );
+    });
+
+    it('drops a report without a notification uid', async () => {
+        const tab = await connect({});
+
+        tab.emit(NOTIF_HANDLED_EVENT, { uid: 'not-a-uid' });
+        tab.emit(NOTIF_HANDLED_EVENT, null);
+        tab.emit(NOTIF_HANDLED_EVENT, { uid: uuidv4() });
+
+        await vi.waitFor(() => expect(reports).toHaveLength(1));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(reports).toHaveLength(1);
     });
 });

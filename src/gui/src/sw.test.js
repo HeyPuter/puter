@@ -222,36 +222,13 @@ describe('service worker push', () => {
         expect(worker.shown).toEqual([{ title: 'New notification', options: { icon: DEFAULT_ICON } }]);
     });
 
-    it('shows a page\'s message only while no Puter window is visible', async () => {
-        const visible = loadWorker({ windows: [windowClient(`${ORIGIN}/desktop`, { visibilityState: 'visible' })] });
-        await visible.fire('message', {
-            data: { type: 'puter-show-notification', puter: { uid: 'n1', title: 'Hi' } },
-            source: { url: `${ORIGIN}/` },
-        });
-        expect(visible.shown).toEqual([]);
-        expect(visible.scope.clients.matchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
-
-        const otherOrigin = loadWorker({ windows: [windowClient('https://elsewhere.example/', { visibilityState: 'visible' })] });
-        await otherOrigin.fire('message', {
-            data: { type: 'puter-show-notification', puter: { uid: 'n1', title: 'Hi' } },
-            source: { url: `${ORIGIN}/` },
-        });
-        expect(otherOrigin.shown.map((n) => n.title)).toEqual(['Hi']);
-    });
-
-    it('shows a page\'s message from this origin and ignores other messages', async () => {
+    it('shows nothing a page posts, only pushes', async () => {
         const worker = loadWorker();
         await worker.fire('message', {
             data: { type: 'puter-show-notification', puter: { uid: 'n1', title: 'Hi' } },
             source: { url: `${ORIGIN}/` },
         });
-        worker.listeners.message({ data: { type: 'other' }, source: { url: `${ORIGIN}/` }, waitUntil: () => {} });
-        worker.listeners.message({
-            data: { type: 'puter-show-notification', puter: { title: 'x' } },
-            source: { url: 'https://elsewhere.example/' },
-            waitUntil: () => {},
-        });
-        expect(worker.shown.map((n) => n.title)).toEqual(['Hi']);
+        expect(worker.shown).toEqual([]);
     });
 });
 

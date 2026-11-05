@@ -10,19 +10,9 @@ A website on its own domain needs three steps, and an app inside the Puter deskt
 
 ## When a notification is pushed
 
-Every open page of your app gets each notification live, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). Puter then asks those pages whether they received it. If a page answers within 5 seconds that it's visible and focused, or that it shows the notification itself, nothing is pushed. Otherwise Puter pushes it. A page answers only while it has an [`onNotification()`](/Notifications/onNotification/) or [`onPush()`](/Notifications/onPush/) listener.
+Every open page of your app gets each notification live, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). A page that's visible and focused when the notification arrives tells Puter, and nothing is pushed. Otherwise Puter pushes it to every browser where the user turned pushes on. While a page of your app is open, the push can take up to 5 seconds to go out. A page tells Puter only while it has an [`onNotification()`](/Notifications/onNotification/) or [`onPush()`](/Notifications/onPush/) listener.
 
-A page of your website shows the notification itself when all of these are true:
-
-- The page is hidden, or its window isn't focused.
-- It has an [`onPush()`](/Notifications/onPush/) handler.
-- The user turned pushes on in this browser with [`enable()`](/Notifications/enable/), and hasn't turned them off with [`disable()`](/Notifications/disable/).
-- The user allowed notifications for your site in this browser.
-- No other window of your site is focused.
-
-It shows what the handler returns, or the notification's own title and text when no handler matches the notification's `channel`. Inside the Puter desktop, a page doesn't show notifications itself, so a notification goes out as a push whenever your app's window isn't focused.
-
-So a push goes out when no page of your app is open, or when the open pages are in the background and can't show the notification themselves. A page that loads an older version of Puter.js, such as one bundled from npm, holds the push back while it's visible. A page with a version from before Puter asked pages whether they received a notification holds it back whenever it's open.
+So a push goes out when no page of your app is open, or when every open page is hidden or in a window that isn't focused. Pages never show notifications themselves, so a page in the background gets the push like the user's other browsers do. Inside the Puter desktop, a notification goes out as a push whenever your app's window isn't focused. A page that loads an older version of Puter.js, such as one bundled from npm, holds the push back while it's visible.
 
 ## Where a push goes
 
@@ -168,7 +158,7 @@ To notify another user, share data with them with `notify: true` and send throug
 
 ## When the user taps
 
-On a website, a tap on a push, or on a notification a page of your site showed itself, focuses an open page of your site and calls its [`on('click')`](/Notifications/on/) handlers. With no page open, it opens the handler's `url`, or else the notification's `target`, and the new page's first [`on('click')`](/Notifications/on/) handler gets the click. A tap reaches one page, once: when an open page doesn't answer within about half a second, the tap opens its URL instead, and the slow page doesn't get it, unless that page is already at the tap's URL. If that page wasn't loaded through your worker, such as one opened before the worker was installed, the URL opens in a new tab. Inside the Puter desktop, a tap opens your app and hands the click to [`on('click')`](/Notifications/on/).
+On a website, a tap on a push focuses an open page of your site and calls its [`on('click')`](/Notifications/on/) handlers. With no page open, it opens the handler's `url`, or else the notification's `target`, and the new page's first [`on('click')`](/Notifications/on/) handler gets the click. A tap reaches one page, once: when an open page doesn't answer within about half a second, the tap opens its URL instead, and the slow page doesn't get it, unless that page is already at the tap's URL. If that page wasn't loaded through your worker, such as one opened before the worker was installed, the URL opens in a new tab. Inside the Puter desktop, a tap opens your app and hands the click to [`on('click')`](/Notifications/on/).
 
 A push can also carry up to two buttons, which your [`onPush()`](/Notifications/onPush/) handler returns as `actions`. The pressed button's id reaches [`on('click')`](/Notifications/on/) as `action`. [Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/) shows how.
 
@@ -180,13 +170,13 @@ When the user reads a notification in your app, call [`dismiss()`](/Notification
 
 A notification with a `group` replaces your earlier one in the same group, on the device and in your app, and alerts the user again. A group can name a chat, a thread or a person, such as `dm:ana@example.com`. [`notify()`](/Notifications/notify/#groups) has the rule.
 
-With `sensitive: true`, pushes and the notification a page shows itself name only your app instead of showing the title and text. [`onNotification()`](/Notifications/onNotification/) still gets the whole notification. [`notify()`](/Notifications/notify/#parameters) says what else a sensitive push leaves out.
+With `sensitive: true`, pushes name only your app instead of showing the title and text. [`onNotification()`](/Notifications/onNotification/) still gets the whole notification. [`notify()`](/Notifications/notify/#parameters) says what else a sensitive push leaves out.
 
 ## A minimal page
 
-To try it, serve the page below from a site that has `/puter-sw.js`. It registers the handler, turns pushes on from a click, and sends a notification 5 seconds after you click Send. Switch to another tab during those 5 seconds. The page is then in the background, so it shows the notification itself and nothing is pushed.
+To try it, serve the page below from a site that has `/puter-sw.js`. It registers the handler, turns pushes on from a click, and sends a notification 5 seconds after you click Send. Switch to another tab during those 5 seconds. The page is then in the background, so the notification goes out as a push and your worker shows it. If you stay on the page, it gets the notification live and nothing is pushed.
 
-A real push goes out only when no page of your site can show the notification. To see one, turn pushes on, close every tab of your site, and send from somewhere else, such as a [Puter Worker](/Workers/) that runs as your app or an [events handler](/Events/handlers/).
+To reach the user with every tab of your site closed, send from somewhere else, such as a [Puter Worker](/Workers/) that runs as your app or an [events handler](/Events/handlers/).
 
 ```html
 <html>
@@ -347,7 +337,7 @@ The browser can be allowed to show notifications while the operating system hide
 | The `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout` | The worker doesn't import `push-sw.js`, or the confirmation push didn't arrive within 30 seconds. The next page load tries again. |
 | A push shows the plain title and text, not your handler's result | This browser hasn't run [`onPush()`](/Notifications/onPush/) for that `channel` yet, or the handler threw, took over 5 seconds, or used an outside variable. Check the worker's console. |
 | Pushes stop until the user opens your site again | The browser replaced its push subscription for your site, as browsers sometimes do. Your service worker keeps the new one, and the next page load that calls [`onPush()`](/Notifications/onPush/) registers it with Puter. Pushes sent before that don't arrive. |
-| No push while your site is open in a tab | The open page received the notification live. It shows one only when it's hidden or its window isn't focused. |
+| No push while your site is open in a tab | The open page received the notification live while it was visible and focused. |
 | No push at all | The browser isn't running, the operating system hides its notifications ([above](#operating-system-settings)), the user reached the [push limit](/rate-limits-and-quotas/#notifications) for your app, or the user has no usage credit left. |
 
 ## Push delivery

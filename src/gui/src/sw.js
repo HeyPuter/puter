@@ -29,7 +29,6 @@
 
 const DEFAULT_TITLE = 'New notification';
 const DEFAULT_ICON = '/favicons/android-icon-192x192.png';
-const SHOW_MESSAGE = 'puter-show-notification';
 const CLICK_MESSAGE = 'puter-notification-click';
 const CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
 const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
@@ -205,19 +204,6 @@ async function routeClick (scope, click, startedAt = Date.now(), budgetMs = CLIC
     await scope.clients.openWindow(clickUrl(click, origin));
 }
 
-async function hasVisibleWindow (scope) {
-    const origin = scope.location.origin;
-    const windowClients = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    return windowClients.some((client) => (
-        sameOriginUrl(client.url, origin) && client.visibilityState === 'visible'
-    ));
-}
-
-async function showPageMessage (scope, message) {
-    if ( await hasVisibleWindow(scope) ) return;
-    await showMessage(scope.registration, message, scope.location.origin);
-}
-
 async function postToWindows (scope, message) {
     const origin = scope.location.origin;
     const windowClients = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -254,8 +240,6 @@ self.addEventListener('message', (event) => {
     if ( !message || !event.source || !sameOriginUrl(event.source.url, self.location.origin) ) return;
     if ( message.type === CLICK_ACK_MESSAGE ) {
         pendingClickAcks.get(message.id)?.();
-    } else if ( message.type === SHOW_MESSAGE ) {
-        event.waitUntil(showPageMessage(self, message.puter));
     }
 });
 
