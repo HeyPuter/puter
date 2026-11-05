@@ -256,7 +256,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -1375,7 +1380,9 @@ export interface WithLifecycle extends Object {
     /**
      * When the drain starts, before `onServerPrepareShutdown`, which waits for
      * every connection (upgraded sockets included) to close or the drain to
-     * end.
+     * end. Hooks run concurrently, and the server keeps accepting connections
+     * until all of them settle, so a hook can hold the listener open (until
+     * traffic stops arriving, say) by returning a promise.
      */
     onServerDrainStart?: (info?: ServerDrainInfo) => Promise<void> | void;
 }
@@ -1386,8 +1393,7 @@ export interface ServerDrainInfo {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

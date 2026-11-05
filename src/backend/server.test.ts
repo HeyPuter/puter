@@ -1541,6 +1541,73 @@ describe('PuterServer lifecycle hooks', () => {
             'shutdown:client',
         ]);
     });
+
+    it('keeps accepting connections until every drain-start hook settles, without one holding up another', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        let otherRan = false;
+        (server.services as unknown as Record<string, unknown>).holdsListener =
+            { onServerDrainStart: () => held };
+        (server.drivers as unknown as Record<string, unknown>).other = {
+            onServerDrainStart: () => {
+                otherRan = true;
+            },
+        };
+
+        const connect = () =>
+            new Promise<void>((resolve, reject) => {
+                const socket = net.connect(port, '127.0.0.1');
+                socket.on('connect', () => {
+                    socket.destroy();
+                    resolve();
+                });
+                socket.on('error', reject);
+            });
+
+        const prepared = server.prepareShutdown({ drainMs: 1_000 });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(otherRan).toBe(true);
+        await expect(connect()).resolves.toBeUndefined();
+
+        release();
+        await prepared;
+        await expect(connect()).rejects.toMatchObject({
+            code: 'ECONNREFUSED',
+        });
+        await server.shutdown();
+    });
+
+    it('runs every drain-start hook when one of them throws', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const ran: string[] = [];
+        (server.stores as unknown as Record<string, unknown>).fails = {
+            onServerDrainStart: () => {
+                throw new Error('drain hook failed');
+            },
+        };
+        (server.services as unknown as Record<string, unknown>).after = {
+            onServerDrainStart: () => {
+                ran.push('after');
+            },
+        };
+
+        await server.prepareShutdown({ drainMs: 1_000 });
+        await server.shutdown();
+
+        expect(ran).toEqual(['after']);
+        expect(console.error).toHaveBeenCalledWith(
+            expect.stringContaining('onServerDrainStart failed'),
+            expect.any(Error),
+        );
+    });
 });
 
 describe('PuterServer shutdown during prepare', () => {
