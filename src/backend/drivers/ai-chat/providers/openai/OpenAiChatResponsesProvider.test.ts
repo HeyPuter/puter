@@ -246,6 +246,7 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
                     prompt_tokens: input,
                     cached_tokens: cached,
                     cache_write_tokens: input * 1.25,
+                    cache_write_12h_tokens: input * 2.5,
                     completion_tokens: output,
                 },
                 context: 1_050_000,
@@ -844,7 +845,7 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
             },
         });
 
-        await withTestActor(() =>
+        const result = await withTestActor(() =>
             provider.complete({
                 model: 'gpt-6-luna',
                 messages: [{ role: 'user', content: 'hi' }],
@@ -867,6 +868,115 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
             cached_tokens: 1000 * Number(luna.costs.cached_tokens),
             cache_write_tokens: 3000 * Number(luna.costs.cache_write_tokens),
         });
+        // Writes without a per-lifetime breakdown are OpenAI's default 30m
+        // entries, and the neutral breakdown says so.
+        expect((result as { usageDetails: unknown }).usageDetails).toEqual({
+            inputTokens: 1000,
+            outputTokens: 20,
+            cacheReadTokens: 1000,
+            cacheWrite30mTokens: 3000,
+        });
+    });
+
+    it('bills 12h cache writes at 2.5x input and the other writes at 1.25x', async () => {
+        const luna = OPEN_AI_MODELS.find((m) => m.id === 'gpt-6-luna')!;
+        const { provider } = makeProvider();
+        // One request can write both lifetimes: an explicit 12h breakpoint
+        // plus the implicit 30m one OpenAI adds at the end of the prompt.
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [{ role: 'assistant' }],
+            output_text: 'ok',
+            usage: {
+                input_tokens: 6026,
+                output_tokens: 5,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 6023,
+                    cache_write_tokens_details: {
+                        ttl_12h_tokens: 6012,
+                        ttl_30m_tokens: 11,
+                    },
+                },
+            },
+        });
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+                prompt_cache_options: { ttl: '12h' },
+            }),
+        );
+
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage).toEqual({
+            prompt_tokens: 3,
+            completion_tokens: 5,
+            cached_tokens: 0,
+            cache_write_tokens: 11,
+            cache_write_12h_tokens: 6012,
+        });
+        expect(luna.costs.cache_write_12h_tokens).toBe(
+            Number(luna.costs.prompt_tokens) * 2.5,
+        );
+        expect(overrides).toEqual({
+            prompt_tokens: 3 * Number(luna.costs.prompt_tokens),
+            completion_tokens: 5 * Number(luna.costs.completion_tokens),
+            cached_tokens: 0,
+            cache_write_tokens: 11 * Number(luna.costs.cache_write_tokens),
+            cache_write_12h_tokens:
+                6012 * Number(luna.costs.cache_write_12h_tokens),
+        });
+        expect((result as { usageDetails: unknown }).usageDetails).toEqual({
+            inputTokens: 3,
+            outputTokens: 5,
+            cacheWrite30mTokens: 11,
+            cacheWrite12hTokens: 6012,
+        });
+    });
+
+    it('forwards prompt_cache_options and the wire spelling of prompt_cache_retention', async () => {
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [{ role: 'assistant' }],
+            output_text: 'ok',
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+                prompt_cache_retention: 'in-memory',
+                prompt_cache_options: {
+                    mode: 'explicit',
+                    ttl: '12h',
+                    comparison_response_id: 'resp_1',
+                } as never,
+            }),
+        );
+
+        const [args] = responsesCreateMock.mock.calls[0]!;
+        expect(args.prompt_cache_retention).toBe('in_memory');
+        expect(args.prompt_cache_options).toEqual({
+            mode: 'explicit',
+            ttl: '12h',
+        });
+    });
+
+    it('rejects a cache lifetime OpenAI does not offer before calling upstream', async () => {
+        const { provider } = makeProvider();
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    prompt_cache_options: { ttl: '2h' } as never,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(responsesCreateMock).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -1065,6 +1175,69 @@ describe('OpenAiResponsesChatProvider.complete streaming', () => {
             prompt_tokens: 3 * Number(sol.costs.prompt_tokens),
             completion_tokens: 2 * Number(sol.costs.completion_tokens),
             cached_tokens: 1 * Number(sol.costs.cached_tokens ?? 0),
+        });
+    });
+
+    it('labels streamed cache writes by lifetime on the final usage chunk', async () => {
+        const luna = OPEN_AI_MODELS.find((m) => m.id === 'gpt-6-luna')!;
+        const { provider } = makeProvider();
+        responsesCreateMock.mockReturnValueOnce(
+            asAsyncIterable([
+                { type: 'response.output_text.delta', delta: 'ok' },
+                {
+                    type: 'response.completed',
+                    response: {
+                        usage: {
+                            input_tokens: 6026,
+                            output_tokens: 5,
+                            input_tokens_details: {
+                                cached_tokens: 0,
+                                cache_write_tokens: 6023,
+                                cache_write_tokens_details: {
+                                    ttl_12h_tokens: 6012,
+                                    ttl_30m_tokens: 11,
+                                },
+                            },
+                        },
+                    },
+                },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'say ok' }],
+                stream: true,
+                prompt_cache_options: { ttl: '12h' },
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const usageEvent = harness.events().find((e) => e.type === 'usage');
+        expect(usageEvent?.usage).toEqual({
+            prompt_tokens: 3,
+            completion_tokens: 5,
+            cached_tokens: 0,
+            cache_write_tokens: 11,
+            cache_write_12h_tokens: 6012,
+        });
+        expect(usageEvent?.usageDetails).toEqual({
+            inputTokens: 3,
+            outputTokens: 5,
+            cacheWrite30mTokens: 11,
+            cacheWrite12hTokens: 6012,
+        });
+        const [, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(overrides).toMatchObject({
+            cache_write_tokens: 11 * Number(luna.costs.cache_write_tokens),
+            cache_write_12h_tokens:
+                6012 * Number(luna.costs.cache_write_12h_tokens),
         });
     });
 

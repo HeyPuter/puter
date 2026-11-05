@@ -22,11 +22,14 @@ import { describe, expect, it } from 'vitest';
 import type { ICompleteArguments } from '../types.js';
 import {
     clampReasoningEffort,
+    messagesHaveCacheBreakpointTtl,
     openAICompatParams,
     outputFormatFromResponseFormat,
     outputFormatFromResponsesText,
     outputFormatToResponseFormat,
     outputFormatToResponsesText,
+    promptCacheOptionsToWire,
+    promptCacheRetentionToWire,
     rejectStatefulResponsesFields,
     toolChoiceFromWire,
     toolChoiceToWire,
@@ -332,5 +335,111 @@ describe('rejectStatefulResponsesFields', () => {
         expect(() =>
             rejectStatefulResponsesFields({ previous_response_id: 'resp_1' }),
         ).toThrow(/previous_response_id/);
+    });
+});
+
+describe('promptCacheRetentionToWire', () => {
+    it('spells the in-memory retention the way the upstreams expect', () => {
+        expect(promptCacheRetentionToWire('in-memory')).toBe('in_memory');
+        expect(promptCacheRetentionToWire('in_memory')).toBe('in_memory');
+        expect(promptCacheRetentionToWire('24h')).toBe('24h');
+        expect(promptCacheRetentionToWire(undefined)).toBeUndefined();
+    });
+});
+
+describe('promptCacheOptionsToWire', () => {
+    it('forwards mode and ttl and nothing else', () => {
+        expect(
+            promptCacheOptionsToWire({
+                mode: 'explicit',
+                ttl: '12h',
+                prewarm: true,
+                comparison_response_id: 'resp_1',
+            }),
+        ).toEqual({ mode: 'explicit', ttl: '12h' });
+        expect(promptCacheOptionsToWire({ ttl: '30m' })).toEqual({
+            ttl: '30m',
+        });
+    });
+
+    it('sends nothing for an absent or empty object', () => {
+        expect(promptCacheOptionsToWire(undefined)).toBeUndefined();
+        expect(promptCacheOptionsToWire(null)).toBeUndefined();
+        expect(promptCacheOptionsToWire({})).toBeUndefined();
+        expect(promptCacheOptionsToWire({ prewarm: true })).toBeUndefined();
+    });
+
+    it('rejects a lifetime or mode OpenAI does not offer', () => {
+        expect(() => promptCacheOptionsToWire({ ttl: '2h' })).toThrow(
+            expect.objectContaining({ statusCode: 400 }),
+        );
+        expect(() => promptCacheOptionsToWire({ ttl: '24h' })).toThrow(
+            /30m.*12h/,
+        );
+        expect(() => promptCacheOptionsToWire({ mode: 'auto' })).toThrow(
+            /implicit.*explicit/,
+        );
+        expect(() => promptCacheOptionsToWire('12h')).toThrow(
+            /must be an object/,
+        );
+    });
+});
+
+describe('messagesHaveCacheBreakpointTtl', () => {
+    it('finds a breakpoint lifetime on any content part', () => {
+        expect(
+            messagesHaveCacheBreakpointTtl([
+                { role: 'user', content: 'plain' },
+                {
+                    role: 'system',
+                    content: [
+                        { type: 'text', text: 'a' },
+                        {
+                            type: 'text',
+                            text: 'b',
+                            prompt_cache_breakpoint: {
+                                mode: 'explicit',
+                                ttl: '30m',
+                            },
+                        },
+                    ],
+                },
+            ]),
+        ).toBe(true);
+        expect(
+            messagesHaveCacheBreakpointTtl([
+                {
+                    role: 'user',
+                    content: {
+                        type: 'text',
+                        text: 'a',
+                        prompt_cache_breakpoint: { ttl: '12h' },
+                    },
+                },
+            ]),
+        ).toBe(true);
+    });
+
+    it('ignores breakpoints without a lifetime and odd message shapes', () => {
+        expect(
+            messagesHaveCacheBreakpointTtl([
+                {
+                    role: 'system',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'a',
+                            prompt_cache_breakpoint: { mode: 'explicit' },
+                        },
+                        'bare string part',
+                        null,
+                    ],
+                },
+                { role: 'user', content: null },
+                null,
+            ]),
+        ).toBe(false);
+        expect(messagesHaveCacheBreakpointTtl(undefined)).toBe(false);
+        expect(messagesHaveCacheBreakpointTtl('nope')).toBe(false);
     });
 });

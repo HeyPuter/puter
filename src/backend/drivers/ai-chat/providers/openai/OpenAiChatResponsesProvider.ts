@@ -32,6 +32,8 @@ import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import {
     clampReasoningEffort,
     openAICompatParams,
+    promptCacheOptionsToWire,
+    promptCacheRetentionToWire,
     rejectStatefulResponsesFields,
 } from '../../utils/openaiParams.js';
 import { responseSamplingParams } from '../../utils/responseSampling.js';
@@ -150,6 +152,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         prompt,
         prompt_cache_key,
         prompt_cache_retention,
+        prompt_cache_options,
         store,
         top_p,
         truncation,
@@ -195,6 +198,10 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         const userIdentifier = upstreamUserIdentifier(actor);
         // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
         const cacheKey = prompt_cache_key ?? userIdentifier;
+        const cacheRetention = promptCacheRetentionToWire(
+            prompt_cache_retention,
+        );
+        const cacheOptions = promptCacheOptionsToWire(prompt_cache_options);
 
         if (tools) {
             // Unravel tools to OpenAI Responses API format
@@ -288,8 +295,11 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             ...(instructions !== undefined ? { instructions } : {}),
             ...(metadata !== undefined ? { metadata } : {}),
             ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
-            ...(prompt_cache_retention !== undefined
-                ? { prompt_cache_retention }
+            ...(cacheRetention !== undefined
+                ? { prompt_cache_retention: cacheRetention }
+                : {}),
+            ...(cacheOptions !== undefined
+                ? { prompt_cache_options: cacheOptions }
                 : {}),
             ...(store !== undefined ? { store } : {}),
             ...(max_tokens !== undefined
@@ -310,24 +320,17 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
             { signal: Context.get('upstreamSignal') },
         );
         return OpenAiUtil.handle_completion_output_responses_api({
-            usage_calculator: ({ usage, webSearchCalls, setUsageCosts }) => {
-                const cachedTokens =
-                    (usage as any).input_tokens_details?.cached_tokens ?? 0;
-                // GPT-5.6 and later bill cache writes at 1.25x input. They're
-                // reported inside `input_tokens`, like cached reads.
-                const cacheWriteTokens =
-                    (usage as any).input_tokens_details?.cache_write_tokens ??
-                    0;
+            usage_calculator: ({
+                usage,
+                webSearchCalls,
+                setUsageCosts,
+                setUsageDetails,
+            }) => {
+                // GPT-5.6 and later report cache writes inside `input_tokens`,
+                // like cached reads, split by lifetime (30m and 12h entries
+                // cost 1.25x and 2.5x input to write).
                 const trackedUsage: Record<string, number> = {
-                    prompt_tokens:
-                        ((usage as any).input_tokens ?? 0) -
-                        cachedTokens -
-                        cacheWriteTokens,
-                    completion_tokens: (usage as any).output_tokens ?? 0,
-                    cached_tokens: cachedTokens,
-                    ...(cacheWriteTokens
-                        ? { cache_write_tokens: cacheWriteTokens }
-                        : {}),
+                    ...OpenAiUtil.splitCachedPrompt(usage),
                     ...(webSearchCalls
                         ? { web_search_calls: webSearchCalls }
                         : {}),
@@ -356,6 +359,11 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                         : {},
                 );
                 setUsageCosts?.(metered.costs);
+                setUsageDetails?.(
+                    OpenAiUtil.usageDetailsFromTrackedUsage(metered.usage, {
+                        writeTtl: '30m',
+                    })!,
+                );
                 return metered.usage;
             },
             stream,

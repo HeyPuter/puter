@@ -247,6 +247,40 @@ describe('usageDetailsFromTrackedUsage', () => {
         });
     });
 
+    it('labels cache writes by the lifetime the provider says it wrote them with', () => {
+        expect(
+            usageDetailsFromTrackedUsage(
+                {
+                    prompt_tokens: 10,
+                    completion_tokens: 5,
+                    cached_tokens: 3,
+                    cache_write_tokens: 11,
+                    cache_write_12h_tokens: 6012,
+                },
+                { writeTtl: '30m' },
+            ),
+        ).toEqual({
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 3,
+            cacheWrite30mTokens: 11,
+            cacheWrite12hTokens: 6012,
+        });
+        // Zero counts, as OpenAI reports on a cache hit, add no field.
+        expect(
+            usageDetailsFromTrackedUsage(
+                {
+                    prompt_tokens: 10,
+                    completion_tokens: 5,
+                    cached_tokens: 3,
+                    cache_write_tokens: 0,
+                    cache_write_12h_tokens: 0,
+                },
+                { writeTtl: '30m' },
+            ),
+        ).toEqual({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 3 });
+    });
+
     it('returns undefined for a missing/non-object usage', () => {
         expect(usageDetailsFromTrackedUsage(undefined)).toBeUndefined();
         expect(usageDetailsFromTrackedUsage(null)).toBeUndefined();
@@ -960,6 +994,66 @@ describe('splitCachedPrompt', () => {
             prompt_tokens: 7,
             completion_tokens: 5,
             cached_tokens: 3,
+        });
+    });
+
+    it('reads the Responses usage spelling', () => {
+        expect(
+            splitCachedPrompt({
+                input_tokens: 6026,
+                output_tokens: 5,
+                input_tokens_details: { cached_tokens: 0, cache_write_tokens: 6023 },
+            }),
+        ).toEqual({
+            prompt_tokens: 3,
+            completion_tokens: 5,
+            cached_tokens: 0,
+            cache_write_tokens: 6023,
+        });
+    });
+
+    it('splits 12h writes out of the write count when the breakdown is reported', () => {
+        // One request can write both lifetimes: an explicit 12h breakpoint
+        // plus the implicit 30m one OpenAI adds at the end of the prompt.
+        expect(
+            splitCachedPrompt({
+                input_tokens: 6026,
+                output_tokens: 5,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 6023,
+                    cache_write_tokens_details: {
+                        ttl_12h_tokens: 6012,
+                        ttl_30m_tokens: 11,
+                    },
+                },
+            }),
+        ).toEqual({
+            prompt_tokens: 3,
+            completion_tokens: 5,
+            cached_tokens: 0,
+            cache_write_tokens: 11,
+            cache_write_12h_tokens: 6012,
+        });
+    });
+
+    it('never reports more 12h writes than writes in total', () => {
+        expect(
+            splitCachedPrompt({
+                input_tokens: 100,
+                output_tokens: 1,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 40,
+                    cache_write_tokens_details: { ttl_12h_tokens: 50 },
+                },
+            }),
+        ).toEqual({
+            prompt_tokens: 60,
+            completion_tokens: 1,
+            cached_tokens: 0,
+            cache_write_tokens: 0,
+            cache_write_12h_tokens: 40,
         });
     });
 });

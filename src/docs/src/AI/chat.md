@@ -399,6 +399,23 @@ The code implementation is available in our [web search example](/playground/ai-
 
 List of OpenAI models that support the web search can be found in their [API compatibility documentation](https://platform.openai.com/docs/guides/tools-web-search#api-compatibility).
 
+#### Prompt Caching
+
+OpenAI models cache prompt prefixes on their own. Requests from the same app and user share one cache by default, and you can pick the cache with `prompt_cache_key`. Their `usage` reports the tokens read from the cache as `cached_tokens`.
+
+GPT-5.6 and later models charge for cache writes and let you choose how long an entry lives. Pass `prompt_cache_options` with a `ttl` of `"30m"` (the default) or `"12h"`. The `usage` reports the tokens written with the 30 minute lifetime as `cache_write_tokens` and the tokens written with the 12 hour lifetime as `cache_write_12h_tokens`. Writing a 30 minute entry costs 1.25 times the model's input rate, and writing a 12 hour entry costs 2.5 times the input rate. Reads cost the same for both lifetimes. To mark where a reusable prefix ends, add `prompt_cache_breakpoint: { mode: "explicit" }` to a content part. A breakpoint can carry its own `ttl`, which overrides the request's. OpenAI only takes a 12 hour lifetime, or a lifetime on a breakpoint, through its Responses API, so a request that uses either is sent there.
+
+```js
+puter.ai.chat('<your message>', {
+    model: 'gpt-6-luna',
+    prompt_cache_options: { ttl: '12h' }
+});
+```
+
+Older OpenAI models charge nothing for cache writes. Pass `prompt_cache_retention` with `"in_memory"` for an entry that lives a few minutes or `"24h"` for one that can live up to a day. The 24 hour option is the default, and GPT-5.5 and later models only support it.
+
+The `usageDetails` object on every result carries the same counts under provider-neutral names, with one field per lifetime, such as `cacheWrite30mTokens` and `cacheWrite12hTokens`. See the [ChatResponse](/Objects/chatresponse/) object for the full list.
+
 ### Anthropic models
 
 #### Prompt Caching
