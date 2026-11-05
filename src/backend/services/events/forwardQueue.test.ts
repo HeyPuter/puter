@@ -217,6 +217,97 @@ describe('the addressed peer queue', () => {
         ).toEqual(['b']);
     });
 
+    it.each([false, true])(
+        'waits for an active send and ships its tail after failure %s',
+        async (failFirst) => {
+            let release!: () => void;
+            const held = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            let releaseTail!: () => void;
+            const tailHeld = new Promise<void>((resolve) => {
+                releaseTail = resolve;
+            });
+            const sent: ForwardItem[][] = [];
+            const { queue } = makeQueue({
+                maxItems: 1,
+                flushMs: 60_000,
+                send: async (_peerId, items) => {
+                    sent.push(items);
+                    if (sent.length === 1) {
+                        await held;
+                        if (failFirst) throw new Error('peer unavailable');
+                    } else {
+                        await tailHeld;
+                    }
+                },
+            });
+            queue.push('east', delivery('first'));
+            await vi.waitFor(() => expect(sent).toHaveLength(1));
+            queue.push('east', delivery('tail'));
+            let finished = false;
+            const draining = queue.flushAll().then(() => {
+                finished = true;
+            });
+            try {
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                expect(finished).toBe(false);
+                release();
+                await vi.waitFor(() => expect(sent).toHaveLength(2));
+                expect(finished).toBe(false);
+            } finally {
+                release();
+                releaseTail();
+                await draining;
+                queue.stop();
+            }
+            expect(sent).toEqual([[delivery('first')], [delivery('tail')]]);
+        },
+    );
+
+    it('releases the peer after a send throws synchronously', async () => {
+        const send = vi.fn(() => {
+            throw new Error('send failed');
+        });
+        const { queue } = makeQueue({ maxItems: 1, send });
+        queue.push('east', delivery('first'));
+        await queue.flushAll();
+        queue.push('east', delivery('second'));
+        await queue.flushAll();
+        expect(send).toHaveBeenCalledTimes(2);
+    });
+
+    it('bounds a final drain while a send is hung', async () => {
+        vi.useFakeTimers();
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const send = vi.fn(async () => {
+            await held;
+        });
+        const { queue } = makeQueue({ maxItems: 1, send });
+        try {
+            queue.push('east', delivery('first'));
+            queue.push('east', delivery('tail'));
+            let finished = false;
+            const draining = queue.flushAll().then(() => {
+                finished = true;
+            });
+            await vi.advanceTimersByTimeAsync(4_999);
+            expect(finished).toBe(false);
+            await vi.advanceTimersByTimeAsync(1);
+            await draining;
+            queue.stop();
+            release();
+            await vi.advanceTimersByTimeAsync(100);
+            expect(send).toHaveBeenCalledTimes(1);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            release();
+            vi.useRealTimers();
+        }
+    });
     it('sends nothing more once it is stopped', async () => {
         const { queue, sent } = makeQueue();
         queue.stop();

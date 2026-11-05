@@ -1755,7 +1755,15 @@ export class PuterServer {
         if (order === 'topDown') layers.reverse();
         for (const layer of layers) {
             for (const instance of Object.values(layer) as WithLifecycle[]) {
-                await instance[hook]?.();
+                try {
+                    await instance[hook]?.();
+                } catch (err) {
+                    if (hook === 'onServerStart') throw err;
+                    console.error(
+                        `[server] ${hook} failed in ${instance.constructor.name}`,
+                        err,
+                    );
+                }
             }
         }
     }
@@ -1810,7 +1818,14 @@ export class PuterServer {
                 console.log(
                     'PuterServer has stopped accepting new connections',
                 );
-                await this.#runPrepareShutdownHooks();
+                try {
+                    await this.#runPrepareShutdownHooks();
+                } catch (err) {
+                    console.error(
+                        '[server] prepare-shutdown hooks failed',
+                        err,
+                    );
+                }
             });
         }
     }

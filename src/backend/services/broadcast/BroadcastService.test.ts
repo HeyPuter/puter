@@ -1149,3 +1149,154 @@ describe('BroadcastService — same-cluster pub/sub fan-out', () => {
         }
     });
 });
+
+describe('BroadcastService shutdown drain', () => {
+    let server: PuterServer;
+    let broadcast: BroadcastService;
+
+    beforeEach(async () => {
+        axiosRequestMock.mockReset();
+        axiosRequestMock.mockResolvedValue({ status: 200, data: 'ok' });
+        server = await setupTestServer({
+            broadcast: {
+                webhook: { peerId: SELF_PEER_ID, secret: SELF_SECRET },
+                peers: [
+                    {
+                        peerId: PEER_ID,
+                        webhook: true,
+                        webhook_url: PEER_URL,
+                        webhook_secret: PEER_SECRET,
+                    },
+                ],
+                outbound_flush_ms: 10,
+            },
+        } as never);
+        broadcast = server.services.broadcast as unknown as BroadcastService;
+    });
+
+    afterEach(async () => {
+        vi.useRealTimers();
+        await broadcast.onServerPrepareShutdown();
+        await broadcast.onServerShutdown();
+        await server.shutdown();
+    });
+
+    const emit = (hash: string) =>
+        server.clients.event.emit(
+            'outer.fs.write-hash' as never,
+            { hash, uuid: hash } as never,
+            {},
+        );
+
+    it.each(['onServerPrepareShutdown', 'onServerShutdown'] as const)(
+        'waits for the active flush and sends its tail in %s',
+        async (hook) => {
+            let release!: () => void;
+            const held = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            let releaseTail!: () => void;
+            const tailHeld = new Promise<void>((resolve) => {
+                releaseTail = resolve;
+            });
+            axiosRequestMock
+                .mockImplementationOnce(async () => {
+                    await held;
+                    return { status: 200, data: 'ok' };
+                })
+                .mockImplementationOnce(async () => {
+                    await tailHeld;
+                    return { status: 200, data: 'ok' };
+                });
+            emit('first');
+            await vi.waitFor(() =>
+                expect(axiosRequestMock).toHaveBeenCalledTimes(1),
+            );
+            emit('tail');
+            let finished = false;
+            const draining = broadcast[hook]().then(() => {
+                finished = true;
+            });
+            try {
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                expect(finished).toBe(false);
+                release();
+                await vi.waitFor(() =>
+                    expect(axiosRequestMock).toHaveBeenCalledTimes(2),
+                );
+                expect(finished).toBe(false);
+            } finally {
+                release();
+                releaseTail();
+                await draining;
+            }
+            expect(axiosRequestMock).toHaveBeenCalledTimes(2);
+            expect(axiosRequestMock.mock.calls[1][0].data).toContain('tail');
+        },
+    );
+
+    it('keeps normal timer flushing after prepare on an idle server', async () => {
+        await broadcast.onServerPrepareShutdown();
+        vi.useFakeTimers();
+        axiosRequestMock.mockClear();
+        emit('during-drain');
+        await vi.advanceTimersByTimeAsync(10);
+        expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+        expect(axiosRequestMock.mock.calls[0][0].data).toContain(
+            'during-drain',
+        );
+    });
+
+    it('sends events queued after prepare during shutdown and clears the timer', async () => {
+        await broadcast.onServerPrepareShutdown();
+        vi.useFakeTimers();
+        axiosRequestMock.mockClear();
+        emit('after-prepare');
+        await broadcast.onServerShutdown();
+        expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+        expect(axiosRequestMock.mock.calls[0][0].data).toContain(
+            'after-prepare',
+        );
+        axiosRequestMock.mockClear();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(axiosRequestMock).not.toHaveBeenCalled();
+    });
+
+    it.each(['onServerPrepareShutdown', 'onServerShutdown'] as const)(
+        'bounds a hung flush in %s',
+        async (hook) => {
+            let release!: () => void;
+            const held = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            axiosRequestMock.mockImplementationOnce(async () => {
+                await held;
+                return { status: 200, data: 'ok' };
+            });
+            emit('hung');
+            await vi.waitFor(() =>
+                expect(axiosRequestMock).toHaveBeenCalledTimes(1),
+            );
+            vi.useFakeTimers();
+            emit('tail');
+            let finished = false;
+            const draining = broadcast[hook]().then(() => {
+                finished = true;
+            });
+            try {
+                await vi.advanceTimersByTimeAsync(4_999);
+                expect(finished).toBe(false);
+                await vi.advanceTimersByTimeAsync(1);
+                await draining;
+                release();
+                await vi.advanceTimersByTimeAsync(100);
+                expect(axiosRequestMock).toHaveBeenCalledTimes(
+                    hook === 'onServerPrepareShutdown' ? 2 : 1,
+                );
+            } finally {
+                release();
+                vi.useRealTimers();
+            }
+        },
+    );
+});

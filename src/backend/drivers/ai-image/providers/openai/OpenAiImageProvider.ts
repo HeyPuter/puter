@@ -293,7 +293,10 @@ export class OpenAiImageProvider implements IImageProvider {
                 });
             }
             if (usageEntries.length) {
-                this.#meteringService.batchIncrementUsages(actor, usageEntries);
+                await this.#meteringService.batchIncrementUsages(
+                    actor,
+                    usageEntries,
+                );
             }
 
             const url =
