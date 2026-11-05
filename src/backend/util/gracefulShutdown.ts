@@ -45,6 +45,8 @@ export interface GracefulShutdownOptions {
 
 export const DEFAULT_TELEMETRY_SHUTDOWN_TIMEOUT_MS = 5_000;
 export const DEFAULT_SHUTDOWN_HARD_LIMIT_MS = 25_000;
+/** Cap on one component's final flush, so teardown fits the hard limit. */
+export const FINAL_FLUSH_TIMEOUT_MS = 5_000;
 
 /**
  * The process's one shutdown sequence: stop accepting connections, drain, tear
