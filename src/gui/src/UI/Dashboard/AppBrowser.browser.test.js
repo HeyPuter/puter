@@ -397,6 +397,27 @@ describe('embedded toolbar', () => {
             expect(await page.evaluate(() => window.sessionChanges)).toBe(1);
         } finally { await context.close(); }
     });
+    it('finishes signing out when the session already ended elsewhere, but keeps it on other failures', async () => {
+        const { context, page, toolbar } = await openToolbar();
+        try {
+            let status = 500;
+            await page.route('**/get-anticsrf-token', route => route.fulfill({ status }));
+            await toolbar.getByRole('button', { name: 'Account', exact: true }).click();
+            await toolbar.locator('.toolbar-logout').click();
+            await toolbar.locator('.toolbar-confirm-logout').click();
+            await toolbar.getByRole('status').waitFor();
+            expect(await page.evaluate(() => window.sessionChanges)).toBe(0);
+            status = 401;
+            await toolbar.locator('.toolbar-confirm-logout').click();
+            await toolbar.getByText('Puter session unavailable').waitFor();
+            expect(await page.evaluate(() => window.sessionChanges)).toBe(1);
+            const other = await context.newPage();
+            await other.goto(`${origin}/dashboard`);
+            expect(await other.evaluate(() => [localStorage.getItem('auth_token_v2'), JSON.parse(localStorage.getItem('logged_in_users')).map(account => account.uuid)]))
+                .toEqual([null, ['second']]);
+        } finally { await context.close(); }
+    });
+
     it('ignores messages from an unrelated window and updates after another tab changes the account', async () => {
         const { context, page, toolbar } = await openToolbar();
         try {

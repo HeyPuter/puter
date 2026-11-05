@@ -39,7 +39,7 @@ async function request (path, { token = sessionToken, api = true, ...options } =
         ...options, credentials: 'include',
         headers: { Authorization: `Bearer ${token}`, ...options.headers },
     });
-    if ( !response.ok ) throw new Error('Account request failed');
+    if ( !response.ok ) throw Object.assign(new Error('Account request failed'), { status: response.status });
     return response;
 }
 
@@ -132,8 +132,13 @@ function changeAccount (account) {
 
 function signOut () {
     return accountAction(async () => {
-        const { token } = await (await request('/get-anticsrf-token', { api: false })).json();
-        await request('/logout', { api: false, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anti_csrf: token }) });
+        try {
+            const { token } = await (await request('/get-anticsrf-token', { api: false })).json();
+            await request('/logout', { api: false, method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anti_csrf: token }) });
+        } catch ( error ) {
+            // A session already ended elsewhere can't be ended again; finish signing out here.
+            if ( error.status !== 401 ) throw error;
+        }
         localStorage.setItem('logged_in_users', JSON.stringify(readSavedAccounts().filter(account => account.uuid !== user.uuid)));
         localStorage.removeItem('user');
         localStorage.removeItem('auth_token');
