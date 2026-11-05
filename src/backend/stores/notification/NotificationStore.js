@@ -33,6 +33,9 @@ import { PuterStore } from '../types';
  * }} NotificationInsert
  */
 
+/** How long a probe that found no `send_key` column stands. */
+const SEND_KEY_REPROBE_MS = 60_000;
+
 /**
  * Fixed width and compared byte for byte on every engine, whatever `group`
  * holds.
@@ -75,6 +78,15 @@ const sliceWhere = (userId, { audience, appUid, excludeTypes }) => {
 };
 
 export class NotificationStore extends PuterStore {
+    #sendKeyPresent = false;
+    #sendKeyProbedAt = Number.NEGATIVE_INFINITY;
+    /** @type {Promise<void> | null} */
+    #sendKeyProbe = null;
+
+    async onServerStart() {
+        await this.#hasSendKey();
+    }
+
     // -- Reads --------------------------------------------------------
 
     /**
@@ -93,6 +105,20 @@ export class NotificationStore extends PuterStore {
         const rows = primary
             ? await this.clients.db.pread(sql, params)
             : await this.clients.db.read(sql, params);
+        return this.#normalizeRow(rows[0]) ?? null;
+    }
+
+    /**
+     * The row a delayed send wrote or last replaced, from the primary. Called
+     * by extensions.
+     *
+     * @param {string} sendKey
+     */
+    async getBySendKey(sendKey) {
+        const rows = await this.clients.db.pread(
+            'SELECT * FROM `notification` WHERE `send_key` = ? LIMIT 1',
+            [sendKey],
+        );
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
@@ -130,11 +156,12 @@ export class NotificationStore extends PuterStore {
      * @param {number} userId
      * @param {{
      *     limit?: number;
+     *     uids?: readonly string[];
      *     onlyUnacknowledged?: boolean;
      *     filter?: string;
      *     scope?: {
      *         audiences: readonly string[];
-     *         appUid: string | null;
+     *         appUid?: string | null;
      *     } | null;
      *     excludeTypes?: readonly string[];
      * }} [opts]
@@ -143,6 +170,7 @@ export class NotificationStore extends PuterStore {
         userId,
         {
             limit = 200,
+            uids,
             onlyUnacknowledged = false,
             filter = undefined,
             scope = null,
@@ -151,6 +179,12 @@ export class NotificationStore extends PuterStore {
     ) {
         const where = ['`user_id` = ?'];
         const params = [userId];
+
+        if (uids) {
+            if (uids.length === 0) return [];
+            where.push(`\`uid\` IN (${uids.map(() => '?').join(', ')})`);
+            params.push(...uids);
+        }
 
         if (excludeTypes.length > 0) {
             where.push(
@@ -289,6 +323,57 @@ export class NotificationStore extends PuterStore {
         return rows.map((r) => this.#normalizeRow(r));
     }
 
+    /**
+     * The newest row id in a mailbox slice, or null when it has none, from the
+     * primary. Scoped like `listScoped`; rows of every type count.
+     *
+     * @param {number} userId
+     * @param {{ audience: string; appUid?: string | null }} scope
+     * @returns {Promise<number | null>}
+     */
+    async latestScopedId(userId, { audience, appUid }) {
+        const { where, params } = sliceWhere(userId, {
+            audience,
+            appUid,
+            excludeTypes: [],
+        });
+        const [row] = await this.clients.db.pread(
+            `SELECT \`id\` FROM \`notification\`
+             WHERE ${where.join(' AND ')}
+             ORDER BY \`id\` DESC
+             LIMIT 1`,
+            params,
+        );
+        return row ? Number(row.id) : null;
+    }
+
+    /**
+     * The latest replacement in a mailbox slice by (`replaced_at`, `id`), or
+     * null when none was replaced, from the primary. Scoped like `listScoped`.
+     *
+     * @param {number} userId
+     * @param {{ audience: string; appUid?: string | null }} scope
+     * @returns {Promise<{ replacedAt: number; id: number } | null>}
+     */
+    async latestScopedReplacement(userId, { audience, appUid }) {
+        const { where, params } = sliceWhere(userId, {
+            audience,
+            appUid,
+            excludeTypes: [],
+        });
+        where.push('`replaced_at` IS NOT NULL');
+        const [row] = await this.clients.db.pread(
+            `SELECT \`replaced_at\`, \`id\` FROM \`notification\`
+             WHERE ${where.join(' AND ')}
+             ORDER BY \`replaced_at\` DESC, \`id\` DESC
+             LIMIT 1`,
+            params,
+        );
+        return row
+            ? { replacedAt: Number(row.replaced_at), id: Number(row.id) }
+            : null;
+    }
+
     // -- Writes -------------------------------------------------------
 
     /**
@@ -341,6 +426,7 @@ export class NotificationStore extends PuterStore {
             type,
             group_key: key,
             replaced_at: null,
+            send_key: null,
         });
     }
 
@@ -355,12 +441,105 @@ export class NotificationStore extends PuterStore {
     }
 
     /**
+     * The statements that write a delayed send's notification, for the caller's
+     * transaction. Each runs only while `guard` holds. With `replaceUid` the
+     * open row is replaced in place and takes `sendKey`; the insert, whose uid
+     * is `sendKey`, then runs only if that row was shown or dismissed in
+     * between. Called by extensions.
+     *
+     * @param {{
+     *     sendKey: string;
+     *     userId: number;
+     *     value: unknown;
+     *     type: string;
+     *     audience: string;
+     *     appUid: string | null;
+     *     group?: string | null;
+     *     replaceUid?: string | null;
+     *     at: number;
+     * }} send
+     *   `at` is epoch ms, the row's time either way.
+     * @param {{ table: string; where: string; values: unknown[] }} guard
+     * @returns {{ statement: string; values: unknown[] }[]}
+     */
+    sendEntries(send, guard) {
+        const db = this.clients.db;
+        const serialized = JSON.stringify(send.value ?? {});
+        const seconds = Math.floor(send.at / 1000);
+        const fence = `SELECT 1 FROM \`${guard.table}\` WHERE ${guard.where}`;
+        const entries = [];
+        if (send.replaceUid) {
+            entries.push({
+                statement:
+                    'UPDATE `notification` SET `value` = ?, `shown` = NULL, ' +
+                    `\`created_at\` = ${db.timestampFromUnixSql()}, ` +
+                    '`replaced_at` = ?, `send_key` = ? WHERE `uid` = ? ' +
+                    'AND `user_id` = ? AND `shown` IS NULL ' +
+                    `AND \`acknowledged\` IS NULL AND EXISTS (${fence})`,
+                values: [
+                    serialized,
+                    seconds,
+                    send.at,
+                    send.sendKey,
+                    send.replaceUid,
+                    send.userId,
+                    ...guard.values,
+                ],
+            });
+        }
+        // Already written: the new row's uid is the key, or a replaced row
+        // carries it. Point lookups on `uid`, since a miss on the mostly-NULL
+        // `send_key` index gap-locks where every plain insert goes.
+        const written = send.replaceUid
+            ? {
+                  sql:
+                      'NOT EXISTS (SELECT 1 FROM `notification` WHERE `uid` = ?) ' +
+                      'AND NOT EXISTS (SELECT 1 FROM `notification` WHERE `uid` = ? AND `send_key` = ?)',
+                  values: [send.sendKey, send.replaceUid, send.sendKey],
+              }
+            : {
+                  sql: 'NOT EXISTS (SELECT 1 FROM `notification` WHERE `uid` = ?)',
+                  values: [send.sendKey],
+              };
+        // Postgres can't type a bare parameter in a SELECT list.
+        const param = (type) =>
+            db.case({ postgres: `CAST(? AS ${type})`, otherwise: '?' });
+        entries.push({
+            statement:
+                'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, ' +
+                '`audience`, `app_uid`, `group_key`, `created_at`, `send_key`) ' +
+                `SELECT ${param('TEXT')}, ${param('INTEGER')}, ${param('JSONB')}, ` +
+                `${param('TEXT')}, ${param('TEXT')}, ${param('TEXT')}, ` +
+                `${param('TEXT')}, ${db.timestampFromUnixSql()}, ${param('TEXT')} ` +
+                `FROM \`${guard.table}\` WHERE ${guard.where} AND ${written.sql}`,
+            values: [
+                send.sendKey,
+                send.userId,
+                serialized,
+                send.type,
+                send.audience,
+                send.appUid,
+                groupKey(send.group),
+                seconds,
+                send.sendKey,
+                ...guard.values,
+                ...written.values,
+            ],
+        });
+        return entries;
+    }
+
+    /**
      * Rewrite a notification the recipient hasn't dismissed. `shown` is cleared
      * with it, so changed wording goes out again on their next connect —
      * `#sendUnreads` only carries what was never shown.
      *
      * `onlyUnseen` also skips a row already shown. `replacedAt`, in epoch ms,
      * records the rewrite as a replacement and dates the row to it.
+     *
+     * `send_key` is cleared with it whenever the column exists, on every node:
+     * the content is no longer what a delayed send wrote, so its recovery must
+     * not deliver it under that send's key.
      *
      * False when no such row exists, so callers can fall back to a fresh
      * notification instead of dropping what they were reporting.
@@ -378,6 +557,7 @@ export class NotificationStore extends PuterStore {
         const serialized =
             typeof value === 'string' ? value : JSON.stringify(value ?? {});
         const set = ['`value` = ?', '`shown` = NULL'];
+        if (await this.#hasSendKey()) set.push('`send_key` = NULL');
         const params = [serialized];
         if (replacedAt !== undefined) {
             set.push(
@@ -401,6 +581,32 @@ export class NotificationStore extends PuterStore {
             'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
             [now, uid, userId],
         );
+        if (result.anyRowsAffected) {
+            try {
+                const [row] = await this.clients.db.pread(
+                    'SELECT `type`, `app_uid`, `audience` FROM `notification` WHERE `uid` = ? AND `user_id` = ? LIMIT 1',
+                    [uid, userId],
+                );
+                if (row?.type === 'app.message' && row.app_uid) {
+                    this.clients.event.emit(
+                        'notif.acknowledged',
+                        {
+                            userId,
+                            uid,
+                            type: row.type,
+                            audience: row.audience,
+                            appUid: row.app_uid,
+                        },
+                        {},
+                    );
+                }
+            } catch (error) {
+                console.warn(
+                    '[notification] dismissal announcement failed',
+                    error,
+                );
+            }
+        }
         return result.anyRowsAffected;
     }
 
@@ -477,6 +683,45 @@ export class NotificationStore extends PuterStore {
     }
 
     // -- Internals ----------------------------------------------------
+
+    /**
+     * Whether `notification.send_key` exists, asked of the primary. Present is
+     * kept for the process; absent is asked again at most once a minute, so a
+     * node started before the column was added clears it soon after.
+     *
+     * @returns {Promise<boolean>}
+     */
+    async #hasSendKey() {
+        if (this.#sendKeyPresent) return true;
+        if (Date.now() - this.#sendKeyProbedAt < SEND_KEY_REPROBE_MS)
+            return false;
+        if (this.#sendKeyProbe) {
+            await this.#sendKeyProbe;
+            return this.#sendKeyPresent;
+        }
+        const probe = this.#probeSendKey();
+        this.#sendKeyProbe = probe;
+        try {
+            await probe;
+        } finally {
+            if (this.#sendKeyProbe === probe) this.#sendKeyProbe = null;
+        }
+        return this.#sendKeyPresent;
+    }
+
+    /** Never rejects: an error reads as no column. */
+    async #probeSendKey() {
+        try {
+            await this.clients.db.pread(
+                'SELECT `send_key` FROM `notification` WHERE 1 = 0',
+                [],
+            );
+            this.#sendKeyPresent = true;
+        } catch {
+            this.#sendKeyPresent = false;
+        }
+        this.#sendKeyProbedAt = Date.now();
+    }
 
     #normalizeRow(row) {
         if (!row) return null;

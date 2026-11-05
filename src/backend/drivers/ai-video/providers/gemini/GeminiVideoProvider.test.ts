@@ -106,7 +106,7 @@ const MP4 = Buffer.concat([
 let server: PuterServer;
 let videoDriver: VideoGenerationDriver;
 let fetchSpy: MockInstance<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let batchSpy: MockInstance<MeteringService['batchIncrementUsages']>;
 
 const generate = (args: Record<string, unknown> = {}) =>
@@ -139,9 +139,11 @@ beforeEach(() => {
     secureFetchMock.mockReset();
     secureFetchMock.mockRejectedValue(new Error('unexpected secureFetch'));
     // The full hold is more than a new account's allowance.
-    hasCreditsSpy = vi
-        .spyOn(server.services.metering, 'hasEnoughCredits')
-        .mockResolvedValue(true);
+    admitSpy = vi
+        .spyOn(server.services.metering, 'reserveCreditsIfAffordable')
+        .mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        );
     batchSpy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
 });
 
@@ -589,7 +591,7 @@ describe('GeminiVideoProvider test_mode', () => {
     it('returns the sample clip without network, credits or metering', async () => {
         expect(await testMode()).toBe(SAMPLE_URL);
         expect(fetchSpy).not.toHaveBeenCalled();
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(batchSpy).not.toHaveBeenCalled();
     });
 
@@ -1028,7 +1030,7 @@ describe('GeminiVideoProvider source video', () => {
 
         const path = await writeVideo(user, 'dog.mp4', MP4);
         const read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
-        hasCreditsSpy.mockResolvedValue(false);
+        admitSpy.mockResolvedValue(null);
         countOnly();
         await expect(
             withActor(user.actor, () => generate({ input_video: path })),
@@ -1573,12 +1575,12 @@ describe('GeminiVideoProvider countTokens preflight', () => {
 describe('GeminiVideoProvider credit hold', () => {
     it('throws 402 after counting tokens, before generating', async () => {
         const { actor } = await makeUser();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         fetchSpy.mockResolvedValueOnce(Response.json({ totalTokens: 18 }));
         await expect(withActor(actor, () => generate())).rejects.toMatchObject({
             statusCode: 402,
         });
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(HOLD);
+        expect(admitSpy.mock.calls[0]![1]).toBe(HOLD);
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         expect(batchSpy).not.toHaveBeenCalled();
     });

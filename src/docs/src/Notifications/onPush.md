@@ -20,7 +20,7 @@ On a website, pushes arrive on your own origin through a service worker that loa
 importScripts('https://js.puter.com/push-sw.js');
 ```
 
-To use another worker, such as one your site already has, pass its path as `serviceWorker`, and pass the same path to [`enable()`](/Notifications/enable/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). [Push notifications for your app](/Notifications/push/#1-serve-the-service-worker) has the setup and the rules the worker follows. Inside the Puter desktop, pushes go through Puter and no worker is needed.
+To use another worker, such as one your site already has, pass its path as `serviceWorker`, and pass the same path to [`enable()`](/Notifications/enable/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). [Push notifications for your app](/Notifications/push/#1-serve-the-service-worker) has the setup and the rules the worker follows, and how to [serve your own copy](/Notifications/push/#serving-your-own-copy) of `push-sw.js` from npm. Inside the Puter desktop, pushes go through Puter and no worker is needed.
 
 ## Syntax
 ```js
@@ -34,12 +34,18 @@ puter.notifications.onPush(key, handler, options)
 The `channel` your notifications are sent with. 1 to 32 lowercase letters, digits or `-`.
 
 #### `handler` (Function) (required)
-A plain `function` or an arrow function. It's called with the notification, in the same shape [`onNotification()`](/Notifications/onNotification/) delivers. It may return, or resolve to, an object that changes what the browser shows:
+A plain `function` or an arrow function. It's called with the notification, in the shape [`onNotification()`](/Notifications/onNotification/) delivers, in the page and in the service worker alike. Its `replaced` field is `true` when the notification replaced an earlier one in its [group](/Notifications/notify/#groups). It may return, or resolve to, an object that changes what the browser shows:
 
-- `title`, `body`, `icon`, `badge`, `image`, `tag` (String): As in the browser's `showNotification()`. A notification sent with a `group` gets a `tag` from it by default, so a later one in the group replaces it on screen.
-- `url` (String): A path or URL on your origin, resolved against your worker's scope. Defaults to the notification's `target`. A URL on another origin is replaced with your worker's scope. When no page of your site is open, a tap opens it. When a page is open, the tap focuses that page and goes to [`on('click')`](/Notifications/on/). A page without a `click` handler goes to `url` instead.
+| Field | Type | Description |
+| --- | --- | --- |
+| `title`, `body`, `icon`, `badge`, `image`, `tag` | String | As in the browser's `showNotification()`. A notification sent with a `group` gets a `tag` from it by default, so a later one in the group replaces it on screen. |
+| `requireInteraction` | Boolean | Keeps the notification on screen until the user taps or closes it, where the browser supports it, such as for an incoming call. |
+| `actions` | Array | Up to two buttons, each `{ action, title, icon? }`. `action` is the id [`on('click')`](/Notifications/on/) gets when the button is pressed, and `title` is its label. Both are required, can't be blank, and can be at most 64 characters (UTF-16 code units). `icon` is an optional image URL. Invalid entries are dropped and the first two valid ones are kept. A press opens or focuses your page, like a tap. Browsers without buttons show only the notification. |
+| `url` | String | A path or URL on your origin. Defaults to the notification's `target`. A relative path is read from your site's root, or from your worker's folder when your pages are inside it ([requirements](/Notifications/push/#requirements)). A URL on another origin is replaced with that root or folder. When no page of your site is open, a tap opens it. When a page is open, the tap focuses that page and goes to [`on('click')`](/Notifications/on/). A page without a `click` handler goes to `url` instead. |
 
 Returning nothing shows the notification's own `title` and `text`. Inside the Puter desktop, the result isn't used, and a push shows the notification's own title and text.
+
+[Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/) shows `actions` in use, and [Notify Users of Incoming Calls](/recipes/notify-users-of-incoming-calls/) adds `requireInteraction`.
 
 A [sensitive](/Notifications/notify/#parameters) notification shows only your app's name, whatever the handler returns. Its push carries no `channel`, so no handler runs for it in the worker.
 
@@ -57,8 +63,10 @@ On a website, the handler is saved as source in this browser and run again in yo
 - **Fast.** It has 5 seconds. After that, or if it throws, the push shows the notification's own title and text.
 - **Something always shows.** Browsers show a notification for every push, so a handler can change what shows but can't hide it.
 - **Small input.** A push carries about 4 KB, with `data` at most 1 KB. Put IDs in `data` and fetch the rest.
-- **`eval`.** It's re-created with `new Function`, so a Content-Security-Policy on your worker has to allow `'unsafe-eval'`.
+- **`eval`.** It's re-created with `new Function`, so a Content-Security-Policy on your worker has to allow `'unsafe-eval'`, unless the worker turns saved handlers off ([below](#handlers-in-the-worker)).
 - **Errors.** An error it throws in the worker shows only in the service worker's console, not the page's.
+
+### Handlers in the worker
 
 A handler that needs more, such as imported code, can be registered in the worker itself, where it takes priority over the saved one:
 
@@ -67,8 +75,16 @@ importScripts('https://js.puter.com/push-sw.js', '/my-formatting.js');
 puterPush.onPush('chat', (n) => ({ title: formatTitle(n) }));
 ```
 
+To run only the handlers registered in the worker, call `puterPush.savedHandlers(false)` after `importScripts()`. The worker then never re-creates a handler from the source your pages saved, and a push for a key with no handler in the worker shows the notification's own title and text. Saved handlers are on by default, and `puterPush.savedHandlers(true)` turns them back on.
+
+```js
+importScripts('https://js.puter.com/push-sw.js', '/my-formatting.js');
+puterPush.savedHandlers(false);
+puterPush.onPush('chat', (n) => ({ title: formatTitle(n) }));
+```
+
 ## Return value
-A `Promise` that resolves to `{ off }`. Calling `off()` stops the handler in this page. When no other handler for `key` is left in the page, it also removes the saved one.
+A `Promise` that resolves to `{ off }`. Calling `off()` stops the handler in this page. The saved handler is removed when no tab on this browser still uses a handler for `key`. Where the browser has no Web Locks, such as in some sandboxed frames, it stays.
 
 It rejects with an error carrying `message` and `code`:
 
@@ -76,6 +92,22 @@ It rejects with an error carrying `message` and `code`:
 | --- | --- |
 | `invalid_argument` | `key` isn't 1 to 32 lowercase letters, digits or `-`. |
 | `invalid_handler` | `handler` isn't a plain function or an arrow function, for example a method shorthand, a bound function or a class method. |
+
+Errors reported to `onError` can also carry these codes. The push setup errors listed on [`enable()`](/Notifications/enable/#return-value) can arrive here during renewal, except for the quiet failures described under `options.onError` above. Errors thrown by your handler pass through as written.
+
+| `code` | Meaning |
+| --- | --- |
+| `push_handler_timeout` | The handler ran past 5 seconds in the page. |
+| `push_verification_timeout` | The confirmation push didn't arrive within 30 seconds. |
+| `push_challenge_expired`, `push_challenge_invalid` | Puter couldn't verify the confirmation handed back by the worker. |
+| `app_required` | The live listener wasn't opened as an app. |
+| `events_disabled` | This server doesn't have live notification events turned on. |
+| `events_subscription_limit` | The live connection has reached its subscription limit. |
+| `too_many_requests` | Opening the live listener or reading notifications hit a rate limit. Push renewal rate limits are quiet. |
+| `reauth_required`, `auth_changed` | The live listener stopped because the session or signed-in account changed. |
+| `events_connection_failed` | The live connection couldn't be restored. |
+| `events_failed` | A notification read failed without a readable error code. |
+| `catch_up_truncated` | Catch-up after a gap reached its read limit. See [`onNotification()`](/Notifications/onNotification/). |
 
 ## Examples
 

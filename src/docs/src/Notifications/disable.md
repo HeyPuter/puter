@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 Turns push notifications off for your app. Notifications still reach your app live while it's open.
 
-On a website, it ends this browser's push subscription for your app and removes it from Puter. Pages of your site in this browser, including ones open in other tabs, stop showing notifications themselves while they're in the background, so a notification goes out as a push to the user's other browsers instead. The browser's permission isn't changed, so a later [`enable()`](/Notifications/enable/) turns pushes back on without a prompt.
+On a website, it ends this browser's push subscription for your app and removes it from Puter. Only the subscription Puter made is removed, so a subscription another push service made on your site stays as it is. Pages of your site in this browser, including ones open in other tabs, stop showing notifications themselves while they're in the background, so a notification goes out as a push to the user's other browsers instead. The browser's permission isn't changed, so a later [`enable()`](/Notifications/enable/) turns pushes back on without a prompt.
 
 The choice sticks. Page loads don't turn pushes back on, because [`onPush()`](/Notifications/onPush/) only keeps a subscription current after [`enable()`](/Notifications/enable/). Call [`enable()`](/Notifications/enable/) from a click to turn them on again.
 
@@ -21,7 +21,7 @@ puter.notifications.disable(options)
 ## Parameters
 
 #### `options` (Object) (optional)
-- `serviceWorker` (String): The path of the worker passed to [`enable()`](/Notifications/enable/). Defaults to `/puter-sw.js`. Only used on a website.
+- `serviceWorker` (String): The path of the worker passed to [`enable()`](/Notifications/enable/). When it's set, only that worker's subscription is removed. Without it, Puter's subscription is removed under whichever of your site's service workers holds it. Only used on a website.
 
 ## Return value
 A `Promise` that resolves to `true` when a subscription was removed, and `false` when there was none. Inside the Puter desktop, it resolves `true` when your app held the permission. It resolves `false` in a browser that can't receive pushes.

@@ -83,6 +83,19 @@ interface IncrInput {
 
 type FlatAmounts = Record<string, number>;
 
+interface BufferedRead {
+    delta: FlatAmounts;
+    base: FlatAmounts;
+    claim: FlatAmounts;
+    claimId: string;
+    writeToken: string;
+}
+
+interface StoreAndBufferRead {
+    stored: unknown;
+    buffered: FlatAmounts;
+}
+
 /** A claim's write that was recorded before it was sent; see `INTENT_SCRIPT`. */
 interface SettleIntent {
     writer: string;
@@ -126,8 +139,8 @@ const ORPHAN_AGE_MS = 30_000;
 /** Long enough that a counter for the current month can never expire. */
 const BUFFER_TTL_MS = 40 * 24 * 60 * 60 * 1000;
 
-/** How many counters are written onward at once, to keep the load even. */
-const SETTLE_CONCURRENCY = 20;
+/** Cache reads per call or counter writes per cycle in flight at once. */
+const BUFFER_IO_CONCURRENCY = 20;
 
 /** Roughly a minute between compression reports, so they don't flood the log. */
 const CYCLES_PER_COMPRESSION_REPORT = 12;
@@ -151,6 +164,12 @@ const UNWRITABLE_PATH_MEMO_LIMIT = 1000;
  * `readExact`.
  */
 const EXACT_READ_MEMO_LIMIT = 10_000;
+
+/**
+ * Store reads a consistent read makes while the buffer keeps shrinking under
+ * it; see `#readStoreAndBuffer`.
+ */
+const EXACT_READ_ATTEMPTS = 3;
 
 /** Write units past which settling a counter raises the large-item alarm. */
 const LARGE_SETTLE_WRITE_UNITS = 100;
@@ -339,6 +358,15 @@ const toScriptArgs = (amounts: Record<string, number>): string[] => {
     return args;
 };
 
+/** Whether two sets of amounts hold the same paths and values. */
+const sameAmounts = (a: FlatAmounts, b: FlatAmounts): boolean => {
+    const paths = Object.keys(a);
+    return (
+        paths.length === Object.keys(b).length &&
+        paths.every((path) => a[path] === b[path])
+    );
+};
+
 /** The subset of `amounts` at `paths`. */
 const pickAmounts = (amounts: FlatAmounts, paths: string[]): FlatAmounts =>
     Object.fromEntries(paths.map((path) => [path, amounts[path]!]));
@@ -380,11 +408,12 @@ export const isBilledCounter = (key: string): boolean =>
 // -- Scripts ----------------------------------------------------------
 
 /**
- * KEYS: delta, base, dirty set, tracked set. ARGV: ttl, member, then
- * path/amount pairs.
+ * KEYS: delta, base, dirty set, tracked set, claimed. ARGV: ttl, member,
+ * pending key prefix, then path/amount pairs.
  *
- * Returns the delta and the base together so a running total can be served
- * without a second round trip. Amounts are floats — costs are fractional.
+ * Returns the delta, the base and any outstanding claim together, so a running
+ * total can be served without a second round trip (see `READ_SCRIPT` for the
+ * claim). Amounts are floats — costs are fractional.
  *
  * The counter joins both sets here. The dirty set is the working list a flush
  * takes from and hands back; the tracked set is only ever added to here and
@@ -392,7 +421,7 @@ export const isBilledCounter = (key: string): boolean =>
  * working list does not.
  */
 const INCR_SCRIPT = `
-for i = 3, #ARGV, 2 do
+for i = 4, #ARGV, 2 do
     redis.call('HINCRBYFLOAT', KEYS[1], ARGV[i], ARGV[i + 1])
 end
 redis.call('PEXPIRE', KEYS[1], ARGV[1])
@@ -400,12 +429,48 @@ redis.call('SADD', KEYS[3], ARGV[2])
 redis.call('PEXPIRE', KEYS[3], ARGV[1])
 redis.call('SADD', KEYS[4], ARGV[2])
 redis.call('PEXPIRE', KEYS[4], ARGV[1])
-return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]) }
+local claim = {}
+local nonce = redis.call('HGET', KEYS[5], ARGV[2])
+if nonce then claim = redis.call('HGETALL', ARGV[3] .. nonce) end
+return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]), claim }
 `;
 
-/** KEYS: delta, base. Reads both without marking the counter for flushing. */
+/**
+ * KEYS: delta, base, claimed, fence token. ARGV: counter, pending key prefix.
+ *
+ * Reads both without marking the counter for flushing, plus the counter's
+ * outstanding claim: amounts a flush has taken but not yet written onward are
+ * in neither the delta nor the base. The claim's key is built here, which is
+ * safe for the reason given at `RECONCILE_SCRIPT`.
+ */
 const READ_SCRIPT = `
-return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]) }
+local claim = {}
+local nonce = redis.call('HGET', KEYS[3], ARGV[1])
+if nonce then claim = redis.call('HGETALL', ARGV[2] .. nonce) end
+return {
+    redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]), claim,
+    nonce or '', redis.call('GET', KEYS[4]) or ''
+}
+`;
+
+/**
+ * KEYS: pending, base. ARGV: path/amount pairs just written onward.
+ *
+ * Takes written paths off a claim and, when a base is cached, adds them to it
+ * in the same step, so a read counts them all the way to the settle that
+ * replaces the base with the store's own view. Without a base, reads go to the
+ * store, which already has them.
+ */
+const APPLY_SCRIPT = `
+redis.call('HDEL', KEYS[1], '${INTENT_FIELD}')
+local based = redis.call('EXISTS', KEYS[2]) == 1
+for i = 1, #ARGV, 2 do
+    redis.call('HDEL', KEYS[1], ARGV[i])
+    if based then
+        redis.call('HINCRBYFLOAT', KEYS[2], ARGV[i], ARGV[i + 1])
+    end
+end
+return 1
 `;
 
 /**
@@ -651,9 +716,29 @@ end
 return redis.call('HGETALL', KEYS[1])
 `;
 
+/**
+ * KEYS: pending, base, base sequence. ARGV: paths found already applied.
+ *
+ * Takes paths an earlier copy of the write already applied off a claim, and
+ * drops the cached base in the same step: the base may or may not have them,
+ * and the store does, so the next read seeds a fresh one from the store.
+ */
+const FENCED_SCRIPT = `
+redis.call('HDEL', KEYS[1], '${INTENT_FIELD}')
+for i = 1, #ARGV do
+    redis.call('HDEL', KEYS[1], ARGV[i])
+end
+redis.call('DEL', KEYS[2], KEYS[3])
+return 1
+`;
+
 type ScriptRunner = {
-    meterIncr(...args: string[]): Promise<[string[], string[]]>;
-    meterRead(...args: string[]): Promise<[string[], string[]]>;
+    meterIncr(...args: string[]): Promise<[string[], string[], string[]]>;
+    meterRead(
+        ...args: string[]
+    ): Promise<[string[], string[], string[], string, string]>;
+    meterApply(...args: string[]): Promise<number>;
+    meterFenced(...args: string[]): Promise<number>;
     meterDrain(...args: string[]): Promise<[string[], number]>;
     meterClaim(...args: string[]): Promise<string[] | null>;
     /** `[1, amounts]` when re-claimed, `[0, hadIndexEntry]` when not. */
@@ -770,6 +855,8 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] buffered incr failed, writing through: ${(e as Error).message}`,
             );
             const { res } = await this.#writeThrough(input);
+            // The cached base doesn't have this write; the next read reseeds it.
+            await this.forgetBase(input.key);
             return { res, exact: true };
         }
     }
@@ -817,43 +904,40 @@ export class MeteringBufferStore extends PuterStore {
 
         const keys = key;
         const results: (unknown | null)[] = new Array(keys.length).fill(null);
-        const deltas: FlatAmounts[] = new Array(keys.length).fill(
-            {} as FlatAmounts,
+        const snapshots: (BufferedRead | null)[] = new Array(keys.length).fill(
+            null,
         );
         const misses: number[] = [];
 
-        await Promise.all(
-            keys.map(async (k, i) => {
-                try {
-                    const { delta, base } = await this.#readBuffered(k);
-                    if (Object.keys(base).length > 0) {
-                        results[i] = mergedOrNull(base, delta);
-                        return;
-                    }
-                    // No cached base yet — the store is the only place left to
-                    // ask, and it's cheaper to ask once for every key like it.
-                    deltas[i] = delta;
-                    misses.push(i);
-                } catch (e) {
-                    console.warn(
-                        `[metering] buffered read failed, reading through: ${(e as Error).message}`,
-                    );
-                    misses.push(i);
-                }
-            }),
+        const reads = await runWithConcurrencyLimitSettled(
+            keys,
+            BUFFER_IO_CONCURRENCY,
+            (k) => this.#readBuffered(k),
         );
+        reads.forEach((read, i) => {
+            if (read.status === 'fulfilled') {
+                const { delta, base } = read.value;
+                if (Object.keys(base).length > 0) {
+                    results[i] = mergedOrNull(base, delta);
+                    return;
+                }
+                snapshots[i] = read.value;
+            } else {
+                console.warn(
+                    `[metering] buffered read failed, reading through: ${(read.reason as Error).message}`,
+                );
+            }
+            misses.push(i);
+        });
 
         if (misses.length > 0) {
-            // Unlike the per-key fallbacks above, a failure here is not
-            // absorbed: a caller deciding on a balance must know its answer
-            // is incomplete rather than silently read a buffered-only view.
-            const { res: fetched } = await this.stores.kv.get({
-                key: misses.map((i) => keys[i]!),
-            });
-            const fetchedValues = fetched as (unknown | null)[];
+            const fetched = await this.#readStoreAndBuffer(
+                misses.map((i) => keys[i]!),
+                misses.map((i) => snapshots[i]!),
+            );
             misses.forEach((i, idx) => {
-                const persisted = flattenAmounts(fetchedValues[idx]);
-                results[i] = mergedOrNull(persisted, deltas[i]!);
+                const { stored, buffered } = fetched[idx]!;
+                results[i] = mergedOrNull(flattenAmounts(stored), buffered);
             });
         }
 
@@ -897,7 +981,11 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] exact read could not flush ${key}: ${(e as Error).message}`,
             );
         }
-        return this.stores.kv.get({ key, consistentRead: true });
+        // Whatever is still buffered, a claim another deployment holds and
+        // usage that arrived behind it included, isn't in the store yet.
+        const [{ stored, buffered }] = await this.#readStoreAndBuffer(key);
+        if (Object.keys(buffered).length === 0) return { res: stored };
+        return { res: mergedOrNull(flattenAmounts(stored), buffered) };
     }
 
     #rememberExactRead(key: string, now: number): void {
@@ -1115,12 +1203,20 @@ export class MeteringBufferStore extends PuterStore {
         this.#definedScripts = true;
         const client = this.clients.redis;
         client.defineCommand('meterIncr', {
-            numberOfKeys: 4,
+            numberOfKeys: 5,
             lua: INCR_SCRIPT,
         });
         client.defineCommand('meterRead', {
-            numberOfKeys: 2,
+            numberOfKeys: 4,
             lua: READ_SCRIPT,
+        });
+        client.defineCommand('meterApply', {
+            numberOfKeys: 2,
+            lua: APPLY_SCRIPT,
+        });
+        client.defineCommand('meterFenced', {
+            numberOfKeys: 3,
+            lua: FENCED_SCRIPT,
         });
         client.defineCommand('meterDrain', {
             numberOfKeys: 2,
@@ -1172,18 +1268,23 @@ export class MeteringBufferStore extends PuterStore {
         pathAndAmountMap,
     }: IncrInput): Promise<{ delta: FlatAmounts; base: FlatAmounts }> {
         const tag = bucketTag(key);
-        const [delta, base] = await this.#redis.meterIncr(
+        const [delta, base, claim] = await this.#redis.meterIncr(
             deltaKey(tag, key),
             baseKey(tag, key),
             dirtyKey(tag),
             trackedKey(tag),
+            claimedKey(tag),
             String(BUFFER_TTL_MS),
             key,
+            pendingKey(tag, ''),
             ...toScriptArgs(pathAndAmountMap),
         );
         this.#absorbedCount++;
         absorbedCounter.add(1);
-        return { delta: pairsToAmounts(delta), base: pairsToAmounts(base) };
+        return {
+            delta: addAmounts(pairsToAmounts(delta), parseClaim(claim).amounts),
+            base: pairsToAmounts(base),
+        };
     }
 
     /**
@@ -1196,7 +1297,9 @@ export class MeteringBufferStore extends PuterStore {
      * is over within seconds.
      */
     async #seedBase(key: string): Promise<FlatAmounts> {
-        const { res } = await this.stores.kv.get({ key });
+        // Consistent, or a write that just landed could be missing from the
+        // base until the next settle replaces it.
+        const { res } = await this.stores.kv.get({ key, consistentRead: true });
         const persisted = flattenAmounts(res);
         const seeded = await this.#redis.meterSeed(
             baseKey(bucketTag(key), key),
@@ -1212,25 +1315,107 @@ export class MeteringBufferStore extends PuterStore {
      * This deployment's cached delta and base for a counter, straight from
      * redis.
      */
-    async #readBuffered(
-        key: string,
-    ): Promise<{ delta: FlatAmounts; base: FlatAmounts }> {
+    async #readBuffered(key: string): Promise<BufferedRead> {
         const tag = bucketTag(key);
-        const [delta, base] = await this.#redis.meterRead(
-            deltaKey(tag, key),
-            baseKey(tag, key),
-        );
-        return { delta: pairsToAmounts(delta), base: pairsToAmounts(base) };
+        const [delta, base, claim, claimId, writeToken] =
+            await this.#redis.meterRead(
+                deltaKey(tag, key),
+                baseKey(tag, key),
+                claimedKey(tag),
+                tokenKey(tag),
+                key,
+                pendingKey(tag, ''),
+            );
+        const claimed = parseClaim(claim).amounts;
+        // Claimed amounts count like buffered ones until their settle.
+        return {
+            delta: addAmounts(pairsToAmounts(delta), claimed),
+            base: pairsToAmounts(base),
+            claim: claimed,
+            claimId,
+            writeToken,
+        };
     }
 
     async #readThrough(key: string): Promise<unknown | null> {
-        const { delta, base } = await this.#readBuffered(key);
-        const resolved =
-            Object.keys(base).length > 0
-                ? base
-                : flattenAmounts((await this.stores.kv.get({ key })).res);
+        const snapshot = await this.#readBuffered(key);
+        const { delta, base } = snapshot;
+        if (Object.keys(base).length > 0) return mergedOrNull(base, delta);
+        const [{ stored, buffered }] = await this.#readStoreAndBuffer(key, [
+            snapshot,
+        ]);
+        return mergedOrNull(flattenAmounts(stored), buffered);
+    }
 
-        return mergedOrNull(resolved, delta);
+    /**
+     * Order buffer snapshots around consistent store reads to avoid losing
+     * flushed usage. Retry changed claims together; new increments alone do not
+     * move amounts to the store and do not invalidate the first snapshot.
+     */
+    async #readStoreAndBuffer(
+        key: string | string[],
+        snapshots?: (BufferedRead | null)[],
+    ): Promise<StoreAndBufferRead[]> {
+        const multi = Array.isArray(key);
+        const keys = multi ? key : [key];
+        const initial = snapshots ?? [await this.#readBuffered(keys[0]!)];
+        let pending = keys.map((k, i) => ({
+            key: k,
+            index: i,
+            before: initial[i] ?? null,
+        }));
+        const results: StoreAndBufferRead[] = new Array(keys.length);
+        for (let attempt = 1; pending.length > 0; attempt++) {
+            const { res } = await this.stores.kv.get({
+                key: multi ? pending.map((item) => item.key) : pending[0]!.key,
+                consistentRead: true,
+            });
+            const stored = multi ? (res as unknown[]) : [res];
+            const checks =
+                attempt < EXACT_READ_ATTEMPTS
+                    ? await runWithConcurrencyLimitSettled(
+                          pending,
+                          BUFFER_IO_CONCURRENCY,
+                          (item) => this.#readBuffered(item.key),
+                      )
+                    : [];
+            const retry: typeof pending = [];
+            pending.forEach((item, i) => {
+                const check = checks[i];
+                if (check?.status === 'fulfilled') {
+                    const after = check.value;
+                    const before = item.before;
+                    // The token catches a whole claim starting and finishing
+                    // between snapshots, even when new increments hide it.
+                    const unchanged =
+                        before &&
+                        (sameAmounts(before.delta, after.delta) ||
+                            (before.writeToken === after.writeToken &&
+                                before.claimId === after.claimId &&
+                                sameAmounts(before.claim, after.claim) &&
+                                Object.entries(before.delta).every(
+                                    ([path, amount]) =>
+                                        (after.delta[path] ?? 0) >= amount,
+                                ) &&
+                                Object.entries(after.delta).every(
+                                    ([path, amount]) =>
+                                        amount >= (before.delta[path] ?? 0),
+                                )));
+                    if (!unchanged) {
+                        retry.push({ ...item, before: after });
+                        return;
+                    }
+                } else if (check?.status === 'rejected' && !multi) {
+                    throw check.reason;
+                }
+                results[item.index] = {
+                    stored: stored[i],
+                    buffered: item.before?.delta ?? {},
+                };
+            });
+            pending = retry;
+        }
+        return results;
     }
 
     // -- Internals: flush ---------------------------------------------
@@ -1302,7 +1487,7 @@ export class MeteringBufferStore extends PuterStore {
 
         const outcomes = await runWithConcurrencyLimitSettled(
             work,
-            SETTLE_CONCURRENCY,
+            BUFFER_IO_CONCURRENCY,
             (run) => run(),
         );
         for (const outcome of outcomes) {
@@ -1590,7 +1775,12 @@ export class MeteringBufferStore extends PuterStore {
                 if (err instanceof KvFencedWriteError) {
                     // Applied already, by an earlier copy of this write.
                     fencedCounter.add(1);
-                    await this.#dropFromClaim(tag, nonce, paths);
+                    await this.#redis.meterFenced(
+                        pendingKey(tag, nonce),
+                        baseKey(tag, key),
+                        baseSeqKey(tag, key),
+                        ...paths,
+                    );
                     continue;
                 }
                 if (!isPermanentSettleError(err)) throw e;
@@ -1618,7 +1808,11 @@ export class MeteringBufferStore extends PuterStore {
             // before anything else can fail: a re-drive then picks up only what
             // is still outstanding. The alarm below is the "anything else" — it
             // comes after.
-            await this.#dropFromClaim(tag, nonce, paths);
+            await this.#redis.meterApply(
+                pendingKey(tag, nonce),
+                baseKey(tag, key),
+                ...toScriptArgs(batch),
+            );
 
             if (usage.write >= LARGE_SETTLE_WRITE_UNITS) {
                 this.#recordLargeSettle(key, usage.write);

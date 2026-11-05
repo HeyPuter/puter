@@ -18,6 +18,7 @@
  */
 
 import { HttpError } from '../../core/http/HttpError.js';
+import { isOriginBootstrapApp } from '../../util/appView.js';
 
 /** The one notification type an app may create. */
 export const APP_MESSAGE_TYPE = 'app.message';
@@ -38,7 +39,7 @@ export const APP_MESSAGE_RATE_LIMITS = {
     perDay: 1000,
 } as const;
 
-export type AppMessagePriority = 'normal';
+export type AppMessagePriority = 'normal' | 'high';
 
 /** An `app.message` value as stored, after normalization. */
 export type AppMessage = {
@@ -60,14 +61,35 @@ export type AppMessage = {
 
 export type AppMessageSender = { uid: string; name?: string; icon?: string };
 
+/** The hostname an app made for an origin is named by. */
+const originAppHost = (row: unknown): string | undefined => {
+    if (!isOriginBootstrapApp(row) || typeof row.index_url !== 'string') {
+        return undefined;
+    }
+    try {
+        return new URL(row.index_url).hostname || undefined;
+    } catch {
+        return undefined;
+    }
+};
+
 /** What a message says about its app, read off the app's row. */
 export const appMessageSender = (
     uid: string,
-    row: { name?: unknown; title?: unknown; icon?: unknown } | null | undefined,
+    row:
+        | {
+              name?: unknown;
+              title?: unknown;
+              icon?: unknown;
+              description?: unknown;
+              index_url?: unknown;
+          }
+        | null
+        | undefined,
 ): AppMessageSender => {
     const sender: AppMessageSender = { uid };
     // Cleaned before the empty check, so a title of only invisible characters still leaves a visible sender.
-    const name = [row?.title, row?.name]
+    const name = [originAppHost(row), row?.title, row?.name]
         .map((v) =>
             typeof v === 'string'
                 ? [...cleanText(v)]
@@ -300,13 +322,11 @@ export const parseAppMessage = (input: Record<string, unknown>): AppMessage => {
         message.sensitive = input.sensitive;
     }
 
-    if (input.priority !== undefined && input.priority !== 'normal') {
-        throw invalid(
-            'priority',
-            input.priority === 'high'
-                ? "'high' is not available to apps; use 'normal'"
-                : "must be 'normal'",
-        );
+    if (input.priority !== undefined) {
+        if (input.priority !== 'normal' && input.priority !== 'high') {
+            throw invalid('priority', "must be 'normal' or 'high'");
+        }
+        message.priority = input.priority;
     }
 
     return message;

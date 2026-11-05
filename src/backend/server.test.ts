@@ -37,6 +37,10 @@ import { HttpError } from './core/http/HttpError.ts';
 import { extension, extensionStore } from './extensions.ts';
 import { PuterServer } from './server.ts';
 import {
+    JobScheduler,
+    type JobDefinition,
+} from './services/jobs/JobScheduler.ts';
+import {
     allocateEphemeralPort,
     createTestUser,
     setupTestServer,
@@ -1488,6 +1492,104 @@ describe('PuterServer keep-alive timeout', () => {
 });
 
 describe('PuterServer lifecycle hooks', () => {
+    it('fails startup before running later hooks when a start hook rejects', async () => {
+        const failure = new Error('startup failed');
+        const later = vi.fn();
+        class FailingStart extends JobScheduler {
+            override async onServerStart() {
+                throw failure;
+            }
+        }
+        class LaterStart extends JobScheduler {
+            override async onServerStart() {
+                later();
+            }
+        }
+        extension.registerService('failingStart', FailingStart as never);
+        extension.registerService('laterStart', LaterStart as never);
+        try {
+            await expect(setupTestServer()).rejects.toBe(failure);
+            expect(later).not.toHaveBeenCalled();
+        } finally {
+            delete (extensionStore.services as Record<string, unknown>)
+                .failingStart;
+            delete (extensionStore.services as Record<string, unknown>)
+                .laterStart;
+        }
+    });
+
+    it.each([false, true])(
+        'continues teardown after failing hooks with listener callback %s',
+        async (prepareFirst) => {
+            const port = await allocateEphemeralPort();
+            const server = await setupTestServer(
+                { port } as unknown as IConfig,
+                { listen: true },
+            );
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            const ran: string[] = [];
+            class FailingHooks {
+                onServerPrepareShutdown() {
+                    ran.push('prepare:failed');
+                    throw new Error('prepare failed');
+                }
+                async onServerShutdown() {
+                    ran.push('shutdown:failed');
+                    throw new Error('shutdown failed');
+                }
+            }
+            (server.services as Record<string, unknown>).fails =
+                new FailingHooks();
+            (server.services as Record<string, unknown>).after = {
+                onServerPrepareShutdown: () => ran.push('prepare:after'),
+                onServerShutdown: () => ran.push('shutdown:after'),
+            };
+            (server.clients as Record<string, unknown>).last = {
+                onServerShutdown: () => ran.push('shutdown:client'),
+            };
+            try {
+                if (prepareFirst) {
+                    await server.prepareShutdown();
+                    await vi.waitFor(() =>
+                        expect(ran).toContain('prepare:after'),
+                    );
+                }
+                await server.shutdown();
+                expect(ran).toEqual([
+                    'prepare:failed',
+                    'prepare:after',
+                    'shutdown:failed',
+                    'shutdown:after',
+                    'shutdown:client',
+                ]);
+                expect(logged).toHaveBeenCalledWith(
+                    '[server] onServerPrepareShutdown failed in FailingHooks',
+                    expect.any(Error),
+                );
+                expect(logged).toHaveBeenCalledWith(
+                    '[server] onServerShutdown failed in FailingHooks',
+                    expect.any(Error),
+                );
+                await expect(
+                    new Promise<void>((resolve, reject) => {
+                        const socket = net.connect(port, '127.0.0.1');
+                        socket.on('connect', () => {
+                            socket.destroy();
+                            resolve();
+                        });
+                        socket.on('error', reject);
+                    }),
+                ).rejects.toMatchObject({ code: 'ECONNREFUSED' });
+            } finally {
+                delete (server.services as Record<string, unknown>).fails;
+                await server.shutdown();
+                logged.mockRestore();
+            }
+        },
+    );
+
     it('runs drain-start and prepare-shutdown bottom-up, once, before tearing down', async () => {
         const port = await allocateEphemeralPort();
         const server = await setupTestServer({ port } as unknown as IConfig, {
@@ -1536,6 +1638,136 @@ describe('PuterServer lifecycle hooks', () => {
             'shutdown:store',
             'shutdown:client',
         ]);
+    });
+
+    it('keeps accepting connections until every drain-start hook settles, without one holding up another', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        let otherRan = false;
+        (server.services as unknown as Record<string, unknown>).holdsListener =
+            { onServerDrainStart: () => held };
+        (server.drivers as unknown as Record<string, unknown>).other = {
+            onServerDrainStart: () => {
+                otherRan = true;
+            },
+        };
+
+        const connect = () =>
+            new Promise<void>((resolve, reject) => {
+                const socket = net.connect(port, '127.0.0.1');
+                socket.on('connect', () => {
+                    socket.destroy();
+                    resolve();
+                });
+                socket.on('error', reject);
+            });
+
+        const prepared = server.prepareShutdown({ drainMs: 1_000 });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(otherRan).toBe(true);
+        await expect(connect()).resolves.toBeUndefined();
+
+        release();
+        await prepared;
+        await expect(connect()).rejects.toMatchObject({
+            code: 'ECONNREFUSED',
+        });
+        await server.shutdown();
+    });
+
+    it('runs every drain-start hook when one of them throws', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const ran: string[] = [];
+        (server.stores as unknown as Record<string, unknown>).fails = {
+            onServerDrainStart: () => {
+                throw new Error('drain hook failed');
+            },
+        };
+        (server.services as unknown as Record<string, unknown>).after = {
+            onServerDrainStart: () => {
+                ran.push('after');
+            },
+        };
+
+        await server.prepareShutdown({ drainMs: 1_000 });
+        await server.shutdown();
+
+        expect(ran).toEqual(['after']);
+        expect(console.error).toHaveBeenCalledWith(
+            expect.stringContaining('onServerDrainStart failed'),
+            expect.any(Error),
+        );
+    });
+});
+
+describe('PuterServer shutdown during prepare', () => {
+    it('waits for prepare hooks the drain already started before tearing down', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+        const order: string[] = [];
+        (server.services as unknown as Record<string, unknown>).slowPrepare = {
+            onServerPrepareShutdown: async () => {
+                order.push('prepare:start');
+                await new Promise((resolve) => setTimeout(resolve, 200));
+                order.push('prepare:done');
+            },
+            onServerShutdown: () => {
+                order.push('shutdown');
+            },
+        };
+
+        await server.prepareShutdown({ drainMs: 0 });
+        // The listener's close callback starts the prepare hooks.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await server.shutdown();
+
+        expect(order).toEqual(['prepare:start', 'prepare:done', 'shutdown']);
+    });
+});
+
+/**
+ * An extension may take over `services.jobs` (a fleet-wide scheduler). Core
+ * services register their jobs on it at start, so it must keep the built-in's
+ * first place in the layer.
+ */
+describe('PuterServer jobs replacement', () => {
+    it('lets an extension service registered as `jobs` replace the built-in and keep its first position', async () => {
+        const registered: string[] = [];
+        class ReplacementJobs extends JobScheduler {
+            override register(name: string, definition: JobDefinition) {
+                registered.push(name);
+                super.register(name, definition);
+            }
+        }
+        const started = vi.spyOn(JobScheduler.prototype, 'onServerStart');
+        extension.registerService('jobs', ReplacementJobs as never);
+        let server: PuterServer | undefined;
+        try {
+            server = await setupTestServer();
+            const { jobs } = server.services;
+            expect(jobs).toBeInstanceOf(ReplacementJobs);
+            expect(Object.keys(server.services)[0]).toBe('jobs');
+            expect(extension.import('service').jobs).toBeInstanceOf(
+                ReplacementJobs,
+            );
+            // Only the replacement gets lifecycle hooks.
+            expect(started.mock.contexts).toEqual([jobs]);
+            expect(registered).toContain('auth.sessions.purge');
+        } finally {
+            delete (extensionStore.services as Record<string, unknown>).jobs;
+            started.mockRestore();
+            await server?.shutdown();
+        }
     });
 });
 

@@ -27,9 +27,9 @@ export interface ShutdownTarget {
 
 export interface GracefulShutdownOptions {
     /**
-     * How long to keep serving after new connections stop, before teardown. A
-     * function is called with the signal that triggered shutdown, so a
-     * deployment can drain on `SIGTERM` but exit `SIGINT` (Ctrl-C) instantly.
+     * How long to keep serving after the signal, before teardown. A function is
+     * called with the signal that triggered shutdown, so a deployment can drain
+     * on `SIGTERM` but exit `SIGINT` (Ctrl-C) instantly.
      */
     drainMs: number | ((signal: string) => number);
     /** Cap on the final telemetry flush. */
@@ -45,6 +45,8 @@ export interface GracefulShutdownOptions {
 
 export const DEFAULT_TELEMETRY_SHUTDOWN_TIMEOUT_MS = 5_000;
 export const DEFAULT_SHUTDOWN_HARD_LIMIT_MS = 25_000;
+/** Cap on one component's final flush, so teardown fits the hard limit. */
+export const FINAL_FLUSH_TIMEOUT_MS = 5_000;
 
 /**
  * The process's one shutdown sequence: stop accepting connections, drain, tear
@@ -79,14 +81,18 @@ export const createGracefulShutdown = (
             exitOnce(1);
         }, drain + hardLimitMs);
         let exitCode = 0;
+        // The drain window starts at the signal, so time `prepareShutdown`
+        // spends holding the listener open counts against it.
+        const drained =
+            drain > 0
+                ? new Promise<void>((resolve) => setTimeout(resolve, drain))
+                : Promise.resolve();
         try {
             await target.prepareShutdown({ drainMs: drain });
         } catch (err) {
             console.error('[shutdown] prepareShutdown failed', err);
         }
-        if (drain > 0) {
-            await new Promise<void>((resolve) => setTimeout(resolve, drain));
-        }
+        await drained;
         try {
             await target.shutdown();
         } catch (err) {

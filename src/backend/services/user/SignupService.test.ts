@@ -122,6 +122,59 @@ describe('SignupService.runSignupGate', () => {
         }
     });
 
+    it('an OIDC-only policy refuses form and temp signups before the validate hook, and lets OIDC and team provisioning through', async () => {
+        const oidcOnly = (_k: string, data: unknown) => {
+            Object.assign(data as object, { oidcOnly: true });
+        };
+        server.clients.event.on('puter.signup.policy', oidcOnly);
+        try {
+            const gate = (input: {
+                isTemp: boolean;
+                source?: 'oidc' | 'team_provision';
+            }) =>
+                capture('puter.signup.validate', () =>
+                    server.services.signup.runSignupGate({
+                        req,
+                        data: {},
+                        email: `policy-${slug()}@example.com`,
+                        bonusCode: null,
+                        ...input,
+                    }),
+                );
+            const form = await gate({ isTemp: false });
+            const temp = await gate({ isTemp: true });
+            const oidc = await gate({ isTemp: false, source: 'oidc' });
+            const team = await gate({
+                isTemp: false,
+                source: 'team_provision',
+            });
+
+            expect(form.result).toMatchObject({
+                verdict: 'blocked',
+                code: 'signup_oidc_only',
+            });
+            expect(temp.result).toEqual({
+                verdict: 'no_temp_user',
+                message: null,
+                code: null,
+            });
+            expect(form.seen).toHaveLength(0);
+            expect(temp.seen).toHaveLength(0);
+            expect(oidc.result.verdict).toBe('allowed');
+            expect(team.result.verdict).toBe('allowed');
+            expect(await server.services.signup.signupPolicy()).toEqual({
+                oidcOnly: true,
+                message: null,
+            });
+        } finally {
+            server.clients.event.off('puter.signup.policy', oidcOnly);
+        }
+        expect(await server.services.signup.signupPolicy()).toEqual({
+            oidcOnly: false,
+            message: null,
+        });
+    });
+
     it('refuses an unknown bonus code before the validate hook runs', async () => {
         const { result, seen } = await capture('puter.signup.validate', () =>
             server.services.signup.runSignupGate({
@@ -379,5 +432,31 @@ describe('SignupService.confirmEmail', () => {
             force: true,
         });
         expect(after!.email).toBe(other.email);
+    });
+});
+
+describe('SignupService.validateEmail', () => {
+    it('refuses Puter mailbox addresses before any listener runs', async () => {
+        const listener = vi.fn();
+        server.clients.event.on('email.validate', listener);
+        try {
+            for (const email of [
+                'someone@puter.email',
+                'Someone@PUTER.EMAIL',
+                'someone@puterstaging.email',
+            ]) {
+                await expect(
+                    server.services.signup.validateEmail(email),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            }
+            expect(listener).not.toHaveBeenCalled();
+            await expect(
+                server.services.signup.validateEmail(
+                    `ok-${slug()}@example.com`,
+                ),
+            ).resolves.toBeUndefined();
+        } finally {
+            server.clients.event.off('email.validate', listener);
+        }
     });
 });

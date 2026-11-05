@@ -36,6 +36,7 @@ import { FSService } from './fs/FSService';
 import { KvShareService } from './kvShare/KvShareService';
 import { ServerHealthService } from './health/ServerHealthService';
 import { PuterHomepageService } from './homepage/PuterHomepageService';
+import { JobScheduler } from './jobs/JobScheduler';
 import { LocalWorkerService } from './localworker/LocalWorkerService';
 import { MeteringService } from './metering/MeteringService';
 import { NotificationService } from './notification/NotificationService';
@@ -60,6 +61,7 @@ import { UserAccountService } from './user/UserAccountService';
  */
 declare module './types' {
     interface IPuterServiceInstances {
+        jobs: JobScheduler;
         metering: MeteringService;
         appOriginBlocklist: AppOriginBlocklistService;
         permission: PermissionService;
@@ -103,6 +105,9 @@ declare module './types' {
 // NotificationService depends on notification store (for DB) + event client (for socket push).
 // BroadcastService is independent — only needs the event client.
 export const puterServices = {
+    // First, so every later service can register jobs with it. Reaches
+    // `broadcast` at call time only.
+    jobs: JobScheduler,
     metering: MeteringService,
     // Declared before `auth` so AuthService sees it as a prior peer — it
     // queries the blocklist on app-token acquisition and per-request app

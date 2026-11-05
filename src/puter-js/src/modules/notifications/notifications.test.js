@@ -8,7 +8,9 @@ vi.mock('../../lib/networkUtils.js', () => ({
 }));
 
 const { NotificationsModule } = await import('./index.js');
-const { webPushState } = await import('./lib/webPush.js');
+const { webPushCheck, webPushState } = await import('./lib/webPush.js');
+const { forgetPushState } = await import('./lib/pushStore.js');
+const { request } = await import('./lib/api.js');
 const { PuterJSError } = await import('../../lib/PuterJSError.js');
 
 const jsonResponse = (body, status = 200) => ({
@@ -221,10 +223,128 @@ describe('notify', () => {
         const error = await rejects(() => makeModule().notify({ title: 'Hi' }));
         expect(error.code).toBe('notifications_failed');
     });
+
+    it('stores a send for later and resolves with its schedule', async () => {
+        mockDriverCall.mockResolvedValue({
+            scheduled: { scheduleId: 'sched-1', sendAt: 1_800_000_000_000 },
+        });
+        const result = await makeModule().notify({
+            title: 'Hi',
+            sendAt: new Date(1_800_000_000_000),
+        });
+        expect(result).toEqual({
+            scheduleId: 'sched-1',
+            sendAt: 1_800_000_000_000,
+        });
+        expect(mockDriverCall.mock.calls[0][0].args.object.value.sendAt).toBe(
+            '2027-01-15T08:00:00.000Z',
+        );
+    });
+
+    it('resolves with the schedule of a later send through a share too', async () => {
+        mockDriverCall.mockResolvedValue({
+            scheduled: { scheduleId: 'sched-2', sendAt: 5_000 },
+        });
+        const result = await makeModule().notify({
+            title: 'Hi',
+            to: { handle: 'kvh-1' },
+            sendAt: 5_000,
+        });
+        expect(result).toEqual({ scheduleId: 'sched-2', sendAt: 5_000 });
+    });
+
+    it('rejects an invalid Date before calling the server', async () => {
+        const error = await rejects(() =>
+            makeModule().notify({ title: 'Hi', sendAt: new Date(NaN) }),
+        );
+        expect(error).toBeInstanceOf(PuterJSError);
+        expect(error.code).toBe('events_schedule_invalid');
+        expect(mockDriverCall).not.toHaveBeenCalled();
+    });
+
+    it('resolves as an immediate send when the server sent it at once', async () => {
+        mockDriverCall.mockResolvedValue({ uid: 'n-3' });
+        expect(
+            await makeModule().notify({ title: 'Hi', sendAt: Date.now() }),
+        ).toBe('n-3');
+    });
+});
+
+describe.each([
+    ['markShown', 'mark_shown'],
+    ['dismiss', 'mark_acknowledged'],
+])('%s', (name, method) => {
+    it.each([true, false])('resolves with the success boolean %s', async (success) => {
+        mockDriverCall.mockResolvedValue({ success });
+        const notifications = makeModule();
+        const mark = notifications[name];
+        await expect(mark('n-1')).resolves.toBe(success);
+        expect(mockDriverCall).toHaveBeenCalledExactlyOnceWith({
+            puter: notifications.puter,
+            iface: 'puter-notifications',
+            driver: 'es:notification',
+            method,
+            args: { uid: 'n-1' },
+        });
+    });
+
+    it.each([undefined, null, '', 42, {}])('rejects an invalid uid %j', async (uid) => {
+        await expect(makeModule()[name](uid)).rejects.toMatchObject({
+            code: 'invalid_argument',
+        });
+        expect(mockDriverCall).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { code: 'too_many_requests', message: 'Slow down' },
+        { error: { code: 'forbidden', message: 'Not allowed' } },
+    ])('maps a driver error to PuterJSError', async (error) => {
+        mockDriverCall.mockRejectedValue(error);
+        const rejected = await rejects(() => makeModule()[name]('n-1'));
+        expect(rejected).toBeInstanceOf(PuterJSError);
+        expect(rejected).toMatchObject(error.error ?? error);
+    });
+
+    it.each([null, {}, { success: 'true' }])('rejects an unreadable answer %j', async (answer) => {
+        mockDriverCall.mockResolvedValue(answer);
+        await expect(makeModule()[name]('n-1')).rejects.toMatchObject({
+            code: 'notifications_failed',
+        });
+    });
+});
+
+describe('cancel', () => {
+    it('removes the stored send through the schedule surface', async () => {
+        const removeSchedule = vi.fn(async () => {});
+        const notifications = makeModule({
+            events: { ...makeEvents(), removeSchedule },
+        });
+        const { cancel } = notifications;
+        await expect(cancel('sched-1')).resolves.toBeUndefined();
+        expect(removeSchedule).toHaveBeenCalledWith('sched-1');
+    });
+
+    it('passes a refusal through', async () => {
+        const refusal = new PuterJSError(
+            'This delayed send has already started',
+            'events_schedule_sending',
+        );
+        const notifications = makeModule({
+            events: {
+                ...makeEvents(),
+                removeSchedule: vi.fn(async () => {
+                    throw refusal;
+                }),
+            },
+        });
+        expect(await rejects(() => notifications.cancel('sched-1'))).toBe(
+            refusal,
+        );
+    });
 });
 
 describe("on('click')", () => {
-    it('delivers the desktop broadcast as { uid, target, data }', async () => {
+    it('delivers the desktop broadcast as { uid, target, data, action }', async () => {
         const notifications = makeModule();
         const clicks = [];
         notifications.on('click', (click) => clicks.push(click));
@@ -239,8 +359,8 @@ describe("on('click')", () => {
         await flush();
 
         expect(clicks).toEqual([
-            { uid: 'n-1', target: '/a', data: { id: 1 } },
-            { uid: 'n-2', target: null, data: null },
+            { uid: 'n-1', target: '/a', data: { id: 1 }, action: null },
+            { uid: 'n-2', target: null, data: null, action: null },
         ]);
     });
 
@@ -266,12 +386,13 @@ describe("on('click')", () => {
         expect(clicks).toEqual([]);
     });
 
-    it('delivers a click that came before the first handler, once', async () => {
+    it.each([undefined, 'accept'])('delivers a click with action %s that came before the first handler, once', async (action) => {
         const notifications = makeModule();
         notifications.puter.ui.broadcast('notificationClick', {
             uid: 'n-9',
             target: '/x',
             data: [1],
+            action,
         });
         const first = [];
         const second = [];
@@ -280,7 +401,7 @@ describe("on('click')", () => {
         notifications.on('click', (click) => second.push(click));
         await flush();
 
-        expect(first).toEqual([{ uid: 'n-9', target: '/x', data: [1] }]);
+        expect(first).toEqual([{ uid: 'n-9', target: '/x', data: [1], action: action ?? null }]);
         expect(second).toEqual([]);
         expect(notifications.puter.ui.on).toHaveBeenCalledTimes(1);
     });
@@ -523,6 +644,65 @@ describe('onNotification', () => {
         await flush();
 
         expect(seen).toEqual([['n-1', 'two']]);
+    });
+
+    it('with catchUp: false, starts from the newest notification in one read', async () => {
+        const events = makeEvents({
+            pages: [{ items: [], cursor: 'end-1' }, { items: [event('n-9')] }],
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) => seen.push(n.uid), {
+            catchUp: false,
+        });
+
+        expect(events.state.fetches).toEqual([
+            { subject: 'notif:app-user', limit: 200, from: 'end' },
+        ]);
+
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+
+        expect(events.state.fetches.at(-1)).toEqual({
+            subject: 'notif:app-user',
+            limit: 200,
+            cursor: 'end-1',
+        });
+        expect(seen).toEqual(['n-9']);
+    });
+
+    it('with catchUp: false, marks what is there on a server that ignores from', async () => {
+        const events = makeEvents({
+            pages: [
+                { items: [event('n-1')], cursor: 'c-1' },
+                { items: [event('n-2')] },
+                { items: [event('n-2'), event('n-3')] },
+            ],
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) => seen.push(n.uid), {
+            catchUp: false,
+        });
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+
+        expect(events.state.fetches).toEqual([
+            { subject: 'notif:app-user', limit: 200, from: 'end' },
+            { subject: 'notif:app-user', limit: 200, cursor: 'c-1' },
+            { subject: 'notif:app-user', limit: 200, cursor: 'c-1' },
+        ]);
+        expect(seen).toEqual(['n-3']);
+    });
+
+    it('catching up reads from the oldest notification, not the end', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({ events });
+        await notifications.onNotification(() => {});
+
+        expect(events.state.fetches).toEqual([
+            { subject: 'notif:app-user', limit: 200 },
+        ]);
     });
 
     it('reads what it missed after a reconnect, from the last cursor', async () => {
@@ -1376,5 +1556,157 @@ describe('webPushState', () => {
         await expect(
             webPushState(host, 'https://push.example/1'),
         ).resolves.toBe(null);
+    });
+});
+
+describe('webPushCheck', () => {
+    const host = { APIOrigin: 'https://api.test' };
+
+    it('gives the key the server names along with the state', async () => {
+        mockFetchUrl.mockResolvedValue(
+            jsonResponse({ state: 'active', publicKey: 'BKey' }),
+        );
+        await expect(
+            webPushCheck(host, 'https://push.example/1'),
+        ).resolves.toEqual({ state: 'active', publicKey: 'BKey' });
+    });
+
+    it('gives no key for a server that names none', async () => {
+        mockFetchUrl.mockResolvedValue(jsonResponse({ state: 'active' }));
+        await expect(
+            webPushCheck(host, 'https://push.example/1'),
+        ).resolves.toEqual({ state: 'active', publicKey: null });
+    });
+});
+
+describe('forgetPushState', () => {
+    it('forgets opt-ins, confirmed syncs and replaced-subscription marks, and every kept tap', async () => {
+        const calls = [];
+        const request = (call) => {
+            calls.push(call);
+            const req = {};
+            queueMicrotask(() => req.onsuccess?.());
+            return req;
+        };
+        const db = {
+            transaction: (store) => ({
+                objectStore: () => ({
+                    delete: (range) => request(['delete', store, range]),
+                    clear: () => request(['clear', store]),
+                }),
+            }),
+            close: () => {},
+        };
+        const idb = {
+            open: () => {
+                const req = { result: db };
+                queueMicrotask(() => req.onsuccess());
+                return req;
+            },
+        };
+        const previous = globalThis.IDBKeyRange;
+        globalThis.IDBKeyRange = { bound: (lower) => lower };
+        try {
+            await forgetPushState(idb);
+        } finally {
+            globalThis.IDBKeyRange = previous;
+        }
+        expect(calls).toEqual([
+            ['delete', 'handlers', 'puter:opt-in:'],
+            ['delete', 'handlers', 'puter:synced:'],
+            ['delete', 'handlers', 'puter:subscription-changed:'],
+            ['clear', 'clicks'],
+        ]);
+    });
+});
+
+describe('request with keepalive', () => {
+    it('sends through fetch with keepalive and the given token, never through fetchUrl', async () => {
+        const fetch = vi.fn(async () => jsonResponse({ removed: true }));
+        vi.stubGlobal('fetch', fetch);
+        try {
+            const puter = { APIOrigin: 'https://api.test', authToken: 'live' };
+            await expect(
+                request(
+                    puter,
+                    'DELETE',
+                    '/push/web/subscriptions',
+                    { endpoint: 'e' },
+                    { authToken: 'leaving', keepalive: true },
+                ),
+            ).resolves.toEqual({ removed: true });
+            expect(fetch).toHaveBeenCalledWith(
+                'https://api.test/push/web/subscriptions',
+                {
+                    method: 'DELETE',
+                    keepalive: true,
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: 'Bearer leaving',
+                    },
+                    body: JSON.stringify({ endpoint: 'e' }),
+                },
+            );
+            expect(mockFetchUrl).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('sends it once more through fetchUrl when the browser refuses keepalive', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => {
+                throw new TypeError('Failed to fetch');
+            }),
+        );
+        mockFetchUrl.mockResolvedValue(jsonResponse({ removed: true }));
+        try {
+            await expect(
+                request(
+                    { APIOrigin: 'https://api.test', authToken: 'live' },
+                    'DELETE',
+                    '/push/web/subscriptions',
+                    { endpoint: 'e' },
+                    {
+                        authToken: 'leaving',
+                        interactiveReauth: false,
+                        keepalive: true,
+                    },
+                ),
+            ).resolves.toEqual({ removed: true });
+            expect(mockFetchUrl).toHaveBeenCalledTimes(1);
+            expect(mockFetchUrl.mock.calls[0][1]).toMatchObject({
+                method: 'DELETE',
+                authToken: 'leaving',
+                interactiveReauth: false,
+            });
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('passes the server error through', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () =>
+                jsonResponse({ message: 'no', code: 'token_auth_failed' }, 401),
+            ),
+        );
+        try {
+            const error = await rejects(() =>
+                request(
+                    { APIOrigin: 'https://api.test', authToken: 't' },
+                    'DELETE',
+                    '/push/web/subscriptions',
+                    { endpoint: 'e' },
+                    { keepalive: true },
+                ),
+            );
+            expect(error.code).toBe('token_auth_failed');
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

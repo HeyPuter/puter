@@ -396,9 +396,12 @@ export class OIDCController extends PuterController {
                 },
             },
             async (_req: Request, res: Response) => {
-                const providers =
-                    await this.services.oidc.getEnabledProviderIds();
-                res.json({ providers });
+                const [providers, policy] = await Promise.all([
+                    this.services.oidc.getEnabledProviderIds(),
+                    this.services.signup.signupPolicy(),
+                ]);
+                // The signup window drops its email form when this is set.
+                res.json({ providers, signupOidcOnly: policy.oidcOnly });
             },
         );
 

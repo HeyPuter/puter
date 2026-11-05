@@ -256,7 +256,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -640,6 +645,21 @@ export interface IDevWatcherConfig {
         directory: string;
         env?: Record<string, string>;
     }>;
+}
+
+/**
+ * System jobs config (`jobs`). An extension that runs jobs types its own keys
+ * by augmenting this interface.
+ *
+ * - `namespace` — keys this deployment's jobs and schedules, so deployments
+ *   sharing one database or Redis never run each other's. Defaults to `domain`;
+ *   one that can't be held falls back to `default` (`resolveJobsNamespace`).
+ * - `enabled` — `false` keeps this node from polling for jobs (logged at start);
+ *   the rest of the fleet still runs them. Test servers turn it off.
+ */
+export interface IJobsConfig {
+    namespace?: string;
+    enabled?: boolean;
 }
 
 /**
@@ -1250,6 +1270,11 @@ interface IConfigOptional {
      *   through a handle both reject with `events_kv_handles_disabled`, and a
      *   handle row already made stops delivering. Nothing on the write path
      *   reads it.
+     * - `userHandlers` — whether an app may publish handlers into a signed-in
+     *   user's own scope, including inline handlers created with a
+     *   subscription. Absent means off: user-scope publishing and inline
+     *   creates reject with `events_user_handlers_disabled`; app-scope handlers
+     *   are unaffected.
      * - `workerRuntime` — whether publishing handlers deploys a per-app events
      *   worker and delivery invokes it. Absent means off: publish stores rows
      *   and nothing is deployed, and the invoker keeps its null resolver, so
@@ -1266,10 +1291,21 @@ interface IConfigOptional {
         crossAppKv?: boolean;
         notificationsFoldIn?: boolean;
         kvHandles?: boolean;
+        userHandlers?: boolean;
         workerRuntime?: boolean;
         forwardSession?: boolean;
         /** How long a handler has to answer an invocation. Default 30 s. */
         invokeTimeoutMs?: number;
+        /**
+         * Invocations sent to the dispatcher in one request. Default 60; 1
+         * sends each on its own.
+         */
+        invokeBatchSize?: number;
+        /**
+         * How long the first invocation of a batch waits for others to join it.
+         * Default 5 ms.
+         */
+        invokeBatchWindowMs?: number;
         /**
          * Dispatch namespace events workers are deployed into. Must not be the
          * one the public worker dispatcher serves — that namespace is reachable
@@ -1277,6 +1313,12 @@ interface IConfigOptional {
          * default: deploys refuse rather than land somewhere public.
          */
         workerNamespace?: string;
+        /**
+         * Per-invocation CPU limit, in milliseconds, set on every events worker
+         * at deploy. Unset means no limit. Scripts already deployed pick it up
+         * on their next deploy.
+         */
+        workerCpuMs?: number;
         /**
          * Where the events dispatcher answers `POST /invoke` — its own
          * hostname, since it carries no zone route. Unset means invocations
@@ -1290,6 +1332,9 @@ interface IConfigOptional {
          */
         internalSecret?: string;
     };
+
+    /** System jobs (`services.jobs`); see {@link IJobsConfig}. */
+    jobs?: IJobsConfig;
 
     /**
      * Key-value sharing beyond watching.
@@ -1335,7 +1380,9 @@ export interface WithLifecycle extends Object {
     /**
      * When the drain starts, before `onServerPrepareShutdown`, which waits for
      * every connection (upgraded sockets included) to close or the drain to
-     * end.
+     * end. Hooks run concurrently, and the server keeps accepting connections
+     * until all of them settle, so a hook can hold the listener open (until
+     * traffic stops arriving, say) by returning a promise.
      */
     onServerDrainStart?: (info?: ServerDrainInfo) => Promise<void> | void;
 }
@@ -1346,8 +1393,7 @@ export interface ServerDrainInfo {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

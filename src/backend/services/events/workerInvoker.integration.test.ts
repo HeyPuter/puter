@@ -34,6 +34,7 @@ import type { AddressInfo } from 'node:net';
 import { v4 as uuidv4 } from 'uuid';
 import {
     afterAll,
+    afterEach,
     beforeAll,
     beforeEach,
     describe,
@@ -58,8 +59,14 @@ import {
     EVENTS_WORKER_SESSION_NAME,
     eventsInvokeKey,
     eventsWorkerScript,
+    userHandlerScript,
 } from './workerRuntime.js';
 import { handlerSetHash } from './workerSource.js';
+import {
+    appHandlerScope,
+    hashContent,
+} from '../../stores/events/EventHandlerStore.js';
+import type { WorkerInvocation } from './workerSeam.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 /** Short enough that a hung handler is a test case rather than a stall. */
@@ -129,6 +136,7 @@ const startStub = async (): Promise<string> => {
                     script: req.headers['x-puter-events-script'] as string,
                     app: req.headers['x-puter-events-app'] as string,
                     key: req.headers['x-puter-events-key'] as string,
+                    holder: req.headers['x-puter-events-holder'] as string,
                     deployed,
                 },
                 body: JSON.parse(raw || '{}') as StubCall['body'],
@@ -233,7 +241,7 @@ const makeWorkerApp = async (): Promise<{
     );
     const token = await env.server.services.auth.getUserAppToken(actor!, uid);
     await env.server.stores.eventHandler.publish({
-        appUid: uid,
+        scope: appHandlerScope(uid),
         name: HANDLER,
         source: SOURCE,
     });
@@ -403,7 +411,7 @@ beforeAll(async () => {
     );
     appToken = await env.server.services.auth.getUserAppToken(actor!, appUid);
     await env.server.stores.eventHandler.publish({
-        appUid,
+        scope: appHandlerScope(appUid),
         name: HANDLER,
         source: SOURCE,
     });
@@ -471,7 +479,9 @@ describe('the call an owed delivery makes', () => {
 
         const script = eventsWorkerScript(
             handlerSetHash(
-                await env.server.stores.eventHandler.setForApp(appUid),
+                await env.server.stores.eventHandler.setForApp(
+                    appHandlerScope(appUid),
+                ),
             ),
             // No `workers.internetExposedUrl` in this test's config.
             '',
@@ -1014,7 +1024,10 @@ describe('with no events worker to address', () => {
         const subId = await subscribe();
         // Unpublished after the fact: the app's set now hashes to nothing, so
         // there is no script to name and nowhere to send the delivery.
-        await env.server.stores.eventHandler.remove(appUid, HANDLER);
+        await env.server.stores.eventHandler.remove(
+            appHandlerScope(appUid),
+            HANDLER,
+        );
 
         try {
             await touch('unresolved.txt');
@@ -1037,7 +1050,7 @@ describe('with no events worker to address', () => {
             expect(calls).toEqual([]);
         } finally {
             await env.server.stores.eventHandler.publish({
-                appUid,
+                scope: appHandlerScope(appUid),
                 name: HANDLER,
                 source: SOURCE,
             });
@@ -1414,5 +1427,351 @@ describe('handlers whose writes run handlers', () => {
         await expect(
             env.server.clients.redis.get(`ev:qf:{${subId}}`),
         ).resolves.toBeNull();
+    });
+});
+
+describe('a handler in a user scope', () => {
+    const USER_SOURCE =
+        'async ({ event, ctx }) => { console.log("user", event.path, ctx.label); }';
+    const userName = `@${hashContent(USER_SOURCE)}`;
+    let holderUuid: string;
+    let createSpy: ReturnType<typeof vi.spyOn>;
+    let meterSpy: ReturnType<typeof vi.spyOn>;
+
+    const setFlag = (on: boolean): void => {
+        (
+            events() as unknown as { config: IConfig }
+        ).config.events!.userHandlers = on;
+    };
+    const userScope = () => ({ appUid, holder: userId });
+    const userScript = () =>
+        userHandlerScript(
+            { name: userName, sourceHash: hashContent(USER_SOURCE) },
+            '',
+        );
+
+    const post = async (path: string, body: object) => {
+        const response = await fetch(new URL(path, env.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${appToken}`,
+            },
+            body: JSON.stringify(body),
+        });
+        return {
+            status: response.status,
+            body: (await response.json()) as Record<string, unknown>,
+        };
+    };
+    /** A single-delivery row bound to a handler published by its own source. */
+    const inlineRow = async (source = USER_SOURCE): Promise<string> => {
+        const created = await post('/events/subscribe', {
+            subject: `fs:${anchor}`,
+            delivery: 'single',
+            handlerSource: source,
+            context: { label: 'user' },
+        });
+        expect(created.status).toBe(200);
+        return String(created.body.subId);
+    };
+    const invocationFor = (subId: string): WorkerInvocation => ({
+        subId,
+        holderUserId: userId,
+        appUid,
+        handlerName: userName,
+        handlerScope: 'user',
+        event: {
+            subject: 'schedule:s1',
+            op: 'tick',
+            id: 's1:1',
+            scheduleId: 's1',
+            scheduledFor: 1,
+            missed: 0,
+            attempt: 1,
+        },
+        context: null,
+        handlerDepth: 0,
+    });
+
+    beforeAll(async () => {
+        holderUuid = (await env.server.stores.user.getById(userId))!.uuid;
+    });
+    beforeEach(async () => {
+        setFlag(true);
+        await env.server.stores.eventHandler.deleteUserScope(appUid, userId);
+        // Eager and on-miss deploys have no deploy target in this suite.
+        createSpy = vi
+            .spyOn(env.server.drivers.workers, 'create')
+            .mockResolvedValue({ success: true, errors: [] });
+        meterSpy = vi.spyOn(
+            env.server.services.metering,
+            'bufferIncrementUsages',
+        );
+    });
+    afterEach(async () => {
+        createSpy.mockRestore();
+        meterSpy.mockRestore();
+        setFlag(false);
+        await env.server.stores.eventHandler.deleteUserScope(appUid, userId);
+    });
+
+    it('addresses the handler`s own script and names its holder', async () => {
+        const subId = await inlineRow();
+        await touch('user-scope.txt');
+        await invoked(1);
+
+        const call = calls[0];
+        expect(call.headers.script).toBe(userScript());
+        expect(call.headers.holder).toBe(holderUuid);
+        expect(call.headers.key).toBe(
+            eventsInvokeKey(INTERNAL_SECRET, userScript()),
+        );
+        expect(call.body.handler).toBe(userName);
+        await waitUntil(async () =>
+            expect(await pending().depth(subId)).toBe(0),
+        );
+    });
+
+    it('sends no holder for an app-scope row', async () => {
+        await subscribe();
+        await touch('app-scope.txt');
+        await invoked(1);
+        expect(calls[0].headers.holder).toBeUndefined();
+    });
+
+    it('keeps a user row and an app row of the same name on their own scope`s handler', async () => {
+        await env.server.stores.eventHandler.publish({
+            scope: userScope(),
+            name: HANDLER,
+            source: USER_SOURCE,
+        });
+        const created = await post('/events/subscribe', {
+            subject: `fs:${anchor}`,
+            delivery: 'single',
+            handlerName: HANDLER,
+            handlerScope: 'user',
+        });
+        expect(created.status).toBe(200);
+        await touch('same-name-user.txt');
+        await invoked(1);
+        // One at a time: a second row firing alongside would go as a batch.
+        expect(
+            (
+                await post('/events/unsubscribe', {
+                    subId: String(created.body.subId),
+                })
+            ).status,
+        ).toBe(200);
+        await subscribe();
+        await touch('same-name-app.txt');
+        await invoked(2);
+
+        const appScript = eventsWorkerScript(
+            handlerSetHash(
+                await env.server.stores.eventHandler.setForApp(
+                    appHandlerScope(appUid),
+                ),
+            ),
+            '',
+        );
+        const mine = userHandlerScript(
+            { name: HANDLER, sourceHash: hashContent(USER_SOURCE) },
+            '',
+        );
+        expect(mine).not.toBe(appScript);
+        expect(calls[0].headers).toMatchObject({
+            script: mine,
+            holder: holderUuid,
+        });
+        expect(calls[1].headers.script).toBe(appScript);
+        expect(calls[1].headers.holder).toBeUndefined();
+    });
+
+    it('suspends a row whose handler left its holder`s set, and tells the holder only', async () => {
+        const notify = vi.spyOn(env.server.services.notification, 'notify');
+        const subId = await inlineRow();
+        // Gone without the removal path that would suspend its rows.
+        await env.server.stores.eventHandler.deleteUserScope(appUid, userId);
+
+        await touch('missing.txt');
+        await waitUntil(async () =>
+            expect((await durable().getBySubId(subId))?.suspendedReason).toBe(
+                'handler_not_found',
+            ),
+        );
+        expect(calls).toEqual([]);
+        expect(notify).toHaveBeenCalledWith(
+            [userId],
+            expect.objectContaining({ handler: userName }),
+            expect.objectContaining({
+                type: 'app.events.handler_suspended',
+                appUid,
+            }),
+        );
+        expect(notify).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ type: 'app.events.suspended' }),
+        );
+        notify.mockRestore();
+    });
+
+    it('does not suspend a schedule run whose replica read lags the publish', async () => {
+        const subId = await inlineRow();
+        const store = env.server.stores.eventHandler;
+        const real = store.setForApp.bind(store);
+        // The replica has not seen the insert; the primary has.
+        const lagging = vi
+            .spyOn(store, 'setForApp')
+            .mockImplementation(async (scope, options) =>
+                options?.replica
+                    ? [{ name: 'other', sourceHash: 'a'.repeat(64) }]
+                    : real(scope, options),
+            );
+        try {
+            const result = await events().invokeForSchedule(
+                invocationFor(subId),
+            );
+            expect(result).toMatchObject({ outcome: 'settled' });
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(calls[0].headers.script).toBe(userScript());
+        } finally {
+            lagging.mockRestore();
+        }
+    });
+
+    it('reads a cold user scope from the replica only, once, for a delivery', async () => {
+        await inlineRow();
+        // Eager deploy at publish has finished with the primary by now.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const redis = env.server.clients.redis;
+        const key = `eventHandlers:uset:${appUid}:${userId}`;
+        await redis.del(key, `${key}:r`);
+        const db = env.server.clients.db;
+        const primary = vi.spyOn(db, 'pread');
+        const replica = vi.spyOn(db, 'read');
+        const handlerReads = (spy: typeof primary) =>
+            spy.mock.calls.filter(([sql]) =>
+                String(sql).includes('event_user_handlers'),
+            ).length;
+
+        await touch('cold-user-scope.txt');
+        await invoked(1);
+
+        expect(handlerReads(primary)).toBe(0);
+        expect(handlerReads(replica)).toBe(1);
+        primary.mockRestore();
+        replica.mockRestore();
+    });
+
+    it('resumes a suspended row when the name is published again', async () => {
+        const subId = await inlineRow();
+        await env.server.stores.eventHandler.deleteUserScope(appUid, userId);
+        await touch('gone.txt');
+        await waitUntil(async () =>
+            expect((await durable().getBySubId(subId))?.suspendedReason).toBe(
+                'handler_not_found',
+            ),
+        );
+
+        expect(
+            (
+                await post('/events/handlers/publish', {
+                    scope: 'user',
+                    name: userName,
+                    source: USER_SOURCE,
+                })
+            ).status,
+        ).toBe(200);
+        expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+    });
+
+    it('does not address a holder that is suspended, and leaves the row owed', async () => {
+        const subId = await inlineRow();
+        await env.server.clients.db.write(
+            'UPDATE user SET suspended = 1 WHERE id = ?',
+            [userId],
+        );
+        await env.server.stores.user.invalidateById(userId);
+        try {
+            await touch('suspended-holder.txt');
+            await failuresRecorded(subId, 1);
+            expect(calls).toEqual([]);
+            expect(await pending().depth(subId)).toBe(1);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+        } finally {
+            await env.server.clients.db.write(
+                'UPDATE user SET suspended = 0 WHERE id = ?',
+                [userId],
+            );
+            await env.server.stores.user.invalidateById(userId);
+        }
+    });
+
+    it('deploys the holder`s script on a dispatcher miss, as that holder', async () => {
+        dispatchMissing = true;
+        await inlineRow();
+        await touch('miss.txt');
+        await invoked(2);
+
+        expect(calls[0].headers.deployed).toBeUndefined();
+        expect(calls[1].headers.deployed).toBe('1');
+        // Once for the eager deploy at publish, once for the miss.
+        const deployed = createSpy.mock.calls.filter(
+            ([args]) =>
+                (args as { workerName: string }).workerName === userScript(),
+        );
+        expect(deployed.length).toBeGreaterThanOrEqual(1);
+    });
+
+    describe('with the flag off', () => {
+        it('leaves the delivery owed: nothing is called, suspended or billed', async () => {
+            const subId = await inlineRow();
+            setFlag(false);
+            meterSpy.mockClear();
+
+            await touch('flag-off.txt');
+            await new Promise((resolve) => setTimeout(resolve, 400));
+
+            expect(calls).toEqual([]);
+            expect(await pending().depth(subId)).toBe(1);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(meterSpy).not.toHaveBeenCalled();
+        });
+
+        it('answers unavailable from the invoker and for a schedule run', async () => {
+            const subId = await inlineRow();
+            setFlag(false);
+            const invocation = invocationFor(subId);
+
+            const worker = events().worker as unknown as {
+                run: (i: WorkerInvocation) => Promise<unknown>;
+            };
+            expect(await worker.run(invocation)).toEqual({
+                outcome: 'unavailable',
+            });
+            expect(await events().invokeForSchedule(invocation)).toEqual({
+                outcome: 'unavailable',
+            });
+            expect(calls).toEqual([]);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+        });
+
+        it('leaves an app-scope row alone', async () => {
+            setFlag(false);
+            await subscribe();
+            await touch('app-row-flag-off.txt');
+            await invoked(1);
+            expect(calls[0].headers.script).toMatch(/^evw-/);
+        });
+    });
+
+    it('runs a schedule invocation of a user scope with its holder', async () => {
+        const subId = await inlineRow();
+        const result = await events().invokeForSchedule(invocationFor(subId));
+        expect(result).toMatchObject({ outcome: 'settled' });
+        expect(calls[0].headers.script).toBe(userScript());
+        expect(calls[0].headers.holder).toBe(holderUuid);
     });
 });

@@ -48,8 +48,7 @@ export type SubjectFamily = 'fs' | 'kv' | 'notif';
 
 export type FsOp = 'add' | 'write' | 'move' | 'remove' | 'meta';
 
-/** A notification is only ever posted; the mailbox verbs are their own surface. */
-export type NotifOp = 'post';
+export type NotifOp = 'post' | 'dismiss';
 
 export type SubjectOp = FsOp | KvOp | NotifOp;
 

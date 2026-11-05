@@ -61,7 +61,7 @@ import {
     setPushTapHandler,
     storedTapHandler,
 } from '../helpers/notificationTap.js';
-import { showLocalBanner, startPushWorker } from '../helpers/pushWorker.js';
+import { closeLocalBanner, showLocalBanner, startPushWorker } from '../helpers/pushWorker.js';
 import { syncBrowserPush } from '../helpers/pushSync.js';
 import { get_app_by_uid } from '../helpers/getAppByUid.js';
 import { httpsIconFor, notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
@@ -372,10 +372,9 @@ async function UIDesktop (options) {
         for ( const item of replayLog.admit(unreads, { replay: true }) ) showReplayed(item);
     });
 
-    // Not gated: an ack takes a toast off screen rather than raising one, so
-    // it can't double-render — and the events surface carries only postings,
-    // which leaves this the one thing that still dismisses across tabs.
+    // Acknowledgements also arrive when the notification feed is inactive.
     window.socket.on('notif.ack', ({ uid }) => {
+        void closeLocalBanner(uid);
         replayLog.dismissed(uid);
         toasts_for(uid).remove();
         update_tab_notif_count_badge();

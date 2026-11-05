@@ -23,7 +23,7 @@ Under the [User-Pays Model](/user-pays-model), limits are counted against each u
 | ---------------------- | ---------------------- |
 | **Per user, per app**  | One user in one app. **This is the default**: a limit that names no scope uses it. The same user in another app has a separate budget. The Puter desktop and API tokens count as one more app, and each [worker](/Workers/) gets its own budget too. |
 | **Per user, all apps** | One user, summed across every app they use. Used for quotas on things an account keeps (subscriptions, share handles, shares per day, uploads in progress) and a few call budgets. |
-| **Per app, all users** | One app, summed across all of its users. Used for things a developer publishes, such as event handlers. |
+| **Per app, all users** | One app, summed across all of its users. Used for things a developer publishes, such as event handlers. A user's own handlers in an app are counted separately, per user and per app. |
 | **Per network**        | One IP address or device. Used by routes with no signed-in user, such as signed URLs and WebDAV. |
 
 When a quota has both a per-app and an all-apps number, both apply: one app can use up to its per-app share, and all apps together can use up to the all-apps total.
@@ -102,20 +102,32 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Event type length | 1–128 characters | Invalid client envelopes receive `invalid_event` and close with 1008. Invalid upstream envelopes close with 1011. |
 | Client message rate | 100/s, burst 100 | Error `rate_limit_exceeded`, close 1008. Ping and pong frames count toward this allowance. |
 | Client upload rate | 128 KiB/s, burst 64 KiB | Reads pause to refill the budget. More than 64 KiB of overdraft closes with `rate_limit_exceeded`. |
-| Input pending session setup | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
+| Client events waiting for forwarding | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
 | Forwarding queue in either direction | Reads pause at 128 KiB. Admission stops above 192 KiB toward the provider and above 4 MiB plus 128 KiB toward the client. | A full queue closes with `rate_limit_exceeded`. |
 | Client that stops reading | 30 seconds of paused upstream reads | Close 1008. |
-| Pending usage records | 32 | Error `rate_limit_exceeded`, close 1008. Records already received are still billed. |
+| Pending usage records | 32 | Error `rate_limit_exceeded`, close 1013. Records already received are still billed. |
 | Numeric usage fields | Finite, nonnegative, at most 1 billion | Invalid upstream usage closes with 1011. A `null` usage counts as none. |
 | Session setup timeout | 15 seconds | Error `connection_timeout`, close 1011. |
 | Upstream handshake timeout | 10 seconds | Close 1011. |
 | Heartbeat interval | 30 seconds | A missing pong terminates the connection on the next heartbeat. |
-| Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. Overlapping sweeps are skipped. |
-| Session attempts per credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
+| Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. A check that fails at connection gets `internal_error` and closes with 1011. Once failures have continued for 60 seconds from the first failed lookup, the next failed check closes with `internal_error` and 1011. Subscription eligibility is checked independently on each sweep and after a plan invalidation. Revocation events close the affected credentials. Overlapping sweeps are skipped. |
+| Session attempts per signature-verified credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
+| Pre-auth attempts | 120 per client IP and 600 per node per minute | Local memory admission runs before the WebSocket handshake and signature verification. Exceeding either rate returns HTTP 429. Client IP follows the configured proxy trust policy. The shared memory limiter caps its state at 10,000 keys with a 1-hour retention floor and a 60-second sweep. |
+| Unauthenticated upgrade sockets, including closing sockets | 64 per node | Further upgrades receive HTTP 503. The slot is retained until successful admission or transport closure. |
+| Authentication setups in progress | 64 per node | Further upgrades receive HTTP 503. |
+| Presented credential | 8192 UTF-8 bytes | Longer or malformed credentials receive `invalid_api_key`. Unverified credentials allocate no distributed credential limiter state. Limiter lookup failures close with `internal_error` and 1011. |
+| Credit held per transcription item | The selected model's budget for 8,000 audio input, 8,000 text input and 4,096 text output tokens, or 160 seconds for duration-priced models, at that model's cost factor. Before cost factors: `gpt-4o-transcribe` 10,896,000 micro-cents, `gpt-4o-mini-transcribe` 5,448,000, `whisper-1` 1,600,000, `gpt-transcribe` 1,200,000, and 10,896,000 for any other model | Two spare items are reserved before transcription configuration or audio is forwarded, and replenished as the provider commits items. Enabling `gpt-4o-transcribe` therefore holds 21,792,000 micro-cents, or $0.21792, before cost factors. A model change releases the spare items and reserves new ones at the new price. The hold is a budget rather than a cap on reported usage. |
+| Transcription credit exhausted | When the account can't cover another item | Client reads pause while the session still holds items that may free credit. Once it holds none, error `insufficient_funds`, close 1008. |
+| Pending transcription identity | 64 items, spare items included | Reaching the cap pauses client reads until items settle. Provider commits beyond the cap close the connection with `rate_limit_exceeded` and 1013, and bill unresolved work conservatively. Unresolved item identities are retained. |
+| Transcription usage timeout | 30 seconds per committed item | Missing usage, transcription failure, or an upstream close bills the item's model budget before cost factors. A late or duplicate completion is ignored. |
+| Transcription reservation lifetime | 90 seconds, renewed on the 30-second heartbeat | Credit stays held until accepted usage is recorded. Unused reservation credit is released when the connection ends. |
+| Audio awaiting a commit acknowledgement | One held item per 160 seconds, at the session's input format | Counts all audio since the last commit or clear without turn detection, or only detected speech with server turn detection. Longer audio holds more items rather than closing the session. If the connection closes before the commit is acknowledged, each held item is billed. |
+| Completed transcription identity history | 128 items | Recent duplicate commits are ignored. Pending identities have a separate lifetime. |
+| Replacement attempts marked `purpose=handover` | 20 per credential per minute | This shared limit is checked before the general 60-attempt limit. A refused probe consumes no general attempt. Initial and dropped-session recovery attempts retain their general budget. |
 | Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. A response whose usage never arrives because the provider connection closed first is billed the full hold. |
 | Restart notice (`puter.reconnect`) | At most once a minute per session | Repeated announcements within the minute aren't sent. |
 | In-flight response drain at shutdown | 5 seconds | Close 1012. |
-| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. A response that doesn't report its usage within the 5 seconds is billed the credit held for it. |
+| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. Pending input transcriptions share this settlement window. Audio whose commit was not acknowledged is committed during settlement. Accepted work without final usage is billed conservatively. A response that does not report its usage within the 5 seconds is billed the credit held for it. |
 
 Send audio as a stream of small chunks. The message cap applies to text, configuration, tool output, and audio alike.
 
@@ -129,6 +141,7 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | PCM chunk | 12000 samples at 24 kHz, or 500 ms | Throws `input_too_large`. |
 | Native JSON traversal | Depth 16, 2048 visited values, 2048 array entries or object fields | Throws `input_too_large` before serialization. |
 | Outbound buffered data | 128 KiB for audio, 192 KiB for other events | Throws `queue_full`. The built-in microphone drops the chunk instead. |
+| Incoming server event | 4 MiB of UTF-8 | The conversation closes with code 4009 and doesn't reconnect. |
 | Pending acknowledgments | 8 | Rejects with `operation_in_progress`. |
 | Concurrent configuration updates | 1 | Rejects with `operation_in_progress`. |
 | Authentication and provider acknowledgment timeout | 10 seconds | Rejects preparation or the pending operation. |
@@ -137,10 +150,10 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | Capture chunk duration | 20 ms | AudioWorklet sends 480 PCM16 samples per chunk. |
 | Unacknowledged capture chunks | 25, or 500 ms | Further chunks are dropped until the page catches up. |
 | Queued playback | 300 seconds | Further audio for the reply is dropped and `queue_full` is reported once. |
-| Reconnection attempts | 10, backing off from 500 ms to 10 seconds, each delay randomized between half and one and a half times its value | The conversation closes with the original close code. |
-| Replacement session after a restart notice | Opened within 3 seconds of the notice, then retried from 1 second, backing off to 10 seconds, each delay randomized between half and one and a half times its value. Settings on a held replacement are acknowledged within 3 seconds. | The current session keeps working until the conversation switches or the server closes it. A refusal that retrying can't fix stops the attempts. |
+| Connection and reconnection attempts | 10, backing off from 500 ms to 10 seconds, each delay randomized between half and one and a half times its value | Initial transient failures retry through the original connection Promise. Terminal credential, model, funds, normal-close and oversized-event failures stop retries. An established conversation closes with the original close code after retries are exhausted. |
+| Replacement session after a restart notice | Opened within 3 seconds of the notice, then retried from 1 second, backing off to 10 seconds, each delay randomized between half and one and a half times its value. Settings on a held replacement are acknowledged within 3 seconds. | The current session keeps working until the conversation switches or the server closes it. Probes stop after 3 attempts or 30 seconds. Conversations sharing one SDK instance and credential share a budget of 20 probes per minute. Dropped-session recovery uses its separate attempt loop. A refusal that retrying cannot fix stops the probes. |
 | Offline wait while reconnecting | 2 minutes per reconnection, in browsers that report being offline | Attempts continue after the wait. |
-| Context restored after a reconnection | The 40 most recent restorable items, 48 KiB in total | Older items are left out. |
+| Context restored after a reconnection | The 40 most recent restorable items, 48 KiB in total | Restoration uses a contiguous suffix of restorable items. If the newest item exceeds the byte budget, the suffix is empty. Omitted items fire a nonfatal `context_trimmed` event with `omittedItems`. `context_restore_failed` is reserved for a provider refusal or a failed send. Text, function arguments and function results are preserved without truncation. |
 | Remembered canceled responses | 32 | Older response IDs are evicted from the suppression set. |
 
 
@@ -283,6 +296,8 @@ Each call is also capped, the same for every account:
 | `offset` on `list()`        | 5,000 |
 
 A `get()` or batch `set()` over its cap, or an `offset` over 5,000, is rejected with `bad_request` and nothing is read or written. A `limit` over 1,000 is lowered to 1,000, and the page's `cursor` picks up from there.
+
+Internal metering reads check up to 20 counters in Redis concurrently per call. Store-backed metering reads make up to 3 attempts when a flush overlaps the read. Each metering flush writes up to 20 counters concurrently.
 
 ### Filesystem
 
@@ -463,11 +478,18 @@ An app, its workers and the tokens it issues can send `app.message` notification
 | --------------------------------- | --------------------------------- | ----------------- |
 | `app.message` notifications       | 30/min, 1,000/day                 | Per user, per app |
 | Pushes                            | 12/min, 1,000/day                 | Per user, per app |
+| High-priority pushes              | 60/hour, then normal priority     | Per user, per app |
 | Pushes from a new or unlisted app | 6/min, 200/day                    | Per user, per app |
 | Notifications through a [KV share](/KV/share/) | 30/min, 500/day       | Per sender, recipient and app |
-| Browsers with pushes turned on    | 10 per app, 20 for Puter          | Per user          |
-| Turning pushes on in a browser    | 10/min                            | Per user          |
-| Confirmation pushes               | 5/hour                            | Per browser       |
+| Browsers with pushes turned on    | 5 per app with browser-prompt-only permission, 10 with Puter permission, 20 for Puter | Per user |
+| Turning pushes on in a browser    | 10/min                            | Per user, per app |
+| Turning pushes on across apps     | 30/min                            | Per user          |
+| Turning pushes on from one IP     | 60/min                            | Per IP            |
+| Confirmation pushes               | 5/hour                            | Per browser subscription |
+| [Listing push devices](/Notifications/listDevices/) | 60/min              | Per user          |
+| [Removing a push device](/Notifications/removeDevice/) | 30/min           | Per user          |
+| [`markShown()`](/Notifications/markShown/) and [`dismiss()`](/Notifications/dismiss/) | 3,000 per 30 seconds each, 1,000 for a temporary account | Per user and app |
+| Notifications on screen checked for dismissals | 50, with a 10-second timeout | Per page load or reconnect |
 | `title`                           | 120 characters                    |                   |
 | `text`                            | 240 characters                    |                   |
 | `icon` (an `https` URL)           | 2,048 characters                  |                   |
@@ -479,13 +501,19 @@ An app, its workers and the tokens it issues can send `app.message` notification
 
 Characters are counted as Unicode code points, so most emoji count as one. A notification's `ttl` is how long a push service keeps trying to reach an offline device, not how long the notification is kept. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`.
 
+An [`onPush()`](/Notifications/onPush/) result keeps at most two buttons in `actions`, and each button's `action` and `title` can be at most 64 UTF-16 code units. Browsers may show fewer buttons.
+
+A high-priority push also counts against the push limits. Past 60 an hour, and when Puter can't check that count, a push with `priority: 'high'` goes out at normal priority.
+
 The notification limits count notifications written. A notification that replaces the app's earlier one with the same `group` counts against the per-minute limit only, not the per-day limit. [`notify()`](/Notifications/notify/#groups) says when a notification replaces one. Over a limit, the call fails with `429 too_many_requests`, and a refused call counts against neither window. A deployment can change these two limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
 Notifications one side of a KV share sends the other through its handle count against the recipient's `app.message` limits, and also against the limit for that sender, recipient and app, across all their shares in that app. Over either one, the call fails with the same error, so the sender can't tell which limit it hit. A call that the recipient's limits refuse still counts against the share limit. The pushes count against the recipient's push limits and are billed to the recipient.
 
 A notification goes out as a push only when no open page of the app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. The push limits count only pushes sent, and a replacement that goes out as a push counts like any other. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit, the call still succeeds and the notification still reaches the app live, but it isn't pushed.
 
-A push carries about 4 KB, and one that doesn't fit has its text shortened. Turning pushes on in another browser past an app's 10 removes that app's least recently seen one. A browser that goes 60 days without receiving a push or renewing its registration stops getting pushes. A page that calls [`onPush()`](/Notifications/onPush/) renews it on load.
+A push carries about 4 KB, and one that doesn't fit has its text shortened. Turning pushes on in another browser past the app's browser limit removes that app's least recently seen one. A browser is also removed when its push service answers `404` or `410`, after 10 failed sends and over 3 days without receiving a push or renewing its registration, or after 60 days without either. A page that calls [`onPush()`](/Notifications/onPush/) renews it on load.
+
+Push delivery is best effort. A push service's `429` or `5xx` answer gets at most one retry, and under heavy load a push can be skipped. A skipped or failed push isn't queued for later, and the notification stays available through [`puter.events.fetch()`](/Events/fetch/).
 
 #### What pushes cost
 
@@ -554,6 +582,8 @@ See [Events](/Events/) for an overview, [Gaps](/Events/subjects/#gaps) for gap m
 
 #### How many subscriptions one event reaches
 
+Queue subscriptions skip the 250 ms coalescing window and keep each change separate.
+
 Counted per event, per region:
 
 | Limit                                  | KV, paid owner | KV, free or anonymous owner | Other events |
@@ -579,7 +609,7 @@ Counted per event, per region:
 | New recipients of `kv.share()`                    | 300/min, 2,000/hour | Per user, all apps |
 | Recipients named in `kv.share()`                  | 1,200/min | Per user, all apps |
 | `kv.share.received` notifications                 | 5/hour   | Per owner and holder |
-| Handler publish / remove                          | 60/min   | Per user, all apps |
+| Handler publish / remove, app and user scope      | 60/min   | Per user, all apps |
 | Subscription and share-handle listings (combined) | 120/min  | Per user, per app  |
 | Handler listings                                  | 120/min  | Per user, per app  |
 | Events worker listings                            | 120/min  | Per user, per app  |
@@ -589,7 +619,7 @@ Calls over any of these fail with `too_many_requests`. A share over the `kv.shar
 
 A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients, and each one counts toward the named-recipient limit. A recipient who doesn't already have the share also counts toward the new-recipient limit, including a username that doesn't exist and a user the share is refused for. The call counts once toward the mint limit when it makes a share, changes one, or has any recipient who counts as new. A call where every recipient already has the share at the same access level and label counts only toward the named-recipient limit. When the recipients don't all fit in a limit, the whole call fails with `too_many_requests`, and the part that did fit still counts.
 
-Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit.
+Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit. Creating a [schedule](#schedules), or storing a notification with [`notify()`](/Notifications/notify/#send-it-later) and a `sendAt` more than 5 seconds ahead, counts toward the `subscribe` limit. Removing one counts toward `unsubscribe`, and listing or reading one toward the subscription listings.
 
 #### Delivery
 
@@ -617,6 +647,9 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 | Source for all handlers combined       | 5 MB                           | Per app, all users |
 | Handlers per `publishAll()` call       | 50                             | Per call           |
 | Events worker deploys                  | 30/hour                        | Per app, all users |
+| Published handlers in a user scope     | 20                             | Per user, per app  |
+| Source for all handlers in a user scope combined | 1 MB                 | Per user, per app  |
+| Events worker deploys for a user scope | 10/hour                        | Per user, per app  |
 | Run timeout                            | 30 seconds                     | Per run            |
 | Retry delay (`queue`, temporary errors) | 2 seconds, doubling, up to 5 minutes | Per delivery |
 | Failures in a row before suspension    | 5                              | Per subscription   |
@@ -627,6 +660,20 @@ Failures count as in a row until the handler takes a delivery or an hour passes 
 Only the handler's own failures count, including a run past the 30-second timeout. A run in the events worker that Puter couldn't start or finish, or that threw after a Puter API call from `user` got a `5xx`, a `429`, or a network error, is retried on the same delay schedule and doesn't count. When Puter's answer names a longer wait (`Retry-After`), the retry waits that long, up to 5 minutes. Puter's own failures never suspend a subscription, and the events it holds while retrying stay within the backlog limits above.
 
 Over the deploy limit, deliveries stay queued and retry after the hour rolls over.
+
+A [user scope](/Events/handlers/#user-scope) holds the handlers one user published in one app, including every inline `handler` passed to [`onSchedule()`](/Events/onSchedule/) or [`onPersistent()`](/Events/onPersistent/). Each one is its own script. The scope-specific rows above are separate from the app's: they don't count toward the app's 100 handlers or 5 MB.
+
+- A publish over the handler cap fails with `events_handler_limit`, and one over the combined source cap with `events_worker_too_large`. A single handler over 64 KB fails with `events_handler_too_large`.
+- A user-scope handler that no subscription or schedule is bound to is removed once it's more than a day old.
+- Publishing into a user scope needs credit on a hosted Puter server, and fails with `insufficient_funds` (402) without it. A server that hasn't turned user scopes on answers `events_user_handlers_disabled`. Listing and removing a scope's handlers need neither.
+
+#### Worker units
+
+| Limit                                    | Paid | Free | Scope              |
+| ---------------------------------------- | ---- | ---- | ------------------ |
+| Worker units held at once                | 100  | 16   | Per user, all apps |
+
+The units are the user's [workers](/Workers/), their user scopes (one per app that holds a handler of theirs), and the [events workers](/Events/workers/) of apps they own. Only creating a new unit is refused, with a `403` and code `forbidden`. A user already over the limit keeps what they hold, and publishing into a scope they already have isn't refused.
 
 #### Handler chains
 
@@ -660,6 +707,71 @@ When a kept backlog expires, it's replaced by one gap marker (`suspended_backlog
 
 A pattern over its limits fails with `invalid_subject_pattern`, and a context over 4 KB with `events_context_too_large`.
 
+#### Schedules
+
+These limits apply to [`onSchedule()`](/Events/onSchedule/) schedules, and to notifications stored with [`notify()`](/Notifications/notify/#send-it-later) and `sendAt`. These are puter.com's limits.
+
+| Limit                                                        | Scope              | Paid   | Free  | Anonymous |
+| ------------------------------------------------------------ | ------------------ | ------ | ----- | --------- |
+| Recurring schedules (`every` and `cron`)                     | Per user, per app  | 100    | 10    | 0         |
+| Recurring schedules                                          | Per user, all apps | 1,000  | 50    | 0         |
+| `at` schedules and stored notifications waiting to go out    | Per user, per app  | 1,000  | 100   | 0         |
+| `at` schedules and stored notifications waiting to go out    | Per user, all apps | 5,000  | 300   | 0         |
+| Runs per hour of all recurring schedules added up            | Per user, per app  | 1,800  | 40    | 0         |
+| Runs per hour of all recurring schedules added up            | Per user, all apps | 18,000 | 120   | 0         |
+
+A recurring schedule can run at most every 1 minute on a paid plan and every 15 minutes on a free one. For a `cron` schedule, that's the smallest gap between two of its runs.
+
+- A create over a count fails with `events_schedule_limit`, one over the runs per hour with `events_schedule_budget`, and one under the minimum interval with `events_schedule_too_frequent`. Anonymous accounts get `events_durable_requires_account`.
+- A recurring schedule's runs per hour are worked out when it's created. An `every` schedule counts 3,600 divided by its interval in seconds, rounded up to the next 0.001, so one that runs every minute counts 60, one that runs every 15 minutes counts 4, and one that runs every 7 minutes counts 8.572. A `cron` schedule counts the most runs it makes in any one hour, over its next 10,000 runs or 400 days. So a paid plan fits 30 schedules that run every minute in one app, and a free plan fits 10 that run every 15 minutes.
+- One-time `at` schedules and stored notifications count only toward the waiting limits, until they run or are cancelled.
+- A suspended schedule still counts. A schedule stops counting as soon as it's removed or its last run finishes.
+- Schedules don't count toward the persistent subscription limits.
+- These limits are checked when a schedule is created or its timing is replaced with [`updateSchedule()`](/Events/updateSchedule/), against the user's current plan. An update excludes its own schedule from the count and budget. Schedules made before a change to a plan with lower limits keep running. New schedules and timing changes are held to the current plan.
+
+| Limit                                              | Value                                   | Scope              |
+| -------------------------------------------------- | --------------------------------------- | ------------------ |
+| Schedule runs                                      | 200 per minute                          | Per user, per app  |
+| Schedule runs at once                              | 8 per server                            | Per user, all apps |
+| Time from a run's slot until it starts             | Usually within 60 seconds               | Per run            |
+| Spread after the slot, recurring                   | Under 30 seconds, or under a tenth of the smallest gap if that's less | Per schedule |
+| Spread after the slot, `at` and stored notifications | Under 10 seconds                      | Per schedule       |
+| Run timeout                                        | 30 seconds                              | Per run            |
+| Retry delay                                        | 2 seconds, doubling, up to 5 minutes    | Per run            |
+| Failures in a row before suspension                | 5                                       | Per schedule       |
+| Wait while the user's account is suspended         | 15 minutes, then tried again            | Per run            |
+| `missed` count                                     | Up to 1,000                             | Per run            |
+| `maxRuns`                                          | 1 to 100,000                            | Per schedule       |
+| `every`, and how far ahead `at`, `startAt`, the first run and `sendAt` can be | 366 days     | Per schedule       |
+| Cron expression                                    | 128 characters                          | Per schedule       |
+| Runs checked when a `cron` schedule is created     | 10,000 runs or 400 days, whichever ends first | Per schedule |
+| `cron` schedules checked at once                   | 2, with 8 more waiting                  | Per server         |
+| Tries when other changes race an [`updateSchedule()`](/Events/updateSchedule/) | 5, then `events_failed` | Per call |
+| Pause after an interrupted [`updateSchedule()`](/Events/updateSchedule/) | At least 60 seconds | Per schedule |
+| `context`                                          | 4 KB                                    | Per schedule       |
+| Events worker deploys started by schedule runs     | 8 at once                               | Per region         |
+| Ended schedules kept in `listSchedules()`          | 7 days                                  | Per schedule       |
+| A stored notification sent within 5 seconds        | Sent right away instead                 | Per notification   |
+| Attempts to send a stored notification             | 5, excluding rate-limited sends, then it's dropped | Per notification   |
+| A stored notification over its recipient's limits  | Dropped 6 hours after `sendAt`          | Per notification   |
+| A stored notification, as JSON                     | 16 KB                                   | Per notification   |
+
+- Over the schedule runs per minute, runs wait for the next minute. They don't fail and don't count as failures. This limit is separate from the 60 handler runs a minute for subscriptions, so neither one uses up the other.
+- Over the runs at once, a run waits about 3 seconds and tries again. It doesn't fail, doesn't count as a failure, and keeps its `event.id` and `missed` count.
+- A run that finds 8 deploys already started waits 5 seconds and tries again.
+- A stored notification over its recipient's [notification limits](#notifications) waits at least a minute and tries again, without using one of its 5 attempts.
+- A `cron` create that finds 2 checks running and 8 waiting fails with `events_schedule_busy`. Try again in a moment.
+- A run that Puter couldn't get to its handler is retried until the schedule's next run is due, and then it's dropped. An `at` schedule's run, or a schedule's last run, is retried for 24 hours. A dropped run isn't billed and doesn't count as a failure.
+- A stored notification counts toward the [notification limits](#notifications) of its recipient when it goes out, not when it's stored.
+
+| Call                                                | Limit                                | Scope              |
+| --------------------------------------------------- | ------------------------------------ | ------------------ |
+| `onSchedule()`, [`updateSchedule()`](/Events/updateSchedule/), and `notify()` with a later `sendAt` | 60/min, shared with `subscribe`     | Per user, all apps |
+| `removeSchedule()` and `notifications.cancel()`     | 600/min, shared with `unsubscribe`   | Per user, all apps |
+| `listSchedules()` and `getSchedule()`               | 120/min, shared with the subscription listings | Per user, per app |
+
+A [`listSchedules()`](/Events/listSchedules/) page holds 50 schedules by default, and up to 200. Calls over any of these limits fail with `too_many_requests`. A create refused for its options, its handler or a missing permission still counts toward the [`onSchedule()`](/Events/onSchedule/) limit, and removing a schedule that doesn't exist still counts toward the [`removeSchedule()`](/Events/removeSchedule/) limit.
+
 #### What events cost
 
 Deliveries are billed to the account holding the subscription:
@@ -671,9 +783,11 @@ Deliveries are billed to the account holding the subscription:
 
 µ¢ is a microcent (a millionth of a cent). Deliveries for `queue` subscriptions bill on the `single` line, and every other delivery, session subscriptions included, bills at the broadcast rate. Handler runs bill separately as worker usage.
 
-Nothing is billed for idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, `queue` deliveries still waiting to reach a client or a handler, retries (a `queue` event bills once however many attempts it takes), and gap markers.
+Each [schedule](/Events/onSchedule/) run bills once on the `single` line, to the user holding the schedule, however many attempts it takes. That includes a run whose handler threw. A schedule that runs every minute costs about $0.04 a month on top of its handler's worker usage. A [stored notification](/Notifications/notify/#send-it-later) bills nothing until it goes out, and then only its push, as [What pushes cost](#what-pushes-cost) describes.
 
-When the holder's balance runs out, deliveries stop and persistent subscriptions are suspended with `no_credit`, and the holder is notified. The backlog is kept for 1 hour. Topping up resumes them within a few minutes.
+Nothing is billed for idle subscriptions and schedules, skipped schedule runs (counted in `missed`), schedule runs stopped by the handler chain limit, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, `queue` deliveries still waiting to reach a client or a handler, retries (a `queue` event bills once however many attempts it takes), and gap markers.
+
+When the holder's balance runs out, deliveries stop and persistent subscriptions and schedules are suspended with `no_credit`, and the holder is notified. The backlog is kept for 1 hour. Topping up resumes them within a few minutes.
 
 ### Networking
 

@@ -110,14 +110,23 @@ export class AbstractDatabaseClient extends PuterClient {
         tableName: string,
         data: Record<string, unknown>,
     ): Promise<WriteResult> {
+        const entry = this.insertEntry(tableName, data);
+        return this.write(
+            entry.statement + this.returningIdClause(),
+            entry.values,
+        );
+    }
+
+    /** An insert that can join other writes in a transaction. */
+    insertEntry(tableName: string, data: Record<string, unknown>): BatchEntry {
         const cols = Object.keys(data);
-        const values = Object.values(data);
-        const sql =
-            `INSERT INTO ${this.quoteIdentifier(tableName)} ` +
-            `(${cols.map((c) => this.quoteIdentifier(c)).join(', ')}) ` +
-            `VALUES (${cols.map(() => '?').join(', ')})` +
-            this.returningIdClause();
-        return this.write(sql, values);
+        return {
+            statement:
+                `INSERT INTO ${this.quoteIdentifier(tableName)} ` +
+                `(${cols.map((c) => this.quoteIdentifier(c)).join(', ')}) ` +
+                `VALUES (${cols.map(() => '?').join(', ')})`,
+            values: Object.values(data),
+        };
     }
 
     /** Whether `read()` goes to a separate replica rather than the primary. */
@@ -398,6 +407,21 @@ export class AbstractDatabaseClient extends PuterClient {
             postgres: `EXTRACT(EPOCH FROM ${column})::bigint`,
             mysql: `UNIX_TIMESTAMP(${column})`,
             otherwise: `CAST(strftime('%s', ${column}) AS INTEGER)`,
+        });
+    }
+
+    /**
+     * The database's own clock as epoch milliseconds, so nodes whose clocks
+     * disagree still agree on it. The mysql form ignores the session time zone,
+     * so a DST change can't shift it.
+     */
+    nowMsExpr(): string {
+        return this.case({
+            sqlite: "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)",
+            postgres:
+                'CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS BIGINT)',
+            otherwise:
+                "(TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(6)) DIV 1000)",
         });
     }
 

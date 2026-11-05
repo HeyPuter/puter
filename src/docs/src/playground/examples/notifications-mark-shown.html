@@ -1,0 +1,19 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const first = await puter.notifications.notify({ title: '1 new message', group: 'inbox' });
+
+            // (1) Unshown, so the next one in the group replaces it and keeps its uid
+            const second = await puter.notifications.notify({ title: '2 new messages', group: 'inbox' });
+            puter.print(`replaced: ${second === first}<br>`);
+
+            // (2) Marked shown, so the next one in the group is a new notification
+            await puter.notifications.markShown(second);
+            const third = await puter.notifications.notify({ title: '1 new message', group: 'inbox' });
+            puter.print(`new notification: ${third !== second}<br>`);
+        })();
+    </script>
+</body>
+</html>

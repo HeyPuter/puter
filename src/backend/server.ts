@@ -1743,12 +1743,7 @@ export class PuterServer {
      */
     async #runHook(
         order: 'bottomUp' | 'topDown',
-        hook:
-            | 'onServerStart'
-            | 'onServerDrainStart'
-            | 'onServerPrepareShutdown'
-            | 'onServerShutdown',
-        info?: ServerDrainInfo,
+        hook: 'onServerStart' | 'onServerPrepareShutdown' | 'onServerShutdown',
     ) {
         const layers = [
             this.clients,
@@ -1760,35 +1755,77 @@ export class PuterServer {
         if (order === 'topDown') layers.reverse();
         for (const layer of layers) {
             for (const instance of Object.values(layer) as WithLifecycle[]) {
-                await instance[hook]?.(info);
+                try {
+                    await instance[hook]?.();
+                } catch (err) {
+                    if (hook === 'onServerStart') throw err;
+                    console.error(
+                        `[server] ${hook} failed in ${instance.constructor.name}`,
+                        err,
+                    );
+                }
             }
         }
     }
 
-    #prepareShutdownHooksRan = false;
+    /**
+     * Run every `onServerDrainStart` concurrently, so one hook holding the
+     * listener open doesn't delay the others, and one failing doesn't skip the
+     * rest.
+     */
+    async #runDrainStartHooks(info: ServerDrainInfo) {
+        const instances = [
+            this.clients,
+            this.stores,
+            this.services,
+            this.controllers,
+            this.drivers,
+        ].flatMap((layer) => Object.values(layer) as WithLifecycle[]);
+        const results = await Promise.allSettled(
+            instances.map(async (instance) =>
+                instance.onServerDrainStart?.(info),
+            ),
+        );
+        results.forEach((result, i) => {
+            if (result.status === 'rejected') {
+                console.error(
+                    `[server] onServerDrainStart failed in ${instances[i].constructor.name}`,
+                    result.reason,
+                );
+            }
+        });
+    }
+
+    #prepareShutdownHooks: Promise<void> | null = null;
 
     /**
      * Run every layer's `onServerPrepareShutdown` exactly once, whichever of
-     * `prepareShutdown()` / `shutdown()` gets there first.
+     * `prepareShutdown()` / `shutdown()` gets there first; the other waits for
+     * that run to finish.
      */
-    async #runPrepareShutdownHooks() {
-        if (this.#prepareShutdownHooksRan) return;
-        this.#prepareShutdownHooksRan = true;
-        await this.#runHook('bottomUp', 'onServerPrepareShutdown');
+    #runPrepareShutdownHooks(): Promise<void> {
+        this.#prepareShutdownHooks ??= this.#runHook(
+            'bottomUp',
+            'onServerPrepareShutdown',
+        );
+        return this.#prepareShutdownHooks;
     }
 
     async prepareShutdown(info: ServerDrainInfo = {}) {
         if (this.#server) {
-            try {
-                await this.#runHook('bottomUp', 'onServerDrainStart', info);
-            } catch (err) {
-                console.error('[server] onServerDrainStart failed', err);
-            }
+            await this.#runDrainStartHooks(info);
             this.#server.close(async () => {
                 console.log(
                     'PuterServer has stopped accepting new connections',
                 );
-                await this.#runPrepareShutdownHooks();
+                try {
+                    await this.#runPrepareShutdownHooks();
+                } catch (err) {
+                    console.error(
+                        '[server] prepare-shutdown hooks failed',
+                        err,
+                    );
+                }
             });
         }
     }

@@ -10,7 +10,9 @@ On a website, the browser asks on your own origin, and pushes arrive through you
 
 The call resolves as soon as the browser has answered and Puter has its subscription. It doesn't wait for the confirmation. Pushes start once your page hands the confirmation back, usually within seconds. If the confirmation doesn't arrive within 30 seconds, the `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout`, or the console does without one, and the next page load tries again.
 
-The choice sticks. Once pushes are on, [`onPush()`](/Notifications/onPush/) keeps the subscription current on later page loads without asking again. After [`disable()`](/Notifications/disable/), after the user turns your app off or removes this browser in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/), page loads don't subscribe again until your page calls [`enable()`](/Notifications/enable/) from a click.
+With only the browser's permission prompt, a user can turn pushes on in up to 5 browsers for your app. With permission granted through Puter's prompt, the limit is 10. Turning them on past the limit removes the least recently seen browser. See [push limits](/rate-limits-and-quotas/#notifications).
+
+The choice sticks. Once pushes are on, [`onPush()`](/Notifications/onPush/) keeps the subscription current on later page loads without asking again. After [`disable()`](/Notifications/disable/), after the user turns your app off or removes this browser in Puter, after [`puter.auth.signOut()`](/Auth/signOut/), or after a different user signs in, page loads don't subscribe again until your page calls [`enable()`](/Notifications/enable/) from a click.
 
 If the user turned your app off in Puter's settings, the call rejects with `push_revoked`. To ask again, call [`requestPermission()`](/Notifications/requestPermission/) from a click, which opens Puter's permission prompt, and then call [`enable()`](/Notifications/enable/) again.
 
@@ -42,16 +44,21 @@ It rejects with an error carrying `message` and `code`:
 | `push_unavailable` | This server has no push notification service, as on most self-hosted servers. |
 | `push_disabled` | This server has push notifications turned off. |
 | `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click, then call [`enable()`](/Notifications/enable/) again. |
+| `push_device_removed` | The user removed this browser in Puter, and the fresh subscription was also refused. |
 | `push_worker_unavailable` | The service worker couldn't be registered or didn't start, for example because nothing is served at its path. |
 | `push_worker_conflict` | Another service worker controls the scope. Add the `importScripts()` line to that worker and pass its path as `serviceWorker`. |
-| `push_subscription_conflict` | The worker already has a push subscription from another service, such as Firebase or OneSignal. Give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. |
+| `push_subscription_conflict` | The worker already has a push subscription from another service, such as Firebase or OneSignal. Give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. A subscription Puter made earlier, even with a key Puter has since changed, is replaced instead. |
 | `push_subscribe_failed` | The browser couldn't create a push subscription, usually because it couldn't reach its push service. |
 | `push_subscription_invalid` | The browser's push service refused the subscription, even after a fresh one. |
 | `push_endpoint_revoked` | Another Puter account turned your app off on this browser's subscription, and a fresh subscription couldn't replace it. |
 | `push_challenge_failed` | Puter couldn't reach the browser's push service to send the confirmation. Try again later. |
 | `push_verification_canceled` | [`disable()`](/Notifications/disable/) was called before this call finished. |
+| `bad_request` | The browser's subscription isn't in a format or from a push service this server accepts. |
+| `forbidden` | The call isn't from a signed-in browser session of the app. |
+| `origin_mismatch` | The request's origin doesn't belong to the app making the call. |
 | `too_many_requests` | Pushes were turned on too many times in a short time. Try again later. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
+| `notifications_failed` | The server sent a response the SDK couldn't read. |
 
 ## Examples
 

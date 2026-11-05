@@ -67,6 +67,8 @@ export class NotificationFeed {
     #since;
     /** @type {(uid: string) => void} */
     #onReceived;
+    #onDismissed;
+    #onGap;
 
     /** @type {Map<string, number>} uid → version handed over */
     #seen = new Map();
@@ -93,11 +95,13 @@ export class NotificationFeed {
     /** @type {(() => unknown) | null} */
     #stopWatchingAuth = null;
 
-    /** @param {(uid: string) => void} [onReceived] Told of each live arrival. */
-    constructor(puter, handler, options, onReceived = () => {}) {
+    /** @param {{ received?: (uid: string) => void; dismissed?: (uid: string) => void; gap?: () => void }} [callbacks] */
+    constructor(puter, handler, options, { received = () => {}, dismissed = () => {}, gap = () => {} } = {}) {
         this.#puter = puter;
         this.#handler = handler;
-        this.#onReceived = onReceived;
+        this.#onReceived = received;
+        this.#onDismissed = dismissed;
+        this.#onGap = gap;
         this.#onError = options.onError;
         this.#catchUp = options.catchUp !== false;
         this.#since =
@@ -162,7 +166,12 @@ export class NotificationFeed {
 
     #receive(event) {
         if (this.#stopped) return;
+        if (event?.op === 'dismiss' && event.type === 'app.message' && typeof event.uid === 'string' && event.uid) {
+            this.#onDismissed(event.uid);
+            return;
+        }
         if (event?.op === 'gap') {
+            this.#onGap();
             this.#readAfterGap();
             return;
         }
@@ -192,12 +201,21 @@ export class NotificationFeed {
             let ok = false;
             try {
                 let ended = false;
+                // A server that ignores `from` answers with the oldest page.
+                let fromEnd = source === 'baseline' && !this.#cursor;
                 for (let page = 0; page < MAX_PAGES && !this.#stopped; page++) {
                     const result = await this.#puter.events.fetch({
                         subject: SUBJECT,
                         limit: PAGE_SIZE,
                         ...(this.#cursor ? { cursor: this.#cursor } : {}),
+                        ...(fromEnd ? { from: 'end' } : {}),
                     });
+                    if (fromEnd && result.items.length === 0 && result.cursor) {
+                        this.#cursor = result.cursor;
+                        ended = true;
+                        break;
+                    }
+                    fromEnd = false;
                     for (const event of result.items) {
                         this.#deliver(event, source);
                     }

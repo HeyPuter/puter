@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { HttpError } from '../../core/http/HttpError.js';
+
 /** Who the recipient is in relation to the notification. */
 export type NotificationAudience = 'account' | 'developer' | 'app-user';
 
@@ -115,6 +117,15 @@ export const NOTIFICATION_TYPES = [
         groupable: false,
         subject: subjectFor('developer'),
     },
+    // A handler the user published into their own scope stopped taking
+    // deliveries: the code is theirs, so the notice is too.
+    {
+        type: 'app.events.handler_suspended',
+        audience: 'app-user',
+        appScoped: true,
+        groupable: false,
+        subject: subjectFor('app-user'),
+    },
     // The only type apps create; its kind goes in the value's `channel`. A
     // newer one replaces the newest with the same `group` unless that one was
     // shown or dismissed.
@@ -144,6 +155,22 @@ export type NotificationTypeName = (typeof NOTIFICATION_TYPES)[number]['type'];
 /** Serialized `value` may not exceed this many bytes. */
 export const NOTIFICATION_VALUE_MAX_BYTES = 16 * 1024;
 
+export const assertNotificationValueFits = (
+    value: Record<string, unknown>,
+): void => {
+    if (
+        Buffer.byteLength(JSON.stringify(value), 'utf8') >
+        NOTIFICATION_VALUE_MAX_BYTES
+    ) {
+        throw new HttpError(
+            400,
+            `\`value\` may not exceed ${NOTIFICATION_VALUE_MAX_BYTES} bytes`,
+            {
+                legacyCode: 'notification_value_too_large',
+            },
+        );
+    }
+};
 const BY_NAME = new Map<string, NotificationType>(
     NOTIFICATION_TYPES.map((entry) => [entry.type, entry]),
 );

@@ -18,7 +18,7 @@ Connect to this URL on the Puter API host:
 wss://api.puter.com/puterai/openai/v1/realtime?model=gpt-realtime-2.1-mini
 ```
 
-Self-hosted clients use their deployment's API host. The `model` query parameter defaults to `gpt-realtime-2.1-mini`. The model is fixed for the connection. A session update that changes it is rejected. It also accepts `gpt-realtime-2.1`, `gpt-realtime-2`, `gpt-realtime-1.5`, `gpt-realtime`, and `gpt-realtime-mini`.
+The `model` query parameter defaults to `gpt-realtime-2.1-mini`. The model is fixed for the connection. A session update that changes it is rejected. It also accepts `gpt-realtime-2.1`, `gpt-realtime-2`, `gpt-realtime-1.5`, `gpt-realtime`, and `gpt-realtime-mini`.
 
 Authenticate with a Puter session, app, or full-access API token. Puter supplies the provider credential. Server clients pass this header:
 
@@ -29,6 +29,8 @@ Authorization: Bearer <PUTER_TOKEN>
 Browser WebSocket clients pass `realtime` and `openai-insecure-api-key.<PUTER_TOKEN>` as subprotocols. The server echoes only `realtime`. The endpoint also accepts an `auth_token` query parameter. Prefer the authorization header where supported because URLs and subprotocols can appear in logs. Authentication takes precedence in this order, header, subprotocol, then query parameter.
 
 The socket can open before authentication and provider setup finish. Listen for errors and closure immediately. Wait for `session.created`, send your session settings, then wait for `session.updated` before submitting a turn.
+
+To open a replacement while another connection remains healthy, set the optional `purpose=handover` query parameter. These attempts share a smaller per-credential budget, checked before the general connection-attempt budget. Initial connections and dropped-connection recovery use the URL without this parameter. The limits are listed in [rate limits and quotas](/rate-limits-and-quotas/).
 
 ## Text example
 
@@ -109,8 +111,14 @@ A new connection starts an empty conversation. To keep context, add earlier item
 
 ## Errors, billing, and limits
 
-API errors arrive as `{ "type": "error", "error": { "code": "...", "message": "..." } }`. Handle socket errors and close frames too. Authentication failures use `invalid_api_key`. Other relay codes include `model_not_found`, `insufficient_funds`, `subscription_required`, `rate_limit_exceeded`, `invalid_event`, `connection_timeout`, `provider_unavailable`, `upstream_error`, and `server_restarting`.
+API errors arrive as `{ "type": "error", "error": { "code": "...", "message": "..." } }`. Handle socket errors and close frames too. Invalid, missing, or revoked credentials use `invalid_api_key`. If Puter can't check a credential or the account's plan, the error is `internal_error` and the session closes with 1011, so try again after a short, randomized delay. Other relay codes include `permission_denied`, `model_not_found`, `insufficient_funds`, `subscription_required`, `rate_limit_exceeded`, `invalid_event`, `connection_timeout`, `provider_unavailable`, `upstream_error`, and `server_restarting`.
 
-Policy failures generally close with 1008, oversized client messages with 1009, upstream or setup failures with 1011, and server restarts with 1012. Authentication and model failures can arrive after the WebSocket handshake succeeds.
+Policy failures generally close with 1008, oversized client messages with 1009, upstream or setup failures with 1011, server restarts with 1012, and temporary server overload with 1013. Reconnect after 1011, 1012, or 1013. Authentication and model failures can arrive after the WebSocket handshake succeeds.
 
 The endpoint requires a paid Puter plan. Usage is charged after completed responses and input transcriptions. While a response generates, part of your balance is held for it, so a session opens only if your balance covers one response. If the provider connection closes before a response reports its usage, the response is charged the full amount held for it. Each account can open 20 sessions at once by default. Each JSON message you send is limited to 64 KiB, including reassembled fragments. Messages from the provider can be up to 4 MiB. Stream audio in small chunks. All message rates, queue caps, timeouts, and other bounds are published in [rate limits and quotas](/rate-limits-and-quotas/).
+
+Input transcription holds a small amount of your balance per transcribed item, priced at the transcription model you select. Two items are reserved ahead of your audio and replenished as the provider commits them, so a session holds only its spare items plus the items still awaiting a transcript. Changing the transcription model reprices the spare items. If your balance can't cover another item, audio waits while earlier items settle; once none are left to settle, the session closes with `insufficient_funds`. Failed transcriptions, items without final usage, and audio whose commit the provider never acknowledges before the connection closes are each charged that model's fixed per-item amount. Unacknowledged audio is charged one item per started 160 seconds. With server turn detection, only detected speech counts, so silence is never charged. The amounts, timeout and audio limits are listed in [rate limits and quotas](/rate-limits-and-quotas/).
+
+Provider-reported realtime models must have a known price. A missing model uses the last known model. An explicitly unpriced model closes the connection with `upstream_error`.
+
+After recording usage, the connection can continue while settled credit is positive, including a fractional balance. Each new billable operation still needs its full reservation after accounting for other outstanding holds.

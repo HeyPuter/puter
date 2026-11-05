@@ -28,6 +28,7 @@ puter.events.fetch(options)
 - `subject` (String) (required): What to read. Use `notif:app-user` for your app's notifications for the user, and `notif:developer` for notifications about your app, for its owner. The full form is `notif:<appId>:<audience>`, where the audience is `account`, `developer`, or `app-user`. Apps and websites never see `account` notifications, so `notif:account` returns an empty page for them.
 - `cursor` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept. A read from a cursor returns the notifications created after it, plus any notification [replaced](/Notifications/notify/#groups) since that page was read, even one from an earlier page.
 - `after` (String): The older name for `cursor`, still accepted. If both are given, `cursor` is used.
+- `from` (String): Where a read without a cursor starts. `'start'`, the default, starts from the oldest notification still kept. `'end'` skips what's already there: it returns no items and a `cursor` at the newest notification, and reads from that cursor return only notifications created or replaced after it. Ignored when a cursor is given.
 - `limit` (Number): Events per page. Defaults to 50, max 200.
 
 ## Return value
@@ -35,7 +36,7 @@ puter.events.fetch(options)
 A `Promise` for `{ items, cursor }`:
 
 - `items`: The events, oldest first, in the same shape as live deliveries.
-- `cursor`: Pass it back as `cursor` to read the next page. It's absent on the last page. Treat it as opaque.
+- `cursor`: Pass it back as `cursor` to read the next page. It's absent on the last page, but always present on a `from: 'end'` read of a part of the mailbox you can see. Treat it as opaque.
 
 Each item is a notification event:
 
@@ -60,6 +61,7 @@ Besides `type` and `title`, `notification` carries these fields for each type:
 - `share.claimed` (`account`): `fields.count`.
 - `app.worker.deployed`, `app.worker.deployFailed` (`developer`): nothing else.
 - `app.events.suspended` (`developer`): `handler` and `subscriptions`, when removing a handler or repeated failures [suspended](/Events/onPersistent/#suspended-subscriptions) subscriptions bound to it.
+- `app.events.handler_suspended` (`app-user`): `handler` and `subscriptions`, when a handler's removal, repeated failures, or a delivery that found it missing [suspended](/Events/onPersistent/#suspended-subscriptions) subscriptions or schedules bound to a handler in the user's own [user scope](/Events/handlers/#user-scope). It's the holder's counterpart to `app.events.suspended`, and arrives on `notif:app-user` of the app.
 - `app.events.ended` (`app-user`): `reason` (`anchor_deleted`, `permission_revoked`, or `no_credit`), sent to the holder when persistent subscriptions stopped without being unsubscribed. With `anchor_deleted` or `permission_revoked`, it also has `subject`, `subjects` (up to 20), and `count`. It arrives on `notif:app-user` of the app that made the subscriptions.
 - `app.message` (`app-user`): A notification your app sent with [`notify()`](/Notifications/notify/). It carries `priority`, `ttl`, and `app` (`{ uid, name, icon }`, the app that sent it), plus `text`, `icon`, `target`, `data`, `group`, `channel`, and `sensitive` when they were set.
 - `kv.share.received` (`app-user`): The `handle`, `access`, `label`, and `createdAt` (in unix seconds) of a key-value share another user made with you with `notify` on, or turned `notify` on for (see [`puter.kv.share()`](/KV/share/#what-the-holder-sees)).
@@ -78,7 +80,7 @@ The promise rejects with `{ message, code }`:
 | --- | --- |
 | `invalid_subject` | `subject` is missing or doesn't parse. |
 | `invalid_subject_audience` | A `notif:` subject names an audience other than `account`, `developer`, or `app-user`. |
-| `invalid_request` | `limit` isn't a number, or `cursor` or `after` isn't a string. |
+| `invalid_request` | `limit` isn't a number, `cursor` or `after` isn't a string, or `from` isn't `'start'` or `'end'`. |
 | `fetch_unsupported_subject` | The subject is `fs:` or `kv:`, which store nothing to read. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `too_many_requests` | Over the `fetch()` rate limit. |

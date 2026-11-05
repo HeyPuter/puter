@@ -85,6 +85,7 @@ export default suite('notifications', {
             'status',
             'listDevices',
             'removeDevice',
+            'cancel',
         ] as const) {
             t.assert.equal(
                 typeof t.puter.notifications[method],
@@ -104,6 +105,7 @@ export default suite('notifications', {
                 target: '/items/1',
                 data: { id: 1 },
                 channel: 'messages',
+                priority: 'high',
             });
             t.assert.equal(typeof uid, 'string');
 
@@ -221,6 +223,7 @@ export default suite('notifications', {
                 const sent = await asApp(t, appUid, () =>
                     t.puter.notifications.notify({
                         title: toHolder,
+                        priority: 'high',
                         to: { handle: share.handle },
                     }),
                 );
@@ -382,6 +385,82 @@ export default suite('notifications', {
             ),
             true,
         );
+    },
+
+    'answers sendAt and cancel events_disabled without schedules, and sends without sendAt':
+        async (t) => {
+            const appUid = await makeApp(t);
+            const { later, now, cancelled, invalid, sent } = await asApp(
+                t,
+                appUid,
+                async () => {
+                    const refusal = async (run: () => Promise<unknown>) => {
+                        try {
+                            await run();
+                        } catch (error) {
+                            return error;
+                        }
+                        throw new Error('expected a refusal');
+                    };
+                    return {
+                        later: await refusal(() =>
+                            t.puter.notifications.notify({
+                                title: unique('later'),
+                                sendAt: new Date(Date.now() + 60 * 60 * 1000),
+                            }),
+                        ),
+                        now: await refusal(() =>
+                            t.puter.notifications.notify({
+                                title: unique('now'),
+                                sendAt: Date.now(),
+                            }),
+                        ),
+                        cancelled: await refusal(() =>
+                            t.puter.notifications.cancel(
+                                '2f7c1b6e-4d1a-4c55-9a8e-0e6f3c2b1a90',
+                            ),
+                        ),
+                        invalid: await refusal(() =>
+                            t.puter.notifications.notify({
+                                title: unique('never'),
+                                sendAt: new Date(Number.NaN),
+                            }),
+                        ),
+                        sent: await t.puter.notifications.notify({
+                            title: unique('plain'),
+                        }),
+                    };
+                },
+            );
+            t.assert.equal(codeOf(later), 'events_disabled');
+            t.assert.equal(codeOf(now), 'events_disabled');
+            t.assert.equal(codeOf(cancelled), 'events_disabled');
+            t.assert.equal(codeOf(invalid), 'events_schedule_invalid');
+            t.assert.equal(typeof sent, 'string');
+        },
+
+    'dismissal reaches the live feed without notification content': async (t) => {
+        const appUid = await makeApp(t);
+        await asApp(t, appUid, async () => {
+            const dismissals: Array<{ uid: string }> = [];
+            const handler = (event: { uid: string }) => { dismissals.push(event); };
+            const events: Array<{ op: string; uid?: string; notification?: unknown }> = [];
+            const listener = await t.puter.events.onLocal('notif:app-user', ({ event }) => {
+                if (event.op === 'dismiss') events.push(event);
+            });
+            t.puter.notifications.on('dismiss', handler);
+            try {
+                const uid = await t.puter.notifications.notify({ title: unique('dismissed') });
+                t.assert.equal(await t.puter.notifications.dismiss(uid), true);
+                t.assert.ok(await waitFor(() => events.some((event) => event.uid === uid), DELIVERY_TIMEOUT_MS));
+                t.assert.deepEqual(dismissals, [{ uid }]);
+                t.assert.equal(events[0].notification, undefined);
+                t.assert.equal(await t.puter.notifications.dismiss(uid), false);
+            } finally {
+                t.puter.notifications.off('dismiss', handler);
+                await listener.off();
+            }
+        });
     },
 
     'status resolves one of its four states without asking': async (t) => {

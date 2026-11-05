@@ -79,6 +79,14 @@ vi.mock(import('@opentelemetry/api'), async (importOriginal) => ({
                     metricCalls.push({ name, value, attributes });
                 },
             }),
+            createHistogram: (name: string) => ({
+                record: (
+                    value: number,
+                    attributes: Record<string, unknown> = {},
+                ) => {
+                    metricCalls.push({ name, value, attributes });
+                },
+            }),
         }),
     },
 }));
@@ -394,7 +402,7 @@ const makeRegion = (
                 fields: { code: 'subject_does_not_exist' },
             }),
         },
-        notification: { notify: vi.fn() },
+        notification: { notify: vi.fn(), deliverOverSocket: vi.fn() },
         metering: {
             bufferIncrementUsages: (
                 actor: Actor,
@@ -441,6 +449,7 @@ const makeRegion = (
             ): Promise<{
                 row: DurableSubscription;
                 bump: { userId: number; generation: number };
+                reaped: [];
             }> => {
                 const row = durableRow({
                     holderUserId: input.holderUserId as number,
@@ -469,6 +478,7 @@ const makeRegion = (
                             row.ownerUserId,
                         ),
                     },
+                    reaped: [],
                 };
             },
         },
@@ -2389,5 +2399,70 @@ describe('a durable row created in another region', () => {
                 attributes: expect.objectContaining({ class: 'bump' }),
             }),
         );
+    });
+});
+
+
+describe('notification dismissals across connected pages', () => {
+    const config = { events: { enabled: true, notificationsFoldIn: true } } as Partial<IConfig>;
+    const appUid = 'notification-app';
+    const input = (uid = 'one') => ({
+        userId, userUuid: `user-${userId}`, uid,
+        type: 'app.message', audience: 'app-user', appUid,
+        value: {}, createdAt: Date.now(), dismissed: true as const,
+    });
+
+    it('reaches local and remote session pages without content or a forwarding loop', async () => {
+        const west = makeRegion('west', ['east'], config);
+        const east = makeRegion('east', ['west'], config);
+        for (const [region, socket] of [[west, 'local'], [east, 'remote']] as const) {
+            await region.events.subscribe(actorFor(appUid), socket, { subject: 'notif:app-user' });
+        }
+        await posted(east);
+        await quiet(100);
+        await west.events.dispatchNotif({ ...input(), value: { title: 'private' } });
+        await arrived(west);
+        await arrived(east);
+        for (const region of [west, east]) {
+            expect(region.sent).toHaveLength(1);
+            expect(region.sent[0].event).toMatchObject({ op: 'dismiss', uid: 'one', appUid });
+            expect(region.sent[0].event).not.toHaveProperty('notification');
+        }
+        expect(east.sent[0].event.id).toBe(west.sent[0].event.id);
+        const forwarded = west.posts.flatMap((p) => p.batch.items)
+            .find((item): item is ForwardEvent => item.kind === 'event');
+        expect(forwarded?.notif?.value).toEqual({});
+        expect(east.posts.flatMap((p) => p.batch.items).filter((i) => i.kind === 'event')).toEqual([]);
+    });
+
+    it('keeps separate dismissed ids in the same coalescing window', async () => {
+        const region = makeRegion('west', [], config);
+        await region.events.subscribe(actorFor(appUid), 'local', { subject: 'notif:app-user' });
+        await region.events.dispatchNotif(input('one'));
+        await region.events.dispatchNotif(input('two'));
+        await arrived(region, 2);
+        expect(region.sent.map((item) => 'uid' in item.event && item.event.uid)).toEqual(['one', 'two']);
+    });
+
+    it('does not deliver another app, account audience or another user to an app page', async () => {
+        const region = makeRegion('west', [], config);
+        await region.events.subscribe(actorFor(appUid), 'local', { subject: 'notif:app-user' });
+        await region.events.dispatchNotif({ ...input(), appUid: 'other-app' });
+        await region.events.dispatchNotif({ ...input(), audience: 'account' });
+        await region.events.dispatchNotif({ ...input(), userId: userId + 1, userUuid: 'other-user' });
+        await quiet(350);
+        expect(region.sent).toEqual([]);
+    });
+
+    it('also forwards postings through the same session path', async () => {
+        const west = makeRegion('west', ['east'], config);
+        const east = makeRegion('east', ['west'], config);
+        await east.events.subscribe(actorFor(appUid), 'remote', { subject: 'notif:app-user' });
+        await posted(east);
+        await quiet(100);
+        const { dismissed, ...postedInput } = input();
+        await west.events.dispatchNotif({ ...postedInput, value: { title: 'Hello' } });
+        await arrived(east);
+        expect(east.sent[0].event).toMatchObject({ op: 'post', uid: 'one', notification: { title: 'Hello' } });
     });
 });

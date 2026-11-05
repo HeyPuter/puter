@@ -25,6 +25,18 @@ import type { PrivateLaunchDecision } from './privateLaunchAccess.js';
 /** A raw `apps` store row. */
 export type AppRow = Record<string, unknown>;
 
+/** A row created for an origin, whose name and title are still its uid. */
+export function isOriginBootstrapApp(app: unknown): app is AppRow {
+    if (!app || typeof app !== 'object') return false;
+    const { uid, name, title, description } = app as AppRow;
+    if (typeof uid !== 'string' || !uid) return false;
+    if (name !== uid || title !== uid) return false;
+    return (
+        typeof description === 'string' &&
+        description.startsWith('App created from origin ')
+    );
+}
+
 /** Client shape of an app. Never carries internal ids or the owner's id. */
 export interface AppView {
     uid: unknown;

@@ -354,6 +354,7 @@ describe('NotificationService.notifyUpdate', () => {
             appUid,
             value: { title: 'two messages', type: 'app.message' },
             updated: true,
+            replaced: true,
         });
         expect(desktop.seen).toEqual([]);
         expect(
@@ -393,6 +394,36 @@ describe('NotificationService.notifyUpdate', () => {
         await new Promise((r) => setTimeout(r, 50));
         expect(written.seen).toEqual([]);
         written.stop();
+    });
+
+    it('sends the desktop rewrite before reading the row back, so a failed read still updates it', async () => {
+        const user = await makeUser();
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one share' },
+            { type: 'share.received' },
+        );
+        const pushed = collect('outer.gui.notif.message');
+        const read = vi
+            .spyOn(server.stores.notification, 'getByUid')
+            .mockRejectedValueOnce(new Error('replica down'));
+        try {
+            await expect(
+                notifications.notifyUpdate(
+                    uid,
+                    user.id,
+                    { title: 'two shares' },
+                    { type: 'share.received' },
+                ),
+            ).rejects.toThrow('replica down');
+            expect(pushed.seen).toHaveLength(1);
+            expect((pushed.seen[0] as NotifPush).response.notification).toEqual(
+                { title: 'two shares', type: 'share.received' },
+            );
+        } finally {
+            read.mockRestore();
+            pushed.stop();
+        }
     });
 
     it('refuses to fold a type that does not group', async () => {
@@ -882,17 +913,42 @@ describe('NotificationService.sweepExpired', () => {
     });
 
     it('stops at the pass cap and leaves the rest for the next sweep', async () => {
+        // A backlog that always fills the batch: the cap, not a short batch,
+        // is what ends the call. Seeding 500k rows would take minutes.
+        const deletes = vi
+            .spyOn(server.stores.notification, 'deleteCreatedBefore')
+            .mockResolvedValue(500);
+        try {
+            expect(await notifications.sweepExpired()).toBe(500_000);
+            expect(deletes).toHaveBeenCalledTimes(1000);
+        } finally {
+            deletes.mockRestore();
+        }
+    });
+
+    it('stops between batches once its signal aborts', async () => {
         await notifications.sweepExpired();
         const user = await makeUser();
-        // 50 passes * 500/batch = 25,000 — a backlog past that so the cap,
-        // not a short batch, is what ends the first call.
-        await seedExpired(user.id, 25_050);
-
-        expect(await notifications.sweepExpired()).toBe(25_000);
-        expect(
-            await server.stores.notification.listByUserId(user.id),
-        ).toHaveLength(50);
-        expect(await notifications.sweepExpired()).toBe(50);
+        await seedExpired(user.id, 1200);
+        const controller = new AbortController();
+        const deleteBatch = server.stores.notification.deleteCreatedBefore.bind(
+            server.stores.notification,
+        );
+        const spy = vi
+            .spyOn(server.stores.notification, 'deleteCreatedBefore')
+            .mockImplementation(async (days: number, limit: number) => {
+                const removed = await deleteBatch(days, limit);
+                controller.abort();
+                return removed;
+            });
+        try {
+            expect(await notifications.sweepExpired(controller.signal)).toBe(
+                500,
+            );
+        } finally {
+            spy.mockRestore();
+        }
+        expect(await notifications.sweepExpired()).toBe(700);
     });
 
     it('sweeps nothing when no retention is configured', async () => {

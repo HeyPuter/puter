@@ -75,7 +75,7 @@ The promise rejects with `{ message, code }`:
 
 All of a client's session subscriptions share one connection. The first `onLocal()` opens it, and it closes when the last subscription ends.
 
-If the connection drops (a network blip, a sign-in, an API origin change, or the server closing it), the SDK reconnects and subscribes again. The handler and the subscription object stay the same, and only `subId` changes. Changes made while the connection was down aren't sent afterwards. Once the subscription is back, the handler gets one [gap marker](/Events/subjects/#gaps) with `reason: 'reconnect'`, so a handler that re-reads on gaps catches up by itself. For `notif:` subjects, [`fetch()`](/Events/fetch/) reads exactly what was missed.
+If the connection drops (a network blip, a sign-in, an API origin change, or the server closing it), the SDK reconnects and subscribes again. The handler and the subscription object stay the same, and only `subId` changes. Changes made while the connection was down aren't sent afterwards. Once the subscription is back, the handler gets one [gap marker](/Events/subjects/#gaps) with `reason: 'reconnect'`, so a handler that re-reads on gaps catches up by itself. For `notif:` subjects, [`fetch()`](/Events/fetch/) reads missed postings. Live dismissals aren't replayed by that call. The [notification listeners](/Notifications/onNotification/) separately check displayed browser notifications for dismissals.
 
 The SDK calls `onError` only if the subscription can't be restored. That's when subscribing again fails, when the reconnect is refused (`reauth_required` after a sign-out), or when the server keeps closing the connection (`events_connection_failed`).
 

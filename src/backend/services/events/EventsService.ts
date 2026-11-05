@@ -41,6 +41,7 @@ import {
     EVENTS_SUBSCRIBE_LIMIT,
     EVENTS_UNSUBSCRIBE_LIMIT,
     EVENTS_WORKER_INVOCATION_LIMIT,
+    EVENTS_USER_SCOPE_SOURCE_MAX_BYTES,
     EVENTS_WORKER_SOURCE_MAX_BYTES,
     limitFor,
     SUSPENDED_ROW_TTL_DAYS,
@@ -54,8 +55,14 @@ import {
     type Actor,
 } from '../../core/actor.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
+import type {
+    SqlGuard,
+    ScheduleEndReason,
+    ScheduleSubscriptionChange,
+} from '../../core/schedules.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import type {
+    DurableCreated,
     ReanchorInput,
     SuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
@@ -64,13 +71,19 @@ import {
     DurableQuotaRaceLost,
     HANDLER_SETTLE_BATCH,
     isSuspendedReason,
+    type DurablePage,
+    type DurableReap,
 } from '../../stores/events/DurableSubscriptionStore.js';
 import {
-    HANDLER_NAME_MAX_LENGTH,
+    appHandlerScope,
+    EVENTS_WORKERS_LIST_DEFAULT_LIMIT,
+    EVENTS_WORKERS_LIST_LIMIT_CAP,
     hashContent,
     type EventHandlerSummary,
     type EventsWorkerSummary,
+    type HandlerScope,
     type PublishOutcome,
+    type UserScopeSummary,
 } from '../../stores/events/EventHandlerStore.js';
 import {
     SESSION_SUBSCRIPTION_TTL_SECONDS,
@@ -84,7 +97,9 @@ import type {
     PendingShed,
 } from '../../stores/events/PendingDeliveryStore.js';
 import {
+    isScheduleRow,
     runsInWorker,
+    type HandlerScopeKind,
     type SubscriptionPermission,
 } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
@@ -116,8 +131,13 @@ import {
     appSocketRoom,
     type SocketSpecifier,
 } from '../socket/SocketService.js';
+import { savedAfterId, type JobRunContext } from '../jobs/JobScheduler.js';
 import { PuterService } from '../types.js';
-import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../metering/consts.js';
+import { assertRentedUnitRoom } from '../../util/rentedUnits.js';
 import type { IConfig } from '../../types.js';
 import {
     resolveFsAnchor,
@@ -172,11 +192,22 @@ import {
 } from './matcher.js';
 import { MatcherCache } from './matcherCache.js';
 import {
+    badRequest,
+    parseContext,
+    parseHandlerHash,
+    parseHandlerName,
+    parseHandlerScopeKind,
+    parseHandlerSource,
+    projectContext,
+    spendUserWindow,
+} from './requestParsing.js';
+import {
     mergeNotifCatchUp,
     notifFetchCursor,
     notifFetchPosition,
     projectNotifRow,
     resolveNotifFetch,
+    type NotifFetchScope,
 } from './notifFetch.js';
 import {
     lookupFsSubject,
@@ -216,6 +247,7 @@ import {
     isNotifToken,
     kvHandleFromSubject,
     kvHandleMatchFromSubject,
+    notifAnchorToken,
     notifMatchSpansEveryApp,
     parseSubject,
     type FsOp,
@@ -238,6 +270,7 @@ import {
     eventsInvokeKey,
     eventsWorkerScope,
     eventsWorkerScript,
+    userHandlerScript,
 } from './workerRuntime.js';
 import { handlerSetHash } from './workerSource.js';
 // The SDK's own scan, so a publish that skips the SDK is held to the same rule.
@@ -245,10 +278,14 @@ import { scanHandlerSource } from '../../../puter-js/src/modules/events/lib/free
 import {
     EventsWorkerInvoker,
     RecordingWorkerInvoker,
+    type AddressOptions,
+    type MintRefusal,
     type WorkerInvocation,
     type WorkerInvocationOutcome,
     type WorkerInvocationResult,
     type WorkerInvokerSeam,
+    type WorkerRunOptions,
+    type WorkerRunResult,
 } from './workerSeam.js';
 
 /**
@@ -335,6 +372,13 @@ export interface DurableSubscribeRequest extends SubscribeRequest {
      * it matches what the app actually published.
      */
     handlerHash?: unknown;
+    /**
+     * Source of an inline handler, sent without a `handlerName`. Published into
+     * the caller's user scope under a name derived from it.
+     */
+    handlerSource?: unknown;
+    /** `'user'` binds `handlerName` to the caller's user scope. */
+    handlerScope?: unknown;
     context?: unknown;
     expiresAt?: unknown;
 }
@@ -342,6 +386,8 @@ export interface DurableSubscribeRequest extends SubscribeRequest {
 /** Body of `POST /events/handlers/publish`. */
 export interface PublishHandlerRequest {
     appUid?: unknown;
+    /** `'user'` publishes into the caller's user scope; absent means the app's. */
+    scope?: unknown;
     name?: unknown;
     source?: unknown;
     /** The published hash this publish is an update to. */
@@ -352,17 +398,20 @@ export interface PublishHandlerRequest {
 /** Body of `POST /events/handlers/publishAll`. */
 export interface PublishHandlersRequest {
     appUid?: unknown;
+    scope?: unknown;
     handlers?: unknown;
 }
 
 /** Body of `POST /events/handlers/remove`, and the shape `list` is scoped by. */
 export interface HandlerNameRequest {
     appUid?: unknown;
+    scope?: unknown;
     name?: unknown;
 }
 
 export interface HandlerScopeRequest {
     appUid?: unknown;
+    scope?: unknown;
 }
 
 /** What one publish reports back. Never carries source. */
@@ -393,13 +442,21 @@ export interface ListEventsWorkersRequest {
 
 /** One events worker as its owner's listing reports it. */
 export interface EventsWorkerView extends EventsWorkerSummary {
+    scope: 'app';
     /** Deployed script name, for support/diagnosis. */
     script: string;
+}
+
+/** The caller's own scope of one app, as the same listing reports it. */
+export interface UserScopeWorkerView extends UserScopeSummary {
+    scope: 'user';
 }
 
 /** Body of `POST /events/workers/destroy`. */
 export interface DestroyEventsWorkerRequest {
     appUid?: unknown;
+    /** `'user'` destroys the caller's user scope of the app. */
+    scope?: unknown;
 }
 
 /** What destroying an app's events worker did. */
@@ -407,6 +464,16 @@ export interface DestroyedEventsWorkerView {
     appUid: string;
     removed: number;
     suspended: number;
+    /** Present for a user scope. */
+    scope?: 'user';
+}
+
+/** What `ensureInlineHandler` binds a row to. */
+export interface InlineHandlerView {
+    name: string;
+    /** The published source's hash; for an inline handler, the name without `@`. */
+    hash: string;
+    scope: 'user';
 }
 
 export interface DurableListRequest {
@@ -425,6 +492,8 @@ export interface FetchRequest {
     cursor?: string;
     /** The name `cursor` shipped under first; still read when it is absent. */
     after?: string;
+    /** With no cursor, `'end'` answers an empty page at the newest row. */
+    from?: 'start' | 'end';
     limit?: number;
 }
 
@@ -460,6 +529,8 @@ export interface DurableSubscriptionView extends SubscriptionView {
     expiresAt: number | null;
     suspendedAt: number | null;
     suspendedReason: string | null;
+    /** Present for a row bound to a user-scope handler. */
+    handlerScope?: 'user';
 }
 
 export type VerbAck<T extends object> =
@@ -523,6 +594,9 @@ interface DeliveryMeter {
     /** Only a durable row has a state to suspend when the balance runs out. */
     durable: boolean;
 }
+
+/** What one schedule run came to, including why nothing ran. */
+export type ScheduleInvokeResult = WorkerRunResult | { outcome: 'too-deep' };
 
 /**
  * Why a subscription ended without its holder unsubscribing. Both are terminal:
@@ -608,6 +682,7 @@ export interface KvDispatchOptions {
 
 /** One persisted notification, as the bus reports it. */
 export interface NotifDispatchInput {
+    dismissed?: true;
     /** The recipient, whose mailbox is the anchor. */
     userId: number;
     userUuid: string;
@@ -677,33 +752,65 @@ const ENDED_MESSAGES: Record<SubscriptionEndReason, string> = {
 
 // -- Expiry sweep -----------------------------------------------------
 
+/** Expired and long-suspended rows, then stranded worker sessions. */
+const EXPIRY_SWEEP_JOB = 'events.subscriptions.expirySweep';
 /** An expiry is a date, not a deadline, so hourly is close enough. */
-const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
-// The first pass lands within this long of boot, so a fleet that redeploys more
-// often than the interval still sweeps.
-const EXPIRY_SWEEP_INITIAL_DELAY_MS = 5 * 60 * 1000;
+const EXPIRY_SWEEP_EVERY_MS = 60 * 60 * 1000;
+const EXPIRY_SWEEP_LEASE_MS = 15 * 60 * 1000;
 /** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
 const EXPIRY_BATCH_SIZE = 500;
-/** Batches one sweep takes, so a large backlog drains over several passes. */
-const EXPIRY_MAX_BATCHES = 50;
+/**
+ * Batches one sweep takes at most. It runs once for the fleet, so this is the
+ * fleet's hourly drain; the job's signal stops it sooner.
+ */
+const EXPIRY_MAX_BATCHES = 1000;
 /**
  * Subjects one "subscriptions ended" notification names before it stops
  * listing.
  */
 const ENDED_SUBJECTS_LISTED = 20;
 
+/** Ended rows by kind, holder and app: a count and the subjects listed. */
+type EndedGroups = Map<
+    string,
+    { first: DurableSubscription; subjects: string[]; count: number }
+>;
+
+/**
+ * Add ended rows to `groups`. A schedule is news of its own: its holder knows
+ * it as a schedule, not as the subscription row behind it.
+ */
+const collectEnded = (
+    groups: EndedGroups,
+    rows: readonly DurableSubscription[],
+): void => {
+    for (const row of rows) {
+        const kind = isScheduleRow(row) ? 'schedule' : 'subscription';
+        const key = `${kind}|${row.holderUserId}|${row.appUid ?? ''}`;
+        let group = groups.get(key);
+        if (!group) {
+            group = { first: row, subjects: [], count: 0 };
+            groups.set(key, group);
+        }
+        group.count++;
+        if (group.subjects.length < ENDED_SUBJECTS_LISTED)
+            group.subjects.push(row.subject);
+    }
+};
+
 /** Re-reads an unsubscribe takes to catch a row racing a reanchor. */
 const UNSUBSCRIBE_READS = 3;
 
-/**
- * Worker sessions one page of the stray-session sweep reads, and pages one pass
- * takes. Bounded low: the sweep is a safety net for sessions no API path could
- * reach any more, not a bulk cleanup, and it runs every hour.
- */
 /** A deleted account's apps settled at once. */
 const DELETED_ACCOUNT_SETTLE_CONCURRENCY = 4;
 /** Session rows ended at once when their handle stops standing. */
 const SESSION_END_CONCURRENCY = 4;
+/**
+ * Worker sessions one page of the stray-session sweep reads, and pages one pass
+ * takes. Bounded low: the sweep is a safety net for sessions no API path could
+ * reach any more, not a bulk cleanup; it runs every hour and resumes where the
+ * last pass stopped.
+ */
 const WORKER_SESSION_SWEEP_BATCH = 500;
 const WORKER_SESSION_SWEEP_MAX_PAGES = 2;
 
@@ -751,12 +858,32 @@ const METER_ACTOR_LIMIT = 5_000;
 const NO_CREDIT_SWEEP_BATCH = 500;
 const NO_CREDIT_SWEEP_MAX_BATCHES = 200;
 
+const NO_CREDIT_SWEEP_JOB = 'events.subscriptions.creditSweep';
+
+/** User-scope handlers no row is bound to, dropped once this old. */
+const USER_HANDLER_GC_JOB = 'events.userHandlers.gc';
+const USER_HANDLER_GC_EVERY_MS = 60 * 60 * 1000;
+const USER_HANDLER_GC_LEASE_MS = 15 * 60 * 1000;
+const USER_HANDLER_GC_MIN_AGE_SECONDS = 24 * 60 * 60;
+/**
+ * An inline create that finds a handler this much short of the sweep's age
+ * touches it before binding, so the sweep cannot take it from under the row.
+ */
+const USER_HANDLER_REUSE_MARGIN_SECONDS = 60 * 60;
+/** Handlers one page takes, and pages one run takes at most. */
+const USER_HANDLER_GC_BATCH = 200;
+const USER_HANDLER_GC_MAX_BATCHES = 50;
+
+/** User scopes of a deleted app announced per delete, at most. */
+const DELETED_APP_SCOPE_ANNOUNCE_MAX = 10_000;
+const DELETED_APP_SCOPE_PAGE = 500;
 /**
  * How often suspensions waiting on a restored balance are re-checked. Well
  * inside the hour a `no_credit` backlog is held for, so a top-up gets the
  * subscription back before what it was owed expires.
  */
-const NO_CREDIT_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+const NO_CREDIT_SWEEP_EVERY_MS = 15 * 60 * 1000;
+const NO_CREDIT_SWEEP_LEASE_MS = 10 * 60 * 1000;
 
 /** The part of a socket this service uses, so tests need not build one. */
 export interface EventSocket {
@@ -777,15 +904,32 @@ const unknownSubscription = (): HttpError =>
         legacyCode: 'subscription_does_not_exist',
     });
 
-const tooManyCalls = (): HttpError =>
-    new HttpError(429, 'Too many subscription changes', {
-        legacyCode: 'too_many_requests',
-    });
+/**
+ * A schedule's subscription row goes only with its schedule. Answered for the
+ * caller's own row only; anyone else's id still reads as absent.
+ */
+const scheduleSubscription = (): HttpError =>
+    new HttpError(
+        404,
+        'This subscription belongs to a schedule; remove it with puter.events.removeSchedule()',
+        { legacyCode: 'events_schedule_not_found' },
+    );
+
+const scheduleImmutable = (): HttpError =>
+    new HttpError(
+        400,
+        "Use updateSchedule() to change a schedule's context or timing",
+        { legacyCode: 'events_schedule_immutable' },
+    );
 
 const handlerRequired = (): HttpError =>
-    new HttpError(400, 'A `queue` subscription needs a handlerName', {
-        legacyCode: 'events_handler_required',
-    });
+    new HttpError(
+        400,
+        'A `queue` subscription needs a handlerName or handlerSource',
+        {
+            legacyCode: 'events_handler_required',
+        },
+    );
 
 /**
  * A temporary account gets session subscriptions and nothing else. A durable
@@ -824,10 +968,12 @@ const noEventsWorker = (appUid: string): HttpError =>
  * into one file — would exceed what the runtime may load. Refused before the
  * write rather than left to fail at deploy time.
  */
-const eventsWorkerTooLarge = (): HttpError =>
+const eventsWorkerTooLarge = (scope: HandlerScope): HttpError =>
     new HttpError(
         413,
-        `This app's events worker would exceed ${EVENTS_WORKER_SOURCE_MAX_BYTES} bytes across its published handlers`,
+        isUserScope(scope)
+            ? `A user scope's handlers may not exceed ${EVENTS_USER_SCOPE_SOURCE_MAX_BYTES} bytes combined`
+            : `This app's events worker would exceed ${EVENTS_WORKER_SOURCE_MAX_BYTES} bytes across its published handlers`,
         { legacyCode: 'events_worker_too_large' },
     );
 
@@ -870,8 +1016,46 @@ const handlerAppForbidden = (): HttpError =>
         legacyCode: 'events_handler_forbidden',
     });
 
-const badRequest = (message: string, code: string): HttpError =>
-    new HttpError(400, message, { legacyCode: code });
+/**
+ * User-scope handlers are published by an app acting for the signed-in user, so
+ * a scoped token, a temporary account or an app other than the caller's has no
+ * scope to publish into.
+ */
+const userScopeForbidden = (): HttpError =>
+    new HttpError(
+        403,
+        'Only an app acting for a signed-in user may publish into a user scope',
+        { legacyCode: 'events_handler_forbidden' },
+    );
+
+const userHandlersDisabled = (): HttpError =>
+    new HttpError(503, 'User-scope handlers are not enabled on this server', {
+        legacyCode: 'events_user_handlers_disabled',
+    });
+
+const invalidInlineName = (): HttpError =>
+    badRequest(
+        'Names starting with `@` are reserved for inline handlers',
+        'events_handler_name_invalid',
+    );
+
+const isUserScope = (scope: HandlerScope): boolean => scope.holder !== 0;
+
+const kindOf = (scope: HandlerScope): HandlerScopeKind =>
+    isUserScope(scope) ? 'user' : 'app';
+
+/** The handler scope a durable row's `handlerName` is looked up in. */
+const scopeOfRow = (row: {
+    appUid: string | null;
+    holderUserId: number;
+    handlerScope?: HandlerScopeKind;
+}): HandlerScope => ({
+    appUid: row.appUid ?? '',
+    holder: row.handlerScope === 'user' ? row.holderUserId : 0,
+});
+
+/** The name an inline handler is published under: its source's hash. */
+const inlineHandlerName = (source: string): string => `@${hashContent(source)}`;
 
 /**
  * A handler runs with nothing around it, so a name it neither binds nor gets
@@ -934,30 +1118,11 @@ const toView = (sub: DispatchSubscription): SubscriptionView => {
     };
 };
 
-/**
- * The context as a listing may describe it: which keys it sets, and a hash of
- * the whole blob. Never the values — the column is where an API key lives.
- */
-const projectContext = (
-    context: string | null,
-): Pick<DurableSubscriptionView, 'contextKeys' | 'contextHash'> => {
-    if (context === null) return { contextKeys: null, contextHash: null };
-    let keys: string[] = [];
-    try {
-        const parsed: unknown = JSON.parse(context);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
-            keys = Object.keys(parsed).sort();
-    } catch {
-        // Stored by this service as JSON, so this cannot normally happen; an
-        // unreadable blob still reports its hash rather than failing the list.
-    }
-    return { contextKeys: keys, contextHash: hashContent(context) };
-};
-
 const toDurableView = (sub: DurableSubscription): DurableSubscriptionView => ({
     ...toView(sub),
     queue: sub.delivery === 'single',
     handlerName: sub.handlerName,
+    ...(sub.handlerScope === 'user' ? { handlerScope: 'user' as const } : {}),
     appUid: sub.appUid,
     ...projectContext(sub.context),
     createdAt: sub.createdAt,
@@ -987,6 +1152,9 @@ const workerRuntimeReady = (config: IConfig): boolean =>
     config.events?.workerRuntime === true && !!config.events?.internalSecret;
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
+
+/** Prefix of a worker-listing cursor that is past the apps' own workers. */
+const USER_PART_CURSOR = 'user:';
 
 /** Past `expiresAt` a durable row is finished, sweep or no sweep. */
 const unexpired = (row: DispatchSubscription): boolean => {
@@ -1298,45 +1466,12 @@ const parseDelivery = (request: DurableSubscribeRequest): DeliveryClass => {
     return queue === true || delivery === 'single' ? 'single' : 'broadcast';
 };
 
-const parseHandlerName = (value: unknown): string | null => {
-    if (value === undefined || value === null) return null;
-    if (typeof value !== 'string' || value.length === 0)
-        throw badRequest('handlerName must be a string', 'bad_request');
-    if (value.length > HANDLER_NAME_MAX_LENGTH)
-        throw badRequest(
-            `handlerName may not exceed ${HANDLER_NAME_MAX_LENGTH} characters`,
-            'bad_request',
-        );
-    return value;
-};
-
-/** Hex digest of the inline source a subscribe claims it is binding. */
-const parseHandlerHash = (value: unknown): string | null => {
-    if (value === undefined || value === null) return null;
-    if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value))
-        throw badRequest(
-            'handlerHash must be a sha-256 hex digest',
-            'bad_request',
-        );
-    return value;
-};
-
 /** An app uid a user session names, for a surface with no app of its own. */
 const parseAppUid = (value: unknown): string | null => {
     if (value === undefined || value === null || value === '') return null;
     if (typeof value !== 'string')
         throw badRequest('appUid must be a string', 'bad_request');
     return value;
-};
-
-/** Stored as JSON text; the byte cap is the store's to enforce. */
-const parseContext = (value: unknown): string | null => {
-    if (value === undefined || value === null) return null;
-    try {
-        return JSON.stringify(value);
-    } catch {
-        throw badRequest('context must be JSON-serializable', 'bad_request');
-    }
 };
 
 /** Unix seconds or an ISO-8601 string, and it has to be in the future. */
@@ -1376,10 +1511,7 @@ export class EventsService extends PuterService {
     readonly #flushing = new Map<string, number>();
     /** Paces settles started by deliveries that found consent withdrawn. */
     readonly #consentSettles = new ConsentSettles();
-    #expirySweep: ReturnType<typeof setInterval> | null = null;
-    #expiryKick: ReturnType<typeof setTimeout> | null = null;
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
-    #creditSweep: ReturnType<typeof setInterval> | null = null;
 
     /**
      * What runs an app's handler. Replaced at start-up by the invoker that
@@ -1406,8 +1538,9 @@ export class EventsService extends PuterService {
             this.worker = new EventsWorkerInvoker(
                 this.clients.eventsWorkerInvoker,
                 (invocation) => this.#mintSubscriberToken(invocation),
-                (appUid) => this.#addressEventsWorker(appUid),
+                (appUid, options) => this.#addressEventsWorker(appUid, options),
                 () => workerRuntimeReady(this.config),
+                () => this.userHandlersEnabled,
             );
 
         this.clients.event.on(
@@ -1497,6 +1630,16 @@ export class EventsService extends PuterService {
             } catch (err) {
                 console.warn('[events] deleted-account key drop failed', err);
             }
+            try {
+                await this.stores.eventHandler.deleteUserScopesForHolder(
+                    data.user_id,
+                );
+            } catch (err) {
+                console.warn(
+                    '[events] deleted-account handler drop failed',
+                    err,
+                );
+            }
         });
 
         // The KV store is a store, so the bus is the only seam it has to reach
@@ -1524,20 +1667,33 @@ export class EventsService extends PuterService {
             });
         });
 
-        this.#armExpirySweep();
+        this.clients.event.on('notif.acknowledged', (_key, data) => {
+            if (!this.notificationsFoldIn) return;
+            void (async () => {
+                const user = await this.stores.user.getById(data.userId);
+                if (!user?.uuid) return;
+                await this.dispatchNotif({
+                    ...data,
+                    userUuid: user.uuid,
+                    value: {},
+                    createdAt: Date.now(),
+                    dismissed: true,
+                });
+            })().catch((err) => {
+                console.warn(
+                    '[events] notification dismissal dispatch failed',
+                    err,
+                );
+            });
+        });
+
         this.#armPendingSweep();
-        this.#armCreditSweep();
+        if (this.enabled) this.#registerJobs();
     }
 
     override onServerPrepareShutdown(): void {
-        if (this.#expiryKick) clearTimeout(this.#expiryKick);
-        this.#expiryKick = null;
-        if (this.#expirySweep) clearInterval(this.#expirySweep);
-        this.#expirySweep = null;
         if (this.#pendingSweep) clearInterval(this.#pendingSweep);
         this.#pendingSweep = null;
-        if (this.#creditSweep) clearInterval(this.#creditSweep);
-        this.#creditSweep = null;
     }
 
     override onServerShutdown(): void {
@@ -1583,6 +1739,11 @@ export class EventsService extends PuterService {
      */
     get kvHandlesEnabled(): boolean {
         return this.config.events?.kvHandles === true;
+    }
+
+    /** Whether an app may publish handlers into a user's own scope. */
+    get userHandlersEnabled(): boolean {
+        return this.config.events?.userHandlers === true;
     }
 
     /**
@@ -1861,11 +2022,35 @@ export class EventsService extends PuterService {
         const delivery = parseDelivery(request ?? {});
         const appUid = actor.effectiveApp?.uid ?? null;
         const limits = await this.#subscriptionQuota(actor);
-        const handlerName = parseHandlerName(request?.handlerName);
+        const named = parseHandlerName(request?.handlerName);
         const handlerHash = parseHandlerHash(request?.handlerHash);
+        const handlerSource = parseHandlerSource(request?.handlerSource);
+        const handlerScope = parseHandlerScopeKind(
+            request?.handlerScope,
+            'handlerScope',
+        );
         const context = parseContext(request?.context);
         const expiresAt = parseExpiresAt(request?.expiresAt);
         const includeValue = parseIncludeValue(request?.includeValue);
+
+        if (
+            handlerSource !== null &&
+            (named || request?.handlerScope === 'app')
+        )
+            throw badRequest(
+                'handlerSource is its own handler: send it without handlerName or an app handlerScope',
+                'bad_request',
+            );
+        if (handlerScope === 'user' && !named && handlerSource === null)
+            throw badRequest(
+                "handlerScope 'user' needs a handlerName",
+                'bad_request',
+            );
+        // An inline handler is named by its source, so the name is known
+        // before anything is published.
+        const handlerName =
+            handlerSource !== null ? inlineHandlerName(handlerSource) : named;
+        const userScoped = handlerSource !== null || handlerScope === 'user';
 
         // A queued event is owed to exactly one consumer, and the handler is
         // the only one that is always there to take it.
@@ -1875,18 +2060,40 @@ export class EventsService extends PuterService {
         // present is refused before anything about it is resolved or stored.
         if (
             runsInWorker({ appUid, handlerName }) &&
-            (await this.#hasBackgroundConsent(actor)) !== true
+            (await this.hasBackgroundConsent(actor)) !== true
         )
             throw backgroundConsentRequired();
 
-        if (handlerName)
-            await this.#assertHandlerBinding(appUid, handlerName, handlerHash);
+        if (handlerName && handlerSource === null) {
+            if (userScoped) {
+                const scope = await this.#userScope(actor, appUid, {
+                    requireFlag: true,
+                });
+                await this.assertHandlerBinding(
+                    appUid,
+                    handlerName,
+                    handlerHash,
+                    { holder: scope.holder },
+                );
+            } else {
+                await this.assertHandlerBinding(
+                    appUid,
+                    handlerName,
+                    handlerHash,
+                );
+            }
+        }
 
         const rawSubject = String(request?.subject ?? '');
         if (includeValue) assertValueDeliverable(rawSubject);
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
-        let created: { row: DurableSubscription; bump: GenerationBump };
+        // After the anchor, so a subject that won't resolve publishes nothing.
+        // A row create that fails past this leaves the handler for the sweep.
+        if (handlerSource !== null)
+            await this.ensureInlineHandler(actor, appUid, handlerSource);
+
+        let created: DurableCreated;
         try {
             created = await this.stores.durableSubscription.create({
                 holderUserId,
@@ -1900,6 +2107,7 @@ export class EventsService extends PuterService {
                 op: anchor.op,
                 delivery,
                 handlerName,
+                ...(userScoped ? { handlerScope: 'user' as const } : {}),
                 context,
                 permission: anchor.permission,
                 expiresAt,
@@ -1913,8 +2121,11 @@ export class EventsService extends PuterService {
                 this.#publishGeneration(err.bump, true);
             throw err;
         }
-        const { row, bump } = created;
-        this.#publishGeneration(bump, true);
+        const { row, bump, reaped } = created;
+        if (bump) this.#publishGeneration(bump, true);
+        for (const trimmed of reaped)
+            if (trimmed.userId !== bump?.userId)
+                this.#publishGeneration(trimmed, true);
 
         return { sub: toDurableView(row) };
     }
@@ -2032,6 +2243,13 @@ export class EventsService extends PuterService {
             if (!visible) return { items: [] };
         }
 
+        const opened = openCursor(
+            request.cursor ?? request.after,
+            this.config.jwt_secret_v2,
+        );
+        if (opened === undefined && request.from === 'end')
+            return this.#fetchEnd(user.id, scope);
+
         const asked = Math.floor(Number(request.limit));
         const limit = Math.min(
             Number.isFinite(asked) && asked > 0
@@ -2039,12 +2257,7 @@ export class EventsService extends PuterService {
                 : EVENTS_FETCH_LIMIT_DEFAULT,
             EVENTS_FETCH_LIMIT_CAP,
         );
-        const from = notifFetchPosition(
-            openCursor(
-                request.cursor ?? request.after,
-                this.config.jwt_secret_v2,
-            ),
-        );
+        const from = notifFetchPosition(opened);
 
         // One extra row answers "is there another page" without a count.
         // The generic slice is the desktop's view of the mailbox, so it leaves
@@ -2090,6 +2303,32 @@ export class EventsService extends PuterService {
                       ),
                   }
                 : {}),
+        };
+    }
+
+    /**
+     * An empty page whose cursor sits at the newest row of `scope` and at its
+     * latest replacement: reads from it return rows inserted or replaced
+     * later.
+     */
+    async #fetchEnd(
+        userId: number,
+        scope: NotifFetchScope,
+    ): Promise<PageResult<ProjectedNotifEvent>> {
+        const slice = { audience: scope.audience, appUid: scope.appUid };
+        const [latest, replaced] = await Promise.all([
+            this.stores.notification.latestScopedId(userId, slice),
+            this.stores.notification.latestScopedReplacement(userId, slice),
+        ]);
+        return {
+            items: [],
+            cursor: sealCursor(
+                notifFetchCursor({
+                    id: latest ?? 0,
+                    replaced: replaced ?? { replacedAt: 0, id: 0 },
+                }),
+                this.config.jwt_secret_v2,
+            ),
         };
     }
 
@@ -2147,6 +2386,7 @@ export class EventsService extends PuterService {
             !rowInActorScope(actor, row)
         )
             throw unknownSubscription();
+        if (isScheduleRow(row)) throw scheduleSubscription();
 
         const bump = await this.stores.durableSubscription.remove(row);
         // A concurrent duplicate of this same call already removed it.
@@ -2190,6 +2430,7 @@ export class EventsService extends PuterService {
             !rowInActorScope(actor, row)
         )
             throw unknownSubscription();
+        if (isScheduleRow(row)) throw scheduleImmutable();
         if (row.context === context) return { sub: toDurableView(row) };
 
         const updated = await this.stores.durableSubscription.updateContext(
@@ -2267,12 +2508,7 @@ export class EventsService extends PuterService {
         const entryId = String(request?.id ?? '');
         if (!subId || !entryId) throw unknownSubscription();
 
-        const ok = await checkRateLimit(
-            `${EVENTS_ACK_LIMIT.scope}:${holderUserId}`,
-            EVENTS_ACK_LIMIT.limit,
-            EVENTS_ACK_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+        await spendUserWindow(EVENTS_ACK_LIMIT, holderUserId);
 
         const row = await this.stores.durableSubscription.getBySubId(subId);
         if (
@@ -2341,10 +2577,17 @@ export class EventsService extends PuterService {
         request: PublishHandlerRequest,
     ): Promise<PublishedHandlerView> {
         await this.#spendHandlerBudget(actor);
-        const appUid = await this.#handlerApp(actor, request?.appUid);
-        const before = awaitLater(this.stores.eventHandler.countForApp(appUid));
-        const result = await this.#publishOne(appUid, request, before);
-        await this.#maybeAnnounceWorkerCreate(appUid, await before);
+        const scope = await this.#handlerApp(
+            actor,
+            request?.appUid,
+            parseHandlerScopeKind(request?.scope, 'scope'),
+            true,
+        );
+        const before = awaitLater(this.stores.eventHandler.countForApp(scope));
+        const result = await this.#publishOne(actor, scope, request, before, {
+            pending: true,
+        });
+        await this.#maybeAnnounceWorkerCreate(scope, await before);
         return result;
     }
 
@@ -2359,7 +2602,12 @@ export class EventsService extends PuterService {
         request: PublishHandlersRequest,
     ): Promise<PublishedHandlerView[]> {
         await this.#spendHandlerBudget(actor);
-        const appUid = await this.#handlerApp(actor, request?.appUid);
+        const scope = await this.#handlerApp(
+            actor,
+            request?.appUid,
+            parseHandlerScopeKind(request?.scope, 'scope'),
+            true,
+        );
         const handlers = request?.handlers;
         if (!Array.isArray(handlers) || handlers.length === 0)
             throw badRequest(
@@ -2372,7 +2620,8 @@ export class EventsService extends PuterService {
                 'bad_request',
             );
 
-        const before = awaitLater(this.stores.eventHandler.countForApp(appUid));
+        const before = awaitLater(this.stores.eventHandler.countForApp(scope));
+        const unitCheck = { pending: true };
         const published: PublishedHandlerView[] = [];
         try {
             for (const item of handlers) {
@@ -2387,9 +2636,11 @@ export class EventsService extends PuterService {
                 }
                 published.push(
                     await this.#publishOne(
-                        appUid,
+                        actor,
+                        scope,
                         item as PublishHandlerRequest,
                         before,
+                        unitCheck,
                     ),
                 );
             }
@@ -2397,7 +2648,7 @@ export class EventsService extends PuterService {
             // A refused item stops the pass but leaves the ones before it
             // published, and those are what stood the worker up.
             if (published.length > 0)
-                await this.#maybeAnnounceWorkerCreate(appUid, await before);
+                await this.#maybeAnnounceWorkerCreate(scope, await before);
         }
         return published;
     }
@@ -2412,7 +2663,11 @@ export class EventsService extends PuterService {
         request: HandlerScopeRequest = {},
     ): Promise<EventHandlerSummary[]> {
         return this.stores.eventHandler.listForApp(
-            await this.#handlerApp(actor, request?.appUid),
+            await this.#handlerApp(
+                actor,
+                request?.appUid,
+                parseHandlerScopeKind(request?.scope, 'scope'),
+            ),
         );
     }
 
@@ -2427,13 +2682,17 @@ export class EventsService extends PuterService {
         request: HandlerNameRequest,
     ): Promise<RemovedHandlerView> {
         await this.#spendHandlerBudget(actor);
-        const appUid = await this.#handlerApp(actor, request?.appUid);
+        const scope = await this.#handlerApp(
+            actor,
+            request?.appUid,
+            parseHandlerScopeKind(request?.scope, 'scope'),
+        );
         const name = parseHandlerName(request?.name);
         if (!name) throw badRequest('name is required', 'bad_request');
 
-        const removed = await this.stores.eventHandler.remove(appUid, name);
-        const suspended = await this.#suspendHandlerDependents(appUid, name);
-        if (removed) await this.#maybeAnnounceWorkerDestroy(appUid);
+        const removed = await this.stores.eventHandler.remove(scope, name);
+        const suspended = await this.#suspendHandlerDependents(scope, name);
+        if (removed) await this.#maybeAnnounceWorkerDestroy(scope);
         return { name, removed: removed !== null, suspended };
     }
 
@@ -2453,7 +2712,7 @@ export class EventsService extends PuterService {
         actor: Actor,
         request: ListEventsWorkersRequest = {},
     ): Promise<{
-        items: EventsWorkerView[];
+        items: Array<EventsWorkerView | UserScopeWorkerView>;
         cursor?: string;
         deployable: boolean;
     }> {
@@ -2471,32 +2730,73 @@ export class EventsService extends PuterService {
         const ownerUserId = actor.user?.id;
         if (ownerUserId === undefined) throw disabled();
 
-        const page = await this.stores.eventHandler.listEventsWorkersForOwner(
+        const limit = Math.min(
+            Math.max(
+                1,
+                Math.floor(request.limit ?? EVENTS_WORKERS_LIST_DEFAULT_LIMIT),
+            ),
+            EVENTS_WORKERS_LIST_LIMIT_CAP,
+        );
+        const deployable = this.config.events?.workerRuntime === true;
+        const items: Array<EventsWorkerView | UserScopeWorkerView> = [];
+
+        // The apps' own workers come first, then the caller's user scopes; a
+        // `user:` cursor marks the second part.
+        const inUserPart =
+            request.cursor?.startsWith(USER_PART_CURSOR) ?? false;
+        if (!inUserPart) {
+            const page =
+                await this.stores.eventHandler.listEventsWorkersForOwner(
+                    ownerUserId,
+                    {
+                        limit,
+                        cursor: request.cursor,
+                        ...(acting ? { appUid: acting.uid } : {}),
+                    },
+                );
+            for (const worker of page.items) {
+                const handlers = await this.stores.eventHandler.setForApp(
+                    appHandlerScope(worker.appUid),
+                );
+                items.push({
+                    ...worker,
+                    scope: 'app',
+                    script: eventsWorkerScript(
+                        handlerSetHash(handlers),
+                        eventsWorkerScope(this.config),
+                    ),
+                });
+            }
+            if (page.cursor) return { items, cursor: page.cursor, deployable };
+        }
+
+        const room = limit - items.length;
+        const scopes = await this.stores.eventHandler.listUserScopesForUser(
             ownerUserId,
             {
-                limit: request.limit,
-                cursor: request.cursor,
+                limit: Math.max(room, 1),
+                cursor: inUserPart
+                    ? request.cursor!.slice(USER_PART_CURSOR.length)
+                    : undefined,
                 ...(acting ? { appUid: acting.uid } : {}),
             },
         );
-        const items: EventsWorkerView[] = [];
-        for (const worker of page.items) {
-            const handlers = await this.stores.eventHandler.setForApp(
-                worker.appUid,
-            );
-            items.push({
-                ...worker,
-                script: eventsWorkerScript(
-                    handlerSetHash(handlers),
-                    eventsWorkerScope(this.config),
-                ),
-            });
-        }
-
+        if (room <= 0)
+            return {
+                items,
+                ...((scopes.total ?? 0) > 0
+                    ? { cursor: USER_PART_CURSOR }
+                    : {}),
+                deployable,
+            };
+        for (const scope of scopes.items)
+            items.push({ ...scope, scope: 'user' });
         return {
             items,
-            ...(page.cursor ? { cursor: page.cursor } : {}),
-            deployable: this.config.events?.workerRuntime === true,
+            ...(scopes.cursor
+                ? { cursor: `${USER_PART_CURSOR}${scopes.cursor}` }
+                : {}),
+            deployable,
         };
     }
 
@@ -2510,29 +2810,51 @@ export class EventsService extends PuterService {
         request: DestroyEventsWorkerRequest,
     ): Promise<DestroyedEventsWorkerView> {
         await this.#spendHandlerBudget(actor);
-        const appUid = await this.#handlerApp(actor, request?.appUid);
+        const scope = await this.#handlerApp(
+            actor,
+            request?.appUid,
+            parseHandlerScopeKind(request?.scope, 'scope'),
+            false,
+            true,
+        );
+        const { appUid } = scope;
 
-        const names = (await this.stores.eventHandler.listForApp(appUid)).map(
+        const names = (await this.stores.eventHandler.listForApp(scope)).map(
             (handler) => handler.name,
         );
         if (names.length === 0) throw noEventsWorker(appUid);
+
+        if (isUserScope(scope)) {
+            const removed = await this.stores.eventHandler.deleteUserScope(
+                appUid,
+                scope.holder,
+            );
+            let suspended = 0;
+            for (const name of names)
+                suspended += await this.#suspendHandlerDependents(scope, name);
+            if (removed > 0) {
+                await this.#maybeAnnounceWorkerDestroy(scope);
+                await this.#revokeWorkerSession(scope.holder, appUid);
+            }
+            return { appUid, removed, suspended, scope: 'user' };
+        }
 
         let removed = 0;
         let suspended = 0;
         try {
             for (const name of names) {
                 const droppedRow = await this.stores.eventHandler.remove(
-                    appUid,
+                    scope,
                     name,
                 );
                 if (droppedRow) removed += 1;
-                suspended += await this.#suspendHandlerDependents(appUid, name);
+                suspended += await this.#suspendHandlerDependents(scope, name);
             }
         } finally {
             // A pass that stops partway may still have taken the last handler
             // with it, and the announce is what a rent listener stops on.
             if (removed > 0) {
-                await this.#maybeAnnounceWorkerDestroy(appUid);
+                await this.#maybeAnnounceWorkerDestroy(scope);
                 // The worker is gone; nothing should still be able to invoke
                 // under the session it was running deliveries with. Rows stay
                 // suspended `handler_not_found` — publishing again mints a
@@ -2567,14 +2889,24 @@ export class EventsService extends PuterService {
     async #suspend(
         rows: readonly DurableSubscription[],
         reason: SuspendedReason,
-        opts: { override?: readonly SuspendedReason[] } = {},
+        opts: {
+            override?: readonly SuspendedReason[];
+            /** What a schedule ended by this records instead of `reason`. */
+            scheduleEndReason?: ScheduleEndReason;
+            guard?: SqlGuard;
+        } = {},
     ): Promise<DurableSubscription[]> {
         if (rows.length === 0) return [];
 
         const { suspended, bumps } =
-            await this.stores.durableSubscription.suspend(rows, reason, opts);
+            await this.stores.durableSubscription.suspend(rows, reason, {
+                override: opts.override,
+                guard: opts.guard,
+            });
         const policy = backlogPolicyFor(reason);
         for (const row of suspended) {
+            // A schedule's row never holds a backlog.
+            if (isScheduleRow(row)) continue;
             try {
                 if (policy.cap === 0)
                     await this.stores.pendingDelivery.purge(row.subId);
@@ -2598,7 +2930,50 @@ export class EventsService extends PuterService {
             this.#forget(row.subId);
         }
         for (const bump of bumps) this.#publishGeneration(bump, true);
+        await this.#schedulesChanged(suspended, {
+            type: 'suspended',
+            reason,
+            ...(opts.scheduleEndReason
+                ? { endReason: opts.scheduleEndReason }
+                : {}),
+        });
         return suspended;
+    }
+
+    /** Hand the schedules' rows among `rows` to the schedule lifecycle. */
+    async #schedulesChanged(
+        rows: readonly DurableSubscription[],
+        change: ScheduleSubscriptionChange,
+    ): Promise<void> {
+        const schedules = rows.filter(isScheduleRow);
+        if (schedules.length === 0) return;
+        await this.services.schedules?.onSubscriptionsChanged(
+            schedules,
+            change,
+        );
+    }
+
+    /**
+     * Run `settle` over every page of a holder-wide read. Rows a page settles
+     * may leave the set it pages over, so it walks by id rather than offset.
+     * Stops before the next page, or before settling one just read, once
+     * `signal` aborts.
+     */
+    async #eachHolderPage(
+        page: (afterId: number) => Promise<DurablePage>,
+        settle: (rows: DurableSubscription[]) => Promise<number>,
+        signal?: AbortSignal,
+    ): Promise<number> {
+        let settled = 0;
+        let afterId = 0;
+        for (;;) {
+            if (signal?.aborted) return settled;
+            const { rows, nextId } = await page(afterId);
+            if (signal?.aborted) return settled;
+            if (rows.length > 0) settled += await settle(rows);
+            if (nextId === null) return settled;
+            afterId = nextId;
+        }
     }
 
     /**
@@ -2619,6 +2994,8 @@ export class EventsService extends PuterService {
 
         const bumps = await this.stores.durableSubscription.resume(resuming);
         for (const row of resuming) {
+            // A schedule's row holds no backlog, and has no anchor to re-check.
+            if (isScheduleRow(row)) continue;
             try {
                 await this.stores.pendingDelivery.releaseHold(row.subId);
                 await this.#drain(row);
@@ -2631,16 +3008,23 @@ export class EventsService extends PuterService {
             }
         }
         for (const bump of bumps) this.#publishGeneration(bump, true);
+        await this.#schedulesChanged(resuming, { type: 'resumed' });
         return resuming.length;
     }
 
     /**
      * Stop one subscription after its handler kept failing. The counting is the
      * retry path's; this is the state it drives, and the developer is told
-     * because it is their code that stopped working.
+     * because it is their code that stopped working. Called by extensions.
      */
-    async suspendForFailures(subId: string): Promise<boolean> {
-        return this.#suspendOne(subId, 'failures', { notifyDeveloper: true });
+    async suspendForFailures(
+        subId: string,
+        guard?: SqlGuard,
+    ): Promise<boolean> {
+        return this.#suspendOne(subId, 'failures', {
+            notifyDeveloper: true,
+            guard,
+        });
     }
 
     /**
@@ -2655,27 +3039,71 @@ export class EventsService extends PuterService {
     /**
      * Put back what a restored balance releases. The seam credit restoration
      * calls: one holder's rows, one pass, and nothing else has to know how a
-     * suspension is spelled.
+     * suspension is spelled. Stops between pages once `signal` aborts.
      */
-    async resumeForCredit(holderUserId: number): Promise<number> {
+    async resumeForCredit(
+        holderUserId: number,
+        signal?: AbortSignal,
+    ): Promise<number> {
         if (!this.enabled) return 0;
-        return this.resumeSubscriptions(
-            await this.stores.durableSubscription.listSuspendedForHolder(
-                holderUserId,
-                'no_credit',
-            ),
+        return this.#eachHolderPage(
+            (afterId) =>
+                this.stores.durableSubscription.listSuspendedForHolderPage(
+                    holderUserId,
+                    'no_credit',
+                    afterId,
+                ),
+            (rows) => this.resumeSubscriptions(rows),
+            signal,
         );
     }
 
     /**
-     * Drop rows past their expiry, in batches, and report how many went. Every
-     * node sweeps; the delete is idempotent, so two overlapping costs a few
-     * empty batches rather than correctness.
+     * Delete user-scope handlers older than a day that no subscription row of
+     * any state is bound to: what a failed create or a deleted row leaves
+     * behind. Each goes through the store's guarded delete, so one bound since
+     * it was listed stays. Returns how many were deleted.
      */
-    async sweepExpired(): Promise<number> {
+    async sweepUnboundUserHandlers(signal?: AbortSignal): Promise<number> {
         if (!this.enabled) return 0;
-        return this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.sweepExpired(batchSize),
+        const olderThan =
+            Math.floor(Date.now() / 1000) - USER_HANDLER_GC_MIN_AGE_SECONDS;
+        let deleted = 0;
+        let cursor: string | undefined;
+        for (
+            let pass = 0;
+            pass < USER_HANDLER_GC_MAX_BATCHES && !signal?.aborted;
+            pass++
+        ) {
+            const page = await this.stores.eventHandler.listUnboundUserHandlers(
+                olderThan,
+                { limit: USER_HANDLER_GC_BATCH, cursor },
+            );
+            for (const handler of page.items) {
+                if (signal?.aborted) return deleted;
+                if (
+                    await this.stores.eventHandler.deleteUserHandlerIfUnbound(
+                        { appUid: handler.appUid, holder: handler.holder },
+                        handler.name,
+                        olderThan,
+                    )
+                )
+                    deleted += 1;
+            }
+            if (!page.cursor) break;
+            cursor = page.cursor;
+        }
+        return deleted;
+    }
+
+    /** Drop rows past their expiry, in batches, and report how many went. */
+    async sweepExpired(signal?: AbortSignal): Promise<number> {
+        if (!this.enabled) return 0;
+        return this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.sweepExpired(batchSize),
+            'ended',
+            signal,
         );
     }
 
@@ -2684,13 +3112,19 @@ export class EventsService extends PuterService {
      * revoked subscription never resumes, so the row survives only as the
      * answer its holder gets from `list` when they ask why it stopped.
      */
-    async sweepSuspended(): Promise<number> {
+    async sweepSuspended(signal?: AbortSignal): Promise<number> {
         if (!this.enabled) return 0;
         const cutoff =
             Math.floor(Date.now() / 1000) -
             SUSPENDED_ROW_TTL_DAYS * 24 * 60 * 60;
-        return this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.sweepSuspended(cutoff, batchSize),
+        return this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.sweepSuspended(
+                    cutoff,
+                    batchSize,
+                ),
+            'ended',
+            signal,
         );
     }
 
@@ -2701,20 +3135,26 @@ export class EventsService extends PuterService {
      * existed). Scoped to this one worker name; the same strand for
      * `WorkerDriver`-minted sessions is a separate finding, not covered here.
      */
-    async sweepStrandedWorkerSessions(): Promise<number> {
+    async sweepStrandedWorkerSessions({
+        signal,
+        state,
+        saveState,
+    }: JobRunContext): Promise<number> {
         if (!this.enabled) return 0;
 
         let revoked = 0;
-        let afterId = 0;
-        for (let page = 0; page < WORKER_SESSION_SWEEP_MAX_PAGES; page++) {
+        let afterId = savedAfterId(state);
+        let saved = afterId;
+        for (
+            let page = 0;
+            page < WORKER_SESSION_SWEEP_MAX_PAGES && !signal.aborted;
+            page++
+        ) {
             const rows = await this.stores.session.listWorkerSessions({
                 workerName: EVENTS_WORKER_SESSION_NAME,
                 afterId,
                 limit: WORKER_SESSION_SWEEP_BATCH,
             });
-            if (rows.length === 0) break;
-            afterId = rows[rows.length - 1].id;
-
             const appUids = [
                 ...new Set(rows.map((row) => row.appUid).filter(Boolean)),
             ] as string[];
@@ -2734,7 +3174,16 @@ export class EventsService extends PuterService {
                 }
             }
 
-            if (rows.length < WORKER_SESSION_SWEEP_BATCH) break;
+            // A short page is the end of the table; the next run wraps.
+            afterId =
+                rows.length < WORKER_SESSION_SWEEP_BATCH
+                    ? 0
+                    : rows[rows.length - 1].id;
+            if (afterId !== saved) {
+                await saveState(afterId === 0 ? null : { afterId });
+                saved = afterId;
+            }
+            if (afterId === 0) break;
         }
         return revoked;
     }
@@ -2744,13 +3193,25 @@ export class EventsService extends PuterService {
      * top-up is not something this service hears about, and coupling delivery
      * to the payment path would make one more thing that has to be told. The
      * cost of the delay is bounded by how long a `no_credit` backlog is held.
+     *
+     * Each run picks up where the last one stopped and wraps at the end of the
+     * table, so a backlog past one run's cap is still reached.
      */
-    async sweepNoCredit(): Promise<number> {
+    async sweepNoCredit({
+        signal,
+        state,
+        saveState,
+    }: JobRunContext): Promise<number> {
         if (!this.enabled || !this.services.metering) return 0;
 
         let resumed = 0;
-        let after = 0;
-        for (let pass = 0; pass < NO_CREDIT_SWEEP_MAX_BATCHES; pass++) {
+        let after = savedAfterId(state);
+        let saved = after;
+        for (
+            let pass = 0;
+            pass < NO_CREDIT_SWEEP_MAX_BATCHES && !signal.aborted;
+            pass++
+        ) {
             const page =
                 await this.stores.durableSubscription.listSuspendedPage(
                     'no_credit',
@@ -2759,6 +3220,8 @@ export class EventsService extends PuterService {
                 );
             const holders = new Set(page.rows.map((row) => row.holderUserId));
             for (const holderUserId of holders) {
+                // The page is redone next run.
+                if (signal.aborted) return resumed;
                 const actor = await this.#meterActor({
                     holderUserId,
                     appUid: null,
@@ -2775,22 +3238,37 @@ export class EventsService extends PuterService {
                 } catch {
                     continue;
                 }
-                resumed += await this.resumeForCredit(holderUserId);
+                resumed += await this.resumeForCredit(holderUserId, signal);
             }
-            if (page.nextId === null) break;
-            after = page.nextId;
+            // Interrupted mid-page: keep the checkpoint so the page is redone.
+            if (signal.aborted) return resumed;
+            after = page.nextId ?? 0;
+            if (after !== saved) {
+                await saveState(after === 0 ? null : { afterId: after });
+                saved = after;
+            }
+            if (after === 0) break;
         }
         return resumed;
     }
 
+    /**
+     * Reap in batches until a short one, publishing each batch's bumps so every
+     * region stops delivering against what went, and ending the schedules whose
+     * rows went with `endReason`.
+     */
     async #sweepInBatches(
-        pass: (batchSize: number) => Promise<number>,
+        pass: (batchSize: number) => Promise<DurableReap>,
+        endReason: ScheduleEndReason,
+        signal?: AbortSignal,
     ): Promise<number> {
         let removed = 0;
-        for (let i = 0; i < EXPIRY_MAX_BATCHES; i++) {
-            const batch = await pass(EXPIRY_BATCH_SIZE);
-            removed += batch;
-            if (batch < EXPIRY_BATCH_SIZE) break;
+        for (let i = 0; i < EXPIRY_MAX_BATCHES && !signal?.aborted; i++) {
+            const { rows, bumps } = await pass(EXPIRY_BATCH_SIZE);
+            for (const bump of bumps) this.#publishGeneration(bump, true);
+            removed += rows.length;
+            await this.#schedulesChanged(rows, { type: 'ended', endReason });
+            if (rows.length < EXPIRY_BATCH_SIZE) break;
         }
         return removed;
     }
@@ -2885,11 +3363,28 @@ export class EventsService extends PuterService {
      *
      * An app that is not there answers the same as one the caller does not own
      * — which apps exist is not this surface's to disclose.
+     *
+     * `user` scope is the caller's own handlers in the app they are acting as,
+     * which any signed-in session of that app may publish. `publishing` is what
+     * creates handlers, so it alone needs the flag and some credit; a user out
+     * of credit can still list and remove what they have.
      */
-    async #handlerApp(actor: Actor, requested: unknown): Promise<string> {
+    async #handlerApp(
+        actor: Actor,
+        requested: unknown,
+        kind: HandlerScopeKind = 'app',
+        publishing = false,
+        destroying = false,
+    ): Promise<HandlerScope> {
         if (!this.enabled) throw disabled();
         const userId = actor.user?.id;
         if (userId === undefined) throw disabled();
+        if (kind === 'user')
+            return this.#userScope(actor, requested, {
+                requireFlag: publishing,
+                requireCredit: publishing,
+                accountOk: destroying,
+            });
 
         const acting = actor.effectiveApp;
         // Unresolved is not "no app": reading it that way is what would let an
@@ -2916,18 +3411,58 @@ export class EventsService extends PuterService {
             Number(userId)
         )
             throw handlerAppForbidden();
-        return appUid;
+        return appHandlerScope(appUid);
+    }
+
+    /**
+     * The caller's user scope of the app they are acting as. A scoped token, an
+     * unresolved or absent app, another app than the caller's, and a temporary
+     * account have no such scope.
+     */
+    async #userScope(
+        actor: Actor,
+        requested: unknown,
+        checks: {
+            requireFlag?: boolean;
+            requireCredit?: boolean;
+            /** An account session may name any app, for its own scope only. */
+            accountOk?: boolean;
+        } = {},
+    ): Promise<HandlerScope> {
+        const userId = actor.user?.id;
+        if (userId === undefined) throw disabled();
+        if (checks.requireFlag && !this.userHandlersEnabled)
+            throw userHandlersDisabled();
+
+        const acting = actor.effectiveApp;
+        const named = parseAppUid(requested);
+        const account =
+            checks.accountOk === true &&
+            acting === null &&
+            !isAccessTokenActor(actor) &&
+            named !== null;
+        if (!account) {
+            if (!acting || isAccessTokenActor(actor))
+                throw userScopeForbidden();
+            if (named !== null && named !== acting.uid)
+                throw userScopeForbidden();
+        }
+        if ((await this.#planId(actor)) === DEFAULT_TEMP_SUBSCRIPTION)
+            throw userScopeForbidden();
+
+        if (checks.requireCredit)
+            await assertActorHasCredits(
+                this.services.metering,
+                actor,
+                this.config,
+            );
+        return { appUid: (acting?.uid ?? named)!, holder: userId };
     }
 
     async #spendHandlerBudget(actor: Actor): Promise<void> {
         const userId = actor.user?.id;
         if (userId === undefined) throw disabled();
-        const ok = await checkRateLimit(
-            `${EVENTS_HANDLER_PUBLISH_LIMIT.scope}:${userId}`,
-            EVENTS_HANDLER_PUBLISH_LIMIT.limit,
-            EVENTS_HANDLER_PUBLISH_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+        await spendUserWindow(EVENTS_HANDLER_PUBLISH_LIMIT, userId);
     }
 
     /**
@@ -2936,34 +3471,59 @@ export class EventsService extends PuterService {
      * writes.
      */
     async #publishOne(
-        appUid: string,
+        actor: Actor,
+        scope: HandlerScope,
         item: PublishHandlerRequest,
         before: Promise<number>,
+        unitCheck: { pending: boolean },
     ): Promise<PublishedHandlerView> {
         const name = String(item?.name ?? '');
         const source = typeof item?.source === 'string' ? item.source : '';
         assertNoFreeVariables(source);
+        // Minted names stay the server's, or a name could point at other code.
+        if (
+            isUserScope(scope) &&
+            name.startsWith('@') &&
+            name !== inlineHandlerName(source)
+        )
+            throw invalidInlineName();
         const sizeChecked = awaitLater(
-            this.#assertHandlerSetSize(appUid, name, source),
+            this.#assertHandlerSetSize(scope, name, source),
         );
-        await before;
+        const existing = await before;
         await sizeChecked;
+        // The first handler of a scope is a new unit to rent; once per request,
+        // since a batch's own earlier items would otherwise count against it.
+        if (existing === 0 && unitCheck.pending) {
+            await this.#assertUnitRoom(actor);
+            unitCheck.pending = false;
+        }
 
         const { handler, outcome } = await this.stores.eventHandler.publish({
-            appUid,
+            scope,
             name,
             source,
             ifHash: typeof item?.ifHash === 'string' ? item.ifHash : null,
             replace: item?.replace === true,
         });
+        if (outcome !== 'unchanged') this.#deployEagerly(scope, handler);
 
         return {
             name: handler.name,
             hash: handler.sourceHash,
             updatedAt: handler.updatedAt,
             outcome,
-            resumed: await this.#resumeHandlerDependents(appUid, handler.name),
+            resumed: await this.#resumeHandlerDependents(scope, handler.name),
         };
+    }
+
+    /** The rented-unit cap applies only where user scopes are on. */
+    async #assertUnitRoom(actor: Actor): Promise<void> {
+        if (!this.userHandlersEnabled) return;
+        await assertRentedUnitRoom(
+            { stores: this.stores, metering: this.services.metering },
+            actor,
+        );
     }
 
     /**
@@ -2973,21 +3533,23 @@ export class EventsService extends PuterService {
      * total since this publish replaces them rather than adding to them.
      */
     async #assertHandlerSetSize(
-        appUid: string,
+        scope: HandlerScope,
         name: string,
         source: string,
     ): Promise<void> {
         const [totalBytes, existing] = await Promise.all([
-            this.stores.eventHandler.totalSourceBytesForApp(appUid),
-            this.stores.eventHandler.getByName(appUid, name),
+            this.stores.eventHandler.totalSourceBytesForApp(scope),
+            this.stores.eventHandler.getByName(scope, name),
         ]);
         const existingBytes = existing
             ? Buffer.byteLength(existing.source, 'utf8')
             : 0;
         const projected =
             totalBytes - existingBytes + Buffer.byteLength(source, 'utf8');
-        if (projected > EVENTS_WORKER_SOURCE_MAX_BYTES)
-            throw eventsWorkerTooLarge();
+        const cap = isUserScope(scope)
+            ? EVENTS_USER_SCOPE_SOURCE_MAX_BYTES
+            : EVENTS_WORKER_SOURCE_MAX_BYTES;
+        if (projected > cap) throw eventsWorkerTooLarge(scope);
     }
 
     /**
@@ -2999,11 +3561,11 @@ export class EventsService extends PuterService {
      * something a listener idempotently prices anyway.
      */
     async #maybeAnnounceWorkerCreate(
-        appUid: string,
+        scope: HandlerScope,
         before: number,
     ): Promise<void> {
         if (before > 0) return;
-        await this.#emitWorkerLifecycle('events.worker.create', appUid);
+        await this.#emitWorkerLifecycle('events.worker.create', scope);
     }
 
     /**
@@ -3013,12 +3575,12 @@ export class EventsService extends PuterService {
      * `app.changed`'s `deleted` action reaches {@link settleDeletedApp}.
      */
     async #maybeAnnounceWorkerDestroy(
-        appUid: string,
+        scope: HandlerScope,
         ownerUserId?: number,
     ): Promise<void> {
         await this.#emitWorkerLifecycle(
             'events.worker.destroy',
-            appUid,
+            scope,
             ownerUserId,
         );
     }
@@ -3026,27 +3588,31 @@ export class EventsService extends PuterService {
     /**
      * Emitted after the row write that triggered it has committed, and awaited
      * — so a rent listener has settled before the caller is told the publish or
-     * removal succeeded. The actor carries the app's _owner_, not the caller: a
-     * developer session publishing for an app it owns is the common case, but
-     * billing follows ownership, resolved fresh through the user store rather
-     * than assumed from the request.
+     * removal succeeded. For the app's own scope the actor carries the app's
+     * _owner_, not the caller: a developer session publishing for an app it
+     * owns is the common case, but billing follows ownership, resolved fresh
+     * through the user store rather than assumed from the request. For a user
+     * scope it carries the holder, who is the one renting it.
      *
      * Never throws: this runs on the way out of a write, including one that is
      * itself failing, so nothing here may be what the caller sees.
      */
     async #emitWorkerLifecycle(
         name: 'events.worker.create' | 'events.worker.destroy',
-        appUid: string,
+        scope: HandlerScope,
         knownOwnerUserId?: number,
     ): Promise<void> {
+        const { appUid } = scope;
         try {
             // Only a count now on the far side of the transition is one: a
             // `create` needs a handler standing, a `destroy` needs none.
-            const count = await this.stores.eventHandler.countForApp(appUid);
+            const count = await this.stores.eventHandler.countForApp(scope);
             if (name === 'events.worker.create' ? count === 0 : count > 0)
                 return;
 
-            let ownerUserId = knownOwnerUserId;
+            let ownerUserId = isUserScope(scope)
+                ? scope.holder
+                : knownOwnerUserId;
             if (ownerUserId === undefined) {
                 const app = await this.stores.app.getByUid(appUid);
                 ownerUserId = Number(
@@ -3060,7 +3626,11 @@ export class EventsService extends PuterService {
 
             await this.clients.event.emitAndWait(
                 name,
-                { actor: makeActor({ user: owner }), appUid },
+                {
+                    actor: makeActor({ user: owner }),
+                    appUid,
+                    scope: kindOf(scope),
+                },
                 {},
             );
         } catch (err) {
@@ -3074,13 +3644,16 @@ export class EventsService extends PuterService {
      * set.
      */
     async #suspendHandlerDependents(
-        appUid: string,
+        scope: HandlerScope,
         name: string,
     ): Promise<number> {
+        const { appUid } = scope;
         let suspended = 0;
         for (;;) {
             const batch = await this.stores.durableSubscription.listByHandler(
                 appUid,
+                kindOf(scope),
+                scope.holder,
                 name,
             );
             if (batch.length === 0) break;
@@ -3090,7 +3663,7 @@ export class EventsService extends PuterService {
             );
             if (batch.length < HANDLER_SETTLE_BATCH) break;
         }
-        if (suspended > 0) await this.#notifySuspended(appUid, name, suspended);
+        if (suspended > 0) await this.#notifySuspended(scope, name, suspended);
         return suspended;
     }
 
@@ -3100,7 +3673,7 @@ export class EventsService extends PuterService {
      * the fix for one that could not take its deliveries.
      */
     async #resumeHandlerDependents(
-        appUid: string,
+        scope: HandlerScope,
         name: string,
     ): Promise<number> {
         let resumed = 0;
@@ -3108,7 +3681,9 @@ export class EventsService extends PuterService {
             for (;;) {
                 const batch =
                     await this.stores.durableSubscription.listByHandler(
-                        appUid,
+                        scope.appUid,
+                        kindOf(scope),
+                        scope.holder,
                         name,
                         { suspendedReason: reason },
                     );
@@ -3124,29 +3699,46 @@ export class EventsService extends PuterService {
     async #suspendOne(
         subId: string,
         reason: SuspendedReason,
-        options: { notifyDeveloper: boolean },
+        options: { notifyDeveloper: boolean; guard?: SqlGuard },
     ): Promise<boolean> {
         if (!this.enabled) return false;
         const row = await this.stores.durableSubscription.getBySubId(subId);
         if (!row || row.suspendedAt !== null) return false;
 
-        await this.suspendSubscriptions([row], reason);
+        const suspended = await this.#suspend([row], reason, {
+            guard: options.guard,
+        });
+        if (suspended.length === 0) return false;
         if (options.notifyDeveloper && row.appUid && row.handlerName)
-            await this.#notifySuspended(row.appUid, row.handlerName, 1);
+            await this.#notifySuspended(scopeOfRow(row), row.handlerName, 1);
         return true;
     }
 
     /**
-     * Tell an app's developer that subscriptions on one of their handlers have
-     * stopped. Theirs rather than the holder's: the handler is the developer's
-     * code, and the fix is a publish only they can make.
+     * Tell whoever owns a handler that subscriptions on it have stopped. For an
+     * app's own set that is the developer, whose publish is the fix; for a user
+     * scope it is the holder, and the developer is told nothing.
      */
     async #notifySuspended(
-        appUid: string,
+        scope: HandlerScope,
         handlerName: string,
         subscriptions: number,
     ): Promise<void> {
+        const { appUid } = scope;
         try {
+            if (isUserScope(scope)) {
+                await this.services.notification.notify(
+                    [scope.holder],
+                    {
+                        title: 'Background handler was suspended',
+                        handler: handlerName,
+                        subscriptions,
+                    },
+                    { type: 'app.events.handler_suspended', appUid },
+                );
+                return;
+            }
+
             const app = await this.stores.app.getByUid(appUid);
             const ownerUserId = Number(
                 (app as { owner_user_id?: unknown } | null)?.owner_user_id,
@@ -3179,8 +3771,9 @@ export class EventsService extends PuterService {
      * nobody present is not something a narrower credential inherits.
      *
      * `null` when the check itself failed, which is not an answer either way.
+     * Called by extensions.
      */
-    async #hasBackgroundConsent(actor: Actor): Promise<boolean | null> {
+    async hasBackgroundConsent(actor: Actor): Promise<boolean | null> {
         try {
             return await this.services.permission.check(
                 actor,
@@ -3198,12 +3791,14 @@ export class EventsService extends PuterService {
      * Handlers are published per app, so an account-scoped row has no namespace
      * to bind in — the name is stored and binds nothing. An inline body is
      * different: sending a hash _is_ the binding claim, and there is nothing
-     * for it to match.
+     * for it to match. `scope` names the holder whose user scope the name is
+     * looked up in; absent means the app's own set. Called by extensions.
      */
-    async #assertHandlerBinding(
+    async assertHandlerBinding(
         appUid: string | null,
         name: string,
         hash: string | null,
+        scope?: { holder: number },
     ): Promise<void> {
         if (appUid === null) {
             if (hash !== null) throw handlerNotFound(name);
@@ -3211,12 +3806,99 @@ export class EventsService extends PuterService {
         }
 
         const published = await this.stores.eventHandler.getByName(
-            appUid,
+            { appUid, holder: scope?.holder ?? 0 },
             name,
         );
         if (!published) throw handlerNotFound(name);
         if (hash !== null && hash !== published.sourceHash)
             throw handlerHashMismatch(name);
+    }
+
+    /**
+     * Make sure the caller's user scope holds `source`, and say what to bind
+     * to. The handler is named by its source's hash, so a scope that already
+     * has it is answered from the cached set with no read or write on the
+     * primary, no publish budget and no credit check. That path does not resume
+     * rows suspended for a missing handler: a handler that stands again was
+     * published again, which resumes them. A new handler is inserted without
+     * telling peer nodes, which re-read a set missing a name they are asked
+     * for. Called by extensions.
+     */
+    async ensureInlineHandler(
+        actor: Actor,
+        appUid: string,
+        source: unknown,
+    ): Promise<InlineHandlerView> {
+        if (!this.enabled) throw disabled();
+        const handlerSource = parseHandlerSource(source);
+        if (handlerSource === null)
+            throw badRequest('handlerSource is required', 'bad_request');
+        const scope = await this.#userScope(actor, appUid, {
+            requireFlag: true,
+        });
+        const hash = hashContent(handlerSource);
+        const name = `@${hash}`;
+        const view: InlineHandlerView = { name, hash, scope: 'user' };
+
+        const held = await this.stores.eventHandler.cachedSetForApp(scope, {
+            handlerName: name,
+        });
+        const present = held.find(
+            (h) => h.name === name && h.sourceHash === hash,
+        );
+        if (present) {
+            // Fresh enough that the sweep cannot reach it: no read, no write.
+            const idle =
+                present.updatedAt === undefined
+                    ? Infinity
+                    : Math.floor(Date.now() / 1000) - present.updatedAt;
+            if (
+                idle <
+                USER_HANDLER_GC_MIN_AGE_SECONDS -
+                    USER_HANDLER_REUSE_MARGIN_SECONDS
+            )
+                return view;
+            if (await this.stores.eventHandler.touchUserHandler(scope, name))
+                return view;
+            // Collected since the set was cached: publish it again.
+            await this.stores.eventHandler.forgetScopeCache(scope);
+        }
+
+        await assertActorHasCredits(this.services.metering, actor, this.config);
+        await this.#spendHandlerBudget(actor);
+        assertNoFreeVariables(handlerSource);
+        const [before] = await Promise.all([
+            this.stores.eventHandler.countForApp(scope),
+            this.#assertHandlerSetSize(scope, name, handlerSource),
+        ]);
+        if (before === 0) await this.#assertUnitRoom(actor);
+
+        try {
+            await this.stores.eventHandler.publish({
+                scope,
+                name,
+                source: handlerSource,
+                broadcast: false,
+            });
+        } catch (err) {
+            // Two creates of one source race on the unique index; for a name
+            // that is its own hash the loser has nothing to resolve.
+            if (
+                !isHttpError(err) ||
+                err.legacyCode !== 'events_handler_conflict'
+            )
+                throw err;
+            const winner = await this.stores.eventHandler.getByName(
+                scope,
+                name,
+            );
+            if (winner?.sourceHash !== hash) throw err;
+            return view;
+        }
+        this.#deployEagerly(scope, { name, sourceHash: hash });
+        await this.#resumeHandlerDependents(scope, name);
+        await this.#maybeAnnounceWorkerCreate(scope, before);
+        return view;
     }
 
     /**
@@ -3906,27 +4588,42 @@ export class EventsService extends PuterService {
             return { matched, tokens };
         }
 
+        if (item.family === 'notif' && item.notif) {
+            const input = {
+                ...item.notif,
+                userId: item.ownerUserId,
+                createdAt: item.ts,
+            };
+            const matched = await this.dispatchNotif(input, {
+                forwarded: true,
+                id: item.id,
+            });
+            return { matched, tokens: [notifAnchorToken(item.notif.userUuid)] };
+        }
+
         return { matched: false, tokens: [] };
     }
 
     /**
-     * Publish one persisted notification: the desktop's wire first, because
-     * that is what a person is waiting on, then whatever subscriptions asked
-     * for this slice of the mailbox.
-     *
-     * The fan-out is one token — a notification is addressed to a person — so
-     * there is no tree to walk and nothing to coalesce against.
+     * Publish a posting or dismissal to the same mailbox audience. Postings
+     * also reach the desktop's wire; forwarded copies evaluate session rows
+     * only.
      */
-    async dispatchNotif(input: NotifDispatchInput): Promise<void> {
-        if (!this.notificationsFoldIn) return;
+    async dispatchNotif(
+        input: NotifDispatchInput,
+        options: { forwarded?: boolean; id?: string } = {},
+    ): Promise<boolean> {
+        if (!this.notificationsFoldIn) return false;
 
         const subject = lookupNotifSubject('notif.created');
-        if (!subject) return;
+        if (!subject) return false;
         const userId = input?.userId;
-        if (typeof userId !== 'number' || !input.userUuid || !input.uid) return;
+        if (typeof userId !== 'number' || !input.userUuid || !input.uid)
+            return false;
 
         const context: NotifEventContext = {
-            key: 'notif.created',
+            key: input.dismissed ? 'notif.acknowledged' : 'notif.created',
+            ...(input.dismissed ? { dismissed: true as const } : {}),
             userId,
             userUuid: input.userUuid,
             uid: input.uid,
@@ -3934,9 +4631,9 @@ export class EventsService extends PuterService {
             audience: (input.audience ??
                 'account') as NotifEventContext['audience'],
             appUid: input.appUid ?? null,
-            notification: input.value ?? {},
+            notification: input.dismissed ? {} : (input.value ?? {}),
             ...(input.replaced === true ? { replaced: true as const } : {}),
-            id: input.uid,
+            id: options.id ?? (input.dismissed ? randomUUID() : input.uid),
             ts: input.createdAt || Date.now(),
             handlerDepth: input.handlerDepth,
         };
@@ -3944,29 +4641,51 @@ export class EventsService extends PuterService {
         // The adapter is not a subscription: the desktop is delivered to
         // whether or not anything subscribed, which is what keeps the wire
         // contract identical with the fold-in on.
-        this.services.notification.deliverOverSocket(context);
+        if (!input.dismissed && !options.forwarded)
+            this.services.notification.deliverOverSocket(context);
 
-        if (!(await this.#userHasAny(userId))) return;
+        if (!(await this.#userHasAny(userId))) return false;
 
-        const watched = await this.stores.eventSubscription.watchedTokens(
-            userId,
-            subject.tokens(context),
-        );
-        if (watched.length === 0) return;
+        const { local, remote } =
+            await this.stores.eventSubscription.watchedFor(
+                userId,
+                subject.tokens(context),
+            );
+        if (!options.forwarded && remote.size > 0)
+            this.services.eventForward.forwardEvent(regionsIn(remote), {
+                family: 'notif',
+                ownerUserId: userId,
+                id: context.id,
+                ts: context.ts,
+                notif: {
+                    userUuid: input.userUuid,
+                    uid: input.uid,
+                    type: context.type,
+                    audience: context.audience,
+                    appUid: context.appUid,
+                    value: context.notification,
+                    ...(input.dismissed ? { dismissed: true as const } : {}),
+                    ...(input.replaced ? { replaced: true as const } : {}),
+                    handlerDepth: input.handlerDepth,
+                },
+            });
+        if (local.length === 0) return false;
 
         const fetched = await this.stores.eventSubscription.getForTokens(
             userId,
-            watched,
+            local,
+            { keep: dispatchKeeps(options.forwarded) },
         );
         // A subscription naming no app is the desktop's view of the mailbox.
         const rows = inAccountMailbox(context.type)
             ? fetched
             : fetched.filter((row) => !notifMatchSpansEveryApp(row.match));
-        if (rows.length === 0) return;
+        if (rows.length === 0) return true;
 
         await this.#route(subject, context, rows, userId, (matched) =>
             this.#notifStillAuthorized(matched, context),
         );
+        return true;
     }
 
     /**
@@ -4529,23 +5248,53 @@ export class EventsService extends PuterService {
         // Suspended rows included: the three resumable reasons hold a backlog,
         // and one skipped here comes back in service on the next resume and
         // hands over everything queued after the revocation.
-        const held = await this.stores.durableSubscription.listActiveForHolder(
-            revocation.holderUserId,
-            revocation.appUid,
-            { includeSuspended: true },
-        );
-        const settling = await this.#leftSettling(held, revocation.permission);
-        if (settling.length === 0) return 0;
+        // Withdrawing an app's access wholesale is how it is uninstalled.
+        const scheduleEndReason =
+            revocation.permission === null ? 'uninstalled' : undefined;
+        // A schedule stands only on the app's access and on consent, so a
+        // specific grant can't settle one.
+        const excludeSchedules =
+            revocation.permission !== null &&
+            revocation.permission !== EVENTS_BACKGROUND_PERMISSION;
+        const ended: EndedGroups = new Map();
+        try {
+            return await this.#eachHolderPage(
+                (afterId) =>
+                    this.stores.durableSubscription.listActiveForHolderPage(
+                        revocation.holderUserId,
+                        revocation.appUid,
+                        afterId,
+                        undefined,
+                        { includeSuspended: true, excludeSchedules },
+                    ),
+                async (held) => {
+                    const settling = await this.#leftSettling(
+                        held,
+                        revocation.permission,
+                    );
+                    if (settling.length === 0) return 0;
 
-        // The `permission_revoked` arm of the shared policy purges the backlog
-        // at once: it holds the paths of a resource its holder has just lost
-        // the right to see, and keeping it for a resume that by design never
-        // comes turns a revocation into a delayed disclosure.
-        const suspended = await this.#suspend(settling, 'permission_revoked', {
-            override: RESUMABLE_REASONS,
-        });
-        await this.#notifyEnded(suspended, 'permission_revoked');
-        return suspended.length;
+                    // The `permission_revoked` arm of the shared policy purges
+                    // the backlog at once: it holds the paths of a resource its
+                    // holder has just lost the right to see, and keeping it for
+                    // a resume that by design never comes turns a revocation
+                    // into a delayed disclosure.
+                    const suspended = await this.#suspend(
+                        settling,
+                        'permission_revoked',
+                        {
+                            override: RESUMABLE_REASONS,
+                            ...(scheduleEndReason ? { scheduleEndReason } : {}),
+                        },
+                    );
+                    collectEnded(ended, suspended);
+                    return suspended.length;
+                },
+            );
+        } finally {
+            await this.#reportEnded(ended, 'permission_revoked');
+            await this.#dropScopeWithoutConsent(revocation);
+        }
     }
 
     /**
@@ -4578,23 +5327,38 @@ export class EventsService extends PuterService {
             );
         }
 
-        const held = await this.stores.durableSubscription.listActiveForHolder(
-            retired.userId,
-            null,
-            { includeSuspended: true },
-        );
         const handles = new Set(retired.handles);
-        const settling = held.filter((row) => {
-            const handle = kvHandleFromSubject(row.subject);
-            return handle !== null && handles.has(handle);
-        });
-        if (settling.length === 0) return sessions;
-
-        const suspended = await this.#suspend(settling, 'permission_revoked', {
-            override: RESUMABLE_REASONS,
-        });
-        await this.#notifyEnded(suspended, 'permission_revoked');
-        return sessions + suspended.length;
+        const ended: EndedGroups = new Map();
+        let durable = 0;
+        try {
+            durable = await this.#eachHolderPage(
+                (afterId) =>
+                    this.stores.durableSubscription.listActiveForHolderPage(
+                        retired.userId,
+                        null,
+                        afterId,
+                        undefined,
+                        { includeSuspended: true, excludeSchedules: true },
+                    ),
+                async (held) => {
+                    const settling = held.filter((row) => {
+                        const handle = kvHandleFromSubject(row.subject);
+                        return handle !== null && handles.has(handle);
+                    });
+                    if (settling.length === 0) return 0;
+                    const suspended = await this.#suspend(
+                        settling,
+                        'permission_revoked',
+                        { override: RESUMABLE_REASONS },
+                    );
+                    collectEnded(ended, suspended);
+                    return suspended.length;
+                },
+            );
+        } finally {
+            await this.#reportEnded(ended, 'permission_revoked');
+        }
+        return sessions + durable;
     }
 
     /** End this region's session rows made through these handles. */
@@ -4696,13 +5460,79 @@ export class EventsService extends PuterService {
 
         const holders =
             await this.stores.durableSubscription.listHolderIdsForApp(appUid);
-        await this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.reapForApp(appUid, batchSize),
+        const userScopes = await this.#userScopeHolders(appUid);
+        await this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.reapForApp(appUid, batchSize),
+            'app_deleted',
         );
         await this.stores.eventHandler.deleteForApp(appUid);
-        await this.#maybeAnnounceWorkerDestroy(appUid, ownerUserId);
+        await this.#maybeAnnounceWorkerDestroy(
+            appHandlerScope(appUid),
+            ownerUserId,
+        );
+        // Each holder was renting their scope; the rent stops with it.
+        await runWithConcurrencyLimitSettled(
+            userScopes,
+            DELETED_ACCOUNT_SETTLE_CONCURRENCY,
+            (holder) => this.#maybeAnnounceWorkerDestroy({ appUid, holder }),
+        );
         for (const userId of holders)
             await this.#revokeWorkerSession(userId, appUid);
+    }
+
+    /**
+     * The holders with a user scope in this app, up to what one delete
+     * announces.
+     */
+    async #userScopeHolders(appUid: string): Promise<number[]> {
+        const holders: number[] = [];
+        let cursor: string | undefined;
+        do {
+            const page = await this.stores.eventHandler.listUserScopes(appUid, {
+                limit: DELETED_APP_SCOPE_PAGE,
+                cursor,
+            });
+            for (const scope of page.items) holders.push(scope.holder);
+            cursor = page.cursor ?? undefined;
+        } while (cursor && holders.length < DELETED_APP_SCOPE_ANNOUNCE_MAX);
+        return holders;
+    }
+
+    /**
+     * Drop the holder's user scope of an app once the background consent that
+     * let it run is confirmed gone. Asked again rather than assumed: a mode
+     * change is a revoke followed by a grant, and must not cost the scope.
+     */
+    async #dropScopeWithoutConsent(revocation: RevokedGrant): Promise<void> {
+        const { appUid, holderUserId } = revocation;
+        if (
+            !appUid ||
+            (revocation.permission !== null &&
+                revocation.permission !== EVENTS_BACKGROUND_PERMISSION)
+        )
+            return;
+        try {
+            // Most holders have no scope, and asking consent is the costly part.
+            const scope = { appUid, holder: holderUserId };
+            if ((await this.stores.eventHandler.countForApp(scope)) === 0)
+                return;
+            const actor = await resolveGrantActor(
+                { holderUserId, appUid, permission: SUBSCRIBE_MODE },
+                this.#aclDeps(),
+            );
+            if (!actor || (await this.hasBackgroundConsent(actor)) !== false)
+                return;
+            if (
+                (await this.stores.eventHandler.deleteUserScope(
+                    appUid,
+                    holderUserId,
+                )) > 0
+            )
+                await this.#maybeAnnounceWorkerDestroy(scope);
+        } catch (err) {
+            console.warn('[events] could not drop a user scope', err);
+        }
     }
 
     /**
@@ -4746,7 +5576,7 @@ export class EventsService extends PuterService {
             const actor = await resolveGrantActor(row, deps);
             return (
                 actor !== null &&
-                (await this.#hasBackgroundConsent(actor)) === true
+                (await this.hasBackgroundConsent(actor)) === true
             );
         };
         const settling: DurableSubscription[] = [];
@@ -4804,6 +5634,9 @@ export class EventsService extends PuterService {
         row: DurableSubscription,
         permission: string,
     ): boolean {
+        // A schedule stands only on the app's access and on consent, which a
+        // revocation of either settles before it gets here.
+        if (isScheduleRow(row)) return false;
         if (kvHandleFromSubject(row.subject) !== null)
             return kvShareGrantCovers(permission, row.permission);
         if (isKvToken(row.token))
@@ -4823,6 +5656,8 @@ export class EventsService extends PuterService {
         // On the token, like the families below it: the stored subject parses
         // only because a subscribe validated it, and a settle must not start
         // throwing on a row it cannot read.
+        if (isScheduleRow(row))
+            return (await resolveGrantActor(row, this.#aclDeps())) !== null;
         if (isNotifToken(row.token)) {
             const actor = await resolveGrantActor(row, this.#aclDeps());
             if (!actor?.user.uuid) return false;
@@ -5097,26 +5932,29 @@ export class EventsService extends PuterService {
         rows: readonly DurableSubscription[],
         reason: SubscriptionEndReason,
     ): Promise<void> {
-        const groups = new Map<string, DurableSubscription[]>();
-        for (const row of rows) {
-            const key = `${row.holderUserId}|${row.appUid ?? ''}`;
-            groups.set(key, [...(groups.get(key) ?? []), row]);
-        }
-        for (const group of groups.values()) {
-            const [first] = group;
+        const groups: EndedGroups = new Map();
+        collectEnded(groups, rows);
+        await this.#reportEnded(groups, reason);
+    }
+
+    /** Send what {@link collectEnded} gathered, one notification per group. */
+    async #reportEnded(
+        groups: EndedGroups,
+        reason: SubscriptionEndReason,
+    ): Promise<void> {
+        for (const { first, subjects, count } of groups.values()) {
+            const noun = isScheduleRow(first) ? 'schedule' : 'subscription';
             try {
                 await this.services.notification.notify(
                     [first.holderUserId],
                     {
                         title:
-                            group.length === 1
-                                ? 'A subscription ended'
-                                : `${group.length} subscriptions ended`,
+                            count === 1
+                                ? `A ${noun} ended`
+                                : `${count} ${noun}s ended`,
                         subject: first.subject,
-                        subjects: group
-                            .slice(0, ENDED_SUBJECTS_LISTED)
-                            .map((row) => row.subject),
-                        count: group.length,
+                        subjects,
+                        count,
                         reason,
                     },
                     { type: 'app.events.ended', appUid: first.appUid },
@@ -5260,6 +6098,19 @@ export class EventsService extends PuterService {
     }
 
     /**
+     * A user-scope row while the flag is off: nothing resolves its handler, so
+     * it is left alone entirely, before any credit check, billing, client
+     * delivery or suspension. What it is owed stays queued.
+     */
+    #parkedUserRow(row: DispatchSubscription): boolean {
+        return (
+            row.durable === true &&
+            row.handlerScope === 'user' &&
+            !this.userHandlersEnabled
+        );
+    }
+
+    /**
      * Hand this subscription what it is owed, oldest first, until something
      * takes a lease and holds it. Stops after a batch so one consumer that
      * settles inline cannot drain a whole backlog inside one call.
@@ -5271,6 +6122,11 @@ export class EventsService extends PuterService {
         // A just-authorized row comes as its delivery re-check served it.
         opts?: { deferWhenBusy?: boolean; justAuthorized?: boolean },
     ): Promise<number> {
+        if (this.#parkedUserRow(row)) {
+            if (opts?.deferWhenBusy)
+                await this.stores.pendingDelivery.defer(row.subId);
+            return 0;
+        }
         const serving = opts?.justAuthorized ? row : await this.#stillOwed(row);
         if (!serving) {
             if (opts?.deferWhenBusy)
@@ -5371,6 +6227,7 @@ export class EventsService extends PuterService {
         row: DispatchSubscription,
         claimed: ClaimedDelivery,
     ): Promise<boolean> {
+        if (this.#parkedUserRow(row)) return false;
         const meter = meterFor(row);
         // Held, not dropped: a delivery its holder cannot pay for waits out the
         // suspension's window and goes out if the balance comes back.
@@ -5482,7 +6339,9 @@ export class EventsService extends PuterService {
             claimed.event,
             claimed.handlerDepth,
         );
+        // Nothing to run yet: the lease paces the retry and nothing is failed.
         if (!invocation) return false;
+        if (await this.#suspendIfHandlerGone(invocation)) return false;
 
         // Over the invocation budget nothing ran, so nothing was delivered and
         // the lease is the backoff — and the budget refusal itself must not
@@ -5610,11 +6469,16 @@ export class EventsService extends PuterService {
         handlerDepth: number,
     ): WorkerInvocation | null {
         if (row.durable !== true || !runsInWorker(row)) return null;
+        // Owed rather than run while the flag is off: nothing resolves a user
+        // scope, and the delivery path must not spend budget on it.
+        const userScoped = row.handlerScope === 'user';
+        if (userScoped && !this.userHandlersEnabled) return null;
         return {
             subId: row.subId,
             holderUserId: row.holderUserId,
             appUid: row.appUid,
             handlerName: row.handlerName ?? null,
+            ...(userScoped ? { handlerScope: 'user' as const } : {}),
             event,
             context: row.context ?? null,
             handlerDepth,
@@ -5642,49 +6506,53 @@ export class EventsService extends PuterService {
      */
     async #mintSubscriberToken(
         invocation: WorkerInvocation,
-    ): Promise<string | null> {
+    ): Promise<{ token: string } | { refused: MintRefusal }> {
         const { appUid } = invocation;
-        if (!appUid) return null;
+        if (!appUid) return { refused: 'no-identity' };
 
-        const actor = await resolveGrantActor(
-            {
-                holderUserId: invocation.holderUserId,
-                appUid,
-                permission: SUBSCRIBE_MODE,
-            },
-            this.#aclDeps(),
-        );
-        if (!actor) return null;
+        const actor =
+            invocation.actor ??
+            (await resolveGrantActor(
+                {
+                    holderUserId: invocation.holderUserId,
+                    appUid,
+                    permission: SUBSCRIBE_MODE,
+                },
+                this.#aclDeps(),
+            ));
+        if (!actor) return { refused: 'no-identity' };
 
         // Asked again here: nothing else on the delivery path reads it, the
         // settle that ends a revoked row is best-effort, and what is minted is
         // the app's whole standing for this holder. The permission cache
         // answers it, so only a grant change costs a lookup.
-        const consent = await this.#hasBackgroundConsent(actor);
+        const consent = await this.hasBackgroundConsent(actor);
         if (consent !== true) {
             // A no may be a withdrawal whose settle never ran or failed.
             // Without one the row stays in service, deferred forever.
             if (consent === false) this.#settleLostConsent(actor, appUid);
-            return null;
+            return { refused: 'no-consent' };
         }
 
         try {
-            return await this.services.auth.createWorkerAppToken(
-                actor,
-                appUid,
-                EVENTS_WORKER_SESSION_NAME,
-                {
-                    handlerDepth: invocation.handlerDepth + 1,
-                    expiresInSeconds: EVENTS_HANDLER_TOKEN_TTL_SECONDS,
-                },
-            );
+            return {
+                token: await this.services.auth.createWorkerAppToken(
+                    actor,
+                    appUid,
+                    EVENTS_WORKER_SESSION_NAME,
+                    {
+                        handlerDepth: invocation.handlerDepth + 1,
+                        expiresInSeconds: EVENTS_HANDLER_TOKEN_TTL_SECONDS,
+                    },
+                ),
+            };
         } catch (err) {
             console.warn(
                 '[events] could not mint a delivery token',
                 invocation.subId,
                 err,
             );
-            return null;
+            return { refused: 'mint-failed' };
         }
     }
 
@@ -5766,6 +6634,118 @@ export class EventsService extends PuterService {
     }
 
     /**
+     * Let a user-scope publish start the deploy of its script right away, so
+     * the first run does not wait on one. Set by the layer that owns the
+     * deployer.
+     */
+    useEagerDeploy(
+        deploy: (scope: HandlerScope, script: string) => Promise<unknown>,
+    ): void {
+        this.#eagerDeploy = deploy;
+    }
+
+    #eagerDeploy:
+        ((scope: HandlerScope, script: string) => Promise<unknown>) | null =
+        null;
+
+    /** Fire and forget: the publish has answered, and a miss deploys anyway. */
+    #deployEagerly(
+        scope: HandlerScope,
+        handler: { name: string; sourceHash: string },
+    ): void {
+        const deploy = this.#eagerDeploy;
+        if (
+            !deploy ||
+            !isUserScope(scope) ||
+            !this.userHandlersEnabled ||
+            !workerRuntimeReady(this.config)
+        )
+            return;
+        const script = userHandlerScript(
+            handler,
+            eventsWorkerScope(this.config),
+        );
+        void (async () => {
+            try {
+                await deploy(scope, script);
+            } catch (err) {
+                console.warn('[events] eager deploy failed', script, err);
+            }
+        })();
+    }
+
+    // -- Schedules ---------------------------------------------------
+
+    /**
+     * Run one schedule's handler: the depth check, then mint, address and
+     * invoke on the schedule lane. Unlike a delivery it says why nothing ran,
+     * and never spends the delivery invocation limit; schedules have their own.
+     * Called by extensions.
+     */
+    async invokeForSchedule(
+        invocation: WorkerInvocation,
+        options: Pick<WorkerRunOptions, 'stampEvent' | 'beforeSend'> = {},
+    ): Promise<ScheduleInvokeResult> {
+        if (options.beforeSend && !(await options.beforeSend()))
+            return { outcome: 'deferred' };
+        if (await this.#tooDeep(invocation)) return { outcome: 'too-deep' };
+        if (await this.#suspendIfHandlerGone(invocation))
+            return { outcome: 'deferred' };
+        // Something other than the worker invoker was put in its place.
+        if (!(this.worker instanceof EventsWorkerInvoker))
+            return this.worker.invoke(invocation);
+        return this.worker.run(invocation, {
+            ...options,
+            lane: 'schedule',
+            missRead: 'replica',
+        });
+    }
+
+    /**
+     * Who a schedule runs as; `null` once its holder or app is gone. Called by
+     * extensions.
+     */
+    resolveScheduleActor(
+        holderUserId: number,
+        appUid: string,
+    ): Promise<Actor | null> {
+        return resolveGrantActor(
+            { holderUserId, appUid, permission: SUBSCRIBE_MODE },
+            this.#aclDeps(),
+        );
+    }
+
+    /**
+     * Whether a schedule's holder can pay for a run. One who can't has the
+     * schedule's row suspended, which parks the schedule, and is told once.
+     * Called by extensions.
+     */
+    chargeableForSchedule(
+        holderUserId: number,
+        appUid: string,
+        subId: string,
+        handlerScope?: HandlerScopeKind,
+    ): Promise<boolean> {
+        // The run is refused as unavailable instead, so nothing suspends here.
+        if (handlerScope === 'user' && !this.userHandlersEnabled)
+            return Promise.resolve(true);
+        return this.#chargeable(
+            { holderUserId, appUid, deliveryClass: 'single', durable: true },
+            subId,
+        );
+    }
+
+    /** Bill one schedule run, as one single delivery. Called by extensions. */
+    meterScheduleRun(holderUserId: number, appUid: string): Promise<void> {
+        return this.#meterDelivery({
+            holderUserId,
+            appUid,
+            deliveryClass: 'single',
+            durable: true,
+        });
+    }
+
+    /**
      * Where an app's handlers currently live: the script its published set
      * hashes to, and the key an invocation of it carries.
      *
@@ -5777,11 +6757,17 @@ export class EventsService extends PuterService {
      */
     async #addressEventsWorker(
         appUid: string,
-    ): Promise<{ script: string; key: string } | null> {
+        options: AddressOptions = {},
+    ): Promise<{ script: string; key: string; holder?: string } | null> {
         if (!workerRuntimeReady(this.config)) return null;
         const secret = this.config.events!.internalSecret!;
+        if (options.handlerScope === 'user')
+            return this.#addressUserHandler(appUid, options, secret);
 
-        const set = await this.stores.eventHandler.cachedSetForApp(appUid);
+        const set = await this.stores.eventHandler.cachedSetForApp(
+            appHandlerScope(appUid),
+            options,
+        );
         if (set.length === 0) return null;
 
         // A gone or suspended owner is nobody to deploy or bill this as, so
@@ -5800,6 +6786,77 @@ export class EventsService extends PuterService {
             eventsWorkerScope(this.config),
         );
         return { script, key: eventsInvokeKey(secret, script) };
+    }
+
+    /**
+     * A user scope's handler: its own script, from the one `(name, hash)` entry
+     * of the holder's set. The holder must exist and not be suspended, as the
+     * owner must for an app's set, and the invocation names them so a miss
+     * deploys from their scope.
+     */
+    async #addressUserHandler(
+        appUid: string,
+        options: AddressOptions,
+        secret: string,
+    ): Promise<{ script: string; key: string; holder: string } | null> {
+        const { holderUserId, handlerName } = options;
+        if (!holderUserId || !handlerName) return null;
+
+        const set = await this.stores.eventHandler.cachedSetForApp(
+            { appUid, holder: holderUserId },
+            // Replica unless asked otherwise, so this and the missing-handler
+            // check share one cache entry; a set lacking the name is re-read
+            // on the primary either way.
+            { missRead: options.missRead ?? 'replica', handlerName },
+        );
+        const entry = set.find((handler) => handler.name === handlerName);
+        if (!entry) return null;
+
+        const holder = await this.stores.user.getById(holderUserId);
+        if (!holder?.uuid || holder.suspended) return null;
+
+        const script = userHandlerScript(entry, eventsWorkerScope(this.config));
+        return {
+            script,
+            key: eventsInvokeKey(secret, script),
+            holder: holder.uuid,
+        };
+    }
+
+    /**
+     * Park a user-scope row whose handler is no longer in its holder's set, the
+     * way removing it would have, and tell the holder. Publishing the name
+     * again resumes it. Not asked while the flag is off, which suspends
+     * nobody.
+     */
+    async #suspendIfHandlerGone(
+        invocation: WorkerInvocation,
+    ): Promise<boolean> {
+        const { appUid, handlerName, holderUserId } = invocation;
+        if (
+            invocation.handlerScope !== 'user' ||
+            !appUid ||
+            !handlerName ||
+            !this.userHandlersEnabled
+        )
+            return false;
+        const set = await this.stores.eventHandler.cachedSetForApp(
+            { appUid, holder: holderUserId },
+            { missRead: 'replica', handlerName },
+        );
+        if (set.some((handler) => handler.name === handlerName)) return false;
+
+        const row = await this.stores.durableSubscription.getBySubId(
+            invocation.subId,
+        );
+        if (!row || row.suspendedAt !== null) return false;
+        await this.suspendSubscriptions([row], 'handler_not_found');
+        await this.#notifySuspended(
+            { appUid, holder: holderUserId },
+            handlerName,
+            1,
+        );
+        return true;
     }
 
     /**
@@ -5870,8 +6927,13 @@ export class EventsService extends PuterService {
         subject: string,
         delivery: AddressedDelivery,
     ): void {
-        if (this.#ended.has(row.subId)) return;
-        this.#coalesce().push(coalesceKey(row.subId, subject), delivery);
+        if (this.#ended.has(row.subId) || this.#parkedUserRow(row)) return;
+        const event = delivery.envelope.event;
+        const key =
+            event.op === 'dismiss'
+                ? `${subject}:dismiss:${event.uid}`
+                : subject;
+        this.#coalesce().push(coalesceKey(row.subId, key), delivery);
     }
 
     async #flush(delivery: AddressedDelivery): Promise<void> {
@@ -6393,22 +7455,12 @@ export class EventsService extends PuterService {
         };
     }
 
-    async #spendCallBudget(userId: number): Promise<void> {
-        const ok = await checkRateLimit(
-            `${EVENTS_SUBSCRIBE_LIMIT.scope}:${userId}`,
-            EVENTS_SUBSCRIBE_LIMIT.limit,
-            EVENTS_SUBSCRIBE_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+    #spendCallBudget(userId: number): Promise<void> {
+        return spendUserWindow(EVENTS_SUBSCRIBE_LIMIT, userId);
     }
 
-    async #spendUnsubscribeBudget(userId: number): Promise<void> {
-        const ok = await checkRateLimit(
-            `${EVENTS_UNSUBSCRIBE_LIMIT.scope}:${userId}`,
-            EVENTS_UNSUBSCRIBE_LIMIT.limit,
-            EVENTS_UNSUBSCRIBE_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+    #spendUnsubscribeBudget(userId: number): Promise<void> {
+        return spendUserWindow(EVENTS_UNSUBSCRIBE_LIMIT, userId);
     }
 
     /**
@@ -6465,37 +7517,36 @@ export class EventsService extends PuterService {
         }
     }
 
-    #armExpirySweep(): void {
-        if (!this.enabled) return;
-        const run = () => {
-            void this.sweepExpired()
-                .then(() => this.sweepSuspended())
-                .then(() => this.sweepStrandedWorkerSessions())
-                .catch((err) => {
-                    console.warn('[events] expiry sweep failed', err);
-                });
-        };
-        // Jittered so a deploy does not have every node sweep at once.
-        const kick = setTimeout(
-            run,
-            EXPIRY_SWEEP_INITIAL_DELAY_MS * (0.5 + Math.random()),
-        );
-        kick.unref?.();
-        this.#expiryKick = kick;
-        const sweep = setInterval(run, EXPIRY_SWEEP_INTERVAL_MS);
-        sweep.unref?.();
-        this.#expirySweep = sweep;
-    }
-
-    #armCreditSweep(): void {
-        if (!this.enabled) return;
-        const sweep = setInterval(() => {
-            void this.sweepNoCredit().catch((err) => {
-                console.warn('[events] credit sweep failed', err);
-            });
-        }, NO_CREDIT_SWEEP_INTERVAL_MS);
-        sweep.unref?.();
-        this.#creditSweep = sweep;
+    /** The table sweeps, each run once per cadence across the fleet. */
+    #registerJobs(): void {
+        this.services.jobs.register(EXPIRY_SWEEP_JOB, {
+            every: EXPIRY_SWEEP_EVERY_MS,
+            scope: 'fleet',
+            nearPrimary: true,
+            leaseMs: EXPIRY_SWEEP_LEASE_MS,
+            run: async (ctx) => {
+                await this.sweepExpired(ctx.signal);
+                await this.sweepSuspended(ctx.signal);
+                await this.sweepStrandedWorkerSessions(ctx);
+            },
+        });
+        this.services.jobs.register(USER_HANDLER_GC_JOB, {
+            every: USER_HANDLER_GC_EVERY_MS,
+            scope: 'fleet',
+            nearPrimary: true,
+            leaseMs: USER_HANDLER_GC_LEASE_MS,
+            run: async (ctx) => {
+                await this.sweepUnboundUserHandlers(ctx.signal);
+            },
+        });
+        this.services.jobs.register(NO_CREDIT_SWEEP_JOB, {
+            every: NO_CREDIT_SWEEP_EVERY_MS,
+            scope: 'fleet',
+            leaseMs: NO_CREDIT_SWEEP_LEASE_MS,
+            run: async (ctx) => {
+                await this.sweepNoCredit(ctx);
+            },
+        });
     }
 
     #armPendingSweep(): void {

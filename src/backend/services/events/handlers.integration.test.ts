@@ -45,7 +45,10 @@ import {
     EVENTS_WORKER_SOURCE_MAX_BYTES,
 } from '../../controllers/events/limits.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
-import { hashContent } from '../../stores/events/EventHandlerStore.js';
+import {
+    appHandlerScope,
+    hashContent,
+} from '../../stores/events/EventHandlerStore.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import type { DurableSubscriptionView } from './EventsService.js';
@@ -220,7 +223,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
     await env.server.clients.db.write('DELETE FROM `event_handlers`', []);
-    for (const row of await durable().listActiveForHolder(userId, null))
+    for (const row of (await durable().listActiveForHolderPage(userId, null, 0))
+        .rows)
         await durable().remove(row);
     await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
     await env.server.stores.eventSubscription.rebuildDurable(userId, []);
@@ -531,7 +535,7 @@ describe('what a publish reads', () => {
                 if (sql.includes(BY_NAME_SQL) && !landed) {
                     landed = true;
                     await env.server.stores.eventHandler.publish({
-                        appUid,
+                        scope: appHandlerScope(appUid),
                         name: 'ingestUpload',
                         source: NEXT_SOURCE,
                         replace: true,
@@ -589,7 +593,7 @@ describe('what a publish reads', () => {
             pread.mockRestore();
         }
         const standing = await env.server.stores.eventHandler.getByName(
-            appUid,
+            appHandlerScope(appUid),
             'ingestUpload',
         );
         expect(standing?.sourceHash).toBe(hashContent(THIRD_SOURCE));
@@ -602,7 +606,7 @@ describe('what a publish reads', () => {
             if (sql.includes(BY_NAME_SQL) && !beaten) {
                 beaten = true;
                 await env.server.stores.eventHandler.publish({
-                    appUid,
+                    scope: appHandlerScope(appUid),
                     name: 'ingestUpload',
                     source: THIRD_SOURCE,
                 });
@@ -658,7 +662,7 @@ describe('what a publish reads', () => {
             pread.mockRestore();
         }
         await expect(
-            env.server.stores.eventHandler.countForApp(appUid),
+            env.server.stores.eventHandler.countForApp(appHandlerScope(appUid)),
         ).resolves.toBe(0);
     });
 
@@ -777,7 +781,9 @@ describe('binding a subscription to a handler', () => {
 
         expect(refused.status).toBe(404);
         expect(refused.body.code).toBe('events_handler_not_found');
-        expect(await durable().listActiveForHolder(userId, appUid)).toEqual([]);
+        expect(
+            (await durable().listActiveForHolderPage(userId, appUid, 0)).rows,
+        ).toEqual([]);
     });
 
     it('binds an inline body whose hash is what is published', async () => {
@@ -805,7 +811,9 @@ describe('binding a subscription to a handler', () => {
 
         expect(refused.status).toBe(409);
         expect(refused.body.code).toBe('events_handler_hash_mismatch');
-        expect(await durable().listActiveForHolder(userId, appUid)).toEqual([]);
+        expect(
+            (await durable().listActiveForHolderPage(userId, appUid, 0)).rows,
+        ).toEqual([]);
     });
 
     it('still needs a name for a subscription owed to one consumer', async () => {

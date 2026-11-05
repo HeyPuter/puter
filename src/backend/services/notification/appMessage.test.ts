@@ -172,12 +172,22 @@ describe('parseAppMessage', () => {
         rejects({ title: 't', sensitive: 'yes' }, 'sensitive');
     });
 
-    it('refuses high priority to apps', () => {
-        expect(() => parseAppMessage({ title: 't', priority: 'high' })).toThrow(
-            "'high' is not available to apps",
-        );
-        rejects({ title: 't', priority: 'urgent' }, 'priority');
+    it('accepts normal and high priority, defaulting to normal', () => {
+        expect(parseAppMessage({ title: 't' }).priority).toBe('normal');
+        expect(
+            parseAppMessage({ title: 't', priority: 'normal' }).priority,
+        ).toBe('normal');
+        expect(
+            parseAppMessage({ title: 't', priority: 'high' }).priority,
+        ).toBe('high');
     });
+
+    it.each(['urgent', 'low', '', null, 1, true])(
+        'rejects priority %s',
+        (priority) => {
+            rejects({ title: 't', priority }, 'priority');
+        },
+    );
 
     it('bounds ttl to whole seconds within a day', () => {
         expect(parseAppMessage({ title: 't', ttl: 1 }).ttl).toBe(1);
@@ -242,5 +252,62 @@ describe('appMessageSender', () => {
         expect(appMessageSender('app-1', { title: 'a'.repeat(300) }).name).toBe(
             'a'.repeat(120),
         );
+    });
+
+    describe('an app made for an origin', () => {
+        const uid = 'app-65d98228-cfa5-5d18-a442-f6eeaf3dcfc7';
+        const originApp = (fields: Record<string, unknown> = {}) => ({
+            uid,
+            name: uid,
+            title: uid,
+            description: 'App created from origin https://chat.example.com',
+            index_url: 'https://chat.example.com',
+            ...fields,
+        });
+
+        it('is named by the hostname of its index_url, without a port', () => {
+            expect(appMessageSender(uid, originApp()).name).toBe(
+                'chat.example.com',
+            );
+            expect(
+                appMessageSender(
+                    uid,
+                    originApp({
+                        index_url: 'https://chat.example.com:8443/app/',
+                    }),
+                ).name,
+            ).toBe('chat.example.com');
+        });
+
+        it('keeps its stored name when its index_url does not parse', () => {
+            expect(
+                appMessageSender(uid, originApp({ index_url: 'not a url' }))
+                    .name,
+            ).toBe(uid);
+            expect(
+                appMessageSender(uid, originApp({ index_url: undefined })).name,
+            ).toBe(uid);
+        });
+
+        it('keeps a title its developer set', () => {
+            expect(
+                appMessageSender(uid, originApp({ title: 'Chat' })).name,
+            ).toBe('Chat');
+        });
+
+        it('leaves apps that were not made for an origin alone', () => {
+            expect(
+                appMessageSender(uid, originApp({ description: 'My chat app' }))
+                    .name,
+            ).toBe(uid);
+            expect(
+                appMessageSender('app-1', {
+                    uid: 'app-1',
+                    name: 'chat',
+                    title: 'Chat',
+                    index_url: 'https://chat.example.com',
+                }).name,
+            ).toBe('Chat');
+        });
     });
 });

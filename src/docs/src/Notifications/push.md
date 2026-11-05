@@ -40,7 +40,7 @@ On a website, pushes arrive on your own domain through a small service worker, a
 
 - **HTTPS.** Browsers only allow service workers on `https://` pages, and on `http://localhost` for testing.
 - **A worker on your own origin.** The worker file has to come from the same origin as your pages. A worker on a CDN or another subdomain can't be registered.
-- **At the root of your site, by default.** [`enable()`](/Notifications/enable/) registers `/puter-sw.js`. A worker elsewhere, such as `/puter/puter-sw.js`, works when you pass its path as `serviceWorker`. A tap with no page open resolves relative URLs against the worker's folder.
+- **At the root of your site, by default.** [`enable()`](/Notifications/enable/) registers `/puter-sw.js`. A worker elsewhere, such as `/puter/puter-sw.js`, works when you pass its path as `serviceWorker`. A tap with no URL opens your site's root, and a relative URL is read from it. When the page that calls [`onPush()`](/Notifications/onPush/) or [`enable()`](/Notifications/enable/) is inside the worker's folder, such as an app at `/app/` with `/app/puter-sw.js`, taps use that folder instead.
 - **Served as JavaScript.** The response needs a JavaScript `Content-Type`, such as `text/javascript`, and a `200` status. Browsers refuse a worker that comes back as `text/html` or through a redirect.
 
 [Puter Hosting](/Hosting/) meets all of these when `puter-sw.js` is in the root of the folder you host. With a build tool, put the file in the folder it copies as is, such as `public/` in Vite or Next.js.
@@ -56,12 +56,30 @@ importScripts('https://js.puter.com/push-sw.js');
 The worker follows the browser's service worker rules:
 
 - **One worker per scope.** If your site already has a service worker for that scope, add the `importScripts()` line to it and pass its path as `serviceWorker` to [`onPush()`](/Notifications/onPush/), [`enable()`](/Notifications/enable/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). Otherwise [`enable()`](/Notifications/enable/) rejects with `push_worker_conflict` and leaves your worker in place. Puter's script only adds event listeners and only handles pushes sent by Puter, so your worker's own install, fetch and push handling keep working.
-- **One push subscription per worker.** If that worker already gets pushes from another service, such as Firebase or OneSignal, give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. Otherwise [`enable()`](/Notifications/enable/) rejects with `push_subscription_conflict`.
+- **One push subscription per worker.** If that worker already gets pushes from another service, such as Firebase or OneSignal, give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. Otherwise [`enable()`](/Notifications/enable/) rejects with `push_subscription_conflict`. A subscription Puter made earlier, even with a key Puter has since changed, is replaced instead.
 - **Content-Security-Policy.** If the worker is served with a Content-Security-Policy, its `script-src` has to allow `https://js.puter.com` and `'unsafe-eval'`. The worker re-creates your handler from its source with `new Function`.
 - **Updates.** A changed worker only runs once it activates. Call `self.skipWaiting()` in it, or close every tab of your site.
 - **Errors.** An error your handler throws in the worker shows only in the service worker's console, not the page's. In Chrome, open it from DevTools under **Application** > **Service workers**.
 
 To check the worker, open `https://<your site>/puter-sw.js` in a browser tab. It should show the `importScripts` line as plain text.
+
+#### Sharing an existing service worker
+
+Import Puter's script into your worker and pass its path as `serviceWorker` to [`onPush()`](/Notifications/onPush/), [`enable()`](/Notifications/enable/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). Your own `push` and `notificationclick` listeners also receive Puter's events. Have them skip a push whose JSON contains `puter` or `data.puter`, and a click whose `event.notification.data.puter` is set, so they avoid showing or opening it twice. Puter's script leaves other pushes and clicks to your listeners.
+
+#### Serving your own copy
+
+The worker at `https://js.puter.com/push-sw.js` always serves the current version, and Puter's CDN picks up a new one within five minutes. It matches `https://js.puter.com/v2/`, which always serves the newest Puter.js, so a site that loads Puter.js from there should keep the default worker.
+
+A site that pins Puter.js to one version, from npm or a CDN such as jsdelivr, can pin the worker to the same version. The file ships in the [`@heyputer/puter.js`](https://www.npmjs.com/package/@heyputer/puter.js) npm package as `src/push-sw.js`. Copy it to your site, or import it from a CDN that serves npm packages, with the version in the URL:
+
+```js
+importScripts('https://cdn.jsdelivr.net/npm/@heyputer/puter.js@<version>/src/push-sw.js');
+```
+
+Replace `<version>` with the version of the Puter.js your site loads, and change both together. The worker and your pages share what [`onPush()`](/Notifications/onPush/) and [`enable()`](/Notifications/enable/) save in the browser. A Content-Security-Policy on the worker has to allow the copy's origin instead of `https://js.puter.com`.
+
+A worker can also run only the handlers registered in it, and never the source your pages saved. [`onPush()`](/Notifications/onPush/#handler-limits) shows how.
 
 ### 2. Say what a push shows
 
@@ -112,7 +130,7 @@ document.getElementById('enable').addEventListener('click', async () => {
 
 [`enable()`](/Notifications/enable/#return-value) lists every error it rejects with. When nobody is signed in, it opens the Puter sign-in after the browser's prompt. Sign the user in first, from its own button, so the sign-in window isn't blocked as a popup.
 
-To turn pushes off in this browser again, call [`disable()`](/Notifications/disable/). Page loads don't turn pushes back on after [`disable()`](/Notifications/disable/), after the user turns your app off or removes this browser in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/). Signing out also removes this browser's registration for your app.
+To turn pushes off in this browser again, call [`disable()`](/Notifications/disable/). Page loads don't turn pushes back on after [`disable()`](/Notifications/disable/), after the user turns your app off or removes this browser in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/). Signing out also ends this browser's push subscription for your app and removes it from Puter. Signing in as a different user does the same, so pushes stay off in this browser until the new user calls [`enable()`](/Notifications/enable/). Only the subscription Puter made is removed. A subscription another push service made on your site, under any service worker, stays as it is.
 
 ## Sending a notification
 
@@ -131,7 +149,9 @@ await puter.notifications.notify({
 The page you send from is usually open and focused. With an [`onPush()`](/Notifications/onPush/) or [`onNotification()`](/Notifications/onNotification/) listener, it gets the notification live and nothing is pushed. To reach the user while your app is closed, send from somewhere that keeps running:
 
 - **A [Puter Worker](/Workers/)**, with [`user.puter.notifications.notify()`](/Notifications/notify/) in a route your page calls through [`puter.workers.exec()`](/Workers/exec/). It notifies the user who called the worker, from the app that called it.
-- **An [events handler](/Events/handlers/)**, with [`user.notifications.notify()`](/Notifications/notify/). It notifies the user who holds the subscription, and it runs while your app is closed. Running a handler in the background needs the user's `events:background` permission, as [`onPersistent()`](/Events/onPersistent/) describes.
+- **An [events handler](/Events/handlers/)**, with [`user.notifications.notify()`](/Notifications/notify/). It notifies the user who holds the subscription or [schedule](/Events/onSchedule/), and it runs while your app is closed. Running a handler in the background needs the user's `events:background` permission, as [`onPersistent()`](/Events/onPersistent/) describes.
+
+To send a notification at a set time, pass `sendAt` to [`notify()`](/Notifications/notify/#send-it-later). Puter stores it and sends it then, even with your app closed, and [`cancel()`](/Notifications/cancel/) cancels it until it goes out. It counts toward the push limits and is billed when it goes out, not when you store it. When sending it has to be retried, it still goes out as one push, billed once, though an open page of your app can receive it twice, with the same `uid`. To send something different each time, such as a daily summary, run a handler on a timer with [`puter.events.onSchedule()`](/Events/onSchedule/) and call [`user.notifications.notify()`](/Notifications/notify/) from it.
 
 An app that notifies from an events handler needs the user to allow both background events and pushes. Ask for both with [`puter.perms.request()`](/Perms/request/#batching), so the user answers one prompt:
 
@@ -148,7 +168,13 @@ To notify another user, share data with them with `notify: true` and send throug
 
 ## When the user taps
 
-On a website, a tap on a push, or on a notification a page of your site showed itself, focuses an open page of your site and calls its [`on('click')`](/Notifications/on/) handlers. With no page open, it opens the handler's `url`, or else the notification's `target`, and the new page's first [`on('click')`](/Notifications/on/) handler gets the click. Inside the Puter desktop, a tap opens your app and hands the click to [`on('click')`](/Notifications/on/).
+On a website, a tap on a push, or on a notification a page of your site showed itself, focuses an open page of your site and calls its [`on('click')`](/Notifications/on/) handlers. With no page open, it opens the handler's `url`, or else the notification's `target`, and the new page's first [`on('click')`](/Notifications/on/) handler gets the click. A tap reaches one page, once: when an open page doesn't answer within about half a second, the tap opens its URL instead, and the slow page doesn't get it, unless that page is already at the tap's URL. If that page wasn't loaded through your worker, such as one opened before the worker was installed, the URL opens in a new tab. Inside the Puter desktop, a tap opens your app and hands the click to [`on('click')`](/Notifications/on/).
+
+A push can also carry up to two buttons, which your [`onPush()`](/Notifications/onPush/) handler returns as `actions`. The pressed button's id reaches [`on('click')`](/Notifications/on/) as `action`. [Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/) shows how.
+
+## When the user reads it elsewhere
+
+When the user reads a notification in your app, call [`dismiss()`](/Notifications/dismiss/). The push closes on the user's other devices where a page of your app is open, and on the rest the next time a page of your app opens there. Puter doesn't send a push only to close one. [Closing it on other devices](/Notifications/dismiss/#closing-it-on-other-devices) has the rule.
 
 ## Groups and sensitive notifications
 
@@ -223,6 +249,26 @@ When your app doesn't hold the permission yet, Puter's permission dialog opens. 
 To turn pushes off, call [`disable()`](/Notifications/disable/). Inside the desktop it removes your app's permission, so pushes stop on every device of the user, and a later [`enable()`](/Notifications/enable/) asks again.
 
 While the app is open, [`onPush()`](/Notifications/onPush/) and [`onNotification()`](/Notifications/onNotification/) receive its notifications live, the same as on a website. The result of an [`onPush()`](/Notifications/onPush/) handler isn't used inside the desktop.
+
+## App icon badges
+
+An installed web app can show a count on its icon with the browser's [Badging API](https://developer.chrome.com/docs/capabilities/web-apis/badging-api), where the browser supports it. Puter.js has no call for it. Send the count in the notification's `data`, and set it with `navigator.setAppBadge()` in your [`onPush()`](/Notifications/onPush/) handler, which runs in both the page and the service worker:
+
+```js
+await puter.notifications.onPush('messages', async (n) => {
+    const count = n.data?.unreadCount;
+    if (Number.isSafeInteger(count) && count >= 0) {
+        try {
+            await navigator.setAppBadge?.(count);
+        } catch {
+            // The browser refused the badge. The notification still shows.
+        }
+    }
+    return { title: n.title, body: n.text ?? '' };
+});
+```
+
+The `badge` field a handler returns is the URL of a small image on the notification, not a count. [Show Unread Counts on Your App Icon](/recipes/show-unread-counts-on-your-app-icon/) also clears the count when the user reads the messages.
 
 ## Where pushes work
 
@@ -300,13 +346,20 @@ The browser can be allowed to show notifications while the operating system hide
 | It rejects with `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click first. |
 | The `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout` | The worker doesn't import `push-sw.js`, or the confirmation push didn't arrive within 30 seconds. The next page load tries again. |
 | A push shows the plain title and text, not your handler's result | This browser hasn't run [`onPush()`](/Notifications/onPush/) for that `channel` yet, or the handler threw, took over 5 seconds, or used an outside variable. Check the worker's console. |
+| Pushes stop until the user opens your site again | The browser replaced its push subscription for your site, as browsers sometimes do. Your service worker keeps the new one, and the next page load that calls [`onPush()`](/Notifications/onPush/) registers it with Puter. Pushes sent before that don't arrive. |
 | No push while your site is open in a tab | The open page received the notification live. It shows one only when it's hidden or its window isn't focused. |
 | No push at all | The browser isn't running, the operating system hides its notifications ([above](#operating-system-settings)), the user reached the [push limit](/rate-limits-and-quotas/#notifications) for your app, or the user has no usage credit left. |
+
+## Push delivery
+
+Push delivery is best effort. A push service's `429` or `5xx` response gets at most one retry, if time remains. Timeouts aren't retried. Under heavy load or while a push service is failing, sends can be skipped, and they aren't queued for later. The notification stays available through [`puter.events.fetch()`](/Events/fetch/), and [`notify()`](/Notifications/notify/) can still resolve. See [push limits and timeouts](/rate-limits-and-quotas/#notifications).
+
+A browser is removed when its push service answers `404` or `410`. It can also be removed after 10 failed sends if it hasn't received a push or renewed its registration for over 3 days, or after 60 days without either. A page that calls [`onPush()`](/Notifications/onPush/) renews its registration.
 
 ## Good to know
 
 - Say who did what. "Ana shared Q3-report.pdf" reads well as a push. A push that only says there's something new can be hidden as spam on Android.
-- The `data` field is handed back on click, and push services can read it, so put IDs in it and fetch the rest. Set `sensitive: true` when the title and text shouldn't leave Puter.
+- The `data` field is handed back on click, and push services can read it, so put ids in it and fetch the rest. Set `sensitive: true` when the title and text shouldn't leave Puter.
 - A push carries about 4 KB, with `data` at most 1 KB. A push that doesn't fit has its text shortened.
-- A tap opens your domain. The `url` a handler returns has to be on your origin, and a tap on one from another origin opens your worker's folder instead.
+- A tap opens your domain. The `url` a handler returns has to be on your origin, and a tap on one from another origin opens your site's root instead, or the worker's folder when your pages are inside it.
 - Pushes from your app are billed to the user who receives them. See [What pushes cost](/rate-limits-and-quotas/#what-pushes-cost). Puter's own notifications are free.

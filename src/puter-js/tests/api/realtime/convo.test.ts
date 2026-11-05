@@ -33,6 +33,7 @@ describe('convo built SDK and browser media', () => {
         received: { type: string; item?: unknown }[];
     }[] = [];
     let ids = 0;
+    let upstreamRefusals = 0;
     beforeAll(async () => {
         upstream = new WebSocketServer({ port: 0 });
         upstream.on('connection', (socket) => {
@@ -41,6 +42,11 @@ describe('convo built SDK and browser media', () => {
                 received: [] as { type: string; item?: unknown }[],
             };
             connections.push(connection);
+            if (upstreamRefusals > 0) {
+                upstreamRefusals--;
+                socket.close(1012, 'restart');
+                return;
+            }
             socket.send(
                 JSON.stringify({ type: 'session.created', session: {} }),
             );
@@ -123,6 +129,38 @@ describe('convo built SDK and browser media', () => {
                             },
                         }),
                     );
+                // Provider events far larger than anything a client sends.
+                if (event.type === 'test.large') {
+                    send({
+                        type: 'session.updated',
+                        session: { instructions: 'x'.repeat(1536 * 1024) },
+                    });
+                    const item = {
+                        id: `item_${++ids}`,
+                        object: 'realtime.item',
+                        type: 'message',
+                        role: 'assistant',
+                    };
+                    send({
+                        type: 'conversation.item.added',
+                        item: { ...item, status: 'in_progress', content: [] },
+                    });
+                    const done = {
+                        ...item,
+                        status: 'completed',
+                        content: [
+                            {
+                                type: 'output_audio',
+                                audio: Buffer.alloc(1536 * 1024).toString(
+                                    'base64',
+                                ),
+                                transcript: 'Hello there',
+                            },
+                        ],
+                    };
+                    send({ type: 'conversation.item.done', item: done });
+                    send({ type: 'conversation.item.retrieved', item: done });
+                }
                 if (event.type === 'conversation.item.truncate')
                     socket.send(
                         JSON.stringify({
@@ -178,6 +216,22 @@ describe('convo built SDK and browser media', () => {
         await env?.shutdown();
         await new Promise<void>((resolve) => upstream?.close(() => resolve()));
     }, 60_000);
+
+    it('resolves the original built SDK connect after an initial provider restart', async () => {
+        upstreamRefusals = 1;
+        const before = connections.length;
+        const conversation = await puter.ai.convo({ output: ['text'] });
+        try {
+            const ready = conversation.connect();
+            expect(conversation.connect()).toBe(ready);
+            await ready;
+            expect(conversation.state).toBe('connected');
+            expect(connections.length - before).toBe(2);
+        } finally {
+            upstreamRefusals = 0;
+            conversation.close();
+        }
+    });
 
     it('prepares, configures, sends, interrupts and truncates using the built SDK', async () => {
         const conversation = await puter.ai.convo({
@@ -422,6 +476,93 @@ describe('convo built SDK and browser media', () => {
         }
     });
 
+    it('reconnects through a credential lookup that fails once', async () => {
+        const dropping = loadNodePuter(
+            { ...manifest, apiOrigin: proxyOrigin },
+            env.users.user.token,
+        );
+        const conversation = await dropping.ai.convo({ output: ['text'] });
+        const log = watch(conversation);
+        const auth = vi.spyOn(env.server.services.auth, 'authenticate');
+        const warn = vi.spyOn(console, 'warn');
+        try {
+            await conversation.connect();
+            // Every lookup fails, the SDK's own socket.io connection included,
+            // until the relay has refused a reconnect attempt on one.
+            auth.mockRejectedValue(new Error('auth store unavailable'));
+            for (const socket of proxied) socket.destroy();
+            await vi.waitFor(
+                () =>
+                    expect(warn).toHaveBeenCalledWith(
+                        '[realtime] credential lookup failed',
+                        expect.objectContaining({
+                            message: 'auth store unavailable',
+                        }),
+                    ),
+                { timeout: 10_000 },
+            );
+            auth.mockRestore();
+            await log.until(() =>
+                log.events.some(
+                    (event) => event.type === 'ready' && event.reconnected,
+                ),
+            );
+            expect(log.count('reconnecting')).toBe(1);
+            conversation.sendText('Still there?');
+            await log.until(() => log.count('turn.done') === 1);
+            expect(log.count('close')).toBe(0);
+        } finally {
+            auth.mockRestore();
+            warn.mockRestore();
+            conversation.close();
+            closeNodePuter(dropping);
+        }
+    });
+
+    it('delivers provider events larger than an upload and restores them after a drop', async () => {
+        const dropping = loadNodePuter(
+            { ...manifest, apiOrigin: proxyOrigin },
+            env.users.user.token,
+        );
+        const conversation = await dropping.ai.convo({ output: ['text'] });
+        const log = watch(conversation);
+        try {
+            await conversation.connect();
+            conversation.send({ type: 'test.large' });
+            await log.until(
+                () => log.count('conversation.item.retrieved') === 1,
+            );
+            expect(log.count('conversation.item.done')).toBe(1);
+            const update = log.events.find(
+                (event) =>
+                    event.type === 'session.updated' &&
+                    typeof event.session?.instructions === 'string' &&
+                    event.session.instructions.length === 1536 * 1024,
+            );
+            expect(update).toBeDefined();
+            expect(conversation.state).toBe('connected');
+
+            for (const socket of proxied) socket.destroy();
+            await log.until(() =>
+                log.events.some(
+                    (event) => event.type === 'ready' && event.reconnected,
+                ),
+            );
+            await vi.waitFor(() =>
+                expect(restored(connections.at(-1)!)).toContainEqual({
+                    type: 'message',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: 'Hello there' }],
+                }),
+            );
+            expect(log.count('reconnecting')).toBe(1);
+            expect(log.count('close')).toBe(0);
+        } finally {
+            conversation.close();
+            closeNodePuter(dropping);
+        }
+    });
+
     it('moves to a new session when a restart is announced, restoring context', async () => {
         const conversation = await puter.ai.convo({ output: ['text'] });
         const log = watch(conversation);
@@ -493,6 +634,165 @@ describe('convo built SDK and browser media', () => {
             conversation.close();
         }
     });
+
+    it('keeps real microphone capture through a socket that closes before the conversation notices', async () => {
+        browser ??= await chromium.launch({
+            args: [
+                '--use-fake-ui-for-media-stream',
+                '--use-fake-device-for-media-stream',
+                '--autoplay-policy=no-user-gesture-required',
+                '--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessChecks,BlockInsecurePrivateNetworkRequests',
+            ],
+        });
+        const page = await browser.newPage();
+        try {
+            await page.route('**/__convo_mic_test__', (route) =>
+                route.fulfill({
+                    contentType: 'text/html',
+                    body: '<!doctype html><title>Microphone reconnect test</title>',
+                }),
+            );
+            await page.goto(`${env.apiOrigin}/__convo_mic_test__`);
+            // Through the proxy, so the test can drop the connection.
+            await page.evaluate(
+                ({ origin, apiOrigin }) => {
+                    Object.assign(globalThis, {
+                        PUTER_ORIGIN: origin,
+                        PUTER_API_ORIGIN: apiOrigin,
+                    });
+                },
+                { origin: env.origin, apiOrigin: proxyOrigin },
+            );
+            await page.addScriptTag({
+                content: readFileSync(
+                    new URL('../../../dist/puter.js', import.meta.url),
+                    'utf8',
+                ),
+            });
+            await page.evaluate(async (token) => {
+                const g = globalThis as typeof globalThis & {
+                    puter: PuterSDK;
+                    test: Record<string, unknown>;
+                };
+                g.puter.setAuthToken(token);
+                const sockets: WebSocket[] = [];
+                // `globalThis`: this file's own `WebSocket` is the `ws` import.
+                const Native = globalThis.WebSocket;
+                g.WebSocket = class extends Native {
+                    constructor(...args: ConstructorParameters<typeof Native>) {
+                        super(...args);
+                        sockets.push(this);
+                    }
+                };
+                const tracks: MediaStreamTrack[] = [];
+                let mediaCalls = 0;
+                const capture = navigator.mediaDevices.getUserMedia.bind(
+                    navigator.mediaDevices,
+                );
+                navigator.mediaDevices.getUserMedia = async (constraints) => {
+                    mediaCalls++;
+                    const stream = await capture(constraints);
+                    tracks.push(...stream.getTracks());
+                    return stream;
+                };
+                const c = await g.puter.ai.convo({ output: ['text'] });
+                const events: string[] = [];
+                c.on('*', (event) => events.push(event.type));
+                await c.connect();
+                await c.microphone.start();
+                g.test = {
+                    c,
+                    events,
+                    tracks,
+                    sockets,
+                    mediaCalls: () => mediaCalls,
+                };
+            }, env.users.user.token);
+            const before = connections.at(-1)!;
+            const appendsTo = (connection: (typeof connections)[number]) =>
+                connection.received.filter(
+                    (event) => event.type === 'input_audio_buffer.append',
+                ).length;
+            await vi.waitFor(() =>
+                expect(appendsTo(before)).toBeGreaterThan(0),
+            );
+
+            // The socket reads as closing while the conversation still reads
+            // connected, until the connection drops below. Chunks that arrive
+            // meanwhile are refused by the transport.
+            const gap = await page.evaluate(async () => {
+                const t = (globalThis as unknown as { test: any }).test;
+                const socket = t.sockets.at(-1) as WebSocket;
+                Object.defineProperty(socket, 'readyState', {
+                    configurable: true,
+                    get: () => 2,
+                });
+                let refused = 0;
+                const appendAudio = t.c.appendAudio.bind(t.c);
+                t.c.appendAudio = (pcm: Int16Array) => {
+                    try {
+                        appendAudio(pcm);
+                    } catch (error) {
+                        refused++;
+                        throw error;
+                    }
+                };
+                await new Promise((resolve) => setTimeout(resolve, 300));
+                return {
+                    refused,
+                    state: t.c.state,
+                    live: t.tracks.every(
+                        (track: MediaStreamTrack) =>
+                            track.readyState === 'live',
+                    ),
+                    events: t.events,
+                };
+            });
+            expect(gap.refused).toBeGreaterThan(0);
+            expect(gap.state).toBe('connected');
+            expect(gap.live).toBe(true);
+            expect(gap.events).not.toContain('error');
+
+            for (const socket of proxied) socket.destroy();
+            await vi.waitFor(
+                () => {
+                    const replacement = connections.at(-1)!;
+                    expect(replacement).not.toBe(before);
+                    expect(appendsTo(replacement)).toBeGreaterThan(0);
+                },
+                { timeout: 15_000 },
+            );
+            const after = await page.evaluate(() => {
+                const t = (globalThis as unknown as { test: any }).test;
+                const live = t.tracks.every(
+                    (track: MediaStreamTrack) => track.readyState === 'live',
+                );
+                const state = t.c.state;
+                t.c.close();
+                return {
+                    live,
+                    state,
+                    mediaCalls: t.mediaCalls(),
+                    ended: t.tracks.every(
+                        (track: MediaStreamTrack) =>
+                            track.readyState === 'ended',
+                    ),
+                    reconnected: t.events.includes('reconnecting'),
+                    errors: t.events.filter((type: string) => type === 'error'),
+                };
+            });
+            expect(after).toEqual({
+                live: true,
+                state: 'connected',
+                mediaCalls: 1,
+                ended: true,
+                reconnected: true,
+                errors: [],
+            });
+        } finally {
+            await page.close();
+        }
+    }, 45_000);
 
     // Last: the relay refuses new sessions from here on.
     it('keeps the session working while a draining server refuses its replacement', async () => {

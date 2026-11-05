@@ -43,6 +43,7 @@ import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENT_SUBSCRIPTION_WIDTHS } from './columnWidths.js';
 import type { DurableSubscriptionInput } from './DurableSubscriptionStore.js';
+import { scheduleToken } from './types.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 
@@ -201,9 +202,9 @@ describe('creating a subscription', () => {
         const { row } = await durable().create(input());
 
         await expect(cache().userHasAny(userId)).resolves.toBe(true);
-        await expect(
-            cache().watchedTokens(userId, [token()]),
-        ).resolves.toEqual([token()]);
+        await expect(cache().watchedTokens(userId, [token()])).resolves.toEqual(
+            [token()],
+        );
         await expect(cache().getForTokens(userId, [token()])).resolves.toEqual([
             row,
         ]);
@@ -261,6 +262,114 @@ describe('creating a subscription', () => {
         const first = await durable().create(input());
         const second = await durable().create(input());
         expect(second.bump.generation).toBeGreaterThan(first.bump.generation);
+    });
+});
+
+describe('handler scope', () => {
+    const appUid = 'app-scoped';
+
+    it('round-trips through create and every select path', async () => {
+        const { row: user } = await durable().create(
+            input({ appUid, handlerName: 'h', handlerScope: 'user' }),
+        );
+        const { row: app } = await durable().create(
+            input({ appUid, handlerName: 'h' }),
+        );
+        expect(user.handlerScope).toBe('user');
+        expect(app).not.toHaveProperty('handlerScope');
+
+        await expect(durable().getBySubId(user.subId)).resolves.toMatchObject({
+            handlerScope: 'user',
+        });
+        await expect(
+            durable().getBySubId(app.subId),
+        ).resolves.not.toHaveProperty('handlerScope');
+        const listed = await durable().listForHolder(userId, { appUid });
+        expect(
+            new Map(listed.items.map((r) => [r.subId, r.handlerScope])),
+        ).toEqual(
+            new Map<string, string | undefined>([
+                [user.subId, 'user'],
+                [app.subId, undefined],
+            ]),
+        );
+        const stored = await env.server.clients.db.read(
+            'SELECT `sub_id`, `handler_scope` FROM `event_subscriptions` WHERE `app_uid` = ?',
+            [appUid],
+        );
+        expect(
+            Object.fromEntries(stored.map((r) => [r.sub_id, r.handler_scope])),
+        ).toEqual({ [user.subId]: 1, [app.subId]: 0 });
+    });
+
+    it('lists by scope and holder, never across scopes', async () => {
+        const { row: appRow } = await durable().create(
+            input({ appUid, handlerName: 'h' }),
+        );
+        const { row: mine } = await durable().create(
+            input({ appUid, handlerName: 'h', handlerScope: 'user' }),
+        );
+        const { row: theirs } = await durable().create(
+            input({
+                appUid,
+                handlerName: 'h',
+                handlerScope: 'user',
+                holderUserId: otherUserId,
+                ownerUserId: otherUserId,
+                token: `f#other-${uuidv4()}`,
+            }),
+        );
+        const ids = async (scope: 'app' | 'user', holder: number, name = 'h') =>
+            (await durable().listByHandler(appUid, scope, holder, name))
+                .map((r) => r.subId)
+                .sort();
+
+        expect(await ids('app', 0)).toEqual([appRow.subId]);
+        // Holder is ignored for app scope.
+        expect(await ids('app', userId)).toEqual([appRow.subId]);
+        expect(await ids('user', userId)).toEqual([mine.subId]);
+        expect(await ids('user', otherUserId)).toEqual([theirs.subId]);
+        expect(await ids('user', userId, 'missing')).toEqual([]);
+    });
+
+    it('lists the suspended half of a user scope', async () => {
+        const { row } = await durable().create(
+            input({ appUid, handlerName: 'h', handlerScope: 'user' }),
+        );
+        await env.server.clients.db.write(
+            'UPDATE `event_subscriptions` SET `suspended_at` = 1, `suspended_reason` = ? WHERE `sub_id` = ?',
+            ['handler_not_found', row.subId],
+        );
+        await expect(
+            durable().listByHandler(appUid, 'user', userId, 'h'),
+        ).resolves.toEqual([]);
+        await expect(
+            durable().listByHandler(appUid, 'user', userId, 'h', {
+                suspendedReason: 'handler_not_found',
+            }),
+        ).resolves.toEqual([expect.objectContaining({ subId: row.subId })]);
+    });
+
+    it('reads a user scope through the holder index', async () => {
+        const pread = vi.spyOn(env.server.clients.db, 'pread');
+        try {
+            await durable().listByHandler(appUid, 'user', userId, 'h');
+            const [statement, params] = pread.mock.calls[0]!;
+            const plan = await env.server.clients.db.read(
+                `EXPLAIN QUERY PLAN ${statement}`,
+                params,
+            );
+            const detail = plan.map((r) => String(r.detail)).join('\n');
+            expect(detail).toContain('idx_event_subscriptions_holder');
+            expect(detail).not.toContain('idx_event_subscriptions_app_handler');
+        } finally {
+            pread.mockRestore();
+        }
+    });
+
+    it('carries the scope through the schedule join', async () => {
+        const join = durable().scheduleSubscriptionJoin('s', 'x.`sub_id`');
+        expect(join.columns).toContain('`sub_handler_scope`');
     });
 });
 
@@ -468,7 +577,9 @@ describe('the per-account cap', () => {
             input({ expiresAt: Math.floor(Date.now() / 1000) - 60 }),
         );
         await durable().create(input());
-        await expect(durable().countForHolder(userId)).resolves.toMatchObject({ total: 1 });
+        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
+            total: 1,
+        });
     });
 });
 
@@ -547,9 +658,13 @@ describe('rows suspended for good', () => {
         await durable().suspend([failing], 'failures');
         await durable().suspend([revoked], 'permission_revoked');
 
-        const held = await durable().listActiveForHolder(userId, null, {
-            includeSuspended: true,
-        });
+        const { rows: held } = await durable().listActiveForHolderPage(
+            userId,
+            null,
+            0,
+            undefined,
+            { includeSuspended: true },
+        );
         expect(held.map((row) => row.subId).sort()).toEqual(
             [live.subId, failing.subId].sort(),
         );
@@ -565,7 +680,9 @@ describe('rows suspended for good', () => {
             },
         );
 
-        await durable().create(input());
+        const created = await durable().create(input());
+        // The trim's bump, for the caller to publish to the other regions.
+        expect(created.reaped.map((bump) => bump.userId)).toEqual([userId]);
 
         await expect(durable().countForHolder(userId)).resolves.toEqual({
             total: 1,
@@ -600,9 +717,9 @@ describe('removal', () => {
 
         await durable().remove(row);
 
-        await expect(
-            cache().watchedTokens(userId, [token()]),
-        ).resolves.toEqual([token()]);
+        await expect(cache().watchedTokens(userId, [token()])).resolves.toEqual(
+            [token()],
+        );
         await expect(cache().getForTokens(userId, [token()])).resolves.toEqual([
             survivor.row,
         ]);
@@ -744,9 +861,11 @@ describe('the expiry sweep', () => {
         // one back to prove the sweep is what removes it.
         await cache().cacheDurable([expired.row]);
 
-        await expect(durable().sweepExpired(500)).resolves.toBe(1);
+        expect((await durable().sweepExpired(500)).rows).toHaveLength(1);
 
-        await expect(durable().getBySubId(expired.row.subId)).resolves.toBeNull();
+        await expect(
+            durable().getBySubId(expired.row.subId),
+        ).resolves.toBeNull();
         await expect(cache().getForTokens(userId, [token()])).resolves.toEqual([
             live.row,
         ]);
@@ -754,9 +873,34 @@ describe('the expiry sweep', () => {
 
     it('leaves a subscription with no expiry alone', async () => {
         await durable().create(input());
-        await expect(durable().sweepExpired(500)).resolves.toBe(0);
+        expect((await durable().sweepExpired(500)).rows).toHaveLength(0);
         await expect(durable().countForHolder(userId)).resolves.toMatchObject({
             total: 1,
+        });
+    });
+});
+
+describe('a sweep reading a lagging replica', () => {
+    it('keeps a row the primary resumed since, and does not report it', async () => {
+        const { row } = await durable().create(input());
+        await durable().suspend([row], 'permission_revoked');
+        const [stale] = await env.server.clients.db.pread(
+            'SELECT * FROM `event_subscriptions` WHERE `sub_id` = ?',
+            [row.subId],
+        );
+        await durable().resume([row]);
+        // The replica still has it suspended.
+        vi.spyOn(env.server.clients.db, 'read').mockResolvedValueOnce([stale]);
+
+        const reaped = await durable().sweepSuspended(
+            Math.floor(Date.now() / 1000) + 3600,
+            500,
+        );
+
+        expect(reaped.rows).toEqual([]);
+        await expect(durable().getBySubId(row.subId)).resolves.toMatchObject({
+            subId: row.subId,
+            suspendedAt: null,
         });
     });
 });
@@ -764,9 +908,7 @@ describe('the expiry sweep', () => {
 describe('listHolderIdsForApp', () => {
     it('names every distinct holder bound to the app`s handlers', async () => {
         const appUid = `app-${uuidv4()}`;
-        await durable().create(
-            input({ appUid, holderUserId: userId }),
-        );
+        await durable().create(input({ appUid, holderUserId: userId }));
         await durable().create(
             input({
                 appUid,
@@ -774,9 +916,7 @@ describe('listHolderIdsForApp', () => {
             }),
         );
         // A second row for the same holder must not double the name.
-        await durable().create(
-            input({ appUid, holderUserId: userId }),
-        );
+        await durable().create(input({ appUid, holderUserId: userId }));
 
         const holders = await durable().listHolderIdsForApp(appUid);
         expect(holders.sort()).toEqual([userId, otherUserId].sort());
@@ -784,48 +924,44 @@ describe('listHolderIdsForApp', () => {
 
     it('finds a suspended row`s holder too', async () => {
         const appUid = `app-${uuidv4()}`;
-        const { row } = await durable().create(
-            input({ appUid }),
-        );
+        const { row } = await durable().create(input({ appUid }));
         await durable().suspend([row], 'handler_not_found');
 
         expect(await durable().listHolderIdsForApp(appUid)).toEqual([userId]);
     });
 
     it('answers an empty list for an app with nothing bound', async () => {
-        expect(
-            await durable().listHolderIdsForApp(`app-${uuidv4()}`),
-        ).toEqual([]);
+        expect(await durable().listHolderIdsForApp(`app-${uuidv4()}`)).toEqual(
+            [],
+        );
     });
 });
 
 describe('reapForApp', () => {
     it('deletes every row bound to the app and bumps its owner`s generation', async () => {
         const appUid = `app-${uuidv4()}`;
-        const mine = await durable().create(
-            input({ appUid }),
-        );
+        const mine = await durable().create(input({ appUid }));
         const untouched = await durable().create(input());
         const before = await cache().getGeneration(userId);
 
-        await expect(durable().reapForApp(appUid, 500)).resolves.toBe(1);
+        const reaped = await durable().reapForApp(appUid, 500);
+        expect(reaped.rows.map((row) => row.subId)).toEqual([mine.row.subId]);
 
         await expect(durable().getBySubId(mine.row.subId)).resolves.toBeNull();
         await expect(
             durable().getBySubId(untouched.row.subId),
         ).resolves.not.toBeNull();
-        await expect(cache().getGeneration(userId)).resolves.toBeGreaterThan(
-            before,
-        );
+        const after = await cache().getGeneration(userId);
+        expect(after).toBeGreaterThan(before);
+        // The bump the caller publishes to the other regions.
+        expect(reaped.bumps).toEqual([{ userId, generation: after }]);
     });
 
     it('never touches another app`s rows', async () => {
         const appUid = `app-${uuidv4()}`;
         const otherAppUid = `app-${uuidv4()}`;
         await durable().create(input({ appUid }));
-        const theirs = await durable().create(
-            input({ appUid: otherAppUid }),
-        );
+        const theirs = await durable().create(input({ appUid: otherAppUid }));
 
         await durable().reapForApp(appUid, 500);
 
@@ -837,7 +973,7 @@ describe('reapForApp', () => {
     it('answers 0 for an app with nothing to reap', async () => {
         await expect(
             durable().reapForApp(`app-${uuidv4()}`, 500),
-        ).resolves.toBe(0);
+        ).resolves.toEqual({ rows: [], bumps: [] });
     });
 });
 
@@ -902,5 +1038,300 @@ describe('suspending', () => {
         const second = await durable().suspend([row], 'permission_revoked');
         expect(second.suspended).toEqual([]);
         expect(second.bumps).toEqual([]);
+    });
+});
+
+describe('rows a schedule owns', () => {
+    const scheduleInput = (
+        over: Partial<DurableSubscriptionInput> = {},
+    ): DurableSubscriptionInput => {
+        const uid = uuidv4();
+        return input({
+            subject: scheduleToken(uid),
+            token: scheduleToken(uid),
+            anchorUid: uid,
+            anchorPath: '',
+            appUid: 'app-scheduler',
+            delivery: 'single',
+            handlerName: 'tick',
+            permission: 'events:background',
+            ...over,
+        });
+    };
+
+    it('are created past the durable quota, uncached and with no bump', async () => {
+        const limits = { perUser: 1, perApp: 1 };
+        await durable().create(input({ limits }));
+        const before = await cache().getGeneration(userId);
+
+        const created = await durable().create(scheduleInput({ limits }));
+
+        expect(created.bump).toBeNull();
+        await expect(cache().getGeneration(userId)).resolves.toBe(before);
+        await expect(
+            cache().getForTokens(userId, [created.row.token]),
+        ).resolves.toEqual([]);
+        await expect(
+            durable().getBySubId(created.row.subId),
+        ).resolves.toMatchObject({ token: created.row.token });
+    });
+
+    it('never enter the dispatch cache or what a cold region rebuilds', async () => {
+        const { row } = await durable().create(scheduleInput());
+        await expect(
+            durable().listDeliverableForOwner(userId),
+        ).resolves.toEqual([]);
+
+        await cache().markRegionCold(userId);
+        await durable().warmRegion(userId);
+        await expect(cache().userHasAny(userId)).resolves.toBe(false);
+
+        await durable().suspend([row], 'no_credit');
+        await durable().resume([
+            { ...row, suspendedAt: 1, suspendedReason: 'no_credit' },
+        ]);
+        await expect(
+            cache().getForTokens(userId, [row.token]),
+        ).resolves.toEqual([]);
+        await expect(cache().userHasAny(userId)).resolves.toBe(false);
+    });
+
+    it('bump no generation when suspended or resumed', async () => {
+        const { row } = await durable().create(scheduleInput());
+        const before = await cache().getGeneration(userId);
+
+        const { suspended, bumps } = await durable().suspend([row], 'failures');
+        expect(suspended).toHaveLength(1);
+        expect(bumps).toEqual([]);
+        await expect(durable().resume(suspended)).resolves.toEqual([]);
+        await expect(cache().getGeneration(userId)).resolves.toBe(before);
+    });
+
+    it('count toward no durable quota, and are not in the durable listing', async () => {
+        await durable().create(input());
+        await durable().create(scheduleInput());
+
+        await expect(durable().countForHolder(userId)).resolves.toEqual({
+            total: 1,
+            forApp: 0,
+            terminal: 0,
+        });
+        const listed = await durable().listForHolder(userId, {
+            includeTotal: true,
+        });
+        expect(listed.total).toBe(1);
+        expect(listed.items.map((row) => row.token)).toEqual([token()]);
+    });
+
+    it('are kept when the oldest revoked rows are trimmed', async () => {
+        const base = Math.floor(Date.now() / 1000) - 10_000;
+        const { row: scheduled } = await durable().create(scheduleInput());
+        await env.server.clients.db.write(
+            'UPDATE `event_subscriptions` SET `suspended_at` = ?, ' +
+                '`suspended_reason` = ? WHERE `sub_id` = ?',
+            [base - 1, 'permission_revoked', scheduled.subId],
+        );
+        for (let i = 0; i < EVENTS_REVOKED_SUBSCRIPTIONS_KEPT + 1; i++) {
+            const { row } = await durable().create(input());
+            await env.server.clients.db.write(
+                'UPDATE `event_subscriptions` SET `suspended_at` = ?, ' +
+                    '`suspended_reason` = ? WHERE `sub_id` = ?',
+                [base + i, 'permission_revoked', row.subId],
+            );
+        }
+
+        await durable().create(input());
+
+        await expect(
+            durable().getBySubId(scheduled.subId),
+        ).resolves.not.toBeNull();
+        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
+            terminal: EVENTS_REVOKED_SUBSCRIPTIONS_KEPT,
+        });
+    });
+
+    it('are read, a page at a time, by what settles a holder', async () => {
+        const made: string[] = [];
+        for (let i = 0; i < 3; i++)
+            made.push((await durable().create(scheduleInput())).row.subId);
+        made.push((await durable().create(input())).row.subId);
+
+        const first = await durable().listActiveForHolderPage(
+            userId,
+            null,
+            0,
+            2,
+        );
+        expect(first.rows.map((row) => row.subId)).toEqual(made.slice(0, 2));
+        expect(first.nextId).not.toBeNull();
+        const second = await durable().listActiveForHolderPage(
+            userId,
+            null,
+            first.nextId!,
+            2,
+        );
+        expect(second.rows.map((row) => row.subId)).toEqual(made.slice(2));
+        // A full page always says to look again; the next one is empty.
+        const third = await durable().listActiveForHolderPage(
+            userId,
+            null,
+            second.nextId ?? Number.MAX_SAFE_INTEGER,
+            2,
+        );
+        expect(third).toEqual({ rows: [], nextId: null });
+    });
+
+    it('are read, a page at a time, by what a top-up resumes', async () => {
+        const rows = [];
+        for (let i = 0; i < 3; i++)
+            rows.push((await durable().create(scheduleInput())).row);
+        await durable().suspend(rows, 'no_credit');
+
+        const first = await durable().listSuspendedForHolderPage(
+            userId,
+            'no_credit',
+            0,
+            2,
+        );
+        expect(first.rows).toHaveLength(2);
+        const second = await durable().listSuspendedForHolderPage(
+            userId,
+            'no_credit',
+            first.nextId!,
+            2,
+        );
+        expect(second.rows.map((row) => row.subId)).toEqual([rows[2].subId]);
+        expect(second.nextId).toBeNull();
+    });
+
+    it('are found by handler and by app, like any other row', async () => {
+        const { row } = await durable().create(scheduleInput());
+        await expect(
+            durable().listByHandler('app-scheduler', 'app', 0, 'tick'),
+        ).resolves.toEqual([expect.objectContaining({ subId: row.subId })]);
+        await expect(
+            durable().listHolderIdsForApp('app-scheduler'),
+        ).resolves.toEqual([userId]);
+    });
+
+    it('come back from a reap without touching a backlog', async () => {
+        const { row } = await durable().create(scheduleInput());
+        const regular = await durable().create(
+            input({ appUid: 'app-scheduler' }),
+        );
+        const purge = vi.spyOn(env.server.stores.pendingDelivery, 'purge');
+        try {
+            const reaped = await durable().reapForApp('app-scheduler', 500);
+            expect(reaped.rows.map((r) => r.subId).sort()).toEqual(
+                [row.subId, regular.row.subId].sort(),
+            );
+            expect(purge.mock.calls.map(([subId]) => subId)).toEqual([
+                regular.row.subId,
+            ]);
+            // Only the cached row's owner was bumped.
+            expect(reaped.bumps).toHaveLength(1);
+        } finally {
+            purge.mockRestore();
+        }
+    });
+
+    it('are deleted by their schedule`s id, whether or not it recorded the row', async () => {
+        const uid = uuidv4();
+        await durable().create(
+            scheduleInput({
+                subject: scheduleToken(uid),
+                token: scheduleToken(uid),
+                anchorUid: uid,
+            }),
+        );
+        await expect(durable().removeScheduleSubscription(uid)).resolves.toBe(
+            true,
+        );
+        await expect(durable().removeScheduleSubscription(uid)).resolves.toBe(
+            false,
+        );
+    });
+});
+
+describe('statements a schedule store composes', () => {
+    const createScheduleRow = async () => {
+        const uid = uuidv4();
+        const { row } = await durable().create(
+            input({
+                subject: scheduleToken(uid),
+                token: scheduleToken(uid),
+                anchorUid: uid,
+                anchorPath: '',
+                appUid: 'app-scheduler',
+                delivery: 'single',
+                handlerName: 'tick',
+                context: '{"region":"eu"}',
+                permission: 'events:background',
+            }),
+        );
+        return { uid, row };
+    };
+
+    it('delete a schedule`s row only while the guard holds', async () => {
+        const { uid, row } = await createScheduleRow();
+        const db = env.server.clients.db;
+
+        await db.batchWrite([
+            durable().scheduleSubscriptionDeleteEntry(uid, {
+                table: 'user',
+                where: '`id` = ?',
+                values: [-1],
+            }),
+        ]);
+        await expect(durable().getBySubId(row.subId)).resolves.not.toBeNull();
+
+        await db.batchWrite([
+            durable().scheduleSubscriptionDeleteEntry(uid, {
+                table: 'user',
+                where: '`id` = ?',
+                values: [userId],
+            }),
+        ]);
+        await expect(durable().getBySubId(row.subId)).resolves.toBeNull();
+    });
+
+    it('join a schedule`s row under the sub_* columns', async () => {
+        const { row } = await createScheduleRow();
+        const join = durable().scheduleSubscriptionJoin('sub', 'x.`sub_id`');
+        const read = (subId: string) =>
+            env.server.clients.db.pread(
+                `SELECT ${join.columns} FROM (SELECT ? AS \`sub_id\`) x ${join.join}`,
+                [subId],
+            );
+
+        const [found] = await read(row.subId);
+        expect(found).toMatchObject({
+            sub_suspended_at: null,
+            sub_suspended_reason: null,
+            sub_handler_name: 'tick',
+        });
+        expect(Number(found.sub_row_id)).toBeGreaterThan(0);
+        expect(found.sub_context).toBe('{"region":"eu"}');
+
+        const [missing] = await read('no-such-sub');
+        expect(missing).toMatchObject({
+            sub_row_id: null,
+            sub_handler_name: null,
+        });
+    });
+
+    it('tell a schedule whose row is gone', async () => {
+        const { uid, row } = await createScheduleRow();
+        const absent = async (subId: string) => {
+            const [result] = await env.server.clients.db.pread(
+                `SELECT CASE WHEN ${durable().scheduleSubscriptionAbsent('?')} THEN 1 ELSE 0 END AS \`absent\``,
+                [subId],
+            );
+            return Number(result.absent);
+        };
+
+        await expect(absent(row.subId)).resolves.toBe(0);
+        await durable().removeScheduleSubscription(uid);
+        await expect(absent(row.subId)).resolves.toBe(1);
     });
 });

@@ -76,8 +76,7 @@
  *   `ts` when `replaced` is set.
  * @property {string} subject `notif:<appId|userId>:<audience>`, naming the
  *   slice of the mailbox it belongs to.
- * @property {'post'} op Always `'post'` — the mailbox verbs (marking one read
- *   or dismissed) are their own surface, not events.
+ * @property {'post'} op A posting.
  * @property {string} uid The notification's uid, as the mailbox names it.
  * @property {string} type What kind of notification it is, from the published
  *   catalog — `share.received`, `app.worker.deployed`, and so on.
@@ -98,6 +97,11 @@
  */
 
 /**
+ * A live dismissal, carrying metadata and no notification content.
+ * @typedef {Omit<PuterNotifEvent, 'op' | 'notification' | 'replaced'> & { op: 'dismiss' }} PuterNotifDismissEvent
+ */
+
+/**
  * Options for {@link import('./fetch.js').fetch}.
  *
  * @typedef {Object} EventFetchOptions
@@ -110,6 +114,10 @@
  *   returns notifications replaced since, even ones from earlier pages.
  * @property {string} [after] The older name for `cursor`, still accepted.
  *   `cursor` wins when both are given.
+ * @property {'start' | 'end'} [from] Where a read with no cursor starts:
+ *   `'start'` (the default) at the oldest notification still kept, `'end'` past
+ *   the newest, answering an empty page whose `cursor` returns only what comes
+ *   after it. Ignored when a cursor is given.
  * @property {number} [limit] Events per page. Capped at 200; defaults to 50.
  */
 
@@ -154,7 +162,7 @@
  * handler body run unchanged here and in the app's events worker.
  *
  * @typedef {Object} EventDelivery
- * @property {PuterEvent | PuterKvEvent | EventGapMarker} event The delivered
+ * @property {PuterEvent | PuterKvEvent | PuterNotifEvent | PuterNotifDismissEvent | EventGapMarker} event The delivered
  *   event, or a gap marker in place of events that were dropped.
  * @property {Readonly<Record<string, unknown>>} [ctx] The `context` the
  *   subscription was created with, frozen. Present only for a persistent
@@ -204,18 +212,21 @@
  *   takes, e.g. `fs:~/Documents` or `fs:~/inbox/*.json:add`.
  * @property {boolean} [queue] Work-queue delivery: each event goes to one
  *   consumer at a time and is offered again until acknowledged. Requires a
- *   `handlerName`. Without it, every event runs the app's published handler
+ *   `handlerName` or an inline `handler`. Without it, every event runs the app's published handler
  *   in its events worker and also reaches every connected client, once each.
  * @property {'broadcast' | 'single'} [delivery] Deprecated: use `queue`.
  *   `'single'` is the same as `queue: true`.
  * @property {unknown[]} [targets] Deprecated and ignored.
  * @property {string} [handlerName] The published handler this subscription
- *   binds to. Required for `queue`.
+ *   binds to.
+ * @property {'app' | 'user'} [handlerScope] Where `handlerName` is looked up.
+ *   `'user'` binds to a handler in the signed-in user's own scope.
  * @property {Function | string | { file: string }} [handler] The handler
- *   source this subscription was written against. Sent as a hash, not as
- *   source: the subscription binds only if it matches what is published under
- *   `handlerName`, which is also required when this is given. A function also
- *   runs in this client for each delivery it receives.
+ *   source. With a `handlerName`, it is sent as a hash, not as source: the
+ *   subscription binds only if it matches what is published under that name.
+ *   Without one, the source is sent and stored in the signed-in user's own
+ *   scope, and runs for this user's events only. A function also runs in this
+ *   client for each delivery it receives.
  * @property {Record<string, unknown>} [context] Values the handler needs,
  *   evaluated **now** and delivered as a frozen `ctx` on every invocation.
  *   Capped at 4 KB serialized.
@@ -268,6 +279,8 @@
  * @property {boolean} includeValue Whether its `kv:` deliveries carry the
  *   key's new value.
  * @property {string | null} handlerName The handler it is bound to.
+ * @property {'user'} [handlerScope] Present when it is bound to a handler in
+ *   the user's own scope.
  * @property {string | null} appUid The app that created it, or `null` for one
  *   an account session made.
  * @property {string[] | null} contextKeys Key names of its stored context,
@@ -287,6 +300,203 @@
  */
 
 /**
+ * What a handler a schedule runs gets as `event`. Runs are at least once: a
+ * retry, or a run that outlives its timeout, can run one slot twice, with the
+ * same `id`. Skip work already done for an `id`.
+ *
+ * @typedef {Object} PuterScheduleEvent
+ * @property {string} subject `schedule:<scheduleId>`.
+ * @property {'tick'} op Always `'tick'`.
+ * @property {string} id `<scheduleId>:<scheduledFor>`, the same on every
+ *   attempt at one run.
+ * @property {string} scheduleId The schedule this run belongs to.
+ * @property {number} scheduledFor When this run was due, in milliseconds since
+ *   the epoch.
+ * @property {number} firedAt When this attempt was sent to the handler, in
+ *   milliseconds since the epoch.
+ * @property {number} missed Runs skipped since the last one that ran, such as
+ *   while the schedule was suspended. Only this run happens for them.
+ * @property {true} [missedCapped] Present when `missed` stopped counting at
+ *   its cap of 1,000.
+ * @property {number} attempt Attempts at this run, this one included.
+ */
+
+/**
+ * What a handler a schedule runs is called with, in the app's events worker.
+ *
+ * @typedef {Object} ScheduleDelivery
+ * @property {PuterScheduleEvent} event The run.
+ * @property {Readonly<Record<string, unknown>>} [ctx] The `context` the
+ *   schedule was created with, frozen.
+ * @property {unknown} [user] A `puter` bound to the account holding the
+ *   schedule.
+ * @property {(input: unknown, init?: unknown) => Promise<unknown>} [fetch]
+ *   `puter.net.fetch` where it exists, the environment's `fetch` otherwise.
+ */
+
+/**
+ * A handler a schedule runs. Its return value is ignored.
+ *
+ * @typedef {(delivery: ScheduleDelivery) => unknown} ScheduleHandler
+ */
+
+/**
+ * Options for {@link import('./schedules.js').onSchedule}. Give exactly one
+ * of `every`, `cron` or `at`. Times are an ISO-8601 string with a zone (or a
+ * plain date, read as UTC midnight), a `Date`, or milliseconds since the
+ * epoch, and are rounded up to the next whole second.
+ *
+ * @typedef {Object} OnScheduleOptions
+ * @property {number | string} [every] Run at this interval: milliseconds, or
+ *   a duration like `'30m'`, `'6h'` or `'1d'` (`s`, `m`, `h`, `d`, `w`). A
+ *   whole number of seconds, at least the plan's minimum, at most 366 days.
+ * @property {string} [cron] Run on a 5-field cron expression, or a nickname
+ *   such as `'@daily'`. Standard fields only.
+ * @property {string} [tz] The IANA time zone `cron` runs in. Defaults to
+ *   `'UTC'`. Only with `cron`.
+ * @property {number | string | Date} [at] Run once, at this time. At least 1
+ *   second and at most 366 days ahead.
+ * @property {number | string | Date} [startAt] For `every`, the first run;
+ *   without it, the first run is one interval after create. A past `startAt`
+ *   aligns the runs to it, starting at the next one. For `cron`, the earliest
+ *   run.
+ * @property {number | string | Date} [expiresAt] The last time the schedule may
+ *   run, inclusive.
+ * @property {number} [maxRuns] Stop after this many runs (1 to 100,000). With
+ *   `expiresAt` too, the earlier end wins.
+ * @property {string} [handlerName] The published handler each run calls.
+ *   Required unless `handler` is given.
+ * @property {'app' | 'user'} [handlerScope] Where `handlerName` is looked up.
+ *   `'user'` binds to a handler in the signed-in user's own scope.
+ * @property {ScheduleHandler | string | { file: string }} [handler] The handler
+ *   source. With a `handlerName`, it is sent as a hash: the schedule is refused
+ *   unless it matches what is published under that name. Without one, the
+ *   source is sent and stored in the signed-in user's own scope. It never runs
+ *   in this client.
+ * @property {string} [handlerHash] The SHA-256 hex digest of that source, in
+ *   place of `handler`.
+ * @property {Record<string, unknown>} [context] Values the handler needs,
+ *   evaluated **now** and delivered as a frozen `ctx` on every run. Capped at
+ *   4 KB serialized. Replace it with `updateSchedule()`.
+ */
+
+/**
+ * Replacement timing and context for a handler schedule. Any timing key
+ * replaces the whole timing definition using the rules of `onSchedule()`.
+ *
+ * @typedef {Pick<OnScheduleOptions,
+ *   'every' | 'cron' | 'tz' | 'at' | 'startAt' | 'expiresAt' | 'maxRuns'> & {
+ *     context?: Record<string, unknown> | null;
+ * }} HandlerScheduleChanges
+ */
+
+/**
+ * Changes to a stored notification. Content merges over the stored fields.
+ * `null` clears an optional field, restoring its default where applicable.
+ *
+ * @typedef {Object} DeferredScheduleChanges
+ * @property {number | string | Date} [sendAt] Replacement send time.
+ * @property {string} [title] Replacement title.
+ * @property {string | null} [text] Replacement text.
+ * @property {string | null} [icon] Replacement icon URL.
+ * @property {string | null} [target] Replacement app path.
+ * @property {unknown} [data] Replacement JSON data. `null` clears it.
+ * @property {string | null} [group] Replacement group.
+ * @property {string | null} [channel] Replacement channel.
+ * @property {boolean | null} [sensitive] Replacement privacy setting.
+ * @property {'normal' | 'high' | null} [priority] Replacement priority.
+ * @property {number | null} [ttl] Replacement push lifetime in seconds.
+ */
+
+/** @typedef {HandlerScheduleChanges | DeferredScheduleChanges} ScheduleChanges */
+
+/**
+ * A schedule, as its holder sees it. Times are milliseconds since the epoch.
+ * `context` values are never returned, only which keys it sets and a hash.
+ *
+ * @typedef {Object} Schedule
+ * @property {string} scheduleId The schedule's id, and what
+ *   `removeSchedule()` and `getSchedule()` name.
+ * @property {'recurring' | 'once' | 'deferred'} kind `recurring` for `every`
+ *   and `cron`, `once` for `at`, `deferred` for a delayed notification.
+ * @property {string} appUid The app that created it.
+ * @property {string | null} handlerName The handler each run calls, or `null`
+ *   once the schedule has ended. For an inline handler, the name the server
+ *   gave it, which starts with `@`.
+ * @property {'user'} [handlerScope] Present when the handler is in the user's
+ *   own scope.
+ * @property {string[] | null} contextKeys Key names of its context, or `null`
+ *   when it has none or has ended.
+ * @property {string | null} contextHash Hash of its context.
+ * @property {number | null} every The interval of an `every` schedule, in
+ *   milliseconds.
+ * @property {string | null} cron The cron expression of a `cron` schedule.
+ * @property {string} tz The time zone `cron` runs in; `'UTC'` otherwise.
+ * @property {number} startAt The first allowed run. For `once`, its only run.
+ * @property {number | null} endsAt The last allowed run, inclusive, from
+ *   `expiresAt` or `maxRuns`. For `once`, its only run.
+ * @property {'active' | 'suspended' | 'sending' | 'ended'} state `suspended`
+ *   while it doesn't run but can resume, `sending` once a delayed
+ *   notification has started to go (it can't be cancelled then), `ended` once
+ *   it never runs again.
+ * @property {string | null} suspendedReason Why it is suspended:
+ *   `handler_not_found`, `failures` or `no_credit`.
+ * @property {string | null} endReason Why it ended: `removed`, `ended` (its
+ *   last run is done), `app_deleted`, `uninstalled`, `permission_revoked`,
+ *   `holder_gone`, `app_gone`, `orphaned`, `delivered` or `dropped`.
+ * @property {number | null} endedAt When it ended.
+ * @property {number | null} nextRunAt The next slot of its definition, or
+ *   `null` while suspended or sending, and once ended. A run starts within about a minute
+ *   of it; a late or retried run for an earlier slot may fire first.
+ * @property {number} createdAt When it was created.
+ * @property {() => Promise<void>} [off] Removes the schedule. Present on the
+ *   schedule `onSchedule()` returns, not on one a listing reports.
+ */
+
+/**
+ * Options for {@link import('./schedules.js').listSchedules}.
+ *
+ * @typedef {Object} ScheduleListOptions
+ * @property {number} [limit] Schedules per page. Defaults to 50, capped at 200.
+ * @property {string | null} [cursor] The `cursor` from the previous page.
+ *   Absent or `null` starts from the first page.
+ * @property {boolean} [includeTotal] Adds `total`, the count across every page.
+ */
+
+/**
+ * Error codes the schedule methods reject with, besides the shared events
+ * codes such as `events_disabled` and `too_many_requests`.
+ *
+ * @typedef {'bad_request'
+ *   | 'invalid_request'
+ *   | 'events_schedule_invalid'
+ *   | 'events_schedule_never_fires'
+ *   | 'events_schedule_too_frequent'
+ *   | 'events_schedule_app_required'
+ *   | 'events_schedule_limit'
+ *   | 'events_schedule_budget'
+ *   | 'events_schedule_not_found'
+ *   | 'events_schedule_sending'
+ *   | 'events_schedule_busy'
+ *   | 'events_handler_required'
+ *   | 'events_handler_forbidden'
+ *   | 'events_handler_limit'
+ *   | 'events_handler_name_invalid'
+ *   | 'events_worker_too_large'
+ *   | 'events_user_handlers_disabled'
+ *   | 'insufficient_funds'
+ *   | 'events_handler_name_required'
+ *   | 'events_handler_invalid'
+ *   | 'events_handler_hash_unavailable'
+ *   | 'events_handler_not_found'
+ *   | 'events_handler_hash_mismatch'
+ *   | 'events_context_invalid'
+ *   | 'events_context_too_large'
+ *   | 'events_durable_requires_account'
+ *   | 'events_background_consent_required'} ScheduleErrorCode
+ */
+
+/**
  * Where a handler operation applies. An app token publishes into its own app
  * and needs neither field; an account session has to name an app it owns.
  *
@@ -296,6 +506,8 @@
  *   `events_handler_conflict`.
  * @property {string} [appUid] The app to publish into. Required when the
  *   caller is an account session rather than an app.
+ * @property {'app' | 'user'} [scope] `'user'` works on the signed-in user's own
+ *   handlers for the app instead of the app's. Default `'app'`.
  */
 
 /**
@@ -346,6 +558,8 @@
  * worker standing behind them.
  *
  * @typedef {Object} EventsWorkerSummary
+ * @property {'app' | 'user'} scope Whose handlers it runs: the app's, or the
+ *   caller's own inside the app.
  * @property {string} appUid
  * @property {string} appName
  * @property {string} appTitle
@@ -354,7 +568,8 @@
  *   being — its earliest published handler. Unix seconds.
  * @property {number} updatedAt Its most recently published or updated handler.
  *   Unix seconds.
- * @property {string} script The deployed script name, for support/diagnosis.
+ * @property {string} [script] The deployed script name, for support/diagnosis.
+ *   Only on `scope: 'app'` items.
  */
 
 /**
@@ -374,6 +589,7 @@
  *
  * @typedef {Object} DestroyedEventsWorker
  * @property {string} appUid
+ * @property {'user'} [scope] Present when a user scope was destroyed.
  * @property {number} removed How many handlers were deleted.
  * @property {number} suspended How many subscriptions were suspended as a
  *   result, across all of them.

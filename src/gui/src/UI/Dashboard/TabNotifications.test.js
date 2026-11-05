@@ -700,6 +700,22 @@ describe('apps that can send pushes', () => {
         delete window.icons;
     });
 
+    it('shows a readable name for an app still named by its uid', async () => {
+        const uid = 'app-65d98228-cfa5-5d18-a442-f6eeaf3dcfc7';
+        serve({
+            'GET /push/devices': { devices: [] },
+            'GET /push/apps': { apps: [
+                { uid, name: uid, title: uid, icon: null },
+                { uid: 'app-2', name: 'app-2', title: 'app-2', icon: null },
+            ] },
+            'GET /push/preferences': { puter: true },
+        });
+        await open();
+
+        expect($('.push-app-card strong').map((_, el) => $(el).text()).get())
+            .toEqual(['push_app_unnamed_website', 'app-2']);
+    });
+
     it('shows an app name and icon containing markup as text', async () => {
         serve({
             'GET /push/devices': { devices: [] },

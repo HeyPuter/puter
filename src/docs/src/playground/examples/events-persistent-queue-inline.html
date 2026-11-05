@@ -1,0 +1,36 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            if (!await puter.perms.request('backgroundEvents')) {
+                puter.print('background events were not allowed<br>');
+                return;
+            }
+
+            const dir = puter.randName();
+            await puter.fs.mkdir(dir);
+
+            // (1) A queue: each event goes to one consumer and is offered again until it is acknowledged
+            const sub = await puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                queue: true,
+                handler: async ({ event, ctx, fetch, ack }) => {
+                    await ack();
+                    await fetch(ctx.webhook, { method: 'POST', body: event.path });
+                },
+                context: { webhook: 'https://example.com/ingest' },
+            });
+            puter.print(`queue ${sub.queue}, handler ${sub.handlerName}<br>`);
+
+            await puter.fs.write(`${dir}/hello.txt`, 'Hello!');
+
+            // (2) Cleanup: end the subscription, remove its handler, delete the folder
+            await puter.events.unsubscribe(sub.subId);
+            await puter.events.handlers.remove(sub.handlerName, { scope: 'user' });
+            await puter.fs.delete(dir);
+            puter.print('removed<br>');
+        })();
+    </script>
+</body>
+</html>

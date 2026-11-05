@@ -25,6 +25,11 @@ import { bodyRecord } from '../../core/http/requestBody.js';
 import { DURABLE_LIST_LIMIT_CAP } from '../../stores/events/DurableSubscriptionStore.js';
 import { EVENTS_WORKERS_LIST_LIMIT_CAP } from '../../stores/events/EventHandlerStore.js';
 import { KV_HANDLE_LIST_LIMIT_CAP } from '../../stores/events/KvShareHandleStore.js';
+import {
+    SCHEDULE_LIST_LIMIT_CAP,
+    schedulesUnavailable,
+    type ScheduleServiceContract,
+} from '../../core/schedules.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
 import { EVENTS_WORKER_PREFIX } from '../../services/events/workerRuntime.js';
@@ -59,6 +64,8 @@ const EVENTS_SCRIPT_REGEX = new RegExp(`^${EVENTS_WORKER_PREFIX}[a-f0-9]{32}$`);
 
 /** Matches the edge dispatcher's own validation of the app uid it forwards. */
 const APP_UID_REGEX = /^app-[A-Za-z0-9_-]{1,64}$/;
+/** A user uuid. */
+const HOLDER_REGEX = /^[A-Za-z0-9-]{1,64}$/;
 
 @Controller('/events')
 export class EventsController extends PuterController {
@@ -127,7 +134,8 @@ export class EventsController extends PuterController {
      *
      * Stateless: no subscription, no stored position, nothing written. The
      * cursor comes back to the caller and goes out again as `cursor` (or
-     * `after`, the name it first shipped under).
+     * `after`, the name it first shipped under). `from=end` with no cursor
+     * starts at the newest row instead of the oldest.
      */
     @Get('/fetch', {
         subdomain: 'api',
@@ -138,9 +146,16 @@ export class EventsController extends PuterController {
     async fetch(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         const query = (req.query ?? {}) as Record<string, unknown>;
+        const from = query.from as 'start' | 'end' | undefined;
+        if (from !== undefined && from !== 'start' && from !== 'end') {
+            throw new HttpError(400, '`from` must be `start` or `end`', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         const page = await this.services.events.fetchMissed(actor, {
             subject: typeof query.subject === 'string' ? query.subject : '',
+            from,
             cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
             after: typeof query.after === 'string' ? query.after : undefined,
             limit: normalizeLimit(query.limit, {
@@ -167,6 +182,99 @@ export class EventsController extends PuterController {
         const actor = this.#requireActor(req);
         await this.services.events.unsubscribeDurable(actor, bodyRecord(req));
         res.json({});
+    }
+
+    // -- Schedules ---------------------------------------------------
+    //
+    // An app's handler run on a timer, served by `services.schedules` when a
+    // server has it and answered `events_disabled` when it doesn't. Creating
+    // one needs an app context; listing, reading and removing are scoped the
+    // way the durable verbs are. The create and remove verbs spend the
+    // subscribe and unsubscribe budgets in the service, shared with those
+    // verbs.
+
+    #schedules(): ScheduleServiceContract {
+        const schedules = this.services.schedules;
+        if (!schedules) throw schedulesUnavailable();
+        return schedules;
+    }
+
+    /** POST /events/schedules — create a schedule for the calling app. */
+    @Post('/schedules', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async createSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(await this.#schedules().createFor(actor, bodyRecord(req)));
+    }
+
+    /** GET /events/schedules — the caller's schedules, one page at a time. */
+    @Get('/schedules', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_LIST_LIMIT,
+    })
+    async listSchedules(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = (req.query ?? {}) as Record<string, unknown>;
+
+        const page = await this.#schedules().list(actor, {
+            limit: normalizeLimit(query.limit, {
+                cap: SCHEDULE_LIST_LIMIT_CAP,
+            }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
+
+        res.json({
+            items: page.items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
+
+    @Post('/schedules/update', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async updateSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const { scheduleId, changes } = bodyRecord(req);
+        res.json(await this.#schedules().update(actor, scheduleId, changes));
+    }
+
+    /**
+     * POST /events/schedules/remove — end one schedule. An id the caller does
+     * not hold reads as absent.
+     */
+    @Post('/schedules/remove', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async removeSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        await this.#schedules().remove(actor, bodyRecord(req).scheduleId);
+        res.json({});
+    }
+
+    /**
+     * GET /events/schedules/:scheduleId — one schedule, ended or not. An id the
+     * caller does not hold reads as absent.
+     */
+    @Get('/schedules/:scheduleId', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_LIST_LIMIT,
+    })
+    async getSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(await this.#schedules().get(actor, req.params.scheduleId));
     }
 
     // -- Cross-user key-value handles --------------------------------
@@ -315,6 +423,7 @@ export class EventsController extends PuterController {
             handlers: await this.services.events.listHandlers(actor, {
                 appUid:
                     typeof query.appUid === 'string' ? query.appUid : undefined,
+                scope: query.scope,
             }),
         });
     }
@@ -413,6 +522,15 @@ export class EventsController extends PuterController {
             throw new HttpError(400, 'Missing or invalid `script`/`appUid`', {
                 legacyCode: 'bad_request',
             });
+        // Absent or empty is the app's own scope.
+        const holder = body.holder === undefined ? '' : body.holder;
+        if (
+            typeof holder !== 'string' ||
+            !(holder === '' || HOLDER_REGEX.test(holder))
+        )
+            throw new HttpError(400, 'Invalid `holder`', {
+                legacyCode: 'bad_request',
+            });
 
         const deployer = this.#eventsWorkerDeployer();
         if (!deployer.enabled) {
@@ -420,15 +538,25 @@ export class EventsController extends PuterController {
             return;
         }
 
-        const outcome = await deployer.ensure(appUid, script);
+        const scope = await deployer.scopeFor(appUid, holder);
+        if (!scope) {
+            res.status(404).json({ deployed: false, reason: 'no-holder' });
+            return;
+        }
+
+        const outcome = await deployer.ensure(scope, script);
         if (outcome === 'deployed') {
             res.json({ deployed: true });
             return;
         }
-        // `failed` and `throttled` are worth another attempt: the rest say
-        // this script is not what the app's handlers currently are.
+        // `failed`, `throttled` and `busy` are worth another attempt: the rest
+        // say this script is not what the app's handlers currently are.
         res.status(
-            outcome === 'failed' || outcome === 'throttled' ? 502 : 404,
+            outcome === 'failed' ||
+                outcome === 'throttled' ||
+                outcome === 'busy'
+                ? 502
+                : 404,
         ).json({
             deployed: false,
             reason: outcome,
@@ -449,14 +577,22 @@ export class EventsController extends PuterController {
     override onServerStart(): void {
         const deployer = this.#eventsWorkerDeployer();
         if (!deployer.enabled) return;
+        this.services.events.useEagerDeploy((scope, script) =>
+            deployer.deployEagerly(scope, script),
+        );
         if (this.config.workers?.localServer) {
             this.services.events.useWorkerTransport(
                 new LocalEventsInvokeTransport(this.services, deployer),
             );
             return;
         }
-        this.services.events.useWorkerMissHandler((appUid, script) =>
-            deployer.ensure(appUid, script),
+        this.services.events.useWorkerMissHandler(
+            async (appUid, script, options) => {
+                const scope = await deployer.scopeFor(appUid, options.holder);
+                return scope
+                    ? deployer.ensure(scope, script, options)
+                    : 'no-holder';
+            },
         );
     }
 

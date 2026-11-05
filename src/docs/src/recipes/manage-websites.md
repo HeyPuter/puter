@@ -65,7 +65,9 @@ await puter.hosting.update('grace-portfolio', 'my-site-v2');
 
 This is a clean way to release a new version. Build it in a fresh folder while
 the old one keeps serving, then switch in one call. To roll back, point the
-site at the old folder again.
+site at the old folder again. See
+[Preview and roll back a site](/recipes/preview-and-roll-back-a-site/) for the
+full flow.
 
 ## Delete a Site
 

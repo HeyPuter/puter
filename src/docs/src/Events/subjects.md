@@ -174,13 +174,15 @@ A key-value change carries `key` instead of `uid` and `path`, and different ops:
 | `ts` | Number | As above. |
 | `seq` | Number | As above. |
 
-A notification carries the fields listed on [`fetch()`](/Events/fetch/#return-value).
+A posted notification carries the fields listed on [`fetch()`](/Events/fetch/#return-value). An app message's live dismissal carries `op: 'dismiss'` and its `uid`, with no `notification` content. Dismissals follow the same audience rules. The notification SDK exposes them through [`on('dismiss')`](/Notifications/on/).
+
+A [schedule](/Events/onSchedule/) has no subject you can subscribe to. Its runs carry `op: 'tick'` and the fields listed on [`onSchedule()`](/Events/onSchedule/#the-event).
 
 Events never say who made a change. On a shared folder, that would tell every subscriber who else has access.
 
 [`puter.kv.flush()`](/KV/flush/) delivers nothing, since the keys a flush can list aren't reliably the keys it removed.
 
-Writes to the same subject within 250 ms arrive as one event carrying the latest state, so a multipart upload or a save loop is one delivery rather than one per write. All of an app's notifications share one subject, so notifications sent within 250 ms of each other arrive as the last of them. [`fetch()`](/Events/fetch/) still returns every one.
+Writes to the same subject within 250 ms arrive as one event carrying the latest state, so a multipart upload or a save loop is one delivery rather than one per write. All of an app's notifications share one subject, so notifications sent within 250 ms of each other arrive as the last of them. Dismissals are coalesced separately for each notification id. [`fetch()`](/Events/fetch/) still returns every one.
 
 ### Gaps
 

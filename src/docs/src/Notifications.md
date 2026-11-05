@@ -29,6 +29,10 @@ A notification has a `title`, and optionally `text` and an `icon`. A `target` pa
 
 [`notify()`](/Notifications/notify/) lists every field. [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications) lists the size limits and how many notifications and pushes your app can send each user.
 
+To send a notification at a set time instead of now, pass `sendAt` to [`notify()`](/Notifications/notify/#send-it-later). It goes out then, even when your app is closed.
+
+When the user reads a notification in your app, [`dismiss()`](/Notifications/dismiss/) closes it on their other devices too.
+
 ## Who you can notify
 
 A notification goes to the user your app runs for. To notify another user, such as a chat member, share data with them in a [key-value share](/KV/share/) made with `notify: true`, and send through the share's handle. Each side of the share can notify the other.
@@ -134,9 +138,12 @@ Your app's notifications are events on the `notif:app-user` [subject](/Events/su
 ## Functions
 
 - **[`puter.notifications.notify()`](/Notifications/notify/)** - Send a notification to the user, or to the other side of a key-value share
+- **[`puter.notifications.markShown()`](/Notifications/markShown/)** - Mark a notification as shown, so the next one in its group is new
+- **[`puter.notifications.dismiss()`](/Notifications/dismiss/)** - Dismiss a notification and close it on the user's other devices
+- **[`puter.notifications.cancel()`](/Notifications/cancel/)** - Cancel a notification stored to send later
 - **[`puter.notifications.onNotification()`](/Notifications/onNotification/)** - Receive your app's notifications, including the ones sent while it was closed
 - **[`puter.notifications.onPush()`](/Notifications/onPush/)** - Say what a push shows for one channel, and handle its notifications while the page is open
-- **[`puter.notifications.on('click')`](/Notifications/on/)** - React when the user clicks one of your notifications
+- **[`puter.notifications.on()`](/Notifications/on/)** - React when one of your notifications is clicked or dismissed
 - **[`puter.notifications.enable()`](/Notifications/enable/)** - Turn on pushes for your app in this browser
 - **[`puter.notifications.disable()`](/Notifications/disable/)** - Turn off pushes for your app
 - **[`puter.notifications.status()`](/Notifications/status/)** - Check whether pushes reach this browser, without asking
@@ -152,6 +159,9 @@ For Puter's own apps, which manage where pushes go:
 ## Examples
 
 - [Send a Notification](/playground/notifications-notify/)
+- [Send a Notification Later](/playground/notifications-send-later/)
+- [Mark a Notification as Shown](/playground/notifications-mark-shown/)
+- [Dismiss a Notification](/playground/notifications-dismiss/)
 - [Push notifications for a website](/Notifications/push/#a-minimal-page)
 
 ## Recipes
@@ -160,3 +170,8 @@ For Puter's own apps, which manage where pushes go:
 - [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/)
 - [Alert Users When Shared Data Changes](/recipes/alert-users-when-shared-data-changes/)
 - [Catch Up on Notifications](/recipes/catch-up-on-notifications/)
+- [Mark Notifications as Read](/recipes/mark-notifications-as-read/)
+- [Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/)
+- [Notify Users of Incoming Calls](/recipes/notify-users-of-incoming-calls/)
+- [Show Unread Counts on Your App Icon](/recipes/show-unread-counts-on-your-app-icon/)
+- [Remind Users Later](/recipes/remind-users-later/)

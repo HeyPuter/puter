@@ -185,7 +185,11 @@ const aclService = () => ({
         !denied.has(resource.path) && !deniedHolders.has(actor.user?.id ?? -1),
     getSafeAclError: async (_actor: Actor, resource: { path: string }) =>
         denied.get(resource.path) === 'forbidden'
-            ? { status: 403, message: 'Forbidden', fields: { code: 'forbidden' } }
+            ? {
+                  status: 403,
+                  message: 'Forbidden',
+                  fields: { code: 'forbidden' },
+              }
             : {
                   status: 404,
                   message: 'Subject does not exist',
@@ -281,8 +285,8 @@ interface ForwardedCall {
 }
 
 /**
- * Each service gets its own outbox. A delivery still in flight when a test
- * ends must land in that test's record, not in the next one's.
+ * Each service gets its own outbox. A delivery still in flight when a test ends
+ * must land in that test's record, not in the next one's.
  */
 const buildService = (
     config: IConfig,
@@ -293,12 +297,14 @@ const buildService = (
     metered: MeteredLine[];
     forwarded: ForwardedCall[];
     eventBus: { on: ReturnType<typeof vi.fn>; emit: ReturnType<typeof vi.fn> };
+    jobs: { register: ReturnType<typeof vi.fn> };
 } => {
     const outbox: Array<{ socket?: string; envelope: DeliveryEnvelope }> = [];
     const counted: DeliveryEnvelope[] = [];
     const lines: MeteredLine[] = [];
     const forwardedCalls: ForwardedCall[] = [];
     const bus = { on: vi.fn(), emit: vi.fn() };
+    const jobs = { register: vi.fn() };
     const built = new EventsService(
         config,
         {
@@ -315,6 +321,7 @@ const buildService = (
             kvShareHandle: kvShareHandleStore,
         } as never,
         {
+            jobs,
             eventForward: {
                 // A deployment with no peers has nowhere to forward to, which
                 // is what every test here is.
@@ -347,10 +354,7 @@ const buildService = (
             acl: aclService(),
             permission: permissionService(),
             metering: {
-                bufferIncrementUsages: (
-                    actor: Actor,
-                    usages: UsageInput[],
-                ) => {
+                bufferIncrementUsages: (actor: Actor, usages: UsageInput[]) => {
                     for (const usage of usages)
                         lines.push({
                             userUuid: actor.user?.uuid,
@@ -376,6 +380,7 @@ const buildService = (
         metered: lines,
         forwarded: forwardedCalls,
         eventBus: bus,
+        jobs,
     };
 };
 
@@ -562,6 +567,59 @@ describe('the feature switch', () => {
             (err: unknown) =>
                 isHttpError(err) && err.legacyCode === 'events_disabled',
         );
+    });
+
+    it('hands its table sweeps to the job scheduler and arms only the pending sweep itself', () => {
+        const intervals = vi.spyOn(globalThis, 'setInterval');
+        const timeouts = vi.spyOn(globalThis, 'setTimeout');
+        let jobs: { register: ReturnType<typeof vi.fn> };
+        try {
+            ({ jobs } = buildService({ events: { enabled: true } } as IConfig));
+            // The pending sweep is the region's queue, so every node runs it.
+            expect(intervals.mock.calls.map(([, ms]) => ms)).toEqual([10_000]);
+            expect(timeouts).not.toHaveBeenCalled();
+        } finally {
+            intervals.mockRestore();
+            timeouts.mockRestore();
+        }
+        expect(
+            jobs.register.mock.calls.map(([name, job]) => ({
+                name,
+                every: job.every,
+                scope: job.scope,
+                nearPrimary: job.nearPrimary ?? false,
+                leaseMs: job.leaseMs,
+            })),
+        ).toEqual([
+            {
+                name: 'events.subscriptions.expirySweep',
+                every: 60 * 60_000,
+                scope: 'fleet',
+                nearPrimary: true,
+                leaseMs: 15 * 60_000,
+            },
+            {
+                name: 'events.userHandlers.gc',
+                every: 60 * 60_000,
+                scope: 'fleet',
+                nearPrimary: true,
+                leaseMs: 15 * 60_000,
+            },
+            {
+                name: 'events.subscriptions.creditSweep',
+                every: 15 * 60_000,
+                scope: 'fleet',
+                nearPrimary: false,
+                leaseMs: 10 * 60_000,
+            },
+        ]);
+    });
+
+    it('registers no job when off', () => {
+        const { jobs } = buildService({
+            events: { enabled: false },
+        } as IConfig);
+        expect(jobs.register).not.toHaveBeenCalled();
     });
 
     it('spends nothing at all on a dispatch when off', async () => {
@@ -1206,7 +1264,9 @@ describe('matching', () => {
     it('stops delivering to a durable row the moment it expires', async () => {
         const { documents, file } = seedTree();
         const now = Math.floor(Date.now() / 1000);
-        const row = (over: Partial<DurableSubscription>): DurableSubscription => ({
+        const row = (
+            over: Partial<DurableSubscription>,
+        ): DurableSubscription => ({
             subId: `durable-${seq}-${over.expiresAt}`,
             token: `f#${documents.uid}`,
             ownerUserId: userId,
@@ -1355,9 +1415,9 @@ describe('matching', () => {
         await dispatch(closed);
         await flush();
 
-        expect(sent.map((s) => (s.envelope.event as { uid: string }).uid)).toEqual([
-            reachable.uid,
-        ]);
+        expect(
+            sent.map((s) => (s.envelope.event as { uid: string }).uid),
+        ).toEqual([reachable.uid]);
     });
 
     it('publishes nothing for an event with no registry entry', async () => {
@@ -1399,9 +1459,9 @@ describe('matching', () => {
         await flush();
 
         expect(sent).toHaveLength(1);
-        expect(
-            (sent[0].envelope.event as { path: string }).path,
-        ).toBe(inside.path);
+        expect((sent[0].envelope.event as { path: string }).path).toBe(
+            inside.path,
+        );
     });
 
     it('does not reach a sibling that only shares the missing name as a prefix', async () => {
@@ -1473,8 +1533,9 @@ describe('coalescing', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent).toHaveLength(2);
-        expect(sent.map((s) => (s.envelope.event as { uid: string }).uid).sort())
-            .toEqual([file.uid, second.uid].sort());
+        expect(
+            sent.map((s) => (s.envelope.event as { uid: string }).uid).sort(),
+        ).toEqual([file.uid, second.uid].sort());
     });
 
     it('counts exactly what it delivered', async () => {
@@ -1620,9 +1681,9 @@ describe('limits', () => {
             }
         }
 
-        await expect(subscribe(`fs:${documents.uid}`)).resolves.toMatchObject(
-            { subId: expect.any(String) },
-        );
+        await expect(subscribe(`fs:${documents.uid}`)).resolves.toMatchObject({
+            subId: expect.any(String),
+        });
     });
 
     it('refuses unsubscribes past their own per-minute budget', async () => {
@@ -1691,9 +1752,7 @@ describe('limits', () => {
             ),
         );
 
-        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(
-            1,
-        );
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
         expect(results.filter((r) => r.status === 'rejected')).toHaveLength(
             attempts - 1,
         );
@@ -1890,9 +1949,9 @@ describe('limits', () => {
         ).toHaveLength(EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT);
         // 200 evaluated, 20 never reached: everything past the delivery cap is
         // told it missed something, itself capped.
-        expect(
-            sent.filter((s) => s.envelope.event.op === 'gap'),
-        ).toHaveLength(EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT);
+        expect(sent.filter((s) => s.envelope.event.op === 'gap')).toHaveLength(
+            EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+        );
         expect(
             sent.find((s) => s.envelope.event.op === 'gap')?.envelope.event,
         ).toMatchObject({ reason: 'filter_evaluation_limit' });
@@ -1943,8 +2002,7 @@ describe('the socket surface', () => {
             fire: (event, ...args) =>
                 (
                     handlers.get(event) as
-                        | ((...a: unknown[]) => void)
-                        | undefined
+                        ((...a: unknown[]) => void) | undefined
                 )?.(...args),
         };
     };
@@ -2125,10 +2183,14 @@ it('names the delivery channel the clients listen on', () => {
 
 describe('asking a kv subscription for the value', () => {
     it('is recorded on the row and reported in the view', async () => {
-        const { sub } = await service.subscribe(appActorFor(OWN_APP), socketId, {
-            subject: `kv:${OWN_APP}:cart`,
-            includeValue: true,
-        });
+        const { sub } = await service.subscribe(
+            appActorFor(OWN_APP),
+            socketId,
+            {
+                subject: `kv:${OWN_APP}:cart`,
+                includeValue: true,
+            },
+        );
         expect(sub.includeValue).toBe(true);
 
         const plain = await subscribeKv(`kv:${OWN_APP}:cart`);
@@ -2211,10 +2273,7 @@ describe('resolving a kv subject', () => {
     });
 
     it('refuses a pattern the grammar cannot enumerate from a key', async () => {
-        for (const subject of [
-            `kv:${OWN_APP}:ca*rt`,
-            `kv:${OWN_APP}:cart?`,
-        ])
+        for (const subject of [`kv:${OWN_APP}:ca*rt`, `kv:${OWN_APP}:cart?`])
             await expect(subscribeKv(subject)).rejects.toSatisfy(
                 (err: unknown) =>
                     isHttpError(err) && err.legacyCode === 'invalid_kv_pattern',
@@ -2329,8 +2388,7 @@ describe('delivering a kv change', () => {
 
     const eventFor = (subId: string) =>
         sent.find((one) => one.envelope.subId === subId)?.envelope.event as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
 
     it('hands the value to the row that asked for it and to no other', async () => {
         vi.useFakeTimers();
@@ -2445,7 +2503,9 @@ describe('delivering a kv change', () => {
         await dispatchKv(['cart'], { values: ['kept'] });
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
-        const deliveries = sent.filter((one) => one.envelope.event.op === 'set');
+        const deliveries = sent.filter(
+            (one) => one.envelope.event.op === 'set',
+        );
         const gaps = sent.filter((one) => one.envelope.event.op === 'gap');
         expect(deliveries).toHaveLength(128);
         expect(gaps).toHaveLength(1);
@@ -2492,12 +2552,12 @@ describe('delivering a kv change', () => {
         await dispatchKv(['cart']);
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
-        expect(sent.filter((one) => one.envelope.event.op === 'set')).toHaveLength(
-            EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
-        );
-        expect(sent.filter((one) => one.envelope.event.op === 'gap')).toHaveLength(
-            1,
-        );
+        expect(
+            sent.filter((one) => one.envelope.event.op === 'set'),
+        ).toHaveLength(EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit);
+        expect(
+            sent.filter((one) => one.envelope.event.op === 'gap'),
+        ).toHaveLength(1);
     });
 
     it('uses the free KV limit when owner policy lookup fails', async () => {
@@ -2508,7 +2568,9 @@ describe('delivering a kv change', () => {
         await dispatchKv(['cart']);
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
-        expect(sent.filter((one) => one.envelope.event.op === 'set')).toHaveLength(
+        expect(
+            sent.filter((one) => one.envelope.event.op === 'set'),
+        ).toHaveLength(
             EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription[
                 DEFAULT_FREE_SUBSCRIPTION
             ],
@@ -2521,7 +2583,9 @@ describe('delivering a kv change', () => {
         await seedKvSubscriptions(
             EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.bySubscription[
                 DEFAULT_FREE_SUBSCRIPTION
-            ] - 128 + 1,
+            ] -
+                128 +
+                1,
             { includeValue: true, match: 'elsewhere', tag: 'filtered-out' },
         );
 
@@ -2543,7 +2607,9 @@ describe('delivering a kv change', () => {
         });
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
-        const deliveries = sent.filter((one) => one.envelope.event.op === 'set');
+        const deliveries = sent.filter(
+            (one) => one.envelope.event.op === 'set',
+        );
         expect(deliveries).toHaveLength(128);
         expect(
             deliveries.every(
@@ -2769,8 +2835,7 @@ describe('what a kv dispatch costs', () => {
 });
 
 describe('the cross-app kv gate', () => {
-    const grantRead = (app: string) =>
-        grants.add(`app-data:${app}:kv:read`);
+    const grantRead = (app: string) => grants.add(`app-data:${app}:kv:read`);
 
     const crossAppService = () =>
         buildService({
@@ -2834,7 +2899,8 @@ describe('the cross-app kv gate', () => {
         ({ service } = crossAppService());
 
         await expect(subscribeKv(`kv:${OTHER_APP}:cart`)).rejects.toSatisfy(
-            (err: unknown) => isHttpError(err) && err.legacyCode === 'forbidden',
+            (err: unknown) =>
+                isHttpError(err) && err.legacyCode === 'forbidden',
         );
     });
 
@@ -2845,8 +2911,7 @@ describe('the cross-app kv gate', () => {
 
         await expect(subscribeKv('kv:app-gone:cart')).rejects.toSatisfy(
             (err: unknown) =>
-                isHttpError(err) &&
-                err.legacyCode === 'subject_does_not_exist',
+                isHttpError(err) && err.legacyCode === 'subject_does_not_exist',
         );
     });
 
@@ -2860,7 +2925,8 @@ describe('the cross-app kv gate', () => {
         });
 
         await expect(subscribeKv(`kv:${OTHER_APP}:cart`)).rejects.toSatisfy(
-            (err: unknown) => isHttpError(err) && err.legacyCode === 'forbidden',
+            (err: unknown) =>
+                isHttpError(err) && err.legacyCode === 'forbidden',
         );
     });
 
@@ -3135,9 +3201,7 @@ describe('cross-user kv handles', () => {
         expect(off.kvHandlesEnabled).toBe(false);
         expect(service.kvHandlesEnabled).toBe(true);
 
-        await expect(
-            subscribeAsGuest(`kv:${handle}:*`, off),
-        ).rejects.toSatisfy(
+        await expect(subscribeAsGuest(`kv:${handle}:*`, off)).rejects.toSatisfy(
             (err: unknown) =>
                 isHttpError(err) &&
                 err.legacyCode === 'events_kv_handles_disabled',
@@ -3345,10 +3409,13 @@ describe('cross-user kv handles', () => {
     it.each([
         ['an unknown handle', () => undefined],
         ['a revoked handle', () => mintHandle({ revokedAt: 1 })],
-        ['a handle whose grant the caller does not hold', () => {
-            mintHandle();
-            grants.delete(permission);
-        }],
+        [
+            'a handle whose grant the caller does not hold',
+            () => {
+                mintHandle();
+                grants.delete(permission);
+            },
+        ],
     ])('answers %s as absent', async (_case, setUp) => {
         setUp();
         await expect(subscribeAsGuest(`kv:${handle}:*`)).rejects.toSatisfy(

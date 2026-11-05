@@ -346,7 +346,9 @@ describe('NotificationStore', () => {
         const uids = (rows) => rows.map((r) => r.uid).sort();
 
         expect(
-            uids(await store.listScoped(u.id, { audience: 'developer', appUid })),
+            uids(
+                await store.listScoped(u.id, { audience: 'developer', appUid }),
+            ),
         ).toEqual([mine.uid]);
         // `null` is the rows naming no app, not "any app".
         expect(
@@ -406,6 +408,61 @@ describe('NotificationStore', () => {
         // Same millisecond: the row id carries the order on.
         const rest = await read({ replacedAt: 2_000, id: Number(a.id) });
         expect(rest.map((r) => r.uid)).toEqual([c.uid]);
+    });
+
+    it('finds the newest id of a slice, or null for an empty one', async () => {
+        const u = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const write = (audience, inApp) =>
+            store.create({ userId: u.id, value: {}, audience, appUid: inApp });
+        const latest = (audience, inApp) =>
+            store.latestScopedId(u.id, { audience, appUid: inApp });
+
+        expect(await latest('app-user', appUid)).toBeNull();
+
+        await write('app-user', appUid);
+        const newest = await write('app-user', appUid);
+        await write('app-user', `app-${uuidv4()}`);
+        const unattributed = await write('developer', null);
+        const developer = await write('developer', appUid);
+        await store.create({
+            userId: other.id,
+            value: {},
+            audience: 'app-user',
+            appUid,
+        });
+
+        expect(await latest('app-user', appUid)).toBe(Number(newest.id));
+        expect(await latest('developer', null)).toBe(Number(unattributed.id));
+        expect(await latest('developer', undefined)).toBe(Number(developer.id));
+        expect(await latest('account', undefined)).toBeNull();
+    });
+
+    it('finds the latest replacement of a slice, or null when none', async () => {
+        const u = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const write = (inApp = appUid) =>
+            store.create({
+                userId: u.id,
+                value: {},
+                audience: 'app-user',
+                appUid: inApp,
+            });
+        const latest = () =>
+            store.latestScopedReplacement(u.id, {
+                audience: 'app-user',
+                appUid,
+            });
+
+        const a = await write();
+        const b = await write();
+        const otherApp = await write(`app-${uuidv4()}`);
+        expect(await latest()).toBeNull();
+
+        await store.updateValue(a.uid, u.id, {}, { replacedAt: 2_000 });
+        await store.updateValue(b.uid, u.id, {}, { replacedAt: 2_000 });
+        await store.updateValue(otherApp.uid, u.id, {}, { replacedAt: 9_000 });
+        expect(await latest()).toEqual({ replacedAt: 2_000, id: Number(b.id) });
     });
 
     // -- mutations -----------------------------------------------------

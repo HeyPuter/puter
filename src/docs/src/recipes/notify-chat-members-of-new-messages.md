@@ -199,7 +199,10 @@ closed. The handler calls [`notify()`](/Notifications/notify/) for its own
 member, so it needs no share. Use this in place of `notifyRoom()`.
 
 Publish the handler once, signed in to your site as the app's owner, with
-[`puter.events.handlers.publish()`](/Events/handlers/).
+[`puter.events.handlers.publish()`](/Events/handlers/). To skip the publish,
+pass the same function as `handler` to each member's `onPersistent()` call
+instead, which stores it in the member's own
+[user scope](/Events/handlers/#user-scope).
 [Run Code in the Background](/recipes/run-code-in-the-background/#publish-the-handler)
 explains handlers in more detail:
 

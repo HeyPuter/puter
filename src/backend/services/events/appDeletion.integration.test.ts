@@ -19,19 +19,29 @@
 
 /**
  * What deleting an app leaves behind on the events side: its durable rows,
- * their backlog and its published handlers can never deliver again — the
- * grant identity they are re-checked under no longer resolves — so
- * `settleDeletedApp` tears them down on the `app.changed` bus key rather than
- * leaving them to cost their holder an anchor slot forever. Also the hourly
- * sweep that catches whatever neither this nor `workers.destroy` reached.
+ * their backlog and its published handlers can never deliver again — the grant
+ * identity they are re-checked under no longer resolves — so `settleDeletedApp`
+ * tears them down on the `app.changed` bus key rather than leaving them to cost
+ * their holder an anchor slot forever. Also the hourly sweep that catches
+ * whatever neither this nor `workers.destroy` reached.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
+import { testJobContext } from '../jobs/jobsTestUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import { EVENTS_WORKER_SESSION_NAME } from './workerRuntime.js';
+import { appHandlerScope } from '../../stores/events/EventHandlerStore.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 
@@ -125,10 +135,13 @@ const emitDeleted = async (appUid: string): Promise<void> => {
 const publish = (
     token: string,
     body: { appUid: string; name: string; source: string },
-): Promise<ApiResponse> => call('POST', '/events/handlers/publish', token, body);
+): Promise<ApiResponse> =>
+    call('POST', '/events/handlers/publish', token, body);
 
-/** A durable `single` subscription bound to a published handler, with the
- * grants a background delivery needs. Returns the subscribed subId. */
+/**
+ * A durable `single` subscription bound to a published handler, with the grants
+ * a background delivery needs. Returns the subscribed subId.
+ */
 const subscribeBackgroundHandler = async (
     app: { uid: string; token: string },
     handlerName: string,
@@ -162,6 +175,87 @@ const subscribeBackgroundHandler = async (
     return subscribed.body.subId as string;
 };
 
+describe('user scopes of a deleted app or account', () => {
+    const publishUserHandler = (
+        appUid: string,
+        holder: number,
+        name = 'mine',
+    ) =>
+        env.server.stores.eventHandler.publish({
+            scope: { appUid, holder },
+            name,
+            source: SOURCE,
+            broadcast: false,
+        });
+    const userHandlers = (appUid: string, holder: number) =>
+        env.server.stores.eventHandler.listForApp({ appUid, holder });
+
+    let destroyed: Array<{ appUid: string; scope: string; userId: number }>;
+    beforeAll(() => {
+        env.server.clients.event.on('events.worker.destroy', (_key, event) => {
+            destroyed?.push({
+                appUid: event.appUid,
+                scope: event.scope,
+                userId: event.actor.user.id,
+            });
+        });
+    });
+    beforeEach(async () => {
+        destroyed = [];
+        await env.server.clients.db.write(
+            'DELETE FROM `event_user_handlers`',
+            [],
+        );
+    });
+
+    it('removes every holder`s scope with the app, announcing each as the holder', async () => {
+        const app = await makeApp(userId);
+        await publishUserHandler(app.uid, userId);
+        await publishUserHandler(app.uid, otherUserId);
+        await publishUserHandler(app.uid, otherUserId, 'second');
+        const untouched = await makeApp(userId);
+        await publishUserHandler(untouched.uid, userId);
+
+        await emitDeleted(app.uid);
+
+        expect(await userHandlers(app.uid, userId)).toEqual([]);
+        expect(await userHandlers(app.uid, otherUserId)).toEqual([]);
+        expect(
+            destroyed
+                .filter((event) => event.scope === 'user')
+                .map((event) => [event.appUid, event.userId])
+                .sort(),
+        ).toEqual(
+            [
+                [app.uid, userId],
+                [app.uid, otherUserId],
+            ].sort(),
+        );
+        // Another app's scope is not touched.
+        expect(await userHandlers(untouched.uid, userId)).toHaveLength(1);
+    });
+
+    it('removes a deleted account`s scopes in every app, and no one else`s', async () => {
+        const first = await makeApp(userId);
+        const second = await makeApp(userId);
+        for (const app of [first, second]) {
+            await publishUserHandler(app.uid, otherUserId);
+            await publishUserHandler(app.uid, userId);
+        }
+
+        await env.server.clients.event.emitAndWait(
+            'user.delete',
+            { user_id: otherUserId, appUids: [] },
+            {},
+        );
+
+        for (const app of [first, second]) {
+            expect(await userHandlers(app.uid, otherUserId)).toEqual([]);
+            expect(await userHandlers(app.uid, userId)).toHaveLength(1);
+        }
+    });
+});
+
 describe('an app deleted while it has events state', () => {
     it('clears the rows, the backlog and the handlers when the app is deleted', async () => {
         const app = await makeApp(userId);
@@ -186,15 +280,17 @@ describe('an app deleted while it has events state', () => {
 
         await emitDeleted(app.uid);
 
-        const listed = await env.server.stores.durableSubscription.listForHolder(
-            userId,
-            { appUid: app.uid },
-        );
+        const listed =
+            await env.server.stores.durableSubscription.listForHolder(userId, {
+                appUid: app.uid,
+            });
         expect(listed.items).toEqual([]);
         expect(await env.server.stores.pendingDelivery.depth(subId)).toBe(0);
-        expect(await env.server.stores.eventHandler.listForApp(app.uid)).toEqual(
-            [],
-        );
+        expect(
+            await env.server.stores.eventHandler.listForApp(
+                appHandlerScope(app.uid),
+            ),
+        ).toEqual([]);
     });
 
     it("clears the rows and handlers of a deleted account's apps, and the account's subscription keys", async () => {
@@ -217,14 +313,16 @@ describe('an app deleted while it has events state', () => {
             {},
         );
 
-        const listed = await env.server.stores.durableSubscription.listForHolder(
-            userId,
-            { appUid: app.uid },
-        );
+        const listed =
+            await env.server.stores.durableSubscription.listForHolder(userId, {
+                appUid: app.uid,
+            });
         expect(listed.items).toEqual([]);
-        expect(await env.server.stores.eventHandler.listForApp(app.uid)).toEqual(
-            [],
-        );
+        expect(
+            await env.server.stores.eventHandler.listForApp(
+                appHandlerScope(app.uid),
+            ),
+        ).toEqual([]);
         expect(
             await env.server.stores.eventSubscription.isRegionWarm(goneUserId),
         ).toBe(false);
@@ -259,12 +357,10 @@ describe('an app deleted while it has events state', () => {
             expiresAt: null,
         });
 
-        const { actor: ownerActor } = await env.server.services.auth.authenticate(
-            env.users.user.token,
-        );
-        const { actor: otherActor } = await env.server.services.auth.authenticate(
-            env.users.other.token,
-        );
+        const { actor: ownerActor } =
+            await env.server.services.auth.authenticate(env.users.user.token);
+        const { actor: otherActor } =
+            await env.server.services.auth.authenticate(env.users.other.token);
         const ownerToken = await env.server.services.auth.createWorkerAppToken(
             ownerActor!,
             app.uid,
@@ -327,7 +423,9 @@ describe('an app deleted while it has events state', () => {
         await env.server.stores.app.delete((row as { id: number }).id);
 
         const revoked =
-            await env.server.services.events.sweepStrandedWorkerSessions();
+            await env.server.services.events.sweepStrandedWorkerSessions(
+                testJobContext(),
+            );
         expect(revoked).toBeGreaterThanOrEqual(1);
 
         // `authenticate()` can no longer resolve the token at all — the app
@@ -366,9 +464,60 @@ describe('an app deleted while it has events state', () => {
             EVENTS_WORKER_SESSION_NAME,
         );
 
-        await env.server.services.events.sweepStrandedWorkerSessions();
+        await env.server.services.events.sweepStrandedWorkerSessions(
+            testJobContext(),
+        );
 
         const reauth = await env.server.services.auth.authenticate(token);
         expect(reauth).not.toHaveProperty('reauth');
+    });
+
+    it('reaches a stranded session past one run`s two pages on the next run, then wraps', async () => {
+        const db = env.server.clients.db;
+        const now = Math.floor(Date.now() / 1000);
+        const meta = JSON.stringify({
+            worker_name: EVENTS_WORKER_SESSION_NAME,
+        });
+        const workerSession = (appUid: string) => ({
+            statement:
+                'INSERT INTO `sessions` (`uuid`, `user_id`, `meta`, `last_activity`, `created_at`, `kind`, `app_uid`) ' +
+                "VALUES (?, ?, ?, ?, ?, 'worker', ?)",
+            values: [uuidv4(), userId, meta, now, now, appUid],
+        });
+        // A run reads two pages of 500; these fill them, all still standing.
+        const live = Array.from(
+            { length: 1000 },
+            (_, i) => `app-live-${uuidv4().slice(0, 8)}-${i}`,
+        );
+        await db.batchWrite(
+            live.map((uid) => ({
+                statement:
+                    'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                values: [uid, uid, uid, `https://${uid}.example/`, userId],
+            })),
+        );
+        await db.batchWrite(live.map(workerSession));
+        const stranded = workerSession(`app-gone-${uuidv4()}`);
+        await db.batchWrite([stranded]);
+        const strandedRevoked = async () => {
+            const [row] = await db.pread(
+                'SELECT `revoked_at` FROM `sessions` WHERE `uuid` = ?',
+                [stranded.values[0]],
+            );
+            return row.revoked_at !== null;
+        };
+
+        const first = testJobContext();
+        await env.server.services.events.sweepStrandedWorkerSessions(first);
+        expect(await strandedRevoked()).toBe(false);
+        expect(first.saved.at(-1)).toMatchObject({
+            afterId: expect.any(Number),
+        });
+
+        const second = testJobContext(first.saved.at(-1));
+        await env.server.services.events.sweepStrandedWorkerSessions(second);
+        expect(await strandedRevoked()).toBe(true);
+        // The end of the table wraps the cursor back to the start.
+        expect(second.saved.at(-1)).toBeNull();
     });
 });

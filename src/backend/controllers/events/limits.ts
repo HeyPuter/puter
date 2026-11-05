@@ -53,7 +53,12 @@ export interface TieredLimit {
     bySubscription: Record<string, number>;
 }
 
-const tiered = (paid: number, free: number, temp: number): TieredLimit => ({
+/** Paid, free and temporary caps as a {@link TieredLimit}. Called by extensions. */
+export const tiered = (
+    paid: number,
+    free: number,
+    temp: number,
+): TieredLimit => ({
     limit: paid,
     bySubscription: {
         [DEFAULT_FREE_SUBSCRIPTION]: free,
@@ -264,6 +269,12 @@ export const KV_SHARE_NOTIFY_LIMITS = [
  */
 export const EVENTS_HANDLERS_PER_APP = 100;
 
+/**
+ * Handlers one user may hold in their own scope of one app. Each is a script of
+ * its own, so the cap is tighter than the app's.
+ */
+export const EVENTS_USER_HANDLERS_PER_SCOPE = 20;
+
 /** Longest a serialized handler may be. */
 export const EVENTS_HANDLER_SOURCE_MAX_BYTES = 64 * 1024;
 
@@ -275,6 +286,9 @@ export const EVENTS_HANDLER_SOURCE_MAX_BYTES = 64 * 1024;
  */
 export const EVENTS_WORKER_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
 
+/** Source one user scope may hold, all its handlers combined. */
+export const EVENTS_USER_SCOPE_SOURCE_MAX_BYTES = 1024 * 1024;
+
 /**
  * Deploys one app's events worker may trigger per hour.
  *
@@ -283,6 +297,16 @@ export const EVENTS_WORKER_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
  * namespace miss) counts the same as a publish-triggered deploy.
  */
 export const EVENTS_WORKER_DEPLOYS_PER_HOUR = 30;
+
+/** Deploys one user scope may trigger per hour. */
+export const EVENTS_USER_WORKER_DEPLOYS_PER_HOUR = 10;
+
+/**
+ * Units one user may rent at once: ordinary workers, user scopes, and the
+ * events workers of apps they own. Only creating a unit is refused; holdings
+ * over the cap are kept.
+ */
+export const RENTED_UNITS_PER_USER = tiered(100, 16, 16);
 
 /**
  * Handlers one `publishAll` may carry. A build step publishes its whole set in
@@ -448,11 +472,13 @@ export const EVENTS_REGION_PENDING_CEILING = 1_000_000;
 // finish backs off the same way but is not the handler's failure, so it never
 // counts toward that run.
 
-/** Wait before the first retry of a delivery a handler could not take. */
-export const EVENTS_RETRY_BASE_MS = 2_000;
-
-/** Longest wait between retries, however many have failed. */
-export const EVENTS_RETRY_MAX_MS = 5 * 60 * 1000;
+// Wait before the first retry of a delivery a handler could not take, the
+// longest wait, and the doubling between them. Shared with system jobs.
+export {
+    deliveryBackoffMs,
+    EVENTS_RETRY_BASE_MS,
+    EVENTS_RETRY_MAX_MS,
+} from '../../util/retryBackoff.js';
 
 /**
  * Handler failures in a row before a subscription is suspended. Counted per
@@ -467,13 +493,6 @@ export const EVENTS_CONSECUTIVE_FAILURES = 5;
  * a run that ended.
  */
 export const EVENTS_FAILURE_COUNTER_TTL_MS = 60 * 60 * 1000;
-
-/** How long to hold a delivery whose handler has failed `attempts` times. */
-export const deliveryBackoffMs = (attempts: number): number =>
-    Math.min(
-        EVENTS_RETRY_MAX_MS,
-        EVENTS_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1),
-    );
 
 // -- Suspended backlog -----------------------------------------------
 //

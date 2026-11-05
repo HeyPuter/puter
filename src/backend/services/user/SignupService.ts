@@ -26,6 +26,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import { isPuterEmailAddress } from '../email/mailbox.js';
 import {
     bonusCodeInvalidError,
     checkSignupBonus,
@@ -88,6 +89,9 @@ export interface SignupInput {
 export const signupClientIp = (req: Request): string | null =>
     req.ip || req.socket?.remoteAddress || null;
 
+const OIDC_ONLY_MESSAGE =
+    'New accounts can only be created with a sign-in provider right now.';
+
 /**
  * Account creation for every signup route (form, temp, OIDC) and email
  * confirmation for every confirmation route. Callers parse requests and set
@@ -95,10 +99,20 @@ export const signupClientIp = (req: Request): string | null =>
  */
 export class SignupService extends PuterService {
     /**
-     * Config blocklist (suffix match on the cleaned address), then the
-     * `email.validate` hook. Throws 400 on rejection.
+     * Puter mailbox addresses, the config blocklist (suffix match on the
+     * cleaned address), then the `email.validate` hook. Throws 400 on
+     * rejection.
      */
     async validateEmail(email: string): Promise<void> {
+        // A Puter mailbox can't be an account's own email: it is reached
+        // through an account in the first place.
+        if (isPuterEmailAddress(email.trim())) {
+            throw new HttpError(
+                400,
+                'A Puter email address cannot be used as your account email. Please use a different email address.',
+                { legacyCode: 'email_not_allowed' as never },
+            );
+        }
         if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
             throw new HttpError(400, 'This email is not allowed.', {
                 legacyCode: 'email_not_allowed' as never,
@@ -137,6 +151,30 @@ export class SignupService extends PuterService {
     }
 
     /**
+     * The signup methods extensions allow right now; a failing hook restricts
+     * nothing.
+     */
+    async signupPolicy(): Promise<{
+        oidcOnly: boolean;
+        message: string | null;
+    }> {
+        const policy = { oidcOnly: false, message: null as string | null };
+        try {
+            await this.clients.event?.emitAndWait(
+                'puter.signup.policy',
+                policy,
+                {},
+            );
+        } catch (e) {
+            console.warn('[signup] policy hook failed:', e);
+        }
+        return {
+            oidcOnly: policy.oidcOnly === true,
+            message: typeof policy.message === 'string' ? policy.message : null,
+        };
+    }
+
+    /**
      * The extension-owned verdict on a signup: a dead bonus code is refused
      * first (before `puter.signup.validate` records the attempt), then the
      * validate hook, then the bonus code's own requirements.
@@ -145,6 +183,23 @@ export class SignupService extends PuterService {
         const { req, email, isTemp, bonusCode } = input;
         const clientIp = signupClientIp(req);
         const fingerprint = input.fingerprint ?? null;
+
+        // Only form and temp signups carry no source; OIDC and team
+        // provisioning are never restricted by the policy.
+        if (!input.source) {
+            const policy = await this.signupPolicy();
+            if (policy.oidcOnly) {
+                // A refused temp signup sends the GUI to its signup window,
+                // which then offers only the providers.
+                return isTemp
+                    ? { verdict: 'no_temp_user', message: null, code: null }
+                    : {
+                          verdict: 'blocked',
+                          message: policy.message ?? OIDC_ONLY_MESSAGE,
+                          code: 'signup_oidc_only',
+                      };
+            }
+        }
 
         if (
             bonusCode &&

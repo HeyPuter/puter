@@ -30,6 +30,12 @@ import type { FsOp } from '../../services/events/subjects.js';
  */
 
 /**
+ * Which handler set a subscription's `handlerName` refers to: the app's own
+ * (`'app'`) or the holder's scope of that app (`'user'`). Stored as 0 and 1.
+ */
+export type HandlerScopeKind = 'app' | 'user';
+
+/**
  * Whether a row's events also run the app's published handler in its events
  * worker. Only an app has a worker, and only a named handler can be run.
  */
@@ -37,6 +43,20 @@ export const runsInWorker = (row: {
     appUid: string | null;
     handlerName?: string | null;
 }): boolean => row.appUid !== null && !!row.handlerName;
+
+/**
+ * Token, and subject, of the subscription row a recurring or `once` schedule
+ * owns. Those rows carry the schedule's lifecycle (suspend, resume, reap) and
+ * are kept out of dispatch, the durable quotas and the durable listing. Called
+ * by extensions.
+ */
+export const SCHEDULE_TOKEN_PREFIX = 'schedule:';
+
+export const scheduleToken = (scheduleUid: string): string =>
+    `${SCHEDULE_TOKEN_PREFIX}${scheduleUid}`;
+
+export const isScheduleRow = (row: { token: string }): boolean =>
+    row.token.startsWith(SCHEDULE_TOKEN_PREFIX);
 
 /**
  * What a row's delivery re-check runs against. An access mode for a filesystem
@@ -83,6 +103,8 @@ export interface DispatchSubscription {
     durable?: true;
     delivery?: DeliveryClass;
     handlerName?: string | null;
+    /** Durable rows only: absent means `'app'`. */
+    handlerScope?: HandlerScopeKind;
     /** Durable rows only: handed to the handler, and read nowhere else. */
     context?: string | null;
 }

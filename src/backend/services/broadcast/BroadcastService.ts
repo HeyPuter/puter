@@ -21,6 +21,8 @@ import axios from 'axios';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Agent as HttpsAgent } from 'node:https';
 import { IBroadcastPeerConfig } from '../../types.js';
+import { settleWithin } from '../../util/concurrency.js';
+import { FINAL_FLUSH_TIMEOUT_MS } from '../../util/gracefulShutdown.js';
 import { PuterService } from '../types.js';
 
 // -- Wire types ------------------------------------------------------
@@ -121,7 +123,8 @@ export class BroadcastService extends PuterService {
     /** Per peer, serialized events it has not accepted yet, oldest first. */
     #outboundBacklogs = new Map<IBroadcastPeerConfig, string[]>();
     #outboundFlushTimer: ReturnType<typeof setTimeout> | null = null;
-    #outboundIsFlushing = false;
+    #outboundFlush: Promise<void> | null = null;
+    #outboundDraining = false;
 
     #webhookReplayWindowSeconds = 300;
     #outboundFlushMs = 2000;
@@ -165,21 +168,40 @@ export class BroadcastService extends PuterService {
     }
 
     override async onServerPrepareShutdown(): Promise<void> {
+        await this.#drainOutboundEvents();
+        if (this.#redisSub) {
+            try {
+                await this.#redisSub.unsubscribe('pubsub');
+                this.#redisSub.quit();
+            } catch (err) {
+                console.warn('[broadcast] unsubscribe failed', err);
+            } finally {
+                this.#redisSub = null;
+            }
+        }
+    }
+
+    override async onServerShutdown(): Promise<void> {
+        this.#outboundDraining = true;
+        await this.#drainOutboundEvents();
+    }
+
+    async #drainOutboundEvents(): Promise<void> {
         if (this.#outboundFlushTimer) {
             clearTimeout(this.#outboundFlushTimer);
             this.#outboundFlushTimer = null;
         }
-        // Best-effort drain — try one final flush so events queued near
-        // shutdown make it out.
-        try {
-            await this.#flushOutboundEvents();
-        } catch (err) {
-            console.warn('[broadcast] final flush failed', err);
-        }
-        if (this.#redisSub) {
-            await this.#redisSub.unsubscribe('pubsub');
-            this.#redisSub.quit();
-            this.#redisSub = null;
+        const deadline = Date.now() + FINAL_FLUSH_TIMEOUT_MS;
+        const drain = async () => {
+            try {
+                await this.#outboundFlush;
+                if (Date.now() < deadline) await this.#flushOutboundEvents();
+            } catch (err) {
+                console.warn('[broadcast] final flush failed', err);
+            }
+        };
+        if (!(await settleWithin(drain(), FINAL_FLUSH_TIMEOUT_MS))) {
+            console.warn('[broadcast] final flush timed out');
         }
     }
 
@@ -453,24 +475,27 @@ export class BroadcastService extends PuterService {
     }
 
     #scheduleOutboundFlush(): void {
-        if (this.#outboundFlushTimer) return;
-        this.#outboundFlushTimer = setTimeout(() => {
+        if (this.#outboundDraining || this.#outboundFlushTimer) return;
+        this.#outboundFlushTimer = setTimeout(async () => {
             this.#outboundFlushTimer = null;
-            void this.#flushOutboundEvents().catch((err) => {
+            try {
+                await this.#flushOutboundEvents();
+            } catch (err) {
                 console.warn('[broadcast] outbound flush failed', err);
-            });
+            }
         }, this.#outboundFlushMs);
     }
 
-    async #flushOutboundEvents(): Promise<void> {
-        if (
-            this.#outboundIsFlushing ||
-            (this.#outboundQueue.size === 0 &&
-                this.#outboundBacklogs.size === 0)
-        )
-            return;
+    #flushOutboundEvents(): Promise<void> {
+        if (this.#outboundFlush) return this.#outboundFlush;
+        if (this.#outboundQueue.size === 0 && this.#outboundBacklogs.size === 0)
+            return Promise.resolve();
 
-        this.#outboundIsFlushing = true;
+        this.#outboundFlush = this.#sendOutboundEvents();
+        return this.#outboundFlush;
+    }
+
+    async #sendOutboundEvents(): Promise<void> {
         try {
             const fresh = this.#outboundQueue;
             this.#outboundQueue = new Set();
@@ -504,7 +529,7 @@ export class BroadcastService extends PuterService {
             for (const result of flushed)
                 if (result.status === 'rejected') throw result.reason;
         } finally {
-            this.#outboundIsFlushing = false;
+            this.#outboundFlush = null;
             // Anything that arrived during flush, or is still owed to a peer,
             // gets the next tick.
             if (
