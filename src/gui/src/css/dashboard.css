@@ -2163,6 +2163,9 @@ input.myapps-group-name:focus {
     border-radius: 12px;
     padding: 24px 16px;
 }
+.custom-domain-empty-add {
+    margin-top: 16px;
+}
 
 /* -- Domain list -- */
 .custom-domain-list {

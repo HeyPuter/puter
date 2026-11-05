@@ -209,6 +209,41 @@ describe('UIWindowAttachCustomDomain', () => {
         });
     });
 
+    describe('empty state', () => {
+        const shown = (sel) => $(sel).get(0).style.display !== 'none';
+
+        it('puts the add button in the empty state instead of the footer', async () => {
+            await open([]);
+            expect(shown('.custom-domain-empty')).toBe(true);
+            expect(shown('.custom-domain-list-add')).toBe(false);
+
+            $('.custom-domain-empty-add').trigger('click');
+            expect(visiblePane()).toBe('add');
+        });
+
+        it('keeps the add button in the footer while there are domains', async () => {
+            await open();
+            expect(shown('.custom-domain-empty')).toBe(false);
+            expect(shown('.custom-domain-list-add')).toBe(true);
+        });
+
+        it('moves the button and focus to the empty state when the last domain is removed', async () => {
+            vi.useFakeTimers({ toFake: ['setTimeout'] });
+            const ready = open([pendingDomain({ site: 'other' })]);
+            await vi.runAllTimersAsync();
+            await ready;
+            const row = document.querySelector('.custom-domain-row');
+            $(row).find('.custom-domain-remove').trigger('click');
+            $(row).find('.custom-domain-confirm-go').trigger('click');
+            await vi.runAllTimersAsync();
+
+            expect(row.isConnected).toBe(false);
+            expect(shown('.custom-domain-empty')).toBe(true);
+            expect(shown('.custom-domain-list-add')).toBe(false);
+            expect(document.activeElement).toBe($('.custom-domain-empty-add').get(0));
+        });
+    });
+
     it('takes no more input on a removed row while it fades out', async () => {
         await open([pendingDomain({ site: 'other' })]);
         const row = document.querySelector('.custom-domain-row');

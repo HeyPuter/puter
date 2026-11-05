@@ -134,11 +134,12 @@ async function UIWindowAttachCustomDomain (options) {
                                 <div class="custom-domain-state-icon">${ICON_GLOBE}</div>
                                 <p class="custom-domain-state-title">${i18n('custom_domain_none_yet')}</p>
                                 <p class="custom-domain-state-text">${i18n('custom_domain_empty_hint')}</p>
+                                <button type="button" class="app-feedback-btn app-feedback-btn-primary custom-domain-to-add custom-domain-empty-add">${ICON_PLUS}<span>${i18n('custom_domain_add_new')}</span></button>
                             </div>
                             <p class="app-feedback-error" role="alert" style="display:none;"></p>
                             <div class="app-feedback-actions">
                                 <button type="button" class="app-feedback-btn custom-domain-close">${i18n('cancel')}</button>
-                                <button type="button" class="app-feedback-btn app-feedback-btn-primary custom-domain-to-add">${ICON_PLUS}<span>${i18n('custom_domain_add_new')}</span></button>
+                                <button type="button" class="app-feedback-btn app-feedback-btn-primary custom-domain-to-add custom-domain-list-add">${ICON_PLUS}<span>${i18n('custom_domain_add_new')}</span></button>
                             </div>
                         </div>
 
@@ -402,8 +403,11 @@ async function UIWindowAttachCustomDomain (options) {
         const metaFor = (item) => item.site !== subdomain
             ? text('custom_domain_serves', [`${item.site}.${window.hosting_domain}`])
             : text('custom_domain_serves_this');
+        // With no domains, adding one is the only way on, so the button sits
+        // in the empty state where the eye lands instead of the footer.
         const toggleEmpty = () => {
             $overlay.find('.custom-domain-empty').toggle(listed.length === 0);
+            $overlay.find('.custom-domain-list-add').toggle(listed.length > 0);
         };
 
         // One row asks for confirmation at a time; asking on another puts the
@@ -540,18 +544,19 @@ async function UIWindowAttachCustomDomain (options) {
             if ( ! await deleteDomain(item, 'list', $btn) ) return;
             listed = listed.filter((i) => i.uuid !== item.uuid);
             // Focus moves to the next row, else the previous one, else to
-            // adding a domain.
-            if ( $.contains($row.get(0), document.activeElement) ) {
-                const $next = $row.nextAll('.custom-domain-row:not(.is-leaving)').first();
-                const $other = $next.length ? $next : $row.prevAll('.custom-domain-row:not(.is-leaving)').first();
-                focusOn($other.find('.custom-domain-remove').get(0)
-                    ?? $overlay.find('.custom-domain-to-add').get(0));
-            }
+            // adding a domain once the empty state shows.
+            const hadFocus = $.contains($row.get(0), document.activeElement);
+            const $next = $row.nextAll('.custom-domain-row:not(.is-leaving)').first();
+            const $other = $next.length ? $next : $row.prevAll('.custom-domain-row:not(.is-leaving)').first();
+            if ( hadFocus ) focusOn($other.find('.custom-domain-remove').get(0));
             // Gone server-side: its buttons can't act on it again as it fades.
             $row.addClass('is-leaving').attr('inert', '');
             setTimeout(() => {
                 $row.remove();
                 toggleEmpty();
+                if ( hadFocus && focusLost() ) {
+                    focusOn($overlay.find(listed.length ? '.custom-domain-list-add' : '.custom-domain-empty-add').get(0));
+                }
             }, 180);
         };
 
