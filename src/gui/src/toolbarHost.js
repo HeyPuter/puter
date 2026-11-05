@@ -43,16 +43,22 @@ function attach (frame) {
         panelHeight = event.data.height;
         if ( !placeholder ) {
             const rect = frame.getBoundingClientRect();
-            const style = getComputedStyle(frame);
             previousStyle = frame.getAttribute('style');
-            placeholder = document.createElement('span');
-            Object.assign(placeholder.style, {
-                display: 'inline-block', width: `${rect.width}px`, height: `${rect.height}px`,
-                verticalAlign: style.verticalAlign, margin: style.margin, flexShrink: '0',
-            });
+            // An empty clone keeps the page's own sizing rules for the frame (auto
+            // margins, percentages, media queries) as the page reflows around it.
+            placeholder = frame.cloneNode(false);
+            for ( const name of ['src', 'srcdoc', 'id', 'name', 'title', 'data-puter-toolbar'] ) placeholder.removeAttribute(name);
             placeholder.setAttribute('aria-hidden', 'true');
-            frame.before(placeholder);
+            placeholder.tabIndex = -1;
+            placeholder.inert = true;
+            placeholder.style.visibility = 'hidden';
+            frame.after(placeholder);
             frame.style.position = 'fixed';
+            // Rules keyed on data-puter-toolbar don't reach the clone; hold the slot at the frame's size.
+            const slot = placeholder.getBoundingClientRect();
+            if ( Math.abs(slot.width - rect.width) > 0.5 || Math.abs(slot.height - rect.height) > 0.5 ) {
+                Object.assign(placeholder.style, { boxSizing: 'border-box', width: `${rect.width}px`, height: `${rect.height}px` });
+            }
         }
         position();
     };

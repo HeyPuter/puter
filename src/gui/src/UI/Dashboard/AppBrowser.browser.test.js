@@ -74,6 +74,12 @@ beforeAll(async () => {
         <button id="outside">Host app</button>
         <script>window.sessionChanges=0;document.addEventListener('puter:session-changed',()=>window.sessionChanges++);</script>
         <script defer src="${origin}/dist/toolbar-host.min.js"></script></body></html>`));
+    app.get('/toolbar-host-auto', (_req, res) => res.send(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0}header{display:flex;padding:0 16px}header iframe{margin-left:auto}</style></head><body>
+        <header><strong>App</strong><iframe data-puter-toolbar title="Puter" src="${origin}/embed/toolbar" style="border:0;width:244px;height:48px"></iframe></header>
+        <script defer src="${origin}/dist/toolbar-host.min.js"></script></body></html>`));
+    app.get('/toolbar-host-attribute', (_req, res) => res.send(`<!DOCTYPE html><html><head><style>body{margin:0}header{display:flex;justify-content:flex-end}[data-puter-toolbar]{border:0;width:244px;height:48px}</style></head><body>
+        <header><iframe data-puter-toolbar title="Puter" src="${origin}/embed/toolbar"></iframe><button id="after">Help</button></header>
+        <script defer src="${origin}/dist/toolbar-host.min.js"></script></body></html>`));
     app.get('/embed/toolbar', (_req, res) => {
         res.setHeader('Content-Security-Policy', `frame-ancestors 'self' http://*.puter.localhost:${port}`);
         res.send(`<!DOCTYPE html><html><head><link rel="stylesheet" href="/css/dashboard.css"><link rel="stylesheet" href="/css/toolbar-embed.css"></head><body>
@@ -265,6 +271,38 @@ describe('embedded toolbar', () => {
             expect(positions.after).toBe(positions.before);
             expect(positions.scroll).toBe(0);
             expect(positions.focused).toBe('toolbar-close');
+        } finally { await context.close(); }
+    });
+
+    it('keeps an open menu at the toolbar\'s slot when the host reflows it', async () => {
+        const { context, page, toolbar } = await openToolbar();
+        try {
+            await page.goto(`http://spreadsheet.puter.localhost:${port}/toolbar-host-auto`);
+            await toolbar.getByRole('button', { name: 'Your apps', exact: true }).click();
+            const frame = page.locator('iframe[data-puter-toolbar]').first();
+            await expect.poll(async () => (await frame.boundingBox()).width).toBeGreaterThan(300);
+            await page.setViewportSize({ width: 800, height: 720 });
+            await expect.poll(async () => {
+                const box = await frame.boundingBox();
+                return box.x + box.width;
+            }).toBe(784);
+            expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(800);
+            await page.keyboard.press('Escape');
+            await expect.poll(async () => (await frame.boundingBox()).width).toBe(244);
+            expect(await page.locator('iframe[data-puter-toolbar]').count()).toBe(1);
+            expect(await frame.boundingBox()).toMatchObject({ x: 800 - 16 - 244, y: 0 });
+        } finally { await context.close(); }
+    });
+
+    it('holds the toolbar\'s slot when the host sizes it through the data attribute', async () => {
+        const { context, page, toolbar } = await openToolbar();
+        try {
+            await page.goto(`http://spreadsheet.puter.localhost:${port}/toolbar-host-attribute`);
+            await toolbar.getByRole('button', { name: 'Account', exact: true }).waitFor();
+            const before = await page.locator('#after').boundingBox();
+            await toolbar.getByRole('button', { name: 'Account', exact: true }).click();
+            await expect.poll(async () => (await page.locator('iframe[data-puter-toolbar]').boundingBox()).width).toBeGreaterThan(300);
+            expect(await page.locator('#after').boundingBox()).toEqual(before);
         } finally { await context.close(); }
     });
 
