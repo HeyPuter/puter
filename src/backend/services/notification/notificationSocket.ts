@@ -46,6 +46,12 @@ import type { IConfig } from '../../types.js';
  * advertised (`gui_params.eventsNotifications`) and falls back to this wire
  * when that lapses, so the adapter is what keeps older clients and the fallback
  * working. It goes when the flag is on everywhere.
+ *
+ * A receipt asks this region's sockets whether a live copy landed. With
+ * `notificationPeerReceipts` on, it also asks each peer region presence names,
+ * over `/broadcast/notif/receipt` and inside the same window. A peer answers
+ * from its own sockets and asks no one else, and only the asking region
+ * settles. A peer with no answer by the deadline counts as unheard.
  */
 
 export type NotifWire =

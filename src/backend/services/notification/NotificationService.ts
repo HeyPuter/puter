@@ -397,8 +397,9 @@ export class NotificationService extends PuterService {
     /**
      * Ask the desktop's sockets, or with `appUid` the app's own, whether the
      * live copy of a notification reached a page, and settle it as
-     * `notif.delivery.settled`. Costs a round trip to every node, so callers
-     * ask only when the answer changes what they do. Null when asking failed.
+     * `notif.delivery.settled`. Costs a round trip to every node, and with peer
+     * receipts on one to each peer region holding a socket, so callers ask only
+     * when the answer changes what they do. Null when asking failed.
      */
     receipt(
         scope: ReceiptScope,
