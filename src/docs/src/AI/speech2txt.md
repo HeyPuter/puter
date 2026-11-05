@@ -65,7 +65,7 @@ Returns a `Promise` that resolves to either:
 
 ### OpenAI models
 
-OpenAI is the default provider, and its default model is `gpt-transcribe`. The `extra_body` option is forwarded verbatim to the OpenAI API for experimental flags.
+OpenAI is the default provider, and its default model is `gpt-transcribe`. The `extra_body` option (`Object`) is forwarded verbatim to the OpenAI API for experimental flags.
 
 ### xAI (Grok) models
 

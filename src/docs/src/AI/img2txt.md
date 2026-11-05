@@ -87,7 +87,7 @@ Mistral reads PDF (up to 1,000 pages), images (JPEG, PNG, AVIF, TIFF, GIF, HEIC,
 | `tableFormat` | `String` | Either `'markdown'` or `'html'`: extract tables in that format instead of leaving them inline |
 | `extractHeader` | `Boolean` | Move page headers out of the returned text |
 | `extractFooter` | `Boolean` | Move page footers out of the returned text |
-| `documentAnnotationFormat` | `Object` | A JSON schema for a document-level annotation: `{ type: 'json_schema', json_schema: { name, schema } }`. When set, `img2txt()` resolves to the annotation instead of the text. Billed per page on top of OCR. |
+| `documentAnnotationFormat` | `Object` | A JSON schema for a document-level annotation: `{ type: 'json_schema', json_schema: { name, schema } }`. When set, `img2txt()` resolves to the annotation instead of the text, as JSON that follows your schema. Billed per page on top of OCR. |
 | `documentAnnotationPrompt` | `String` | Instructions that guide the document annotation |
 | `bboxAnnotationFormat` | `Object` | A JSON schema, in the same shape, for annotating each extracted image. Billed per page on top of OCR. |
 

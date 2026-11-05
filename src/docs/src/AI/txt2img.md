@@ -128,6 +128,7 @@ Available when `provider: 'xai'` or inferred from model (`grok-imagine-image`, a
 | Option | Type | Description |
 | -------- | ------ | ------------- |
 | `model` | `String` | Image model to use. Available: `'grok-imagine-image'` (default), `'grok-imagine-image-2.0'` |
+| `prompt` | `String` | Text prompt for the image (or the edit instruction when input images are supplied). |
 | `resolution` | `String` | Output resolution: `'1k'` (default) or `'2k'`. |
 | `quality` | `String` | On 2.0 (case-insensitive): `'low'`, `'medium'`, or `'auto'` (default; low for generation, medium for edits). On older models, `'1k'`/`'2k'` remains a resolution alias. Explicit `resolution` takes precedence. |
 | `input_images` | `Array<String>` | Up to 5 input images (URLs or base64/data-URI) for multi-image editing, such as combining subjects, transferring styles, or composing scenes. More than 5 are rejected with HTTP 400. |
