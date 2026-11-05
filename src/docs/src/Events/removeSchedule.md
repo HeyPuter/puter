@@ -10,7 +10,7 @@ Ends a schedule created with [`puter.events.onSchedule()`](/Events/onSchedule/).
 
 It also cancels a notification your app stored to send later with [`puter.notifications.notify()`](/Notifications/notify/#send-it-later), the same as [`puter.notifications.cancel()`](/Notifications/cancel/).
 
-The `off()` method on the schedule [`onSchedule()`](/Events/onSchedule/) returns does the same thing.
+The `off()` method on the schedule [`onSchedule()`](/Events/onSchedule/) returns does the same thing. To move a schedule to another time instead of ending it, use [`updateSchedule()`](/Events/updateSchedule/).
 
 On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
 

@@ -1,6 +1,6 @@
 ---
 title: Remind Users Later
-description: "Learn how to send a user a reminder at a time they pick with Puter.js, and cancel it if they no longer need it, even while your app is closed."
+description: "Learn how to send a user a reminder at a time they pick with Puter.js, and move or cancel it later, even while your app is closed."
 tags: [notifications, events, kv]
 order: 69
 ---
@@ -92,7 +92,33 @@ A reminder that was already sent, or already cancelled, rejects with
 `events_schedule_sending`. Either way it's too late to stop it, so the code
 removes the stored id and moves on.
 
-To move a reminder to a new time, cancel it and call `remindLater()` again.
+## Move a Reminder
+
+When the user picks a new time, move the reminder with
+[`puter.events.updateSchedule()`](/Events/updateSchedule/). It keeps its
+`scheduleId`, so the id stored with the task stays valid:
+
+```js
+async function moveReminder (taskId, title, sendAt) {
+    const scheduleId = await puter.kv.get(`reminder:${taskId}`);
+    if (!scheduleId) return remindLater(taskId, title, sendAt);
+
+    try {
+        await puter.events.updateSchedule(scheduleId, { sendAt });
+    } catch (error) {
+        // Already sent, so store a new one
+        if (error.code !== 'events_schedule_not_found') throw error;
+        await remindLater(taskId, title, sendAt);
+    }
+}
+```
+
+A reminder that was already sent rejects with `events_schedule_not_found`, so
+`moveReminder()` stores a new one. One that's going out right now rejects with
+`events_schedule_sending`, and it's too late to move it. A new `sendAt` within
+5 seconds, or in the past, sends it right away. The same call can change what
+the reminder says, such as `{ sendAt, title }`. The fields it takes are on
+[`updateSchedule()`](/Events/updateSchedule/).
 
 ## Show the Reminders That Are Waiting
 
@@ -180,7 +206,8 @@ skips it the next time. Running a handler needs the user's
 
 Cancel it the same way as a stored notification, with
 [`puter.events.removeSchedule()`](/Events/removeSchedule/) and
-`schedule.scheduleId`.
+`schedule.scheduleId`, and move it with
+[`puter.events.updateSchedule()`](/Events/updateSchedule/) and a new `at`.
 [Change Data at a Set Time](/recipes/change-data-at-a-set-time/) shows how to
 cancel or move a one-time schedule, including one that has already run.
 
@@ -211,6 +238,19 @@ async function cancelReminder (taskId) {
         if (error.code !== 'events_schedule_not_found' && error.code !== 'events_schedule_sending') throw error;
     }
     await puter.kv.del(`reminder:${taskId}`);
+}
+
+async function moveReminder (taskId, title, sendAt) {
+    const scheduleId = await puter.kv.get(`reminder:${taskId}`);
+    if (!scheduleId) return remindLater(taskId, title, sendAt);
+
+    try {
+        await puter.events.updateSchedule(scheduleId, { sendAt });
+    } catch (error) {
+        // Already sent, so store a new one
+        if (error.code !== 'events_schedule_not_found') throw error;
+        await remindLater(taskId, title, sendAt);
+    }
 }
 
 async function listReminders () {

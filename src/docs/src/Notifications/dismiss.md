@@ -1,16 +1,22 @@
 ---
 title: puter.notifications.dismiss()
-description: Mark one of your app's notifications as dismissed.
+description: Dismiss one of your app's notifications, and close it on the user's other devices.
 platforms: [websites, apps]
 ---
 
-Mark one of your app's notifications as dismissed. The notification must be visible to your app for the user it runs for.
+Marks one of your app's notifications as dismissed, such as when the user reads the message it's about. Every open page of your app hears about it through [`on('dismiss')`](/Notifications/on/), on any of the user's devices, and the notification closes there.
 
-After you mark the newest notification in a `group` as dismissed, the next send with that group creates a new notification.
+After you dismiss the newest notification in a [group](/Notifications/notify/#groups), the next send with that group creates a new notification instead of replacing it. To get that without closing anything, use [`markShown()`](/Notifications/markShown/).
 
-Dismissal reaches your app's connected pages on other devices through its live notification feed. Pages listening through [`onNotification()`](/Notifications/onNotification/), [`onPush()`](/Notifications/onPush/) or [`on('dismiss')`](/Notifications/on/) close the matching browser notification. This page also closes its copy when the call resolves, including when it returns `false`.
+## Closing it on other devices
 
-A device with no connected page closes its copy the next time a page starts one of those listeners. Startup checks up to 50 displayed notifications and closes any already dismissed without calling dismissal handlers. A disconnected page performs the same check when its feed reconnects. Delivery needs [Events](/Events/) enabled on the server. Dismissal sends no push solely to close a notification.
+On a website, the notification closes on each device where a page of your app has a live notification listener, meaning an [`onNotification()`](/Notifications/onNotification/), [`onPush()`](/Notifications/onPush/) or [`on('dismiss')`](/Notifications/on/) listener. The page that calls `dismiss()` closes its own copy when the call resolves, even when it resolves `false`.
+
+On a device with no such page open, the notification stays on screen until a page of your app starts one of those listeners. The page then checks up to 50 notifications on screen and closes the ones already dismissed. It does the same check when its connection comes back after a drop. These checks don't call your [`on('dismiss')`](/Notifications/on/) handlers.
+
+Puter doesn't send a push only to close a notification, since browsers show a notification for every push. For a push Puter shows, such as one for an app inside the Puter desktop, an open Puter desktop on that device closes it.
+
+Dismissals reach other pages through [Events](/Events/), so a server without events doesn't deliver them.
 
 ## Syntax
 ```js
@@ -20,28 +26,51 @@ puter.notifications.dismiss(uid)
 ## Parameters
 
 #### `uid` (String) (required)
-The notification's `uid`. For an immediate notification to your app's own user, [`notify()`](/Notifications/notify/) resolves with it. Notifications delivered to [`onNotification()`](/Notifications/onNotification/) and [`on('click')`](/Notifications/on/) events also carry `uid`.
+The notification's `uid`. For an immediate notification to your app's own user, [`notify()`](/Notifications/notify/) resolves with it. Notifications delivered to [`onNotification()`](/Notifications/onNotification/) and [`on('click')`](/Notifications/on/) also carry it.
 
 ## Return value
 
-A `Promise<boolean>` that resolves to `true` when the notification is marked dismissed. It resolves to `false` if it was already marked dismissed, doesn't exist, or isn't visible to this app and user.
+A `Promise` that resolves to `true` when the notification is dismissed. It resolves to `false` when it was already dismissed, doesn't exist, or isn't one of your app's notifications for this user.
 
 It rejects with an error carrying `message` and `code`:
 
 | `code` | Meaning |
 | --- | --- |
-| `invalid_argument` | The `uid` isn't a non-empty string. |
-| `notifications_failed` | The server didn't return a boolean mark result. |
-| `too_many_requests` | Over the notification driver rate limit. |
-| `auth_canceled` | Nobody was signed in, and the user closed sign-in without finishing it. |
-
-Other authentication and server errors pass through.
+| `invalid_argument` | `uid` isn't a non-empty string. |
+| `too_many_requests` | Too many notification calls in a short time. Try again later. |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
+| `notifications_failed` | The server sent a response the SDK couldn't read. |
 
 ## Examples
 
+<strong class="example-title">Dismiss a notification and hear about it</strong>
+
+```html;notifications-dismiss
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Every open page of the app hears about dismissals, on any device
+            puter.notifications.on('dismiss', ({ uid }) => {
+                puter.print(`dismissed ${uid}<br>`);
+            });
+
+            // (2) Send one, then dismiss it
+            const uid = await puter.notifications.notify({ title: 'New message from Ana' });
+            const dismissed = await puter.notifications.dismiss(uid);
+            puter.print(`dismiss() resolved ${dismissed}<br>`);
+        })();
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Dismiss a notification once the user opens it</strong>
+
 ```js
-puter.notifications.on('click', async ({ uid }) => {
-    const dismissed = await puter.notifications.dismiss(uid);
-    console.log(dismissed);
+puter.notifications.on('click', async ({ uid, target }) => {
+    await puter.notifications.dismiss(uid);
+    location.assign(target ?? '/');
 });
 ```

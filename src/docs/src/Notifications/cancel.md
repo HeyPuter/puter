@@ -10,7 +10,7 @@ It does the same thing as [`puter.events.removeSchedule()`](/Events/removeSchedu
 
 A notification in `sending` can't be cancelled. If a send fails before the notification is written, it can return to `active` and be cancelled while it waits to retry. Once it's sent, it's in the user's notifications like any other.
 
-To change the send time or content while keeping the same id, use [`puter.events.updateSchedule()`](/Events/updateSchedule/).
+To move it to another time or change what it says instead, use [`puter.events.updateSchedule()`](/Events/updateSchedule/).
 
 ## Syntax
 ```js

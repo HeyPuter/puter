@@ -1,14 +1,14 @@
 ---
 title: puter.events.updateSchedule()
-description: Change a schedule's timing or context, or edit a stored notification.
+description: Move a schedule to a new time, change its context, or edit a notification stored to send later, while keeping its id.
 platforms: [websites, apps, nodejs, workers]
 ---
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Changes a schedule created with [`puter.events.onSchedule()`](/Events/onSchedule/) or a notification stored with [`puter.notifications.notify()`](/Notifications/notify/#send-it-later). The schedule keeps its id, kind, handler and owner. A suspended schedule stays suspended and uses the replacement definition when it resumes.
+Changes a schedule created with [`puter.events.onSchedule()`](/Events/onSchedule/), or a notification stored to send later with [`puter.notifications.notify()`](/Notifications/notify/#send-it-later). The schedule keeps its `scheduleId`, its kind and its handler, so ids you saved elsewhere stay valid.
 
-An app can change only its own schedules. An account session can change any of the user's schedules. A scoped access token can't change any. On a website with nobody signed in, the call asks the user to sign in first.
+An app can change only the schedules it created. An account session can change any of the user's schedules. A scoped access token can't change any. On a website with nobody signed in, the call asks the user to sign in first, as other Puter.js calls do.
 
 ## Syntax
 
@@ -20,58 +20,58 @@ puter.events.updateSchedule(scheduleId, changes)
 
 #### `scheduleId` (String) (required)
 
-The id returned by [`onSchedule()`](/Events/onSchedule/), [`notify()`](/Notifications/notify/#send-it-later) or [`listSchedules()`](/Events/listSchedules/).
+The `scheduleId` from [`onSchedule()`](/Events/onSchedule/), [`notify()`](/Notifications/notify/#send-it-later) or [`listSchedules()`](/Events/listSchedules/).
 
 #### `changes` (Object) (required)
 
-For a handler schedule, pass timing fields, `context`, or both:
+For a schedule from [`onSchedule()`](/Events/onSchedule/), pass new timing, a new `context`, or both:
 
-- Any of `at`, `every`, `cron`, `tz`, `startAt`, `expiresAt` or `maxRuns` replaces the whole timing definition. Supply exactly one of `at`, `every` or `cron`, with the other timing options you want to keep. The defaults and validation are the same as [`onSchedule()`](/Events/onSchedule/#parameters). A recurring schedule can switch between an interval and cron. A one-time schedule stays one-time.
-- Without timing fields, the timing stays as it is.
-- When supplied, `context` replaces the whole context. Pass `null` to clear it. The serialized value has the same 4 KB limit as [`onSchedule()`](/Events/onSchedule/#parameters).
+- **Timing.** Any of `at`, `every`, `cron`, `tz`, `startAt`, `expiresAt` and `maxRuns` replaces the whole timing, so pass exactly one of `at`, `every` or `cron`, together with every other timing option you want to keep. They take the same values as in [`onSchedule()`](/Events/onSchedule/#parameters). A recurring schedule can switch between `every` and `cron`, and an `at` schedule stays a one-time schedule. Without timing options, the timing stays as it is.
+- `context` (Object | null): Replaces the whole context. Pass `null` to clear it. Up to 4 KB serialized, as in [`onSchedule()`](/Events/onSchedule/#parameters).
 
-For a stored notification, pass `sendAt`, notification content, or both. The content fields are `title`, `text`, `icon`, `target`, `data`, `group`, `channel`, `sensitive`, `priority` and `ttl`, with the same validation as [`notify()`](/Notifications/notify/#parameters). Supplied fields replace their stored values. Omitted fields stay as they are. Pass `null` to clear an optional field, restoring its default if it has one. The title must remain a nonempty string.
+For a stored notification, pass a new `sendAt`, new content, or both:
 
-A `sendAt` in the past or within 5 seconds triggers a send attempt immediately. A temporary failure keeps the notification scheduled for a retry, using the [stored notification retry rules](/Notifications/notify/#send-it-later). The recipient stays the same.
+- `sendAt` (Number | String | Date): The new time to send it, as in [`notify()`](/Notifications/notify/#parameters). A time within 5 seconds, or in the past, sends it now, with the [retries](/Notifications/notify/#send-it-later) of any stored notification.
+- `title`, `text`, `icon`, `target`, `data`, `group`, `channel`, `sensitive`, `priority`, `ttl`: Replace the stored values, with the same rules as [`notify()`](/Notifications/notify/#parameters). Fields you leave out keep their values. Pass `null` to clear an optional field. The `title` can't be cleared.
 
-The fields `handler`, `handlerName`, `handlerScope`, `handlerHash`, `handlerSource` and `to` are fixed and reject with `invalid_request` when supplied.
+The handler and the recipient can't change. Passing `handler`, `handlerName`, `handlerScope`, `handlerHash`, `handlerSource` or `to` rejects with `invalid_request`. To run different code, remove the schedule and create a new one.
 
 ## Return value
 
-A `Promise` resolving to the updated schedule in the same shape as [`getSchedule()`](/Events/getSchedule/#return-value), without `off()`. It reports context keys and a hash, never the context values or notification content. An immediate notification send can return an ended schedule.
-
-Future attempts use the replacement definition. A handler invocation already sent can finish with the old context. Its result can't advance or end the replacement schedule.
-
-Timing changes are checked against the user's current plan, including its minimum interval, schedule counts and recurring fire budget. The count and budget checks exclude the schedule being changed. Updates share the creation [rate limit](/rate-limits-and-quotas/#schedules).
+A `Promise` that resolves to the updated schedule, in the shape [`getSchedule()`](/Events/getSchedule/#return-value) returns. Its `nextRunAt` is the next run under the new timing. It describes the context by its key names and a hash, and never includes a stored notification's content. A stored notification whose new `sendAt` is due now is sent during the call, so the schedule can come back already ended.
 
 The promise rejects with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
-| `events_schedule_not_found` | The id is empty, unknown, outside the caller's scope, or already ended. |
-| `events_schedule_sending` | A stored notification has started sending. It can be changed if a failed attempt returns it to `active`. |
-| `invalid_request` | The changes value isn't an object, a field can't change, or the timing changes the schedule's kind. |
-| `events_schedule_invalid` | The timing is malformed or outside the allowed time range. |
-| `events_schedule_never_fires` | The replacement timing has no allowed run. |
-| `events_schedule_too_frequent` | The replacement timing is below the current plan's minimum interval. |
-| `events_schedule_limit` | The replacement timing exceeds the current plan's schedule count. |
-| `events_schedule_budget` | The replacement timing exceeds the current plan's recurring fire budget. |
-| `events_schedule_busy` | Too many cron expressions are being checked. Try again in a moment. |
-| `events_context_invalid` | The context can't be serialized as JSON. |
-| `events_context_too_large` | The serialized context exceeds 4 KB. |
-| `bad_request` | A notification content field is invalid or the context can't be serialized by the server. |
-| `notification_value_too_large` | The notification value exceeds 16 KB. |
-| `events_value_too_large` | The stored notification payload exceeds 16 KB. |
-| `too_many_requests` | Over the shared creation and update rate limit. |
-| `auth_canceled` | The user closed sign-in without finishing it. |
-| `events_disabled` | Schedules or schedule updates aren't available on this server. |
-| `events_failed` | The response couldn't be read, or repeated concurrent changes prevented the update. |
+| `events_schedule_not_found` | No such schedule, it isn't this caller's, or it already ended. Also for an empty `scheduleId`. |
+| `events_schedule_sending` | The stored notification has started to go out. If the attempt fails and it returns to `active`, it can be changed while it waits to retry. |
+| `invalid_request` | `changes` isn't an object, it has a field that can't change, or the new timing would turn a one-time schedule into a recurring one or the other way round. |
+| `events_schedule_invalid` | A timing option or `sendAt` is malformed, or too far ahead. |
+| `events_schedule_never_fires` | The new timing would never run. |
+| `events_schedule_too_frequent` | The new timing would run more often than the user's plan allows. |
+| `events_schedule_limit` | The new timing goes over the number of schedules the user's plan allows. |
+| `events_schedule_budget` | The new timing goes over the runs per hour the user's plan allows. |
+| `events_schedule_busy` | Puter is checking too many cron expressions at once. Try again in a moment. |
+| `events_context_invalid` | `context` can't be serialized as JSON. |
+| `events_context_too_large` | The serialized `context` is over 4 KB. |
+| `bad_request` | A notification field is over its limit or has the wrong type. The message names the field. |
+| `notification_value_too_large`, `events_value_too_large` | The stored notification would be over 16 KB as JSON. |
+| `too_many_requests` | Over the rate limit, which is shared with [`onSchedule()`](/Events/onSchedule/). See [Rate Limits and Quotas](/rate-limits-and-quotas/#schedules). |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
+| `events_disabled` | Changing schedules isn't available on this server. |
+| `events_failed` | Other changes to the schedule kept getting in the way, or the server sent a response the SDK couldn't read. |
 
-An interrupted update can pause attempts until recovery. Recovery is eligible after 60 seconds and runs during reconciliation. After a network failure, read the schedule with [`getSchedule()`](/Events/getSchedule/) to check whether the update happened.
+## How the change applies
+
+- Runs after the call use the new timing and context. A run that already started finishes with the old context, and its result doesn't affect the new timing.
+- A suspended schedule stays suspended, and uses the new timing and context when it resumes.
+- New timing is checked against the user's current plan, as a new schedule would be, except that the schedule being changed doesn't count against itself. See [Rate Limits and Quotas](/rate-limits-and-quotas/#schedules).
+- If the call fails partway, for example with a network error, the change may still have happened, and the schedule can pause for a minute or more before Puter finishes it. Read the schedule with [`getSchedule()`](/Events/getSchedule/) to check.
 
 ## Examples
 
-<strong class="example-title">Move a reminder</strong>
+<strong class="example-title">Move a reminder to a later time</strong>
 
 ```html;events-update-reminder
 <html>
@@ -79,23 +79,31 @@ An interrupted update can pause attempts until recovery. Recovery is eligible af
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
+            // (1) Store a reminder for an hour from now
             const reminder = await puter.notifications.notify({
                 title: 'Review your notes',
                 sendAt: Date.now() + 60 * 60 * 1000,
             });
-            if (!reminder || typeof reminder !== 'object') return;
+            if (typeof reminder !== 'object' || !reminder) return;    // due now, so it was sent at once
+            puter.print(`goes out ${new Date(reminder.sendAt).toLocaleTimeString()}<br>`);
+
+            // (2) Move it an hour later and change what it says, keeping its id
             const updated = await puter.events.updateSchedule(reminder.scheduleId, {
                 sendAt: Date.now() + 2 * 60 * 60 * 1000,
                 title: 'Review your meeting notes',
             });
-            puter.print(new Date(updated.startAt).toLocaleString());
+            puter.print(`now goes out ${new Date(updated.nextRunAt).toLocaleTimeString()}<br>`);
+
+            // (3) Cleanup
+            await puter.notifications.cancel(reminder.scheduleId);
+            puter.print('cancelled<br>');
         })();
     </script>
 </body>
 </html>
 ```
 
-<strong class="example-title">Change a recurring schedule's cron</strong>
+<strong class="example-title">Move a weekday schedule to another time</strong>
 
 ```html;events-update-cron
 <html>
@@ -103,19 +111,33 @@ An interrupted update can pause attempts until recovery. Recovery is eligible af
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            await puter.perms.request('backgroundEvents');
+            if (!await puter.perms.request('backgroundEvents')) {
+                puter.print('background events were not allowed<br>');
+                return;
+            }
+
+            // (1) Weekdays at 09:00 in this browser's time zone
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
             const schedule = await puter.events.onSchedule({
                 cron: '0 9 * * 1-5',
-                tz: 'UTC',
+                tz,
                 handler: async ({ user }) => {
                     await user.notifications.notify({ title: 'Check your tasks' });
                 },
             });
+            puter.print(`next run: ${new Date(schedule.nextRunAt).toLocaleString()}<br>`);
+
+            // (2) Move it to 10:00, keeping the same id and handler
             const updated = await puter.events.updateSchedule(schedule.scheduleId, {
                 cron: '0 10 * * 1-5',
-                tz: 'UTC',
+                tz,
             });
-            puter.print(`${updated.scheduleId}: ${updated.cron}`);
+            puter.print(`next run: ${new Date(updated.nextRunAt).toLocaleString()}<br>`);
+
+            // (3) Cleanup: end the schedule, then remove the handler it created
+            await schedule.off();
+            await puter.events.handlers.remove(schedule.handlerName, { scope: 'user' });
+            puter.print('removed<br>');
         })();
     </script>
 </body>

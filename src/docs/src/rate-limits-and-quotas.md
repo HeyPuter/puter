@@ -461,11 +461,9 @@ An app, its workers and the tokens it issues can send `app.message` notification
 
 | Limit                             | Value                             | Scope             |
 | --------------------------------- | --------------------------------- | ----------------- |
-| Displayed notifications checked for dismissal | 50 per startup or reconnect check, 10-second request timeout | Per browser, per app |
-| Notification driver `select` with `uids` | 50 ids, 128 characters per id | Per call |
 | `app.message` notifications       | 30/min, 1,000/day                 | Per user, per app |
 | Pushes                            | 12/min, 1,000/day                 | Per user, per app |
-| High-priority pushes | 60/hour, then normal priority | Per user and app |
+| High-priority pushes              | 60/hour, then normal priority     | Per user, per app |
 | Pushes from a new or unlisted app | 6/min, 200/day                    | Per user, per app |
 | Notifications through a [KV share](/KV/share/) | 30/min, 500/day       | Per sender, recipient and app |
 | Browsers with pushes turned on    | 5 per app with browser-prompt-only permission, 10 with Puter permission, 20 for Puter | Per user |
@@ -475,6 +473,8 @@ An app, its workers and the tokens it issues can send `app.message` notification
 | Confirmation pushes               | 5/hour                            | Per browser subscription |
 | [Listing push devices](/Notifications/listDevices/) | 60/min              | Per user          |
 | [Removing a push device](/Notifications/removeDevice/) | 30/min           | Per user          |
+| [`markShown()`](/Notifications/markShown/) and [`dismiss()`](/Notifications/dismiss/) | 3,000 per 30 seconds each, 1,000 for a temporary account | Per user and app |
+| Notifications on screen checked for dismissals | 50, with a 10-second timeout | Per page load or reconnect |
 | `title`                           | 120 characters                    |                   |
 | `text`                            | 240 characters                    |                   |
 | `icon` (an `https` URL)           | 2,048 characters                  |                   |
@@ -486,7 +486,9 @@ An app, its workers and the tokens it issues can send `app.message` notification
 
 Characters are counted as Unicode code points, so most emoji count as one. A notification's `ttl` is how long a push service keeps trying to reach an offline device, not how long the notification is kept. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`.
 
-An [`onPush()`](/Notifications/onPush/) result keeps at most two valid action buttons. Each button's `action` and `title` must contain more than whitespace and fit in 64 UTF-16 code units each. Invalid entries are dropped. Browsers may display fewer buttons.
+An [`onPush()`](/Notifications/onPush/) result keeps at most two buttons in `actions`, and each button's `action` and `title` can be at most 64 UTF-16 code units. Browsers may show fewer buttons.
+
+A high-priority push also counts against the push limits. Past 60 an hour, and when Puter can't check that count, a push with `priority: 'high'` goes out at normal priority.
 
 The notification limits count notifications written. A notification that replaces the app's earlier one with the same `group` counts against the per-minute limit only, not the per-day limit. [`notify()`](/Notifications/notify/#groups) says when a notification replaces one. Over a limit, the call fails with `429 too_many_requests`, and a refused call counts against neither window. A deployment can change these two limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
@@ -729,8 +731,8 @@ A recurring schedule can run at most every 1 minute on a paid plan and every 15 
 | Cron expression                                    | 128 characters                          | Per schedule       |
 | Runs checked when a `cron` schedule is created     | 10,000 runs or 400 days, whichever ends first | Per schedule |
 | `cron` schedules checked at once                   | 2, with 8 more waiting                  | Per server         |
-| Concurrent [`updateSchedule()`](/Events/updateSchedule/) attempts | 5, then `events_failed` | Per call |
-| Interrupted [`updateSchedule()`](/Events/updateSchedule/) recovery | Eligible after 60 seconds, then reconciliation retries | Per schedule |
+| Tries when other changes race an [`updateSchedule()`](/Events/updateSchedule/) | 5, then `events_failed` | Per call |
+| Pause after an interrupted [`updateSchedule()`](/Events/updateSchedule/) | At least 60 seconds | Per schedule |
 | `context`                                          | 4 KB                                    | Per schedule       |
 | Events worker deploys started by schedule runs     | 8 at once                               | Per region         |
 | Ended schedules kept in `listSchedules()`          | 7 days                                  | Per schedule       |

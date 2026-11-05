@@ -34,18 +34,18 @@ puter.notifications.onPush(key, handler, options)
 The `channel` your notifications are sent with. 1 to 32 lowercase letters, digits or `-`.
 
 #### `handler` (Function) (required)
-A plain `function` or an arrow function. It's called with the notification, in the same shape [`onNotification()`](/Notifications/onNotification/) delivers, including the boolean `replaced` field in both the page and the service worker. It may return, or resolve to, an object that changes what the browser shows:
+A plain `function` or an arrow function. It's called with the notification, in the shape [`onNotification()`](/Notifications/onNotification/) delivers, in the page and in the service worker alike. Its `replaced` field is `true` when the notification replaced an earlier one in its [group](/Notifications/notify/#groups). It may return, or resolve to, an object that changes what the browser shows:
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `title`, `body`, `icon`, `badge`, `image`, `tag` | String | As in the browser's `showNotification()`. A notification sent with a `group` gets a `tag` from it by default, so a later one in the group replaces it on screen. |
-| `requireInteraction` | Boolean | Keeps the notification on screen until the user acts on it, where the browser supports it. |
-| `actions` | Array | Buttons shaped as `{ action, title, icon? }`. The `action` id and `title` label must be non-empty strings containing more than whitespace, each at most 64 UTF-16 code units. The optional `icon` is an image URL string. The first two valid entries are kept. Invalid entries are dropped, and a non-array is ignored. A button press opens or focuses your page and gives its id to [`on('click')`](/Notifications/on/) as `action`. Browser support varies. Where buttons aren't supported, only the notification body shows and a tap gives `action: null`. |
+| `requireInteraction` | Boolean | Keeps the notification on screen until the user taps or closes it, where the browser supports it, such as for an incoming call. |
+| `actions` | Array | Up to two buttons, each `{ action, title, icon? }`. `action` is the id [`on('click')`](/Notifications/on/) gets when the button is pressed, and `title` is its label. Both are required, can't be blank, and can be at most 64 characters (UTF-16 code units). `icon` is an optional image URL. Invalid entries are dropped and the first two valid ones are kept. A press opens or focuses your page, like a tap. Browsers without buttons show only the notification. |
 | `url` | String | A path or URL on your origin. Defaults to the notification's `target`. A relative path is read from your site's root, or from your worker's folder when your pages are inside it ([requirements](/Notifications/push/#requirements)). A URL on another origin is replaced with that root or folder. When no page of your site is open, a tap opens it. When a page is open, the tap focuses that page and goes to [`on('click')`](/Notifications/on/). A page without a `click` handler goes to `url` instead. |
 
 Returning nothing shows the notification's own `title` and `text`. Inside the Puter desktop, the result isn't used, and a push shows the notification's own title and text.
 
-Buttons run your page's click handler after opening or focusing it. For an example, see [Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/).
+[Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/) shows `actions` in use, and [Notify Users of Incoming Calls](/recipes/notify-users-of-incoming-calls/) adds `requireInteraction`.
 
 A [sensitive](/Notifications/notify/#parameters) notification shows only your app's name, whatever the handler returns. Its push carries no `channel`, so no handler runs for it in the worker.
 

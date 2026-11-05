@@ -25,11 +25,11 @@ A `Promise` that resolves to one of these strings. It never rejects.
 | Value | Meaning |
 | --- | --- |
 | `'on'` | This browser holds a subscription the user turned on here. Puter hasn't reported it removed or revoked. |
-| `'off'` | They don't yet. Call [`enable()`](/Notifications/enable/) from a click to turn them on. After the user turned your app off in Puter, [`enable()`](/Notifications/enable/) rejects with `push_revoked`. |
+| `'off'` | Pushes aren't on in this browser. Call [`enable()`](/Notifications/enable/) from a click to turn them on. After the user turned your app off in Puter, [`enable()`](/Notifications/enable/) rejects with `push_revoked`. |
 | `'blocked'` | The browser blocks notifications, for your site on a website or for Puter inside the desktop. The user unblocks them in the browser's site settings. |
 | `'unavailable'` | This browser or environment can't receive pushes, such as a browser without Web Push or Node.js, or the desktop can't tell. |
 
-On a website, it answers `'off'` when nobody is signed in. If Puter doesn't know the subscription, or can't be reached, it answers from this browser alone and can still return `'on'`. This can also happen on a server without a push notification service, where [`enable()`](/Notifications/enable/) rejects with `push_unavailable`.
+On a website, it answers `'off'` when nobody is signed in. When it can't check the subscription with Puter, such as when Puter can't be reached or the server has no push notification service, it answers from this browser alone, so it can be `'on'` while pushes don't arrive.
 
 ## Examples
 
