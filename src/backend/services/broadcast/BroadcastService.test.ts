@@ -1300,3 +1300,84 @@ describe('BroadcastService shutdown drain', () => {
         },
     );
 });
+
+describe('BroadcastService.postToPeer', () => {
+    let server: PuterServer;
+    let broadcast: BroadcastService;
+
+    interface SentRequest {
+        url: string;
+        timeout: number;
+        httpsAgent?: {
+            keepAlive?: boolean;
+            maxSockets?: number;
+            options?: { rejectUnauthorized?: boolean };
+        };
+    }
+    const lastRequest = () =>
+        axiosRequestMock.mock.calls.at(-1)![0] as SentRequest;
+
+    beforeAll(async () => {
+        server = await setupTestServer({
+            broadcast: {
+                webhook: { peerId: SELF_PEER_ID, secret: SELF_SECRET },
+                peers: [
+                    {
+                        peerId: PEER_ID,
+                        webhook: true,
+                        webhook_url: PEER_URL,
+                        webhook_secret: PEER_SECRET,
+                    },
+                ],
+                outbound_flush_ms: 60_000,
+            },
+            protocol: 'https',
+        } as never);
+        broadcast = server.services.broadcast as unknown as BroadcastService;
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    beforeEach(() => {
+        axiosRequestMock.mockReset();
+        axiosRequestMock.mockResolvedValue({
+            status: 200,
+            statusText: 'OK',
+            data: '{"ok":true}',
+        });
+    });
+
+    it('sends over the addressed pool with its default timeout', async () => {
+        expect(
+            await broadcast.postToPeer(PEER_ID, '/broadcast/events', {}),
+        ).toEqual({ ok: true });
+
+        const request = lastRequest();
+        expect(request.url).toBe(
+            'https://broadcast-peer.invalid/broadcast/events',
+        );
+        expect(request.timeout).toBe(5_000);
+        expect(request.httpsAgent?.maxSockets).toBe(16);
+    });
+
+    it('takes a timeout and the receipt pool when asked to', async () => {
+        await broadcast.postToPeer(PEER_ID, '/broadcast/events', {});
+        const addressed = lastRequest().httpsAgent;
+
+        await broadcast.postToPeer(
+            PEER_ID,
+            '/broadcast/notif/receipt',
+            {},
+            { timeoutMs: 1_234, agent: 'receipt' },
+        );
+
+        const request = lastRequest();
+        expect(request.timeout).toBe(1_234);
+        expect(request.httpsAgent).not.toBe(addressed);
+        expect(request.httpsAgent?.maxSockets).toBe(64);
+        expect(request.httpsAgent?.keepAlive).toBe(true);
+        expect(request.httpsAgent?.options?.rejectUnauthorized).toBe(false);
+    });
+});

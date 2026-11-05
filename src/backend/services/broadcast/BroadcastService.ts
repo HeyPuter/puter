@@ -69,6 +69,8 @@ const ADDRESSED_MAX_SOCKETS_PER_PEER = 16;
 const ADDRESSED_MAX_FREE_SOCKETS_PER_PEER = 4;
 const PEER_SOCKET_IDLE_MS = 30_000;
 const ADDRESSED_REQUEST_TIMEOUT_MS = 5_000;
+/** Receipt asks one peer may have open at once. */
+export const RECEIPT_MAX_SOCKETS_PER_PEER = 64;
 
 /** What a deployment with no configured identity calls itself. */
 const DEFAULT_REGION_ID = 'local';
@@ -154,6 +156,14 @@ export class BroadcastService extends PuterService {
         rejectUnauthorized: false,
         keepAlive: true,
         maxSockets: ADDRESSED_MAX_SOCKETS_PER_PEER,
+        maxFreeSockets: ADDRESSED_MAX_FREE_SOCKETS_PER_PEER,
+        timeout: PEER_SOCKET_IDLE_MS,
+    });
+    /** Receipt asks wait on a page, so they get a pool of their own. */
+    #receiptHttpsAgent = new HttpsAgent({
+        rejectUnauthorized: false,
+        keepAlive: true,
+        maxSockets: RECEIPT_MAX_SOCKETS_PER_PEER,
         maxFreeSockets: ADDRESSED_MAX_FREE_SOCKETS_PER_PEER,
         timeout: PEER_SOCKET_IDLE_MS,
     });
@@ -264,12 +274,14 @@ export class BroadcastService extends PuterService {
      * protection the all-peers fan uses, over the keep-alive agent. Returns the
      * peer's parsed answer; throws when it could not be reached or refused — a
      * caller must be able to tell "the peer said no" from "we never heard",
-     * because only the first authorises acting on the peer's behalf.
+     * because only the first authorises acting on the peer's behalf. `agent:
+     * 'receipt'` sends over the receipt pool.
      */
     async postToPeer(
         peerId: string,
         path: string,
         payload: unknown,
+        opts: { timeoutMs?: number; agent?: 'receipt' } = {},
     ): Promise<unknown> {
         const peer = this.#peersByKey[peerId];
         if (!peer) throw new Error(`unknown broadcast peer ${peerId}`);
@@ -277,8 +289,10 @@ export class BroadcastService extends PuterService {
             peer,
             path,
             JSON.stringify(payload),
-            this.#addressedHttpsAgent,
-            ADDRESSED_REQUEST_TIMEOUT_MS,
+            opts.agent === 'receipt'
+                ? this.#receiptHttpsAgent
+                : this.#addressedHttpsAgent,
+            opts.timeoutMs ?? ADDRESSED_REQUEST_TIMEOUT_MS,
         );
         try {
             return JSON.parse(String(response ?? ''));
