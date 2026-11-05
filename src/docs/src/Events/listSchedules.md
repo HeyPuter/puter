@@ -45,7 +45,7 @@ The promise rejects with `{ message, code }`:
 | `code` | Meaning |
 | --- | --- |
 | `invalid_request` | `includeTotal` isn't a boolean. |
-| `bad_request` | `limit` isn't a positive number. |
+| `bad_request` | `limit` isn't a positive number, or `cursor` can't be read. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `too_many_requests` | Over the listing rate limit, which is shared with [`getSchedule()`](/Events/getSchedule/) and the subscription listings. |
 | `events_disabled` | Schedules aren't available on this server, as on self-hosted servers. |

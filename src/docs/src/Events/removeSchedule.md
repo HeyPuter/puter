@@ -37,7 +37,7 @@ It rejects with `{ message, code }`:
 | `code` | Meaning |
 | --- | --- |
 | `events_schedule_not_found` | No such schedule, it isn't this caller's, or it already ended. Also for an empty `scheduleId`. |
-| `events_schedule_sending` | A notification stored to send later has started to go out, so it can't be cancelled. |
+| `events_schedule_sending` | A stored notification is sending. If it returns to `active` after a failed attempt, it can be cancelled while it waits to retry. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `too_many_requests` | Over the remove rate limit, which is shared with [`puter.events.unsubscribe()`](/Events/unsubscribe/). |
 | `events_disabled` | Schedules aren't available on this server, as on self-hosted servers. |

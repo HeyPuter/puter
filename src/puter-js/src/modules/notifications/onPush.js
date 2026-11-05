@@ -46,6 +46,23 @@ export const shownFrom = (notification, result) => {
         if (typeof result[field] === 'string' && result[field] !== '')
             shown[field] = result[field];
     }
+    if (typeof result.requireInteraction === 'boolean')
+        shown.requireInteraction = result.requireInteraction;
+    if (Array.isArray(result.actions)) {
+        shown.actions = [];
+        for (const entry of result.actions) {
+            if (!entry || typeof entry.action !== 'string' ||
+                !entry.action.trim() || entry.action.length > 64 ||
+                typeof entry.title !== 'string' ||
+                !entry.title.trim() || entry.title.length > 64) continue;
+            shown.actions.push({
+                action: entry.action,
+                title: entry.title,
+                ...(typeof entry.icon === 'string' && entry.icon ? { icon: entry.icon } : {}),
+            });
+            if (shown.actions.length === 2) break;
+        }
+    }
     return shown;
 };
 
@@ -85,11 +102,11 @@ const workerSource = (handler) => {
  * is connected and as a browser push while it isn't.
  *
  * The handler gets the notification and may return `{ title, body, icon, badge,
- * image, tag, url }` to change what is shown. On a website it is also saved for
- * `push-sw.js`, which runs it when a push arrives with no page open, so it must
- * be self-contained (see the docs for the limits). Once the user turned
- * notifications on here with `enable()`, this keeps the browser's subscription
- * current without asking again.
+ * image, tag, url, requireInteraction, actions }` to change what is shown. On a
+ * website it is also saved for `push-sw.js`, which runs it when a push arrives
+ * with no page open, so it must be self-contained (see the docs for the limits). Once
+ * the user turned notifications on here with `enable()`, this keeps the
+ * browser's subscription current without asking again.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {string} key

@@ -93,24 +93,25 @@ export interface ProjectedKvEvent extends ProjectedEventBase {
 /**
  * What a notification subscriber receives.
  *
- * `id` is the row's own uid rather than a per-dispatch uuid: a client that
- * fetched a missed notification and then received the live copy has to be able
- * to tell they are the same thing, and the mailbox uid is the only identity
- * both halves share. `uid` carries it under the name the mailbox verbs
- * (`mark-ack`, `mark-shown`) take.
+ * For postings, `id` is the row's own uid: a client that fetched a missed
+ * notification and then received the live copy has to be able to tell they are
+ * the same thing, and the mailbox uid is the only identity both halves share.
+ * `uid` carries it under the name the mailbox verbs (`mark-ack`, `mark-shown`)
+ * take.
  *
  * `notification` is the payload the caller sent, which is exactly what the
  * socket adapter puts on `notif.message` — a subscriber reading this channel
- * sees no less than the desktop does, and no internal row either.
+ * sees no less than the desktop does, and no internal row either. Dismissals
+ * use a fresh dispatch id and omit the payload.
  */
 export interface ProjectedNotifEvent extends ProjectedEventBase {
-    op: 'post';
+    op: 'post' | 'dismiss';
     uid: string;
     type: string;
     audience: NotificationAudience;
     /** App the notification is about; `null` for platform notifications. */
     appUid: string | null;
-    notification: Record<string, unknown>;
+    notification?: Record<string, unknown>;
     /**
      * Present when the notification replaced an earlier one under the same uid.
      * `ts` is then the replacement time, the same on live and fetched copies,
@@ -200,6 +201,7 @@ export interface KvEventContext extends EventContextBase {
  * recipient's uuid because the anchor token is the mailbox.
  */
 export interface NotifEventContext extends EventContextBase {
+    dismissed?: true;
     userId: number;
     userUuid: string;
     uid: string;
@@ -346,14 +348,14 @@ const notifMatchTarget = (event: NotifEventContext): string =>
 const notifMatchScope = (_anchorPath: string, slice: string): string => slice;
 
 const notifProject = (delivery: NotifDeliveryContext): ProjectedNotifEvent => ({
-    id: delivery.uid,
+    id: delivery.dismissed ? delivery.id : delivery.uid,
     subject: `notif:${delivery.appUid ?? delivery.userUuid}:${delivery.audience}`,
-    op: 'post',
+    op: delivery.dismissed ? 'dismiss' : 'post',
     uid: delivery.uid,
     type: delivery.type,
     audience: delivery.audience,
     appUid: delivery.appUid,
-    notification: delivery.notification,
+    ...(delivery.dismissed ? {} : { notification: delivery.notification }),
     ...(delivery.replaced ? { replaced: true as const } : {}),
     self: delivery.self,
     ts: delivery.ts,
@@ -464,7 +466,7 @@ export const PUBLIC_SUBJECTS = [
     {
         family: 'notif',
         subject: 'notif:*',
-        internal: ['notif.created'],
+        internal: ['notif.created', 'notif.acknowledged'],
         tokens: notifTokens,
         matchOn: notifMatchTarget,
         matchSeparator: NOTIF_MATCH_SEPARATOR,

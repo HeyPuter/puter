@@ -236,6 +236,17 @@ export class EventsController extends PuterController {
         });
     }
 
+    @Post('/schedules/update', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async updateSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const { scheduleId, changes } = bodyRecord(req);
+        res.json(await this.#schedules().update(actor, scheduleId, changes));
+    }
+
     /**
      * POST /events/schedules/remove — end one schedule. An id the caller does
      * not hold reads as absent.

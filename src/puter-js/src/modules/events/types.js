@@ -76,8 +76,7 @@
  *   `ts` when `replaced` is set.
  * @property {string} subject `notif:<appId|userId>:<audience>`, naming the
  *   slice of the mailbox it belongs to.
- * @property {'post'} op Always `'post'` — the mailbox verbs (marking one read
- *   or dismissed) are their own surface, not events.
+ * @property {'post'} op A posting.
  * @property {string} uid The notification's uid, as the mailbox names it.
  * @property {string} type What kind of notification it is, from the published
  *   catalog — `share.received`, `app.worker.deployed`, and so on.
@@ -95,6 +94,11 @@
  *   On a replacement, when it was replaced, and the same on its live and
  *   fetched copies.
  * @property {number} seq Position within one dispatch.
+ */
+
+/**
+ * A live dismissal, carrying metadata and no notification content.
+ * @typedef {Omit<PuterNotifEvent, 'op' | 'notification' | 'replaced'> & { op: 'dismiss' }} PuterNotifDismissEvent
  */
 
 /**
@@ -158,7 +162,7 @@
  * handler body run unchanged here and in the app's events worker.
  *
  * @typedef {Object} EventDelivery
- * @property {PuterEvent | PuterKvEvent | EventGapMarker} event The delivered
+ * @property {PuterEvent | PuterKvEvent | PuterNotifEvent | PuterNotifDismissEvent | EventGapMarker} event The delivered
  *   event, or a gap marker in place of events that were dropped.
  * @property {Readonly<Record<string, unknown>>} [ctx] The `context` the
  *   subscription was created with, frozen. Present only for a persistent
@@ -373,8 +377,38 @@
  *   place of `handler`.
  * @property {Record<string, unknown>} [context] Values the handler needs,
  *   evaluated **now** and delivered as a frozen `ctx` on every run. Capped at
- *   4 KB serialized, and can't be changed after create.
+ *   4 KB serialized. Replace it with `updateSchedule()`.
  */
+
+/**
+ * Replacement timing and context for a handler schedule. Any timing key
+ * replaces the whole timing definition using the rules of `onSchedule()`.
+ *
+ * @typedef {Pick<OnScheduleOptions,
+ *   'every' | 'cron' | 'tz' | 'at' | 'startAt' | 'expiresAt' | 'maxRuns'> & {
+ *     context?: Record<string, unknown> | null;
+ * }} HandlerScheduleChanges
+ */
+
+/**
+ * Changes to a stored notification. Content merges over the stored fields.
+ * `null` clears an optional field, restoring its default where applicable.
+ *
+ * @typedef {Object} DeferredScheduleChanges
+ * @property {number | string | Date} [sendAt] Replacement send time.
+ * @property {string} [title] Replacement title.
+ * @property {string | null} [text] Replacement text.
+ * @property {string | null} [icon] Replacement icon URL.
+ * @property {string | null} [target] Replacement app path.
+ * @property {unknown} [data] Replacement JSON data. `null` clears it.
+ * @property {string | null} [group] Replacement group.
+ * @property {string | null} [channel] Replacement channel.
+ * @property {boolean | null} [sensitive] Replacement privacy setting.
+ * @property {'normal' | 'high' | null} [priority] Replacement priority.
+ * @property {number | null} [ttl] Replacement push lifetime in seconds.
+ */
+
+/** @typedef {HandlerScheduleChanges | DeferredScheduleChanges} ScheduleChanges */
 
 /**
  * A schedule, as its holder sees it. Times are milliseconds since the epoch.

@@ -172,12 +172,22 @@ describe('parseAppMessage', () => {
         rejects({ title: 't', sensitive: 'yes' }, 'sensitive');
     });
 
-    it('refuses high priority to apps', () => {
-        expect(() => parseAppMessage({ title: 't', priority: 'high' })).toThrow(
-            "'high' is not available to apps",
-        );
-        rejects({ title: 't', priority: 'urgent' }, 'priority');
+    it('accepts normal and high priority, defaulting to normal', () => {
+        expect(parseAppMessage({ title: 't' }).priority).toBe('normal');
+        expect(
+            parseAppMessage({ title: 't', priority: 'normal' }).priority,
+        ).toBe('normal');
+        expect(
+            parseAppMessage({ title: 't', priority: 'high' }).priority,
+        ).toBe('high');
     });
+
+    it.each(['urgent', 'low', '', null, 1, true])(
+        'rejects priority %s',
+        (priority) => {
+            rejects({ title: 't', priority }, 'priority');
+        },
+    );
 
     it('bounds ttl to whole seconds within a day', () => {
         expect(parseAppMessage({ title: 't', ttl: 1 }).ttl).toBe(1);

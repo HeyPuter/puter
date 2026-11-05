@@ -156,11 +156,12 @@ export class NotificationStore extends PuterStore {
      * @param {number} userId
      * @param {{
      *     limit?: number;
+     *     uids?: readonly string[];
      *     onlyUnacknowledged?: boolean;
      *     filter?: string;
      *     scope?: {
      *         audiences: readonly string[];
-     *         appUid: string | null;
+     *         appUid?: string | null;
      *     } | null;
      *     excludeTypes?: readonly string[];
      * }} [opts]
@@ -169,6 +170,7 @@ export class NotificationStore extends PuterStore {
         userId,
         {
             limit = 200,
+            uids,
             onlyUnacknowledged = false,
             filter = undefined,
             scope = null,
@@ -177,6 +179,12 @@ export class NotificationStore extends PuterStore {
     ) {
         const where = ['`user_id` = ?'];
         const params = [userId];
+
+        if (uids) {
+            if (uids.length === 0) return [];
+            where.push(`\`uid\` IN (${uids.map(() => '?').join(', ')})`);
+            params.push(...uids);
+        }
 
         if (excludeTypes.length > 0) {
             where.push(
@@ -573,6 +581,32 @@ export class NotificationStore extends PuterStore {
             'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
             [now, uid, userId],
         );
+        if (result.anyRowsAffected) {
+            try {
+                const [row] = await this.clients.db.pread(
+                    'SELECT `type`, `app_uid`, `audience` FROM `notification` WHERE `uid` = ? AND `user_id` = ? LIMIT 1',
+                    [uid, userId],
+                );
+                if (row?.type === 'app.message' && row.app_uid) {
+                    this.clients.event.emit(
+                        'notif.acknowledged',
+                        {
+                            userId,
+                            uid,
+                            type: row.type,
+                            audience: row.audience,
+                            appUid: row.app_uid,
+                        },
+                        {},
+                    );
+                }
+            } catch (error) {
+                console.warn(
+                    '[notification] dismissal announcement failed',
+                    error,
+                );
+            }
+        }
         return result.anyRowsAffected;
     }
 

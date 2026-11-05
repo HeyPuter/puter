@@ -105,6 +105,7 @@ export default suite('notifications', {
                 target: '/items/1',
                 data: { id: 1 },
                 channel: 'messages',
+                priority: 'high',
             });
             t.assert.equal(typeof uid, 'string');
 
@@ -222,6 +223,7 @@ export default suite('notifications', {
                 const sent = await asApp(t, appUid, () =>
                     t.puter.notifications.notify({
                         title: toHolder,
+                        priority: 'high',
                         to: { handle: share.handle },
                     }),
                 );
@@ -436,6 +438,30 @@ export default suite('notifications', {
             t.assert.equal(codeOf(invalid), 'events_schedule_invalid');
             t.assert.equal(typeof sent, 'string');
         },
+
+    'dismissal reaches the live feed without notification content': async (t) => {
+        const appUid = await makeApp(t);
+        await asApp(t, appUid, async () => {
+            const dismissals: Array<{ uid: string }> = [];
+            const handler = (event: { uid: string }) => { dismissals.push(event); };
+            const events: Array<{ op: string; uid?: string; notification?: unknown }> = [];
+            const listener = await t.puter.events.onLocal('notif:app-user', ({ event }) => {
+                if (event.op === 'dismiss') events.push(event);
+            });
+            t.puter.notifications.on('dismiss', handler);
+            try {
+                const uid = await t.puter.notifications.notify({ title: unique('dismissed') });
+                t.assert.equal(await t.puter.notifications.dismiss(uid), true);
+                t.assert.ok(await waitFor(() => events.some((event) => event.uid === uid), DELIVERY_TIMEOUT_MS));
+                t.assert.deepEqual(dismissals, [{ uid }]);
+                t.assert.equal(events[0].notification, undefined);
+                t.assert.equal(await t.puter.notifications.dismiss(uid), false);
+            } finally {
+                t.puter.notifications.off('dismiss', handler);
+                await listener.off();
+            }
+        });
+    },
 
     'status resolves one of its four states without asking': async (t) => {
         const state = await t.puter.notifications.status();

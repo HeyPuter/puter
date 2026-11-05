@@ -42,11 +42,16 @@ export const toNotification = (event) => {
 /** @returns {import('../types.js').NotificationClick | null} */
 export const toClick = (payload) => {
     if (!payload || typeof payload !== 'object') return null;
-    const { uid, target, data } = /** @type {Record<string, unknown>} */ (
+    const { uid, target, data, action } = /** @type {Record<string, unknown>} */ (
         payload
     );
     if (typeof uid !== 'string' || uid === '') return null;
-    return { uid, target: stringOrNull(target), data: data ?? null };
+    return {
+        uid,
+        target: stringOrNull(target),
+        data: data ?? null,
+        action: stringOrNull(action) || null,
+    };
 };
 
 /** @returns {import('../types.js').PushDevice} */

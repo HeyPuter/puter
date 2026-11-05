@@ -461,13 +461,20 @@ An app, its workers and the tokens it issues can send `app.message` notification
 
 | Limit                             | Value                             | Scope             |
 | --------------------------------- | --------------------------------- | ----------------- |
+| Displayed notifications checked for dismissal | 50 per startup or reconnect check, 10-second request timeout | Per browser, per app |
+| Notification driver `select` with `uids` | 50 ids, 128 characters per id | Per call |
 | `app.message` notifications       | 30/min, 1,000/day                 | Per user, per app |
 | Pushes                            | 12/min, 1,000/day                 | Per user, per app |
+| High-priority pushes | 60/hour, then normal priority | Per user and app |
 | Pushes from a new or unlisted app | 6/min, 200/day                    | Per user, per app |
 | Notifications through a [KV share](/KV/share/) | 30/min, 500/day       | Per sender, recipient and app |
-| Browsers with pushes turned on    | 10 per app, 20 for Puter          | Per user          |
-| Turning pushes on in a browser    | 10/min                            | Per user          |
-| Confirmation pushes               | 5/hour                            | Per browser       |
+| Browsers with pushes turned on    | 5 per app with browser-prompt-only permission, 10 with Puter permission, 20 for Puter | Per user |
+| Turning pushes on in a browser    | 10/min                            | Per user, per app |
+| Turning pushes on across apps     | 30/min                            | Per user          |
+| Turning pushes on from one IP     | 60/min                            | Per IP            |
+| Confirmation pushes               | 5/hour                            | Per browser subscription |
+| [Listing push devices](/Notifications/listDevices/) | 60/min              | Per user          |
+| [Removing a push device](/Notifications/removeDevice/) | 30/min           | Per user          |
 | `title`                           | 120 characters                    |                   |
 | `text`                            | 240 characters                    |                   |
 | `icon` (an `https` URL)           | 2,048 characters                  |                   |
@@ -479,13 +486,17 @@ An app, its workers and the tokens it issues can send `app.message` notification
 
 Characters are counted as Unicode code points, so most emoji count as one. A notification's `ttl` is how long a push service keeps trying to reach an offline device, not how long the notification is kept. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`.
 
+An [`onPush()`](/Notifications/onPush/) result keeps at most two valid action buttons. Each button's `action` and `title` must contain more than whitespace and fit in 64 UTF-16 code units each. Invalid entries are dropped. Browsers may display fewer buttons.
+
 The notification limits count notifications written. A notification that replaces the app's earlier one with the same `group` counts against the per-minute limit only, not the per-day limit. [`notify()`](/Notifications/notify/#groups) says when a notification replaces one. Over a limit, the call fails with `429 too_many_requests`, and a refused call counts against neither window. A deployment can change these two limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
 Notifications one side of a KV share sends the other through its handle count against the recipient's `app.message` limits, and also against the limit for that sender, recipient and app, across all their shares in that app. Over either one, the call fails with the same error, so the sender can't tell which limit it hit. A call that the recipient's limits refuse still counts against the share limit. The pushes count against the recipient's push limits and are billed to the recipient.
 
 A notification goes out as a push only when no open page of the app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. The push limits count only pushes sent, and a replacement that goes out as a push counts like any other. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit, the call still succeeds and the notification still reaches the app live, but it isn't pushed.
 
-A push carries about 4 KB, and one that doesn't fit has its text shortened. Turning pushes on in another browser past an app's 10 removes that app's least recently seen one. A browser that goes 60 days without receiving a push or renewing its registration stops getting pushes. A page that calls [`onPush()`](/Notifications/onPush/) renews it on load.
+A push carries about 4 KB, and one that doesn't fit has its text shortened. Turning pushes on in another browser past the app's browser limit removes that app's least recently seen one. A browser is also removed when its push service answers `404` or `410`, after 10 failed sends and over 3 days without receiving a push or renewing its registration, or after 60 days without either. A page that calls [`onPush()`](/Notifications/onPush/) renews it on load.
+
+Push delivery is best effort. A push service's `429` or `5xx` answer gets at most one retry, and under heavy load a push can be skipped. A skipped or failed push isn't queued for later, and the notification stays available through [`puter.events.fetch()`](/Events/fetch/).
 
 #### What pushes cost
 
@@ -553,6 +564,8 @@ See [Events](/Events/) for an overview, [Gaps](/Events/subjects/#gaps) for gap m
 - A share's label may be at most 128 characters and 512 bytes (UTF-8), with at most 3 combining marks on one character. A longer label is refused with `kv_share_label_invalid`.
 
 #### How many subscriptions one event reaches
+
+Queue subscriptions skip the 250 ms coalescing window and keep each change separate.
 
 Counted per event, per region:
 
@@ -697,7 +710,7 @@ A recurring schedule can run at most every 1 minute on a paid plan and every 15 
 - One-time `at` schedules and stored notifications count only toward the waiting limits, until they run or are cancelled.
 - A suspended schedule still counts. A schedule stops counting as soon as it's removed or its last run finishes.
 - Schedules don't count toward the persistent subscription limits.
-- These limits are checked when a schedule is created, against the plan the user has then. Schedules made before a change to a plan with lower limits keep running. New ones are held to the current plan.
+- These limits are checked when a schedule is created or its timing is replaced with [`updateSchedule()`](/Events/updateSchedule/), against the user's current plan. An update excludes its own schedule from the count and budget. Schedules made before a change to a plan with lower limits keep running. New schedules and timing changes are held to the current plan.
 
 | Limit                                              | Value                                   | Scope              |
 | -------------------------------------------------- | --------------------------------------- | ------------------ |
@@ -716,11 +729,13 @@ A recurring schedule can run at most every 1 minute on a paid plan and every 15 
 | Cron expression                                    | 128 characters                          | Per schedule       |
 | Runs checked when a `cron` schedule is created     | 10,000 runs or 400 days, whichever ends first | Per schedule |
 | `cron` schedules checked at once                   | 2, with 8 more waiting                  | Per server         |
+| Concurrent [`updateSchedule()`](/Events/updateSchedule/) attempts | 5, then `events_failed` | Per call |
+| Interrupted [`updateSchedule()`](/Events/updateSchedule/) recovery | Eligible after 60 seconds, then reconciliation retries | Per schedule |
 | `context`                                          | 4 KB                                    | Per schedule       |
 | Events worker deploys started by schedule runs     | 8 at once                               | Per region         |
 | Ended schedules kept in `listSchedules()`          | 7 days                                  | Per schedule       |
 | A stored notification sent within 5 seconds        | Sent right away instead                 | Per notification   |
-| Attempts to send a stored notification             | 5, then it's dropped                    | Per notification   |
+| Attempts to send a stored notification             | 5, excluding rate-limited sends, then it's dropped | Per notification   |
 | A stored notification over its recipient's limits  | Dropped 6 hours after `sendAt`          | Per notification   |
 | A stored notification, as JSON                     | 16 KB                                   | Per notification   |
 
@@ -734,7 +749,7 @@ A recurring schedule can run at most every 1 minute on a paid plan and every 15 
 
 | Call                                                | Limit                                | Scope              |
 | --------------------------------------------------- | ------------------------------------ | ------------------ |
-| `onSchedule()`, and `notify()` with a later `sendAt` | 60/min, shared with `subscribe`     | Per user, all apps |
+| `onSchedule()`, [`updateSchedule()`](/Events/updateSchedule/), and `notify()` with a later `sendAt` | 60/min, shared with `subscribe`     | Per user, all apps |
 | `removeSchedule()` and `notifications.cancel()`     | 600/min, shared with `unsubscribe`   | Per user, all apps |
 | `listSchedules()` and `getSchedule()`               | 120/min, shared with the subscription listings | Per user, per app |
 

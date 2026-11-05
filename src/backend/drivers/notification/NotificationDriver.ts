@@ -46,7 +46,7 @@ import {
     ownedAppUids,
 } from '../../services/notification/notificationAudience.js';
 import {
-    NOTIFICATION_VALUE_MAX_BYTES,
+    assertNotificationValueFits,
     OUTSIDE_ACCOUNT_MAILBOX_TYPES,
     resolveNotificationWrite,
     type NotificationTypeName,
@@ -119,19 +119,6 @@ interface MailboxScope {
     /** `null` is the rows naming no app; `undefined` is any app. */
     appUid: string | null | undefined;
 }
-
-const assertValueFits = (value: Record<string, unknown>): void => {
-    if (
-        Buffer.byteLength(JSON.stringify(value), 'utf8') >
-        NOTIFICATION_VALUE_MAX_BYTES
-    ) {
-        throw new HttpError(
-            400,
-            `\`value\` may not exceed ${NOTIFICATION_VALUE_MAX_BYTES} bytes`,
-            { legacyCode: 'notification_value_too_large' },
-        );
-    }
-};
 
 const typeNotAllowed = (message: string): HttpError =>
     new HttpError(403, message, {
@@ -277,7 +264,7 @@ export class NotificationDriver extends PuterDriver {
                 value,
             );
         }
-        assertValueFits(value);
+        assertNotificationValueFits(value);
         if (type === APP_MESSAGE_TYPE) {
             throw typeNotAllowed(`Only apps can create ${APP_MESSAGE_TYPE}`);
         }
@@ -342,13 +329,34 @@ export class NotificationDriver extends PuterDriver {
             : predicate;
 
         const scope = this.#resolveScope(actor, args.subject);
+        const uids = args.uids;
+        if (
+            uids !== undefined &&
+            (!Array.isArray(uids) ||
+                uids.length > 50 ||
+                uids.some(
+                    (uid) =>
+                        typeof uid !== 'string' ||
+                        uid.length === 0 ||
+                        uid.length > 128,
+                ))
+        ) {
+            throw new HttpError(
+                400,
+                'uids must contain at most 50 notification ids',
+                {
+                    legacyCode: 'bad_request',
+                },
+            );
+        }
         const query: {
             limit: number;
             scope: MailboxScope | null;
             filter?: string;
             onlyUnacknowledged?: boolean;
             excludeTypes?: readonly string[];
-        } = { limit, scope };
+            uids?: string[];
+        } = { limit, scope, ...(uids ? { uids: uids as string[] } : {}) };
         // The whole mailbox, or a slice naming no app, is the desktop's view of
         // it, which leaves out the types only an app has a use for. A slice
         // naming the app still returns them.
@@ -430,7 +438,7 @@ export class NotificationDriver extends PuterDriver {
         }
         const handle = to === undefined ? undefined : parseNotifyTarget(to);
         const message = parseAppMessage(fields);
-        assertValueFits(value);
+        assertNotificationValueFits(value);
         const timing =
             sendAt === undefined || sendAt === null
                 ? null
@@ -539,9 +547,7 @@ export class NotificationDriver extends PuterDriver {
         };
     }
 
-    /**
-     * For extensions. A field, not a method, so `/drivers/call` can't reach it.
-     */
+    /** For extensions. A field, not a method, so `/drivers/call` can't reach it. */
     readonly deferredAppMessages = {
         write: (input: DeferredWriteInput, tx: DeferredWriteTx) =>
             this.#writeDeferredAppMessage(input, tx),

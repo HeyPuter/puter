@@ -66,7 +66,7 @@ A subscription suspended with `permission_revoked` doesn't resume when access is
 - **`onPersistent()`** runs your handler in the events worker for every event, even when your app is closed, and also sends the event to every connected client. Use it to react to every change, such as keeping an index or a notification up to date.
 - **`onPersistent({ queue: true })`** hands each event to one consumer at a time and retries it when the run never finished or failed for a temporary reason. Use it for work that has to finish, such as processing every uploaded file or calling a webhook.
 
-A queued event comes back only on a retry or a lost answer, with the same `event.id`, so check that id before doing work twice.
+Queue subscriptions skip the 250 ms coalescing window, so quick changes stay separate. A queued event comes back only on a retry or a lost answer, with the same `event.id`, so check that id before doing work twice.
 
 ## Where the handler runs
 
@@ -86,7 +86,7 @@ Wherever it runs, the handler is the same code, called with:
 | `event` | The [event](/Events/subjects/#the-event), or a [gap marker](/Events/subjects/#gaps). |
 | `ctx` | The frozen `context` this subscription was created with. |
 | `user` | A `puter` bound to the account holding the subscription, with the same access your app has for that user in a tab. In a client, it's the page's own `puter`. |
-| `fetch` | [`puter.net.fetch`](/Networking/fetch/) where it exists, otherwise the environment's `fetch`. |
+| `fetch` | In a client, [`puter.net.fetch()`](/Networking/fetch/) where it exists, otherwise the environment's `fetch`. In the events worker, the environment's native `fetch`. |
 | `ack` | On a `queue` subscription only. Optional, see [What happens when a handler fails](#what-happens-when-a-handler-fails). |
 
 Those five bindings are the handler's whole environment. The events worker has no global `puter`, so a handler that names `puter` or `me` is refused when you publish it. Use `user` instead. In the events worker, `user` is valid for 15 minutes, so don't keep it past the run.
@@ -121,7 +121,7 @@ Five failures in a row suspend the subscription with `failures`, and publishing 
 
 Without `queue`, a failed run is never retried.
 
-A handler can call `ack()` to mark the event done before it finishes. A throw after that doesn't undo it.
+In a connected client, a handler can call `ack()` to mark the event done before it finishes. In the events worker, `ack()` prevents a later throw from rejecting the delivery, but the answer waits until the handler finishes. It doesn't prevent a timeout or a lost answer from causing a retry.
 
 ## Context is captured once, up to 4 KB
 
@@ -161,7 +161,7 @@ Clients connect to the nearest region. Events reach a client wherever it's conne
 - Without `queue`, an event runs the handler in the events worker and in each connected client that passed a function `handler`. A run that fails or happens while nothing is connected isn't retried.
 - `queue` deliveries are at-least-once. An event whose run never finished, or failed with a temporary error, arrives again with the same `event.id`.
 - Undelivered events are held in the region where the change happened. If that region goes down, only what it was holding is lost.
-- Order is kept within a region and is best effort across regions. Coalescing (250 ms) also runs per region, so two quick writes can arrive as one event nearby and as two farther away.
+- Order is kept within a region and is best effort across regions. Without `queue`, coalescing (250 ms) also runs per region, so two quick writes can arrive as one event nearby and as two farther away.
 
 ## Return value
 
@@ -182,6 +182,11 @@ The promise rejects with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
+| `events_handler_conflict` | The inline handler couldn't be confirmed after a concurrent publish. Try again. |
+| `events_handler_hash_mismatch` | The published handler isn't the source passed as `handler`. |
+| `events_handler_not_found` | Nothing is published under `handlerName` in that scope, or source was supplied to check a named handler outside an app. |
+| `events_handler_hash_unavailable` | This environment has no `crypto.subtle`, so `handler` can't be hashed. Pass `handlerName` alone. |
+| `events_handler_invalid` | `handler` isn't a function, a nonempty source string, or `{ file }`. |
 | `invalid_subject` | The subject is empty, not a string, or can't be parsed, or it's a `notif:` subject and this server has notification events turned off. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `events_user_handlers_disabled` | Publishing into a user scope isn't turned on for this server. |
@@ -212,6 +217,8 @@ The promise rejects with `{ message, code }`:
 | `too_many_requests` | Over the subscribe rate limit. |
 | `events_disabled` | Events aren't enabled on this server. |
 | `events_failed` | The server sent a response the SDK couldn't read. |
+
+With a `{ file }` handler, errors from [`puter.fs.read()`](/FS/read/) also pass through.
 
 ## Examples
 

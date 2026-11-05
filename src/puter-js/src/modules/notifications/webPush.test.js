@@ -915,6 +915,28 @@ describe('shownFrom', () => {
         ).toEqual({ title: 'New', body: 'body', tag: 'n1', url: '/chat/1' });
     });
 
+    it('keeps the first two valid buttons and only their display fields', () => {
+        expect(shownFrom(notification, { actions: [
+            null, {}, { action: '', title: 'Empty' },
+            { action: ' ', title: 'Blank' }, { action: 1, title: 'Number' },
+            { action: 'x'.repeat(65), title: 'Long id' },
+            { action: 'bad', title: '' }, { action: 'bad', title: ' ' },
+            { action: 'bad', title: 1 }, { action: 'bad', title: 'x'.repeat(65) },
+            { action: 'accept', title: 'Accept', icon: '/accept.png', extra: 'dropped' },
+            { action: 'd'.repeat(64), title: 'D'.repeat(64), icon: 3 },
+            { action: 'third', title: 'Third' },
+        ] }).actions).toEqual([
+            { action: 'accept', title: 'Accept', icon: '/accept.png' },
+            { action: 'd'.repeat(64), title: 'D'.repeat(64) },
+        ]);
+    });
+
+    it.each([null, 'accept', { action: 'accept', title: 'Accept' }])(
+        'ignores non-array actions: %s', (actions) => {
+            expect(shownFrom(notification, { actions })).not.toHaveProperty('actions');
+        },
+    );
+
     it('tags a grouped notification as the server tags its push', () => {
         expect(shownFrom({ ...notification, group: 'room-1' }).tag).toBe(
             'app-1:room-1',
@@ -932,7 +954,7 @@ describe('shownFrom', () => {
         expect(
             shownFrom(
                 { ...notification, group: 'room-1', sensitive: true },
-                { title: 'Secret', body: 'secret' },
+                { title: 'Secret', body: 'secret', actions: [{ action: 'secret', title: 'Secret' }] },
             ),
         ).toEqual({
             title: 'Chat',
@@ -1887,6 +1909,67 @@ describe('onPush', () => {
             },
         );
 
+        it.each([true, false, 'true', 1, null, undefined])(
+            'passes only a boolean requireInteraction to the browser: %s',
+            async (requireInteraction) => {
+                away();
+                const { module, feed } = makeModule();
+                await module.onPush('chat', () => ({ requireInteraction }));
+                await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
+                const options =
+                    nav.registration.showNotification.mock.calls[0][1];
+                if (typeof requireInteraction === 'boolean')
+                    expect(options.requireInteraction).toBe(requireInteraction);
+                else expect(options).not.toHaveProperty('requireInteraction');
+            },
+        );
+
+        it('passes action buttons through the page display path', async () => {
+            away();
+            const { module, feed } = makeModule();
+            await module.onPush('chat', () => ({
+                actions: [{ action: 'accept', title: 'Accept' }],
+            }));
+            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
+            expect(nav.registration.showNotification).toHaveBeenCalledWith('Hi', expect.objectContaining({
+                actions: [{ action: 'accept', title: 'Accept' }],
+            }));
+        });
+
+        it('closes the OS notification this page showed when its uid is dismissed', async () => {
+            away();
+            const { module, feed } = makeModule();
+            await module.onPush('chat', () => {});
+            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
+            const { data } = nav.registration.showNotification.mock.calls[0][1];
+            const close = vi.fn();
+            nav.registration.getNotifications = vi.fn(async () => [{ data, close }]);
+            await module._receiveDismissal('n1');
+            expect(close).toHaveBeenCalledOnce();
+        });
+
+        it('keeps a late live posting from reopening a dismissed notification', async () => {
+            away();
+            const { module, feed } = makeModule();
+            await module.onPush('chat', () => {});
+            await module._receiveDismissal('n1');
+            module._noteReceived('n1');
+            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Late' });
+            expect(nav.registration.showNotification).not.toHaveBeenCalled();
+        });
+
+        it('keeps a slow handler from showing an already dismissed notification', async () => {
+            away();
+            const { module, feed } = makeModule();
+            let finish;
+            await module.onPush('chat', () => new Promise((resolve) => { finish = resolve; }));
+            const delivery = feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
+            await module._receiveDismissal('n1');
+            finish({ title: 'Too late' });
+            await delivery;
+            expect(nav.registration.showNotification).not.toHaveBeenCalled();
+        });
+
         it('shows a notification no handler takes, as sent', async () => {
             away();
             const { module, feed } = makeModule();
@@ -2035,13 +2118,13 @@ describe('onPush', () => {
                 },
             };
             const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
+            await module.onPush('chat', () => ({ actions: [{ action: 'accept', title: 'Accept' }] }));
             await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
             expect(posted).toEqual([
                 {
                     type: 'puter-push-show',
                     title: 'Hi',
-                    options: expect.objectContaining({ tag: 'n1' }),
+                    options: expect.objectContaining({ tag: 'n1', actions: [{ action: 'accept', title: 'Accept' }] }),
                 },
             ]);
             expect(nav.registration.showNotification).not.toHaveBeenCalled();
@@ -2181,7 +2264,7 @@ describe('onPush', () => {
 });
 
 describe('clicks from push-sw.js', () => {
-    it('acknowledges a tap only while a click handler takes it', () => {
+    it.each([undefined, '', null, 3, 'accept'])('acknowledges a tap with action %s only while a click handler takes it', (action) => {
         const nav = makeNav();
         withBrowser(nav);
         const { module } = makeModule();
@@ -2191,7 +2274,7 @@ describe('clicks from push-sw.js', () => {
         const tap = {
             type: 'puter-notification-click',
             id: 'click-1',
-            notification: { uid: 'n1', target: '/c', data: null },
+            notification: { uid: 'n1', target: '/c', data: null, action },
         };
 
         nav.post(tap, source);
@@ -2203,6 +2286,7 @@ describe('clicks from push-sw.js', () => {
             uid: 'n1',
             target: '/c',
             data: null,
+            action: action === 'accept' ? 'accept' : null,
         });
 
         source.postMessage.mockClear();
@@ -2226,13 +2310,14 @@ describe('clicks from push-sw.js', () => {
         return { nav, handler, source: { postMessage: vi.fn() } };
     };
 
-    it('takes a tap the worker kept for it, then acknowledges it', async () => {
+    it.each([null, 'accept'])('takes a tap with action %s the worker kept for it, then acknowledges it', async (action) => {
         const { nav, handler, source } = clickModule();
         store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });
-        nav.post(keptTap, source);
+        nav.post({ ...keptTap, notification: { ...keptTap.notification, action } }, source);
         await flush();
         expect(store.has('clicks:n1')).toBe(false);
         expect(handler).toHaveBeenCalledTimes(1);
+        expect(handler).toHaveBeenCalledWith({ uid: 'n1', target: '/c', data: null, action });
         expect(source.postMessage).toHaveBeenCalledWith({
             type: 'puter-notification-click-ack',
             id: 'click-1',
@@ -2283,11 +2368,12 @@ describe('clicks from push-sw.js', () => {
             };
         });
 
-        it('goes to the first click handler, once', async () => {
+        it.each([undefined, 'decline'])('goes to the first click handler with action %s, once', async (action) => {
             store.set('clicks:n1', {
                 uid: 'n1',
                 target: '/c',
                 data: 1,
+                action,
                 at: Date.now(),
             });
             const { handler } = clickModule();
@@ -2296,6 +2382,7 @@ describe('clicks from push-sw.js', () => {
                 uid: 'n1',
                 target: '/c',
                 data: 1,
+                action: action ?? null,
             });
             expect(store.has('clicks:n1')).toBe(false);
         });

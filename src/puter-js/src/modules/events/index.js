@@ -11,6 +11,7 @@ import {
     listSchedules,
     onSchedule,
     removeSchedule,
+    updateSchedule,
 } from './schedules.js';
 import { unsubscribe } from './unsubscribe.js';
 import { update } from './update.js';
@@ -61,6 +62,8 @@ export class EventsModule extends PuterModule {
     getSchedule = getSchedule;
     /** @type {OmitThisParameter<typeof removeSchedule>} */
     removeSchedule = removeSchedule;
+    /** @type {OmitThisParameter<typeof updateSchedule>} */
+    updateSchedule = updateSchedule;
 
     /** @param {Puter} puter */
     constructor (puter) {
@@ -92,6 +95,7 @@ export class EventsModule extends PuterModule {
             'listSchedules',
             'getSchedule',
             'removeSchedule',
+            'updateSchedule',
         ] ) {
             methods[name] = methods[name].bind(this);
         }

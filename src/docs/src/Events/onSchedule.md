@@ -40,7 +40,7 @@ Give exactly one of `every`, `cron` or `at`.
 - `handlerName` (String): The published handler each run calls. Required unless you pass `handler`.
 - `handlerScope` (String): Where `handlerName` is looked up, `'app'` or `'user'`. Defaults to `'app'`, the handlers the app's owner published. `'user'` binds to a handler the signed-in user's scope holds, published with `handlers.publish(name, handler, { scope: 'user' })`.
 - `handlerHash` (String): The SHA-256 hex digest of the handler source, in place of `handler`, to check it against `handlerName`.
-- `context` (Object): Values the handler needs, passed to every run as a frozen `ctx`. Up to 4 KB serialized. It's read once, at this call, and can't be changed later. To change it, remove the schedule and create a new one.
+- `context` (Object): Values the handler needs, passed to every run as a frozen `ctx`. Up to 4 KB serialized. It's read once, at this call. Replace it or the timing with [`updateSchedule()`](/Events/updateSchedule/).
 
 ### Times
 
@@ -119,7 +119,7 @@ A run can start later than 60 seconds after its slot when it's being retried, wh
 
 Puter starts one attempt at a time for each schedule, and the next slot waits until the current run finishes or is given up. A handler that's still running when its 30 seconds are up can overlap its own retry, which has the same `event.id`.
 
-When a schedule falls behind, for example while a run was being retried, it doesn't make up every slot it missed. It runs the latest slot that's due, once, and `event.missed` counts the slots it skipped. A schedule that resumes after a suspension waits for its next slot, and that run's `missed` counts the slots it skipped while it was suspended.
+When a schedule falls behind, for example while a run was being retried, it doesn't make up every slot it missed. It runs the latest slot that's due, once, and `event.missed` counts the slots it skipped. A recurring schedule that resumes after a suspension waits for its next slot, and that run's `missed` counts the slots it skipped while it was suspended.
 
 ## Delivery guarantees
 
@@ -191,12 +191,14 @@ A schedule can stop running without being removed. It's then suspended, and [`li
 
 A suspended schedule isn't billed. One that stays suspended for 30 days ends.
 
+An `at` schedule whose time passed while suspended runs once when it resumes, including after a `no_credit` suspension. The event's `scheduledFor` is the original scheduled time, and `firedAt` is when the handler was invoked. Compare `event.scheduledFor` with `Date.now()` in the handler if a late run is unwanted.
+
 An ended schedule never runs again. It has `state: 'ended'` and an `endReason`, and stays in [`listSchedules()`](/Events/listSchedules/) for 7 days, after which it is deleted:
 
 | `endReason` | Cause |
 | --- | --- |
 | `removed` | It was removed with [`removeSchedule()`](/Events/removeSchedule/) or `off()`. |
-| `ended` | Its last run is done (an `at` schedule, `expiresAt` or `maxRuns`), or it stayed suspended for 30 days. |
+| `ended` | Its last run finished, a recurring schedule's last slot passed while suspended, or it stayed suspended for 30 days. |
 | `permission_revoked` | The user revoked `events:background` for your app. |
 | `uninstalled` | The user uninstalled your app. |
 | `app_deleted` | The app was deleted. |
@@ -221,7 +223,7 @@ A `Promise` that resolves to the schedule. All times are in milliseconds since t
 - `tz` (String): The time zone of a `cron` schedule, and `'UTC'` for the others.
 - `startAt` (Number): The first time it may run. For `at`, its only run.
 - `endsAt` (Number | null): The last time it may run, from `expiresAt` or `maxRuns`. For `at`, its only run.
-- `state` (String): `'active'`, `'suspended'`, `'sending'`, or `'ended'`. A delayed notification is `'sending'` once it has started to go out.
+- `state` (String): `'active'`, `'suspended'`, `'sending'`, or `'ended'`. A delayed notification is `'sending'` during a send attempt. A failed attempt can return it to `'active'` before retrying.
 - `suspendedReason` (String | null): Why it's [suspended](#suspended-and-ended-schedules).
 - `endReason` (String | null), `endedAt` (Number | null): Why and when it [ended](#suspended-and-ended-schedules).
 - `nextRunAt` (Number | null): The next slot of the schedule, worked out from its definition and the clock. A late or retried run for an earlier slot can still happen first. After the last slot is due, it stays at that slot until the run for it is done. It's `null` while the schedule is suspended or sending, and once it has ended.
@@ -232,6 +234,8 @@ The promise rejects with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
+| `events_value_too_large` | A field is longer than can be stored. |
+| `events_handler_conflict` | The inline handler couldn't be confirmed after a concurrent publish. Try again. |
 | `invalid_request` | `options` isn't an object. |
 | `events_handler_required` | There's neither a `handler` nor a `handlerName`. |
 | `events_user_handlers_disabled` | Publishing into a user scope isn't turned on for this server. |
@@ -256,7 +260,7 @@ The promise rejects with `{ message, code }`:
 | `events_schedule_never_fires` | The schedule would never run. Its first run or its `startAt` is more than 366 days away, or it ends before its first run. |
 | `events_schedule_too_frequent` | It would run more often than your plan's [minimum interval](#how-often-a-schedule-can-run). |
 | `events_schedule_too_deep` | The call was made from a handler at the end of a [handler chain](/Events/onPersistent/#handlers-that-trigger-handlers), so the schedule could never run. |
-| `bad_request` | `handlerName` is empty or over 128 characters, or `handlerHash` isn't a SHA-256 hex digest. |
+| `bad_request` | `handlerName` is empty or over 128 characters, `handlerHash` isn't a SHA-256 hex digest, or `handlerScope` isn't `'app'` or `'user'`. |
 | `events_handler_not_found` | Nothing is published under `handlerName` in that scope. The schedule isn't created. |
 | `events_handler_hash_mismatch` | The published handler isn't the source you passed as `handler`. |
 | `events_schedule_limit` | The user holds as many schedules as their plan allows, for your app or in total. |
@@ -264,6 +268,8 @@ The promise rejects with `{ message, code }`:
 | `events_schedule_busy` | Puter is checking too many cron expressions at once. Try again in a moment. |
 | `events_disabled` | Schedules aren't available on this server, as on self-hosted servers. |
 | `events_failed` | The server sent a response the SDK couldn't read. |
+
+With a `{ file }` handler, errors from [`puter.fs.read()`](/FS/read/) also pass through.
 
 ## Examples
 

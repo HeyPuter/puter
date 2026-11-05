@@ -264,10 +264,12 @@ describe('host replies (env: app)', () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(first.mock.calls).toEqual([
-            [{ uid: 'n-1', target: '/a', data: null }],
-            [{ uid: 'n-2', target: null, data: null }],
+            [{ uid: 'n-1', target: '/a', data: null, action: null }],
+            [{ uid: 'n-2', target: null, data: null, action: null }],
         ]);
-        expect(second.mock.calls).toEqual([[{ uid: 'n-2', target: null, data: null }]]);
+        expect(second.mock.calls).toEqual([
+            [{ uid: 'n-2', target: null, data: null, action: null }],
+        ]);
     });
 
     it('drops a notificationClick broadcast from another source', async () => {

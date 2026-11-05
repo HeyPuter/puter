@@ -19,7 +19,9 @@
  *   Lowercase letters, digits and `-`.
  * @property {boolean} [sensitive] Pushes show a generic line instead of the
  *   title and text.
- * @property {'normal'} [priority] Only `'normal'` is available to apps.
+ * @property {'normal' | 'high'} [priority] Default `'normal'`. High priority asks
+ *   for immediate push delivery even when the device is idle. Pair it with a
+ *   short `ttl` for time-sensitive notifications.
  * @property {number} [ttl] Seconds a push may wait for an offline device, 1 to
  *   86400. Default 3600.
  */
@@ -74,7 +76,7 @@
  *
  * @typedef {Object} AppNotification
  * @property {string} uid The notification's uid. The same on every delivery of
- *   it, live or caught up.
+ *   it, live or caught up. Pass it to `markShown()` or `dismiss()`.
  * @property {string} title
  * @property {string | null} text
  * @property {string | null} icon
@@ -129,6 +131,17 @@
  * @property {string} uid The notification's uid.
  * @property {string | null} target The `target` it was sent with.
  * @property {unknown} data The `data` it was sent with, or `null`.
+ * @property {string | null} action The pressed button's id, or `null` for a
+ *   tap on the notification body.
+ */
+
+/**
+ * A button on a browser notification, where supported.
+ *
+ * @typedef {Object} NotificationAction
+ * @property {string} action A non-empty button id, up to 64 UTF-16 code units.
+ * @property {string} title A non-empty button label, up to 64 UTF-16 code units.
+ * @property {string} [icon] An icon image URL.
  */
 
 /**
@@ -143,6 +156,10 @@
  * @property {string} [image]
  * @property {string} [tag]
  * @property {string} [url]
+ * @property {boolean} [requireInteraction] Keeps the notification on screen
+ *   until the user acts on it, where the browser supports it.
+ * @property {NotificationAction[]} [actions] Up to two valid buttons. Pressing
+ *   one opens or focuses the page and delivers its id to the click handler.
  */
 
 /**
@@ -190,4 +207,10 @@
  * @property {number} createdAt Unix seconds.
  * @property {number} lastSeenAt Unix seconds.
  * @property {boolean} current Registered from the session making the call.
+ */
+
+/**
+ * A live dismissal of one of this app's notifications.
+ * @typedef {Object} NotificationDismissal
+ * @property {string} uid The dismissed notification's id.
  */

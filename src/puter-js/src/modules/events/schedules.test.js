@@ -8,7 +8,7 @@ vi.mock('./lib/api.js', () => ({
     request: (...args) => mockRequest(...args),
 }));
 
-const { getSchedule, listSchedules, onSchedule, removeSchedule } =
+const { getSchedule, listSchedules, onSchedule, removeSchedule, updateSchedule } =
     await import('./schedules.js');
 
 const HANDLER = ({ event, ctx }) => fetch(ctx.url, { body: event.id });
@@ -21,8 +21,9 @@ const makeModule = () => {
         listSchedules,
         getSchedule,
         removeSchedule,
+        updateSchedule,
     };
-    for ( const name of ['onSchedule', 'listSchedules', 'getSchedule', 'removeSchedule'] )
+    for ( const name of ['onSchedule', 'listSchedules', 'getSchedule', 'removeSchedule', 'updateSchedule'] )
         module[name] = module[name].bind(module);
     return module;
 };
@@ -257,11 +258,65 @@ describe('getSchedule and removeSchedule', () => {
 
     it('answer an id that is not one as absent, without a round trip', async () => {
         for ( const id of [undefined, null, '', '  ', 42] ) {
-            for ( const verb of ['getSchedule', 'removeSchedule'] ) {
+            for ( const verb of ['getSchedule', 'removeSchedule', 'updateSchedule'] ) {
                 const error = await rejects(() => makeModule()[verb](id));
                 expect(error.code).toBe('events_schedule_not_found');
             }
         }
         expect(mockRequest).not.toHaveBeenCalled();
+    });
+});
+
+
+describe('updateSchedule', () => {
+    it('sends the id and replacement definition and returns the server view', async () => {
+        const view = { scheduleId: SCHEDULE_ID, kind: 'recurring', contextKeys: ['url'] };
+        mockRequest.mockResolvedValue(view);
+        const changes = { cron: '0 10 * * *', tz: 'UTC', context: { url: '/reminders' } };
+        expect(await makeModule().updateSchedule(SCHEDULE_ID, changes)).toBe(view);
+        expect(routeOf()).toBe('/events/schedules/update');
+        expect(bodyOf()).toEqual({ scheduleId: SCHEDULE_ID, changes });
+    });
+
+    it('keeps null content fields and serializes valid dates on the wire', async () => {
+        const sendAt = new Date('2026-11-05T12:00:00Z');
+        await makeModule().updateSchedule(SCHEDULE_ID, { sendAt, text: null });
+        expect(JSON.parse(JSON.stringify(bodyOf())).changes).toEqual({
+            sendAt: sendAt.toISOString(), text: null,
+        });
+        await makeModule().updateSchedule(SCHEDULE_ID, { context: null });
+        expect(bodyOf(1).changes).toEqual({ context: null });
+    });
+
+    it.each(['handlerName', 'handler', 'handlerScope', 'handlerHash', 'handlerSource', 'to'])(
+        'rejects changes to %s', async (key) => {
+            await expect(makeModule().updateSchedule(SCHEDULE_ID, { [key]: 'other' }))
+                .rejects.toMatchObject({ code: 'invalid_request' });
+            expect(mockRequest).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([undefined, null, [], 'wrong'])(
+        'rejects a non-object changes value %s', async (changes) => {
+            await expect(makeModule().updateSchedule(SCHEDULE_ID, changes))
+                .rejects.toMatchObject({ code: 'invalid_request' });
+        },
+    );
+
+    it.each(['at', 'startAt', 'expiresAt', 'sendAt'])(
+        'rejects an invalid %s date locally', async (key) => {
+            await expect(makeModule().updateSchedule(SCHEDULE_ID, { [key]: new Date(NaN) }))
+                .rejects.toMatchObject({ code: 'events_schedule_invalid' });
+        },
+    );
+
+    it('checks ids, context size, and passes server errors through', async () => {
+        await expect(makeModule().updateSchedule('', {}))
+            .rejects.toMatchObject({ code: 'events_schedule_not_found' });
+        await expect(makeModule().updateSchedule(SCHEDULE_ID, { context: { large: 'x'.repeat(4096) } }))
+            .rejects.toMatchObject({ code: 'events_context_too_large' });
+        const failure = new PuterJSError('Sending', 'events_schedule_sending');
+        mockRequest.mockRejectedValue(failure);
+        await expect(makeModule().updateSchedule(SCHEDULE_ID, { sendAt: Date.now() })).rejects.toBe(failure);
     });
 });

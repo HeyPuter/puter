@@ -34,12 +34,18 @@ puter.notifications.onPush(key, handler, options)
 The `channel` your notifications are sent with. 1 to 32 lowercase letters, digits or `-`.
 
 #### `handler` (Function) (required)
-A plain `function` or an arrow function. It's called with the notification, in the same shape [`onNotification()`](/Notifications/onNotification/) delivers. It may return, or resolve to, an object that changes what the browser shows:
+A plain `function` or an arrow function. It's called with the notification, in the same shape [`onNotification()`](/Notifications/onNotification/) delivers, including the boolean `replaced` field in both the page and the service worker. It may return, or resolve to, an object that changes what the browser shows:
 
-- `title`, `body`, `icon`, `badge`, `image`, `tag` (String): As in the browser's `showNotification()`. A notification sent with a `group` gets a `tag` from it by default, so a later one in the group replaces it on screen.
-- `url` (String): A path or URL on your origin. Defaults to the notification's `target`. A relative path is read from your site's root, or from your worker's folder when your pages are inside it ([requirements](/Notifications/push/#requirements)). A URL on another origin is replaced with that root or folder. When no page of your site is open, a tap opens it. When a page is open, the tap focuses that page and goes to [`on('click')`](/Notifications/on/). A page without a `click` handler goes to `url` instead.
+| Field | Type | Description |
+| --- | --- | --- |
+| `title`, `body`, `icon`, `badge`, `image`, `tag` | String | As in the browser's `showNotification()`. A notification sent with a `group` gets a `tag` from it by default, so a later one in the group replaces it on screen. |
+| `requireInteraction` | Boolean | Keeps the notification on screen until the user acts on it, where the browser supports it. |
+| `actions` | Array | Buttons shaped as `{ action, title, icon? }`. The `action` id and `title` label must be non-empty strings containing more than whitespace, each at most 64 UTF-16 code units. The optional `icon` is an image URL string. The first two valid entries are kept. Invalid entries are dropped, and a non-array is ignored. A button press opens or focuses your page and gives its id to [`on('click')`](/Notifications/on/) as `action`. Browser support varies. Where buttons aren't supported, only the notification body shows and a tap gives `action: null`. |
+| `url` | String | A path or URL on your origin. Defaults to the notification's `target`. A relative path is read from your site's root, or from your worker's folder when your pages are inside it ([requirements](/Notifications/push/#requirements)). A URL on another origin is replaced with that root or folder. When no page of your site is open, a tap opens it. When a page is open, the tap focuses that page and goes to [`on('click')`](/Notifications/on/). A page without a `click` handler goes to `url` instead. |
 
 Returning nothing shows the notification's own `title` and `text`. Inside the Puter desktop, the result isn't used, and a push shows the notification's own title and text.
+
+Buttons run your page's click handler after opening or focusing it. For an example, see [Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/).
 
 A [sensitive](/Notifications/notify/#parameters) notification shows only your app's name, whatever the handler returns. Its push carries no `channel`, so no handler runs for it in the worker.
 
@@ -86,6 +92,22 @@ It rejects with an error carrying `message` and `code`:
 | --- | --- |
 | `invalid_argument` | `key` isn't 1 to 32 lowercase letters, digits or `-`. |
 | `invalid_handler` | `handler` isn't a plain function or an arrow function, for example a method shorthand, a bound function or a class method. |
+
+Errors reported to `onError` can also carry these codes. The push setup errors listed on [`enable()`](/Notifications/enable/#return-value) can arrive here during renewal, except for the quiet failures described under `options.onError` above. Errors thrown by your handler pass through as written.
+
+| `code` | Meaning |
+| --- | --- |
+| `push_handler_timeout` | The handler ran past 5 seconds in the page. |
+| `push_verification_timeout` | The confirmation push didn't arrive within 30 seconds. |
+| `push_challenge_expired`, `push_challenge_invalid` | Puter couldn't verify the confirmation handed back by the worker. |
+| `app_required` | The live listener wasn't opened as an app. |
+| `events_disabled` | This server doesn't have live notification events turned on. |
+| `events_subscription_limit` | The live connection has reached its subscription limit. |
+| `too_many_requests` | Opening the live listener or reading notifications hit a rate limit. Push renewal rate limits are quiet. |
+| `reauth_required`, `auth_changed` | The live listener stopped because the session or signed-in account changed. |
+| `events_connection_failed` | The live connection couldn't be restored. |
+| `events_failed` | A notification read failed without a readable error code. |
+| `catch_up_truncated` | Catch-up after a gap reached its read limit. See [`onNotification()`](/Notifications/onNotification/). |
 
 ## Examples
 

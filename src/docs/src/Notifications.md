@@ -136,10 +136,12 @@ Your app's notifications are events on the `notif:app-user` [subject](/Events/su
 ## Functions
 
 - **[`puter.notifications.notify()`](/Notifications/notify/)** - Send a notification to the user, or to the other side of a key-value share
+- **[`puter.notifications.markShown()`](/Notifications/markShown/)** - Mark a notification as shown
+- **[`puter.notifications.dismiss()`](/Notifications/dismiss/)** - Mark a notification as dismissed
 - **[`puter.notifications.cancel()`](/Notifications/cancel/)** - Cancel a notification stored to send later
 - **[`puter.notifications.onNotification()`](/Notifications/onNotification/)** - Receive your app's notifications, including the ones sent while it was closed
 - **[`puter.notifications.onPush()`](/Notifications/onPush/)** - Say what a push shows for one channel, and handle its notifications while the page is open
-- **[`puter.notifications.on('click')`](/Notifications/on/)** - React when the user clicks one of your notifications
+- **[`puter.notifications.on()`](/Notifications/on/)** - React when one of your notifications is clicked or dismissed
 - **[`puter.notifications.enable()`](/Notifications/enable/)** - Turn on pushes for your app in this browser
 - **[`puter.notifications.disable()`](/Notifications/disable/)** - Turn off pushes for your app
 - **[`puter.notifications.status()`](/Notifications/status/)** - Check whether pushes reach this browser, without asking

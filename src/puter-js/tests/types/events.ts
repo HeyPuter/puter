@@ -50,3 +50,16 @@ export const notifyLater = async (puter: Puter): Promise<void> => {
     const uid: string = await puter.notifications.notify({ title: 'Hi' });
     void [later, stored, uid];
 };
+
+export const updateSchedules = async (puter: Puter): Promise<void> => {
+    const updated = await puter.events.updateSchedule('schedule-id', { cron: '0 9 * * *', tz: 'UTC' });
+    const id: string = updated.scheduleId;
+    await puter.events.updateSchedule(id, { context: null });
+    await puter.events.updateSchedule(id, { sendAt: new Date(), text: null, ttl: null });
+    // @ts-expect-error A schedule's handler cannot change.
+    await puter.events.updateSchedule(id, { handlerName: 'other' });
+    // @ts-expect-error A stored notification's recipient cannot change.
+    await puter.events.updateSchedule(id, { to: { handle: 'other' } });
+    // @ts-expect-error A send time is a date, string or number.
+    await puter.events.updateSchedule(id, { sendAt: true });
+};

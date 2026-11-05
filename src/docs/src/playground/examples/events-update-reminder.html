@@ -1,0 +1,19 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const reminder = await puter.notifications.notify({
+                title: 'Review your notes',
+                sendAt: Date.now() + 60 * 60 * 1000,
+            });
+            if (!reminder || typeof reminder !== 'object') return;
+            const updated = await puter.events.updateSchedule(reminder.scheduleId, {
+                sendAt: Date.now() + 2 * 60 * 60 * 1000,
+                title: 'Review your meeting notes',
+            });
+            puter.print(new Date(updated.startAt).toLocaleString());
+        })();
+    </script>
+</body>
+</html>

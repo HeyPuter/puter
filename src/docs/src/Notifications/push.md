@@ -8,6 +8,8 @@ A push notification reaches the user when they aren't looking at your app. It sh
 
 A website on its own domain needs three steps, and an app inside the Puter desktop needs one. [Where pushes work](#where-pushes-work) lists what each browser and device needs.
 
+Dismissing a notification closes it on another device while a page of the app has a live notification listener there, or the next time a page starts one. Startup checks up to 50 displayed notifications. Puter sends no close-only Web Push because subscriptions use `userVisibleOnly`, which requires pushes to show a notification. See [`dismiss()`](/Notifications/dismiss/) and [`on('dismiss')`](/Notifications/on/).
+
 ## When a notification is pushed
 
 Every open page of your app gets each notification live, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). Puter then asks those pages whether they received it. If a page answers within 5 seconds that it's visible and focused, or that it shows the notification itself, nothing is pushed. Otherwise Puter pushes it. A page answers only while it has an [`onNotification()`](/Notifications/onNotification/) or [`onPush()`](/Notifications/onPush/) listener.
@@ -62,6 +64,10 @@ The worker follows the browser's service worker rules:
 - **Errors.** An error your handler throws in the worker shows only in the service worker's console, not the page's. In Chrome, open it from DevTools under **Application** > **Service workers**.
 
 To check the worker, open `https://<your site>/puter-sw.js` in a browser tab. It should show the `importScripts` line as plain text.
+
+#### Sharing an existing service worker
+
+Import Puter's script into your worker and pass its path as `serviceWorker` to [`onPush()`](/Notifications/onPush/), [`enable()`](/Notifications/enable/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). Your own `push` and `notificationclick` listeners also receive Puter's events. Have them skip a push whose JSON contains `puter` or `data.puter`, and a click whose `event.notification.data.puter` is set, so they avoid showing or opening it twice. Puter's script leaves other pushes and clicks to your listeners.
 
 #### Serving your own copy
 
@@ -240,6 +246,41 @@ To turn pushes off, call [`disable()`](/Notifications/disable/). Inside the desk
 
 While the app is open, [`onPush()`](/Notifications/onPush/) and [`onNotification()`](/Notifications/onNotification/) receive its notifications live, the same as on a website. The result of an [`onPush()`](/Notifications/onPush/) handler isn't used inside the desktop.
 
+## App icon badges
+
+An installed web app can set a count on its app icon through the browser's [Badging API](https://developer.chrome.com/docs/capabilities/web-apis/badging-api). This works only where the browser supports badging, typically for installed apps. Send the count in the notification's `data`, then call `navigator.setAppBadge?.(count)` in your [`onPush()`](/Notifications/onPush/) handler. The handler can call it in either the page or the service worker:
+
+```js
+await puter.notifications.onPush('messages', async (n) => {
+    const count = n.data?.unreadCount;
+    if (Number.isSafeInteger(count) && count >= 0) {
+        try {
+            await navigator.setAppBadge?.(count);
+        } catch {
+            // Badging can fail independently of showing a notification.
+        }
+    }
+    return { title: n.title, body: n.text ?? '' };
+});
+```
+
+Clear the count when the app opens with `navigator.clearAppBadge?.()`. You can also clear it from [`on('dismiss')`](/Notifications/on/) if a dismissal means your app has no unread items:
+
+```js
+async function clearBadge () {
+    try {
+        await navigator.clearAppBadge?.();
+    } catch {
+        // The browser may refuse the badge update.
+    }
+}
+
+await clearBadge();
+puter.notifications.on('dismiss', () => { void clearBadge(); });
+```
+
+The handler result's `badge` field is the small icon image URL on the notification. It isn't a count. Numbers in that field are ignored and the browser uses its default badge.
+
 ## Where pushes work
 
 Pushes use the browser's Web Push support. Each browser gets its own registration, so a user who wants pushes on their phone and their laptop turns them on in both.
@@ -319,6 +360,12 @@ The browser can be allowed to show notifications while the operating system hide
 | Pushes stop until the user opens your site again | The browser replaced its push subscription for your site, as browsers sometimes do. Your service worker keeps the new one, and the next page load that calls [`onPush()`](/Notifications/onPush/) registers it with Puter. Pushes sent before that don't arrive. |
 | No push while your site is open in a tab | The open page received the notification live. It shows one only when it's hidden or its window isn't focused. |
 | No push at all | The browser isn't running, the operating system hides its notifications ([above](#operating-system-settings)), the user reached the [push limit](/rate-limits-and-quotas/#notifications) for your app, or the user has no usage credit left. |
+
+## Push delivery
+
+Push delivery is best effort. A push service's `429` or `5xx` response gets at most one retry, if time remains. Timeouts aren't retried. Under heavy load or while a push service is failing, sends can be skipped, and they aren't queued for later. The notification stays available through [`puter.events.fetch()`](/Events/fetch/), and [`notify()`](/Notifications/notify/) can still resolve. See [push limits and timeouts](/rate-limits-and-quotas/#notifications).
+
+A browser is removed when its push service answers `404` or `410`. It can also be removed after 10 failed sends if it hasn't received a push or renewed its registration for over 3 days, or after 60 days without either. A page that calls [`onPush()`](/Notifications/onPush/) renews its registration.
 
 ## Good to know
 

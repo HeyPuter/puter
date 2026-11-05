@@ -354,6 +354,7 @@ describe('NotificationService.notifyUpdate', () => {
             appUid,
             value: { title: 'two messages', type: 'app.message' },
             updated: true,
+            replaced: true,
         });
         expect(desktop.seen).toEqual([]);
         expect(

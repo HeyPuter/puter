@@ -12,6 +12,8 @@ It runs on [Events](/Events/) and reads the `notif:app-user` [subject](/Events/s
 
 While a page has a listener, it tells Puter that it received each notification, and whether the user is looking at the page. That can keep the notification from going out as a push, as [When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed) describes.
 
+Dismissals are delivered to [`on('dismiss')`](/Notifications/on/) handlers. This listener also closes matching browser notifications when live dismissals arrive and checks up to 50 displayed notifications for earlier dismissals on startup and reconnect. Those checks close notifications without calling dismissal handlers.
+
 ## Syntax
 ```js
 puter.notifications.onNotification(handler)
