@@ -20,7 +20,10 @@ import { EventClient } from '../../clients/event/EventClient.js';
 import { BroadcastService } from '../broadcast/BroadcastService.js';
 import { makeActor } from '../../core/actor.js';
 import { FULL_API_ACCESS } from '../permission/consts.js';
-import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import {
+    checkRateLimit,
+    sweepMemoryWindows,
+} from '../../core/http/middleware/rateLimit.js';
 import { withAiCostFactorHook } from '../../drivers/integrationTestUtil';
 import type { IConfig } from '../../types';
 import type { PuterServer } from '../../server';
@@ -243,6 +246,12 @@ describe('OpenAIRealtimeRelayService relay', () => {
         await vi.waitFor(() => expect(upstream.clients.size).toBe(0), {
             timeout: 8_000,
         });
+        // Every test connects from loopback; expire the per-IP pre-auth
+        // window so the file's total stays under that limit.
+        const now = Date.now();
+        vi.spyOn(Date, 'now').mockReturnValue(now + 24 * 60 * 60_000);
+        sweepMemoryWindows();
+        vi.restoreAllMocks();
     });
 
     beforeAll(async () => {
@@ -1869,6 +1878,234 @@ describe('OpenAIRealtimeRelayService relay', () => {
         expect(
             rows.some((r) => r.usageType.endsWith('transcription_unreported')),
         ).toBe(false);
+    });
+
+    describe('unacknowledged input audio', () => {
+        const ITEM = 10_896_000;
+        // Reports a provider session with transcription on and `input`.
+        const configureProvider = async (
+            c: ReturnType<typeof open>,
+            input: object,
+        ) => {
+            const seen = c.events.filter(
+                (e) => e.type === 'session.updated',
+            ).length;
+            providerEvent(c, {
+                type: 'session.updated',
+                session: {
+                    input_audio_transcription: { model: 'gpt-4o-transcribe' },
+                    ...input,
+                },
+            });
+            await vi.waitFor(() =>
+                expect(
+                    c.events.filter((e) => e.type === 'session.updated'),
+                ).toHaveLength(seen + 1),
+            );
+        };
+        const appends = (c: ReturnType<typeof open>) =>
+            c.events.filter(
+                (e) =>
+                    e.type === 'echo' &&
+                    (e.event as { type: string }).type ===
+                        'input_audio_buffer.append',
+            ).length;
+        // Streams `seconds` of audio at `rate` bytes per second in frames of
+        // 48,000 decoded bytes, advancing the clock past the byte-rate limit.
+        const streamAudio = async (
+            c: ReturnType<typeof open>,
+            seconds: number,
+            rate: number,
+        ) => {
+            const frame = JSON.stringify({
+                type: 'input_audio_buffer.append',
+                audio: 'A'.repeat(64_000),
+            });
+            const realNow = Date.now.bind(Date);
+            let offset = 0;
+            const spy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+            const start = appends(c);
+            const frames = Math.ceil((seconds * rate) / 48_000);
+            for (let i = 1; i <= frames; i++) {
+                offset += 600;
+                c.ws.send(frame);
+                await vi.waitFor(() => expect(appends(c)).toBe(start + i));
+            }
+        };
+        const transcriptionRows = (
+            recorded: ReturnType<typeof vi.spyOn>,
+        ) =>
+            (recorded.mock.calls as [unknown, UsageRow[]][])
+                .flatMap(([, rows]) => rows)
+                .filter((r) => r.usageType.includes('transcription_'))
+                .map((r) => [r.usageType, r.usageAmount, r.costOverride]);
+        type UsageRow = {
+            usageType: string;
+            usageAmount: number;
+            costOverride?: number;
+        };
+        const setup = async (name: string) => {
+            const holder = await createTestUser(server, {
+                username: `unacked-audio-${name}`,
+                password: 'unacked-audio-password',
+            });
+            const row = await server.stores.user.getByUsername(
+                holder.username,
+            );
+            const recorded = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            const c = open(`${relayUrl}?auth_token=${holder.token}`);
+            await enableTranscription(c);
+            const held = () =>
+                server.services.metering.getOutstandingHolds({
+                    user: row,
+                } as never);
+            return { c, recorded, held };
+        };
+
+        it('keeps a PCM16 session streaming well past 27 seconds without a commit', async () => {
+            const { c, recorded, held } = await setup('pcm16');
+            await configureProvider(c, { input_audio_format: 'pcm16' });
+            await streamAudio(c, 40, 48_000);
+            expect(c.ws.readyState).toBe(WebSocket.OPEN);
+            expect(c.events.some((e) => e.type === 'error')).toBe(false);
+            expect(await held()).toBe(2 * ITEM);
+            providerEvent(c, {
+                type: 'input_audio_buffer.committed',
+                item_id: 'A',
+            });
+            providerEvent(c, {
+                type: 'conversation.item.input_audio_transcription.completed',
+                item_id: 'A',
+                usage: { type: 'duration', seconds: 40 },
+            });
+            await c.waitFor(
+                'conversation.item.input_audio_transcription.completed',
+            );
+            c.ws.close();
+            await vi.waitFor(async () => expect(await held()).toBe(0));
+            expect(
+                transcriptionRows(recorded).some(([type]) =>
+                    (type as string).endsWith('transcription_unreported'),
+                ),
+            ).toBe(false);
+        }, 30_000);
+
+        it('holds and bills one item per 160 seconds of audio whose commit is lost', async () => {
+            const { c, recorded, held } = await setup('long');
+            await configureProvider(c, { input_audio_format: 'g711_ulaw' });
+            await streamAudio(c, 200, 8_000);
+            expect(c.ws.readyState).toBe(WebSocket.OPEN);
+            // Two items cover the audio; a spare covers the next commit.
+            await vi.waitFor(async () => expect(await held()).toBe(3 * ITEM));
+            c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            await vi.waitFor(() =>
+                expect(transcriptionRows(recorded)).toEqual([
+                    [
+                        'openai:gpt-4o-transcribe:realtime:transcription_unreported',
+                        2,
+                        2 * ITEM,
+                    ],
+                ]),
+            );
+            await vi.waitFor(async () => expect(await held()).toBe(0));
+        }, 30_000);
+
+        it.each(['upstreamDrop', 'clientClose'] as const)(
+            'bills no fallback for silence under server VAD (%s)',
+            async (ending) => {
+                const { c, recorded, held } = await setup(`vad-${ending}`);
+                await configureProvider(c, {
+                    turn_detection: { type: 'server_vad' },
+                });
+                for (let i = 0; i < 3; i++) {
+                    c.ws.send(
+                        JSON.stringify({
+                            type: 'input_audio_buffer.append',
+                            audio: 'AAAA',
+                        }),
+                    );
+                }
+                await vi.waitFor(() => expect(appends(c)).toBe(3));
+                const before = upstreamEvents.length;
+                if (ending === 'upstreamDrop') {
+                    c.ws.send(JSON.stringify({ type: 'test.drop' }));
+                } else {
+                    c.ws.close();
+                }
+                await vi.waitFor(async () => expect(await held()).toBe(0));
+                expect(transcriptionRows(recorded)).toEqual([]);
+                // The settle has nothing to commit.
+                expect(
+                    upstreamEvents
+                        .slice(before)
+                        .some((e) => e.type === 'input_audio_buffer.commit'),
+                ).toBe(false);
+            },
+        );
+
+        it('bills detected speech whose commit is lost under server VAD', async () => {
+            const { c, recorded, held } = await setup('vad-speech');
+            await configureProvider(c, {
+                audio: {
+                    input: {
+                        format: { type: 'audio/pcm', rate: 24_000 },
+                        turn_detection: { type: 'server_vad' },
+                    },
+                },
+            });
+            c.ws.send(
+                JSON.stringify({
+                    type: 'input_audio_buffer.append',
+                    audio: 'AAAA',
+                }),
+            );
+            await vi.waitFor(() => expect(appends(c)).toBe(1));
+            providerEvent(c, {
+                type: 'input_audio_buffer.speech_started',
+                audio_start_ms: 0,
+                item_id: 'A',
+            });
+            await c.waitFor('input_audio_buffer.speech_started');
+            c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            await vi.waitFor(() =>
+                expect(transcriptionRows(recorded)).toEqual([
+                    [
+                        'openai:gpt-4o-transcribe:realtime:transcription_unreported',
+                        1,
+                        ITEM,
+                    ],
+                ]),
+            );
+            await vi.waitFor(async () => expect(await held()).toBe(0));
+        });
+
+        it('bills no fallback after the provider refuses an empty commit', async () => {
+            const { c, recorded, held } = await setup('commit-empty');
+            c.ws.send(
+                JSON.stringify({
+                    type: 'input_audio_buffer.append',
+                    audio: 'AAAA',
+                }),
+            );
+            c.ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+            await c.waitForEcho('input_audio_buffer.commit');
+            providerEvent(c, {
+                type: 'error',
+                error: {
+                    type: 'invalid_request_error',
+                    code: 'input_audio_buffer_commit_empty',
+                    message: 'buffer too small',
+                },
+            });
+            await c.waitFor('error');
+            c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            await c.closed;
+            await vi.waitFor(async () => expect(await held()).toBe(0));
+            expect(transcriptionRows(recorded)).toEqual([]);
+        });
     });
 
     it('refuses an unpriced initial provider model before forwarding buffered client frames', async () => {

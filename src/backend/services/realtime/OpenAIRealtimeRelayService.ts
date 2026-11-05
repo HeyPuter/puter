@@ -173,8 +173,9 @@ const SPARE_TRANSCRIPTIONS = 2;
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;
 const TRANSCRIPTION_HOLD_TTL_MS = 90_000;
 const TRANSCRIPTION_AUDIO_SECONDS = 160;
-// G.711 uses the fewest bytes per second of the supported input formats.
-const MAX_UNCOMMITTED_AUDIO_BYTES = 8_000 * TRANSCRIPTION_AUDIO_SECONDS;
+// Input audio bytes per second: 24 kHz PCM16 (the provider default) and G.711.
+const PCM16_AUDIO_RATE = 48_000;
+const G711_AUDIO_RATE = 8_000;
 const TRANSCRIPTION_BUDGET_TOKENS = {
     audioIn: 8_000,
     textIn: 8_000,
@@ -443,11 +444,12 @@ const transcriptionItemBudget = (model: string | undefined): number =>
 
 const unreportedTranscriptionRows = (
     model: string | undefined,
+    items = 1,
 ): UsageInput[] => [
     {
         usageType: `openai:${transcriptionBillingModel(model)}:realtime:transcription_unreported`,
-        usageAmount: 1,
-        costOverride: transcriptionItemBudget(model),
+        usageAmount: items,
+        costOverride: items * transcriptionItemBudget(model),
     },
 ];
 
@@ -495,6 +497,39 @@ const transcriptionModelOf = (session: unknown): string | undefined => {
         s?.audio?.input?.transcription?.model ??
         s?.input_audio_transcription?.model;
     return typeof model === 'string' ? model : undefined;
+};
+
+/**
+ * The input audio bytes per second, and whether server turn detection commits
+ * the buffer, as a session or `session.update` sets them. Fields the session
+ * leaves out are undefined.
+ */
+const inputAudioOf = (session: unknown): { rate?: number; vad?: boolean } => {
+    if (!isRecord(session)) return {};
+    const input =
+        isRecord(session.audio) && isRecord(session.audio.input)
+            ? session.audio.input
+            : undefined;
+    const format = input ? input.format : session.input_audio_format;
+    let rate: number | undefined;
+    if (format === 'pcm16') rate = PCM16_AUDIO_RATE;
+    else if (isRecord(format) && format.type === 'audio/pcm') {
+        rate =
+            typeof format.rate === 'number' && format.rate > 0
+                ? 2 * format.rate
+                : PCM16_AUDIO_RATE;
+    } else if (format !== undefined && format !== null) {
+        // G.711, or a format the relay doesn't know, counted at the lowest rate.
+        rate = G711_AUDIO_RATE;
+    }
+    const turnDetection =
+        input && 'turn_detection' in input
+            ? input.turn_detection
+            : session.turn_detection;
+    return {
+        rate,
+        vad: turnDetection === undefined ? undefined : turnDetection !== null,
+    };
 };
 
 /**
@@ -882,9 +917,59 @@ export class OpenAIRealtimeRelayService extends PuterService {
         // Transcription holds of this session not yet released.
         let heldTranscriptions = 0;
         let reservations: Promise<unknown> = Promise.resolve();
-        // Decoded audio forwarded since the provider last acknowledged a commit
-        // or clear; it bills as one item if the upstream closes first.
-        let uncommittedAudio = 0;
+        // Forwarded input audio as a timeline in ms, and where the audio the
+        // provider may commit without an acknowledgement reaching the relay
+        // begins (null: none). Without turn detection that is everything since
+        // the last commit or clear; with it, only detected speech, since the
+        // provider drops silence. If the upstream closes first, it bills one
+        // item per TRANSCRIPTION_AUDIO_SECONDS, held as it arrives.
+        let audioMs = 0;
+        let ackedAtMs = 0;
+        let unackedFromMs: number | null = null;
+        let audioRate = PCM16_AUDIO_RATE;
+        // A lower rate the client requested, until the provider reports it.
+        let requestedAudioRate: number | undefined;
+        let serverVad = false;
+        const audioHolds: CreditHold[] = [];
+        const unackedItems = () =>
+            unackedFromMs === null
+                ? 0
+                : Math.max(
+                      1,
+                      Math.ceil(
+                          (audioMs - unackedFromMs) /
+                              (TRANSCRIPTION_AUDIO_SECONDS * 1000),
+                      ),
+                  );
+        const claimAudioHolds = () => {
+            while (
+                audioHolds.length < unackedItems() &&
+                spareTranscriptions.length
+            )
+                audioHolds.push(spareTranscriptions.shift()!);
+        };
+        // A commit or clear accounts for the audio; its holds become spares.
+        const acknowledgeAudio = () => {
+            ackedAtMs = audioMs;
+            unackedFromMs = null;
+            spareTranscriptions.unshift(...audioHolds.splice(0));
+            for (const hold of spareTranscriptions.splice(
+                SPARE_TRANSCRIPTIONS,
+            )) {
+                hold.release().catch((err) =>
+                    console.warn('[realtime] credit hold release failed', err),
+                );
+            }
+        };
+        // The provider's input format and turn detection.
+        const noteInputAudio = (session: unknown) => {
+            const { rate, vad } = inputAudioOf(session);
+            if (rate !== undefined) {
+                audioRate = rate;
+                if (rate === requestedAudioRate) requestedAudioRate = undefined;
+            }
+            if (vad !== undefined) serverVad = vad;
+        };
         // The transcription model last requested or reported.
         let selectedTranscriptionModel: string | undefined;
         let wantsTranscription = false;
@@ -945,13 +1030,13 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 (inFlight === 0 &&
                     requested === 0 &&
                     pendingTranscriptions.size === 0 &&
-                    uncommittedAudio === 0)
+                    unackedFromMs === null)
             ) {
                 endUpstream();
                 return;
             }
             if (up.isPaused) up.resume();
-            if (uncommittedAudio > 0)
+            if (unackedFromMs !== null)
                 up.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
             settleTimer = setTimeout(endUpstream, SETTLE_MS);
             // A requested response is cancelled once it starts.
@@ -1012,7 +1097,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 }
                 settleUpstream();
                 // Uncommitted audio may still need a reserved item to bill.
-                if (uncommittedAudio === 0) releaseSpareTranscriptions();
+                if (unackedFromMs === null) releaseSpareTranscriptions();
             },
             // Called every HEARTBEAT_MS; a client that missed the last ping is
             // gone without a close frame.
@@ -1025,6 +1110,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 if (client.readyState === WebSocket.OPEN) client.ping();
                 void Promise.all([
                     ...spareTranscriptions,
+                    ...audioHolds,
                     ...[...pendingTranscriptions.values()].map((p) => p.hold),
                 ])
                     .then((held) =>
@@ -1388,7 +1474,9 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (
                 closed ||
                 name !== (spareModel ?? 'unknown') ||
-                pendingTranscriptions.size + spareTranscriptions.length >=
+                pendingTranscriptions.size +
+                    spareTranscriptions.length +
+                    audioHolds.length >=
                     MAX_PENDING_TRANSCRIPTIONS
             ) {
                 await hold.release();
@@ -1402,8 +1490,11 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 spareModel === undefined ||
                 toppingUp ||
                 closed ||
-                spareTranscriptions.length >= SPARE_TRANSCRIPTIONS ||
-                pendingTranscriptions.size + spareTranscriptions.length >=
+                spareTranscriptions.length + audioHolds.length >=
+                    SPARE_TRANSCRIPTIONS ||
+                pendingTranscriptions.size +
+                    spareTranscriptions.length +
+                    audioHolds.length >=
                     MAX_PENDING_TRANSCRIPTIONS
             )
                 return;
@@ -1502,16 +1593,37 @@ export class OpenAIRealtimeRelayService extends PuterService {
                             closed &&
                             requested === 0 &&
                             pendingTranscriptions.size === 0 &&
-                            uncommittedAudio === 0
+                            unackedFromMs === null
                         )
                             endUpstream();
                     }
                     break;
+                case 'input_audio_buffer.speech_started': {
+                    // Detected speech is committed when it stops, from where
+                    // the provider says it began.
+                    if (unackedFromMs !== null || audioMs === ackedAtMs) break;
+                    const start = (event as { audio_start_ms?: unknown })
+                        .audio_start_ms;
+                    unackedFromMs =
+                        typeof start === 'number'
+                            ? Math.min(Math.max(start, ackedAtMs), audioMs)
+                            : ackedAtMs;
+                    claimAudioHolds();
+                    break;
+                }
+                case 'error':
+                    // A commit of an empty buffer added no item.
+                    if (
+                        (event as { error?: { code?: unknown } }).error
+                            ?.code === 'input_audio_buffer_commit_empty'
+                    )
+                        acknowledgeAudio();
+                    break;
                 case 'input_audio_buffer.cleared':
-                    uncommittedAudio = 0;
+                    acknowledgeAudio();
                     break;
                 case 'input_audio_buffer.committed': {
-                    uncommittedAudio = 0;
+                    acknowledgeAudio();
                     if (
                         !transcriptionModel ||
                         typeof event.item_id !== 'string' ||
@@ -1558,6 +1670,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 case 'session.created':
                 case 'session.updated':
                     transcriptionModel = transcriptionModelOf(event.session);
+                    noteInputAudio(event.session);
                     // The provider's model reprices spare items; disabling
                     // keeps them, since audio already sent may still commit.
                     if (transcriptionModel) {
@@ -1614,7 +1727,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     meter(rows, pending.hold);
                     if (!pendingTranscriptions.size && inFlight === 0) {
                         onIdle?.();
-                        if (closed && requested === 0 && uncommittedAudio === 0)
+                        if (closed && requested === 0 && unackedFromMs === null)
                             endUpstream();
                     }
                     break;
@@ -1697,21 +1810,31 @@ export class OpenAIRealtimeRelayService extends PuterService {
                         selectedTranscriptionModel = requestedModel;
                     const audio = (event as unknown as { audio?: unknown })
                         .audio;
-                    if (typeof audio === 'string') {
-                        const bytes = Buffer.byteLength(audio, 'base64');
-                        if (
-                            uncommittedAudio + bytes >
-                            MAX_UNCOMMITTED_AUDIO_BYTES
-                        ) {
-                            reject(
-                                'rate_limit_exceeded',
-                                'Transcription audio budget exceeded',
-                                CLOSE_TRY_AGAIN_LATER,
-                            );
-                            return undefined;
-                        }
-                        uncommittedAudio += bytes;
+                    if (typeof audio === 'string' && audio) {
+                        // Until the provider confirms a requested format,
+                        // the lower rate counts the longer duration.
+                        const rate = Math.min(
+                            audioRate,
+                            requestedAudioRate ?? audioRate,
+                        );
+                        if (!serverVad && unackedFromMs === null)
+                            unackedFromMs = audioMs;
+                        audioMs +=
+                            (Buffer.byteLength(audio, 'base64') * 1000) / rate;
+                        claimAudioHolds();
                     }
+                } else if (
+                    event.type === 'input_audio_buffer.commit' &&
+                    unackedFromMs === null &&
+                    audioMs > ackedAtMs
+                ) {
+                    // An explicit commit takes the buffer, silence included.
+                    unackedFromMs = ackedAtMs;
+                    claimAudioHolds();
+                }
+                if (event.type === 'session.update') {
+                    const { rate } = inputAudioOf(event.session);
+                    if (rate !== undefined) requestedAudioRate = rate;
                 }
                 pending.shift();
                 pendingBytes -= (next.data as Buffer).length;
@@ -2049,16 +2172,19 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 transcriptionHolds.push(pending.hold);
             }
             pendingTranscriptions.clear();
-            // Audio whose commit was never acknowledged is one more item.
-            if (uncommittedAudio > 0) {
-                uncommittedAudio = 0;
+            // Audio the provider may have committed without acknowledging it.
+            const unacked = unackedItems();
+            if (unacked) {
+                claimAudioHolds();
+                unackedFromMs = null;
                 transcriptionRows.push(
                     ...unreportedTranscriptionRows(
                         transcriptionModel ?? spareModel,
+                        unacked,
                     ),
                 );
-                const spare = spareTranscriptions.shift();
-                if (spare) transcriptionHolds.push(Promise.resolve(spare));
+                for (const hold of audioHolds.splice(0))
+                    transcriptionHolds.push(Promise.resolve(hold));
             }
             meter(transcriptionRows, ...transcriptionHolds);
             releaseSpareTranscriptions();

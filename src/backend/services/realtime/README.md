@@ -87,9 +87,15 @@ If the account can't cover another item, client reads pause while the session
 still holds items that may free credit, and the session is refused with
 `insufficient_funds` once it holds none.
 
-Audio forwarded since the provider last acknowledged a commit or clear is
-tracked apart from the pool. If the upstream closes before that audio's commit
-is acknowledged, it is billed as one item. Each committed item retains its model
+Audio the provider may commit without the relay seeing the acknowledgement is
+tracked apart from the pool, as a duration at the session's input format. Without
+turn detection that is all audio since the last acknowledged commit or clear.
+With server turn detection it is only speech from `speech_started`, since the
+provider drops silence, plus the buffer after an explicit commit. Each started
+160 seconds of it claims one held item, and an acknowledged commit, a clear, or
+an `input_audio_buffer_commit_empty` error returns those items to the spares.
+The session is never closed for its length. If the upstream closes first, each
+claimed item is billed. Each committed item retains its model
 until completion, failure, or bounded settlement. Missing usage is billed the
 item's fixed budget. Overflow closes the connection without evicting existing
 pending identities.
