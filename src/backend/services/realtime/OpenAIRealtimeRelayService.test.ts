@@ -39,6 +39,7 @@ import {
     MAX_REALTIME_MESSAGE_BYTES,
     MAX_UPSTREAM_MESSAGE_BYTES,
     OpenAIRealtimeRelayService,
+    promptMessagesOf,
     REALTIME_PATH,
     type RealtimeUsage,
     type RealtimeTranscriptionUsage,
@@ -119,6 +120,65 @@ describe('realtimeUsageRows', () => {
         expect(realtimeUsageRows('constructor', {})).toEqual([]);
         expect(realtimeUsageRows('gpt-4o', {})).toEqual([]);
         expect(realtimeUsageRows('gpt-realtime', undefined)).toEqual([]);
+    });
+});
+
+describe('promptMessagesOf', () => {
+    it('reads message text, transcripts and function output from items', () => {
+        expect(
+            promptMessagesOf({
+                type: 'conversation.item.create',
+                item: {
+                    type: 'message',
+                    role: 'assistant',
+                    content: [
+                        { type: 'output_text', text: 'Hi' },
+                        { type: 'output_audio', transcript: 'Spoken' },
+                        { type: 'input_audio', audio: 'AAAA' },
+                    ],
+                },
+            }),
+        ).toEqual([
+            { role: 'assistant', content: 'Hi' },
+            { role: 'assistant', content: 'Spoken' },
+        ]);
+        expect(
+            promptMessagesOf({
+                type: 'conversation.item.create',
+                item: { type: 'function_call_output', output: '{"ok":1}' },
+            }),
+        ).toEqual([{ role: 'tool', content: '{"ok":1}' }]);
+    });
+
+    it('reads response instructions and out-of-band input', () => {
+        expect(
+            promptMessagesOf({
+                type: 'response.create',
+                response: {
+                    instructions: 'Summarize.',
+                    input: [
+                        { type: 'item_reference', id: 'item_1' },
+                        {
+                            type: 'message',
+                            role: 'user',
+                            content: [{ type: 'input_text', text: 'Text' }],
+                        },
+                    ],
+                },
+            }),
+        ).toEqual([
+            { role: 'system', content: 'Summarize.' },
+            { role: 'user', content: 'Text' },
+        ]);
+    });
+
+    it('returns nothing for audio and other events', () => {
+        expect(
+            promptMessagesOf({ type: 'input_audio_buffer.append', audio: 'x' }),
+        ).toEqual([]);
+        expect(
+            promptMessagesOf({ type: 'session.update', session: {} }),
+        ).toEqual([]);
     });
 });
 
@@ -1378,6 +1438,139 @@ describe('OpenAIRealtimeRelayService relay', () => {
         } finally {
             server.clients.event.off('ip.validate', deny);
         }
+    });
+
+    describe('prompt checks', () => {
+        type Check = {
+            completionId: string;
+            allow: boolean;
+            parameters: { model: string; messages: unknown[] };
+        };
+        let checks: Check[];
+        let costs: Record<string, unknown>[];
+        let refuse: (check: Check) => boolean;
+        const validate = (_key: string, data: Check) => {
+            checks.push(structuredClone(data));
+            if (refuse(data)) data.allow = false;
+        };
+        const costCalculated = (_key: string, data: Record<string, unknown>) =>
+            void costs.push(data);
+
+        beforeEach(() => {
+            checks = [];
+            costs = [];
+            refuse = () => false;
+            server.clients.event.on('ai.prompt.validate', validate as never);
+            server.clients.event.on(
+                'ai.prompt.cost-calculated',
+                costCalculated as never,
+            );
+        });
+        afterEach(() => {
+            server.clients.event.off('ai.prompt.validate', validate as never);
+            server.clients.event.off(
+                'ai.prompt.cost-calculated',
+                costCalculated as never,
+            );
+        });
+
+        it('checks the text sent before each response and logs its cost under the same id', async () => {
+            const c = open(
+                `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+            );
+            await c.waitFor('session.created');
+            c.ws.send(
+                JSON.stringify({
+                    type: 'session.update',
+                    session: { instructions: 'Be brief.' },
+                }),
+            );
+            c.ws.send(
+                JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                        type: 'message',
+                        role: 'user',
+                        content: [{ type: 'input_text', text: 'Hello' }],
+                    },
+                }),
+            );
+            c.ws.send(JSON.stringify({ type: 'response.create' }));
+            await vi.waitFor(() => expect(costs).toHaveLength(1));
+            expect(checks).toEqual([
+                expect.objectContaining({
+                    allow: true,
+                    parameters: {
+                        model: 'gpt-realtime-mini',
+                        messages: [
+                            { role: 'system', content: 'Be brief.' },
+                            { role: 'user', content: 'Hello' },
+                        ],
+                    },
+                }),
+            ]);
+            expect(costs[0]).toMatchObject({
+                completionId: checks[0].completionId,
+                input_tokens: 7,
+                output_tokens: 3,
+                input_ucents: 7 * 60,
+                output_ucents: 3 * 240,
+                total_ucents: 7 * 60 + 3 * 240,
+                model_used: 'gpt-realtime-mini',
+            });
+
+            // A response with no new text is still logged.
+            c.ws.send(JSON.stringify({ type: 'response.create' }));
+            await vi.waitFor(() => expect(costs).toHaveLength(2));
+            expect(checks[1].parameters.messages).toEqual([]);
+            expect(costs[1].completionId).toBe(checks[1].completionId);
+            c.ws.close();
+        });
+
+        it('closes the session when the check refuses the text', async () => {
+            refuse = (check) =>
+                JSON.stringify(check.parameters.messages).includes('refuse me');
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await c.waitFor('session.created');
+            c.ws.send(
+                JSON.stringify({
+                    type: 'response.create',
+                    response: { instructions: 'refuse me' },
+                }),
+            );
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'permission_denied' },
+            });
+            expect((await c.closed).code).toBe(1008);
+            expect(costs).toHaveLength(0);
+        });
+
+        it('checks pending text on its own once it passes 64 KiB', async () => {
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await c.waitFor('session.created');
+            const item = (text: string) =>
+                JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                        type: 'message',
+                        role: 'user',
+                        content: [{ type: 'input_text', text }],
+                    },
+                });
+            c.ws.send(item('a'.repeat(40 * 1024)));
+            c.ws.send(item('b'.repeat(40 * 1024)));
+            c.ws.send(JSON.stringify({ type: 'response.create' }));
+            await vi.waitFor(() => expect(costs).toHaveLength(1));
+            expect(
+                checks.map((check) =>
+                    (check.parameters.messages as { content: string }[]).map(
+                        (m) => m.content[0],
+                    ),
+                ),
+            ).toEqual([['a'], ['b']]);
+            expect(costs[0].completionId).toBe(checks[1].completionId);
+            c.ws.close();
+        });
     });
 
     it('does not allocate credential limiter buckets for many unique invalid signatures', async () => {
