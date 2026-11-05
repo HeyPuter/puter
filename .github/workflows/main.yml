@@ -5,6 +5,11 @@ on:
     branches:
       - main
 
+permissions:
+  # Pushes the auto-update/release branch and opens the release pull request.
+  contents: write
+  pull-requests: write
+
 jobs:
   update-release-pr:
     runs-on: ubuntu-latest

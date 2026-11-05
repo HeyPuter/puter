@@ -5,6 +5,9 @@ on:
     paths:
       - 'src/docs/**'
 
+permissions:
+  contents: read
+
 jobs:
   build-docs:
     runs-on: ubuntu-latest
