@@ -12,7 +12,8 @@ html, body {
 .toolbar-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; height: 40px; flex-shrink: 0; }
 .toolbar-button, .toolbar-close { border: 0; background: transparent; color: var(--dashboard-text); cursor: pointer; border-radius: 8px; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; }
 .toolbar-button:hover, .toolbar-close:hover, .toolbar-item:hover, .toolbar-account:hover { background: var(--dashboard-input-background, #edf0f6); }
-.toolbar-upgrade { background: var(--dashboard-link, #5271ff); color: white; border-radius: 8px; padding: 10px 16px; text-decoration: none; font-size: 14px; font-weight: 600; }
+.toolbar-upgrade { background: var(--dashboard-button-primary); color: #fff; border-radius: 8px; padding: 10px 16px; text-decoration: none; font-size: 14px; font-weight: 600; }
+.toolbar-upgrade:hover { background: var(--dashboard-button-primary-hover); }
 .toolbar-grid { display: grid; grid-template-columns: repeat(3, 4px); gap: 3px; }
 .toolbar-grid i { width: 4px; height: 4px; border-radius: 1px; background: currentColor; }
 .toolbar-avatar { border-radius: 50%; background: #e5eaff; color: #3755c4; font-size: 18px; font-weight: 600; flex-shrink: 0; }

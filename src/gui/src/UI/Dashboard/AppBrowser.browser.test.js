@@ -313,6 +313,16 @@ describe('embedded toolbar', () => {
         } finally { await context.close(); }
     });
 
+    it('keeps Upgrade on the primary button fill, which white text stays legible on, in dark mode', async () => {
+        const { context, toolbar } = await openToolbar(undefined, sessionToken, [], { colorScheme: 'dark' });
+        try {
+            const upgrade = toolbar.getByRole('link', { name: 'Upgrade', exact: true });
+            expect(await upgrade.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(74, 103, 245)');
+            await upgrade.hover();
+            expect(await upgrade.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(61, 91, 217)');
+        } finally { await context.close(); }
+    });
+
     it('labels controls with translated text encoded once', async () => {
         const { context, toolbar } = await openToolbar(undefined, sessionToken, [{ name: 'user_preferences', value: '{"language":"de"}' }]);
         try {
