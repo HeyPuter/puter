@@ -22,10 +22,10 @@ jobs:
     outputs:
       puterjs: ${{ steps.filter.outputs.puterjs }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@v4.0.3
         id: filter
         with:
           filters: |
@@ -54,12 +54,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: '26'
           cache: 'npm'
@@ -77,12 +77,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: '26'
           cache: 'npm'
@@ -136,7 +136,7 @@ jobs:
     steps:
       - name: Checkout ${{ matrix.ref }}
         if: needs.changes.outputs.puterjs == 'true'
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
           ref: ${{ matrix.ref }}
@@ -144,7 +144,7 @@ jobs:
 
       - name: Set up Node.js
         if: needs.changes.outputs.puterjs == 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: '26'
           cache: 'npm'
@@ -168,7 +168,7 @@ jobs:
 
       - name: Upload coverage artifact
         if: needs.changes.outputs.puterjs == 'true' && !cancelled()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: puterjs-coverage-${{ matrix.artifact }}
           path: src/puter-js/coverage/coverage-*.json
@@ -181,12 +181,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
       - name: Download PR coverage
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v8.0.2
         with:
           name: puterjs-coverage-pr
           path: src/puter-js/coverage
@@ -196,14 +196,14 @@ jobs:
       - name: Download base coverage
         id: base-coverage
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v8.0.2
         with:
           name: puterjs-coverage-base
           path: coverage-base
 
       - name: Report coverage on PR
         if: steps.base-coverage.outcome == 'success'
-        uses: davelosert/vitest-coverage-report-action@v2
+        uses: davelosert/vitest-coverage-report-action@v2.13.2
         with:
           name: puter.js SDK
           json-summary-path: src/puter-js/coverage/coverage-summary.json
@@ -212,7 +212,7 @@ jobs:
 
       - name: Report coverage on PR (no base comparison)
         if: steps.base-coverage.outcome != 'success'
-        uses: davelosert/vitest-coverage-report-action@v2
+        uses: davelosert/vitest-coverage-report-action@v2.13.2
         with:
           name: puter.js SDK
           json-summary-path: src/puter-js/coverage/coverage-summary.json
