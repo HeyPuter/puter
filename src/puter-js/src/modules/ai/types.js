@@ -263,13 +263,13 @@
  * @property {string} [prompt] Non-empty text description of the image to generate. Missing, blank,
  * or non-string values reject with `prompt_required`.
  * @property {string} [model] Image model to use (provider-specific). Without one, the provider's
- * default applies: `'gpt-image-2'` (OpenAI, preferred when no provider is given),
+ * default applies: `'gpt-image-2.6-flare'` (OpenAI, preferred when no provider is given),
  * `'gemini-3.1-flash-image'` (Gemini), `'@cf/black-forest-labs/flux-1-schnell'` (Cloudflare),
  * `'grok-imagine-image'` (xAI), `'black-forest-labs/flux-schnell'` (Replicate),
  * `'seedream-5-0-lite-260128'` (BytePlus), or `'kling-v3'` (Kling).
  * @property {string} [quality] Image quality / output size tier. Interpretation is provider- and
  * model-specific: OpenAI GPT models take `'high'` | `'medium'` | `'low'` (default `'low'`),
- * `gpt-image-2` also accepts `'auto'`, and `gpt-image-2.5-sunburst` / `gpt-image-2.5-flare` also
+ * `gpt-image-2` also accepts `'auto'`, and the `gpt-image-2.5-*` / `gpt-image-2.6-*` models also
  * accept `'xhigh'` | `'max'` | `'auto'`; Gemini takes an output size tier `'512'` | `'1K'` | `'2K'` |
  * `'4K'` (availability varies by model); Kling takes `'1k'` (default) | `'2k'`, and `'4k'` on `kling-v3-omni`.
  * @property {string} [resolution] xAI output resolution: `'1k'` (default) or `'2k'`; model-specific resolution tier on Replicate.

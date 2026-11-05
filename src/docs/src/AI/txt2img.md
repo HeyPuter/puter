@@ -47,7 +47,7 @@ Without a model, these provider defaults apply:
 
 | Provider | Default model |
 |----------|---------------|
-| OpenAI | `gpt-image-2` |
+| OpenAI | `gpt-image-2.6-flare` |
 | Gemini | `gemini-3.1-flash-image` |
 | Cloudflare | `@cf/black-forest-labs/flux-1-schnell` |
 | xAI | `grok-imagine-image` |
@@ -55,7 +55,7 @@ Without a model, these provider defaults apply:
 | BytePlus | `seedream-5-0-lite-260128` |
 | Kling | `kling-v3` |
 
-When neither is supplied, OpenAI's `gpt-image-2` is used.
+When neither is supplied, OpenAI's `gpt-image-2.6-flare` is used.
 
 Discover the image catalog, including model IDs, aliases, provider names, and pricing metadata:
 
@@ -98,12 +98,12 @@ Raw base64 carries no MIME type of its own. When it cannot be detected from the 
 
 #### OpenAI Options
 
-Available when `provider: 'openai'` or inferred from model (`gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`):
+Available when `provider: 'openai'` or inferred from model (`gpt-image-2.6-sunburst`, `gpt-image-2.6-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`):
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | Image model to use. Available: `'gpt-image-2.5-sunburst'`, `'gpt-image-2.5-flare'`, `'gpt-image-2'` (default). |
-| `quality` | `String` | Image quality: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'`, and the `gpt-image-2.5-*` models also accept `'xhigh'`, `'max'`, and `'auto'`. Case-insensitive; unrecognized values fall back to `'low'`. |
+| `model` | `String` | Image model to use. Available: `'gpt-image-2.6-flare'` (default), `'gpt-image-2.6-sunburst'`, `'gpt-image-2.5-sunburst'`, `'gpt-image-2.5-flare'`, `'gpt-image-2'`. |
+| `quality` | `String` | Image quality: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'`, and the `gpt-image-2.5-*` and `gpt-image-2.6-*` models also accept `'xhigh'`, `'max'`, and `'auto'`. Case-insensitive; unrecognized values fall back to `'low'`. |
 | `ratio` | `Object` | Aspect ratio with `w` and `h` properties. All GPT Image models accept dynamic sizes subject to provider limits (16-pixel steps, 3:1 maximum ratio, 3840-pixel edge cap) |
 | `input_image` | `String` | An input image for image-to-image editing, as a URL or base64/data-URI. |
 | `input_images` | `Array<String>` | Multiple input images (URL or base64/data-URI) for image-to-image editing. |
@@ -301,7 +301,7 @@ Other `upstream_*` codes mean the provider rejected the request or was unavailab
     <script>
         // Generate an image of a cat playing piano using a specific model and quality set to low
         puter.ai.txt2img("a cat playing the piano", {
-            model: "gpt-image-2",
+            model: "gpt-image-2.6-flare",
             quality: "low"
         }).then((image)=>{
             document.body.appendChild(image);
