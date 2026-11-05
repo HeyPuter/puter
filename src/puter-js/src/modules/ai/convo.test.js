@@ -1705,25 +1705,71 @@ describe('restart notice', () => {
 
 describe('context replay after a reconnect', () => {
     it.each(['x'.repeat(49 * 1024), '😀'.repeat(13 * 1024)])(
-        'reports omitted context once and remains usable',
+        'reports omitted context as trimming, not an error, and remains usable',
         async (text) => {
             const c = await connected();
             fakeTime();
-            const error = vi.fn();
-            c.on('error', error);
+            const log = track(c);
             socket().deliver(userText('old', 'tiny'));
             socket().deliver(userText('large', text));
             socket().close(1006);
             await answerReconnect();
             expect(replayed()).toEqual([]);
-            expect(error).toHaveBeenCalledTimes(1);
-            expect(error.mock.calls[0][0]).toMatchObject({
-                code: 'context_restore_failed',
-            });
+            expect(log.errors()).toEqual([]);
+            expect(
+                log.events.filter((e) => e.type === 'context_trimmed'),
+            ).toEqual([{ type: 'context_trimmed', omittedItems: 2 }]);
             expect(c.state).toBe('connected');
             expect(() => c.sendText('continue')).not.toThrow();
         },
     );
+
+    it('reports trimming before ready on each reconnect of a long conversation', async () => {
+        const c = await connected();
+        fakeTime();
+        const log = track(c);
+        for (let i = 1; i <= 50; i++)
+            socket().deliver(userText(`u${i}`, `m${i}`));
+        socket().close(1006);
+        await answerReconnect();
+        socket().close(1006);
+        await answerReconnect();
+        const types = log.types();
+        const trimmed = log.events.filter((e) => e.type === 'context_trimmed');
+        expect(trimmed).toHaveLength(2);
+        expect(trimmed[0]).toEqual({
+            type: 'context_trimmed',
+            omittedItems: 10,
+        });
+        expect(types.indexOf('context_trimmed')).toBeLessThan(
+            types.indexOf('ready'),
+        );
+        expect(log.errors()).toEqual([]);
+    });
+
+    it('keeps trimming and a provider refusal of the restored items distinct', async () => {
+        const c = await connected();
+        fakeTime();
+        const log = track(c);
+        for (let i = 1; i <= 41; i++)
+            socket().deliver(userText(`u${i}`, `m${i}`));
+        socket().close(1006);
+        await answerReconnect();
+        const [id] = socket()
+            .sent.filter((event) => event.type === 'conversation.item.create')
+            .map((event) => event.event_id);
+        socket().deliver({
+            type: 'error',
+            error: { code: 'invalid_value', message: 'Nope', event_id: id },
+        });
+        expect(log.events.filter((e) => e.type === 'context_trimmed')).toEqual([
+            { type: 'context_trimmed', omittedItems: 1 },
+        ]);
+        expect(log.errors()).toMatchObject([
+            { code: 'context_restore_failed' },
+        ]);
+        expect(c.state).toBe('connected');
+    });
 
     it('restores finished items in order, before ready, after a dropped connection', async () => {
         const c = await connected();

@@ -582,10 +582,9 @@ export class Conversation extends RealtimeEvents {
             MAX_REPLAY_ITEMS,
             MAX_REPLAY_BYTES,
         );
+        // Routine trimming to the restore window, not a failure.
         if (omittedItems)
-            this.#replayFailed(
-                `${omittedItems} items omitted from the restore window`,
-            );
+            this.emitRealtime({ type: 'context_trimmed', omittedItems });
         if (!entries.length) return;
         const events = entries.map(({ item }) => ({
             type: 'conversation.item.create',
