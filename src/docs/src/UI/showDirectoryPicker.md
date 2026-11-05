@@ -19,7 +19,16 @@ A set of key/value pairs that configure the directory picker dialog.
 * `multiple` (Boolean): if set to `true`, user will be able to select multiple directories. Default is `false`.
 
 ## Return value 
-A `Promise` that resolves to either one [`FSItem`](/Objects/fsitem) or an array of [`FSItem`](/Objects/fsitem) objects, depending on how many directories were selected by the user. 
+A `Promise` that resolves to either one [`FSItem`](/Objects/fsitem) or an array of [`FSItem`](/Objects/fsitem) objects, depending on how many directories were selected by the user. If the user cancels, the promise stays pending.
+
+The returned promise also has an `undefinedOnCancel` property. It holds a second promise that resolves to the same result, or to `undefined` if the user cancels:
+
+```js
+const directory = await puter.ui.showDirectoryPicker().undefinedOnCancel;
+if (directory === undefined) {
+    // the user closed the picker without choosing a directory
+}
+```
 
 ## Examples
 

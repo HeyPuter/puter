@@ -43,17 +43,22 @@ import {
     vi,
     type MockInstance,
 } from 'vitest';
-import { UnsupportedDocumentException } from '@aws-sdk/client-textract';
+import {
+    InvalidS3ObjectException,
+    UnsupportedDocumentException,
+} from '@aws-sdk/client-textract';
 import { v4 as uuidv4 } from 'uuid';
 
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
+import { buildPdf } from '../../testFixtures/pdf.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { OCRDriver } from './OCRDriver.js';
 import { OCR_COSTS } from './costs.js';
+import textractUsWest2 from './fixtures/textract-us-west-2.json';
 
 // ── SDK mocks ───────────────────────────────────────────────────────
 //
@@ -77,6 +82,8 @@ vi.mock('@aws-sdk/client-textract', async () => {
             opts: unknown,
         ) {
             textractCtor(opts);
+            // Lets a test read which region's client sent each command.
+            this.region = (opts as { region?: string }).region;
             this.send = textractSendMock;
         }),
     };
@@ -97,21 +104,81 @@ vi.mock('@mistralai/mistralai', () => ({
     }),
 }));
 
+// -- Textract price lists --
+//
+// AWS's public price list is the network boundary for Textract pricing.
+// Puter files live in the default bucket region (us-west-2, priced from the
+// trimmed public fixture); Textract is configured for us-east-1, served
+// here at a deliberately different first-tier rate so the two can't be
+// confused.
+
+const S3_REGION = 'us-west-2';
+const CONFIGURED_REGION = 'us-east-1';
+const S3_RATE = 150000;
+const CONFIGURED_RATE = 200000;
+const TEXTRACT_USAGE = 'aws-textract:detect-document-text:page';
+
+/** The fixture re-published for another region at another first-tier price. */
+const textractPriceList = (region: string, usd: string) => {
+    const doc = structuredClone(textractUsWest2) as Record<string, any>;
+    for (const product of Object.values(doc.products) as any[]) {
+        product.attributes.regionCode = region;
+    }
+    const term = Object.values(doc.terms.OnDemand.GDBP4PSVE9T6ZMUT)[0] as any;
+    term.priceDimensions[
+        'GDBP4PSVE9T6ZMUT.JRTCKXETXF.SB2VSFF4TP'
+    ].pricePerUnit.USD = usd;
+    return doc;
+};
+
+const priceLists: Record<string, unknown> = {};
+const resetPriceLists = () => {
+    priceLists[S3_REGION] = textractUsWest2;
+    priceLists[CONFIGURED_REGION] = textractPriceList(
+        CONFIGURED_REGION,
+        '0.0020000000',
+    );
+};
+resetPriceLists();
+
+const PRICE_LIST_PREFIX =
+    'https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonTextract/current/';
+const priceListRequests: string[] = [];
+const realFetch = globalThis.fetch;
+const priceListFetch = async (
+    input: string | URL | Request,
+    init?: RequestInit,
+): Promise<Response> => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (!url.startsWith(PRICE_LIST_PREFIX)) return realFetch(input, init);
+    priceListRequests.push(url);
+    const region = url.slice(PRICE_LIST_PREFIX.length).split('/')[0]!;
+    const doc = priceLists[region];
+    return doc ? Response.json(doc) : new Response('missing', { status: 404 });
+};
+
+/** Which region's client sent each Textract command, in order. */
+const sentRegions = () =>
+    textractSendMock.mock.contexts.map(
+        (client) => (client as { region?: string }).region,
+    );
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
 let driver: OCRDriver;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
+    vi.stubGlobal('fetch', priceListFetch);
     server = await setupTestServer({
         providers: {
             'aws-textract': {
                 aws: {
                     access_key: 'AKIA-TEST',
                     secret_key: 'secret',
-                    region: 'us-west-2',
+                    region: CONFIGURED_REGION,
                 },
             },
             'mistral-ocr': { apiKey: 'mistral-key' },
@@ -122,6 +189,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
     await server?.shutdown();
+    vi.unstubAllGlobals();
 });
 
 beforeEach(() => {
@@ -131,7 +199,7 @@ beforeEach(() => {
     mistralCtor.mockReset();
     // Spy on metering — keep the real impl so its recording side runs,
     // but capture calls so per-test assertions can inspect them.
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -178,14 +246,29 @@ const dataUrl = (buffer: Buffer, mime: string) =>
 // ── getReportedCosts ────────────────────────────────────────────────
 
 describe('OCRDriver.getReportedCosts', () => {
-    it('mirrors every entry in costs.ts as a per-page line item', () => {
-        const reported = driver.getReportedCosts();
+    it('reports every usage type per page, Textract at the configured region rate', async () => {
+        // The configured region's price list loads at startup, off the
+        // report's synchronous path.
+        await vi.waitFor(() =>
+            expect(
+                driver
+                    .getReportedCosts()
+                    .find((c) => c.usageType === TEXTRACT_USAGE)?.ucentsPerUnit,
+            ).toBe(CONFIGURED_RATE),
+        );
+        expect(priceListRequests).toContain(
+            `${PRICE_LIST_PREFIX}${CONFIGURED_REGION}/index.json`,
+        );
 
+        const reported = driver.getReportedCosts();
         expect(reported).toHaveLength(Object.keys(OCR_COSTS).length);
         for (const [usageType, ucentsPerUnit] of Object.entries(OCR_COSTS)) {
             expect(reported).toContainEqual({
                 usageType,
-                ucentsPerUnit,
+                ucentsPerUnit:
+                    usageType === TEXTRACT_USAGE
+                        ? CONFIGURED_RATE
+                        : ucentsPerUnit,
                 unit: 'page',
                 source: 'driver:aiOcr',
             });
@@ -252,7 +335,7 @@ describe('OCRDriver.recognize (aws-textract)', () => {
     };
 
     it('throws 402 when the actor does not have enough credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         const { actor } = await makeUser();
 
         await expect(
@@ -348,15 +431,65 @@ describe('OCRDriver.recognize (aws-textract)', () => {
         expect(textractSendMock).not.toHaveBeenCalled();
     });
 
-    // Note: the S3Object-source branch (driver picks `Document.S3Object`
-    // over inline Bytes when fsEntry has a bucket, and constructs a
-    // TextractClient for that bucket's region) is best exercised by an
-    // *.integration.test.ts against real S3 + Textract — the in-memory
-    // S3 store doesn't deterministically produce a bucket-bearing
-    // fsEntry, and the driver's per-region TextractClient cache leaks
-    // across tests.
+    const writePuterImage = async (): Promise<{
+        actor: Actor;
+        path: string;
+        bytes: Buffer;
+    }> => {
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user.username}/scan.png`;
+        const bytes = Buffer.from('png-bytes');
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: bytes.byteLength,
+                contentType: 'image/png',
+            },
+            fileContent: bytes,
+        });
+        return { actor, path, bytes };
+    };
 
-it('meters one usage line per detected page at the per-page rate from costs.ts', async () => {
+    it('reads a Puter file straight from S3, never downloading it', async () => {
+        const { actor, path } = await writePuterImage();
+        const s3Read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        textractSendMock.mockResolvedValueOnce(sampleTextractResponse);
+
+        await withActor(actor, () =>
+            driver.recognize({ source: { path }, provider: 'aws-textract' }),
+        );
+
+        const sentCmd = textractSendMock.mock.calls[0]![0];
+        expect(sentCmd.input.Document.S3Object).toMatchObject({
+            Name: expect.any(String),
+        });
+        expect(sentCmd.input.Document.Bytes).toBeUndefined();
+        expect(s3Read).not.toHaveBeenCalled();
+    });
+
+    it('downloads the bytes only when Textract cannot read the S3 object', async () => {
+        const { actor, path, bytes } = await writePuterImage();
+        const s3Read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        textractSendMock
+            .mockRejectedValueOnce(
+                new InvalidS3ObjectException({
+                    message: 'unreachable bucket',
+                    $metadata: {},
+                }),
+            )
+            .mockResolvedValueOnce(sampleTextractResponse);
+
+        await withActor(actor, () =>
+            driver.recognize({ source: { path }, provider: 'aws-textract' }),
+        );
+
+        expect(s3Read).toHaveBeenCalledTimes(1);
+        expect(
+            textractSendMock.mock.calls[1]![0].input.Document.Bytes,
+        ).toEqual(bytes);
+    });
+
+    it('meters one usage line per detected page at the configured region rate', async () => {
         const { actor } = await makeUser();
         textractSendMock.mockResolvedValueOnce(sampleTextractResponse);
 
@@ -367,8 +500,9 @@ it('meters one usage line per detected page at the per-page rate from costs.ts',
             }),
         );
 
-        const usageType = 'aws-textract:detect-document-text:page';
-        const perPage = OCR_COSTS[usageType];
+        const usageType = TEXTRACT_USAGE;
+        const perPage = CONFIGURED_RATE;
+        expect(sentRegions()).toEqual([CONFIGURED_REGION]);
         // sampleTextractResponse has 2 PAGE blocks → bill 2 pages.
         const ocrCalls = incrementUsageSpy.mock.calls.filter(
             ([, type]) => type === usageType,
@@ -399,15 +533,179 @@ it('meters one usage line per detected page at the per-page rate from costs.ts',
             }),
         );
 
-        const usageType = 'aws-textract:detect-document-text:page';
         const ocrCalls = incrementUsageSpy.mock.calls.filter(
-            ([, type]) => type === usageType,
+            ([, type]) => type === TEXTRACT_USAGE,
         );
         expect(ocrCalls).toHaveLength(1);
         // pages = pageCount || 1 → bill 1 page when no PAGE block was returned.
         const [, , count, cost] = ocrCalls[0]!;
         expect(count).toBe(1);
-        expect(cost).toBe(OCR_COSTS[usageType]);
+        expect(cost).toBe(CONFIGURED_RATE);
+    });
+
+    describe('regional pricing', () => {
+        const onePage = { Blocks: [{ BlockType: 'PAGE' }] };
+        const checkedCosts = () =>
+            admitSpy.mock.calls.map(([, cost]) => cost);
+        const textractCharges = () =>
+            incrementUsageSpy.mock.calls
+                .filter(([, type]) => type === TEXTRACT_USAGE)
+                .map(([, , count, cost]) => [count, cost]);
+        const recognizeFile = (actor: Actor, path: string) =>
+            withActor(actor, () =>
+                driver.recognize({
+                    source: { path },
+                    provider: 'aws-textract',
+                }),
+            );
+
+        // Cached price lists only refetch once their lifetime passes, so
+        // tests that change prices move the clock past it.
+        const realDateNow = Date.now.bind(Date);
+        let clockOffset = 0;
+        const outliveCachedPrices = () => {
+            clockOffset += 60 * 60 * 1000;
+            vi.spyOn(Date, 'now').mockImplementation(
+                () => realDateNow() + clockOffset,
+            );
+        };
+        /** Puts both regions back on their published prices for later tests. */
+        const restorePrices = async () => {
+            resetPriceLists();
+            outliveCachedPrices();
+            const { actor, path } = await writePuterImage();
+            textractSendMock.mockResolvedValueOnce(onePage);
+            await recognizeFile(actor, path);
+        };
+
+        it('bills a direct S3 read at the bucket region rate, holding enough for either region', async () => {
+            const { actor, path } = await writePuterImage();
+            textractSendMock.mockResolvedValueOnce(onePage);
+
+            await recognizeFile(actor, path);
+
+            expect(sentRegions()).toEqual([S3_REGION]);
+            expect(checkedCosts()).toEqual([
+                Math.max(S3_RATE, CONFIGURED_RATE),
+            ]);
+            expect(textractCharges()).toEqual([[1, S3_RATE]]);
+        });
+
+        it('bills the configured region rate when Textract falls back to the bytes', async () => {
+            const { actor, path } = await writePuterImage();
+            textractSendMock
+                .mockRejectedValueOnce(
+                    new InvalidS3ObjectException({
+                        message: 'unreachable bucket',
+                        $metadata: {},
+                    }),
+                )
+                .mockResolvedValueOnce(onePage);
+
+            await recognizeFile(actor, path);
+
+            expect(sentRegions()).toEqual([S3_REGION, CONFIGURED_REGION]);
+            expect(checkedCosts()).toEqual([CONFIGURED_RATE]);
+            expect(textractCharges()).toEqual([[1, CONFIGURED_RATE]]);
+        });
+
+        it('holds the bucket region rate when it is the higher of the two', async () => {
+            const { actor, path } = await writePuterImage();
+            priceLists[S3_REGION] = textractPriceList(
+                S3_REGION,
+                '0.0030000000',
+            );
+            outliveCachedPrices();
+            try {
+                textractSendMock.mockResolvedValueOnce(onePage);
+                await recognizeFile(actor, path);
+
+                expect(checkedCosts()).toEqual([300000]);
+                expect(textractCharges()).toEqual([[1, 300000]]);
+            } finally {
+                await restorePrices();
+            }
+        });
+
+        it('prices the regional hold at the AI cost factor', async () => {
+            const { actor, path } = await writePuterImage();
+            textractSendMock.mockResolvedValueOnce(onePage);
+            const doubled = (_key: string, event: { factor: number }) => {
+                event.factor = 2;
+            };
+            server.clients.event.on('ai.cost.factor.*', doubled);
+            try {
+                await recognizeFile(actor, path);
+            } finally {
+                server.clients.event.off('ai.cost.factor.*', doubled);
+            }
+
+            expect(checkedCosts()).toEqual([CONFIGURED_RATE * 2]);
+        });
+
+        it('charges the rates captured before the call even when prices refresh mid-call', async () => {
+            const { actor, path } = await writePuterImage();
+            const { actor: other } = await makeUser();
+            try {
+                textractSendMock
+                    .mockImplementationOnce(async () => {
+                        // The configured region's price rises and its cache
+                        // expires while this call runs; another call sees it.
+                        priceLists[CONFIGURED_REGION] = textractPriceList(
+                            CONFIGURED_REGION,
+                            '0.0030000000',
+                        );
+                        outliveCachedPrices();
+                        await withActor(other, () =>
+                            driver.recognize({
+                                source: dataUrl(
+                                    Buffer.from('img'),
+                                    'image/png',
+                                ),
+                                provider: 'aws-textract',
+                            }),
+                        );
+                        throw new InvalidS3ObjectException({
+                            message: 'unreachable bucket',
+                            $metadata: {},
+                        });
+                    })
+                    .mockResolvedValueOnce(onePage)
+                    .mockResolvedValueOnce(onePage);
+
+                await recognizeFile(actor, path);
+
+                expect(checkedCosts()).toEqual([CONFIGURED_RATE, 300000]);
+                // The concurrent call pays the new rate; this one falls back
+                // to the configured region at the rate it held for.
+                expect(textractCharges()).toEqual([
+                    [1, 300000],
+                    [1, CONFIGURED_RATE],
+                ]);
+                expect(sentRegions()).toEqual([
+                    S3_REGION,
+                    CONFIGURED_REGION,
+                    CONFIGURED_REGION,
+                ]);
+            } finally {
+                await restorePrices();
+            }
+        });
+
+        it('never fetches Textract prices for a Mistral call', async () => {
+            const { actor } = await makeUser();
+            const before = priceListRequests.length;
+            mistralOcrProcessMock.mockResolvedValueOnce({ pages: [] });
+
+            await withActor(actor, () =>
+                driver.recognize({
+                    source: dataUrl(Buffer.from('img'), 'image/png'),
+                    provider: 'mistral',
+                }),
+            );
+
+            expect(priceListRequests).toHaveLength(before);
+        });
     });
 });
 
@@ -421,7 +719,7 @@ describe('OCRDriver.recognize (mistral)', () => {
     };
 
     it('throws 402 when the actor does not have enough credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         const { actor } = await makeUser();
 
         await expect(
@@ -735,7 +1033,7 @@ describe('OCRDriver.recognize (mistral)', () => {
         const pageType = 'mistral-ocr:mistral-ocr-4-1:page';
         const annotationType = 'mistral-ocr:mistral-ocr-4-1:annotations:page';
         // The pre-flight covers the page plus its annotation.
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(
+        expect(admitSpy.mock.calls[0]![1]).toBe(
             OCR_COSTS[pageType] + OCR_COSTS[annotationType],
         );
         const ocrCalls = incrementUsageSpy.mock.calls.filter(
@@ -773,6 +1071,206 @@ describe('OCRDriver.recognize (mistral)', () => {
         expect(type).toBe('mistral-ocr:mistral-ocr-2512:page');
         expect(count).toBe(1);
         expect(cost).toBe(OCR_COSTS['mistral-ocr:mistral-ocr-2512:page']);
+    });
+});
+
+// ── Credit pre-flight ───────────────────────────────────────────────
+
+describe('OCRDriver credit pre-flight', () => {
+    const pageType = 'mistral-ocr:mistral-ocr-4-1:page';
+    const perPage = OCR_COSTS[pageType];
+    const pdfSource = (buffer: Buffer) => dataUrl(buffer, 'application/pdf');
+    const checkedCosts = () => admitSpy.mock.calls.map(([, cost]) => cost);
+    const outstandingHolds = (actor: Actor) =>
+        server.stores.creditHold.outstanding(actor.user.uuid!);
+
+    it('checks and holds credits for every page of a multi-page PDF', async () => {
+        const { actor } = await makeUser();
+        const before = await server.services.metering.getRemainingUsage(actor);
+        let remainingDuringCall: number | undefined;
+        mistralOcrProcessMock.mockImplementationOnce(async () => {
+            remainingDuringCall =
+                await server.services.metering.getRemainingUsage(actor);
+            return { pages: [], usageInfo: { pagesProcessed: 12 } };
+        });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: pdfSource(buildPdf(12)),
+                provider: 'mistral',
+            }),
+        );
+
+        expect(checkedCosts()).toEqual([perPage * 12]);
+        // Concurrent calls see the whole document's cost while it runs.
+        expect(remainingDuringCall).toBe(before - perPage * 12);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(await outstandingHolds(actor)).toBe(0),
+        );
+        // Billing still follows the pages the provider reports.
+        const [, , count, cost] = incrementUsageSpy.mock.calls.find(
+            ([, type]) => type === pageType,
+        )!;
+        expect(count).toBe(12);
+        expect(cost).toBe(perPage * 12);
+    });
+
+    it('prices the hold at the AI cost factor', async () => {
+        const { actor } = await makeUser();
+        const doubled = (_key: string, event: { factor: number }) => {
+            event.factor = 2;
+        };
+        server.clients.event.on('ai.cost.factor.*', doubled);
+        try {
+            await withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(buildPdf(3)),
+                    provider: 'mistral',
+                }),
+            );
+        } finally {
+            server.clients.event.off('ai.cost.factor.*', doubled);
+        }
+
+        expect(checkedCosts()).toEqual([perPage * 3 * 2]);
+    });
+
+    it('refuses with 402 a PDF the balance cannot cover, even when one page fits', async () => {
+        const { actor } = await makeUser();
+        const remaining =
+            await server.services.metering.getRemainingUsage(actor);
+        const affordablePages = Math.floor(remaining / perPage);
+        expect(affordablePages).toBeGreaterThanOrEqual(1);
+        expect(affordablePages).toBeLessThan(1000);
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(buildPdf(affordablePages + 1)),
+                    provider: 'mistral',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(mistralOcrProcessMock).not.toHaveBeenCalled();
+        expect(await outstandingHolds(actor)).toBe(0);
+    });
+
+    it('rejects a zero-balance actor before estimating pages or holding credits', async () => {
+        const { actor } = await makeUser();
+        const noUsage = vi
+            .spyOn(server.services.metering, 'hasAnyUsageCached')
+            .mockResolvedValueOnce(false);
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(buildPdf(5)),
+                    provider: 'mistral',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+
+        // The estimate/hold path never ran.
+        expect(admitSpy).not.toHaveBeenCalled();
+        expect(mistralOcrProcessMock).not.toHaveBeenCalled();
+        noUsage.mockRestore();
+    });
+
+    it('releases the hold when the provider fails', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockRejectedValueOnce(new Error('upstream down'));
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: pdfSource(buildPdf(3)),
+                    provider: 'mistral',
+                }),
+            ),
+        ).rejects.toThrow('upstream down');
+        expect(await outstandingHolds(actor)).toBe(0);
+    });
+
+    it('counts PDFs packed in object streams', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValueOnce({ pages: [] });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: pdfSource(buildPdf(8, { objectStream: true })),
+                provider: 'mistral',
+            }),
+        );
+
+        expect(checkedCosts()).toEqual([perPage * 8]);
+    });
+
+    it('estimates a page selection, capped by the document', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+        const source = pdfSource(buildPdf(20));
+
+        for (const pages of [
+            [0, 2, 2, 5],
+            Array.from({ length: 50 }, (_, i) => i),
+            [],
+        ]) {
+            await withActor(actor, () =>
+                driver.recognize({ source, provider: 'mistral', pages }),
+            );
+        }
+
+        // Duplicates count once; an empty selection reads the whole document.
+        expect(checkedCosts()).toEqual([
+            perPage * 3,
+            perPage * 20,
+            perPage * 20,
+        ]);
+    });
+
+    it('falls back to 20 pages per MB for documents it cannot count', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+        const unreadablePdf = Buffer.alloc(1024 * 1024, 0xff);
+        unreadablePdf.write('%PDF-1.7\n', 'latin1');
+        const docx =
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+        for (const source of [
+            pdfSource(unreadablePdf),
+            dataUrl(Buffer.alloc(512 * 1024), docx),
+            // Small unreadable input stays at one page.
+            pdfSource(Buffer.from('x')),
+        ]) {
+            await withActor(actor, () =>
+                driver.recognize({ source, provider: 'mistral' }),
+            );
+        }
+
+        expect(checkedCosts()).toEqual([perPage * 20, perPage * 10, perPage]);
+    });
+
+    it('counts an image, and any Textract input, as one page', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockResolvedValue({ pages: [] });
+        textractSendMock.mockResolvedValue({ Blocks: [{ BlockType: 'PAGE' }] });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.alloc(2 * 1024 * 1024), 'image/png'),
+                provider: 'mistral',
+            }),
+        );
+        // Textract's synchronous API reads single-page documents only.
+        await withActor(actor, () =>
+            driver.recognize({
+                source: pdfSource(buildPdf(30)),
+                provider: 'aws-textract',
+            }),
+        );
+
+        expect(checkedCosts()).toEqual([perPage, CONFIGURED_RATE]);
     });
 });
 
@@ -816,7 +1314,7 @@ describe('OCRDriver model routing', () => {
         ['aws-textract', 'textract'],
         ['textract', 'textract'],
         ['mistral-ocr-latest', 'mistral'],
-        ['mistral-ocr-4-0', 'mistral'],
+        ['mistral-ocr-4-1', 'mistral'],
         ['MISTRAL-OCR-2512', 'mistral'],
     ])('model %s alone selects the %s backend', async (model, expected) => {
         const { actor } = await makeUser();
@@ -842,7 +1340,9 @@ describe('OCRDriver model routing', () => {
     });
 
     it.each([
+        [{ model: 'mistral-ocr-2503' }, 'no longer available'],
         [{ model: 'mistral-ocr-2505' }, 'no longer available'],
+        [{ model: 'mistral-ocr-4-0' }, 'no longer available'],
         [{ model: 'gpt-4o' }, 'Unknown OCR model'],
         [{ model: '' }, 'non-empty string'],
         [
@@ -865,22 +1365,6 @@ describe('OCRDriver model routing', () => {
         });
         expect(textractSendMock).not.toHaveBeenCalled();
         expect(mistralOcrProcessMock).not.toHaveBeenCalled();
-    });
-
-    it('keeps the retired mistral-ocr-2503 working on the model Mistral serves it with', async () => {
-        const { actor } = await makeUser();
-        mistralOcrProcessMock.mockResolvedValueOnce({ pages: [] });
-
-        await withActor(actor, () =>
-            driver.recognize({
-                source: dataUrl(Buffer.from('img'), 'image/png'),
-                model: 'mistral-ocr-2503',
-            }),
-        );
-
-        expect(mistralOcrProcessMock.mock.calls[0]![0].model).toBe(
-            'mistral-ocr-4-1',
-        );
     });
 });
 

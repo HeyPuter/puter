@@ -26,7 +26,7 @@ const ar = {
         account: 'حساب',
         account_password: 'تحقق من كلمة مرور الحساب',
         access_granted_to: 'تم منح الوصول إلى',
-        add_existing_account: 'إضافة حساب موجود',
+        add_another_account: 'إضافة حساب آخر',
         all_fields_required: '.جميع الحقول مطلوبة',
         allow: 'السماح',
         apply: 'تطبيق',

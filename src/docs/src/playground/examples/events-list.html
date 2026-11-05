@@ -3,7 +3,7 @@
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
             const sub = await puter.events.onPersistent({
                 subject: `fs:${dir}`,
@@ -11,7 +11,7 @@
             });
 
             for (const row of await puter.events.list()) {
-                puter.print(`${row.subject} — ${row.delivery}`);
+                puter.print(`${row.subject}: ${row.queue ? 'queue' : 'every listener'}`);
                 puter.print(` (context: ${row.contextKeys?.join(', ') ?? 'none'})<br>`);
             }
 

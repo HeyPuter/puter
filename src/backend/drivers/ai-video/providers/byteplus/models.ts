@@ -159,24 +159,6 @@ export const BYTEPLUS_VIDEO_GENERATION_MODELS: IVideoModel[] = [
             'byteplus-video-generation:dreamina-seedance-2-0-mini-260615:video_tokens',
     },
     {
-        id: 'seedance-1-5-pro-251215',
-        puterId: 'byteplus:byteplus/seedance-1-5-pro-251215',
-        aliases: ['seedance-1-5-pro', 'byteplus/seedance-1-5-pro'],
-        name: 'Seedance 1.5 Pro',
-        costs_currency: 'usd-cents',
-        output_cost_key: 'default-duration-per-video',
-        costs: {
-            'video_tokens:audio': perMToken(2.4),
-            'video_tokens:silent': perMToken(1.2),
-            'default-duration-per-video': 26,
-        },
-        durationSeconds: seconds(5, 4, 12),
-        dimensions: ['720p', '480p', '1080p'],
-        fps: FPS,
-        defaultUsageKey:
-            'byteplus-video-generation:seedance-1-5-pro-251215:video_tokens:audio',
-    },
-    {
         id: 'seedance-1-0-pro-250528',
         puterId: 'byteplus:byteplus/seedance-1-0-pro-250528',
         aliases: ['seedance-1-0-pro', 'byteplus/seedance-1-0-pro'],
@@ -263,15 +245,6 @@ export const BYTEPLUS_VIDEO_SPECS: Record<string, BytePlusVideoSpec> = {
         supportsReferenceImages: true,
         maxReferenceImages: 9,
         supportsSeed: false,
-    },
-    'seedance-1-5-pro-251215': {
-        duration: { min: 4, max: 12, default: 5 },
-        dims: SEEDANCE_2_0_DIMS,
-        supportsAudio: true,
-        supportsLastFrame: true,
-        supportsReferenceImages: false,
-        maxReferenceImages: 0,
-        supportsSeed: true,
     },
     'seedance-1-0-pro-250528': {
         duration: { min: 2, max: 12, default: 5 },

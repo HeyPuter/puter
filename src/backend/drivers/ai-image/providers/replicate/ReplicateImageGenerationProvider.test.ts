@@ -41,11 +41,13 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { Context, runWithContext } from '../../../../core/context.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { ReplicateImageGenerationProvider } from './ReplicateImageGenerationProvider.js';
 import { REPLICATE_IMAGE_GENERATION_MODELS } from './models.js';
 
@@ -82,7 +84,7 @@ vi.mock('../../../../util/secureHttp.js', () => ({
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
@@ -96,11 +98,16 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
-const makeProvider = () =>
-    new ReplicateImageGenerationProvider(
-        { apiKey: 'test-key' },
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
         server.services.metering,
+        server.clients.event,
+        'ai-image',
     );
+
+const makeProvider = () =>
+    new ReplicateImageGenerationProvider({ apiKey: 'test-key' }, aiMetering());
 
 beforeEach(() => {
     createPredictionMock.mockReset();
@@ -108,7 +115,7 @@ beforeEach(() => {
     cancelMock.mockReset();
     replicateCtor.mockReset();
     secureFetchMock.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
@@ -137,7 +144,7 @@ describe('ReplicateImageGenerationProvider construction', () => {
             () =>
                 new ReplicateImageGenerationProvider(
                     { apiKey: '' },
-                    server.services.metering,
+                    aiMetering(),
                 ),
         ).toThrow(/API key/i);
     });
@@ -170,7 +177,7 @@ describe('ReplicateImageGenerationProvider.generate test_mode', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(createPredictionMock).not.toHaveBeenCalled();
     });
 });
@@ -192,11 +199,103 @@ describe('ReplicateImageGenerationProvider.generate argument validation', () => 
 describe('ReplicateImageGenerationProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting Replicate when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         await expect(
             withTestActor(() => provider.generate({ prompt: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(createPredictionMock).not.toHaveBeenCalled();
+    });
+
+    const holdUser = (name: string) =>
+        makeActor({
+            user: {
+                id: 93,
+                uuid: `replicate-${name}-${Date.now()}`,
+                username: name,
+            },
+        });
+
+    it('holds the output and input estimate while Replicate runs and releases both', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('hold');
+        // Unreadable inputs are priced at one megapixel each.
+        secureFetchMock.mockResolvedValueOnce(new Response('not-an-image'));
+        let heldDuringCall = -1;
+        createPredictionMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return {
+                id: 'held',
+                status: 'succeeded',
+                output: ['https://r.example/img.png'],
+            };
+        });
+
+        // flux-2-dev fast mode: 1.2 cents per output MP and per input MP.
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'black-forest-labs/flux-2-dev',
+                    prompt: 'hi',
+                    input_images: ['https://example.com/a.png'],
+                }),
+            actor,
+        );
+
+        expect(heldDuringCall).toBe(Math.round(2.4 * 1_000_000));
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
+    });
+
+    it('holds credits for longer than a prediction can run', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('ttl');
+        const reserveSpy = vi.spyOn(
+            server.services.metering,
+            'reserveCreditsIfAffordable',
+        );
+        createPredictionMock.mockResolvedValueOnce({
+            id: 'ttl',
+            status: 'succeeded',
+            output: ['https://r.example/img.png'],
+        });
+
+        await withTestActor(() => provider.generate({ prompt: 'hi' }), actor);
+
+        // Ten minutes of prediction plus up to 90 s to create it.
+        expect(reserveSpy).toHaveBeenCalledTimes(1);
+        const ttlMs = reserveSpy.mock.calls[0]![2]?.ttlMs ?? 10 * 60 * 1000;
+        expect(ttlMs).toBeGreaterThan(10 * 60 * 1000 + 90_000);
+    });
+
+    it('releases the output hold when the input surcharge is unaffordable', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('surcharge');
+        secureFetchMock.mockResolvedValueOnce(new Response('not-an-image'));
+        admitSpy.mockImplementationOnce((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        ).mockResolvedValueOnce(false);
+
+        await expect(
+            withTestActor(
+                () =>
+                    provider.generate({
+                        model: 'black-forest-labs/flux-2-dev',
+                        prompt: 'hi',
+                        input_images: ['https://example.com/a.png'],
+                    }),
+                actor,
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(createPredictionMock).not.toHaveBeenCalled();
+        expect(
+            await server.stores.creditHold.outstanding(actor.user!.uuid),
+        ).toBe(0);
     });
 });
 
@@ -856,7 +955,7 @@ it('does not start a prediction for an already-aborted request', async () => {
         ),
     ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'client_aborted' });
     expect(createPredictionMock).not.toHaveBeenCalled();
-    expect(hasCreditsSpy).not.toHaveBeenCalled();
+    expect(admitSpy).not.toHaveBeenCalled();
 });
 
 it('stops polling and cancels at the prediction deadline', async () => {
@@ -1098,12 +1197,12 @@ it('rejects more than ten input images before fetching or pricing any', async ()
         ),
     ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
     expect(secureFetchMock).not.toHaveBeenCalled();
-    expect(hasCreditsSpy).not.toHaveBeenCalled();
+    expect(admitSpy).not.toHaveBeenCalled();
     expect(createPredictionMock).not.toHaveBeenCalled();
 });
 
 it('checks credits on the output-only estimate before fetching input images', async () => {
-    hasCreditsSpy.mockResolvedValueOnce(false);
+    admitSpy.mockResolvedValueOnce(null);
     await expect(
         withTestActor(() =>
             makeProvider().generate({
@@ -1305,7 +1404,7 @@ describe('Replicate expanded catalog billing', () => {
 });
 
 describe('Replicate availability gates', () => {
-    it.each(['leonardoai/phoenix-1.0', 'bytedance/seedream-3', 'black-forest-labs/flux-pro-finetuned', 'quiverai/arrow-1.1', 'quiverai/arrow-1.1-max', 'prunaai/hidream-l1-fast'])(
+    it.each(['leonardoai/phoenix-1.0', 'bytedance/seedream-3', 'quiverai/arrow-1.1', 'quiverai/arrow-1.1-max', 'prunaai/hidream-l1-fast'])(
         'does not advertise the unavailable %s endpoint but explains it', (id) => {
             const provider = makeProvider();
             expect(provider.models().some((model) => model.id === id)).toBe(false);

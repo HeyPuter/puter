@@ -24,6 +24,7 @@ import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
+import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
 import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
@@ -33,14 +34,18 @@ import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationReq
 import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
+import UIWindowLogin2FA from './UI/UIWindowLogin2FA.js';
+import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
+import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
+import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
@@ -54,7 +59,9 @@ import {
     wantsFullToken,
 } from './util/authmeGrant.js';
 import init_device_signals from './helpers/deviceSignals.js';
-import { holdsPermissions } from './helpers/holdsPermissions.js';
+import { appHoldsPermissions, holdsPermissions } from './helpers/holdsPermissions.js';
+import { PUSH_PERMISSION, withEnableDeadline } from './helpers/pushClient.js';
+import { startPushWorker } from './helpers/pushWorker.js';
 import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
@@ -70,6 +77,7 @@ import {
 } from './helpers/parseSharedPath.js';
 import path from './lib/path.js';
 import { AntiCSRFService } from './services/AntiCSRFService.js';
+import { AppPushService } from './services/AppPushService.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import { DebugService } from './services/DebugService.js';
 import { ExecService } from './services/ExecService.js';
@@ -84,7 +92,13 @@ import { ThemeService } from './services/ThemeService.js';
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
-import { deliversTokenToOpener, runsUserAppTokenExchange } from './util/popupAuth.js';
+import {
+    deliversTokenAtBoot,
+    relationshipIsConsent,
+    relaysTokenAtBoot,
+    resolveOpenerOrigin,
+    runsUserAppTokenExchange,
+} from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 /**
@@ -236,6 +250,20 @@ const postAuthActions = async (action) => {
     // Dashboard mode
     // -------------------------------------------------------------------------------------
     else if ( window.is_dashboard_mode ) {
+        // Paint in the language this browser last loaded, so the dashboard
+        // doesn't wait on the saved preferences; a different saved language
+        // reloads into it.
+        window.locale = window.resolve_language(window.user_preferences.language);
+        const painted_language = window.locale;
+        const painted_hidden = !! window.user_preferences.show_hidden_files;
+        window.load_user_preferences().then(() => {
+            if ( window.locale !== painted_language ) {
+                location.reload();
+            } else if ( !! window.user_preferences.show_hidden_files !== painted_hidden
+                && window.dashboard_object?.currentPath ) {
+                window.dashboard_object.renderDirectory(window.dashboard_object.currentPath);
+            }
+        });
         const el_dashboard_promise = UIDashboard();
         // Direct landing on /app/<name>: open the app in the dashboard the
         // same way a tile launch does. The dashboard's route is slotted
@@ -318,6 +346,7 @@ const postAuthActions = async (action) => {
                     // No dashboard window — no intro; still launch.
                 }
                 const app_obj = await app_info_promise;
+                let launched = false;
                 launch_app({
                     name: app_name,
                     maximized: true,
@@ -331,10 +360,12 @@ const postAuthActions = async (action) => {
                         },
                     } : {}),
                     window_options: { morph_from_dashboard_tile: true },
+                }).then((outcome) => {
+                    launched = outcome?.launchResult?.launched !== false;
                 }).catch((err) => {
                     console.error(`Failed to launch ${app_name} from URL:`, err);
                 }).finally(() => {
-                    TabApps.settleDeepLinkLaunch(app_name, tile);
+                    TabApps.settleDeepLinkLaunch(app_name, tile, launched);
                 });
             })();
         }
@@ -350,8 +381,10 @@ const postAuthActions = async (action) => {
         // rule as the postMessage hand-off below — otherwise adding one query
         // parameter to a `request-permission` URL turns the permission prompt
         // into a token grant, and skips the prompt entirely.
-        let isolated = window.url_query_params.get("cross_origin_isolated") === 'true'
-            && deliversTokenToOpener(action);
+        let isolated = relaysTokenAtBoot(
+            action,
+            window.url_query_params.get('cross_origin_isolated') === 'true',
+        );
         let session = window.url_query_params.get('signin_session');
 
         // Signing the opener in is something the user has to have asked for.
@@ -363,15 +396,14 @@ const postAuthActions = async (action) => {
         // ended in a token: dismissing the account picker skipped only the
         // early exchange, not the delivery.
         //
-        // Scoped to the popups whose whole purpose is signing in. The
-        // file-picker actions also reach the hand-off, but they answer for
-        // themselves — they have their own dialogs and never show an account
-        // picker, so requiring one here would just break them.
-        const is_signin_popup = !action || action === 'sign-in';
+        // Applies to every popup that hands over a token at boot. The
+        // file-picker actions answer for themselves (the token waits for the
+        // user's pick) and every other action hands over nothing; see
+        // util/popupAuth.js.
         const consented =
             window.popup_signin_consent ||
             (window.attempt_temp_user_creation && window.first_visit_ever);
-        if (is_signin_popup && !consented) {
+        if (deliversTokenAtBoot(action) && !consented) {
             console.error(
                 'popup sign-in was not consented to; not delivering a token',
             );
@@ -434,7 +466,8 @@ const postAuthActions = async (action) => {
             }
             return;
         } else if ( runsUserAppTokenExchange(action) ) {
-            const deliver_token_to_opener = deliversTokenToOpener(action);
+            // Its failure carries `token: null`, which the SDK sets too.
+            const deliver_token_to_opener = deliversTokenAtBoot(action);
             try {
                 let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
                 // `getUserAppToken` reports a network failure by returning
@@ -510,6 +543,31 @@ const postAuthActions = async (action) => {
             window.host_app_uid = app_uid;
         }
 
+        // What a picker holds back at boot; a cancelled one sends nothing.
+        let token_sent_to_opener = false;
+        const deliver_token_with_answer = () => {
+            if ( token_sent_to_opener || ! user_app_token ) return;
+            token_sent_to_opener = true;
+            window.opener?.postMessage({
+                msg: 'puter.token',
+                success: true,
+                token: user_app_token,
+                app_uid: window.host_app_uid,
+                username: window.user?.username,
+                msg_id: msg_id,
+            }, window.openerOrigin);
+        };
+        window.deliverPopupTokenToOpener = deliver_token_with_answer;
+
+        // The Cancel button closes the popup before on_close runs, so pickers
+        // report through onDialogCancel too. Escape only reaches on_close.
+        const tell_opener_cancelled = (msg) => {
+            window.opener?.postMessage({
+                msg,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
         if ( action === 'show-open-file-picker' ) {
             let options = window.url_query_params.get('options');
             options = JSON.parse(options ?? '{}');
@@ -533,12 +591,8 @@ const postAuthActions = async (action) => {
                 iframe_msg_uid: msg_id,
                 center: true,
                 initiating_app_uuid: app_uid,
-                on_close: function () {
-                    window.opener.postMessage({
-                        msg: 'fileOpenCanceled',
-                        original_msg_id: msg_id,
-                    }, '*');
-                },
+                onDialogCancel: () => tell_opener_cancelled('fileOpenCancelled'),
+                on_close: () => tell_opener_cancelled('fileOpenCancelled'),
             });
         }
         //--------------------------------------------------------------------------------------
@@ -563,12 +617,8 @@ const postAuthActions = async (action) => {
                 iframe_msg_uid: msg_id,
                 center: true,
                 initiating_app_uuid: app_uid,
-                on_close: function () {
-                    window.opener.postMessage({
-                        msg: 'directoryOpenCanceled',
-                        original_msg_id: msg_id,
-                    }, '*');
-                },
+                onDialogCancel: () => tell_opener_cancelled('directoryOpenCancelled'),
+                on_close: () => tell_opener_cancelled('directoryOpenCancelled'),
             });
         }
         //--------------------------------------------------------------------------------------
@@ -607,12 +657,8 @@ const postAuthActions = async (action) => {
                     iframe_msg_uid: msg_id,
                     center: true,
                     initiating_app_uuid: app_uid,
-                    on_close: function () {
-                        window.opener.postMessage({
-                            msg: 'fileSaveCanceled',
-                            original_msg_id: msg_id,
-                        }, '*');
-                    },
+                    onDialogCancel: () => tell_opener_cancelled('fileSaveCancelled'),
+                    on_close: () => tell_opener_cancelled('fileSaveCancelled'),
                     onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
                         $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                         let busy_init_ts = Date.now();
@@ -641,6 +687,7 @@ const postAuthActions = async (action) => {
                                 file_signature = file_signature.items;
 
                                 item_with_same_name_already_exists = false;
+                                window.deliverPopupTokenToOpener?.();
                                 window.opener.postMessage({
                                     msg: 'fileSaved',
                                     original_msg_id: msg_id,
@@ -751,6 +798,12 @@ const postAuthActions = async (action) => {
             : (raw_create === 'dir' || raw_create === 'file') ? raw_create
             : undefined;
 
+        // The browser registration Allow begins; the answer is posted before it is waited on.
+        let push_enable = null;
+        if ( permissions.includes(PUSH_PERMISSION) ) {
+            startPushWorker();
+        }
+
         // Whatever happens, the requester must get an answer and the popup
         // must close — otherwise the popup wedges open with the caller's
         // promise pending until the user closes it by hand.
@@ -783,6 +836,9 @@ const postAuthActions = async (action) => {
                 permission: permissions.length === 1 ? permissions[0] : undefined,
                 origin: origin,
                 create,
+                on_push_enable: (enabling) => {
+                    push_enable = enabling;
+                },
             });
         } catch (e) {
             console.error('request-permission action failed', e);
@@ -809,6 +865,52 @@ const postAuthActions = async (action) => {
         }
 
         // The popup exists only to host this dialog; close it once answered.
+        if ( window.embedded_in_popup ) {
+            // Closing would take the browser's own prompt down with it, so its time doesn't count.
+            if ( push_enable ) await withEnableDeadline(push_enable);
+            window.close();
+            window.open('', '_self').close();
+        }
+    }
+
+    // -- Action: Enable Push: offer to turn push on in this browser for the opener site, then report the state --
+    if ( action === 'enable-push' ) {
+        const msg_id = window.url_query_params.get('msg_id');
+        // Browser-attested only, same rule as request-permission above.
+        const origin = window.openerOrigin;
+
+        let state = 'unavailable';
+        try {
+            if ( ! origin ) {
+                throw new Error('no opener origin; not prompting');
+            }
+            // The dialog says this site wants to send pushes, so only a site whose app may.
+            const app_uid = await window.getAppUIDFromOrigin(origin);
+            if ( app_uid && await appHoldsPermissions([PUSH_PERMISSION], app_uid) ) {
+                startPushWorker();
+                state = await UIEnablePushDialog({ origin });
+            }
+        } catch (e) {
+            console.error('enable-push action failed', e);
+        }
+
+        let target_origin = '*';
+        try {
+            target_origin = origin ? new URL(origin).origin : '*';
+        } catch (e) {
+            console.error('enable-push: unusable origin', origin);
+        }
+        const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
+        try {
+            messageTarget?.postMessage({
+                msg: 'pushEnabled',
+                state,
+                original_msg_id: msg_id,
+            }, target_origin);
+        } catch (e) {
+            console.error('enable-push: could not answer the requester', e);
+        }
+
         if ( window.embedded_in_popup ) {
             window.close();
             window.open('', '_self').close();
@@ -870,6 +972,61 @@ const postAuthActions = async (action) => {
             window.open('', '_self').close();
         }
     }
+
+    // -------------------------------------------------------------------------------------
+    // Action: attach-custom-domain — puter.hosting.attach() on a website. Hosts the custom
+    // domain dialog for `subdomain` and posts the chosen domain back to the opener.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'attach-custom-domain' ) {
+        const msg_id = window.url_query_params.get('msg_id');
+        const subdomain = window.url_query_params.get('subdomain');
+        // Browser-attested only: the domain goes to this origin and nowhere
+        // else, and the dialog names it to the user as the requester.
+        const origin = window.openerOrigin;
+        let target_origin = null;
+        try {
+            target_origin = origin ? new URL(origin).origin : null;
+        } catch (e) {
+            console.error('attach-custom-domain: unusable origin', origin);
+        }
+
+        let domain = null;
+        try {
+            if ( ! target_origin ) {
+                throw new Error('no opener origin; not prompting');
+            }
+            if ( ! subdomain ) {
+                throw new Error('no subdomain');
+            }
+            domain = await UIWindowAttachCustomDomain({
+                subdomain,
+                requester: target_origin,
+                fullpage: window.embedded_in_popup === true,
+            });
+        } catch (e) {
+            console.error('attach-custom-domain action failed', e);
+        }
+
+        // Without an attested origin there is no safe place to send a domain;
+        // the requester then sees the popup close and resolves null.
+        if ( target_origin ) {
+            const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
+            try {
+                messageTarget?.postMessage({
+                    msg: 'customDomainAttached',
+                    domain,
+                    original_msg_id: msg_id,
+                }, target_origin);
+            } catch (e) {
+                console.error('attach-custom-domain: could not answer the requester', e);
+            }
+        }
+
+        if ( window.embedded_in_popup ) {
+            window.close();
+            window.open('', '_self').close();
+        }
+    }
 };
 
 const launch_services = async function (options) {
@@ -908,6 +1065,7 @@ const launch_services = async function (options) {
     register('ipc', new IPCService());
     register('exec', new ExecService());
     register('pip', new PictureInPictureService());
+    register('app-push', new AppPushService());
     register('debug', new DebugService());
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());
@@ -1243,6 +1401,7 @@ window.showTurnstileChallenge = function (options) {
 };
 
 window.initgui = async function (options) {
+    const oidcChallenge = takeOidcLoginChallenge();
     const url = new URL(window.location).href;
     window.url = url;
     // Route segments with a leading `/desktop` dropped, so the route checks
@@ -1266,6 +1425,8 @@ window.initgui = async function (options) {
     installAppIconFallback();
 
     let picked_a_user_for_sdk_login = false;
+    // Whether a popup put an account picker in front of the user.
+    let showed_account_picker = false;
 
     // update SDK if auth_token is different from the one in the SDK
     if (window.auth_token && puter.authToken !== window.auth_token) {
@@ -1335,7 +1496,7 @@ window.initgui = async function (options) {
     // Appends a viewport meta tag to the head of the document, ensuring optimal display on mobile devices.
     // This tag sets the width of the viewport to the device width, and locks the zoom level to 1 (prevents user scaling).
     $('head').append(
-        '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">',
     );
 
     // will hold the result of the whoami API call
@@ -1358,6 +1519,20 @@ window.initgui = async function (options) {
     // federated sign-in hop that would navigate the popup away and lose the
     // action. See util/popupAuth.js.
     window.gui_action = action;
+
+    if (action === 'oidc-2fa') {
+        const result = oidcChallenge?.token && await UIWindowLogin2FA(oidcChallenge.token);
+        if (result?.redirectUrl) {
+            const target = new URL(result.redirectUrl, window.location.origin);
+            if (target.origin === window.location.origin) {
+                await window.update_auth_data(result.token, result.user);
+                window.location.replace(target.href);
+                return;
+            }
+        }
+        window.location.replace(oidcChallenge?.retryUrl || '/action/login');
+        return;
+    }
 
     //--------------------------------------------------------------------------------------
     // Determine if we are in full-page mode
@@ -1467,14 +1642,59 @@ window.initgui = async function (options) {
             window.url_query_params.get('msg_id'),
             action,
         );
-        window.openerOrigin =
-            window.oidcPopupReturn?.opener_origin || document.referrer;
-        if (!window.openerOrigin) {
-            try {
-                window.openerOrigin = await requestOpenerOrigin();
-            } catch (e) {
-                throw new Error('No referrer found');
+        try {
+            window.openerOrigin = await resolveOpenerOrigin({
+                relaysToken: relaysTokenAtBoot(
+                    action,
+                    window.url_query_params.get('cross_origin_isolated') ===
+                        'true',
+                ),
+                oidcOpenerOrigin: window.oidcPopupReturn?.opener_origin,
+                referrer: document.referrer,
+                askOpener: requestOpenerOrigin,
+            });
+        } catch (e) {
+            throw new Error('No referrer found');
+        }
+
+        // Everything below needs an origin to identify the opener by.
+        if (!isAttestedOrigin(window.openerOrigin)) {
+            // postAuthActions would answer this; a denial can go to '*'.
+            if (action === 'request-permission') {
+                try {
+                    window.opener?.postMessage(
+                        {
+                            msg: 'permissionGranted',
+                            granted: false,
+                            original_msg_id:
+                                window.url_query_params.get('msg_id'),
+                        },
+                        '*',
+                    );
+                } catch (e) {
+                    console.error('could not answer the requester', e);
+                }
+            } else if (action === 'enable-push') {
+                try {
+                    window.opener?.postMessage(
+                        {
+                            msg: 'pushEnabled',
+                            state: 'unavailable',
+                            original_msg_id:
+                                window.url_query_params.get('msg_id'),
+                        },
+                        '*',
+                    );
+                } catch (e) {
+                    console.error('could not answer the requester', e);
+                }
             }
+            await UIAlert({
+                message: i18n('popup_opener_origin_unsupported'),
+            });
+            window.close();
+            window.open('', '_self').close();
+            return;
         }
 
         // this is the referrer in terms of user acquisition
@@ -1581,6 +1801,7 @@ window.initgui = async function (options) {
                 await window.getUserAppToken(window.openerOrigin);
             } else {
                 // Show session list so user can pick which account to use
+                showed_account_picker = true;
                 picked_a_user_for_sdk_login = await UIWindowSessionList({
                     reload_on_success: false,
                     draggable_body: false,
@@ -1743,6 +1964,7 @@ window.initgui = async function (options) {
             (!window.userAppToken ||
                 window.url_query_params.get('request_auth'))
         ) {
+            showed_account_picker = true;
             picked_a_user_for_sdk_login = await UIWindowSessionList({
                 reload_on_success: false,
                 draggable_body: false,
@@ -1758,8 +1980,14 @@ window.initgui = async function (options) {
         // be re-approved on every visit — that grant is what
         // `checkUserSiteRelationship` reports. This is also what keeps the
         // file-picker and permission popups, which never show an account
-        // picker, from being blocked by the gate in `postAuthActions`.
-        if (window.userAppToken) {
+        // picker, from being blocked by the gate in `postAuthActions`. A
+        // picker the user dismissed here still means no.
+        if (
+            relationshipIsConsent({
+                hasRelationship: !!window.userAppToken,
+                showedAccountPicker: showed_account_picker,
+            })
+        ) {
             window.popup_signin_consent = true;
         }
     }
@@ -1814,61 +2042,75 @@ window.initgui = async function (options) {
         }
 
         if (whoami) {
-            // Verification gates run in order: email → phone (SMS) → card,
-            // matching the server-side order in assertVerifiedAccount.
-            if (whoami.requires_email_confirmation) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowEmailConfirmationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        window_options: {
-                            is_draggable: false,
-                        },
-                    });
-                } while (!is_verified);
-            }
-            // is phone verification required? (hard gate for low-rep signups)
-            // A user the SMS path keeps failing may be offered the card
-            // fallback instead; that resolves 'card' and clears the card gate
-            // too (see UIWindowPhoneVerificationRequired).
+            // Verification gates run in the server's order (see
+            // assertVerifiedAccount): email → phone (SMS) → card, or card →
+            // phone → email when the account clears email last.
             let card_gate_cleared_by_fallback = false;
-            if (whoami.requires_phone_verification) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowPhoneVerificationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        // Already out of SMS attempts (the offer outlives the
-                        // send window, and no send can report it any more).
-                        card_fallback_available:
-                            whoami.card_fallback_available,
-                        window_options: {
-                            is_draggable: false,
-                        },
-                    });
-                } while (!is_verified);
-                card_gate_cleared_by_fallback = is_verified === 'card';
-            }
-            // Card verification is the last gate: only show it once the email and
-            // phone (SMS) gates are cleared, since those show up first.
-            if (
-                whoami.requires_card_verification &&
-                !card_gate_cleared_by_fallback
-            ) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowCardVerificationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        window_options: {
-                            is_draggable: false,
-                        },
-                    });
-                } while (!is_verified);
+            const emailGate = async () => {
+                if (whoami.requires_email_confirmation) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowEmailConfirmationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            window_options: {
+                                is_draggable: false,
+                            },
+                        });
+                    } while (!is_verified);
+                }
+            };
+            const phoneGate = async () => {
+                // is phone verification required? (hard gate for low-rep signups)
+                // A user the SMS path keeps failing may be offered the card
+                // fallback instead; that resolves 'card' and clears the card gate
+                // too (see UIWindowPhoneVerificationRequired).
+                if (whoami.requires_phone_verification) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowPhoneVerificationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            // Already out of SMS attempts (the offer outlives the
+                            // send window, and no send can report it any more).
+                            card_fallback_available:
+                                whoami.card_fallback_available,
+                            window_options: {
+                                is_draggable: false,
+                            },
+                        });
+                    } while (!is_verified);
+                    card_gate_cleared_by_fallback = is_verified === 'card';
+                }
+            };
+            const cardGate = async () => {
+                if (
+                    whoami.requires_card_verification &&
+                    !card_gate_cleared_by_fallback
+                ) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowCardVerificationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            window_options: {
+                                is_draggable: false,
+                            },
+                        });
+                    } while (!is_verified);
+                }
+            };
+            if (whoami.email_gate_last) {
+                await cardGate();
+                await phoneGate();
+                await emailGate();
+            } else {
+                await emailGate();
+                await phoneGate();
+                await cardGate();
             }
             // Last, matching assertVerifiedAccount's order.
             if (whoami.requires_password_change) {
@@ -2092,67 +2334,81 @@ window.initgui = async function (options) {
             // verification gates below: the landing's max z-index would cover
             // them.
             reveal_anonymous_markup(false);
-            // Verification gates run in order: email → phone (SMS) → card,
-            // matching the server-side order in assertVerifiedAccount.
-            if (whoami.requires_email_confirmation) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowEmailConfirmationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        logout_in_footer: true,
-                        window_options: {
-                            is_draggable: false,
-                            cover_page: window.is_embedded,
-                        },
-                    });
-                } while (!is_verified);
-            }
-            // is phone verification required? (hard gate for low-rep signups)
-            // A user the SMS path keeps failing may be offered the card
-            // fallback instead; that resolves 'card' and clears the card gate
-            // too (see UIWindowPhoneVerificationRequired).
+            // Verification gates run in the server's order (see
+            // assertVerifiedAccount): email → phone (SMS) → card, or card →
+            // phone → email when the account clears email last.
             let card_gate_cleared_by_fallback = false;
-            if (whoami.requires_phone_verification) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowPhoneVerificationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        logout_in_footer: true,
-                        // Already out of SMS attempts (the offer outlives the
-                        // send window, and no send can report it any more).
-                        card_fallback_available:
-                            whoami.card_fallback_available,
-                        window_options: {
-                            is_draggable: false,
-                            cover_page: window.is_embedded,
-                        },
-                    });
-                } while (!is_verified);
-                card_gate_cleared_by_fallback = is_verified === 'card';
-            }
-            // Card verification is the last gate: only show it once the email and
-            // phone (SMS) gates are cleared, since those show up first.
-            if (
-                whoami.requires_card_verification &&
-                !card_gate_cleared_by_fallback
-            ) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowCardVerificationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        logout_in_footer: true,
-                        window_options: {
-                            is_draggable: false,
-                            cover_page: window.is_embedded,
-                        },
-                    });
-                } while (!is_verified);
+            const emailGate = async () => {
+                if (whoami.requires_email_confirmation) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowEmailConfirmationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            logout_in_footer: true,
+                            window_options: {
+                                is_draggable: false,
+                                cover_page: window.is_embedded,
+                            },
+                        });
+                    } while (!is_verified);
+                }
+            };
+            const phoneGate = async () => {
+                // is phone verification required? (hard gate for low-rep signups)
+                // A user the SMS path keeps failing may be offered the card
+                // fallback instead; that resolves 'card' and clears the card gate
+                // too (see UIWindowPhoneVerificationRequired).
+                if (whoami.requires_phone_verification) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowPhoneVerificationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            logout_in_footer: true,
+                            // Already out of SMS attempts (the offer outlives the
+                            // send window, and no send can report it any more).
+                            card_fallback_available:
+                                whoami.card_fallback_available,
+                            window_options: {
+                                is_draggable: false,
+                                cover_page: window.is_embedded,
+                            },
+                        });
+                    } while (!is_verified);
+                    card_gate_cleared_by_fallback = is_verified === 'card';
+                }
+            };
+            const cardGate = async () => {
+                if (
+                    whoami.requires_card_verification &&
+                    !card_gate_cleared_by_fallback
+                ) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowCardVerificationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            logout_in_footer: true,
+                            window_options: {
+                                is_draggable: false,
+                                cover_page: window.is_embedded,
+                            },
+                        });
+                    } while (!is_verified);
+                }
+            };
+            if (whoami.email_gate_last) {
+                await cardGate();
+                await phoneGate();
+                await emailGate();
+            } else {
+                await emailGate();
+                await phoneGate();
+                await cardGate();
             }
             // Last, matching assertVerifiedAccount's order.
             if (whoami.requires_password_change) {
@@ -2402,7 +2658,7 @@ window.initgui = async function (options) {
                                         // we cache it here so that we can use it later
                                         window.host_app_uid = data.app_uid;
                                         // send token to parent
-                                        if (deliversTokenToOpener(action)) {
+                                        if (deliversTokenAtBoot(action)) {
                                             window.opener?.postMessage(
                                                 {
                                                     msg: 'puter.token',
@@ -2492,7 +2748,7 @@ window.initgui = async function (options) {
                                         // we cache it here so that we can use it later
                                         window.host_app_uid = data.app_uid;
                                         // send token to parent
-                                        if (deliversTokenToOpener(action)) {
+                                        if (deliversTokenAtBoot(action)) {
                                             window.opener?.postMessage(
                                                 {
                                                     msg: 'puter.token',

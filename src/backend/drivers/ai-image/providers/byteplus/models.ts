@@ -22,6 +22,8 @@ import type { IImageModel } from '../../types.js';
 export type BytePlusImageModel = IImageModel & {
     minPixels: number;
     maxPixels: number;
+    /** Per-request reference image cap; defaults to the Seedream-wide 14. */
+    maxInputImages?: number;
 };
 
 export const BYTEPLUS_PIXEL_SIZE_THRESHOLD = 921_600;
@@ -143,6 +145,7 @@ export const BYTEPLUS_IMAGE_GENERATION_MODELS: BytePlusImageModel[] = [
         pixelSizeThreshold: BYTEPLUS_PIXEL_SIZE_THRESHOLD,
         minPixels: 921_600,
         maxPixels: 4_624_220,
+        maxInputImages: 10,
         aliases: [
             'byteplus/dola-seedream-5-0-pro-260628',
             'dola-seedream-5-0-pro',
@@ -159,6 +162,29 @@ export const BYTEPLUS_IMAGE_GENERATION_MODELS: BytePlusImageModel[] = [
             'output:2k': 9, // $0.09 per image > 2.61MP
             input_image: 0.3, // $0.003 per input image from the 2nd on
         },
+        allowedQualityLevels: ['1k', '1.5k', '2k'],
+        resolution_map: SEEDREAM_PRO_RESOLUTION_MAP,
+    },
+    {
+        // Same sizes and capabilities as 5.0 pro, at one flat rate with
+        // free image input.
+        puterId: 'byteplus:byteplus/dola-seedream-5-0-flash-260915',
+        id: 'dola-seedream-5-0-flash-260915',
+        pixelSizeThreshold: BYTEPLUS_PIXEL_SIZE_THRESHOLD,
+        minPixels: 921_600,
+        maxPixels: 4_624_220,
+        maxInputImages: 10,
+        aliases: [
+            'byteplus/dola-seedream-5-0-flash-260915',
+            'dola-seedream-5-0-flash',
+            'byteplus/dola-seedream-5-0-flash',
+            'seedream-5-0-flash',
+        ],
+        name: 'Dola Seedream 5.0 Flash',
+        costs_currency: 'usd-cents',
+        pricing_unit: 'per-image',
+        index_cost_key: 'per-image',
+        costs: { 'per-image': 1.8 },
         allowedQualityLevels: ['1k', '1.5k', '2k'],
         resolution_map: SEEDREAM_PRO_RESOLUTION_MAP,
     },

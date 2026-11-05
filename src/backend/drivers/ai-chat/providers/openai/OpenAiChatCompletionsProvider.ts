@@ -21,22 +21,36 @@ import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { Context } from '../../../../core/context.js';
-import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
-import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
+import type {
+    IChatModel,
+    IChatProvider,
+    ICompleteArguments,
+} from '../../types.js';
 import {
     messagesHaveCompaction,
     wantsCompaction,
 } from '../../utils/compaction.js';
+import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
-import { buildCostsOverride } from '../../utils/pricing.js';
-import { processPuterPathUploads } from './fileUpload.js';
+import {
+    clampReasoningEffort,
+    messagesHaveCacheBreakpointTtl,
+    openAICompatParams,
+    promptCacheOptionsToWire,
+    promptCacheRetentionToWire,
+} from '../../utils/openaiParams.js';
 import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import { sdkClientOptions, sdkRetryOptions } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
+
+const isWebSearchTool = (tool: Record<string, unknown>): boolean =>
+    tool.type === 'web_search' ||
+    tool.type === 'web_search_preview' ||
+    tool.type === 'web_search_20250305' ||
+    (typeof tool.type === 'string' && /^web_search_2026/.test(tool.type));
 
 /**
  * OpenAICompletionService class provides an interface to OpenAI's chat
@@ -50,26 +64,18 @@ export class OpenAiChatProvider implements IChatProvider {
     /** @type {import('openai').OpenAI} */
     #openAi: OpenAI;
 
-    #defaultModel = 'gpt-5-nano';
+    #defaultModel = 'gpt-6-luna';
 
     #meteringService: MeteringService;
 
-    #stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
-
-    #fsService: FSService;
-
     #responsesProvider: OpenAiResponsesChatProvider | null = null;
 
-    constructor(
-        meteringService: MeteringService,
-        stores: { fsEntry: FSEntryStore; s3Object: S3ObjectStore },
-        fsService: FSService,
-        config: { apiKey: string },
-    ) {
+    constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#meteringService = meteringService;
-        this.#stores = stores;
-        this.#fsService = fsService;
-        this.#openAi = new OpenAI({ apiKey: config.apiKey });
+        this.#openAi = new OpenAI({
+            apiKey: config.apiKey,
+            ...sdkClientOptions(),
+        });
     }
 
     // Wired up by the driver after both OpenAI providers are built, so the
@@ -88,12 +94,25 @@ export class OpenAiChatProvider implements IChatProvider {
         return OPEN_AI_MODELS.filter((e) => !e.responses_api_only);
     }
 
-    list() {
-        return modelLookupNames(this.models());
-    }
-
     getDefaultModel() {
         return this.#defaultModel;
+    }
+
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string | undefined): string {
+        return `openai:${modelId}`;
+    }
+
+    /**
+     * A `web_search` call delegates to the sibling Responses provider (see
+     * `setResponsesProvider`), so its credit hold has to come from there too —
+     * this provider has no web-search pricing of its own.
+     */
+    requestPricing(
+        args: ICompleteArguments,
+        model: IChatModel,
+    ): { inputKey?: string; outputKey?: string; extraCost?: number } {
+        return this.#responsesProvider?.requestPricing?.(args, model) ?? {};
     }
 
     async complete(
@@ -110,10 +129,15 @@ export class OpenAiChatProvider implements IChatProvider {
             temperature,
             text,
             prompt_cache_key,
+            prompt_cache_retention,
+            prompt_cache_options,
         } = params;
         let { messages, model } = params;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (tools?.filter((e: any) => e.type === 'web_search').length) {
+        const cacheOptions = promptCacheOptionsToWire(prompt_cache_options);
+        if (
+            tools?.filter((e) => isWebSearchTool(e as Record<string, unknown>))
+                .length
+        ) {
             // web_search is a Responses-API-only tool — hand the whole call
             // off to the sibling provider when the user requested it.
             if (!this.#responsesProvider) {
@@ -134,6 +158,21 @@ export class OpenAiChatProvider implements IChatProvider {
                 throw new HttpError(
                     400,
                     'compaction requires the OpenAI Responses provider, which is not configured',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            return await this.#responsesProvider.complete(params);
+        }
+        // Only the Responses API writes 12h cache entries or takes a lifetime
+        // on a `prompt_cache_breakpoint`; Chat Completions rejects both.
+        if (
+            cacheOptions?.ttl === '12h' ||
+            messagesHaveCacheBreakpointTtl(messages)
+        ) {
+            if (!this.#responsesProvider) {
+                throw new HttpError(
+                    400,
+                    'a prompt cache lifetime requires the OpenAI Responses provider, which is not configured',
                     { legacyCode: 'bad_request' },
                 );
             }
@@ -162,95 +201,109 @@ export class OpenAiChatProvider implements IChatProvider {
         const userIdentifier = upstreamUserIdentifier(actor);
         // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
         const cacheKey = prompt_cache_key ?? userIdentifier;
-
-        // Resolve any `puter_path` content parts into inline base64 data URLs.
-        // Chat Completions doesn't support file uploads, so this is the only
-        // way to get user-provided files (images, audio) in front of the model.
-        await processPuterPathUploads(
-            messages,
-            this.#stores,
-            this.#fsService,
-            actor,
+        const cacheRetention = promptCacheRetentionToWire(
+            prompt_cache_retention,
         );
 
+        // Strip Anthropic-only shape a fallback-replayed message can carry
+        // (thinking/server-tool blocks, cache_control, citations) before the
+        // existing in-place coercion below, so that mutates only this pass's
+        // copy rather than the caller's own message objects.
+        messages = OpenAiUtil.toOpenAIChatMessages(messages);
         // Here's something fun; the documentation shows `type: 'image_url'` in
         // objects that contain an image url, but everything still works if
         // that's missing. We normalise it here so the token count code works.
         messages = await OpenAiUtil.process_input_messages(messages);
 
+        const mappedTools = tools
+            ? make_openai_tools(tools, { dialect: 'chat' })
+            : undefined;
+
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;
-        const supportsReasoningControls =
-            typeof model === 'string' && model.startsWith('gpt-5');
+        const clampedEffort = clampReasoningEffort(
+            modelUsed.id,
+            requestedReasoningEffort,
+        );
+        // gpt-5/gpt-6 are the reasoning-capable families in this catalog;
+        // every other model (gpt-4o, gpt-4.1, …) 400s on an unsupported
+        // `verbosity` param (the effort param itself is handled by the clamp
+        // above, which already drops it for a model matching no row).
+        const supportsReasoningFamily = /^gpt-(5|6)([.-]|$)/.test(modelUsed.id);
+        const isCodexModel = /^gpt-5(\.\d+)?-codex/.test(modelUsed.id);
+        // A clamped effort above 'none' puts the model in reasoning mode,
+        // where temperature/top_p steer a sampler that isn't in play.
+        const dropsSamplingParams =
+            clampedEffort !== undefined && clampedEffort !== 'none';
 
         const completionParams: ChatCompletionCreateParams = {
             user: userIdentifier,
             safety_identifier: userIdentifier,
             ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
+            ...(cacheRetention !== undefined
+                ? { prompt_cache_retention: cacheRetention }
+                : {}),
+            ...(cacheOptions !== undefined
+                ? { prompt_cache_options: cacheOptions }
+                : {}),
             messages: messages,
             model: modelUsed.id,
-            ...(tools ? { tools } : {}),
+            ...(mappedTools?.length ? { tools: mappedTools } : {}),
             ...(max_tokens !== undefined
                 ? { max_completion_tokens: max_tokens }
                 : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
+            ...(temperature !== undefined && !dropsSamplingParams
+                ? { temperature }
+                : {}),
             stream: !!stream,
             ...(stream
                 ? {
                       stream_options: { include_usage: true },
                   }
                 : {}),
-            ...(supportsReasoningControls
-                ? {}
-                : {
-                      ...(requestedReasoningEffort
-                          ? { reasoning_effort: requestedReasoningEffort }
-                          : {}),
-                      ...(requestedVerbosity
-                          ? { verbosity: requestedVerbosity }
-                          : {}),
-                  }),
+            ...openAICompatParams(
+                {
+                    ...params,
+                    tools: mappedTools,
+                    reasoning_effort: undefined,
+                    ...(dropsSamplingParams ? { top_p: undefined } : {}),
+                },
+                'chat',
+            ),
+            ...(clampedEffort !== undefined
+                ? { reasoning_effort: clampedEffort }
+                : {}),
+            ...(requestedVerbosity && supportsReasoningFamily && !isCodexModel
+                ? { verbosity: requestedVerbosity }
+                : {}),
         } as unknown as ChatCompletionCreateParams;
 
-        const completion =
-            await this.#openAi.chat.completions.create(completionParams);
+        const completion = await this.#openAi.chat.completions.create(
+            completionParams,
+            { signal: Context.get('upstreamSignal') },
+        );
 
         return OpenAiUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
-                const cachedTokens =
-                    usage.prompt_tokens_details?.cached_tokens ?? 0;
-                // GPT-5.6 and later bill cache writes at 1.25x input. They're
-                // reported inside `prompt_tokens`, like cached reads.
-                // The SDK doesn't type `cache_write_tokens` yet.
-                const cacheWriteTokens =
-                    (
-                        usage.prompt_tokens_details as
-                            { cache_write_tokens?: number } | undefined
-                    )?.cache_write_tokens ?? 0;
-                const trackedUsage = {
-                    prompt_tokens:
-                        (usage.prompt_tokens ?? 0) -
-                        cachedTokens -
-                        cacheWriteTokens,
-                    completion_tokens: usage.completion_tokens ?? 0,
-                    cached_tokens: cachedTokens,
-                    ...(cacheWriteTokens
-                        ? { cache_write_tokens: cacheWriteTokens }
-                        : {}),
-                };
+            usage_calculator: ({ usage, setUsageCosts, setUsageDetails }) => {
+                // GPT-5.6 and later report cache writes inside
+                // `prompt_tokens`, like cached reads; Chat Completions only
+                // writes the default 30m entries, billed at 1.25x input.
+                const trackedUsage = OpenAiUtil.splitCachedPrompt(usage);
 
-                const costsOverrideFromModel = buildCostsOverride(
-                    trackedUsage,
-                    modelUsed,
-                );
-
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
+                const metered = meterChatUsage(
+                    this.#meteringService,
                     actor,
-                    `openai:${modelUsed?.id}`,
-                    costsOverrideFromModel,
+                    this.meteringModelKey(modelUsed.id),
+                    modelUsed,
+                    trackedUsage,
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                setUsageDetails(
+                    OpenAiUtil.usageDetailsFromTrackedUsage(metered.usage, {
+                        writeTtl: '30m',
+                    })!,
+                );
+                return metered.usage;
             },
             stream,
             completion,
@@ -260,10 +313,10 @@ export class OpenAiChatProvider implements IChatProvider {
 
     async checkModeration(text: string) {
         // create moderation
-        const results = await this.#openAi.moderations.create({
-            model: 'omni-moderation-latest',
-            input: text,
-        });
+        const results = await this.#openAi.moderations.create(
+            { model: 'omni-moderation-latest', input: text },
+            sdkRetryOptions,
+        );
 
         let flagged = false;
 

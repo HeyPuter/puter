@@ -60,7 +60,9 @@ export const sanitize_recents = (value) => {
         out.push({
             kind: entry.kind,
             id,
-            name: typeof entry.name === 'string' && entry.name.trim() !== ''
+            // A person is shown by the id the share goes to, so a stored name
+            // can't present one recipient as another.
+            name: entry.kind === 'team' && typeof entry.name === 'string' && entry.name.trim() !== ''
                 ? entry.name
                 : id,
         });

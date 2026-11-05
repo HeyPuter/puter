@@ -18,108 +18,127 @@
  */
 
 import { OpenAI } from 'openai';
-import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-import { Context } from '../../../../core/context.js';
+import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
-    IChatCompleteResult,
-    IChatProvider,
+    IChatModel,
     ICompleteArguments,
+    PuterMessage,
 } from '../../types.js';
-import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
+import { openAICompatParams } from '../../utils/openaiParams.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
+import { estimateTextTokens } from '../../utils/usageEstimate.js';
+import {
+    type ChatProviderConfig,
+    OpenAICompatProvider,
+} from '../OpenAICompatProvider.js';
 import { MOONSHOT_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 
-export class MoonshotProvider implements IChatProvider {
-    #openai: OpenAI;
+/**
+ * The K3-series request shape: reasoning always on, capped by
+ * `max_completion_tokens`.
+ */
+const K31_MODEL_IDS = new Set(['kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed']);
+const K31_REASONING_EFFORTS = ['low', 'high', 'max'];
+/** Moonshot's own output cap when the request names none. */
+const K31_DEFAULT_MAX_COMPLETION_TOKENS = 131_072;
 
-    #meteringService: MeteringService;
+const isK31 = (model: IChatModel) => K31_MODEL_IDS.has(model.id);
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
-        this.#openai = new OpenAI({
-            apiKey: config.apiKey,
-            baseURL: 'https://api.moonshot.ai/v1',
+/** A replayed assistant turn's reasoning, under the wire key or Puter's. */
+const replayedReasoning = (message: PuterMessage): string | undefined => {
+    const reasoning = message.reasoning_content ?? message.reasoning;
+    return typeof reasoning === 'string' ? reasoning : undefined;
+};
+
+export class MoonshotProvider extends OpenAICompatProvider {
+    constructor(config: ChatProviderConfig, meteringService: MeteringService) {
+        super(meteringService, {
+            client: new OpenAI({
+                apiKey: config.apiKey,
+                baseURL: config.apiBaseUrl ?? 'https://api.moonshot.ai/v1',
+                ...sdkClientOptions(),
+            }),
+            defaultModel: 'kimi-k2.6',
+            models: () => MOONSHOT_MODELS,
+            meteringPrefix: 'moonshotai',
+            // Moonshot's vision API doesn't fetch http(s) URLs.
+            inlineImages: 'vision',
         });
-        this.#meteringService = meteringService;
     }
 
-    getDefaultModel() {
-        return 'kimi-k2.6';
-    }
-
-    models() {
-        return MOONSHOT_MODELS;
-    }
-
-    async list() {
-        return modelLookupNames(this.models());
-    }
-
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-    }: ICompleteArguments): Promise<IChatCompleteResult> {
-        const actor = Context.get('actor');
-        const availableModels = this.models();
-        const modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
-
-        // Moonshot's vision API doesn't fetch http(s) URLs; inline them
-        // so callers can pass plain links like other vision providers.
-        if (modelUsed.modalities?.input?.includes('image')) {
-            await inlineHttpImageUrls(messages);
-        }
-
-        messages = await OpenAIUtil.process_input_messages(messages);
-        let completion;
-        try {
-            completion = await this.#openai.chat.completions.create({
-                messages,
-                model: modelUsed.id,
-                ...(tools ? { tools } : {}),
-                max_tokens,
-                stream,
-                ...(stream
-                    ? {
-                          stream_options: { include_usage: true },
-                      }
-                    : {}),
-            } as ChatCompletionCreateParams);
-        } catch (e) {
-            console.log('Moonshot AI process_input_messages error: ', e);
-            throw e;
-        }
-
-        return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([key, value]) => {
-                        return [key, value * modelUsed.costs[key]];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
-                    actor,
-                    `moonshotai:${modelUsed.id}`,
-                    costsOverride,
-                );
-                return trackedUsage;
+    /**
+     * K3.1 Pro reads replayed reasoning back as prompt, which the message
+     * estimate the credit gate works from doesn't count.
+     */
+    requestPricing(args: ICompleteArguments, model: IChatModel) {
+        if (!isK31(model)) return {};
+        const additionalPromptTokens = (args.messages ?? []).reduce(
+            (tokens, message) => {
+                if (message.role !== 'assistant') return tokens;
+                const reasoning = replayedReasoning(message);
+                return tokens + (reasoning ? estimateTextTokens(reasoning) : 0);
             },
-            stream,
-            completion,
+            0,
+        );
+        return { additionalPromptTokens };
+    }
+
+    protected override preservesToolCallOrder(model: IChatModel) {
+        return isK31(model);
+    }
+
+    protected override preservesAssistantContent(model: IChatModel) {
+        return isK31(model);
+    }
+
+    /** K3.1 Pro wants a turn's reasoning back under `reasoning_content`, once. */
+    protected override prepareMessages(
+        messages: PuterMessage[],
+        model: IChatModel,
+    ) {
+        if (!isK31(model)) return messages;
+        return messages.map((message) => {
+            if (message.role !== 'assistant') return message;
+            const { reasoning, normalized: _normalized, ...rest } = message;
+            const replayed = replayedReasoning(message);
+            return replayed === undefined
+                ? rest
+                : { ...rest, reasoning_content: replayed };
         });
     }
 
-    checkModeration(
-        _text: string,
-    ): ReturnType<IChatProvider['checkModeration']> {
-        throw new Error('Method not implemented.');
+    protected override vendorParams(
+        params: Record<string, unknown>,
+        args: ICompleteArguments,
+        model: IChatModel,
+    ) {
+        if (!isK31(model)) return params;
+        const effort = args.reasoning_effort ?? args.reasoning?.effort;
+        if (effort !== undefined && !K31_REASONING_EFFORTS.includes(effort)) {
+            throw new HttpError(
+                400,
+                `reasoning_effort must be one of ${K31_REASONING_EFFORTS.join(', ')} for ${model.id}`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        // The K3 series deprecates `max_tokens` in favour of `max_completion_tokens`.
+        const { max_tokens, ...rest } = params;
+        return {
+            ...rest,
+            ...openAICompatParams(
+                { ...args, reasoning_effort: effort },
+                'chat',
+                {
+                    only: [
+                        'tool_choice',
+                        'response_format',
+                        'reasoning_effort',
+                    ],
+                },
+            ),
+            max_completion_tokens:
+                max_tokens ?? K31_DEFAULT_MAX_COMPLETION_TOKENS,
+        };
     }
 }

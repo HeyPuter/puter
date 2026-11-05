@@ -125,6 +125,8 @@ const SESSION_GATE = `
  *   GUI init script.
  * - `setGuiParam(key, value)` — injects a value into the client-side `gui()`
  *   call.
+ * - `registerServiceWorkerScript(path)` — loads a same-origin script into the
+ *   service worker at `/sw.js` (see `src/gui/src/sw.js` for its contract).
  * - Listening for `puter.gui.addons` — mutate the event object's `bodyContent` /
  *   `headContent` / `prependHeadContent` strings to splice arbitrary markup
  *   into the shell.
@@ -132,6 +134,8 @@ const SESSION_GATE = `
 export class PuterHomepageService extends PuterService {
     #manifest: Manifest | null = null;
     #serviceScripts: string[] = [];
+    #workerScripts: string[] = [];
+    #workerSource: string | null = null;
     #guiParams: Record<string, unknown> = {};
 
     override async onServerStart(): Promise<void> {
@@ -191,6 +195,48 @@ export class PuterHomepageService extends PuterService {
     <script defer src="/dist/${mode}-embed.min.js"></script>
 </body>
 </html>`;
+    }
+
+    /** `scriptPath` is a same-origin absolute path, like `/ext/push/worker.js`. */
+    registerServiceWorkerScript(scriptPath: string): void {
+        if (
+            typeof scriptPath !== 'string' ||
+            !scriptPath.startsWith('/') ||
+            scriptPath.startsWith('//') ||
+            /[\\\s]/.test(scriptPath)
+        ) {
+            throw new Error(
+                `service worker script must be a path: ${scriptPath}`,
+            );
+        }
+        if (!this.#workerScripts.includes(scriptPath))
+            this.#workerScripts.push(scriptPath);
+    }
+
+    /** `/sw.js`: the GUI's `sw.js` after one import per registered script. */
+    async serviceWorkerSource(): Promise<string | null> {
+        const root = this.config.gui_assets_root;
+        if (!root) return null;
+        const env = this.config.env ?? 'prod';
+        let source = env === 'dev' ? null : this.#workerSource;
+        if (source === null) {
+            try {
+                source = await readFile(
+                    path.join(root, env === 'dev' ? 'src' : 'dist', 'sw.js'),
+                    'utf8',
+                );
+            } catch {
+                return null;
+            }
+            if (env !== 'dev') this.#workerSource = source;
+        }
+        const prelude = this.#workerScripts
+            .map(
+                (p) =>
+                    `try { importScripts(${JSON.stringify(p)}); } catch (e) { console.error('service worker script failed to load', e); }\n`,
+            )
+            .join('');
+        return prelude + source;
     }
 
     /**
@@ -475,9 +521,11 @@ export class PuterHomepageService extends PuterService {
         const user = actor?.user;
         if (typeof user?.id !== 'number') return false;
         try {
-            return await this.services.team.teamsAvailableTo(
-                user.id,
-                user.email ?? null,
+            return (
+                (await this.services.team?.teamsAvailableTo(
+                    user.id,
+                    user.email ?? null,
+                )) ?? false
             );
         } catch {
             return false;

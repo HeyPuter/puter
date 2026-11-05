@@ -26,8 +26,7 @@
  * end. The Together SDK is mocked at the module boundary (the real
  * network egress point) so the provider never reaches the network.
  * Models are sourced through the SDK (`together.models.list()`) and
- * cached in the shared `kv` singleton — each test seeds/clears the
- * cache up front. The companion integration test
+ * cached per provider instance. The companion integration test
  * (TogetherAIProvider.integration.test.ts) exercises the real Together
  * endpoint.
  */
@@ -49,10 +48,10 @@ import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { kv } from '../../../../util/kvSingleton.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { TogetherAIProvider } from './TogetherAIProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── Together SDK mock ───────────────────────────────────────────────
 
@@ -80,15 +79,14 @@ vi.mock('together-ai', () => {
 let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
 
-const KV_KEY = 'togetherai:models';
 // Together's `models.list()` returns API-shaped rows; the provider
 // coerces them to IChatModel. Costs (per million):
-// Llama-3.1-8B: input=18, output=18; Qwen-7B: input=20, output=20.
+// Llama-3.3-70B: input=18, output=18; Qwen-7B: input=20, output=20.
 const SAMPLE_API_MODELS = [
     {
-        id: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+        id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
         type: 'chat',
-        display_name: 'Llama 3.1 8B Instruct Turbo',
+        display_name: 'Llama 3.3 70B Instruct Turbo',
         context_length: 32768,
         pricing: { input: 18, output: 18 },
     },
@@ -157,16 +155,13 @@ beforeEach(() => {
     createMock.mockReset();
     modelsListMock.mockReset();
     togetherCtor.mockReset();
-    // Clear the cached model list from prior tests so each test
-    // re-resolves through the mocked SDK (or the seeded value below).
-    kv.del(KV_KEY);
     modelsListMock.mockResolvedValue(SAMPLE_API_MODELS);
     recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
 });
 
 afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
-    kv.del(KV_KEY);
 });
 
 // ── Construction ────────────────────────────────────────────────────
@@ -177,7 +172,8 @@ describe('TogetherAIProvider construction', () => {
         expect(togetherCtor).toHaveBeenCalledTimes(1);
         expect(togetherCtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
-            timeout: 600_000,
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -188,25 +184,25 @@ describe('TogetherAIProvider model catalog', () => {
     it('returns the togetherai-prefixed default model id', () => {
         const { provider } = makeProvider();
         expect(provider.getDefaultModel()).toBe(
-            'togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+            'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo',
         );
     });
 
     it('list() flattens canonical ids and aliases for chat models only', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         // Embedding-typed models are filtered out.
         expect(ids).not.toContain('togetherai:some/embedding-model');
         // Canonical id is prefixed with togetherai:
         expect(ids).toContain(
-            'togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+            'togetherai:meta-llama/Llama-3.3-70B-Instruct-Turbo',
         );
         // Aliases include the bare id and the slash-separated tail.
-        expect(ids).toContain('meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo');
+        expect(ids).toContain('meta-llama/Llama-3.3-70B-Instruct-Turbo');
         expect(ids).toContain(
-            'togetherai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+            'togetherai/meta-llama/Llama-3.3-70B-Instruct-Turbo',
         );
-        expect(ids).toContain('Meta-Llama-3.1-8B-Instruct-Turbo');
+        expect(ids).toContain('Llama-3.3-70B-Instruct-Turbo');
     });
 
     it('reserves headroom under the context length for the output cap', async () => {
@@ -221,7 +217,7 @@ describe('TogetherAIProvider model catalog', () => {
         expect(model.max_tokens).toBe(Math.floor(32768 * 0.95));
     });
 
-    it('caches the coerced model list in kv after the first call', async () => {
+    it('caches the coerced model list after the first call', async () => {
         const { provider } = makeProvider();
         await provider.models();
         await provider.models();
@@ -292,7 +288,7 @@ describe('TogetherAIProvider.complete request shape', () => {
         expect(args.temperature).toBe(0);
     });
 
-    it('passes tools through unchanged when supplied; omits the key when not', async () => {
+    it('sends function tools in the OpenAI shape; omits the key when not', async () => {
         const { provider } = makeProvider();
 
         // No tools.
@@ -323,7 +319,7 @@ describe('TogetherAIProvider.complete request shape', () => {
                 tools,
             }),
         );
-        expect(createMock.mock.calls[1]![0].tools).toBe(tools);
+        expect(createMock.mock.calls[1]![0].tools).toEqual(tools);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {
@@ -619,20 +615,18 @@ describe('TogetherAIProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('rejects an unknown id instead of substituting the default', async () => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'totally-not-a-real-model',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe(
-            'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 
@@ -765,4 +759,31 @@ describe('TogetherAIProvider.checkModeration', () => {
             /not implemented/i,
         );
     });
+});
+
+
+describe('Together catalog price validation', () => {
+    it('does not fabricate missing prices or round fractional microcents away', async () => {
+        modelsListMock.mockResolvedValueOnce([{ id: 'fixture/model', type: 'chat', context_length: 1000,
+            pricing: { input: 0.014, output: null, cached_input: -1 } }]);
+        const { provider } = makeProvider();
+        const [model] = await provider.models();
+        expect(model.costs.input).toBeCloseTo(1.4);
+        expect(model.costs.output).toBeUndefined();
+        expect(model.costs.cached_input).toBeUndefined();
+        await expect(withTestActor(() => provider.complete({ model: model.id, messages: [] })))
+            .rejects.toMatchObject({ legacyCode: 'model_pricing_unavailable' });
+        expect(createMock).not.toHaveBeenCalled();
+    });
+});
+
+
+it('retains the last-good together catalog after a malformed refresh', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { provider } = makeProvider();
+    const good = await provider.models();
+    vi.advanceTimersByTime(15 * 60 * 1000 + 1);
+    modelsListMock.mockResolvedValueOnce({});
+    expect(await provider.models()).toBe(good);
 });

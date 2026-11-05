@@ -83,6 +83,14 @@ export interface GetObjectInput {
     range?: string;
 }
 
+export interface SignedReadInput {
+    bucket: string;
+    objectKey: string;
+    expiresInSeconds: number;
+    /** Served as the response `Content-Type` in place of the stored one. */
+    contentType?: string;
+}
+
 export interface GetObjectResult {
     body: Readable;
     contentLength: number | null;

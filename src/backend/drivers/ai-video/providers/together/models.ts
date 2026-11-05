@@ -22,16 +22,19 @@ import { IVideoModel } from '../../types.js';
 /**
  * Together prices its older video models per clip (`per-video`) and its newer
  * ones per second of output (`per-second`, plus `per-second-<tier>` where a
- * cheaper resolution tier exists). Per-second rates are the highest rate
- * Together publishes for the model so the pre-flight estimate never
- * undershoots; the provider then bills the amount Together reports on the
- * finished job. `default-duration-per-video` is the estimated cents for a 5s
- * clip and only feeds cross-provider cost sorting.
+ * cheaper resolution tier exists, and `per-second-video-input` for editing a
+ * source video). Per-second rates are the highest rate Together publishes for
+ * the model so the estimate never undershoots. Together's jobs report no cost,
+ * so the estimate is what gets billed; a reported cost replaces it.
+ * `default-duration-per-video` is the estimated cents for a 5s clip and only
+ * feeds cross-provider cost sorting.
  */
 export interface ITogetherVideoModel extends IVideoModel {
     model: string;
     organization: string;
     durationSeconds: number[] | null;
+    /** Output durations when editing a source video. */
+    videoInputDurationSeconds?: number[];
     /**
      * Pixel sizes the model takes as width/height, or resolution tiers ('720p')
      * it takes as `resolution`. The first entry is the default.
@@ -76,6 +79,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         promptLength: { min: 2, max: 3000 },
         promptSupported: true,
     },
+    // Together quotes $0.56 for a 10s 768p clip.
     {
         id: 'togetherai:minimax/hailuo-02',
         puterId: 'togetherai:minimax/hailuo-02',
@@ -83,7 +87,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         name: 'MiniMax Hailuo 02',
         model: 'minimax/hailuo-02',
         costs_currency: 'usd-cents',
-        costs: { 'per-video': 49 },
+        costs: { 'per-video': 56 },
         output_cost_key: 'per-video',
         durationSeconds: [10],
         dimensions: ['1366x768', '1920x1080'],
@@ -92,24 +96,7 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         promptLength: { min: 2, max: 3000 },
         promptSupported: true,
     },
-    {
-        id: 'togetherai:google/veo-2.0',
-        puterId: 'togetherai:google/veo-2.0',
-        organization: 'Google',
-        name: 'Veo 2.0',
-        model: 'google/veo-2.0',
-        costs_currency: 'usd-cents',
-        costs: { 'per-video': 250 },
-        output_cost_key: 'per-video',
-        durationSeconds: [5],
-        dimensions: ['1280x720', '720x1280'],
-        fps: [24],
-        keyframes: ['first', 'last'],
-        promptLength: { min: 2, max: 3000 },
-        promptSupported: true,
-    },
-    // Google serves Veo 3.1 directly too; these entries exist for callers who
-    // pin `togetherai:`. Together's own listing quotes $0.60/s with audio.
+    // Together's own listing quotes $0.60/s with audio for Veo 3.1.
     {
         id: 'togetherai:google/veo-3.1',
         puterId: 'togetherai:google/veo-3.1',
@@ -303,70 +290,6 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         fps: null,
         keyframes: null,
         promptLength: null,
-        promptSupported: true,
-    },
-    {
-        id: 'togetherai:kwaivgI/kling-2.1-master',
-        puterId: 'togetherai:kwaivgi/kling-2.1-master',
-        organization: 'Kuaishou',
-        name: 'Kling 2.1 Master',
-        model: 'kwaivgI/kling-2.1-master',
-        costs_currency: 'usd-cents',
-        costs: { 'per-video': 92 },
-        output_cost_key: 'per-video',
-        durationSeconds: [5],
-        dimensions: ['1920x1080', '1080x1080', '1080x1920'],
-        fps: [24],
-        keyframes: ['first'],
-        promptLength: { min: 2, max: 2500 },
-        promptSupported: true,
-    },
-    {
-        id: 'togetherai:kwaivgI/kling-2.1-standard',
-        puterId: 'togetherai:kwaivgi/kling-2.1-standard',
-        organization: 'Kuaishou',
-        name: 'Kling 2.1 Standard',
-        model: 'kwaivgI/kling-2.1-standard',
-        costs_currency: 'usd-cents',
-        costs: { 'per-video': 18 },
-        output_cost_key: 'per-video',
-        durationSeconds: [5],
-        dimensions: ['1920x1080', '1080x1080', '1080x1920'],
-        fps: [24],
-        keyframes: ['first'],
-        promptLength: null,
-        promptSupported: false,
-    },
-    {
-        id: 'togetherai:kwaivgI/kling-2.1-pro',
-        puterId: 'togetherai:kwaivgi/kling-2.1-pro',
-        organization: 'Kuaishou',
-        name: 'Kling 2.1 Pro',
-        model: 'kwaivgI/kling-2.1-pro',
-        costs_currency: 'usd-cents',
-        costs: { 'per-video': 32 },
-        output_cost_key: 'per-video',
-        durationSeconds: [5],
-        dimensions: ['1920x1080', '1080x1080', '1080x1920'],
-        fps: [24],
-        keyframes: ['first', 'last'],
-        promptLength: null,
-        promptSupported: false,
-    },
-    {
-        id: 'togetherai:kwaivgI/kling-1.6-standard',
-        puterId: 'togetherai:kwaivgi/kling-1.6-standard',
-        organization: 'Kuaishou',
-        name: 'Kling 1.6 Standard',
-        model: 'kwaivgI/kling-1.6-standard',
-        costs_currency: 'usd-cents',
-        costs: { 'per-video': 19 },
-        output_cost_key: 'per-video',
-        durationSeconds: [5],
-        dimensions: ['1920x1080', '1080x1080', '1080x1920'],
-        fps: [30, 24],
-        keyframes: ['first'],
-        promptLength: { min: 2, max: 2500 },
         promptSupported: true,
     },
     // Wan 2.7 sizes output by `resolution` + `ratio` and quotes a flat
@@ -568,7 +491,9 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         promptLength: null,
         promptSupported: true,
     },
-    // FLUX 3 text-to-video: $0.17/s at 720p, $0.29/s at 1080p.
+    // FLUX 3 text-to-video: $0.17/s at 720p, $0.29/s at 1080p. Editing a
+    // source video: $0.43/s at 720p, $0.54/s at 1080p; edits come back at
+    // 1280x704, so they bill at the 720p rate.
     {
         id: 'togetherai:black-forest-labs/FLUX-3',
         puterId: 'togetherai:black-forest-labs/flux-3',
@@ -576,7 +501,30 @@ export const TOGETHER_VIDEO_GENERATION_MODELS: ITogetherVideoModel[] = [
         name: 'FLUX 3',
         model: 'black-forest-labs/FLUX-3',
         costs_currency: 'usd-cents',
-        costs: { 'per-second': 29, 'default-duration-per-video': 145 },
+        costs: {
+            'per-second': 29,
+            'per-second-video-input': 43,
+            'default-duration-per-video': 145,
+        },
+        output_cost_key: 'default-duration-per-video',
+        durationSeconds: null,
+        dimensions: null,
+        fps: null,
+        keyframes: null,
+        promptLength: null,
+        promptSupported: true,
+        videoInput: true,
+        videoInputDurationSeconds: seconds(6, 5, 20),
+    },
+    // MiniMax H3: $0.1391/s at 2k, the only rate Together publishes.
+    {
+        id: 'togetherai:MiniMaxAI/MiniMax-H3',
+        puterId: 'togetherai:minimaxai/minimax-h3',
+        organization: 'MiniMax',
+        name: 'MiniMax H3',
+        model: 'MiniMaxAI/MiniMax-H3',
+        costs_currency: 'usd-cents',
+        costs: { 'per-second': 13.91, 'default-duration-per-video': 69.55 },
         output_cost_key: 'default-duration-per-video',
         durationSeconds: null,
         dimensions: null,

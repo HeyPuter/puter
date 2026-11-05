@@ -39,10 +39,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { BYTEPLUS_IMAGE_GENERATION_MODELS } from './models.js';
 import { BytePlusImageProvider } from './BytePlusImageProvider.js';
 
@@ -70,7 +72,7 @@ vi.mock('openai', () => {
 // -- Test harness ----------------------------------------------------
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
 >;
@@ -83,6 +85,14 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = (
     config: { apiKey?: string; apiBaseUrl?: string } = {},
 ) =>
@@ -91,13 +101,13 @@ const makeProvider = (
             apiKey: config.apiKey ?? 'test-key',
             ...(config.apiBaseUrl ? { apiBaseUrl: config.apiBaseUrl } : {}),
         },
-        server.services.metering,
+        aiMetering(),
     );
 
 beforeEach(() => {
     generateMock.mockReset();
     openAICtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
         'batchIncrementUsages',
@@ -136,11 +146,7 @@ describe('BytePlusImageProvider construction', () => {
 
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new BytePlusImageProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+            () => new BytePlusImageProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 });
@@ -171,7 +177,7 @@ describe('BytePlusImageProvider.generate gates', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     });
 
@@ -190,12 +196,44 @@ describe('BytePlusImageProvider.generate gates', () => {
     });
 
     it('throws 402 BEFORE hitting ModelArk when the actor lacks credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         await expect(
             withTestActor(() => makeProvider().generate({ prompt: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(generateMock).not.toHaveBeenCalled();
         expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+    });
+
+    it('holds the image cost while ModelArk runs and releases it afterwards', async () => {
+        const actor = makeActor({
+            user: { id: 92, uuid: `ark-hold-${Date.now()}`, username: 'hold' },
+        });
+        let heldDuringCall = -1;
+        generateMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return sampleResponse;
+        });
+
+        await withTestActor(
+            () =>
+                makeProvider().generate({
+                    model: 'seedream-4-0',
+                    prompt: 'hi',
+                }),
+            actor,
+        );
+
+        expect(heldDuringCall).toBe(
+            findModel('seedream-4-0-250828').costs['per-image'] * 1_000_000,
+        );
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
     });
 });
 
@@ -423,17 +461,32 @@ describe('BytePlusImageProvider.generate input images', () => {
         );
     });
 
-    it('rejects more input images than the model accepts', async () => {
-        await expect(
-            withTestActor(() =>
-                makeProvider().generate({
-                    model: 'dola-seedream-5-0-pro',
-                    prompt: 'hi',
-                    input_images: Array(11).fill(PNG),
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        expect(generateMock).not.toHaveBeenCalled();
+    it.each(['dola-seedream-5-0-pro', 'dola-seedream-5-0-flash'])(
+        'rejects more input images than %s accepts',
+        async (model) => {
+            await expect(
+                withTestActor(() =>
+                    makeProvider().generate({
+                        model,
+                        prompt: 'hi',
+                        input_images: Array(11).fill(PNG),
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(generateMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('accepts up to 14 input images on the other seedream models', async () => {
+        generateMock.mockResolvedValueOnce(sampleResponse);
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'seedream-5-0-lite',
+                prompt: 'hi',
+                input_images: Array(14).fill(PNG),
+            }),
+        );
+        expect(generateMock).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -454,6 +507,27 @@ describe('BytePlusImageProvider.generate metering', () => {
                 costOverride:
                     findModel('seedream-4-0-250828').costs['per-image'] *
                     1_000_000,
+            },
+        ]);
+    });
+
+    it('bills seedream 5.0 flash at its flat rate, even for 2K output and extra inputs', async () => {
+        generateMock.mockResolvedValueOnce(sampleResponse);
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'dola-seedream-5-0-flash',
+                prompt: 'hi',
+                quality: '2k',
+                input_images: Array(3).fill('data:image/png;base64,iVBORw0KGgo='),
+            }),
+        );
+        const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
+        expect(entries).toEqual([
+            {
+                usageType:
+                    'byteplus-image-generation:dola-seedream-5-0-flash-260915:per-image',
+                usageAmount: 1,
+                costOverride: 1.8 * 1_000_000,
             },
         ]);
     });
@@ -639,7 +713,7 @@ it.each([
             }),
         ),
     ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
-    expect(hasCreditsSpy).not.toHaveBeenCalled();
+    expect(admitSpy).not.toHaveBeenCalled();
     expect(generateMock).not.toHaveBeenCalled();
 });
 

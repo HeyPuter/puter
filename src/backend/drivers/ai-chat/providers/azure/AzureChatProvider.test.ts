@@ -345,10 +345,78 @@ describe('AzureChatProvider.complete argument validation', () => {
         expect(result).toEqual({ delegated: 'compaction' });
     });
 
-    it('checkModeration is not implemented on the Azure deployment', () => {
-        expect(() => makeProvider().checkModeration('anything')).toThrow(
-            'Method not implemented.',
+    it('requestPricing delegates to the Responses sibling, and no-ops without one', async () => {
+        const provider = makeProvider();
+        const args = {
+            model: 'gpt-4o',
+            messages: [],
+            tools: [{ type: 'web_search' }],
+        } as never;
+        const model = { id: 'gpt-4o' } as never;
+        const est = { promptTokenEstimate: 0 };
+
+        expect(provider.requestPricing!(args, model, est)).toEqual({});
+
+        const sibling = {
+            requestPricing: vi.fn().mockReturnValue({ extraCost: 1_400_000 }),
+        };
+        provider.setResponsesProvider(sibling as never);
+        expect(provider.requestPricing!(args, model, est)).toEqual({
+            extraCost: 1_400_000,
+        });
+        expect(sibling.requestPricing).toHaveBeenCalledWith(args, model, est);
+    });
+
+    it('checkModeration delegates to the Responses sibling, and throws without one', async () => {
+        const provider = makeProvider();
+        expect(() => provider.checkModeration('anything')).toThrow();
+
+        const sibling = {
+            checkModeration: vi.fn().mockResolvedValue({ flagged: false }),
+        };
+        provider.setResponsesProvider(sibling as never);
+        await expect(provider.checkModeration('anything')).resolves.toEqual({
+            flagged: false,
+        });
+        expect(sibling.checkModeration).toHaveBeenCalledWith('anything');
+    });
+});
+
+// -- Moderation ------------------------------------------------------
+
+describe('AzureChatProvider.complete moderation', () => {
+    const completeModerated = (flagged: boolean) => {
+        const provider = makeProvider();
+        const sibling = {
+            checkModeration: vi.fn().mockResolvedValue({ flagged }),
+        };
+        provider.setResponsesProvider(sibling as never);
+        createMock.mockResolvedValueOnce(okCompletion);
+        const result = withTestActor(() =>
+            provider.complete({
+                model: 'gpt-4o',
+                messages: [{ role: 'user', content: 'hi' }],
+                moderation: true,
+            }),
         );
+        return { result, sibling };
+    };
+
+    it('returns a completion the moderation check passes', async () => {
+        const { result, sibling } = completeModerated(false);
+        await expect(result).resolves.toMatchObject({
+            message: { content: 'hi' },
+        });
+        expect(sibling.checkModeration).toHaveBeenCalledWith('hi');
+    });
+
+    it('refuses a flagged completion with moderation_flagged, after metering it', async () => {
+        const { result } = completeModerated(true);
+        await expect(result).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'moderation_flagged',
+        });
+        expect(recordSpy).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -473,7 +541,7 @@ describe('AzureChatProvider.complete request shape', () => {
         expect(args.model).toBe('grok-4-20-non-reasoning');
     });
 
-    it('drops reasoning_effort/verbosity for gpt-5 models and forwards them otherwise', async () => {
+    it('forwards reasoning_effort/verbosity for gpt-5 models, drops them for a non-reasoning model', async () => {
         const provider = makeProvider();
 
         createMock.mockResolvedValueOnce(okCompletion);
@@ -486,21 +554,21 @@ describe('AzureChatProvider.complete request shape', () => {
             } as never),
         );
         const [gpt5Args] = createMock.mock.calls[0]!;
-        expect('reasoning_effort' in gpt5Args).toBe(false);
-        expect('verbosity' in gpt5Args).toBe(false);
+        expect(gpt5Args.reasoning_effort).toBe('high');
+        expect(gpt5Args.verbosity).toBe('high');
 
         createMock.mockResolvedValueOnce(okCompletion);
         await withTestActor(() =>
             provider.complete({
                 model: 'grok-4-20-non-reasoning',
                 messages: [{ role: 'user', content: 'hi' }],
-                reasoning: { effort: 'medium' },
-                text: { verbosity: 'low' },
+                reasoning_effort: 'medium',
+                verbosity: 'low',
             } as never),
         );
         const [grokArgs] = createMock.mock.calls[1]!;
-        expect(grokArgs.reasoning_effort).toBe('medium');
-        expect(grokArgs.verbosity).toBe('low');
+        expect('reasoning_effort' in grokArgs).toBe(false);
+        expect('verbosity' in grokArgs).toBe(false);
     });
 
     it('only sets stream_options.include_usage when streaming', async () => {

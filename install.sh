@@ -53,9 +53,29 @@ need() {
     command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
 }
 
+check_docker() {
+    if command -v docker >/dev/null 2>&1; then
+        return 0
+    fi
+    echo >&2 ""
+    echo >&2 "[puter-install] missing required command: docker"
+    echo >&2 ""
+    echo >&2 "Docker is required to run Puter self-hosted."
+    echo >&2 ""
+    echo >&2 "Installation instructions:"
+    echo >&2 "  - macOS (Apple Silicon & Intel): https://docs.docker.com/desktop/setup/install/mac-install/"
+    echo >&2 "    (Docker Desktop is recommended. Alternatives: OrbStack, Colima)"
+    echo >&2 "  - Linux: https://docs.docker.com/engine/install/"
+    echo >&2 "  - Windows: https://docs.docker.com/desktop/setup/install/windows-install/"
+    echo >&2 ""
+    echo >&2 "After installing Docker, make sure it's running and try again."
+    echo >&2 ""
+    exit 1
+}
+
 # ── Step 1: dependency check ────────────────────────────────────────
 log "checking dependencies"
-need docker
+check_docker
 need curl
 need openssl
 docker compose version >/dev/null 2>&1 \

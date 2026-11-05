@@ -29,5 +29,6 @@ import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 export async function expireAt (key, timestamp, optConfig) {
     assertKeyPresent(key);
     assertKeySize(key);
+    this.guiCache.invalidate(key);
     return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'expireAt', argNames: ['key', 'timestamp'], puter: this.puter })({ key, timestamp, optConfig });
 }

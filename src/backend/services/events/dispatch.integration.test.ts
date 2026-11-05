@@ -80,7 +80,7 @@ const subscribeTo = async (subject: string) => {
 };
 
 describe('the write path reaches subscribers', () => {
-    it('omits values after the temporary KV fan-out threshold', async () => {
+    it('keeps values on the deliveries a capped KV fan-out makes', async () => {
         const key = `fanout-value-${Date.now()}`;
         const socketIds = Array.from({ length: 129 }, (_, i) =>
             `kv-fanout-${i}`,
@@ -117,9 +117,15 @@ describe('the write path reaches subscribers', () => {
                     envelope.event.op === 'set' &&
                     (envelope.event as { key?: string }).key === key,
             );
-            expect(sent.every((envelope) => !('value' in envelope.event))).toBe(
-                true,
-            );
+            // The value rides on the first 128 deliveries, which is all of
+            // them at this cap.
+            expect(
+                sent.every(
+                    (envelope) =>
+                        (envelope.event as { value?: unknown }).value ===
+                        're-read',
+                ),
+            ).toBe(true);
         } finally {
             await Promise.all(
                 socketIds.map((socketId) => events().reapSocket(userId, socketId)),

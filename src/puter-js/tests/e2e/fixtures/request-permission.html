@@ -15,7 +15,7 @@
     <p id="status">Loading puter.js…</p>
 
     <button id="req-email-perm" disabled>Request Email Permission</button>
-    <button id="req-driver-perm" disabled>Request Driver Permission</button>
+    <button id="req-unheld-perm" disabled>Request Unheld Permission</button>
     <button id="req-fs-create-perm" disabled>Request FS Create Permission</button>
 
     <div id="log" data-testid="log"></div>
@@ -30,13 +30,18 @@
     </script>
     <script src="/dist/puter.dev.js"></script>
     <script>
-        // A driver nothing implies: every app implicitly holds the built-in
-        // driver scopes (backend hardcoded-permissions.js), and access already
-        // held resolves without a prompt. Fresh per page load unless `?perm=`
-        // pins it, so one test's Allow can't settle another test's request.
-        window.__driverPermission =
-            new URLSearchParams(location.search).get('perm')
-            || `driver:e2e-${Math.random().toString(36).slice(2, 10)}:generate`;
+        // A missing path in the user's home: nothing holds it, and the dialog
+        // describes it by offering to create it. Fresh per page load unless
+        // `?perm=` pins it, so one test's Allow can't settle another test's
+        // request. A signed-out site can't look the home up, so `?home=`
+        // supplies it. Everything an Allow creates lands in `e2e-perms`, which
+        // the spec deletes when it is done.
+        const params = new URLSearchParams(location.search);
+        const freshName = `e2e-${Math.random().toString(36).slice(2, 10)}`;
+        let unheldPermission;
+        window.__unheldPermission = async () => unheldPermission ??=
+            params.get('perm')
+            || `fs:${params.get('home') || `/${(await puter.auth.whoami()).username}`}/e2e-perms/${freshName}:read`;
 
         const logEl = document.getElementById('log');
         const statusEl = document.getElementById('status');
@@ -52,7 +57,7 @@
             document.body.classList.add('ready');
             statusEl.textContent = `Ready (env=${puter.env})`;
             document.getElementById('req-email-perm').disabled = false;
-            document.getElementById('req-driver-perm').disabled = false;
+            document.getElementById('req-unheld-perm').disabled = false;
             document.getElementById('req-fs-create-perm').disabled = false;
         }
 
@@ -81,15 +86,14 @@
             }
         });
 
-        // Driver permission: describable without whoami, works in env=web too.
-        document.getElementById('req-driver-perm').addEventListener('click', async () => {
+        document.getElementById('req-unheld-perm').addEventListener('click', async () => {
             try {
                 const granted = await puter.ui.requestPermission({
-                    permission: window.__driverPermission,
+                    permission: await window.__unheldPermission(),
                 });
-                log(`perm:driver:${granted}`);
+                log(`perm:unheld:${granted}`);
             } catch (e) {
-                log(`perm:driver:error:${e?.message ?? e}`);
+                log(`perm:unheld:error:${e?.message ?? e}`);
             }
         });
 
@@ -101,12 +105,17 @@
         document.getElementById('req-fs-create-perm').addEventListener('click', async () => {
             try {
                 const whoami = await puter.auth.whoami();
-                const path = `/${whoami.username}/${window.__fsCreateName}`;
+                const path = `/${whoami.username}/e2e-perms/${window.__fsCreateName}`;
                 const granted = await puter.ui.requestPermission({
                     permission: `fs:${path}:write`,
                 });
                 log(`perm:fscreate:${granted}`);
-                const stat = await puter.fs.stat({ path }).catch(() => null);
+                let stat = null;
+                try {
+                    stat = await puter.fs.stat({ path });
+                } catch {
+                    // Missing, which the log says.
+                }
                 log(`perm:fscreate:stat:${stat ? (stat.is_dir ? 'dir' : 'file') : 'missing'}`);
             } catch (e) {
                 log(`perm:fscreate:error:${e?.message ?? e}`);

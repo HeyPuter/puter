@@ -1,0 +1,163 @@
+{
+    "formatVersion": "v1.0",
+    "disclaimer": "This pricing list is for informational purposes only. All prices are subject to the additional terms included in the pricing pages on http://aws.amazon.com. All Free Tier prices are also subject to the terms included at https://aws.amazon.com/free/",
+    "offerCode": "AmazonTextract",
+    "version": "20260911124513",
+    "publicationDate": "2026-09-11T12:45:13Z",
+    "products": {
+        "GDBP4PSVE9T6ZMUT": {
+            "sku": "GDBP4PSVE9T6ZMUT",
+            "productFamily": "API Request",
+            "attributes": {
+                "servicecode": "AmazonTextract",
+                "location": "US West (Oregon)",
+                "locationType": "AWS Region",
+                "group": "Textract DocumentText API Requests",
+                "groupDescription": "Number of pages processed using DetectDocumentText",
+                "usagetype": "USW2-SyncTextPagesProcessed",
+                "operation": "",
+                "apiType": "Sync",
+                "entityType": "Text",
+                "platopagedatatype": "SyncTextPagesProcessed",
+                "regionCode": "us-west-2",
+                "servicename": "Amazon Textract"
+            }
+        },
+        "ASZEG698D47WUZBY": {
+            "sku": "ASZEG698D47WUZBY",
+            "productFamily": "API Request",
+            "attributes": {
+                "servicecode": "AmazonTextract",
+                "location": "US West (Oregon)",
+                "locationType": "AWS Region",
+                "group": "Textract DocumentText API Requests",
+                "groupDescription": "Number of pages processed using DocumentTextDetection APIs",
+                "usagetype": "USW2-AsyncTextPagesProcessed",
+                "operation": "",
+                "apiType": "Async",
+                "entityType": "Text",
+                "platopagedatatype": "AsyncTextPagesProcessed",
+                "regionCode": "us-west-2",
+                "servicename": "Amazon Textract"
+            }
+        },
+        "YXP789HT5ZQGFB9R": {
+            "sku": "YXP789HT5ZQGFB9R",
+            "productFamily": "API Request",
+            "attributes": {
+                "servicecode": "AmazonTextract",
+                "location": "US West (Oregon)",
+                "locationType": "AWS Region",
+                "group": "Textract Analyze API Requests",
+                "groupDescription": "Number of pages processed using AnalyzeDocument",
+                "usagetype": "USW2-SyncTablesPagesProcessed",
+                "operation": "",
+                "apiType": "Sync",
+                "entityType": "Tables",
+                "platopagedatatype": "SyncTablesPagesProcessed",
+                "regionCode": "us-west-2",
+                "servicename": "Amazon Textract"
+            }
+        }
+    },
+    "terms": {
+        "OnDemand": {
+            "GDBP4PSVE9T6ZMUT": {
+                "GDBP4PSVE9T6ZMUT.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "GDBP4PSVE9T6ZMUT",
+                    "effectiveDate": "2024-10-01T00:00:00Z",
+                    "priceDimensions": {
+                        "GDBP4PSVE9T6ZMUT.JRTCKXETXF.SB2VSFF4TP": {
+                            "rateCode": "GDBP4PSVE9T6ZMUT.JRTCKXETXF.SB2VSFF4TP",
+                            "description": "SyncPagesProcessed: 0 - 1M DetectDocumentText pages processed USD per month, $1.50 USD per 1000 pages",
+                            "beginRange": "0",
+                            "endRange": "1000000",
+                            "unit": "Pages",
+                            "pricePerUnit": {
+                                "USD": "0.0015000000"
+                            },
+                            "appliesTo": []
+                        },
+                        "GDBP4PSVE9T6ZMUT.JRTCKXETXF.VNJQCFJPS4": {
+                            "rateCode": "GDBP4PSVE9T6ZMUT.JRTCKXETXF.VNJQCFJPS4",
+                            "description": "SyncPagesProcessed: 1M+ DetectDocumentText pages processed USD per month, $0.60 USD per 1000 pages",
+                            "beginRange": "1000000",
+                            "endRange": "Inf",
+                            "unit": "Pages",
+                            "pricePerUnit": {
+                                "USD": "0.0006000000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            },
+            "ASZEG698D47WUZBY": {
+                "ASZEG698D47WUZBY.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "ASZEG698D47WUZBY",
+                    "effectiveDate": "2024-10-01T00:00:00Z",
+                    "priceDimensions": {
+                        "ASZEG698D47WUZBY.JRTCKXETXF.SB2VSFF4TP": {
+                            "rateCode": "ASZEG698D47WUZBY.JRTCKXETXF.SB2VSFF4TP",
+                            "description": "AsyncPagesProcessed: 0 - 1M DetectDocumentText pages processed USD per month, $1.50 USD per 1000 pages",
+                            "beginRange": "0",
+                            "endRange": "1000000",
+                            "unit": "Pages",
+                            "pricePerUnit": {
+                                "USD": "0.0015000000"
+                            },
+                            "appliesTo": []
+                        },
+                        "ASZEG698D47WUZBY.JRTCKXETXF.VNJQCFJPS4": {
+                            "rateCode": "ASZEG698D47WUZBY.JRTCKXETXF.VNJQCFJPS4",
+                            "description": "AsyncPagesProcessed: 1M+ DetectDocumentText pages processed USD per month, $0.60 USD per 1000 pages",
+                            "beginRange": "1000000",
+                            "endRange": "Inf",
+                            "unit": "Pages",
+                            "pricePerUnit": {
+                                "USD": "0.0006000000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            },
+            "YXP789HT5ZQGFB9R": {
+                "YXP789HT5ZQGFB9R.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "YXP789HT5ZQGFB9R",
+                    "effectiveDate": "2024-10-01T00:00:00Z",
+                    "priceDimensions": {
+                        "YXP789HT5ZQGFB9R.JRTCKXETXF.SB2VSFF4TP": {
+                            "rateCode": "YXP789HT5ZQGFB9R.JRTCKXETXF.SB2VSFF4TP",
+                            "description": "SyncPagesProcessed: 0-1M pages of AnalyzeDocument Tables, $15 USD per 1000 pages",
+                            "beginRange": "0",
+                            "endRange": "1000000",
+                            "unit": "Pages",
+                            "pricePerUnit": {
+                                "USD": "0.0150000000"
+                            },
+                            "appliesTo": []
+                        },
+                        "YXP789HT5ZQGFB9R.JRTCKXETXF.VNJQCFJPS4": {
+                            "rateCode": "YXP789HT5ZQGFB9R.JRTCKXETXF.VNJQCFJPS4",
+                            "description": "SyncPagesProcessed: 1M+ pages of AnalyzeDocument Tables, $10 USD per 1000 pages",
+                            "beginRange": "1000000",
+                            "endRange": "Inf",
+                            "unit": "Pages",
+                            "pricePerUnit": {
+                                "USD": "0.0100000000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            }
+        }
+    }
+}

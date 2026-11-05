@@ -38,10 +38,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { GEMINI_IMAGE_GENERATION_MODELS } from './models.js';
 import { GeminiImageProvider } from './GeminiImageProvider.js';
 
@@ -80,7 +82,7 @@ vi.mock('../../inputImage.js', async (orig) => ({
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
@@ -94,14 +96,22 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = () =>
-    new GeminiImageProvider({ apiKey: 'test-key' }, server.services.metering);
+    new GeminiImageProvider({ apiKey: 'test-key' }, aiMetering());
 
 beforeEach(() => {
     generateContentMock.mockReset();
     toBase64DataUriMock.mockReset();
     googleAICtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
@@ -124,11 +134,7 @@ describe('GeminiImageProvider construction', () => {
 
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new GeminiImageProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+            () => new GeminiImageProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 });
@@ -161,7 +167,7 @@ describe('GeminiImageProvider.generate test_mode', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateContentMock).not.toHaveBeenCalled();
     });
 });
@@ -188,7 +194,7 @@ describe('GeminiImageProvider.generate argument validation', () => {
         await expect(
             withTestActor(() =>
                 provider.generate({
-                    model: 'gemini-2.5-flash-image',
+                    model: 'gemini-3.1-flash-lite-image',
                     prompt: 'edit',
                     input_images: ['NOT-A-DATA-URI-AND-NOT-RECOGNIZED'],
                 }),
@@ -213,7 +219,7 @@ describe('GeminiImageProvider.generate argument validation', () => {
                 legacyCode: 'bad_request',
                 message: expect.stringContaining('Unsupported quality tier'),
             });
-            expect(hasCreditsSpy).not.toHaveBeenCalled();
+            expect(admitSpy).not.toHaveBeenCalled();
             expect(generateContentMock).not.toHaveBeenCalled();
         },
     );
@@ -250,35 +256,6 @@ describe('GeminiImageProvider.generate argument validation', () => {
                 }),
             }),
         );
-    });
-
-    it('ignores quality on a model without tiers', async () => {
-        generateContentMock.mockResolvedValueOnce({
-            candidates: [
-                {
-                    content: {
-                        parts: [
-                            {
-                                inlineData: {
-                                    mimeType: 'image/png',
-                                    data: 'BASE64IMG',
-                                },
-                            },
-                        ],
-                    },
-                },
-            ],
-            usageMetadata: { promptTokenCount: 12 },
-        });
-        await withTestActor(() =>
-            makeProvider().generate({
-                model: 'gemini-2.5-flash-image',
-                prompt: 'hi',
-                quality: 'high',
-            }),
-        );
-        const config = generateContentMock.mock.calls[0][0].config;
-        expect(config.imageConfig).not.toHaveProperty('imageSize');
     });
 });
 
@@ -334,20 +311,38 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         },
     );
 
+    it('routes nano-banana-pro-preview to gemini-3-pro-image', async () => {
+        generateContentMock.mockResolvedValueOnce(inlineImageResponse);
+        await withTestActor(() =>
+            makeProvider().generate({ model: 'nano-banana-pro-preview', prompt: 'hi' }),
+        );
+        expect(generateContentMock.mock.calls[0]![0].model).toBe('gemini-3-pro-image');
+    });
+
+    it.each(['gemini-2.5-flash-image', 'gemini-2.5-flash-image-preview', 'nano-banana'])(
+        'drops the deprecated %s instead of redirecting it',
+        (model) => {
+            const names = makeProvider()
+                .models()
+                .flatMap((m) => [m.id, ...(m.aliases ?? [])]);
+            expect(names).not.toContain(model);
+        },
+    );
+
     it('forwards prompt + aspectRatio config and routes to generateContent', async () => {
         const provider = makeProvider();
         generateContentMock.mockResolvedValueOnce(inlineImageResponse);
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gemini-2.5-flash-image',
+                model: 'gemini-3.1-flash-lite-image',
                 prompt: 'a tiny red dot',
                 ratio: { w: 16, h: 9 },
             }),
         );
 
         const sent = generateContentMock.mock.calls[0]![0];
-        expect(sent.model).toBe('gemini-2.5-flash-image');
+        expect(sent.model).toBe('gemini-3.1-flash-lite-image');
         expect(sent.contents[0]).toEqual({ text: 'a tiny red dot' });
         expect(sent.config.responseModalities).toEqual(['TEXT', 'IMAGE']);
         expect(sent.config.imageConfig.aspectRatio).toBe('16:9');
@@ -359,7 +354,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gemini-2.5-flash-image',
+                model: 'gemini-3.1-flash-lite-image',
                 prompt: 'hi',
                 ratio: { w: 100, h: 99 }, // not in allowedRatios
             }),
@@ -376,7 +371,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
 
         const result = await withTestActor(() =>
             provider.generate({
-                model: 'gemini-2.5-flash-image',
+                model: 'gemini-3.1-flash-lite-image',
                 prompt: 'hi',
             }),
         );
@@ -393,7 +388,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gemini-2.5-flash-image',
+                model: 'gemini-3.1-flash-lite-image',
                 prompt: 'add a hat',
                 input_images: ['https://example.com/in.png'],
             }),
@@ -423,7 +418,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
         await expect(
             withTestActor(() =>
                 provider.generate({
-                    model: 'gemini-2.5-flash-image',
+                    model: 'gemini-3.1-flash-lite-image',
                     prompt: 'hi',
                 }),
             ),
@@ -432,17 +427,54 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
 
     it('throws 402 BEFORE hitting Gemini when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withTestActor(() =>
                 provider.generate({
-                    model: 'gemini-2.5-flash-image',
+                    model: 'gemini-3.1-flash-lite-image',
                     prompt: 'hi',
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(generateContentMock).not.toHaveBeenCalled();
+    });
+
+    it('holds the estimate while Gemini runs and releases it afterwards', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: {
+                id: 71,
+                uuid: `gemini-hold-${Date.now()}`,
+                username: 'hold',
+            },
+        });
+        let heldDuringCall = -1;
+        generateContentMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return inlineImageResponse;
+        });
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'gemini-3.1-flash-lite-image',
+                    prompt: 'hi',
+                }),
+            actor,
+        );
+
+        const [, estimate] = admitSpy.mock.calls[0]!;
+        expect(estimate).toBeGreaterThan(0);
+        expect(heldDuringCall).toBe(Math.ceil(estimate));
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
     });
 
     it('meters input + output:text + output:image as three batched line items at the model rates', async () => {
@@ -451,21 +483,21 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
 
         await withTestActor(() =>
             provider.generate({
-                model: 'gemini-2.5-flash-image',
+                model: 'gemini-3.1-flash-lite-image',
                 prompt: 'hi',
             }),
         );
 
-        // Flash model costs: input=30, output=250, output_image=3000 (cents per 1M tokens).
+        // Flash-Lite Image costs: input=25, output=150, output_image=3000 (cents per 1M tokens).
         expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
         const [, entries] = batchIncrementUsagesSpy.mock.calls[0]!;
         const types = (
             entries as Array<{ usageType: string; usageAmount: number }>
         ).map((e) => e.usageType);
         expect(types).toEqual([
-            'gemini:gemini-2.5-flash-image:input',
-            'gemini:gemini-2.5-flash-image:output:text',
-            'gemini:gemini-2.5-flash-image:output:image',
+            'gemini:gemini-3.1-flash-lite-image:input',
+            'gemini:gemini-3.1-flash-lite-image:output:text',
+            'gemini:gemini-3.1-flash-lite-image:output:image',
         ]);
         // Image-token amount comes from candidatesTokensDetails (modality=IMAGE).
         const imageEntry = (
@@ -490,7 +522,7 @@ it('maps a nearby aspect hint to the closest Gemini aspect', async () => {
     await withTestActor(() =>
         makeProvider().generate({
             prompt: 'hi',
-            model: 'gemini-2.5-flash-image',
+            model: 'gemini-3.1-flash-lite-image',
             ratio: { w: 17, h: 10 },
         }),
     );
@@ -516,5 +548,133 @@ describe('Gemini image standard pricing', () => {
             expect.objectContaining({ usageType: 'gemini:gemini-3.1-flash-image:output:text', costOverride: 30000 }),
             expect.objectContaining({ usageType: 'gemini:gemini-3.1-flash-image:output:image', costOverride: 6720000 }),
         ]));
+    });
+});
+
+describe('Gemini Nano Banana image generation', () => {
+    it.each([
+        ['gemini-nano-banana-2.1', '1K', 1200],
+        ['google/gemini-nano-banana-2.1', '2K', 1680],
+        ['nano-banana-2.1', '4K', 3780],
+    ])(
+        'routes %s and meters %s image output',
+        async (model, quality, imageTokens) => {
+            generateContentMock.mockResolvedValueOnce({
+                candidates: [
+                    {
+                        content: {
+                            parts: [
+                                {
+                                    inlineData: {
+                                        mimeType: 'image/png',
+                                        data: 'AAAA',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+                usageMetadata: {
+                    promptTokenCount: 100,
+                    candidatesTokenCount: imageTokens + 80,
+                    candidatesTokensDetails: [
+                        { modality: 'IMAGE', tokenCount: imageTokens },
+                        { modality: 'TEXT', tokenCount: 80 },
+                    ],
+                    thoughtsTokenCount: 20,
+                },
+            });
+            const result = await withTestActor(() =>
+                makeProvider().generate({ model, quality, prompt: 'A cup' }),
+            );
+            expect(result).toBe('data:image/png;base64,AAAA');
+            expect(generateContentMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    model: 'gemini-nano-banana-2.1',
+                    config: expect.objectContaining({
+                        imageConfig: { aspectRatio: '1:1', imageSize: quality },
+                    }),
+                }),
+            );
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        usageType: 'gemini:gemini-nano-banana-2.1:input',
+                        costOverride: 15000,
+                    }),
+                    expect.objectContaining({
+                        usageType: 'gemini:gemini-nano-banana-2.1:output:text',
+                        costOverride: 75000,
+                    }),
+                    expect.objectContaining({
+                        usageType: 'gemini:gemini-nano-banana-2.1:output:image',
+                        costOverride: imageTokens * 3000,
+                    }),
+                ]),
+            );
+        },
+    );
+
+    it('defaults to 1K and preserves input image editing', async () => {
+        generateContentMock.mockResolvedValueOnce({
+            candidates: [
+                {
+                    content: {
+                        parts: [
+                            {
+                                inlineData: {
+                                    mimeType: 'image/png',
+                                    data: 'AAAA',
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        });
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'gemini-nano-banana-2.1',
+                prompt: 'Make it blue',
+                input_image: 'data:image/png;base64,AAAA',
+            }),
+        );
+        const request = generateContentMock.mock.calls[0][0];
+        expect(request.config.imageConfig.imageSize).toBe('1K');
+        // Input + 1120 image tokens at $30/1M + 1000 text tokens at $7.50/1M.
+        expect(admitSpy).toHaveBeenCalledWith(expect.anything(), 4_194_450, undefined);
+        expect(batchIncrementUsagesSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.arrayContaining([
+                expect.objectContaining({
+                    usageType: 'gemini:gemini-nano-banana-2.1:output:image',
+                    usageAmount: 1120,
+                    costOverride: 3_360_000,
+                }),
+            ]),
+        );
+        expect(request.contents).toContainEqual({
+            inlineData: { mimeType: 'image/png', data: 'AAAA' },
+        });
+    });
+
+    it('rejects 512px output before making a provider request', async () => {
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    model: 'gemini-nano-banana-2.1',
+                    prompt: 'A cup',
+                    quality: '512',
+                }),
+            ),
+        ).rejects.toMatchObject({
+            message: expect.stringContaining('Unsupported quality tier'),
+        });
+        expect(generateContentMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps the existing provider default', () => {
+        expect(makeProvider().getDefaultModel()).toBe('gemini-3.1-flash-image');
     });
 });

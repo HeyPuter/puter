@@ -22,14 +22,14 @@ You can use AI models from various providers to perform tasks such as chat, text
 
 <div class="example-content" data-section="ai-chat" style="display:block;">
 
-#### Chat with GPT-5.6 Luna
+#### Chat with GPT-6 Luna
 
 ```html;ai-chatgpt
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
-        puter.ai.chat(`What is life?`, { model: "gpt-5.6-luna" }).then(puter.print);
+        puter.ai.chat(`What is life?`, { model: "gpt-6-luna" }).then(puter.print);
     </script>
 </body>
 </html>
@@ -171,7 +171,7 @@ Choose a model and compare provider rates in the [AI model directory](https://de
 
 <div class="example-content" data-section="speech-to-text">
 
-#### Transcribe or translate audio recordings into text
+#### Transcribe audio recordings into text
 
 ```html;ai-speech2txt
 <html>
@@ -202,20 +202,22 @@ These AI features are supported out of the box when using Puter.js:
 - **[`puter.ai.txt2speech.listEngines()`](/AI/txt2speech.listEngines/)** - List available TTS engines/models
 - **[`puter.ai.txt2speech.listVoices()`](/AI/txt2speech.listVoices/)** - List available TTS voices
 - **[`puter.ai.speech2speech()`](/AI/speech2speech/)** - Convert speech in one voice to another voice
-- **[`puter.ai.txt2vid()`](/AI/txt2vid/)** - Generate short video clips from text or a reference image with Veo, Seedance and other models
-- **[`puter.ai.speech2txt()`](/AI/speech2txt/)** - Transcribe or translate audio recordings into text
+- **[`puter.ai.txt2vid()`](/AI/txt2vid/)** - Generate short video clips from text or a reference image with Wan, Seedance, Veo, Kling, MiniMax H3 and other models, or edit a video you supply with Gemini Omni, FLUX 3 or Kling Omni
+- **[`puter.ai.speech2txt()`](/AI/speech2txt/)** - Transcribe audio recordings into text
+- **[Realtime WebSocket API](/AI/realtime/)** - Connect directly without puter.js. This API is in beta and may change abruptly.
+- **[`puter.ai.convo()`](/AI/convo/)** - Prepare a beta realtime conversation with optional text, microphone, playback, and interruption helpers
 
 ## Examples
 
 You can see various Puter.js AI features in action from the following examples:
 
 - AI Chat
-  - [Chat with GPT-5.6 Luna](/playground/ai-chatgpt/)
+  - [Chat with GPT-6 Luna](/playground/ai-chatgpt/)
   - [Image Analysis](/playground/ai-gpt-vision/)
   - [Stream the response](/playground/ai-chat-stream/)
   - [Function Calling](/playground/ai-function-calling/)
   - [AI Resume Analyzer (File handling)](/playground/ai-resume-analyzer/)
-  - [Chat with OpenAI o3-mini](/playground/ai-chat-openai-o3-mini/)
+  - [Chat with OpenAI GPT-6 Luna](/playground/ai-chat-openai-gpt-6-luna/)
   - [Chat with Claude Sonnet](/playground/ai-chat-claude/)
   - [Chat with DeepSeek](/playground/ai-chat-deepseek/)
   - [Chat with Gemini](/playground/ai-chat-gemini/)
@@ -238,7 +240,7 @@ You can see various Puter.js AI features in action from the following examples:
 - Text to Video
   - [Generate a sample clip (test mode)](/playground/ai-txt2vid/)
   - [Text to Video with options](/playground/ai-txt2vid-options/)
-  - [Text to Video with Google Veo](/playground/ai-txt2vid-veo/)
+  - [Text to Video with Google Veo on Together AI](/playground/ai-txt2vid-veo/)
   - [Animate a photo (image-to-video)](/playground/ai-txt2vid-image-to-video/)
   - [Save the clip to the Puter filesystem](/playground/ai-txt2vid-save/)
   - [Show progress and handle errors](/playground/ai-txt2vid-errors/)
@@ -246,7 +248,7 @@ You can see various Puter.js AI features in action from the following examples:
   - [Convert speech in one voice to another voice](/playground/ai-speech2speech-url/)
   - [Convert speech in one voice to another voice with a recording stored as a file](/playground/ai-speech2speech-file/)
 - Speech to Text
-  - [Transcribe or translate audio recordings into text](/playground/ai-speech2txt/)
+  - [Transcribe audio recordings into text](/playground/ai-speech2txt/)
 
 ## Tutorials
 

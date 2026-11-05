@@ -17,15 +17,26 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { validate as validateUuid } from 'uuid';
 import type { EventClient } from '../../clients/event/EventClient.js';
-import type { SocketService } from '../socket/SocketService.js';
+import type { Actor } from '../../core/actor.js';
+import type {
+    EventMap,
+    NotifDeliveryOutcome,
+    NotifDeliveryResponder,
+} from '../../clients/event/types.js';
+import {
+    appSocketRoom,
+    type AckedAsk,
+    type SocketService,
+} from '../socket/SocketService.js';
 import type { IConfig } from '../../types.js';
 
 /**
  * The desktop's notification wire, kept byte for byte while its delivery moves
- * underneath it. `notif.message`, `notif.unreads` and `notif.ack` are a live
- * GUI contract, so the adapter is the one place they are shaped, whichever path
- * produced the notification.
+ * underneath it. `notif.message`, `notif.unreads`, `notif.ack` and
+ * `notif.removed` are a live GUI contract, so the adapter is the one place they
+ * are shaped, whichever path produced the notification.
  *
  * Two routes, one wire:
  *
@@ -43,9 +54,32 @@ import type { IConfig } from '../../types.js';
  * working. It goes when the flag is on everywhere.
  */
 
-export type NotifWire = 'notif.message' | 'notif.unreads' | 'notif.ack';
+export type NotifWire =
+    | 'notif.message'
+    | 'notif.unreads'
+    | 'notif.ack'
+    | 'notif.removed';
 
 export const NOTIF_DELIVERY_EVENT = 'outer.notif.delivery';
+
+/** Default receipt window for a live notification. */
+export const DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS = 5_000;
+
+/**
+ * Asked of the desktop's or an app's sockets with `{ uid }`. A client answers
+ * once its page has received that notification live, or with `{ received: false
+ * }` when it never does.
+ */
+export const NOTIF_RECEIPT_EVENT = 'notif.receipt';
+
+/**
+ * Sent by a page with `{ uid }` when it got that notification live while
+ * visible and focused, so a region that didn't ask the page can still hear it.
+ */
+export const NOTIF_HANDLED_EVENT = 'notif.handled';
+
+/** `notif.handled` reports one user's sockets may send per minute. */
+export const NOTIF_HANDLED_PER_MINUTE = 60;
 
 /** One unread as the replay payload carries it. */
 export interface UnreadNotification {
@@ -63,10 +97,84 @@ export const notificationsFoldInEnabled = (config: IConfig): boolean =>
     config.events?.enabled === true &&
     config.events?.notificationsFoldIn === true;
 
+/** Configured receipt window for a live notification. */
+export const notificationAckTimeoutMs = (config: IConfig): number => {
+    const configured = Number(config.notificationAckTimeoutMs);
+    return Number.isFinite(configured) && configured > 0
+        ? configured
+        : DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS;
+};
+
+/** An incomplete count never reads as nobody being here. */
+const deliveryOutcome = (
+    asked: AckedAsk,
+    responders: NotifDeliveryResponder[],
+    peerRegions: boolean,
+): NotifDeliveryOutcome => {
+    if (responders.length > 0) return 'received';
+    // An ack-capable socket answered without it or let the ask time out.
+    if (
+        asked.responses.length > 0 ||
+        asked.timedOut ||
+        asked.others ||
+        !asked.complete
+    )
+        return 'unreceived';
+    return peerRegions ? 'remote-only' : 'no-socket';
+};
+
+/** Null for a page that answered without the notification. */
+const responderOf = (response: unknown): NotifDeliveryResponder | null => {
+    const answer = (
+        response && typeof response === 'object' ? response : {}
+    ) as Record<string, unknown>;
+    if (answer.received === false) return null;
+    const state = answer.visibilityState;
+    return {
+        visibilityState:
+            state === 'visible' || state === 'hidden' ? state : 'unknown',
+        ...(typeof answer.focused === 'boolean'
+            ? { focused: answer.focused }
+            : {}),
+    };
+};
+
+/**
+ * Visible and focused. An older client doesn't say whether it's focused, so it
+ * counts while visible.
+ */
+export const handledBy = (responder: NotifDeliveryResponder): boolean =>
+    responder.visibilityState === 'visible' && responder.focused !== false;
+
 interface AdapterDeps {
     event: EventClient;
     socket: SocketService;
     foldIn: () => boolean;
+    ackTimeoutMs: () => number;
+    /** Whether a peer region holds a socket for the user, or for this app. */
+    heldInPeerRegion: (
+        userId: number,
+        appUid: string | null,
+    ) => Promise<boolean>;
+    /** Spends one of the user's `notif.handled` reports; false past the limit. */
+    allowHandled: (userId: number) => Promise<boolean>;
+}
+
+/** The part of a socket `attachSocket` installs its verb on. */
+export interface NotifSocket {
+    on(event: string, listener: (...args: never[]) => void): unknown;
+}
+
+type SettledDelivery = EventMap['notif.delivery.settled'];
+
+/** What a receipt settles; `appUid` names the app whose sockets are asked. */
+export interface ReceiptScope {
+    userId: number;
+    /** Null asks the desktop's sockets. */
+    appUid: string | null;
+    uid: string;
+    type: string;
+    sendId?: string;
 }
 
 export class NotificationSocketAdapter {
@@ -123,6 +231,87 @@ export class NotificationSocketAdapter {
             { user_id_list: [userId], response },
             {},
         );
+    }
+
+    /** "This is gone", to the recipient's other tabs. */
+    removed(userId: number, uid: string): void {
+        const response = { uid };
+        if (this.#dispatched(userId, 'notif.removed', response)) return;
+        this.#deps.event.emit(
+            'outer.gui.notif.removed',
+            { user_id_list: [userId], response },
+            {},
+        );
+    }
+
+    /**
+     * Asks the desktop's sockets, or with `appUid` the app's own, whether the
+     * live copy of `uid` reached a page, and settles that as
+     * `notif.delivery.settled`. Resolves the settle it emitted, or null when
+     * asking failed.
+     */
+    async receipt(scope: ReceiptScope): Promise<SettledDelivery | null> {
+        const { userId, appUid, uid, type, sendId } = scope;
+        try {
+            const [asked, peerRegions] = await Promise.all([
+                this.#deps.socket.askWithAck(
+                    { room: appUid ? appSocketRoom(userId, appUid) : userId },
+                    NOTIF_RECEIPT_EVENT,
+                    { uid },
+                    { timeoutMs: this.#deps.ackTimeoutMs() },
+                ),
+                this.#deps.heldInPeerRegion(userId, appUid),
+            ]);
+            const responders = asked.responses.flatMap((response) => {
+                const responder = responderOf(response);
+                return responder ? [responder] : [];
+            });
+            const settled: SettledDelivery = {
+                ...(sendId ? { sendId } : {}),
+                uid,
+                userId,
+                type,
+                ...(appUid ? { appUid } : {}),
+                outcome: deliveryOutcome(asked, responders, peerRegions),
+                ackCapable: asked.responses.length > 0 || asked.timedOut,
+                everySocketAcks: !asked.others,
+                complete: asked.complete,
+                peerRegions,
+                responders,
+                handled: responders.some(handledBy),
+            };
+            this.#deps.event.emit(
+                'notif.delivery.settled',
+                structuredClone(settled),
+                {},
+            );
+            return settled;
+        } catch (err) {
+            console.warn('[notification] receipt failed', err);
+            return null;
+        }
+    }
+
+    /**
+     * Relays a page's `notif.handled` as the node-local `notif.handled` event,
+     * scoped to the socket's user and app.
+     */
+    attachSocket(socket: NotifSocket, actor: Actor): void {
+        const userId = actor.user?.id;
+        if (userId === undefined) return;
+        const appUid = actor.effectiveApp?.uid;
+        socket.on(NOTIF_HANDLED_EVENT, ((payload: unknown) => {
+            const uid = (payload as { uid?: unknown } | null)?.uid;
+            if (typeof uid !== 'string' || !validateUuid(uid)) return;
+            void this.#deps.allowHandled(userId).then((ok) => {
+                if (!ok) return;
+                this.#deps.event.emit(
+                    'notif.handled',
+                    { userId, uid, ...(appUid ? { appUid } : {}) },
+                    {},
+                );
+            });
+        }) as (...args: never[]) => void);
     }
 
     /** Whether this region holds a socket for the recipient right now. */

@@ -20,16 +20,15 @@
 import { PROCESS_IPC_ATTACHED, Service } from '../definitions.js';
 import launch_app from '../helpers/launchApp.js';
 import { expand_home_path } from '../helpers/expandHomePath.js';
+import { withoutNotificationClick } from '../helpers/notificationTap.js';
 
 // The /apps endpoint serializes `godmode` as a boolean; older cached shapes used 0/1.
 const is_godmode = (app_info) =>
     !! app_info && (app_info.godmode === true || app_info.godmode === 1);
 
-// `window.get_apps(name)` returns the app object for a single name, or [] when absent.
 const resolve_app = async (name) => {
-    if ( ! name ) return null;
-    const info = await window.get_apps(name);
-    return info && ! Array.isArray(info) ? info : null;
+    if ( ! name || name === 'explorer' ) return null;
+    return puter.apps.get(name, { icon_size: 64 });
 };
 
 export class ExecService extends Service {
@@ -113,9 +112,10 @@ export class ExecService extends Service {
         // Handle file paths if provided and caller is in godmode
         let launch_options = {
             launched_by_exec_service: true,
-            name: app_name,
+            name: target_app_info?.name ?? app_name,
+            app_obj: target_app_info,
             pseudonym,
-            args: args ?? {},
+            args: withoutNotificationClick(args) ?? {},
             parent_instance_id: app?.appInstanceID,
             uuid: child_instance_id,
             params,

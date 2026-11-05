@@ -19,13 +19,16 @@
 
 import jwt from 'jsonwebtoken';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
+import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import { setupTestServer } from '../../testUtil.js';
+import { testJobContext } from '../jobs/jobsTestUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS } from '../permission/consts.js';
-import { AuthService } from './AuthService.js';
+import { AuthService, HOSTED_ASSET_COOKIES } from './AuthService.js';
 
 function createAuthService(): AuthService {
     const [config, clients, stores, services] = [
@@ -240,6 +243,61 @@ describe('AuthService (integration)', () => {
             });
         });
 
+        it('ends an access token with the session it was minted under', async () => {
+            const user = await makeUser();
+            const accessToken = await authService.createAccessToken(
+                {
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                } as Actor,
+                [[`user:${user.uuid}:email:read`]],
+            );
+            const { session_uid: tokenRow } = server.services.token.verify(
+                'auth',
+                accessToken,
+            ) as { session_uid: string };
+            const parentOf = async () => {
+                const { session } = await authService.createSessionToken(
+                    user,
+                    {},
+                );
+                const parent = (session as { uuid: string }).uuid;
+                await server.clients.db.write(
+                    'UPDATE `sessions` SET `parent_session_id` = ? WHERE `uuid` = ?',
+                    [parent, tokenRow],
+                );
+                await server.clients.redis.del(`sessions:v2:uuid:${tokenRow}`);
+                return parent;
+            };
+            const reauthOf = async () =>
+                (await authService.authenticate(accessToken)).reauth;
+
+            const expiring = await parentOf();
+            expect(
+                (await authService.authenticate(accessToken)).actor,
+            ).toBeTruthy();
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
+                [Math.floor(Date.now() / 1000) - 60, expiring],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${expiring}`);
+            expect(await reauthOf()).toEqual({ reason: 'session_expired' });
+
+            await authService.revokeSession(await parentOf());
+            expect(await reauthOf()).toEqual({ reason: 'session_revoked' });
+
+            const gone = await parentOf();
+            await server.clients.db.write(
+                'DELETE FROM `sessions` WHERE `uuid` = ?',
+                [gone],
+            );
+            await server.clients.redis.del(`sessions:v2:uuid:${gone}`);
+            expect(await reauthOf()).toEqual({ reason: 'session_revoked' });
+        });
+
         it('returns { invalid } for a token that is not v2', async () => {
             // v1 is fully removed: nothing but `kid: 'v2'` can verify, and an
             // unrecognizable token is an ordinary invalid token — no reauth hint.
@@ -340,10 +398,9 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(appToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_revoked',
-                auth_id: user.uuid,
-            });
+            // No `auth_id`: a reauth token is only ever minted for the
+            // user's own session/GUI token, never an app token.
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
 
         it('app-under-user: returns reauth.session_expired when the app session expires_at is in the past', async () => {
@@ -372,10 +429,7 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(appToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_expired',
-                auth_id: user.uuid,
-            });
+            expect(result.reauth).toEqual({ reason: 'session_expired' });
         });
 
         // ── Access-token verify path ───────────────────────────────
@@ -404,10 +458,8 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(accessToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_revoked',
-                auth_id: user.uuid,
-            });
+            // No `auth_id`: access tokens never get a reauth token.
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
 
         it('access-token: returns reauth.session_expired when the access-token session expires_at is in the past', async () => {
@@ -440,10 +492,27 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(accessToken);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_expired',
-                auth_id: user.uuid,
-            });
+            expect(result.reauth).toEqual({ reason: 'session_expired' });
+        });
+
+        it('a revoked worker session gets no auth_id even though it rides the session token type', async () => {
+            const user = await makeUser();
+            const actor: Actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            };
+            const { token, session } =
+                await authService.createWorkerSessionToken(
+                    actor,
+                    user,
+                    `w-${uuidv4()}`,
+                );
+            await server.stores.session.removeByUuid(
+                (session as { uuid: string }).uuid,
+            );
+
+            const result = await authService.authenticate(token);
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
     });
 
@@ -715,6 +784,87 @@ describe('AuthService (integration)', () => {
             expect(app.icon).toBe('data:image/png;base64,ICON');
         });
 
+        describe('listSessions app lookups', () => {
+            const insertApp = async (userId: number, title: string) => {
+                const uid = `app-${uuidv4()}`;
+                await server.clients.db.write(
+                    'INSERT INTO `apps` (`uid`, `name`, `title`, `icon`, `description`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        uid,
+                        `n-${uid}`,
+                        title,
+                        `data:image/png;base64,${title}`,
+                        '',
+                        `https://${uuidv4()}.example`,
+                        userId,
+                    ],
+                );
+                return uid;
+            };
+
+            /** A user with sessions under two live apps and one that is gone. */
+            const seed = async () => {
+                const user = await makeUser();
+                const liveA = await insertApp(user.id, 'Alpha');
+                const liveB = await insertApp(user.id, 'Beta');
+                const gone = `app-${uuidv4()}`;
+                for (const appUid of [liveA, liveB, gone]) {
+                    await server.stores.session.create(user.id, {
+                        kind: 'app',
+                        app_uid: appUid,
+                    });
+                }
+                const actor = {
+                    user: { id: user.id, uuid: user.uuid },
+                } as unknown as Actor;
+                return { actor, liveA, liveB, gone };
+            };
+
+            const appsByUid = (rows: Array<Record<string, unknown>>) =>
+                Object.fromEntries(rows.map((r) => [r.app_uid, r.app]));
+
+            it('reads the apps in one batch and looks up only what it missed', async () => {
+                const { actor, liveA, liveB, gone } = await seed();
+                const getByUids = vi.spyOn(server.stores.app, 'getByUids');
+                const getByUid = vi.spyOn(server.stores.app, 'getByUid');
+                let rows: Array<Record<string, unknown>>;
+                try {
+                    rows = await authService.listSessions(actor);
+                    expect(getByUids).toHaveBeenCalledTimes(1);
+                    expect(getByUid.mock.calls).toEqual([[gone]]);
+                } finally {
+                    getByUids.mockRestore();
+                    getByUid.mockRestore();
+                }
+                expect(appsByUid(rows)).toEqual({
+                    [liveA]: expect.objectContaining({
+                        uid: liveA,
+                        title: 'Alpha',
+                    }),
+                    [liveB]: expect.objectContaining({
+                        uid: liveB,
+                        title: 'Beta',
+                    }),
+                    [gone]: null,
+                });
+            });
+
+            it('lists the same apps when the batch read fails', async () => {
+                const { actor } = await seed();
+                const expected = await authService.listSessions(actor);
+                const getByUids = vi
+                    .spyOn(server.stores.app, 'getByUids')
+                    .mockRejectedValue(new Error('batch failed'));
+                try {
+                    expect(await authService.listSessions(actor)).toEqual(
+                        expected,
+                    );
+                } finally {
+                    getByUids.mockRestore();
+                }
+            });
+        });
+
         it('listSessions sorts the actor’s current session first, then by last_activity desc', async () => {
             // Manage-sessions GUI anchors "you are here" at the top of the
             // list; downstream rendering doesn't re-sort, so the backend
@@ -821,6 +971,27 @@ describe('AuthService (integration)', () => {
             const row = await readRawRow(sessionUuid);
             expect(row?.last_ip).toBe('9.9.9.9');
             expect(row?.last_user_agent).toBe('new-ua');
+        });
+
+        it('touch: false authenticates without writing the session row', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                { ip: '7.7.7.7', user_agent: 'kept-ua' },
+            );
+            const sessionUuid = (session as { uuid: string }).uuid;
+            await ageSessionForTouch(sessionUuid);
+
+            const result = await authService.authenticate(token, {
+                ip: '8.8.8.8',
+                userAgent: 'other-ua',
+                touch: false,
+            });
+
+            expect(result.actor?.user.uuid).toBe(user.uuid);
+            const row = await readRawRow(sessionUuid);
+            expect(row?.last_ip).toBe('7.7.7.7');
+            expect(row?.last_user_agent).toBe('kept-ua');
         });
 
         it('session token: omitting ctx leaves last_ip / last_user_agent unchanged', async () => {
@@ -1285,6 +1456,40 @@ describe('AuthService (integration)', () => {
             ).rejects.toMatchObject({ statusCode: 403 });
         });
 
+        it('createWorkerAppToken refuses an actor running behind a handler (403)', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                handlerDepth: 1,
+            } as Actor;
+            await expect(
+                authService.createWorkerAppToken(
+                    actor,
+                    `app-${uuidv4()}`,
+                    'wk-handler',
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'events_handler_worker_forbidden',
+            });
+        });
+
+        it('createWorkerAppToken still mints for a plain actor passing handlerDepth via options', async () => {
+            // The events-delivery mint path (`resolveGrantActor`): the actor
+            // itself carries no handlerDepth, only the options do.
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const token = await authService.createWorkerAppToken(
+                actor,
+                `app-${uuidv4()}`,
+                'wk-delivery',
+                { handlerDepth: 2 },
+            );
+            expect(decodeAuth(token).handler_depth).toBe(2);
+        });
+
         it('createWorkerAppToken rejects an empty workerName (400)', async () => {
             const user = await makeUser();
             const actor = {
@@ -1515,10 +1720,9 @@ describe('AuthService (integration)', () => {
 
             const result = await authService.authenticate(token);
             expect(result.actor).toBeUndefined();
-            expect(result.reauth).toEqual({
-                reason: 'session_revoked',
-                auth_id: user.uuid,
-            });
+            // No `auth_id`: a worker credential isn't a browser session,
+            // even though it rides the session/gui token type.
+            expect(result.reauth).toEqual({ reason: 'session_revoked' });
         });
 
         it('createWorkerSessionToken after revoke mints a new session uuid (composite cache invalidates)', async () => {
@@ -1527,10 +1731,16 @@ describe('AuthService (integration)', () => {
             // revoke so the re-create produces a fresh row.
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const { uuid: workerUid } = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+            });
             const first = await authService.createWorkerSessionToken(
                 makeActor({ user }),
                 user,
                 workerName,
+                {},
+                { workerUid },
             );
             const firstUuid = (first.session as { uuid: string }).uuid;
             await authService.revokeSession(firstUuid);
@@ -1539,6 +1749,8 @@ describe('AuthService (integration)', () => {
                 makeActor({ user }),
                 user,
                 workerName,
+                {},
+                { workerUid },
             );
             const secondUuid = (second.session as { uuid: string }).uuid;
             expect(secondUuid).not.toBe(firstUuid);
@@ -1611,12 +1823,389 @@ describe('AuthService (integration)', () => {
         });
     });
 
+    describe('a worker token lives only as long as its worker', () => {
+        const deployRow = async (
+            userId: number,
+            workerName: string,
+            appOwner?: number,
+        ) =>
+            await server.stores.subdomain.create({
+                userId,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+                appOwner: appOwner ?? null,
+            });
+        const newName = () => `wk-${Math.random().toString(36).slice(2, 8)}`;
+
+        it('resolves while the worker row exists and is invalid once it is deleted', async () => {
+            const user = await makeUser();
+            const workerName = newName();
+            const row = await deployRow(user.id, workerName);
+            const { token, gui_token } =
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                    {},
+                    { workerUid: row.uuid },
+                );
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+
+            // Straight through the store: no hook revokes the session.
+            await server.stores.subdomain.deleteByUuid(row.uuid);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            expect(await authService.authenticate(gui_token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('does not come back when the same name is deployed again', async () => {
+            const user = await makeUser();
+            const workerName = newName();
+            const first = await deployRow(user.id, workerName);
+            const { token } = await authService.createWorkerSessionToken(
+                makeActor({ user }),
+                user,
+                workerName,
+                {},
+                { workerUid: first.uuid },
+            );
+            await server.stores.subdomain.deleteByUuid(first.uuid);
+            await deployRow(user.id, workerName);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('applies to app-scoped worker tokens', async () => {
+            const user = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `wk-app-${uuidv4()}`,
+                    title: 'Worker app',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+            const workerName = newName();
+            const row = await deployRow(user.id, workerName, app.id);
+            const token = await authService.createWorkerAppToken(
+                makeActor({ user }),
+                app.uid,
+                workerName,
+                { workerUid: row.uuid },
+            );
+            expect(
+                (await authService.authenticate(token)).actor?.app?.uid,
+            ).toBe(app.uid);
+
+            await server.stores.subdomain.deleteByUuid(row.uuid);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('holds a token minted without a worker uid to the name and owner', async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const workerName = newName();
+            const { token } = await authService.createWorkerSessionToken(
+                makeActor({ user }),
+                user,
+                workerName,
+            );
+            // No row at all.
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+
+            // Someone else's worker under that name.
+            const foreign = await deployRow(other.id, workerName);
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            await server.stores.subdomain.deleteByUuid(foreign.uuid);
+
+            await deployRow(user.id, workerName);
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+        });
+
+        describe('bound to the site that deployed it', () => {
+            const makeSite = async (
+                userId: number,
+                subdomain = `site-${uuidv4()}`,
+            ) => await server.stores.subdomain.create({ userId, subdomain });
+            const mint = async (
+                user: Awaited<ReturnType<typeof makeUser>>,
+                site: { uuid?: string; subdomain?: string },
+            ) =>
+                (
+                    await authService.createWorkerSessionToken(
+                        makeActor({ user }),
+                        user,
+                        'd'.repeat(48),
+                        {},
+                        {
+                            workerSiteUid: site.uuid,
+                            workerSite: site.subdomain,
+                        },
+                    )
+                ).token;
+
+            it('authenticates from the subdomain cache, never the primary', async () => {
+                const user = await makeUser();
+                const site = await makeSite(user.id);
+                const token = await mint(user, site);
+                expect(
+                    (await authService.authenticate(token)).actor?.user?.id,
+                ).toBe(user.id);
+
+                const pread = vi.spyOn(server.clients.db, 'pread');
+                const byUuid = vi.spyOn(server.stores.subdomain, 'getByUuid');
+                try {
+                    expect(
+                        (await authService.authenticate(token)).actor?.user?.id,
+                    ).toBe(user.id);
+                    expect(
+                        pread.mock.calls.filter(([sql]) =>
+                            String(sql).includes('subdomains'),
+                        ),
+                    ).toEqual([]);
+                    expect(byUuid).not.toHaveBeenCalled();
+                } finally {
+                    pread.mockRestore();
+                    byUuid.mockRestore();
+                }
+            });
+
+            it('dies with the site and stays dead when the name is re-created', async () => {
+                const user = await makeUser();
+                const other = await makeUser();
+                const site = await makeSite(user.id);
+                const token = await mint(user, site);
+                await server.stores.subdomain.deleteByUuid(String(site.uuid));
+                expect(await authService.authenticate(token)).toEqual({
+                    invalid: true,
+                });
+
+                const again = await makeSite(user.id, site.subdomain);
+                expect(await authService.authenticate(token)).toEqual({
+                    invalid: true,
+                });
+                await server.stores.subdomain.deleteByUuid(String(again.uuid));
+
+                await makeSite(other.id, site.subdomain);
+                expect(await authService.authenticate(token)).toEqual({
+                    invalid: true,
+                });
+            });
+
+            it("refuses another user's site, a worker row, a mismatched name, or no name", async () => {
+                const user = await makeUser();
+                const other = await makeUser();
+                const own = await makeSite(user.id);
+                const foreign = await makeSite(other.id);
+                const workerRow = await deployRow(user.id, newName());
+                for (const site of [
+                    foreign,
+                    workerRow,
+                    { uuid: own.uuid, subdomain: foreign.subdomain },
+                    { uuid: own.uuid },
+                ]) {
+                    expect(
+                        await authService.authenticate(await mint(user, site)),
+                    ).toEqual({
+                        invalid: true,
+                    });
+                }
+            });
+        });
+
+        it('leaves events handler sessions alone; they have no worker row', async () => {
+            const user = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `ev-app-${uuidv4()}`,
+                    title: 'Events app',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+            const token = await authService.createWorkerAppToken(
+                makeActor({ user }),
+                app.uid,
+                EVENTS_WORKER_SESSION_NAME,
+            );
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+        });
+
+        it('records no activity for an events handler`s calls', async () => {
+            const user = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `ev-app-${uuidv4()}`,
+                    title: 'Events app',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+            const handler = await authService.createWorkerAppToken(
+                makeActor({ user }),
+                app.uid,
+                EVENTS_WORKER_SESSION_NAME,
+                { handlerDepth: 1, expiresInSeconds: 900 },
+            );
+            const interactive = await authService.getUserAppToken(
+                makeActor({ user }),
+                app.uid,
+            );
+
+            const touch = vi.spyOn(server.stores.session, 'touch');
+            try {
+                const ctx = { ip: '9.9.9.9', userAgent: 'worker-runtime' };
+                expect(
+                    (await authService.authenticate(handler, ctx)).actor,
+                ).toBeTruthy();
+                expect(touch).not.toHaveBeenCalled();
+
+                // The same app in a tab is the user being active.
+                expect(
+                    (await authService.authenticate(interactive, ctx)).actor,
+                ).toBeTruthy();
+                expect(touch).toHaveBeenCalledTimes(1);
+            } finally {
+                touch.mockRestore();
+            }
+        });
+    });
+
+    describe('deleting worker sessions', () => {
+        it("keeps another owner's session when a script name is shared", async () => {
+            const first = await makeUser();
+            const second = await makeUser();
+            const workerName = `shared-${uuidv4().slice(0, 8)}`;
+            const firstSite = await server.stores.subdomain.create({
+                userId: first.id,
+                subdomain: `site-${uuidv4()}`,
+            });
+            const secondSite = await server.stores.subdomain.create({
+                userId: second.id,
+                subdomain: `site-${uuidv4()}`,
+            });
+            const one = await authService.createWorkerSessionToken(
+                makeActor({ user: first }),
+                first,
+                workerName,
+                {},
+                {
+                    workerSiteUid: firstSite.uuid,
+                    workerSite: firstSite.subdomain,
+                },
+            );
+            const two = await authService.createWorkerSessionToken(
+                makeActor({ user: second }),
+                second,
+                workerName,
+                {},
+                {
+                    workerSiteUid: secondSite.uuid,
+                    workerSite: secondSite.subdomain,
+                },
+            );
+            expect(
+                (await authService.authenticate(two.token)).actor?.user?.id,
+            ).toBe(second.id);
+            await authService.deleteWorkerSessionsByName(workerName, first.id);
+            expect(await authService.authenticate(one.token)).toEqual({
+                invalid: true,
+            });
+            expect(
+                (await authService.authenticate(two.token)).actor?.user?.id,
+            ).toBe(second.id);
+            const wrongSite = await authService.createWorkerSessionToken(
+                makeActor({ user: first }),
+                first,
+                workerName,
+                {},
+                {
+                    workerSiteUid: secondSite.uuid,
+                    workerSite: secondSite.subdomain,
+                },
+            );
+            expect(await authService.authenticate(wrongSite.token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('deleteWorkerSessionsByName ends the token and drops a derived token`s grants', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const row = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+            });
+            const { session, token } =
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                    {},
+                    { workerUid: row.uuid },
+                );
+            const sessionUuid = (session as { uuid: string }).uuid;
+            const childUid = uuidv4();
+            await server.stores.session.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: sessionUuid,
+                access_token_uid: childUid,
+            });
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `permission`) VALUES (?, ?, ?)',
+                [childUid, user.id, 'fs:x:read'],
+            );
+
+            await authService.deleteWorkerSessionsByName(workerName, user.id);
+
+            // The worker row is still there: only the session went.
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            const grants = await server.clients.db.read(
+                'SELECT * FROM `access_token_permissions` WHERE `token_uid` = ?',
+                [childUid],
+            );
+            expect(grants).toHaveLength(0);
+        });
+    });
+
     describe('appUidFromOrigin', () => {
         it('throws 400 for an unparseable origin string', async () => {
             await expect(
                 authService.appUidFromOrigin('not-a-url'),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
+
+        // What a browser sends for a sandboxed iframe and a `file://` page.
+        it.each(['null', 'file://'])(
+            'throws 400 for the opaque origin %s without logging an error',
+            async (origin) => {
+                const spy = vi
+                    .spyOn(console, 'error')
+                    .mockImplementation(() => {});
+                try {
+                    await expect(
+                        authService.appUidFromOrigin(origin),
+                    ).rejects.toMatchObject({ statusCode: 400 });
+                    expect(spy).not.toHaveBeenCalled();
+                } finally {
+                    spy.mockRestore();
+                }
+            },
+        );
 
         it('returns a deterministic app-<uuid> for arbitrary origins', async () => {
             const origin = `https://stable-${uuidv4()}.example.com`;
@@ -1807,6 +2396,136 @@ describe('AuthService (integration)', () => {
                         `https://${sub}.site.puter.localhost`,
                     ),
                 ).toBe(app.uid);
+            });
+        });
+
+        describe("when the app's site is registered to another user", () => {
+            it('gives the new site its own uid and restores the app once its owner holds the site again', async () => {
+                const owner = await makeUser();
+                const other = await makeUser();
+                const sub = `freed-${Math.random().toString(36).slice(2, 10)}`;
+                const origin = `https://${sub}.site.puter.localhost`;
+                const ownSite = await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                const app = await server.stores.app.createFromOrigin(
+                    await authService.appUidFromOrigin(origin),
+                    authService.canonicalizeOrigin(origin),
+                    { ownerUserId: owner.id },
+                );
+                // A path misses the canonical lookup, so only the derived
+                // uid ties this origin to the app.
+                await server.stores.app.update(app.id, {
+                    index_url: `${origin}/play/`,
+                });
+                expect(await authService.appUidFromOrigin(origin)).toBe(
+                    app.uid,
+                );
+
+                await server.stores.subdomain.deleteByUuid(ownSite.uuid);
+                expect(await authService.appUidFromOrigin(origin)).toBe(
+                    app.uid,
+                );
+
+                const otherSite = await server.stores.subdomain.create({
+                    userId: other.id,
+                    subdomain: sub,
+                });
+                const next = await authService.appUidFromOrigin(origin);
+                expect(next).not.toBe(app.uid);
+                expect(
+                    (await authService.appUidsFromOrigins([origin])).get(
+                        origin,
+                    ),
+                ).toBe(next);
+
+                await server.stores.subdomain.deleteByUuid(otherSite.uuid);
+                await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                expect(await authService.appUidFromOrigin(origin)).toBe(
+                    app.uid,
+                );
+                expect(
+                    (await authService.appUidsFromOrigins([origin])).get(
+                        origin,
+                    ),
+                ).toBe(app.uid);
+            });
+        });
+
+        describe('after the origin-derived app is deleted', () => {
+            const uidsFor = async (origin: string) => [
+                await authService.appUidFromOrigin(origin),
+                (await authService.appUidsFromOrigins([origin])).get(origin),
+            ];
+
+            const bootstrapAndDelete = async (
+                origin: string,
+                ownerUserId: number | null,
+            ) => {
+                const app = await server.stores.app.createFromOrigin(
+                    await authService.appUidFromOrigin(origin),
+                    authService.canonicalizeOrigin(origin),
+                    { ownerUserId },
+                );
+                await server.stores.app.delete(app.id);
+                return app.uid;
+            };
+
+            it("gives another user's site on the subdomain a new uid and returns the old one to the app's owner", async () => {
+                const owner = await makeUser();
+                const other = await makeUser();
+                const sub = `gone-${Math.random().toString(36).slice(2, 10)}`;
+                const origin = `https://${sub}.site.puter.localhost`;
+                const ownSite = await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                const uid = await bootstrapAndDelete(origin, owner.id);
+                expect(await uidsFor(origin)).toEqual([uid, uid]);
+
+                await server.stores.subdomain.deleteByUuid(ownSite.uuid);
+                const unregistered = await uidsFor(origin);
+                expect(unregistered[0]).not.toBe(uid);
+                expect(unregistered[1]).toBe(unregistered[0]);
+
+                const otherSite = await server.stores.subdomain.create({
+                    userId: other.id,
+                    subdomain: sub,
+                });
+                const next = await uidsFor(origin);
+                expect(next[0]).not.toBe(uid);
+                expect(next[1]).toBe(next[0]);
+
+                await server.stores.subdomain.deleteByUuid(otherSite.uuid);
+                await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                expect(await uidsFor(origin)).toEqual([uid, uid]);
+            });
+
+            it('does not return an unowned deleted app uid to a hosted site', async () => {
+                const owner = await makeUser();
+                const sub = `gone-${Math.random().toString(36).slice(2, 10)}`;
+                const origin = `https://${sub}.site.puter.localhost`;
+                const uid = await bootstrapAndDelete(origin, null);
+                await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                expect(await authService.appUidFromOrigin(origin)).not.toBe(
+                    uid,
+                );
+            });
+
+            it('keeps the uid of an external origin', async () => {
+                const origin = `https://gone-${uuidv4()}.example.com`;
+                const uid = await bootstrapAndDelete(origin, null);
+                expect(await uidsFor(origin)).toEqual([uid, uid]);
             });
         });
     });
@@ -2043,6 +2762,48 @@ describe('AuthService (integration)', () => {
                 authService.subdomainOwnerIdFromOrigin('not-a-url'),
             ).resolves.toBeNull();
         });
+
+        it('resolves a custom domain to its site owner', async () => {
+            const user = await makeUser();
+            const subdomain = `own-${Math.random().toString(36).slice(2, 10)}`;
+            await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain,
+            });
+            const host = `cd-${uuidv4().slice(0, 8)}.example.com`;
+            const resolveHost = (
+                _key: unknown,
+                data: { host: string; result: { subdomain: string | null } },
+            ) => {
+                if (data.host === host) data.result.subdomain = subdomain;
+            };
+            const config = (
+                authService as unknown as { config: Record<string, unknown> }
+            ).config;
+            config.custom_domains_enabled = true;
+            server.clients.event.on('site.resolveHost', resolveHost);
+            try {
+                await expect(
+                    authService.subdomainOwnerIdFromOrigin(`https://${host}`),
+                ).resolves.toBe(user.id);
+                // A private app can't take another user's custom domain.
+                await expect(
+                    authService.originHeldByOtherUser(
+                        `https://${host}/`,
+                        user.id + 1,
+                    ),
+                ).resolves.toBe(true);
+                await expect(
+                    authService.originHeldByOtherUser(
+                        `https://${host}/`,
+                        user.id,
+                    ),
+                ).resolves.toBe(false);
+            } finally {
+                server.clients.event.off('site.resolveHost', resolveHost);
+                delete config.custom_domains_enabled;
+            }
+        });
     });
 
     describe('app origin blocklist enforcement', () => {
@@ -2121,6 +2882,56 @@ describe('AuthService (integration)', () => {
             const blocked = await authService.authenticate(appToken);
             expect(blocked.actor).toBeUndefined();
             expect(blocked.blocked).toBeTruthy();
+        });
+
+        it('rejects an already-issued app access token once its origin is blocked', async () => {
+            const user = await makeUser();
+            const host = `late-block-at-${uuidv4()}.example.com`;
+            const appUid = `app-${uuidv4()}`;
+            await server.clients.db.write(
+                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                [appUid, `n-${appUid}`, `t-${appUid}`, `https://${host}/`, 1],
+            );
+            const accessToken = server.services.token.sign(
+                'auth',
+                {
+                    type: 'access-token',
+                    token_uid: uuidv4(),
+                    user_uid: user.uuid,
+                    app_uid: appUid,
+                },
+                { expiresIn: '5m' },
+            );
+
+            const ok = await authService.authenticate(accessToken);
+            expect(ok.actor?.accessToken?.issuer.app?.uid).toBe(appUid);
+
+            await blockOrigin(host);
+            const blocked = await authService.authenticate(accessToken);
+            expect(blocked.actor).toBeUndefined();
+            expect(blocked.blocked).toBeTruthy();
+        });
+
+        it('appUidFromOrigin blocks the trailing-dot spelling of a blocked host', async () => {
+            const host = `blocked-dot-${uuidv4()}.example.com`;
+            await blockOrigin(host);
+            await expect(
+                authService.appUidFromOrigin(`https://${host}./`),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'app_blocked',
+            });
+        });
+
+        it('appUidFromOrigin resolves the trailing-dot spelling to the same uid', async () => {
+            const host = `dot-${uuidv4()}.example.com`;
+            const plain = await authService.appUidFromOrigin(
+                `https://${host}/`,
+            );
+            const dotted = await authService.appUidFromOrigin(
+                `https://${host}./`,
+            );
+            expect(dotted).toBe(plain);
         });
     });
 
@@ -2276,6 +3087,34 @@ describe('AuthService (integration)', () => {
                 [decoded.token_uid],
             )) as unknown[];
             expect(rows).toHaveLength(0);
+        });
+
+        // Only a full-access token is admitted to a socket, so only its revoke
+        // is worth a cluster-wide eviction broadcast.
+        it('announces a revoked full-access token, and no other kind', async () => {
+            const user = await makeUser();
+            const actor = makeActor({
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            });
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            const announced = () =>
+                emit.mock.calls.filter(
+                    (c) => c[0] === 'auth.access-token.revoked',
+                ).length;
+
+            const scoped = await authService.createAccessToken(actor, [
+                [`user:${user.uuid}:email:read`],
+            ]);
+            await authService.revokeAccessToken(actor, scoped);
+            expect(announced()).toBe(0);
+
+            const full = await authService.createAccessToken(actor, [
+                [FULL_API_ACCESS],
+            ]);
+            await authService.revokeAccessToken(actor, full);
+            expect(announced()).toBe(1);
+
+            emit.mockRestore();
         });
 
         it('revokeAccessToken rejects with 404 when the token belongs to another user', async () => {
@@ -2547,11 +3386,14 @@ describe('AuthService (integration)', () => {
     });
 
     describe('private-asset / public hosted-actor tokens', () => {
-        it('private-asset cookie name and options shape', () => {
-            expect(authService.getPrivateAssetCookieName()).toBe(
+        it('cookie names and options shape', () => {
+            expect(HOSTED_ASSET_COOKIES.private.legacyName).toBe(
                 'puter.private.asset.token',
             );
-            const opts = authService.getPrivateAssetCookieOptions({
+            expect(HOSTED_ASSET_COOKIES.public.legacyName).toBe(
+                'puter.public.hosted.actor.token',
+            );
+            const opts = authService.getHostedAssetCookieOptions({
                 requestHostname: 'example.test',
             });
             expect(opts.httpOnly).toBe(true);
@@ -2560,27 +3402,25 @@ describe('AuthService (integration)', () => {
             expect(opts.hostname).toBe('example.test');
         });
 
-        it('public hosted-actor cookie name', () => {
-            expect(authService.getPublicHostedActorCookieName()).toBe(
-                'puter.public.hosted.actor.token',
-            );
-        });
-
         it('private-asset token round-trips and validates session binding', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
             const appUid = `app-${uuidv4()}`;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid,
                 userUid: user.uuid,
                 sessionUuid,
                 subdomain: 'priv',
             });
-            const decoded = await authService.verifyPrivateAssetToken(token, {
-                expectedAppUid: appUid,
-                expectedSubdomain: 'priv',
-            });
+            const decoded = await authService.verifyHostedAssetToken(
+                'private',
+                token,
+                {
+                    appUid,
+                    subdomain: 'priv',
+                },
+            );
             expect(decoded.userUid).toBe(user.uuid);
             expect(decoded.appUid).toBe(appUid);
             expect(decoded.subdomain).toBe('priv');
@@ -2591,49 +3431,50 @@ describe('AuthService (integration)', () => {
             expect(decoded.sessionUuid).not.toBe(sessionUuid);
         });
 
-        it('verifyPrivateAssetToken throws 401 when expected app_uid mismatches', async () => {
+        it('verifying a private token throws 401 when expected app_uid mismatches', async () => {
             const user = await makeUser();
             const appA = `app-${uuidv4()}`;
             const appB = `app-${uuidv4()}`;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: appA,
                 userUid: user.uuid,
             });
             await expect(
-                authService.verifyPrivateAssetToken(token, {
-                    expectedAppUid: appB,
+                authService.verifyHostedAssetToken('private', token, {
+                    appUid: appB,
                 }),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
-        it('verifyPrivateAssetToken throws 401 when the bound session is gone', async () => {
+        it('verifying a private token throws 401 when the bound session is gone', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
             });
             await authService.revokeSession(sessionUuid);
             await expect(
-                authService.verifyPrivateAssetToken(token),
+                authService.verifyHostedAssetToken('private', token),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
         it('public hosted-actor token round-trips and enforces expectations', async () => {
             const user = await makeUser();
             const appUid = `app-${uuidv4()}`;
-            const token = await authService.createPublicHostedActorToken({
+            const token = await authService.createHostedAssetToken('public', {
                 appUid,
                 userUid: user.uuid,
                 host: 'host.example',
             });
-            const decoded = await authService.verifyPublicHostedActorToken(
+            const decoded = await authService.verifyHostedAssetToken(
+                'public',
                 token,
                 {
-                    expectedAppUid: appUid,
-                    expectedHost: 'host.example',
+                    appUid,
+                    host: 'host.example',
                 },
             );
             expect(decoded.userUid).toBe(user.uuid);
@@ -2641,24 +3482,27 @@ describe('AuthService (integration)', () => {
             expect(decoded.host).toBe('host.example');
         });
 
-        it('verifyPublicHostedActorToken rejects a private-kind token (kind mismatch)', async () => {
+        it('verifying as public rejects a private-kind token (kind mismatch)', async () => {
             const user = { uuid: uuidv4() };
-            const privateToken = await authService.createPrivateAssetToken({
-                appUid: `app-${uuidv4()}`,
-                userUid: user.uuid,
-            });
+            const privateToken = await authService.createHostedAssetToken(
+                'private',
+                {
+                    appUid: `app-${uuidv4()}`,
+                    userUid: user.uuid,
+                },
+            );
             await expect(
-                authService.verifyPublicHostedActorToken(privateToken),
+                authService.verifyHostedAssetToken('public', privateToken),
             ).rejects.toThrow();
         });
 
         // -- v2 hosted-asset migration --
 
         it('v2 cookie names', () => {
-            expect(authService.getPrivateAssetCookieNameV2()).toBe(
+            expect(HOSTED_ASSET_COOKIES.private.name).toBe(
                 'puter_private_asset_token_v2',
             );
-            expect(authService.getPublicHostedActorCookieNameV2()).toBe(
+            expect(HOSTED_ASSET_COOKIES.public.name).toBe(
                 'puter_public_hosted_actor_token_v2',
             );
         });
@@ -2667,12 +3511,15 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
             });
-            const decoded = await authService.verifyPrivateAssetToken(token);
+            const decoded = await authService.verifyHostedAssetToken(
+                'private',
+                token,
+            );
             expect(decoded.authId).toBe(user.uuid);
         });
 
@@ -2680,22 +3527,24 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPublicHostedActorToken({
+            const token = await authService.createHostedAssetToken('public', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
                 host: 'host.example',
             });
-            const decoded =
-                await authService.verifyPublicHostedActorToken(token);
+            const decoded = await authService.verifyHostedAssetToken(
+                'public',
+                token,
+            );
             expect(decoded.authId).toBe(user.uuid);
         });
 
-        it('verifyPublicHostedActorToken 401s when the bound session is revoked', async () => {
+        it('verifying a public token 401s when the bound session is revoked', async () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPublicHostedActorToken({
+            const token = await authService.createHostedAssetToken('public', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
@@ -2703,7 +3552,7 @@ describe('AuthService (integration)', () => {
             });
             await authService.revokeSession(sessionUuid);
             await expect(
-                authService.verifyPublicHostedActorToken(token),
+                authService.verifyHostedAssetToken('public', token),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
@@ -2711,19 +3560,59 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const sessionUuid = (session as { uuid: string }).uuid;
-            const token = await authService.createPrivateAssetToken({
+            const token = await authService.createHostedAssetToken('private', {
                 appUid: `app-${uuidv4()}`,
                 userUid: user.uuid,
                 sessionUuid,
             });
             // verify passes initially
-            await authService.verifyPrivateAssetToken(token);
+            await authService.verifyHostedAssetToken('private', token);
             // revokeCascade on the parent kills the asset row too
             await authService.revokeSession(sessionUuid);
             await expect(
-                authService.verifyPrivateAssetToken(token),
+                authService.verifyHostedAssetToken('private', token),
             ).rejects.toMatchObject({ statusCode: 401 });
         });
+
+        it.each([
+            ['private', 'expectedPrivateHost', 'private-asset'],
+            ['public', 'expectedHost', 'public hosted-actor'],
+        ] as const)(
+            'a %s token names its own host field and session in refusals',
+            async (kind, hostField, tokenName) => {
+                const user = await makeUser();
+                const { session } = await authService.createSessionToken(
+                    user,
+                    {},
+                );
+                const sessionUuid = (session as { uuid: string }).uuid;
+                const token = await authService.createHostedAssetToken(kind, {
+                    appUid: `app-${uuidv4()}`,
+                    userUid: user.uuid,
+                    sessionUuid,
+                    host: 'a.example',
+                });
+
+                await expect(
+                    authService.verifyHostedAssetToken(kind, token, {
+                        host: 'b.example',
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 401,
+                    message: `hosted-asset token ${hostField} mismatch`,
+                });
+                await authService.revokeSession(sessionUuid);
+                await expect(
+                    authService.verifyHostedAssetToken(kind, token, {
+                        host: 'a.example',
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 401,
+                    message: `${tokenName} token session no longer valid`,
+                    legacyCode: 'session_required',
+                });
+            },
+        );
 
         it('a v1-signed hosted-asset cookie no longer verifies', async () => {
             // The gate treats this as a stale cookie and re-mints under v2, so
@@ -2745,7 +3634,7 @@ describe('AuthService (integration)', () => {
                 'dev-jwt-secret-change-me',
             );
             await expect(
-                authService.verifyPrivateAssetToken(v1Token),
+                authService.verifyHostedAssetToken('private', v1Token),
             ).rejects.toThrow();
         });
     });
@@ -3020,6 +3909,295 @@ describe('AuthService (integration)', () => {
             expect(
                 await server.stores.session.getByUuid(appDecoded.session_uid),
             ).toBeNull();
+        });
+    });
+
+    describe('revoking every session of a user', () => {
+        const revokers: Array<
+            [string, (user: { id: number }) => Promise<void>]
+        > = [
+            [
+                'revokeAllSessions',
+                (user) =>
+                    authService.revokeAllSessions({
+                        user,
+                        session: { uid: 'unrelated' },
+                    } as unknown as Actor),
+            ],
+            [
+                'revokeInteractiveSessionsForUserId',
+                (user) =>
+                    authService.revokeInteractiveSessionsForUserId(user.id),
+            ],
+            [
+                'revokeAllSessionsForUserId',
+                (user) => authService.revokeAllSessionsForUserId(user.id),
+            ],
+        ];
+
+        it.each(revokers)(
+            '%s revokes a session the replica has not seen yet',
+            async (_name, revoke) => {
+                const user = await makeUser();
+                const web = await authService.createSessionToken(user, {});
+                const webUuid = (web.session as { uuid: string }).uuid;
+
+                const db = server.clients.db;
+                const original = db.read.bind(db);
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation(
+                        async (sql: string, params?: unknown[]) =>
+                            sql.includes('FROM `sessions`')
+                                ? []
+                                : original(sql, params),
+                    );
+                // sqlite's `pread` goes through `read`; keep it on the primary.
+                const pread = vi
+                    .spyOn(db, 'pread')
+                    .mockImplementation((sql: string, params?: unknown[]) =>
+                        original(sql, params),
+                    );
+                try {
+                    await revoke(user);
+                } finally {
+                    read.mockRestore();
+                    pread.mockRestore();
+                }
+
+                expect(
+                    await server.stores.session.getByUuid(webUuid),
+                ).toBeNull();
+            },
+        );
+
+        it.each(revokers)(
+            '%s takes the same few primary round trips however many sessions there are',
+            async (name, revoke) => {
+                const user = await makeUser();
+                const sessions = server.stores.session;
+                const uuids: string[] = [];
+                for (let i = 0; i < 15; i++) {
+                    const web = await sessions.create(user.id);
+                    const asset = await sessions.create(user.id, {
+                        kind: 'asset',
+                        parent_session_id: web.uuid,
+                    });
+                    uuids.push(web.uuid, asset.uuid);
+                }
+                const app = await sessions.getOrCreateApp(
+                    user.id,
+                    `app-${uuidv4()}`,
+                );
+                const appToken = await sessions.create(user.id, {
+                    kind: 'access_token',
+                    parent_session_id: app.uuid,
+                });
+                const appUuids = [app.uuid, appToken.uuid];
+
+                const db = server.clients.db;
+                const pread = vi.spyOn(db, 'pread');
+                const write = vi.spyOn(db, 'write');
+                let primaryQueries: string[];
+                try {
+                    await revoke(user);
+                } finally {
+                    primaryQueries = [
+                        ...pread.mock.calls,
+                        ...write.mock.calls,
+                    ].map(([sql]) => String(sql));
+                    pread.mockRestore();
+                    write.mockRestore();
+                }
+
+                // List, select, update, re-seed.
+                expect(
+                    primaryQueries.filter((sql) => sql.includes('`sessions`')),
+                ).toHaveLength(4);
+                for (const uuid of uuids) {
+                    expect(await sessions.getByUuid(uuid)).toBeNull();
+                }
+                for (const uuid of appUuids) {
+                    const revoked = (await sessions.getByUuid(uuid)) === null;
+                    // Only revokeAllSessions keeps app authorizations.
+                    expect(revoked).toBe(name !== 'revokeAllSessions');
+                }
+            },
+        );
+
+        it('a password reset leaves workers and standalone access tokens; a forced sign-out takes them', async () => {
+            const user = await makeUser();
+            const sessions = server.stores.session;
+            const web = await sessions.create(user.id);
+            const worker = await sessions.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName: `wk-${uuidv4()}`,
+            });
+            const token = await sessions.create(user.id, {
+                kind: 'access_token',
+            });
+
+            await authService.revokeInteractiveSessionsForUserId(user.id);
+            expect(await sessions.getByUuid(web.uuid)).toBeNull();
+            expect(await sessions.getByUuid(worker.uuid)).toBeTruthy();
+            expect(await sessions.getByUuid(token.uuid)).toBeTruthy();
+
+            await authService.revokeAllSessionsForUserId(user.id);
+            expect(await sessions.getByUuid(worker.uuid)).toBeNull();
+            expect(await sessions.getByUuid(token.uuid)).toBeNull();
+        });
+    });
+
+    describe('purgeEndedSessions', () => {
+        const DAY = 24 * 60 * 60;
+
+        const makeSession = async (
+            userId: number,
+            kind: string,
+            column?: 'revoked_at' | 'expires_at',
+            daysAgo?: number,
+        ) => {
+            const { uuid } = await server.stores.session.create(userId, {
+                kind,
+            });
+            if (column) {
+                await server.clients.db.write(
+                    `UPDATE \`sessions\` SET \`${column}\` = ? WHERE \`uuid\` = ?`,
+                    [Math.floor(Date.now() / 1000) - daysAgo! * DAY, uuid],
+                );
+            }
+            return uuid as string;
+        };
+
+        const exists = async (uuid: string) => {
+            const rows = await server.clients.db.read(
+                'SELECT 1 FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                [uuid],
+            );
+            return rows.length > 0;
+        };
+
+        const idOf = async (uuid: string) => {
+            const [row] = await server.clients.db.read(
+                'SELECT `id` FROM `sessions` WHERE `uuid` = ?',
+                [uuid],
+            );
+            return Number(row.id);
+        };
+
+        it('deletes rows ended past their retention and keeps the rest', async () => {
+            const user = await makeUser();
+            const id = user.id;
+            const oldRevoked = await makeSession(id, 'asset', 'revoked_at', 31);
+            const oldExpired = await makeSession(id, 'asset', 'expires_at', 31);
+            const recentRevoked = await makeSession(
+                id,
+                'asset',
+                'revoked_at',
+                29,
+            );
+            const recentExpired = await makeSession(
+                id,
+                'asset',
+                'expires_at',
+                29,
+            );
+            const webMonthOld = await makeSession(id, 'web', 'revoked_at', 31);
+            const webYearOld = await makeSession(id, 'web', 'revoked_at', 366);
+            const live = await makeSession(id, 'web');
+
+            expect(
+                await authService.purgeEndedSessions(testJobContext()),
+            ).toBeGreaterThanOrEqual(3);
+
+            expect(await exists(oldRevoked)).toBe(false);
+            expect(await exists(oldExpired)).toBe(false);
+            expect(await exists(webYearOld)).toBe(false);
+            expect(await exists(recentRevoked)).toBe(true);
+            expect(await exists(recentExpired)).toBe(true);
+            expect(await exists(webMonthOld)).toBe(true);
+            expect(await exists(live)).toBe(true);
+        });
+
+        it('starts from the saved cursor and clears it once the walk is done', async () => {
+            const user = await makeUser();
+            const below = await makeSession(user.id, 'asset', 'revoked_at', 31);
+            const above = await makeSession(user.id, 'asset', 'revoked_at', 31);
+            const ctx = testJobContext({ afterId: await idOf(below) });
+
+            expect(
+                await authService.purgeEndedSessions(ctx),
+            ).toBeGreaterThanOrEqual(1);
+            expect(await exists(below)).toBe(true);
+            expect(await exists(above)).toBe(false);
+            expect(ctx.saved).toEqual([null]);
+        });
+
+        it('clears its own checkpoints once a walk completes, so the next run starts at zero', async () => {
+            const SPAN = 5000;
+            vi.spyOn(server.stores.session, 'maxId').mockResolvedValue(
+                SPAN * 11,
+            );
+            const ranges: number[] = [];
+            const purge = vi
+                .spyOn(server.stores.session, 'purgeEndedInRange')
+                .mockImplementation(async (afterId: number) => {
+                    ranges.push(afterId);
+                    return 0;
+                });
+            try {
+                const first = testJobContext();
+                await authService.purgeEndedSessions(first);
+                expect(ranges).toHaveLength(11);
+                // Checkpointed at ten ranges, then cleared at the end.
+                expect(first.saved).toEqual([{ afterId: SPAN * 10 }, null]);
+
+                ranges.length = 0;
+                await authService.purgeEndedSessions(
+                    testJobContext(first.saved.at(-1)),
+                );
+                expect(ranges[0]).toBe(0);
+                expect(ranges).toHaveLength(11);
+            } finally {
+                purge.mockRestore();
+                vi.restoreAllMocks();
+            }
+        });
+
+        it('stops between ranges once aborted, and the next run resumes at the saved cursor', async () => {
+            const SPAN = 5000;
+            vi.spyOn(server.stores.session, 'maxId').mockResolvedValue(
+                SPAN * 30,
+            );
+            const ranges: number[] = [];
+            const first = testJobContext();
+            const purge = vi
+                .spyOn(server.stores.session, 'purgeEndedInRange')
+                .mockImplementation(async (afterId: number) => {
+                    ranges.push(afterId);
+                    // Aborted mid-walk, as a lost lease or a shutdown would.
+                    if (ranges.length === 12) first.abort();
+                    return 0;
+                });
+            try {
+                await authService.purgeEndedSessions(first);
+                expect(ranges).toHaveLength(12);
+                // Saved every 10 ranges, and where it stopped.
+                expect(first.saved).toEqual([
+                    { afterId: SPAN * 10 },
+                    { afterId: SPAN * 12 },
+                ]);
+
+                ranges.length = 0;
+                const next = testJobContext(first.saved.at(-1));
+                await authService.purgeEndedSessions(next);
+                expect(ranges[0]).toBe(SPAN * 12);
+                expect(ranges.at(-1)).toBe(SPAN * 29);
+                expect(next.saved.at(-1)).toBeNull();
+            } finally {
+                purge.mockRestore();
+                vi.restoreAllMocks();
+            }
         });
     });
 });

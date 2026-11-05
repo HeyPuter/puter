@@ -938,7 +938,7 @@ describe('AppPermissionService — app-data cross-app permissions', () => {
         );
     });
 
-    it('keeps delete orthogonal to write', async () => {
+    it('ranks the classes delete > write > read', async () => {
         const owner = await makeUser();
         const DELETE_OPS = ['del', 'remove', 'expire', 'expireAt'] as const;
 
@@ -959,15 +959,15 @@ describe('AppPermissionService — app-data cross-app permissions', () => {
             ).toBe(false);
         }
 
-        // ...and a delete grant covers every deletion without conferring
-        // write, so cancelling an entry doesn't imply rewriting the rest.
+        // ...and a delete grant covers every deletion plus what it implies:
+        // nothing can be removed that couldn't be read or changed.
         const d = await makeGranteeAndTarget(owner);
         await grant(
             owner,
             d.grantee.uid,
             appDataPermission(d.target.uid, 'kv', 'delete'),
         );
-        for (const op of DELETE_OPS) {
+        for (const op of [...DELETE_OPS, 'set', 'update', 'get', 'list']) {
             expect(
                 await permissions.check(
                     d.granteeActor,
@@ -975,12 +975,21 @@ describe('AppPermissionService — app-data cross-app permissions', () => {
                 ),
             ).toBe(true);
         }
-        expect(
-            await permissions.check(
-                d.granteeActor,
-                appDataPermission(d.target.uid, 'kv', 'set'),
-            ),
-        ).toBe(false);
+
+        const f = await makeGranteeAndTarget(owner);
+        await grant(
+            owner,
+            f.grantee.uid,
+            appDataPermission(f.target.uid, 'fs', 'delete'),
+        );
+        for (const cls of ['read', 'write', 'delete']) {
+            expect(
+                await permissions.check(
+                    f.granteeActor,
+                    appDataPermission(f.target.uid, 'fs', cls),
+                ),
+            ).toBe(true);
+        }
     });
 });
 

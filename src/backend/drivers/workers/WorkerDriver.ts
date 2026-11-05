@@ -20,11 +20,15 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { v4 as uuidv4 } from 'uuid';
 import type { EventMetadata } from '../../clients/event/types.js';
-import { makeActor, type Actor } from '../../core/actor.js';
-import { Context } from '../../core/context.js';
+import {
+    assertActorEmailVerified,
+    makeActor,
+    requireContextUserActor,
+    type Actor,
+} from '../../core/actor.js';
 import { HttpError, type LegacyErrorCodes } from '../../core/http/HttpError.js';
-import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import {
     WORKER_SUBDOMAIN_PREFIX,
@@ -36,17 +40,25 @@ import {
 } from '../../services/metering/consts.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
+import { awaitLater } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { assertRentedUnitRoom } from '../../util/rentedUnits.js';
 import { loadFileInput } from '../util/fileInput.js';
 import {
-    decodeCursor,
-    encodeCursor,
     normalizeLimit,
     normalizeOffset,
+    openCursor,
+    sealCursor,
 } from '../../util/pagination.js';
 
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
+
+/** Runtime settings every deployed worker gets, locally and upstream. */
+export const WORKER_COMPATIBILITY_DATE = '2025-07-15';
+export const WORKER_COMPATIBILITY_FLAGS = ['global_fetch_strictly_public'];
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
+/** Cap on ordinary workers while user-scope handlers are off. */
 const MAX_WORKERS_PER_USER = 100;
 
 /**
@@ -83,9 +95,65 @@ export const INTERNAL_ADMISSION_BYPASS = Symbol(
  */
 export const INTERNAL_DEPLOY_TARGET = Symbol('workers.internalDeployTarget');
 
+/** Operator teardown key; a symbol keeps it off the `/drivers/call` surface. */
+export const INTERNAL_ADMIN_DESTROY = Symbol('workers.internalAdminDestroy');
+
+/** What the operator teardown reports back, for the caller's audit trail. */
+export interface AdminDestroyResult {
+    subdomain: string;
+    userId: number;
+    workerName: string;
+}
+
+/** The edge refused a script delete: neither success nor "no such script". */
+export class WorkerTakedownRefusedError extends Error {
+    constructor(
+        readonly status: number,
+        readonly detail: string | undefined,
+    ) {
+        super(
+            `Cloudflare refused the script delete (status ${status})${
+                detail ? `: ${detail}` : ''
+            }`,
+        );
+        this.name = 'WorkerTakedownRefusedError';
+    }
+}
+
+const CF_DELETE_TIMEOUT_MS = 15_000;
+// Cloudflare Workers API code 10007: Worker or workers.dev subdomain not found.
+const CF_SCRIPT_NOT_FOUND_CODE = 10007;
+
+// What `fetch` rejects with when the edge never answered: timeout, transport.
+const isEdgeTransportError = (err: unknown): boolean =>
+    err instanceof TypeError ||
+    (err instanceof Error &&
+        (err.name === 'TimeoutError' || err.name === 'AbortError'));
+
+const withDeadline = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+            () =>
+                reject(
+                    new DOMException(
+                        'The operation was aborted due to timeout',
+                        'TimeoutError',
+                    ),
+                ),
+            ms,
+        );
+    });
+    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+};
+
 export interface InternalDeployTarget {
     /** Script name to deploy under, in place of `workerName`. */
     scriptName: string;
+    /** Site row that owns the deployed worker credential. */
+    siteUid?: string;
+    /** That site's subdomain name; required alongside `siteUid`. */
+    siteSubdomain?: string;
     /** Grouping to deploy into, in place of the configured default. */
     namespace?: string;
     /**
@@ -113,14 +181,18 @@ export interface InternalDeployTarget {
      * scripts belong to what.
      */
     tags?: string[];
+    /**
+     * Per-invocation CPU limit in milliseconds, sent with the upload. Unset
+     * sends no limit. Ignored by the local runtime.
+     */
+    cpuMs?: number;
 }
 
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
 // How far to scan an app's child apps when resolving which workers it may
-// see. A user is capped at MAX_WORKERS_PER_USER workers, so only that many
-// child apps can actually own one; the ceiling is generous slack over that.
+// see. A user is capped at their plan's rented units, so only that many
+// child apps can actually own a worker; the ceiling is generous slack over that.
 const CHILD_APP_SCAN_LIMIT = 1000;
-let USE_LOCAL_WORKERD = false;
 
 // -- Preamble --------------------------------------------------------
 //
@@ -279,7 +351,17 @@ export class WorkerDriver extends PuterDriver {
     };
 
     #cfBaseUrl = '';
+    #useLocalWorkerd = false;
     #hotReloadSubscribed = false;
+    #sourceReloads = new Map<
+        string,
+        { latest: FSEntry | null; promise: Promise<void> }
+    >();
+    // Row uids this process tore down itself; its own announcement skips them.
+    #tornDown = new BoundedTtlMap<string, true>({
+        maxEntries: 1000,
+        ttlMs: 30_000,
+    });
 
     static currentPreambleVersion(): string | null {
         return preambleVersion;
@@ -308,7 +390,7 @@ export class WorkerDriver extends PuterDriver {
                 );
             }
         } else if (cfg.localServer) {
-            USE_LOCAL_WORKERD = true;
+            this.#useLocalWorkerd = true;
         }
         this.#subscribeHotReload();
     }
@@ -323,12 +405,12 @@ export class WorkerDriver extends PuterDriver {
         [INTERNAL_ADMISSION_BYPASS]?: boolean;
         [INTERNAL_DEPLOY_TARGET]?: InternalDeployTarget;
     }): Promise<unknown> {
-        const actor = this.#requireActor();
+        const actor = requireContextUserActor();
         const skipAdmission = args[INTERNAL_ADMISSION_BYPASS] === true;
         const deployTarget = this.#validateDeployTarget(
             args[INTERNAL_DEPLOY_TARGET],
         );
-        if (!skipAdmission) this.#requireVerified(actor);
+        if (!skipAdmission) assertActorEmailVerified(actor, this.config);
         const workerName = String(args.workerName ?? '').toLowerCase();
         const filePath = String(args.filePath ?? '');
         // `effectiveApp`, not `app`: a token an app issued carries no app of
@@ -377,58 +459,34 @@ export class WorkerDriver extends PuterDriver {
 
         this.#requireCfConfig();
 
-        // Quota check — count existing workers.puter.* subdomains owned by user
-        //
-        // A deploy target creates no such row, so this count can neither see
-        // its scripts nor be grown by them; running it would only make an
-        // unrelated worker quota decide whether these deploy. Whatever bounds
-        // them has to be counted where they actually live, and belongs to the
-        // caller that owns their lifecycle.
-        const existingWorkers =
-            skipAdmission || deployTarget
-                ? []
-                : await this.stores.subdomain.listByUserIdAndPrefix(
-                      actor.user.id,
-                      WORKER_SUBDOMAIN_PREFIX,
-                  );
-        if (existingWorkers.length >= MAX_WORKERS_PER_USER) {
-            throw new HttpError(
-                403,
-                `Worker limit reached (max ${MAX_WORKERS_PER_USER})`,
-                { legacyCode: 'forbidden' },
-            );
-        }
-
-        // If tied to an app, get an app-scoped worker token. Worker tokens
-        // use `kind='worker'` so they don't collide with any interactive
-        // `kind='app'` session for the same (user, app); the long expiry
-        // (WORKER_WINDOW_SECONDS) means the worker doesn't have to re-mint
-        // on a clock cadence.
-        let authorization: string | undefined = undefined;
-        const appOwnerId = boundApp?.id;
-        const omitOwnerToken = deployTarget?.omitOwnerToken === true;
-        if (boundApp && !omitOwnerToken) {
-            authorization = await this.services.auth.createWorkerAppToken(
-                actor,
-                boundApp.uid,
-                workerName,
-            );
-        }
-        if (!authorization && !omitOwnerToken) {
-            // Fall back to a user-scoped worker token (no app binding).
-            // Same kind='worker' row + long expiry as the app-scoped
-            // branch above; (user, worker_name) is the unique key.
-            const userRow = await this.stores.user.getById(actor.user.id!);
-            if (!userRow)
-                throw new HttpError(500, 'User not found', {
-                    legacyCode: 'internal_error',
-                });
-            const session = await this.services.auth.createWorkerSessionToken(
-                actor,
-                userRow,
-                workerName,
-            );
-            authorization = session.token;
+        // With user scopes on, a new worker is one more rented unit under the
+        // plan's cap, and redeploying an existing worker is never refused.
+        // Deploy targets create no worker row and are bounded by their caller.
+        if (this.config.events?.userHandlers === true) {
+            if (!skipAdmission && !deployTarget && !existingSub) {
+                await assertRentedUnitRoom(
+                    {
+                        stores: this.stores,
+                        metering: this.services.metering,
+                    },
+                    actor,
+                );
+            }
+        } else {
+            const existingWorkers =
+                skipAdmission || deployTarget
+                    ? []
+                    : await this.stores.subdomain.listByUserIdAndPrefix(
+                          actor.user.id,
+                          WORKER_SUBDOMAIN_PREFIX,
+                      );
+            if (existingWorkers.length >= MAX_WORKERS_PER_USER) {
+                throw new HttpError(
+                    403,
+                    `Worker limit reached (max ${MAX_WORKERS_PER_USER})`,
+                    { legacyCode: 'forbidden' },
+                );
+            }
         }
 
         // Read source file. loadFileInput runs the read-ACL check internally
@@ -447,6 +505,66 @@ export class WorkerDriver extends PuterDriver {
                       { maxBytes: MAX_SOURCE_SIZE },
                   )
                 : null;
+        // A worker is redeployed from its file as the worker's owner, so a
+        // file someone else owns would let them swap the code it runs.
+        if (loaded?.fsEntry && loaded.fsEntry.userId !== actor.user.id) {
+            throw new HttpError(
+                403,
+                'A worker can only be deployed from a file you own',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
+        // If tied to an app, get an app-scoped worker token. Worker tokens
+        // use `kind='worker'` so they don't collide with any interactive
+        // `kind='app'` session for the same (user, app); the long expiry
+        // (WORKER_WINDOW_SECONDS) means the worker doesn't have to re-mint
+        // on a clock cadence.
+        let authorization: string | undefined = undefined;
+        const appOwnerId = boundApp?.id;
+        const omitOwnerToken = deployTarget?.omitOwnerToken === true;
+        // The token is bound to the row it deploys under, which a new worker
+        // only gets further down, so its uuid is picked here.
+        const workerUid = deployTarget
+            ? undefined
+            : existingSub
+              ? String(existingSub.uuid)
+              : uuidv4();
+        if (boundApp && !omitOwnerToken) {
+            authorization = await this.services.auth.createWorkerAppToken(
+                actor,
+                boundApp.uid,
+                workerName,
+                {
+                    workerUid,
+                    workerSiteUid: deployTarget?.siteUid,
+                    workerSite: deployTarget?.siteSubdomain,
+                },
+            );
+        }
+        if (!authorization && !omitOwnerToken) {
+            // Fall back to a user-scoped worker token (no app binding).
+            // Same kind='worker' row + long expiry as the app-scoped
+            // branch above; (user, worker_name) is the unique key.
+            const userRow = await this.stores.user.getById(actor.user.id!);
+            if (!userRow)
+                throw new HttpError(500, 'User not found', {
+                    legacyCode: 'internal_error',
+                });
+            const session = await this.services.auth.createWorkerSessionToken(
+                actor,
+                userRow,
+                workerName,
+                {},
+                {
+                    workerUid,
+                    workerSiteUid: deployTarget?.siteUid,
+                    workerSite: deployTarget?.siteSubdomain,
+                },
+            );
+            authorization = session.token;
+        }
+
         const sourceCode =
             deployTarget?.source ?? loaded!.buffer.toString('utf-8');
 
@@ -483,6 +601,7 @@ export class WorkerDriver extends PuterDriver {
             // than letting the driver error escape as a 500.
             try {
                 await this.stores.subdomain.create({
+                    uuid: workerUid,
                     userId: actor.user.id!,
                     subdomain: subdomainName,
                     rootDirId: loaded.fsEntry.sqlId,
@@ -531,12 +650,24 @@ export class WorkerDriver extends PuterDriver {
             runtimePreamble.source + sourceCode,
             deployTarget,
         );
-        return cfResult;
+        if (existingSub && cfResult.success === true)
+            await this.#rebindAfterDeploy(existingSub, actor, workerName, {
+                appOwner: appOwnerId ?? null,
+                appUid: boundApp?.uid ?? null,
+            });
+        // The app the worker's token acts as: its KV, AppData, notifications
+        // and pushes are that app's.
+        return {
+            ...cfResult,
+            app_uid: boundApp?.uid ?? null,
+            app_name: boundApp?.name ?? null,
+        };
     }
 
+    /** Tear down the caller's worker; a refused edge delete is a 502. */
     async destroy(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireActor();
-        this.#requireVerified(actor);
+        const actor = requireContextUserActor();
+        assertActorEmailVerified(actor, this.config);
         const workerName = String(args.workerName ?? '').toLowerCase();
         if (!workerName)
             throw new HttpError(400, 'Missing `workerName`', {
@@ -561,22 +692,104 @@ export class WorkerDriver extends PuterDriver {
 
         this.#requireCfConfig();
 
-        const cfResult = await this.#cfDelete(workerName);
-        await this.stores.subdomain.deleteByUuid(row.uuid, {
-            userId: actor.user.id,
-        });
-        return cfResult;
+        await this.#teardown(row, { userId: actor.user.id });
+        // Stable regardless of the edge body: puter.js needs `result` truthy.
+        return {
+            success: true,
+            errors: [],
+            messages: [],
+            result: { id: workerName },
+        };
+    }
+
+    /** Operator teardown by row uuid: no actor, no ownership check. */
+    async [INTERNAL_ADMIN_DESTROY](input: {
+        uuid: string;
+    }): Promise<AdminDestroyResult> {
+        const uuid = String(input?.uuid ?? '');
+        const row = uuid
+            ? await this.stores.subdomain.getByUuid(uuid, { primary: true })
+            : null;
+        const subdomain = String(row?.subdomain ?? '');
+        if (!row || !subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX))
+            throw new HttpError(404, 'Worker not found', {
+                legacyCode: 'not_found',
+            });
+
+        this.#requireCfConfig();
+
+        await this.#teardown(row);
+        return {
+            subdomain,
+            userId: Number(row.user_id),
+            workerName: subdomain.slice(WORKER_SUBDOMAIN_PREFIX.length),
+        };
+    }
+
+    /**
+     * A redeploy under a different app (or none) moves the row to the app the
+     * new token acts as, so the listing, hot-reload and `create()` agree, and
+     * revokes the session the old binding ran on. Only once the new script is
+     * live: a failed redeploy leaves the old one running on its old token.
+     */
+    async #rebindAfterDeploy(
+        row: SubdomainRow,
+        actor: Actor & { user: { id: number } },
+        workerName: string,
+        next: { appOwner: number | null; appUid: string | null },
+    ): Promise<void> {
+        const current =
+            row.app_owner === null || row.app_owner === undefined
+                ? null
+                : Number(row.app_owner);
+        if (current === next.appOwner) return;
+        await this.stores.subdomain.setAppOwner(
+            String(row.uuid),
+            next.appOwner,
+            { userId: actor.user.id },
+        );
+        await this.services.auth.deleteWorkerSessionsByName(
+            workerName,
+            actor.user.id,
+            { exceptAppUid: next.appUid },
+        );
+    }
+
+    /** Script, sessions, then row: a failed step leaves the row for a retry. */
+    async #teardown(
+        row: SubdomainRow,
+        { userId }: { userId?: number } = {},
+    ): Promise<void> {
+        const subdomain = String(row.subdomain);
+        const workerName = subdomain.slice(WORKER_SUBDOMAIN_PREFIX.length);
+        await this.#takeDownScript(workerName);
+        await this.services.auth.deleteWorkerSessionsByName(
+            workerName,
+            Number(row.user_id),
+        );
+        await this.stores.subdomain.deleteByUuid(row.uuid, { userId });
+        this.#tornDown.set(row.uuid, true);
+        try {
+            this.clients.event.emit(
+                'subdomain.delete',
+                { subdomain, uid: row.uuid, userId: Number(row.user_id) },
+                {},
+            );
+        } catch {
+            // Non-critical.
+        }
     }
 
     async getFilePaths(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireActor();
+        const actor = requireContextUserActor();
         const workerName = args.workerName as string | undefined;
 
         const limit = normalizeLimit(args.limit, { cap: 5000 });
         const offset = normalizeOffset(args.offset);
         const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
-        const payload = decodeCursor(
+        const payload = openCursor(
             args.cursor as string | null | undefined,
+            this.config.jwt_secret_v2,
         ) as { id?: number } | undefined;
         if (payload && offset !== undefined) {
             throw new HttpError(400, 'cursor and offset cannot be combined', {
@@ -624,17 +837,12 @@ export class WorkerDriver extends PuterDriver {
             );
             if (paginated && rows.length > pageSize) {
                 rows = rows.slice(0, pageSize);
-                cursor = encodeCursor({
-                    id: Number(rows[rows.length - 1]!.id),
-                });
+                cursor = sealCursor(
+                    { id: Number(rows[rows.length - 1]!.id) },
+                    this.config.jwt_secret_v2,
+                );
             }
         }
-
-        const rootDirIds = rows
-            .map((r) => r.root_dir_id)
-            .filter((id): id is number => typeof id === 'number');
-        const entriesById =
-            await this.stores.fsEntry.getEntriesByIds(rootDirIds);
 
         // Make sure the user only sees their own workers
         rows = rows.filter((r) => {
@@ -650,10 +858,17 @@ export class WorkerDriver extends PuterDriver {
             });
         }
 
+        const rootDirIds = rows
+            .map((r) => r.root_dir_id)
+            .filter((id): id is number => typeof id === 'number');
         const appOwnerIds = rows
             .map((r) => r.app_owner)
             .filter((id): id is number => typeof id === 'number');
-        const appsById = await this.stores.app.getByIds(appOwnerIds);
+        // Together, but awaited in order so an entries failure still wins.
+        const pendingApps = awaitLater(this.stores.app.getByIds(appOwnerIds));
+        const entriesById =
+            await this.stores.fsEntry.getEntriesByIds(rootDirIds);
+        const appsById = await pendingApps;
 
         const items = rows.map((r) => {
             const name =
@@ -667,17 +882,17 @@ export class WorkerDriver extends PuterDriver {
                 file_path = loaded?.path;
                 file_uid = loaded?.uuid;
             }
-            let app_uid = null;
-            if (typeof r.app_owner === 'number') {
-                const loadedApp = appsById.get(r.app_owner);
-                app_uid = loadedApp?.uid ?? null;
-            }
+            const loadedApp =
+                typeof r.app_owner === 'number'
+                    ? appsById.get(r.app_owner)
+                    : undefined;
             return {
                 name,
                 url: `https://${name}.puter.work`,
                 file_path,
                 file_uid,
-                app_uid,
+                app_uid: loadedApp?.uid ?? null,
+                app_name: loadedApp?.name ?? null,
                 created_at: r.ts
                     ? new Date(r.ts as string).toISOString()
                     : null,
@@ -715,7 +930,7 @@ export class WorkerDriver extends PuterDriver {
         target?: InternalDeployTarget,
     ): Promise<Record<string, unknown>> {
         const secrets = Object.entries(target?.secrets ?? {});
-        if (USE_LOCAL_WORKERD) {
+        if (this.#useLocalWorkerd) {
             // Events workers get their own registry key so they can never
             // resolve on the public local-worker host or collide with an
             // ordinary worker's name — see `cfCallLocal`.
@@ -737,9 +952,10 @@ export class WorkerDriver extends PuterDriver {
         const cfg = this.#workerConfig();
         const metadata = JSON.stringify({
             body_part: 'swCode',
-            compatibility_flags: ['global_fetch_strictly_public'],
-            compatibility_date: '2025-07-15',
+            compatibility_flags: WORKER_COMPATIBILITY_FLAGS,
+            compatibility_date: WORKER_COMPATIBILITY_DATE,
             ...(target?.tags ? { tags: target.tags } : {}),
+            ...(target?.cpuMs ? { limits: { cpu_ms: target.cpuMs } } : {}),
             bindings: [
                 // A script deployed without a token gets no binding at all,
                 // rather than an empty one for its code to find.
@@ -820,32 +1036,73 @@ export class WorkerDriver extends PuterDriver {
         return { success: false, errors, url: null };
     }
 
+    /** Edge delete: success or code 10007 resolves, anything else refuses. */
     async #cfDelete(workerName: string): Promise<Record<string, unknown>> {
-        if (USE_LOCAL_WORKERD) {
-            return this.services.localworkerservice.cfDeleteLocal(workerName);
+        if (this.#useLocalWorkerd) {
+            return withDeadline(
+                this.services.localworkerservice.cfDeleteLocal(workerName),
+                CF_DELETE_TIMEOUT_MS,
+            );
         }
         const cfg = this.#workerConfig();
         const res = await fetch(`${this.#cfBaseUrl}/scripts/${workerName}/`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${cfg.XAUTHKEY}` },
+            signal: AbortSignal.timeout(CF_DELETE_TIMEOUT_MS),
         });
-        return (await res.json()) as Record<string, unknown>;
+        let json: {
+            success?: unknown;
+            errors?: Array<{ code?: unknown; message?: unknown }>;
+        } = {};
+        try {
+            json = (await res.json()) ?? {};
+        } catch {
+            // No usable body; the status decides.
+        }
+        if (res.ok && json.success !== false) return json;
+        const errors = Array.isArray(json.errors) ? json.errors : [];
+        if (errors.some((e) => Number(e?.code) === CF_SCRIPT_NOT_FOUND_CODE))
+            return { success: true, errors: [], result: null };
+        const first = errors[0]?.message;
+        throw new WorkerTakedownRefusedError(
+            res.status,
+            typeof first === 'string' ? first : undefined,
+        );
+    }
+
+    /** Refusal is 502, timeout or transport 504; edge text is only logged. */
+    async #takeDownScript(workerName: string): Promise<void> {
+        try {
+            await this.#cfDelete(workerName);
+        } catch (err) {
+            if (err instanceof WorkerTakedownRefusedError) {
+                console.warn(
+                    `[workers] edge refused delete of ${workerName}: ${err.message}`,
+                );
+                throw new HttpError(
+                    502,
+                    'Cloudflare refused to remove the script; nothing was deleted.',
+                    {
+                        legacyCode: 'worker_takedown_failed',
+                        cause: err,
+                        fields: { status: err.status },
+                    },
+                );
+            }
+            if (!isEdgeTransportError(err)) throw err;
+            console.warn(
+                `[workers] edge delete of ${workerName} did not complete`,
+                err,
+            );
+            throw new HttpError(
+                504,
+                'The script delete did not complete; the worker is kept and a retry finishes it.',
+                { legacyCode: 'worker_takedown_timeout', cause: err },
+            );
+        }
     }
 
     // -- Helpers ------------------------------------------------------
-
-    #requireActor(): Actor & {
-        user: { id: number; uuid: string; username: string };
-    } {
-        const actor = Context.get('actor') as Actor | undefined;
-        if (!actor?.user?.id)
-            throw new HttpError(401, 'Authentication required', {
-                legacyCode: 'unauthorized',
-            });
-        return actor as Actor & {
-            user: { id: number; uuid: string; username: string };
-        };
-    }
 
     /**
      * Only in-process code can supply a deploy target, so this is not a trust
@@ -946,15 +1203,18 @@ export class WorkerDriver extends PuterDriver {
     async #resolveWorkerAppBinding(
         actor: Actor & { user: { id: number } },
         requestedAppUid?: string,
-    ): Promise<{ uid: string; id?: number } | null> {
+    ): Promise<{ uid: string; id?: number; name: string | null } | null> {
         // Self-binding, either implicit or named. Not every actor shape carries
-        // `app.id`, so fall back to a lookup rather than leaving the subdomain
-        // row unowned.
+        // `app.id`, and none carries the name, so both come from the row.
         const ownApp = actor.effectiveApp;
-        const selfBinding = async () => ({
-            uid: ownApp!.uid,
-            id: ownApp!.id ?? (await this.stores.app.getByUid(ownApp!.uid))?.id,
-        });
+        const selfBinding = async () => {
+            const row = await this.stores.app.getByUid(ownApp!.uid);
+            return {
+                uid: ownApp!.uid,
+                id: ownApp!.id ?? row?.id,
+                name: row?.name ?? null,
+            };
+        };
         if (!requestedAppUid) {
             return ownApp ? await selfBinding() : null;
         }
@@ -967,7 +1227,11 @@ export class WorkerDriver extends PuterDriver {
             // Root session: unchanged: bind to whatever it names. An unknown
             // uid still mints a token, as it did before, and simply leaves the
             // subdomain row unowned by any app.
-            return { uid: requestedAppUid, id: app?.id };
+            return {
+                uid: requestedAppUid,
+                id: app?.id,
+                name: app?.name ?? null,
+            };
         }
 
         if (!app || !(await this.#appIsOwnedByActorApp(app.id, actor))) {
@@ -975,7 +1239,7 @@ export class WorkerDriver extends PuterDriver {
                 legacyCode: 'forbidden',
             });
         }
-        return { uid: app.uid, id: app.id };
+        return { uid: app.uid, id: app.id, name: app.name ?? null };
     }
 
     /**
@@ -1022,20 +1286,6 @@ export class WorkerDriver extends PuterDriver {
         return this.config.workers ?? {};
     }
 
-    /**
-     * Mirror of the HTTP-layer `requireVerifiedGate` on /delete-site — only
-     * active when `strict_email_verification_required` is truthy, so self-
-     * hosted installs without SMTP aren't bricked. Applied at the driver level
-     * so /drivers/call can't bypass the gate the HTTP route enforces.
-     */
-    #requireVerified(actor: Actor): void {
-        assertVerifiedEmail(
-            Boolean(this.config.strict_email_verification_required),
-            actor.user,
-            400,
-        );
-    }
-
     // -- Hot-reload: auto-redeploy on source file write --------------
     //
     // When a user saves a JS file that's tied to a worker subdomain,
@@ -1047,7 +1297,7 @@ export class WorkerDriver extends PuterDriver {
     // while worker subdomains are keyed to the numeric fsentries.id.
 
     #subscribeHotReload(): void {
-        if (!this.#cfBaseUrl && !USE_LOCAL_WORKERD) return;
+        if (!this.#cfBaseUrl && !this.#useLocalWorkerd) return;
         // Idempotent: re-entry (e.g. a second onServerStart) must not stack
         // duplicate listeners — each duplicate would multiply redeploys on
         // every user's worker-source save.
@@ -1078,6 +1328,41 @@ export class WorkerDriver extends PuterDriver {
                 });
             },
         );
+        // A worker row deleted out from under the driver (e.g. with its
+        // owner's account) still has a deployed script to take down.
+        this.clients.event.on(
+            'subdomain.delete',
+            (
+                _key: string,
+                data: { subdomain?: unknown; uid?: unknown; userId?: number },
+            ) => {
+                const subdomain = String(data?.subdomain ?? '');
+                if (!subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX)) return;
+                // Its own announcement: that row is already fully torn down.
+                const uid = String(data?.uid ?? '');
+                if (uid && this.#tornDown.has(uid)) {
+                    this.#tornDown.delete(uid);
+                    return;
+                }
+                const workerName = subdomain.slice(
+                    WORKER_SUBDOMAIN_PREFIX.length,
+                );
+                void this.#cfDelete(workerName).catch((err) => {
+                    console.warn(
+                        `[workers] script cleanup failed for ${workerName}`,
+                        err,
+                    );
+                });
+                void this.services.auth
+                    .deleteWorkerSessionsByName(workerName, Number(data.userId))
+                    .catch((err) => {
+                        console.warn(
+                            `[workers] session cleanup failed for ${workerName}`,
+                            err,
+                        );
+                    });
+            },
+        );
     }
 
     async #handleSourceWrite(
@@ -1094,6 +1379,37 @@ export class WorkerDriver extends PuterDriver {
         const entry = this.#extractFsEntryFromEvent(data);
         if (!entry || entry.isDir) return;
 
+        if (!entry.workers?.length) return;
+        const running = this.#sourceReloads.get(entry.uuid);
+        if (running) {
+            running.latest = entry;
+            return running.promise;
+        }
+        const state = {
+            latest: entry as FSEntry | null,
+            promise: Promise.resolve(),
+        };
+        this.#sourceReloads.set(entry.uuid, state);
+        state.promise = (async () => {
+            try {
+                while (state.latest) {
+                    const latest = state.latest;
+                    state.latest = null;
+                    try {
+                        await this.#deploySource(latest);
+                    } catch (error) {
+                        if (!state.latest) throw error;
+                        console.error('[workers] hot-reload error', error);
+                    }
+                }
+            } finally {
+                this.#sourceReloads.delete(entry.uuid);
+            }
+        })();
+        return state.promise;
+    }
+
+    async #deploySource(entry: FSEntry): Promise<void> {
         const matched = await this.#listWorkerRowsForEntry(entry);
         if (matched.length === 0) return;
 
@@ -1145,6 +1461,11 @@ export class WorkerDriver extends PuterDriver {
                             ownerActor,
                             app.uid,
                             workerName,
+                            {
+                                workerUid: row.uuid
+                                    ? String(row.uuid)
+                                    : undefined,
+                            },
                         );
                 } else {
                     const session =
@@ -1152,6 +1473,12 @@ export class WorkerDriver extends PuterDriver {
                             ownerActor,
                             ownerUser,
                             workerName,
+                            {},
+                            {
+                                workerUid: row.uuid
+                                    ? String(row.uuid)
+                                    : undefined,
+                            },
                         );
 
                     authorization = session.token;
@@ -1207,7 +1534,9 @@ export class WorkerDriver extends PuterDriver {
         const entry = this.#extractFsEntryFromEvent(data);
         if (!entry || entry.isDir) return;
 
-        const matched = await this.#listWorkerRowsForEntry(entry);
+        const matched = await this.#listWorkerRowsForEntry(entry, {
+            deleted: true,
+        });
         for (const row of matched) {
             await this.#deleteWorkerForSourceRow(row, entry.userId);
         }
@@ -1255,18 +1584,28 @@ export class WorkerDriver extends PuterDriver {
         );
     }
 
-    async #listWorkerRowsForEntry(entry: FSEntry): Promise<SubdomainRow[]> {
-        const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(
-            entry.userId,
-            WORKER_SUBDOMAIN_PREFIX,
-        );
-        return workerSubs.filter((r) => {
-            return (
-                String(r.root_dir_id) === String(entry.id) ||
-                String(r.root_dir_id) === String(entry.uuid) ||
-                String(r.root_dir_id) === String(entry.uid)
-            );
+    /**
+     * The entry already names the worker rows pointing at it, so a file no
+     * worker is bound to (nearly every write) costs no query. The rows
+     * themselves come from the primary: one deleted by cascade can outlive its
+     * by-name cache entry. Once the entry is deleted, its FK has already set
+     * those rows' `root_dir_id` to NULL.
+     */
+    async #listWorkerRowsForEntry(
+        entry: FSEntry,
+        { deleted = false }: { deleted?: boolean } = {},
+    ): Promise<SubdomainRow[]> {
+        const names = (entry.workers ?? []).map((worker) => worker.subdomain);
+        if (names.length === 0) return [];
+        const rowsByName = await this.stores.subdomain.getBySubdomains(names, {
+            primary: true,
         });
+        return [...rowsByName.values()].filter(
+            (row) =>
+                Number(row.user_id) === entry.userId &&
+                (Number(row.root_dir_id) === entry.id ||
+                    (deleted && row.root_dir_id == null)),
+        );
     }
 
     async #listWorkerRowsUnderPath(
@@ -1313,6 +1652,10 @@ export class WorkerDriver extends PuterDriver {
                     userId,
                 });
             }
+            await this.services.auth.deleteWorkerSessionsByName(
+                workerName,
+                Number(row.user_id),
+            );
         } catch (err) {
             console.warn(
                 `[workers] source cleanup failed for ${workerName}`,

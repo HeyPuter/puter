@@ -18,6 +18,8 @@
  */
 
 import { createHash, createHmac } from 'node:crypto';
+import type { EventHandler } from '../../stores/events/EventHandlerStore.js';
+import { handlerSetHash } from './workerSource.js';
 
 /**
  * How an app's events worker is named and how it recognizes the platform.
@@ -70,6 +72,17 @@ export const eventsWorkerScript = (setHash: string, scope: string): string =>
         .update(`${scope}\n${setHash}`, 'utf8')
         .digest('hex')
         .slice(0, 32)}`;
+
+/**
+ * The script one user-scope handler deploys as: the set-of-one name, built from
+ * the handler's name and source hash alone. The holder and the app are not part
+ * of it, so identical code under one name is one script however many users and
+ * apps publish it.
+ */
+export const userHandlerScript = (
+    handler: Pick<EventHandler, 'name' | 'sourceHash'>,
+    scope: string,
+): string => eventsWorkerScript(handlerSetHash([handler]), scope);
 
 /** Version prefix on a derived key, so a rotation is visible in a log line. */
 export const EVENTS_INVOKE_KEY_VERSION = 'k1';

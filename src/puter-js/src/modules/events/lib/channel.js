@@ -1,7 +1,9 @@
 import { io } from 'socket.io-client';
 import { PuterJSError } from '../../../lib/PuterJSError.js';
+import { RECEIPT_EVENT } from '../../notifications/lib/receipts.js';
 import { socketAutoUnref } from '../../../lib/socketOptions.js';
 import { uuidv4 } from '../../../lib/utils.js';
+import { isRetryableError } from './retryable.js';
 import { EventSubscription } from './subscription.js';
 
 /** @typedef {import('../types.js').EventGapMarker} EventGapMarker */
@@ -35,11 +37,12 @@ const subscribePayload = (sub) => ({
     ...(sub.includeValue ? { includeValue: true } : {}),
 });
 
-// The wire, fixed by the server: three verbs answered with an ack, one channel
+// The wire, fixed by the server: four verbs answered with an ack, one channel
 // events arrive on.
 const SUBSCRIBE_VERB = 'events.subscribe';
 const UNSUBSCRIBE_VERB = 'events.unsubscribe';
 const ACK_VERB = 'events.ack';
+const NACK_VERB = 'events.nack';
 const DELIVERY_CHANNEL = 'events.delivery';
 const ENDED_CHANNEL = 'events.ended';
 
@@ -246,10 +249,11 @@ export class EventChannel {
     }
 
     /**
-     * Run a persistent subscription's handler here whenever this client is the
-     * one the server delivers to. The subscription itself already exists and is
-     * not re-registered by any of this — what is registered is only where its
-     * deliveries go while this page is open.
+     * Run a persistent subscription's handler here while this client is
+     * connected, on every delivery the server doesn't mark `skipHandler`. The
+     * subscription itself already exists and is not re-registered by any of
+     * this — what is registered is only where its deliveries go while this
+     * page is open.
      *
      * @internal
      * @param {string} subId
@@ -269,6 +273,22 @@ export class EventChannel {
             onError: typeof onError === 'function' ? onError : undefined,
         });
         this.connect();
+    }
+
+    /**
+     * Hand later deliveries to this client's handler with a new context, after
+     * `update()` changed the subscription's. A subscription not routed here is
+     * left alone.
+     *
+     * @internal
+     * @param {string} subId
+     * @param {Record<string, unknown> | null} ctx
+     * @returns {void}
+     */
+    updateDurableContext (subId, ctx) {
+        const registered = this.durable.get(subId);
+        if ( ! registered ) return;
+        registered.ctx = Object.freeze({ ...(ctx ?? {}) });
     }
 
     /**
@@ -311,7 +331,9 @@ export class EventChannel {
         }
 
         const socket = io(this.module.APIOrigin, {
-            auth: { auth_token: this.module.authToken },
+            // Every socket of the page answers receipt asks, so one that
+            // can't is an older client.
+            auth: { auth_token: this.module.authToken, acks: [RECEIPT_EVENT] },
             autoUnref: socketAutoUnref(this.module.puter),
             transports: ['websocket', 'polling'],
             withCredentials: true,
@@ -347,6 +369,9 @@ export class EventChannel {
         });
         socket.on(DELIVERY_CHANNEL, envelope => this.route(envelope));
         socket.on(ENDED_CHANNEL, notice => this.ended(notice));
+        socket.on(RECEIPT_EVENT, (data, ack) => {
+            this.module.puter?.notifications?._answerReceipt(data, ack);
+        });
 
         this.socket = socket;
         return socket;
@@ -500,7 +525,7 @@ export class EventChannel {
 
     /**
      * @internal
-     * @param {{ subId?: string, event?: unknown, ackRequired?: boolean, ackId?: string }} envelope
+     * @param {{ subId?: string, event?: unknown, ackRequired?: boolean, ackId?: string, origin?: string, skipHandler?: boolean }} envelope
      * @returns {void}
      */
     route (envelope) {
@@ -515,9 +540,15 @@ export class EventChannel {
             return;
         }
         const registered = this.durable.get(subId);
-        // An event for something this client has already unsubscribed from:
-        // in flight when `off()` was called, and no longer anybody's.
-        if ( registered ) this.runDurable(registered, envelope);
+        if ( registered ) {
+            this.runDurable(registered, envelope);
+            return;
+        }
+        // A queued delivery this client has no handler for goes back at once,
+        // so the events worker takes it instead of waiting out the lease.
+        if ( envelope.ackRequired && typeof envelope.ackId === 'string' ) {
+            this.nack(subId, envelope.ackId, envelope.origin, 'no_handler', false);
+        }
     }
 
     /**
@@ -537,20 +568,26 @@ export class EventChannel {
     }
 
     /**
-     * Run a persistent subscription's handler on one delivery.
+     * Run a persistent subscription's handler on one delivery, unless the
+     * server marked it `skipHandler` because it is past the handler-chain
+     * limit.
      *
      * The handler is handed the same environment its published copy gets in the
      * app's events worker, so one body runs unchanged in either place. A
-     * delivery owed to exactly one consumer carries `ack`: calling it settles
-     * the delivery, resolving without calling it settles it anyway, and
-     * throwing settles nothing — the lease lapses and it is delivered again.
+     * queued delivery is acknowledged when the handler resolves (`ack` only
+     * releases it early), and a throw hands it back as failed: retried if
+     * `isRetryableError` says so, dropped otherwise.
      *
      * @internal
      * @param {DurableRegistration} registration
-     * @param {{ event?: unknown, ackRequired?: boolean, ackId?: string, origin?: string }} envelope
+     * @param {{ event?: unknown, ackRequired?: boolean, ackId?: string, origin?: string, skipHandler?: boolean }} envelope
      * @returns {void}
      */
     runDurable (registration, envelope) {
+        // A queued delivery always carries `ackRequired` and must still run —
+        // only an unacknowledged broadcast copy is ever marked this way.
+        if ( envelope.skipHandler === true && ! envelope.ackRequired ) return;
+
         const event = /** @type {PuterEvent | PuterKvEvent | EventGapMarker} */ (envelope.event);
         const { puter } = this.module;
         const delivery = {
@@ -578,12 +615,23 @@ export class EventChannel {
         settleHandler(
             () => registration.handler({ ...delivery, ack }),
             () => ack(),
+            error => {
+                if ( acked ) return;
+                acked = true;
+                this.nack(
+                    registration.subId,
+                    /** @type {string} */ (envelope.ackId),
+                    envelope.origin,
+                    'failed',
+                    isRetryableError(error),
+                );
+            },
         );
     }
 
     /**
      * Tell the server a delivery was taken. Best effort: a lost ack is a
-     * redelivery, which `single` callers are told to expect, and there is
+     * redelivery, which `queue` callers are told to expect, and there is
      * nothing a failure here leaves for the caller to fix.
      *
      * @internal
@@ -603,6 +651,31 @@ export class EventChannel {
             );
         } catch (error) {
             console.warn('[puter.events] could not acknowledge a delivery', error);
+        }
+    }
+
+    /**
+     * Hand a queued delivery back so the server gives it to the events worker
+     * now. Best effort: a lost decline costs only the wait for the lease.
+     *
+     * @internal
+     * @param {string} subId
+     * @param {string} ackId
+     * @param {string | undefined} origin Echoed back untouched, as for `ack`.
+     * @param {'no_handler' | 'failed'} reason `failed` counts as a handler
+     *   failure; `no_handler` does not.
+     * @param {boolean} retry Whether a failure is worth trying again.
+     * @returns {Promise<void>}
+     */
+    async nack (subId, ackId, origin, reason, retry) {
+        try {
+            await this.request(
+                NACK_VERB,
+                { subId, id: ackId, reason, retry, ...(origin ? { origin } : {}) },
+                DEFAULT_TIMEOUT_MS,
+            );
+        } catch (error) {
+            console.warn('[puter.events] could not decline a delivery', error);
         }
     }
 
@@ -727,24 +800,26 @@ const timeoutFor = (sub) =>
 /**
  * Run a handler and, if it finishes without throwing, do whatever the delivery
  * still needs. A handler that throws is the app's bug: it is reported, and
- * nothing is settled on its behalf.
+ * `onFailed` hands the delivery back.
  *
  * @param {() => unknown} run
  * @param {() => unknown} [onResolved]
+ * @param {(error: unknown) => unknown} [onFailed]
  * @returns {void}
  */
-const settleHandler = (run, onResolved) => {
+const settleHandler = (run, onResolved, onFailed) => {
+    const failed = error => {
+        console.error('[puter.events] subscription handler failed', error);
+        onFailed?.(error);
+    };
     try {
         const result = run();
         if ( result instanceof Promise ) {
-            result.then(
-                () => onResolved?.(),
-                error => console.error('[puter.events] subscription handler failed', error),
-            );
+            result.then(() => onResolved?.(), failed);
             return;
         }
         onResolved?.();
     } catch (error) {
-        console.error('[puter.events] subscription handler failed', error);
+        failed(error);
     }
 };

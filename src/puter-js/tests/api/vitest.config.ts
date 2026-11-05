@@ -37,6 +37,8 @@ export default defineConfig(({ mode }) => ({
         env: loadEnv(mode, '', 'PUTER_'),
         include: [
             'src/puter-js/tests/api/runners/*.test.{js,ts}',
+            // Realtime conversations against a mock or live OpenAI upstream.
+            'src/puter-js/tests/api/realtime/*.test.{js,ts}',
             // SDK unit tests (pure logic, no server) live next to the code.
             'src/puter-js/src/**/*.test.{js,ts}',
         ],
@@ -44,6 +46,9 @@ export default defineConfig(({ mode }) => ({
         // workerd runners are slower than unit tests.
         testTimeout: 60_000,
         hookTimeout: 120_000,
+        // Node's own localStorage global is undefined without a storage file
+        // and keeps vitest from installing jsdom's in its place.
+        execArgv: ['--no-experimental-webstorage'],
         root: repoRoot,
     },
 }));

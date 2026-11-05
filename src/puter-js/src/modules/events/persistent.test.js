@@ -8,9 +8,11 @@ vi.mock('./lib/api.js', () => ({
 }));
 
 const { EventHandlers } = await import('./lib/handlers.js');
+const { fetch: fetchMissed } = await import('./fetch.js');
 const { list } = await import('./list.js');
 const { onPersistent } = await import('./onPersistent.js');
 const { unsubscribe } = await import('./unsubscribe.js');
+const { update } = await import('./update.js');
 
 const SUBJECT = 'fs:~/Documents';
 const HANDLER = ({ event, ctx }) => fetch(ctx.url, { body: event.path });
@@ -32,10 +34,16 @@ const makeModule = (fsRead) => {
             deregisterDurable (subId) {
                 this.deregistered.push(subId);
             },
+            updated: [],
+            updateDurableContext (subId, ctx) {
+                this.updated.push({ subId, ctx });
+            },
         },
         onPersistent,
         unsubscribe,
+        update,
         list,
+        fetch: fetchMissed,
     };
     module.handlers = new EventHandlers(module);
     return module;
@@ -74,11 +82,10 @@ describe('onPersistent', () => {
         expect(sub).toBe(view);
     });
 
-    it('carries delivery, targets, handlerName, expiry and includeValue when given', async () => {
+    it('carries queue, handlerName, expiry and includeValue when given', async () => {
         await makeModule().onPersistent({
             subject: SUBJECT,
-            delivery: 'single',
-            targets: ['worker'],
+            queue: true,
             handlerName: 'ingestUpload',
             expiresAt: 4102444800,
             includeValue: true,
@@ -86,11 +93,25 @@ describe('onPersistent', () => {
 
         expect(bodyOf()).toEqual({
             subject: SUBJECT,
-            delivery: 'single',
-            targets: ['worker'],
+            queue: true,
             handlerName: 'ingestUpload',
             expiresAt: 4102444800,
             includeValue: true,
+        });
+    });
+
+    it('still passes the older `delivery` option and drops `targets`', async () => {
+        await makeModule().onPersistent({
+            subject: SUBJECT,
+            delivery: 'single',
+            targets: ['worker'],
+            handlerName: 'ingestUpload',
+        });
+
+        expect(bodyOf()).toEqual({
+            subject: SUBJECT,
+            delivery: 'single',
+            handlerName: 'ingestUpload',
         });
     });
 
@@ -106,13 +127,54 @@ describe('onPersistent', () => {
         expect(JSON.stringify(bodyOf())).not.toContain('fetch(');
     });
 
-    it('refuses an inline handler with no name to publish it under', async () => {
-        const error = await rejects(() =>
-            makeModule().onPersistent({ subject: SUBJECT, handler: HANDLER }),
-        );
+    it('sends an inline handler with no name as source, never as a hash', async () => {
+        await makeModule().onPersistent({ subject: SUBJECT, handler: HANDLER });
 
-        expect(error.code).toBe('events_handler_name_required');
-        expect(mockRequest).not.toHaveBeenCalled();
+        expect(bodyOf()).toEqual({
+            subject: SUBJECT,
+            handlerSource: Function.prototype.toString.call(HANDLER),
+        });
+        expect(bodyOf().handlerHash).toBeUndefined();
+        expect(mockRequest.mock.calls[0][1]).toBe('/events/subscribe');
+    });
+
+    it('sends the source whose hash the named path would send', async () => {
+        const { hashSource } = await import('./lib/handlerSource.js');
+        await makeModule().onPersistent({ subject: SUBJECT, handler: HANDLER });
+        expect(await hashSource(bodyOf().handlerSource)).toBe(handlerHash);
+    });
+
+    it('sends a `queue` subscription with an inline handler and no name', async () => {
+        for ( const options of [{ queue: true }, { delivery: 'single' }] ) {
+            mockRequest.mockClear();
+            await makeModule().onPersistent({
+                subject: SUBJECT,
+                handler: HANDLER,
+                ...options,
+            });
+            expect(bodyOf().handlerSource).toBeTypeOf('string');
+            expect(bodyOf().handlerName).toBeUndefined();
+        }
+    });
+
+    it('passes `handlerScope` through for a named binding', async () => {
+        await makeModule().onPersistent({
+            subject: SUBJECT,
+            handlerName: 'ingestUpload',
+            handlerScope: 'user',
+        });
+        expect(bodyOf()).toEqual({
+            subject: SUBJECT,
+            handlerName: 'ingestUpload',
+            handlerScope: 'user',
+        });
+    });
+
+    it('still runs an inline function handler in this client', async () => {
+        const module = makeModule();
+        mockRequest.mockResolvedValueOnce({ subId: 'sub-1' });
+        await module.onPersistent({ subject: SUBJECT, handler: HANDLER });
+        expect(module.channel.registered.map((row) => row.subId)).toEqual(['sub-1']);
     });
 
     it('rejects an inline handler that closes over something', async () => {
@@ -144,12 +206,13 @@ describe('onPersistent', () => {
         expect(bodyOf().handlerHash).toMatch(/^[0-9a-f]{64}$/);
     });
 
-    it('refuses a `single` delivery with no handlerName to match it against', async () => {
-        const error = await rejects(() =>
-            makeModule().onPersistent({ subject: SUBJECT, delivery: 'single' }),
-        );
-
-        expect(error.code).toBe('events_handler_required');
+    it('refuses a `queue` subscription with no handlerName to match it against', async () => {
+        for ( const options of [{ queue: true }, { delivery: 'single' }] ) {
+            const error = await rejects(() =>
+                makeModule().onPersistent({ subject: SUBJECT, ...options }),
+            );
+            expect(error.code).toBe('events_handler_required');
+        }
         expect(mockRequest).not.toHaveBeenCalled();
     });
 
@@ -295,6 +358,136 @@ describe('unsubscribe', () => {
         await module.unsubscribe('app-1#a');
 
         expect(module.channel.deregistered).toEqual(['app-1#a']);
+    });
+
+    it('keeps routing a subscription the server did not end', async () => {
+        const module = makeModule();
+        const refused = Object.assign(new Error('Too many subscription changes'), {
+            code: 'too_many_requests',
+        });
+        mockRequest.mockRejectedValue(refused);
+
+        const error = await rejects(() => module.unsubscribe('app-1#a'));
+
+        expect(error).toBe(refused);
+        expect(module.channel.deregistered).toEqual([]);
+    });
+
+    it('stops routing one the server says is already gone', async () => {
+        const module = makeModule();
+        mockRequest.mockRejectedValue(
+            Object.assign(new Error('No such subscription'), {
+                code: 'subscription_does_not_exist',
+            }),
+        );
+
+        const error = await rejects(() => module.unsubscribe('app-1#a'));
+
+        expect(error.code).toBe('subscription_does_not_exist');
+        expect(module.channel.deregistered).toEqual(['app-1#a']);
+    });
+});
+
+describe('update', () => {
+    it('sends the subscription and its new context, and answers with the server`s row', async () => {
+        const view = { subId: 'app-1#a', contextKeys: ['url'] };
+        mockRequest.mockResolvedValue(view);
+        const module = makeModule();
+
+        const sub = await module.update('app-1#a', {
+            context: { url: 'https://ingest.example' },
+        });
+
+        expect(routeOf()).toBe('/events/subscriptions/update');
+        expect(bodyOf()).toEqual({
+            subId: 'app-1#a',
+            context: { url: 'https://ingest.example' },
+        });
+        expect(sub).toBe(view);
+        expect(module.channel.updated).toEqual([
+            { subId: 'app-1#a', ctx: { url: 'https://ingest.example' } },
+        ]);
+    });
+
+    it('sends null to clear it', async () => {
+        await makeModule().update('app-1#a', { context: null });
+        expect(bodyOf()).toEqual({ subId: 'app-1#a', context: null });
+    });
+
+    it('refuses a call with no context, or one over the cap, before the network', async () => {
+        for ( const options of [undefined, {}, { context: undefined }] ) {
+            const error = await rejects(() =>
+                makeModule().update('app-1#a', options),
+            );
+            expect(error.code).toBe('invalid_request');
+        }
+        const tooLarge = await rejects(() =>
+            makeModule().update('app-1#a', {
+                context: { blob: 'x'.repeat(5000) },
+            }),
+        );
+        expect(tooLarge.code).toBe('events_context_too_large');
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    it('answers an empty id the way the server answers one it cannot find', async () => {
+        const error = await rejects(() =>
+            makeModule().update('', { context: {} }),
+        );
+        expect(error.code).toBe('subscription_does_not_exist');
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    it('keeps this client`s context when the server refuses', async () => {
+        const module = makeModule();
+        mockRequest.mockRejectedValue(
+            Object.assign(new Error('No such subscription'), {
+                code: 'subscription_does_not_exist',
+            }),
+        );
+
+        const error = await rejects(() =>
+            module.update('app-1#a', { context: { a: 1 } }),
+        );
+
+        expect(error.code).toBe('subscription_does_not_exist');
+        expect(module.channel.updated).toEqual([]);
+    });
+});
+
+describe('fetch', () => {
+    const queryOf = (index = 0) => mockRequest.mock.calls[index][3];
+
+    it('continues from a page`s `cursor` passed back as `cursor`', async () => {
+        await makeModule().fetch({ subject: 'notif:account', cursor: 'next' });
+
+        expect(routeOf()).toBe('/events/fetch');
+        expect(queryOf()).toEqual({ subject: 'notif:account', after: 'next' });
+    });
+
+    it('still takes it as `after`, the name it first shipped under', async () => {
+        await makeModule().fetch({ subject: 'notif:account', after: 'next' });
+
+        expect(queryOf()).toEqual({ subject: 'notif:account', after: 'next' });
+    });
+
+    it('goes by `cursor` when both are given', async () => {
+        await makeModule().fetch({
+            subject: 'notif:account',
+            cursor: 'from-cursor',
+            after: 'from-after',
+        });
+
+        expect(queryOf()).toMatchObject({ after: 'from-cursor' });
+    });
+
+    it('refuses a `cursor` that is not a string before calling anything', async () => {
+        const error = await rejects(() =>
+            makeModule().fetch({ subject: 'notif:account', cursor: 42 }),
+        );
+
+        expect(error.code).toBe('invalid_request');
+        expect(mockRequest).not.toHaveBeenCalled();
     });
 });
 

@@ -17,6 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { isIP } from 'node:net';
+import type { EventClient } from '../clients/event/EventClient';
+import type { EventMetadata } from '../clients/event/types';
+import { HttpError } from '../core/http/HttpError';
 import type { SubdomainStore } from '../stores/subdomain/SubdomainStore';
 import type { PrivateLaunchDecision } from './privateLaunchAccess';
 
@@ -45,6 +49,10 @@ import type { PrivateLaunchDecision } from './privateLaunchAccess';
 
 export const HOSTED_BACKING_UNAVAILABLE_REASON = 'hosted_backing_unavailable';
 
+/** Inside some owner's top-level Trash, which is where Delete puts things. */
+export const isTrashedPath = (path: string): boolean =>
+    /^\/[^/]+\/Trash(\/|$)/u.test(path);
+
 interface HostedDomainConfig {
     static_hosting_domain?: unknown;
     static_hosting_domain_alt?: unknown;
@@ -57,6 +65,13 @@ interface AppBackingRow {
     index_url?: unknown;
     owner_user_id?: unknown;
 }
+
+interface BackingRow {
+    user_id?: unknown;
+    root_dir_id?: unknown;
+}
+
+type TrashLookup = Partial<Pick<SubdomainStore, 'trashedRootDirIds'>>;
 
 function normalizeHostedDomainValue(domainValue: unknown): string | null {
     if (typeof domainValue !== 'string') return null;
@@ -182,12 +197,48 @@ export function extractPuterHostedSubdomain(
 }
 
 /**
+ * The site name a host outside our hosting domains serves, as
+ * `site.resolveHost` listeners report it. Null without a listener, when custom
+ * domains are off, or when nothing claims the host. Throws when a listener
+ * failed, so an outage doesn't read as an unclaimed (external) host.
+ */
+export async function resolveCustomHostSubdomain(
+    host: unknown,
+    config: { custom_domains_enabled?: unknown } | undefined | null,
+    events:
+        | Pick<EventClient, 'emitAndWait' | 'hasListeners'>
+        | undefined
+        | null,
+): Promise<string | null> {
+    if (!config?.custom_domains_enabled || !events) return null;
+    if (!events.hasListeners('site.resolveHost')) return null;
+    if (typeof host !== 'string') return null;
+    const normalized = host.trim().toLowerCase().replace(/\.+$/, '');
+    // A custom domain is a registrable name: never an IP or a single label.
+    if (!normalized.includes('.') || isIP(normalized) !== 0) return null;
+
+    const event = {
+        host: normalized,
+        result: { subdomain: null as string | null },
+    };
+    const meta: EventMetadata = {};
+    await events.emitAndWait('site.resolveHost', event, meta);
+    if (meta.listener_failed) {
+        throw new HttpError(503, 'Could not resolve the site for this host', {
+            code: 'site_host_unresolved',
+        });
+    }
+    const subdomain = event.result.subdomain;
+    return typeof subdomain === 'string' && subdomain ? subdomain : null;
+}
+
+/**
  * True when `row` (the subdomain backing `app`'s hosted index_url, or null)
  * means the app's launch is unsafe: gone, or reclaimed by a different owner.
  */
 function backingRowIsUnavailable(
     app: AppBackingRow,
-    row: { user_id?: unknown } | null,
+    row: BackingRow | null,
 ): boolean {
     if (!row) return true; // subdomain no longer exists → dangling
 
@@ -200,9 +251,37 @@ function backingRowIsUnavailable(
 }
 
 /**
- * True when the app's puter-hosted subdomain is missing, or is currently owned
- * by a different user than the app's owner (it was reclaimed — launching would
- * leak the token to the new owner). Non-hosted index_urls return false.
+ * Root dir ids of `rows` that are in Trash, where the site 404s. Best-effort:
+ * the owner's own site is no token risk, so a failed lookup counts as served.
+ */
+async function trashedRootsOf(
+    rows: Array<BackingRow | null>,
+    subdomainStore: TrashLookup,
+): Promise<Set<number>> {
+    if (!subdomainStore.trashedRootDirIds) return new Set();
+    const ids = [
+        ...new Set(
+            rows
+                .map((row) => Number(row?.root_dir_id ?? NaN))
+                .filter((id) => Number.isInteger(id)),
+        ),
+    ];
+    if (ids.length === 0) return new Set();
+    try {
+        return await subdomainStore.trashedRootDirIds(ids);
+    } catch {
+        return new Set();
+    }
+}
+
+const rootIsTrashed = (row: BackingRow | null, trashed: Set<number>) =>
+    row?.root_dir_id != null && trashed.has(Number(row.root_dir_id));
+
+/**
+ * True when the app's puter-hosted subdomain is missing, is currently owned by
+ * a different user than the app's owner (it was reclaimed — launching would
+ * leak the token to the new owner), or is rooted in Trash. Non-hosted
+ * index_urls return false.
  */
 export async function hostedIndexUrlBackingIsUnavailable({
     app,
@@ -210,30 +289,34 @@ export async function hostedIndexUrlBackingIsUnavailable({
     config,
 }: {
     app: AppBackingRow;
-    subdomainStore: Pick<SubdomainStore, 'getBySubdomain'>;
+    subdomainStore: Pick<SubdomainStore, 'getBySubdomain'> & TrashLookup;
     config: HostedDomainConfig | undefined | null;
 }): Promise<boolean> {
     const subdomain = extractPuterHostedSubdomain(app.index_url, config);
     if (!subdomain) return false;
 
-    let row = await subdomainStore.getBySubdomain(subdomain);
-    if (!row) {
+    const cachedMisses = new Set<string>();
+    let row = await subdomainStore.getBySubdomain(subdomain, { cachedMisses });
+    if (!row && !cachedMisses.has(subdomain)) {
         // A freshly-created subdomain may not have reached a replica or the
         // local cache yet; confirm against the primary before treating the
         // backing as gone (mirrors the create/update ownership check in
-        // `AppDriver#ensurePuterSiteSubdomainIsOwned`).
+        // `AppDriver#ensurePuterSiteSubdomainIsOwned`). A negative-cache hit
+        // needs no second look: creating a site clears and tombstones it.
         row = await subdomainStore.getBySubdomain(subdomain, {
             primary: true,
         });
     }
-    return backingRowIsUnavailable(app, row);
+    if (backingRowIsUnavailable(app, row)) return true;
+    return rootIsTrashed(row, await trashedRootsOf([row], subdomainStore));
 }
 
 /**
  * Batched sibling of {@link hostedIndexUrlBackingIsUnavailable} — one
  * `getBySubdomains` call (plus a single primary follow-up for whatever's still
- * missing) instead of per-app round trips. Returns a boolean per `apps` entry,
- * in input order, with the same semantics as the single-app function above.
+ * missing and not negative-cached) instead of per-app round trips. Returns a
+ * boolean per `apps` entry, in input order, with the same semantics as the
+ * single-app function above.
  */
 export async function hostedIndexUrlBackingsAreUnavailable({
     apps,
@@ -241,7 +324,7 @@ export async function hostedIndexUrlBackingsAreUnavailable({
     config,
 }: {
     apps: AppBackingRow[];
-    subdomainStore: Pick<SubdomainStore, 'getBySubdomains'>;
+    subdomainStore: Pick<SubdomainStore, 'getBySubdomains'> & TrashLookup;
     config: HostedDomainConfig | undefined | null;
 }): Promise<boolean[]> {
     const subdomains = apps.map((app) =>
@@ -252,8 +335,13 @@ export async function hostedIndexUrlBackingsAreUnavailable({
     ];
     if (names.length === 0) return apps.map(() => false);
 
-    let rowsByName = await subdomainStore.getBySubdomains(names);
-    const missing = names.filter((name) => !rowsByName.has(name));
+    const cachedMisses = new Set<string>();
+    let rowsByName = await subdomainStore.getBySubdomains(names, {
+        cachedMisses,
+    });
+    const missing = names.filter(
+        (name) => !rowsByName.has(name) && !cachedMisses.has(name),
+    );
     if (missing.length > 0) {
         const primaryRows = await subdomainStore.getBySubdomains(missing, {
             primary: true,
@@ -261,10 +349,18 @@ export async function hostedIndexUrlBackingsAreUnavailable({
         rowsByName = new Map([...rowsByName, ...primaryRows]);
     }
 
-    return apps.map((app, i) => {
+    const rows = apps.map((app, i) => {
         const subdomain = subdomains[i];
+        if (!subdomain) return null;
+        const row = rowsByName.get(subdomain) ?? null;
+        return backingRowIsUnavailable(app, row) ? null : row;
+    });
+    const trashed = await trashedRootsOf(rows, subdomainStore);
+
+    return subdomains.map((subdomain, i) => {
         if (!subdomain) return false;
-        return backingRowIsUnavailable(app, rowsByName.get(subdomain) ?? null);
+        const row = rows[i] ?? null;
+        return !row || rootIsTrashed(row, trashed);
     });
 }
 

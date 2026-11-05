@@ -17,66 +17,43 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { IVideoModel } from '../../types.js';
+import type { IVideoModel } from '../../types.js';
 
-export interface IGeminiVideoModel extends IVideoModel {
-    aspectRatios: string[];
-    resolutions: string[];
-    supportsImageInput: boolean;
-    supportsReferenceImages: boolean;
+export const GEMINI_OMNI_MODEL = 'gemini-omni-1.1-flash';
+
+/**
+ * Μ¢ per token (USD-cents per 1M tokens). Input of every modality shares one
+ * rate; thinking and non-video output are billed as text.
+ */
+export interface GeminiOmniCosts {
+    input: number;
+    outputText: number;
+    outputVideo: number;
 }
 
-// Dimension strings used by the service layer for validation.
-const STANDARD_DIMENSIONS = ['1280x720', '720x1280', '1920x1080', '1080x1920'];
-const DIMENSIONS_WITH_4K = [...STANDARD_DIMENSIONS, '3840x2160', '2160x3840'];
+export const GEMINI_OMNI_COSTS: GeminiOmniCosts = {
+    input: 150, // $1.50 per 1M tokens
+    outputText: 900, // $9.00 per 1M tokens
+    outputVideo: 1750, // $17.50 per 1M tokens
+};
 
-// https://ai.google.dev/gemini-api/docs/video
-// https://ai.google.dev/gemini-api/docs/pricing
-export const GEMINI_VIDEO_GENERATION_MODELS: IGeminiVideoModel[] = [
+// Billed per token, so no `durationSeconds` or `dimensions`: the driver would
+// otherwise inject a duration and rewrite sizes this model does not take.
+export const GEMINI_VIDEO_GENERATION_MODELS: IVideoModel[] = [
     {
-        puterId: 'google:google/veo-3.1',
-        id: 'veo-3.1-generate-preview',
-        name: 'Veo 3.1',
+        id: GEMINI_OMNI_MODEL,
+        puterId: `google:google/${GEMINI_OMNI_MODEL}`,
+        name: 'Gemini Omni 1.1 Flash',
         costs_currency: 'usd-cents',
-        costs: { 'per-second': 40, 'per-second-4k': 60 },
-        output_cost_key: 'per-second',
-        durationSeconds: [4, 6, 8],
-        dimensions: DIMENSIONS_WITH_4K,
-        aspectRatios: ['16:9', '9:16'],
-        resolutions: ['720p', '1080p', '4k'],
-        supportsImageInput: true,
-        supportsReferenceImages: true,
-    },
-    {
-        puterId: 'google:google/veo-3.1-fast',
-        id: 'veo-3.1-fast-generate-preview',
-        name: 'Veo 3.1 Fast',
-        costs_currency: 'usd-cents',
+        output_cost_key: 'output:video',
+        // Cents per token, matching the usage types the provider records.
         costs: {
-            'per-second': 10,
-            'per-second-1080p': 12,
-            'per-second-4k': 30,
+            input: GEMINI_OMNI_COSTS.input / 1_000_000,
+            'output:text': GEMINI_OMNI_COSTS.outputText / 1_000_000,
+            'output:video': GEMINI_OMNI_COSTS.outputVideo / 1_000_000,
         },
-        output_cost_key: 'per-second',
-        durationSeconds: [4, 6, 8],
-        dimensions: DIMENSIONS_WITH_4K,
-        aspectRatios: ['16:9', '9:16'],
-        resolutions: ['720p', '1080p', '4k'],
-        supportsImageInput: true,
-        supportsReferenceImages: true,
-    },
-    {
-        puterId: 'google:google/veo-3.1-lite',
-        id: 'veo-3.1-lite-generate-preview',
-        name: 'Veo 3.1 Lite',
-        costs_currency: 'usd-cents',
-        costs: { 'per-second': 5, 'per-second-1080p': 8 },
-        output_cost_key: 'per-second',
-        durationSeconds: [4, 6, 8],
-        dimensions: STANDARD_DIMENSIONS,
-        aspectRatios: ['16:9', '9:16'],
-        resolutions: ['720p', '1080p'],
-        supportsImageInput: true,
-        supportsReferenceImages: true,
+        promptLength: { min: 1, max: 4000 },
+        videoInput: true,
+        defaultUsageKey: `gemini-video-generation:${GEMINI_OMNI_MODEL}:output:video`,
     },
 ];

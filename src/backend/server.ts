@@ -21,7 +21,7 @@
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import express from 'express';
-import type { Application, RequestHandler } from 'express';
+import type { IRouter, Request, RequestHandler, Router } from 'express';
 import helmet from 'helmet';
 import uaParser from 'ua-parser-js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -29,13 +29,18 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import http from 'node:http';
+import { isIP } from 'node:net';
 import { puterClients } from './clients';
 import { puterControllers } from './controllers';
 import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
 import { createFingerprintMiddleware } from './core/http/middleware/fingerprint';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
-import type { Actor } from './core/actor';
+import {
+    createLargeJsonBodyParser,
+    DEFAULT_JSON_LIMIT_BYTES,
+} from './core/http/middleware/largeJsonBody';
+import { actorUid, type Actor } from './core/actor';
 import { isHttpError } from './core/http/HttpError';
 import {
     adminOnlyGate,
@@ -44,8 +49,12 @@ import {
     requireAnyVerifiedGate,
     requireAuthGate,
     requireCardVerifiedGate,
+    requireCreditsGate,
     requirePhoneVerifiedGate,
+    requireReputationGate,
+    requireSubscriptionGate,
     requireTeam2fa,
+    type Team2faLookup,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -53,15 +62,14 @@ import {
     subdomainGate,
 } from './core/http/middleware/gates';
 import { guiOriginGate } from './core/http/middleware/originGate';
-import { requireCreditsGate } from './core/http/middleware/credits';
-import { requireReputationGate } from './core/http/middleware/reputation';
-import { requireSubscriptionGate } from './core/http/middleware/subscription';
 import { validateReputationRequirement } from './core/reputation';
 import {
     actorOnPaidPlan,
     validateSubscriptionRequirement,
 } from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
+import { createUserProtectedGate } from './core/http/middleware/userProtected';
+import { internalAuthGate } from './core/http/middleware/internalAuth';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { cardFallbackDepsFrom } from './util/cardFallback';
 import { installProcessGuards } from './util/processGuards';
@@ -80,13 +88,22 @@ import {
     createWwwRedirect,
     createUserSubdomainNotFound,
     createNativeAppStatic,
+    isMainPipelineClaim,
 } from './core/http/middleware/hostRedirects';
 import { createEgressMeteringMiddleware } from './core/http/middleware/egressMetering';
 import { createLocalWorkerProxyMiddleware } from './core/http/middleware/localWorkerProxy';
 import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
-import { createRouteLifecycleMiddleware } from './core/http/routeLifecycle';
-import { PREFIX_METADATA_KEY, type RouteDescriptor } from './core/http/types';
+import {
+    createRouteLifecycleMiddleware,
+    routeEventKeyBase,
+} from './core/http/routeLifecycle';
+import {
+    PREFIX_METADATA_KEY,
+    PREFLIGHT_MAX_AGE,
+    type RouteDescriptor,
+    type RouteOptions,
+} from './core/http/types';
 import type { AuthService } from './services/auth/AuthService';
 import { puterDrivers } from './drivers';
 import {
@@ -104,12 +121,53 @@ import type {
     IConfig,
     LayerInstances,
     PagerSeverity,
+    ServerDrainInfo,
     WithControllerRegistration,
     WithLifecycle,
 } from './types';
 
 /** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
-const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
+const DEFAULT_KEEP_ALIVE_TIMEOUT = 920_000;
+
+/**
+ * AI request routes, which take bodies up to the size Claude's Messages API
+ * accepts from a signed-in caller. puter.ai.chat goes through `/drivers/call`.
+ */
+const LARGE_JSON_ROUTES = [
+    '/drivers/call',
+    '/puterai/openai/v1/chat/completions',
+    '/puterai/openai/v1/completions',
+    '/puterai/openai/v1/responses',
+    '/puterai/anthropic/v1/messages',
+    '/puterai/anthropic/v1/messages/count_tokens',
+];
+const LARGE_JSON_LIMIT_BYTES = 128 * 1024 * 1024;
+/** Two max-size bodies per process. */
+const LARGE_JSON_BUDGET_BYTES = 2 * LARGE_JSON_LIMIT_BYTES;
+
+/**
+ * Through `/drivers/call`, only chat takes a large body; other drivers keep the
+ * default limit. Keyed on the body rather than the path, which routing matches
+ * loosely (case, trailing slash). Wire API bodies carry no `interface`.
+ */
+const acceptsLargeJson = (req: Request): boolean => {
+    const iface = (req.body as { interface?: unknown } | null | undefined)
+        ?.interface;
+    return iface === undefined || iface === 'puter-chat-completion';
+};
+
+/** Route options a claimed subdomain's routes may use. */
+const CLAIMED_ROUTE_OPTIONS = new Set([
+    'subdomain',
+    'middleware',
+    'bodyJson',
+    'bodyRaw',
+    'bodyText',
+    'bodyUrlencoded',
+    'rateLimit',
+    'concurrent',
+    'errorRenderer',
+]);
 
 export class PuterServer {
     clients!: LayerInstances<typeof puterClients>;
@@ -121,6 +179,8 @@ export class PuterServer {
     #app!: ReturnType<typeof express>;
     #server: ReturnType<ReturnType<typeof express>['listen']> | null = null;
     #removeProcessGuards: (() => void) | null = null;
+    /** Routes for each claimed subdomain, served only past its `authorize`. */
+    #claimRouters = new Map<string, Router>();
 
     #ready: Promise<boolean>;
 
@@ -155,88 +215,46 @@ export class PuterServer {
         const extensionDirs = this.#config.extensions;
         await this.#importExtensions(extensionDirs);
 
+        // Each layer is built from its built-ins then its extensions, and is
+        // handed the layers beneath it plus itself (so a later peer can reach
+        // an earlier one).
         this.clients = {} as typeof this.clients;
-        for (const [clientName, ClientClass] of Object.entries(clients)) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.clients[clientName] =
-                typeof ClientClass === 'object'
-                    ? ClientClass
-                    : (new (ClientClass as any)(this.#config) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            clientsContainers[clientName] = this.clients[clientName];
-        }
-        for (const [clientName, ClientClass] of Object.entries(
+        this.#instantiateLayer(
+            clients,
             extensionStore.clients,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.clients[clientName] =
-                typeof ClientClass === 'object'
-                    ? ClientClass
-                    : (new (ClientClass as any)(this.#config) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            clientsContainers[clientName] = this.clients[clientName];
-        }
-
+            this.clients,
+            clientsContainers,
+            [this.#config],
+        );
         this.stores = {} as typeof this.stores;
-        for (const [storeName, StoreClass] of Object.entries(stores)) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.stores[storeName] =
-                typeof StoreClass === 'object'
-                    ? StoreClass
-                    : (new (StoreClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            storesContainers[storeName] = this.stores[storeName];
-        }
-        for (const [storeName, StoreClass] of Object.entries(
+        this.#instantiateLayer(
+            stores,
             extensionStore.stores,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.stores[storeName] =
-                typeof StoreClass === 'object'
-                    ? StoreClass
-                    : (new (StoreClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            storesContainers[storeName] = this.stores[storeName];
-        }
-
+            this.stores,
+            storesContainers,
+            [this.#config, this.clients, this.stores],
+        );
         this.services = {} as typeof this.services;
-        for (const [serviceName, ServiceClass] of Object.entries(services)) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.services[serviceName] =
-                typeof ServiceClass === 'object'
-                    ? ServiceClass
-                    : (new (ServiceClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            servicesContainers[serviceName] = this.services[serviceName];
-        }
-        for (const [serviceName, ServiceClass] of Object.entries(
+        this.#instantiateLayer(
+            services,
             extensionStore.services,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.services[serviceName] =
-                typeof ServiceClass === 'object'
-                    ? ServiceClass
-                    : (new (ServiceClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                      ) as any);
-            // @ts-expect-error implicit any casting to avoid overly complex or circular types
-            servicesContainers[serviceName] = this.services[serviceName];
+            this.services,
+            servicesContainers,
+            [this.#config, this.clients, this.stores, this.services],
+        );
+
+        // Core's seat rules skip silently without Teams, so asking for it with
+        // nothing registered refuses to boot rather than serve without them.
+        if (
+            this.#config.teams_enabled === true &&
+            !(
+                (this.stores as { team?: unknown }).team &&
+                (this.services as { team?: unknown }).team
+            )
+        ) {
+            throw new Error(
+                '`teams_enabled` is on, but no extension registered the team store and service',
+            );
         }
 
         // Wire the rate-limiter to its configured backend now that clients
@@ -274,72 +292,33 @@ export class PuterServer {
         // on `DriverController` (a regular controller) which reads from
         // `this.drivers` — no separate registry object here any more.
         this.drivers = {} as typeof this.drivers;
-        const allDriverSources = [
-            ...Object.entries(drivers),
-            ...Object.entries(extensionStore.drivers),
-        ];
-        for (const [driverKey, DriverClass] of allDriverSources) {
-            const instance =
-                typeof DriverClass === 'object'
-                    ? DriverClass
-                    : (new (DriverClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                      ) as any);
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.drivers[driverKey] = instance;
-            driversContainers[driverKey] = instance;
-        }
+        this.#instantiateLayer(
+            drivers,
+            extensionStore.drivers,
+            this.drivers,
+            driversContainers,
+            [this.#config, this.clients, this.stores, this.services],
+        );
 
         this.controllers = {} as typeof this.controllers;
-        for (const [controllerName, ControllerClass] of Object.entries(
+        this.#instantiateLayer(
             controllers,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.controllers[controllerName] =
-                typeof ControllerClass === 'object'
-                    ? ControllerClass
-                    : (new (ControllerClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                          this.drivers,
-                      ) as any);
-            this.#registerControllerRoutes(
-                controllerName,
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName],
-            );
-            controllersContainers[controllerName] =
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName];
-        }
-        for (const [controllerName, ControllerClass] of Object.entries(
             extensionStore.controllers,
-        )) {
-            // @ts-expect-error as any casting to avoid overly complex or circular types
-            this.controllers[controllerName] =
-                typeof ControllerClass === 'object'
-                    ? ControllerClass
-                    : (new (ControllerClass as any)(
-                          this.#config,
-                          this.clients,
-                          this.stores,
-                          this.services,
-                          this.drivers,
-                      ) as any);
-            this.#registerControllerRoutes(
-                controllerName,
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName],
-            );
-            controllersContainers[controllerName] =
-                // @ts-expect-error as any casting to avoid overly complex or circular types
-                this.controllers[controllerName];
-        }
+            this.controllers,
+            controllersContainers,
+            [
+                this.#config,
+                this.clients,
+                this.stores,
+                this.services,
+                this.drivers,
+            ],
+            (name, controller) =>
+                this.#registerControllerRoutes(
+                    name,
+                    controller as WithControllerRegistration,
+                ),
+        );
 
         // Extension routes are shaped as `RouteDescriptor`s too, so they
         // flow through the same materializer as controller routes — same
@@ -357,6 +336,31 @@ export class PuterServer {
         this.#installTerminalMiddleware();
 
         return true;
+    }
+
+    /**
+     * Instantiate one layer: built-ins, then extension additions, each a class
+     * constructed with `args` or an instance used as is. Every instance lands
+     * in `layer` and in the layer's shared export container.
+     */
+    #instantiateLayer(
+        builtIns: object,
+        extensionAdditions: object,
+        layer: object,
+        container: object,
+        args: unknown[],
+        onInstance?: (name: string, instance: unknown) => void,
+    ): void {
+        for (const [name, Layer] of [
+            ...Object.entries(builtIns),
+            ...Object.entries(extensionAdditions),
+        ]) {
+            const instance =
+                typeof Layer === 'object' ? Layer : new (Layer as any)(...args);
+            (layer as Record<string, unknown>)[name] = instance;
+            onInstance?.(name, instance);
+            (container as Record<string, unknown>)[name] = instance;
+        }
     }
 
     /**
@@ -463,12 +467,26 @@ export class PuterServer {
         });
 
         // -- UA parsing ----------------------------------------------
-        this.#app.use((req, _res, next) => {
-            const header = req.headers['user-agent'];
-            if (header) {
-                req.ua = uaParser(header);
-            }
-            next();
+        // Parsed on first read and kept on the request: most requests never
+        // look at it.
+        const ownUa = (req: Request, value: Request['ua']) =>
+            Object.defineProperty(req, 'ua', {
+                value,
+                writable: true,
+                enumerable: true,
+                configurable: true,
+            });
+        Object.defineProperty(this.#app.request, 'ua', {
+            configurable: true,
+            get(this: Request) {
+                const header = this.headers['user-agent'];
+                const ua = header ? uaParser(header) : undefined;
+                ownUa(this, ua);
+                return ua;
+            },
+            set(this: Request, value: Request['ua']) {
+                ownUa(this, value);
+            },
         });
 
         // -- Host header validation ----------------------------------
@@ -477,9 +495,18 @@ export class PuterServer {
         // -- Host handling (www → root, user subdomain on main domain → 404)
         // Installed after host validation so we know the host is allowed,
         // and before CORS/body-parsing so we short-circuit without burning
-        // work.
+        // work. A subdomain an extension claimed is answered here too.
         this.#app.use(createWwwRedirect(this.#config));
-        this.#app.use(createUserSubdomainNotFound(this.#config));
+        this.#app.use(
+            createUserSubdomainNotFound(this.#config, (name) => {
+                const claim = extensionStore.claimedSubdomains.get(name);
+                if (!claim || isMainPipelineClaim(claim)) return claim;
+                return {
+                    authorize: claim.authorize,
+                    handler: this.#claimRouters.get(name),
+                };
+            }),
+        );
 
         // -- Native app static serving (editor.*, docs.*, …) ---------
         // No-op when `native_apps_root` is unset.
@@ -504,6 +531,9 @@ export class PuterServer {
                 next();
                 return;
             }
+            // The reply depends only on Origin and host, both part of the
+            // browser's preflight cache key.
+            res.setHeader('Access-Control-Max-Age', PREFLIGHT_MAX_AGE);
             res.sendStatus(200);
         });
 
@@ -523,12 +553,37 @@ export class PuterServer {
         const captureRawBody: NonNullable<
             Parameters<typeof express.json>[0]
         >['verify'] = (req, _res, buf) => {
-            (req as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+            // body-parser hands over a fresh buffer and never writes to it.
+            (req as { rawBody?: Buffer }).rawBody = buf;
         };
-        this.#app.use(express.json({ limit: '50mb', verify: captureRawBody }));
+        const authService = this.services.auth as AuthService | undefined;
+        const authProbe = authService
+            ? createAuthProbe({
+                  authService,
+                  cookieName: this.#config.cookie_name,
+              })
+            : undefined;
+        if (authProbe) {
+            this.#app.post(
+                LARGE_JSON_ROUTES,
+                createLargeJsonBodyParser({
+                    authProbe,
+                    limitBytes: LARGE_JSON_LIMIT_BYTES,
+                    budgetBytes: LARGE_JSON_BUDGET_BYTES,
+                    perUserBytes: LARGE_JSON_LIMIT_BYTES,
+                    accepts: acceptsLargeJson,
+                }),
+            );
+        }
         this.#app.use(
             express.json({
-                limit: '50mb',
+                limit: DEFAULT_JSON_LIMIT_BYTES,
+                verify: captureRawBody,
+            }),
+        );
+        this.#app.use(
+            express.json({
+                limit: DEFAULT_JSON_LIMIT_BYTES,
                 type: (req) =>
                     req.headers['content-type'] === 'text/plain;actually=json',
                 verify: captureRawBody,
@@ -542,14 +597,8 @@ export class PuterServer {
         this.#app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
         // -- Auth probe ----------------------------------------------
-        const authService = this.services.auth as AuthService | undefined;
-        if (authService) {
-            this.#app.use(
-                createAuthProbe({
-                    authService,
-                    cookieName: this.#config.cookie_name,
-                }),
-            );
+        if (authProbe) {
+            this.#app.use(authProbe);
         }
 
         // -- Request fingerprints ------------------------------------
@@ -599,7 +648,32 @@ export class PuterServer {
 
         // Build the allowed-domain set from config.
         this.#app.use((req, res, next) => {
+            const hostName = (req.headers.host ?? '')
+                .split(':')[0]
+                .trim()
+                .toLowerCase();
+            const isOwnHost =
+                !hostName ||
+                this.#getAllowedDomains().some((d) =>
+                    PuterServer.#hostMatchesDomain(hostName, d),
+                );
+
+            // Accepting every host still has to tell custom domains apart, or
+            // they fall through to the API/GUI instead of site hosting. An IP
+            // or localhost is never one: load balancer health checks and
+            // in-cluster callers address the server that way.
             if (config.allow_all_host_values) {
+                if (
+                    config.custom_domains_enabled &&
+                    !isOwnHost &&
+                    req.path !== '/healthcheck' &&
+                    // `[` is what an IPv6 literal's `[::1]:port` splits to.
+                    !hostName.startsWith('[') &&
+                    isIP(hostName) === 0 &&
+                    hostName !== 'localhost'
+                ) {
+                    req.is_custom_domain = true;
+                }
                 next();
                 return;
             }
@@ -615,15 +689,7 @@ export class PuterServer {
                 return;
             }
 
-            const hostName = (req.headers.host ?? '')
-                .split(':')[0]
-                .trim()
-                .toLowerCase();
-            const allowed = this.#getAllowedDomains();
-
-            if (
-                allowed.some((d) => PuterServer.#hostMatchesDomain(hostName, d))
-            ) {
+            if (isOwnHost) {
                 next();
                 return;
             }
@@ -830,7 +896,9 @@ export class PuterServer {
                     if (isHttp && err.noAlarm) return;
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
-                    const forcedSeverity = FORCED_ALERT_CODES.get(legacyCode);
+                    const forcedSeverity =
+                        (isHttp ? err.alarmSeverity : undefined) ??
+                        FORCED_ALERT_CODES.get(legacyCode);
                     if (!forcedSeverity) {
                         if (status < 500) return;
                         if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
@@ -839,16 +907,21 @@ export class PuterServer {
                         ? err instanceof Error
                             ? err.message
                             : String(err)
-                        : status >= 500
+                        : status >= 500 || err.alarmSeverity
                           ? `${err.legacyCode || err.code || 'http'}:${err.message}`
                           : err.legacyCode || err.code || err.message;
                     const routePath =
                         (req as unknown as { route?: { path?: string } }).route
                             ?.path ?? req.path;
                     const alarmId = `http_${status}:${req.method}:${routePath}:${signature}`;
+                    // Alarms leave the process, so carry identifiers only:
+                    // bodies and query strings hold passwords, codes and
+                    // tokens, and the actor carries the whole user row.
+                    const urlPath = req.originalUrl.split('?')[0];
+                    const body = req.body as unknown;
                     this.clients.alarm.create(
                         alarmId,
-                        `HTTP ${status} on ${req.method} ${req.originalUrl}: ${signature}`,
+                        `HTTP ${status} on ${req.method} ${urlPath}: ${signature}`,
                         {
                             // What the thrower attached (an AI chain's
                             // per-provider attempts, say) rides under one key
@@ -861,10 +934,14 @@ export class PuterServer {
                             error: err instanceof Error ? err : undefined,
                             status,
                             method: req.method,
-                            path: req.originalUrl,
-                            body: req.body,
+                            path: urlPath,
+                            queryKeys: Object.keys(req.query ?? {}),
+                            bodyKeys:
+                                body && typeof body === 'object'
+                                    ? Object.keys(body)
+                                    : [],
                             route: routePath,
-                            actor: req.actor,
+                            actor: req.actor ? actorUid(req.actor) : undefined,
                         },
                         // An unhandled server error is the one thing that
                         // still pages on-call.
@@ -917,12 +994,20 @@ export class PuterServer {
     }
 
     #materializeRoute(
-        app: Application,
+        app: IRouter,
         routerPrefix: string,
         route: RouteDescriptor,
     ) {
         const mwChain: RequestHandler[] = [];
         const opts = route.options;
+
+        // A route for a claimed subdomain lives behind that claim's
+        // `authorize`, on its own router, never on the main app.
+        const claimed = PuterServer.#claimedSubdomainOf(
+            opts,
+            `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}`,
+        );
+        if (claimed) app = this.#claimRouter(claimed);
 
         // Validated here rather than trusted, and by the same function the
         // driver decorator uses: a malformed requirement is a boot failure
@@ -977,6 +1062,19 @@ export class PuterServer {
             });
         }
 
+        // A route that wants its errors in a vendor-compatible envelope
+        // (the Anthropic/OpenAI-compatible wire surface) stashes its
+        // renderer on `res.locals`, early — before any gate below can
+        // reject the request — so the terminal `errorHandler` picks it up
+        // for every error this route produces, gate failures included.
+        if (opts.errorRenderer) {
+            const { errorRenderer } = opts;
+            mwChain.push((_req, res, next) => {
+                res.locals.errorRenderer = errorRenderer;
+                next();
+            });
+        }
+
         // 1b. Origin gate. Runs before auth, rate limiting, and captcha so an
         // off-origin caller is rejected on the header alone — it never reaches
         // the credential comparison, and it can't burn another request's rate
@@ -990,10 +1088,14 @@ export class PuterServer {
         //   adminOnly        => requireAuth
         //   allowedAppIds    => requireAuth
         //   requireUserActor => requireAuth
+        //   userProtected    => requireUserActor
         // Dedupe: only push requireAuthGate once when *any* of these are set.
+        const requireUserActor = Boolean(
+            opts.requireUserActor || opts.userProtected,
+        );
         const needsAuth = Boolean(
             opts.requireAuth ||
-            opts.requireUserActor ||
+            requireUserActor ||
             opts.adminOnly ||
             opts.allowedAppIds ||
             opts.requireVerified ||
@@ -1019,7 +1121,9 @@ export class PuterServer {
         if (needsAuth && !opts.allowUnconfirmed) {
             mwChain.push(requireVerifiedAccount());
             // Same opt-out: a member owing 2FA must still reach those routes.
-            mwChain.push(requireTeam2fa(this.stores?.team));
+            mwChain.push(
+                requireTeam2fa((this.stores as { team?: Team2faLookup })?.team),
+            );
         }
 
         // block access tokens by default
@@ -1040,7 +1144,7 @@ export class PuterServer {
         // (rejecting an admin acting through a third-party app) unless the
         // route is also appId-gated, in which case `allowedAppIdsGate` governs
         // which apps may pass.
-        if (opts.requireUserActor) {
+        if (requireUserActor) {
             mwChain.push(
                 requireUserActorGate({
                     allowFullAccess: opts.allowFullAccessToken,
@@ -1147,6 +1251,18 @@ export class PuterServer {
                     this.services.metering,
                     this.#config,
                     subscriptionRequirement!,
+                    {
+                        events: this.clients.event,
+                        surface: routeEventKeyBase(
+                            route.method,
+                            route.path !== undefined
+                                ? PuterServer.#joinPath(
+                                      routerPrefix,
+                                      route.path,
+                                  )
+                                : undefined,
+                        ),
+                    },
                 ),
             );
         }
@@ -1244,6 +1360,27 @@ export class PuterServer {
             );
         }
 
+        // 3b. Shared-secret check on service-to-service routes.
+        if (opts.internalAuth) {
+            const { internalAuth } = opts;
+            mwChain.push(internalAuthGate(() => internalAuth(this.#config)));
+        }
+
+        // 3c. Password (or OIDC revalidation) re-check on account routes.
+        if (opts.userProtected) {
+            mwChain.push(
+                ...createUserProtectedGate(
+                    {
+                        config: this.#config,
+                        userStore: this.stores.user,
+                        oidcService: this.services.oidc,
+                        tokenService: this.services.token,
+                    },
+                    opts.userProtected === true ? {} : opts.userProtected,
+                ),
+            );
+        }
+
         // 4. Caller-supplied middleware runs after gates + parsers, before the handler.
         if (opts.middleware) mwChain.push(...opts.middleware);
 
@@ -1297,7 +1434,9 @@ export class PuterServer {
 
         // All express + WebDAV verbs accept the same (path, ...handlers) shape.
         // The `RouteMethod` union is the allowlist of method names we expose.
-        const method = app[route.method as keyof Application] as unknown;
+        const method = (app as unknown as Record<string, unknown>)[
+            route.method
+        ];
         if (typeof method !== 'function') {
             throw new Error(
                 `Express app does not support method: ${route.method}`,
@@ -1309,6 +1448,73 @@ export class PuterServer {
             ...mwChain,
             route.handler,
         );
+    }
+
+    #claimRouter(name: string): Router {
+        let router = this.#claimRouters.get(name);
+        if (!router) {
+            router = express.Router();
+            this.#claimRouters.set(name, router);
+        }
+        return router;
+    }
+
+    /**
+     * The gated claim a route is declared for, if any. Gated hosts authenticate
+     * through the claim's `authorize`, so options that rely on the main
+     * pipeline's actor or origin handling fail the boot instead.
+     */
+    static #claimedSubdomainOf(
+        opts: RouteOptions,
+        label: string,
+    ): string | undefined {
+        const gated = (name: string) => {
+            const claim = extensionStore.claimedSubdomains.get(name);
+            return isMainPipelineClaim(claim) ? undefined : claim;
+        };
+        const labels = [opts.subdomain ?? []].flat();
+        for (const name of labels) {
+            const lower = name.toLowerCase();
+            if (lower !== name && gated(lower)) {
+                throw new Error(
+                    `${label}: claimed subdomain '${lower}' must be written in lowercase`,
+                );
+            }
+        }
+        if (Array.isArray(opts.subdomain)) {
+            const mixed = opts.subdomain.find((s) => gated(s));
+            if (mixed !== undefined) {
+                throw new Error(
+                    `${label}: claimed subdomain '${mixed}' must be the route's only subdomain`,
+                );
+            }
+            return undefined;
+        }
+        if (typeof opts.subdomain !== 'string') return undefined;
+        const claim = gated(opts.subdomain);
+        if (!claim) return undefined;
+        for (const [key, value] of Object.entries(opts)) {
+            if (value === undefined || value === false) continue;
+            if (!CLAIMED_ROUTE_OPTIONS.has(key)) {
+                throw new Error(
+                    `${label}: '${key}' is not available on a claimed subdomain`,
+                );
+            }
+        }
+        const limits = [opts.rateLimit, opts.concurrent].flat();
+        for (const limit of limits) {
+            if (limit && (limit.key !== 'ip' || limit.bySubscription)) {
+                throw new Error(
+                    `${label}: limits on a claimed subdomain must key on 'ip'`,
+                );
+            }
+        }
+        try {
+            claim.checkRoute?.(opts, label);
+        } catch (err) {
+            throw new Error(`${label}: ${(err as Error)?.message ?? err}`);
+        }
+        return opts.subdomain;
     }
 
     /**
@@ -1463,7 +1669,7 @@ export class PuterServer {
                 '************************************************************\n',
             );
 
-            await this.#fireOnServerStart();
+            await this.#runHook('bottomUp', 'onServerStart');
             console.log('PuterServer has fully booted.');
 
             // CLI: `--server` (optionally `--puter-backend=<gui-origin>`)
@@ -1526,75 +1732,100 @@ export class PuterServer {
             } as unknown as http.Server;
             // Tests still need onServerStart to fire so stores can
             // bootstrap (e.g. SystemKVStore creates its dynalite table).
-            await this.#fireOnServerStart();
+            await this.#runHook('bottomUp', 'onServerStart');
         }
     }
 
-    async #fireOnServerStart() {
-        for (const client of Object.values(this.clients) as WithLifecycle[]) {
-            if (client.onServerStart) await client.onServerStart();
-        }
-        for (const store of Object.values(this.stores) as WithLifecycle[]) {
-            if (store.onServerStart) await store.onServerStart();
-        }
-        for (const service of Object.values(this.services) as WithLifecycle[]) {
-            if (service.onServerStart) await service.onServerStart();
-        }
-        for (const controller of Object.values(
+    /**
+     * Run `hook` on every instance of every layer. Bottom-up starts each layer
+     * after the ones it depends on; top-down shuts each down while the layers
+     * it writes through are still up.
+     */
+    async #runHook(
+        order: 'bottomUp' | 'topDown',
+        hook: 'onServerStart' | 'onServerPrepareShutdown' | 'onServerShutdown',
+    ) {
+        const layers = [
+            this.clients,
+            this.stores,
+            this.services,
             this.controllers,
-        ) as WithLifecycle[]) {
-            if (controller.onServerStart) await controller.onServerStart();
-        }
-        for (const driver of Object.values(this.drivers) as WithLifecycle[]) {
-            if (driver.onServerStart) await driver.onServerStart();
+            this.drivers,
+        ];
+        if (order === 'topDown') layers.reverse();
+        for (const layer of layers) {
+            for (const instance of Object.values(layer) as WithLifecycle[]) {
+                try {
+                    await instance[hook]?.();
+                } catch (err) {
+                    if (hook === 'onServerStart') throw err;
+                    console.error(
+                        `[server] ${hook} failed in ${instance.constructor.name}`,
+                        err,
+                    );
+                }
+            }
         }
     }
 
-    #prepareShutdownHooksRan = false;
+    /**
+     * Run every `onServerDrainStart` concurrently, so one hook holding the
+     * listener open doesn't delay the others, and one failing doesn't skip the
+     * rest.
+     */
+    async #runDrainStartHooks(info: ServerDrainInfo) {
+        const instances = [
+            this.clients,
+            this.stores,
+            this.services,
+            this.controllers,
+            this.drivers,
+        ].flatMap((layer) => Object.values(layer) as WithLifecycle[]);
+        const results = await Promise.allSettled(
+            instances.map(async (instance) =>
+                instance.onServerDrainStart?.(info),
+            ),
+        );
+        results.forEach((result, i) => {
+            if (result.status === 'rejected') {
+                console.error(
+                    `[server] onServerDrainStart failed in ${instances[i].constructor.name}`,
+                    result.reason,
+                );
+            }
+        });
+    }
+
+    #prepareShutdownHooks: Promise<void> | null = null;
 
     /**
      * Run every layer's `onServerPrepareShutdown` exactly once, whichever of
-     * `prepareShutdown()` / `shutdown()` gets there first.
+     * `prepareShutdown()` / `shutdown()` gets there first; the other waits for
+     * that run to finish.
      */
-    async #runPrepareShutdownHooks() {
-        if (this.#prepareShutdownHooksRan) return;
-        this.#prepareShutdownHooksRan = true;
-        for (const client of Object.values(this.clients) as WithLifecycle[]) {
-            if (client.onServerPrepareShutdown) {
-                await client.onServerPrepareShutdown();
-            }
-        }
-        for (const store of Object.values(this.stores) as WithLifecycle[]) {
-            if (store.onServerPrepareShutdown) {
-                await store.onServerPrepareShutdown();
-            }
-        }
-        for (const service of Object.values(this.services) as WithLifecycle[]) {
-            if (service.onServerPrepareShutdown) {
-                await service.onServerPrepareShutdown();
-            }
-        }
-        for (const controller of Object.values(
-            this.controllers,
-        ) as WithLifecycle[]) {
-            if (controller.onServerPrepareShutdown) {
-                await controller.onServerPrepareShutdown();
-            }
-        }
-        for (const driver of Object.values(this.drivers) as WithLifecycle[]) {
-            if (driver.onServerPrepareShutdown) {
-                await driver.onServerPrepareShutdown();
-            }
-        }
+    #runPrepareShutdownHooks(): Promise<void> {
+        this.#prepareShutdownHooks ??= this.#runHook(
+            'bottomUp',
+            'onServerPrepareShutdown',
+        );
+        return this.#prepareShutdownHooks;
     }
 
-    async prepareShutdown() {
+    async prepareShutdown(info: ServerDrainInfo = {}) {
         if (this.#server) {
+            await this.#runDrainStartHooks(info);
             this.#server.close(async () => {
                 console.log(
                     'PuterServer has stopped accepting new connections',
                 );
-                await this.#runPrepareShutdownHooks();
+                try {
+                    await this.#runPrepareShutdownHooks();
+                } catch (err) {
+                    console.error(
+                        '[server] prepare-shutdown hooks failed',
+                        err,
+                    );
+                }
             });
         }
     }
@@ -1616,41 +1847,7 @@ export class PuterServer {
             });
             this.#server.closeAllConnections();
             await closed;
-            // Top-down, so each layer shuts down while the layers it writes
-            // through are still up.
-            for (const driver of Object.values(
-                this.drivers,
-            ) as WithLifecycle[]) {
-                if (driver.onServerShutdown) {
-                    await driver.onServerShutdown();
-                }
-            }
-            for (const controller of Object.values(
-                this.controllers,
-            ) as WithLifecycle[]) {
-                if (controller.onServerShutdown) {
-                    await controller.onServerShutdown();
-                }
-            }
-            for (const service of Object.values(
-                this.services,
-            ) as WithLifecycle[]) {
-                if (service.onServerShutdown) {
-                    await service.onServerShutdown();
-                }
-            }
-            for (const store of Object.values(this.stores) as WithLifecycle[]) {
-                if (store.onServerShutdown) {
-                    await store.onServerShutdown();
-                }
-            }
-            for (const client of Object.values(
-                this.clients,
-            ) as WithLifecycle[]) {
-                if (client.onServerShutdown) {
-                    await client.onServerShutdown();
-                }
-            }
+            await this.#runHook('topDown', 'onServerShutdown');
         }
     }
 }

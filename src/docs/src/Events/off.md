@@ -21,7 +21,7 @@ subscription.off()
 None.
 
 ## Return value
-A `Promise` that resolves when the subscription is gone. It never rejects: calling `off()` twice, or after the connection dropped, does nothing.
+A `Promise` that resolves when the subscription is gone. It never rejects. Calling `off()` twice, or after the connection dropped, does nothing.
 
 ## Examples
 
@@ -33,7 +33,7 @@ A `Promise` that resolves when the subscription is gone. It never rejects: calli
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            const dir = `~/${puter.randName()}`;
+            const dir = puter.randName();
             await puter.fs.mkdir(dir);
 
             const sub = await puter.events.onLocal(`fs:${dir}`, ({ event }) => {

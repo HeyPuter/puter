@@ -45,12 +45,25 @@ export const hasUserActivation = () => {
 };
 
 /**
+ * Whether the browser reports this document's origin as `"null"` — a `file://`
+ * page or an iframe sandboxed without `allow-same-origin`. Neither an app
+ * identity nor a valid `postMessage` target.
+ *
+ * @returns {boolean}
+ */
+export const hasOpaqueOrigin = () => {
+    if ( ! globalThis.location ) return true;
+    if ( globalThis.location.protocol === 'file:' ) return true;
+    return globalThis.origin === 'null';
+};
+
+/**
  * Opens a centered Puter authentication popup window.
  *
  * This must be called synchronously from within a user gesture (e.g. a click
- * handler), or the browser will block the popup. Callers must gate any
- * non-gesture invocation behind `hasUserActivation()` and fall back to a
- * consent dialog (which collects a gesture) when there is no activation.
+ * handler), or the browser will block the popup. Flows launch it through
+ * `PuterDialog.launch()`, which falls back to a consent dialog (whose click is
+ * the gesture) when there is no activation or the popup comes back null.
  *
  * @param {string} url - The full URL (including query string) to load.
  * @param {string} [title='Puter'] - The popup window name.
@@ -59,9 +72,12 @@ export const hasUserActivation = () => {
 export const openAuthPopup = (url, title = 'Puter') => {
     const left = (screen.width / 2) - (POPUP_WIDTH / 2);
     const top = (screen.height / 2) - (POPUP_HEIGHT / 2);
-    return window.open(
+    // The one place auth popups open, so the token handler knows them.
+    const popup = window.open(
         url,
         title,
         `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${POPUP_WIDTH}, height=${POPUP_HEIGHT}, top=${top}, left=${left}`,
     );
+    globalThis.puter?.trackOpenedWindow_?.(popup);
+    return popup;
 };

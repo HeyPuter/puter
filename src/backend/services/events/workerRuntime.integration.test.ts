@@ -61,6 +61,7 @@ import {
     eventsWorkerScript,
 } from './workerRuntime.js';
 import { handlerSetHash } from './workerSource.js';
+import { appHandlerScope } from '../../stores/events/EventHandlerStore.js';
 
 const BOOT_TIMEOUT_MS = 180_000;
 const TEST_TIMEOUT_MS = 60_000;
@@ -133,11 +134,13 @@ const INGEST_SOURCE = `async ({ event, ctx, user, fetch, ack }) => {
             kv,
             outsideStat,
             token: user.authToken,
+            // Read off globalThis, where the router runtime and the deploy's
+            // bindings put them: a bare name is refused at publish.
             ambient: {
-                me: typeof me,
-                router: typeof router,
-                puterAuth: typeof puter_auth,
-                invokeKey: typeof events_invoke_key,
+                me: typeof globalThis.me,
+                router: typeof globalThis.router,
+                puterAuth: typeof globalThis.puter_auth,
+                invokeKey: typeof globalThis.events_invoke_key,
             },
         }),
     });
@@ -169,7 +172,7 @@ const localWorkers = () => env.server.services.localworkerservice;
 /** The script the app's published set currently deploys as. */
 const scriptName = async (): Promise<string> =>
     eventsWorkerScript(
-        handlerSetHash(await env.server.stores.eventHandler.setForApp(appUid)),
+        handlerSetHash(await env.server.stores.eventHandler.setForApp(appHandlerScope(appUid))),
         // No `workers.internetExposedUrl` in this test's config, so the scope
         // this backend binds is empty.
         '',
@@ -282,28 +285,6 @@ const rehydrate = async (
 };
 
 const subscribe = async (
-    handlerName: string,
-    context?: object,
-): Promise<string> => {
-    const response = await api('POST', '/events/subscribe', {
-        subject: `fs:${anchor}`,
-        delivery: 'single',
-        handlerName,
-        targets: ['worker'],
-        ...(context ? { context } : {}),
-    });
-    expect(response.status).toBe(200);
-    return String(response.body.subId);
-};
-
-/**
- * Like `subscribe`, but with no `targets` override — the default
- * (`['socket', 'worker']`) rather than the `['worker']` the rest of this suite
- * pins. Only this leaves `socket` in play, which is what a background
- * delivery's own client (wrongly) showing up in the app's delivery room would
- * actually steer onto.
- */
-const subscribeWithSocketTarget = async (
     handlerName: string,
     context?: object,
 ): Promise<string> => {
@@ -676,10 +657,7 @@ describe('the client a handler runs as', () => {
         { timeout: TEST_TIMEOUT_MS },
         async () => {
             const room = appSocketRoom(userId, appUid);
-            // `subscribeWithSocketTarget` leaves `socket` a live option for
-            // this delivery — the ordinary `subscribe()` helper pins
-            // `targets: ['worker']` specifically to avoid exercising this.
-            await subscribeWithSocketTarget('ingest', { sink: sinkUrl });
+            await subscribe('ingest', { sink: sinkUrl });
 
             await touch('first.txt');
             await delivered(1);
@@ -909,7 +887,7 @@ describe('the worker follows the handler set', () => {
             // An empty set names no script, so nothing can be deployed for
             // this app again until something is published.
             expect(
-                await env.server.stores.eventHandler.setForApp(appUid),
+                await env.server.stores.eventHandler.setForApp(appHandlerScope(appUid)),
             ).toEqual([]);
             expect((await durable().getBySubId(subId))?.suspendedReason).toBe(
                 'handler_not_found',

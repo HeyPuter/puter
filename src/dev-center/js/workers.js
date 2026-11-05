@@ -222,6 +222,8 @@ function sort_workers () {
                 return new Date(a[sortBy]) - new Date(b[sortBy]);
             } else if ( sortBy === 'file_path' ) {
                 return a[sortBy].localeCompare(b[sortBy]);
+            } else if ( sortBy === 'app_name' ) {
+                return (a.app_name ?? '').localeCompare(b.app_name ?? '');
             }
             else {
                 a[sortBy] > b[sortBy] ? 1 : -1;
@@ -235,6 +237,8 @@ function sort_workers () {
                 return new Date(b[sortBy]) - new Date(a[sortBy]);
             } else if ( sortBy === 'file_path' ) {
                 return b[sortBy].localeCompare(a[sortBy]);
+            } else if ( sortBy === 'app_name' ) {
+                return (b.app_name ?? '').localeCompare(a.app_name ?? '');
             } else {
                 b[sortBy] > a[sortBy] ? 1 : -1;
             }
@@ -274,6 +278,7 @@ function generate_worker_card (worker) {
                 <input type="checkbox" class="worker-checkbox" data-worker-name="${html_encode(worker.name)}">
             </td>
             <td style="font-family: monospace; font-size: 14px; vertical-align: middle;">${html_encode(worker.name)}</td>
+            <td style="font-family: monospace; font-size: 14px; vertical-align: middle;" title="${html_encode(worker.app_uid ?? '')}">${worker.app_name ? html_encode(worker.app_name) : ''}</td>
             <td style="font-family: monospace; font-size: 14px; vertical-align: middle;"><span class="worker-file-path" data-worker-file-path="${html_encode(worker.file_path)}">${worker.file_path ? html_encode(worker.file_path) : ''}</span></td>
             <td style="font-size: 14px; vertical-align: middle;">${html_encode(worker.created_at)}</td>
             <td style="vertical-align: middle;"><img class="options-icon options-icon-worker" data-worker-name="${html_encode(worker.name)}" src="./img/options.svg"></td>

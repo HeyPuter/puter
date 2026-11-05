@@ -23,89 +23,116 @@ import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import type {
+    IChatModel,
     IChatProvider,
     ICompleteArguments,
     IChatCompleteResult,
 } from '../../types.js';
-import { XAI_MODELS } from './models.js';
+import { XAI_BASE_URL, XAI_CHAT_MODELS, fetchXaiCatalog } from './catalog.js';
+import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { sdkClientOptions } from '../../utils/sdkClient.js';
 
 export class XAIProvider implements IChatProvider {
     #openai: OpenAI;
 
     #meteringService: MeteringService;
 
+    #catalog: () => Promise<IChatModel[]>;
+
     constructor(config: { apiKey: string }, meteringService: MeteringService) {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
-            baseURL: 'https://api.x.ai/v1',
+            baseURL: XAI_BASE_URL,
+            ...sdkClientOptions(),
         });
         this.#meteringService = meteringService;
+        this.#catalog = cachedRemoteCatalog({
+            name: 'xAI catalog',
+            fallback: XAI_CHAT_MODELS,
+            fetch: (signal, previous) =>
+                fetchXaiCatalog(config.apiKey, signal, previous),
+        });
     }
 
     getDefaultModel() {
         return 'grok-4.5';
     }
 
-    models() {
-        return XAI_MODELS;
+    async models(): Promise<IChatModel[]> {
+        return this.#catalog();
     }
 
     async list() {
-        return modelLookupNames(this.models());
+        return modelLookupNames(await this.models());
     }
 
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-    }: ICompleteArguments): Promise<IChatCompleteResult> {
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `xai:${modelId}`;
+    }
+
+    async complete(
+        { messages, stream, model, tools, max_tokens }: ICompleteArguments,
+        resolved?: IChatModel,
+    ): Promise<IChatCompleteResult> {
         const actor = Context.get('actor');
-        const availableModels = this.models();
-        const modelUsed =
-            availableModels.find((m) =>
-                [m.id, ...(m.aliases || [])].includes(model),
-            ) || availableModels.find((m) => m.id === this.getDefaultModel())!;
+        // The driver's snapshot is what its credit hold was priced against, so
+        // a catalog refresh mid-request can't change what this call bills.
+        const modelUsed = resolved ?? (await this.#resolveModel(model));
         messages = await OpenAIUtil.process_input_messages(messages);
         let completion;
         try {
-            completion = await this.#openai.chat.completions.create({
-                messages,
-                model: modelUsed.id,
-                ...(tools ? { tools } : {}),
-                max_tokens: 1000,
-                stream,
-                ...(stream
-                    ? {
-                          stream_options: { include_usage: true },
-                      }
-                    : {}),
-            } as ChatCompletionCreateParams);
+            completion = await this.#openai.chat.completions.create(
+                {
+                    messages,
+                    model: modelUsed.id,
+                    ...(tools ? { tools } : {}),
+                    ...(max_tokens !== undefined ? { max_tokens } : {}),
+                    stream,
+                    ...(stream
+                        ? {
+                              stream_options: { include_usage: true },
+                          }
+                        : {}),
+                } as ChatCompletionCreateParams,
+                { signal: Context.get('upstreamSignal') },
+            );
         } catch (e) {
-            console.log('XAI AI process_input_messages error: ', e);
+            if (!Context.get('upstreamSignal')?.aborted) {
+                console.log('XAI AI process_input_messages error: ', e);
+            }
             throw e;
         }
 
         return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverride = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([key, value]) => {
-                        return [key, value * Number(modelUsed.costs[key] ?? 0)];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
+            usage_calculator: ({ usage, setUsageCosts }) => {
+                // xAI reports cached reads inside `prompt_tokens`; bill them
+                // only at the cached rate.
+                const metered = OpenAIUtil.extractMeteredUsage(usage);
+                const { costs } = meterChatUsage(
+                    this.#meteringService,
                     actor,
-                    `xai:${modelUsed.id}`,
-                    costsOverride,
+                    this.meteringModelKey(modelUsed.id),
+                    modelUsed,
+                    OpenAIUtil.splitCachedPrompt(usage),
                 );
-                return trackedUsage;
+                setUsageCosts(costs);
+                return metered;
             },
             stream,
             completion,
         });
+    }
+
+    async #resolveModel(model: string): Promise<IChatModel> {
+        const availableModels = await this.models();
+        return (
+            availableModels.find((m) =>
+                [m.id, ...(m.aliases || [])].includes(model),
+            ) || availableModels.find((m) => m.id === this.getDefaultModel())!
+        );
     }
 
     checkModeration(

@@ -17,6 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import {
+    createCipheriv,
+    createDecipheriv,
+    hkdfSync,
+    randomBytes,
+} from 'node:crypto';
 import { HttpError } from '../core/http';
 
 /**
@@ -46,17 +52,121 @@ export const decodeCursor = (
     if (typeof cursor === 'object') return cursor;
     const trimmed = cursor.trim();
     if (trimmed === '') return undefined;
+    let parsed: Record<string, unknown> | null;
     try {
-        return JSON.parse(Buffer.from(trimmed, 'base64').toString('utf8'));
+        parsed = JSON.parse(Buffer.from(trimmed, 'base64').toString('utf8'));
     } catch {
         try {
-            return JSON.parse(trimmed);
+            parsed = JSON.parse(trimmed);
         } catch {
             throw new HttpError(400, `invalid ${label}`, {
                 legacyCode: 'bad_request',
             });
         }
     }
+    // A client that stringifies a null cursor sends `cursor=null`.
+    return parsed ?? undefined;
+};
+
+// -- Sealed cursors ---------------------------------------------------
+
+const SEALED_CURSOR_VERSION = 1;
+const SEAL_IV_BYTES = 12;
+const SEAL_TAG_BYTES = 16;
+const SEAL_HEADER_BYTES = 1 + SEAL_IV_BYTES + SEAL_TAG_BYTES;
+
+let sealKeyMemo: { secret: string; key: Buffer } | null = null;
+
+/** Derived under its own label, so no other use of `secret` shares this key. */
+const sealKey = (secret: string): Buffer => {
+    if (sealKeyMemo?.secret !== secret)
+        sealKeyMemo = {
+            secret,
+            key: Buffer.from(
+                hkdfSync('sha256', secret, '', 'puter:pagination-cursor', 32),
+            ),
+        };
+    return sealKeyMemo.key;
+};
+
+/**
+ * A cursor its holder cannot read, for keysets over a global sequence: a plain
+ * one would let two pages show how fast the whole table grows. Encrypted and
+ * authenticated, so an altered cursor is refused like any malformed one.
+ * Without a secret it is a plain `encodeCursor` cursor. `padTo` rounds the
+ * plaintext up to a multiple of that many bytes, so the length hides the size.
+ */
+export const sealCursor = (
+    payload: Record<string, unknown> | undefined,
+    secret: string | undefined,
+    { padTo }: { padTo?: number } = {},
+): string | undefined => {
+    if (!payload || Object.keys(payload).length === 0) return undefined;
+    if (!secret) return encodeCursor(payload);
+    let plain = Buffer.from(JSON.stringify(payload), 'utf8');
+    if (padTo) {
+        // Trailing spaces, which JSON.parse skips.
+        const padded = Buffer.alloc(
+            Math.ceil(plain.length / padTo) * padTo,
+            ' ',
+        );
+        plain.copy(padded);
+        plain = padded;
+    }
+    const iv = randomBytes(SEAL_IV_BYTES);
+    const cipher = createCipheriv('aes-256-gcm', sealKey(secret), iv);
+    const body = Buffer.concat([cipher.update(plain), cipher.final()]);
+    return Buffer.concat([
+        Buffer.from([SEALED_CURSOR_VERSION]),
+        iv,
+        cipher.getAuthTag(),
+        body,
+    ]).toString('base64url');
+};
+
+/** What `sealCursor` sealed under `secret`, or null if `cursor` is not that. */
+export const unsealCursor = (
+    cursor: string,
+    secret: string,
+): Record<string, unknown> | null => {
+    const raw = Buffer.from(cursor, 'base64url');
+    if (raw.length <= SEAL_HEADER_BYTES || raw[0] !== SEALED_CURSOR_VERSION)
+        return null;
+    try {
+        const decipher = createDecipheriv(
+            'aes-256-gcm',
+            sealKey(secret),
+            raw.subarray(1, 1 + SEAL_IV_BYTES),
+        );
+        decipher.setAuthTag(raw.subarray(1 + SEAL_IV_BYTES, SEAL_HEADER_BYTES));
+        const parsed: unknown = JSON.parse(
+            Buffer.concat([
+                decipher.update(raw.subarray(SEAL_HEADER_BYTES)),
+                decipher.final(),
+            ]).toString('utf8'),
+        );
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : null;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Read a cursor `sealCursor` produced. A plain cursor still reads, so a client
+ * holding one from before cursors were sealed does not start over.
+ */
+export const openCursor = (
+    cursor: string | Record<string, unknown> | null | undefined,
+    secret: string | undefined,
+    label = 'cursor',
+): Record<string, unknown> | undefined => {
+    if (typeof cursor === 'string' && secret) {
+        const opened = unsealCursor(cursor.trim(), secret);
+        if (opened) return opened;
+    }
+    return decodeCursor(cursor, label);
 };
 
 export const normalizeLimit = (
@@ -92,4 +202,53 @@ export const normalizeOffset = (
         });
     }
     return floored;
+};
+
+// -- Keyset pages -----------------------------------------------------
+
+/**
+ * The id a keyset page resumes from, or null on the first page. A cursor that
+ * opens without a usable id (another listing's, say) throws when `strict`, and
+ * otherwise reads as the first page.
+ */
+export const openIdCursor = (
+    cursor: string | Record<string, unknown> | null | undefined,
+    secret: string | undefined,
+    {
+        label = 'cursor',
+        strict = false,
+    }: { label?: string; strict?: boolean } = {},
+): number | null => {
+    const decoded = openCursor(cursor, secret, label);
+    if (decoded === undefined) return null;
+    const id = Number(decoded.id);
+    if (Number.isSafeInteger(id) && id >= 0) return id;
+    if (strict) {
+        throw new HttpError(400, `invalid ${label}`, {
+            legacyCode: 'bad_request',
+        });
+    }
+    return null;
+};
+
+/**
+ * One page of `rows`, fetched with `LIMIT limit + 1`: the first `limit` rows,
+ * and a cursor at the last of them when the extra row says another page
+ * follows. `position` is the cursor payload; it defaults to the row's `id`.
+ * Without `secret` the cursor is a plain `encodeCursor` one.
+ */
+export const keysetPage = <R>(
+    rows: R[],
+    limit: number,
+    secret: string | undefined,
+    position: (last: R) => Record<string, unknown> = (last) => ({
+        id: Number((last as { id?: unknown }).id),
+    }),
+): { rows: R[]; cursor?: string } => {
+    if (rows.length <= limit) return { rows };
+    const page = rows.slice(0, limit);
+    return {
+        rows: page,
+        cursor: sealCursor(position(page[page.length - 1]!), secret),
+    };
 };

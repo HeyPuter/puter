@@ -46,17 +46,6 @@ const PREFERENCE_WRITE_LIMIT = {
 };
 
 export class DesktopController extends PuterController {
-    constructor(config, clients, stores, services) {
-        super(config, clients, stores, services);
-    }
-
-    get userStore() {
-        return this.stores.user;
-    }
-    get db() {
-        return this.clients.db;
-    }
-
     registerRoutes(router) {
         // -- Desktop background --------------------------------------
 
@@ -109,7 +98,7 @@ export class DesktopController extends PuterController {
                     });
                 }
 
-                await this.userStore.update(req.actor.user.id, patch);
+                await this.stores.user.update(req.actor.user.id, patch);
                 res.json({});
             },
         );
@@ -134,7 +123,7 @@ export class DesktopController extends PuterController {
                     );
                 }
 
-                await this.userStore.update(req.actor.user.id, {
+                await this.stores.user.update(req.actor.user.id, {
                     taskbar_items: JSON.stringify(items),
                 });
                 res.json({});
@@ -250,7 +239,7 @@ export class DesktopController extends PuterController {
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
         const values = keys.map((k) => patch[k]);
 
-        await this.db.write(
+        await this.clients.db.write(
             `UPDATE \`fsentries\` SET ${setClause} WHERE \`id\` = ?`,
             [...values, entry.id],
         );

@@ -143,7 +143,10 @@ export class AppOriginBlocklistService extends PuterService {
     }
 }
 
-/** Lowercase, trim, drop a leading dot and any port. Returns '' when unusable. */
+/**
+ * Lowercase, trim, drop leading/trailing dots and any port. A trailing dot is
+ * the fully-qualified spelling of the same host. Returns '' when unusable.
+ */
 const normalizeHost = (host: string): string => {
     let h = (host ?? '').trim().toLowerCase();
     if (!h) return '';
@@ -152,7 +155,7 @@ const normalizeHost = (host: string): string => {
     // simple split is safe here).
     const colon = h.indexOf(':');
     if (colon !== -1) h = h.slice(0, colon);
-    return h;
+    return h.replace(/\.+$/, '');
 };
 
 /** Extract the host from a full URL, falling back to treating input as a host. */

@@ -26,7 +26,7 @@ const it = {
         account: 'Account',
         account_password: 'Verifica  Password del account',
         access_granted_to: 'Accesso garantito a',
-        add_existing_account: 'Aggiungi un account esistente',
+        add_another_account: 'Aggiungi un altro account',
         all_fields_required: 'Tutti i campi sono richiesti.',
         allow: 'Consenti',
         apply: 'Applica',

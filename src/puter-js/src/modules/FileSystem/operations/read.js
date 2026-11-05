@@ -1,11 +1,12 @@
-import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
+import { getAbsolutePathOrUidForApp } from '../utils/getAbsolutePathForApp.js';
 import { defineOperation } from './scaffold.js';
 
 /** @typedef {import('../types.js').ReadOptions} ReadOptions */
 
 /**
  * Reads a file and resolves with its contents as a `Blob`. Relative paths
- * resolve against the app's root directory.
+ * resolve against the app's root directory; a UID-shaped string is read as a
+ * uid.
  *
  * @type {{
  *   (options: ReadOptions): Promise<Blob>,
@@ -25,9 +26,9 @@ import { defineOperation } from './scaffold.js';
 const read = defineOperation({
     positional: ['path'],
     request (options) {
-        const query = new URLSearchParams({ file: getAbsolutePathForApp(options.path) });
-        if ( options.offset ) query.set('offset', String(options.offset));
-        if ( options.byte_count ) query.set('byte_count', String(options.byte_count));
+        const query = new URLSearchParams({ file: getAbsolutePathOrUidForApp(options.path) });
+        if ( options.offset !== undefined && options.offset !== null ) query.set('offset', String(options.offset));
+        if ( options.byte_count !== undefined && options.byte_count !== null ) query.set('byte_count', String(options.byte_count));
 
         return {
             endpoint: `/read?${ query.toString()}`,

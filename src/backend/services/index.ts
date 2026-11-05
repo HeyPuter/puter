@@ -21,6 +21,7 @@ import { AppOriginBlocklistService } from './abuse/AppOriginBlocklistService';
 import { ACLService } from './acl/ACLService';
 import { AppIconService } from './appIcon/AppIconService';
 import { AppPermissionService } from './apps/AppPermissionService';
+import { AppService } from './apps/AppService';
 import { RecommendedAppsService } from './apps/RecommendedAppsService';
 import { SuggestedAppsService } from './apps/SuggestedAppsService';
 import { AuthService } from './auth/AuthService';
@@ -32,20 +33,23 @@ import { EventForwardService } from './events/EventForwardService';
 import { EventsService } from './events/EventsService';
 import { AppFeedbackService } from './feedback/AppFeedbackService';
 import { FSService } from './fs/FSService';
+import { KvShareService } from './kvShare/KvShareService';
 import { ServerHealthService } from './health/ServerHealthService';
 import { PuterHomepageService } from './homepage/PuterHomepageService';
+import { JobScheduler } from './jobs/JobScheduler';
 import { LocalWorkerService } from './localworker/LocalWorkerService';
 import { MeteringService } from './metering/MeteringService';
 import { NotificationService } from './notification/NotificationService';
 import { PermissionService } from './permission/PermissionService';
 import { ProfileService } from './profile/ProfileService';
+import { OpenAIRealtimeRelayService } from './realtime/OpenAIRealtimeRelayService';
 import { DefaultUserService } from './selfhosted/DefaultUserService';
 import { ShareNotificationService } from './share/ShareNotificationService';
 import { ShareService } from './share/ShareService';
-import { TeamService } from './team/TeamService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
+import { SignupService } from './user/SignupService';
 import { UserAccountService } from './user/UserAccountService';
 
 /**
@@ -57,6 +61,7 @@ import { UserAccountService } from './user/UserAccountService';
  */
 declare module './types' {
     interface IPuterServiceInstances {
+        jobs: JobScheduler;
         metering: MeteringService;
         appOriginBlocklist: AppOriginBlocklistService;
         permission: PermissionService;
@@ -71,7 +76,9 @@ declare module './types' {
         subdomainPermission: SubdomainPermissionService;
         recommendedApps: RecommendedAppsService;
         suggestedApps: SuggestedAppsService;
+        app: AppService;
         socket: SocketService;
+        kvShare: KvShareService;
         events: EventsService;
         eventForward: EventForwardService;
         notification: NotificationService;
@@ -84,7 +91,8 @@ declare module './types' {
         homepage: PuterHomepageService;
         health: ServerHealthService;
         userAccount: UserAccountService;
-        team: TeamService;
+        signup: SignupService;
+        openaiRealtime: OpenAIRealtimeRelayService;
     }
 }
 
@@ -97,6 +105,9 @@ declare module './types' {
 // NotificationService depends on notification store (for DB) + event client (for socket push).
 // BroadcastService is independent — only needs the event client.
 export const puterServices = {
+    // First, so every later service can register jobs with it. Reaches
+    // `broadcast` at call time only.
+    jobs: JobScheduler,
     metering: MeteringService,
     // Declared before `auth` so AuthService sees it as a prior peer — it
     // queries the blocklist on app-token acquisition and per-request app
@@ -119,8 +130,8 @@ export const puterServices = {
     // Declared after `fs` — account teardown tears the user's filesystem down
     // first.
     userAccount: UserAccountService,
-    // Leaf: team + user stores only.
-    team: TeamService,
+    // Reaches `team` and `socket` at call time only.
+    signup: SignupService,
     // AppPermissionService + SubdomainPermissionService register permission
     // rewriters/implicators only; no runtime state. Placed after fsEntry so
     // the FS rewriter runs first for `fs:/path` → `fs:<uuid>` before any
@@ -129,7 +140,12 @@ export const puterServices = {
     subdomainPermission: SubdomainPermissionService,
     recommendedApps: RecommendedAppsService,
     suggestedApps: SuggestedAppsService,
+    // Reaches `auth` and `permission` at call time only.
+    app: AppService,
     socket: SocketService,
+    // Registers the share-grant implicators with `permission`, and reaches
+    // `permission`, `metering` and `notification` at call time only.
+    kvShare: KvShareService,
     // Delivers through `socket` and resolves paths through `fs`, so it follows
     // both; `fs` reaches back for dispatch at call time only.
     events: EventsService,
@@ -151,4 +167,6 @@ export const puterServices = {
     // check can reference the peer.
     health: ServerHealthService,
     localworkerservice: LocalWorkerService,
+    // Authenticates through `auth` and meters through `metering`.
+    openaiRealtime: OpenAIRealtimeRelayService,
 } satisfies IPuterServiceRegistry;

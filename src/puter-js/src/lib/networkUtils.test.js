@@ -3,7 +3,9 @@ import {
     dedupe,
     driverCall,
     driverCallEnvelope,
+    driverLineStream,
     fetchUrl,
+    parseResponse,
     sendWithRetry,
 } from './networkUtils.js';
 
@@ -27,6 +29,7 @@ function installFakeXHR(program) {
             this._respHeaders = {};
             this.onreadystatechange = null;
             this.onprogress = null;
+            this.upload = { addEventListener: vi.fn() };
             instances.push(this);
         }
         open(method, url) {
@@ -53,18 +56,23 @@ function installFakeXHR(program) {
             for (const [k, v] of Object.entries(headers))
                 this._respHeaders[k.toLowerCase()] = v;
         }
-        _headersReceived() {
-            this.readyState = 2;
+        _setReadyState(state) {
+            if (this.readyState === state) return;
+            this.readyState = state;
             this.onreadystatechange?.();
+            this.dispatchEvent(new Event('readystatechange'));
+        }
+        _headersReceived() {
+            this._setReadyState(2);
         }
         _progress(chunk) {
             this.responseText += chunk;
-            this.readyState = 3;
+            this._setReadyState(3);
             this.onprogress?.();
+            this.dispatchEvent(new Event('progress'));
         }
         _done() {
-            this.readyState = 4;
-            this.onreadystatechange?.();
+            this._setReadyState(4);
             this.dispatchEvent(new Event('load'));
         }
         _networkError() {
@@ -255,6 +263,69 @@ describe('fetchUrl', () => {
             expect(await resp.json()).toEqual({ ok: true });
         });
 
+        // The legacy `token_auth_failed` signal drives the sign-in UI instead
+        // of triggerReauth, and must recover the same way: re-authenticate,
+        // then re-issue the call with the token the new session installed.
+        it('replays with the fresh token after a legacy token_auth_failed re-login', async () => {
+            const resetAuthToken = vi.fn();
+            const authenticateWithPuter = vi.fn(async () => {
+                globalThis.puter.authToken = 'fresh';
+            });
+            globalThis.puter = {
+                authToken: 'stale',
+                env: 'web',
+                resetAuthToken,
+                ui: { authenticateWithPuter },
+            };
+
+            let call = 0;
+            installFakeXHR((xhr) => {
+                call++;
+                if (call === 1) {
+                    return respond({
+                        status: 401,
+                        body: { code: 'token_auth_failed' },
+                    })(xhr);
+                }
+                expect(xhr._reqHeaders['authorization']).toBe('Bearer fresh');
+                return respond({ status: 200, body: { ok: true } })(xhr);
+            });
+
+            const resp = await fetchUrl('https://api.example/x', {
+                includePuterAuth: true,
+            });
+            expect(resetAuthToken).toHaveBeenCalledTimes(1);
+            expect(authenticateWithPuter).toHaveBeenCalledTimes(1);
+            expect(call).toBe(2);
+            expect(resp.ok).toBe(true);
+            expect(await resp.json()).toEqual({ ok: true });
+        });
+
+        it('does not loop: a token_auth_failed that survives the replay surfaces as ok:false', async () => {
+            const authenticateWithPuter = vi.fn(async () => {
+                globalThis.puter.authToken = 'fresh';
+            });
+            globalThis.puter = {
+                authToken: 'stale',
+                env: 'web',
+                resetAuthToken: vi.fn(),
+                ui: { authenticateWithPuter },
+            };
+
+            const xhrs = installFakeXHR(
+                respond({ status: 401, body: { code: 'token_auth_failed' } }),
+            );
+
+            const resp = await fetchUrl('https://api.example/x', {
+                includePuterAuth: true,
+            });
+            // Re-signed in once; the retry's 401 is returned, not re-prompted.
+            expect(authenticateWithPuter).toHaveBeenCalledTimes(1);
+            expect(xhrs.length).toBe(2);
+            expect(resp.ok).toBe(false);
+            expect(resp.status).toBe(401);
+        });
+
         it('does not loop: a second 401 after replay surfaces as ok:false', async () => {
             const triggerReauth = vi.fn(async () => {});
             globalThis.puter = {
@@ -358,6 +429,64 @@ describe('fetchUrl', () => {
                 expect(
                     globalThis.puter.dropStaleAuthToken,
                 ).toHaveBeenCalledTimes(1);
+                expect(resp.ok).toBe(false);
+            });
+
+            it('asks the desktop to renew a godmode token, even in the background', async () => {
+                const triggerReauth = vi.fn(async () => {
+                    globalThis.puter.authToken = 'fresh';
+                });
+                globalThis.puter = {
+                    ...makePuter(),
+                    env: 'app',
+                    isGodmodeToken_: (token) => token === 'stale',
+                    triggerReauth,
+                };
+                let call = 0;
+                installFakeXHR((xhr) => {
+                    call++;
+                    if (call === 1) {
+                        return respond({
+                            status: 401,
+                            body: { code: 'token_auth_failed' },
+                        })(xhr);
+                    }
+                    expect(xhr._reqHeaders['authorization']).toBe(
+                        'Bearer fresh',
+                    );
+                    return respond({ status: 200, body: { ok: true } })(xhr);
+                });
+
+                const resp = await fetchUrl('https://api.example/whoami', {
+                    includePuterAuth: true,
+                    interactiveReauth: false,
+                });
+
+                expect(triggerReauth).toHaveBeenCalledTimes(1);
+                expect(
+                    globalThis.puter.dropStaleAuthToken,
+                ).not.toHaveBeenCalled();
+                expect(resp.ok).toBe(true);
+            });
+
+            it('leaves an app token on token_auth_failed to the caller', async () => {
+                globalThis.puter = {
+                    ...makePuter(),
+                    env: 'app',
+                    isGodmodeToken_: () => false,
+                };
+                installFakeXHR(
+                    respond({
+                        status: 401,
+                        body: { code: 'token_auth_failed' },
+                    }),
+                );
+
+                const resp = await fetchUrl('https://api.example/x', {
+                    includePuterAuth: true,
+                });
+
+                expect(globalThis.puter.triggerReauth).not.toHaveBeenCalled();
                 expect(resp.ok).toBe(false);
             });
 
@@ -484,6 +613,47 @@ describe('transient retry', () => {
         vi.useRealTimers();
     });
 
+    // A server without a feature answers 503 `events_disabled` every time.
+    it.each([
+        [{ code: 'events_disabled', message: 'Schedules are not available' }],
+        [{ error: { code: 'events_disabled', message: 'Not available' } }],
+    ])(
+        'answers a GET whose 503 is a structured events_disabled at once (%j)',
+        async (body) => {
+            const xhrs = installFakeXHR(
+                sequence(respond({ status: 503, body })),
+            );
+            const resp = await fetchUrl('https://api.example/x'); // GET
+            expect(resp.status).toBe(503);
+            expect(xhrs.length).toBe(1);
+            expect(JSON.stringify(await resp.json())).toContain(
+                'events_disabled',
+            );
+        },
+    );
+
+    it.each([
+        [{ status: 503, body: { code: 'service_unavailable' } }],
+        [
+            {
+                status: 503,
+                body: 'upstream unavailable',
+                contentType: 'text/plain',
+            },
+        ],
+        [{ status: 502, body: { code: 'events_disabled' } }],
+    ])('keeps retrying any other 502/503 (%j)', async (first) => {
+        vi.useFakeTimers();
+        const xhrs = installFakeXHR(
+            sequence(respond(first), respond({ status: 200, body: { ok: 1 } })),
+        );
+        const p = fetchUrl('https://api.example/x');
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect((await p).status).toBe(200);
+        expect(xhrs.length).toBe(2);
+        vi.useRealTimers();
+    });
+
     it('retry:false disables retry even for a GET', async () => {
         const xhrs = installFakeXHR(
             sequence(respond({ status: 503, body: {} })),
@@ -525,6 +695,59 @@ describe('transient retry', () => {
         const xhrs = installFakeXHR(respond({ status: 429, body: {} }));
         const p = fetchUrl('https://api.example/x', { method: 'POST' });
         await vi.advanceTimersByTimeAsync(60_000);
+        expect((await p).status).toBe(429);
+        expect(xhrs.length).toBe(9); // 1 initial + 8 scheduled retries
+        vi.useRealTimers();
+    });
+
+    // A quota refusal stays refused until the caller removes something.
+    it.each([
+        [{ code: 'events_schedule_limit', message: 'Limit reached' }],
+        [{ code: 'events_schedule_budget', message: 'Over budget' }],
+        [{ code: 'events_subscription_limit', message: 'Limit reached' }],
+        [{ code: 'events_handler_limit', message: 'Limit reached' }],
+        [{ error: { code: 'events_schedule_limit', message: 'Limit' } }],
+    ])('answers a 429 quota refusal at once (%j)', async (body) => {
+        const xhrs = installFakeXHR(sequence(respond({ status: 429, body })));
+        const resp = await fetchUrl('https://api.example/x', {
+            method: 'POST',
+        });
+        expect(resp.status).toBe(429);
+        expect(xhrs.length).toBe(1);
+    });
+
+    it('keeps retrying a too_many_requests 429', async () => {
+        vi.useFakeTimers();
+        const xhrs = installFakeXHR(
+            sequence(
+                respond({
+                    status: 429,
+                    body: { code: 'too_many_requests', message: 'Slow down' },
+                }),
+                respond({ status: 200, body: { ok: 1 } }),
+            ),
+        );
+        const p = fetchUrl('https://api.example/x', { method: 'POST' });
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect((await p).status).toBe(200);
+        expect(xhrs.length).toBe(2);
+        vi.useRealTimers();
+    });
+
+    // Waiting on the account's own requests to finish takes longer than a rate
+    // window, so `credits_reserved` backs off exponentially past 2s.
+    it('backs off exponentially on a credits_reserved 429', async () => {
+        vi.useFakeTimers();
+        const reserved = respond({
+            status: 429,
+            body: { code: 'too_many_requests', errorCode: 'credits_reserved' },
+        });
+        const xhrs = installFakeXHR(reserved);
+        const p = fetchUrl('https://api.example/x', { method: 'POST' });
+        // 1 + 2 + 4 + 8 + 16 + 30s: the gate schedule would have given up.
+        await vi.advanceTimersByTimeAsync(61_000);
+        expect(xhrs.length).toBe(7);
+        await vi.advanceTimersByTimeAsync(120_000);
         expect((await p).status).toBe(429);
         expect(xhrs.length).toBe(9); // 1 initial + 8 scheduled retries
         vi.useRealTimers();
@@ -606,6 +829,348 @@ describe('transient retry', () => {
     });
 });
 
+describe('idle timeout', () => {
+    const READ_MS = 60_000;
+    const LONG_MS = 15 * 60_000;
+    const silent = () => {}; // never answers
+    const settledWith = async (promise) => {
+        try {
+            return { value: await promise };
+        } catch (error) {
+            return { error };
+        }
+    };
+    const PENDING = Symbol('pending');
+    const peek = (promise) => Promise.race([promise, Promise.resolve(PENDING)]);
+
+    beforeEach(() => {
+        globalThis.puter = {
+            authToken: 'tok',
+            APIOrigin: 'https://api.example',
+            env: 'nodejs',
+        };
+        vi.useFakeTimers();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('times out a silent read after 60 s and replays it once', async () => {
+        const xhrs = installFakeXHR(silent);
+        const result = settledWith(fetchUrl('https://api.example/x'));
+
+        await vi.advanceTimersByTimeAsync(READ_MS - 1);
+        expect(await peek(result)).toBe(PENDING);
+        await vi.advanceTimersByTimeAsync(1);
+        await vi.advanceTimersByTimeAsync(250); // backoff before the replay
+        expect(xhrs.length).toBe(2);
+
+        await vi.advanceTimersByTimeAsync(READ_MS + 10_000);
+        const { error } = await result;
+        expect(error).toBeInstanceOf(TypeError);
+        expect(error.code).toBe('request_timeout');
+        expect(xhrs.length).toBe(2);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('gives a write 15 min and never replays it', async () => {
+        const xhrs = installFakeXHR(silent);
+        const result = settledWith(
+            fetchUrl('https://api.example/x', { method: 'POST', body: '{}' }),
+        );
+
+        await vi.advanceTimersByTimeAsync(LONG_MS - 1);
+        expect(await peek(result)).toBe(PENDING);
+        await vi.advanceTimersByTimeAsync(1);
+
+        const { error } = await result;
+        expect(error).toMatchObject({ code: 'request_timeout' });
+        await vi.advanceTimersByTimeAsync(LONG_MS);
+        expect(xhrs.length).toBe(1);
+    });
+
+    it('rejects a driver call with request_timeout and never replays it', async () => {
+        const xhrs = installFakeXHR(silent);
+        const result = settledWith(
+            driverCall({ iface: 'puter-chat-completion', method: 'complete', args: {} }),
+        );
+
+        await vi.advanceTimersByTimeAsync(LONG_MS - 1);
+        expect(await peek(result)).toBe(PENDING);
+        await vi.advanceTimersByTimeAsync(1);
+
+        expect((await result).error).toEqual({
+            message: 'Request timed out.',
+            code: 'request_timeout',
+        });
+        await vi.advanceTimersByTimeAsync(LONG_MS);
+        expect(xhrs.length).toBe(1);
+    });
+
+    it('replays a timed-out readonly driver call once', async () => {
+        const xhrs = installFakeXHR(silent);
+        const result = settledWith(
+            driverCall(
+                { iface: 'puter-kvstore', method: 'get', args: { key: 'k' } },
+                { readonly: true },
+            ),
+        );
+
+        await vi.advanceTimersByTimeAsync(2 * READ_MS + 10_000);
+        expect((await result).error).toMatchObject({ code: 'request_timeout' });
+        expect(xhrs.length).toBe(2);
+    });
+
+    it('keeps a read alive while its body makes progress', async () => {
+        const xhrs = installFakeXHR(silent);
+        const result = settledWith(fetchUrl('https://api.example/x'));
+        const [xhr] = xhrs;
+
+        await vi.advanceTimersByTimeAsync(READ_MS - 10_000);
+        xhr._setHeaders(200, { 'content-type': 'application/json' });
+        xhr._headersReceived();
+        for (let i = 0; i < 5; i++) {
+            xhr._progress(' ');
+            await vi.advanceTimersByTimeAsync(READ_MS - 10_000);
+        }
+        xhr.responseText = '{"ok":true}';
+        xhr._done();
+
+        expect((await result).value.status).toBe(200);
+        expect(xhrs.length).toBe(1);
+    });
+
+    it('times out a read whose body stalls once progress was seen', async () => {
+        const xhrs = installFakeXHR((xhr) => {
+            xhr._setHeaders(200, { 'content-type': 'application/json' });
+            xhr._headersReceived();
+            xhr._progress('{');
+        });
+        const result = settledWith(fetchUrl('https://api.example/x'));
+
+        await vi.advanceTimersByTimeAsync(READ_MS);
+        expect(xhrs[0]._puterTimedOut).toBe(true);
+        await vi.advanceTimersByTimeAsync(250 + READ_MS);
+        expect((await result).error.code).toBe('request_timeout');
+    });
+
+    // The node/workerd shim reports no progress for a buffered body, so a
+    // read can't be held to 60 s once its headers are in.
+    it('moves a read to 15 min after headers until body progress is seen', async () => {
+        const xhrs = installFakeXHR((xhr) => {
+            xhr._setHeaders(200, { 'content-type': 'application/octet-stream' });
+            xhr._headersReceived();
+        });
+        const result = settledWith(fetchUrl('https://api.example/big'));
+
+        await vi.advanceTimersByTimeAsync(LONG_MS - 1);
+        expect(await peek(result)).toBe(PENDING);
+        expect(xhrs.length).toBe(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(xhrs[0]._puterTimedOut).toBe(true);
+
+        // The replay finishes this time.
+        await vi.advanceTimersByTimeAsync(250);
+        xhrs[1].responseText = 'bytes';
+        xhrs[1]._done();
+        expect((await result).value.status).toBe(200);
+    });
+
+    it('gives a stream 15 min of silence before failing it', async () => {
+        installFakeXHR((xhr) => {
+            xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
+            xhr._headersReceived();
+            xhr._progress('{"text":"a"}\n');
+        });
+        const response = await fetchUrl('https://api.example/stream');
+        const stream = response.stream();
+        expect((await stream.next()).value.text).toBe('a');
+
+        const read = settledWith(stream.next());
+        await vi.advanceTimersByTimeAsync(LONG_MS - 1);
+        expect(await peek(read)).toBe(PENDING);
+        await vi.advanceTimersByTimeAsync(1);
+        expect((await read).error).toEqual({
+            message: 'Request timed out.',
+            code: 'request_timeout',
+        });
+    });
+
+    it('lets upload progress reset the clock on a request with a bearer', async () => {
+        const xhrs = installFakeXHR(silent);
+        const result = settledWith(
+            fetchUrl('https://api.example/upload', {
+                method: 'POST',
+                includePuterAuth: true,
+                body: 'payload',
+                timeout: 1000,
+            }),
+        );
+        const [, onUpload] = xhrs[0].upload.addEventListener.mock.calls[0];
+
+        await vi.advanceTimersByTimeAsync(900);
+        onUpload();
+        await vi.advanceTimersByTimeAsync(900);
+        expect(await peek(result)).toBe(PENDING);
+        await vi.advanceTimersByTimeAsync(100);
+        expect((await result).error.code).toBe('request_timeout');
+    });
+
+    // A listener on `xhr.upload` would turn the driver call's simple CORS
+    // request into a preflighted one.
+    it('leaves upload progress alone on a driver call', async () => {
+        const xhrs = installFakeXHR(
+            respond({ body: { success: true, result: 1 } }),
+        );
+        await driverCall({ iface: 'puter-kvstore', method: 'get', args: {} });
+        expect(xhrs[0].upload.addEventListener).not.toHaveBeenCalled();
+    });
+
+    it('turns the clock off with timeout: 0', async () => {
+        installFakeXHR(silent);
+        const result = settledWith(
+            fetchUrl('https://api.example/x', { timeout: 0 }),
+        );
+        await vi.advanceTimersByTimeAsync(2 * LONG_MS);
+        expect(await peek(result)).toBe(PENDING);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    // The XHR shim marks a failed fetch DONE before dispatching `error`, and
+    // has no headers to read then.
+    it('settles a transport failure that reaches DONE without headers', async () => {
+        globalThis.puter.config = { autoRetry: false };
+        const xhrs = installFakeXHR((xhr) => {
+            xhr.getResponseHeader = () => {
+                throw new TypeError('no headers');
+            };
+            xhr._setReadyState(4);
+            xhr._networkError();
+        });
+        const result = settledWith(fetchUrl('https://api.example/x'));
+        expect((await result).error).toBeInstanceOf(TypeError);
+        expect(xhrs.length).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('clears the clock when a request settles', async () => {
+        installFakeXHR(respond({ body: { ok: true } }));
+        await fetchUrl('https://api.example/x');
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('clears the clock when a request is cancelled', async () => {
+        installFakeXHR(silent);
+        const controller = new AbortController();
+        const result = settledWith(
+            fetchUrl('https://api.example/x', { signal: controller.signal }),
+        );
+        controller.abort();
+        expect((await result).error).toMatchObject({ name: 'AbortError' });
+        expect(vi.getTimerCount()).toBe(0);
+    });
+});
+
+describe('abort listeners on a reused signal', () => {
+    /** An AbortSignal that counts its live `abort` listeners. */
+    const trackedSignal = () => {
+        const signal = new AbortController().signal;
+        const live = new Set();
+        const add = signal.addEventListener.bind(signal);
+        const remove = signal.removeEventListener.bind(signal);
+        signal.addEventListener = (type, fn, opts) => {
+            if (type === 'abort') live.add(fn);
+            add(type, fn, opts);
+        };
+        signal.removeEventListener = (type, fn, opts) => {
+            if (type === 'abort') live.delete(fn);
+            remove(type, fn, opts);
+        };
+        return { signal, live };
+    };
+
+    beforeEach(() => {
+        globalThis.puter = {};
+    });
+
+    it('removes every listener once a retried request settles', async () => {
+        vi.useFakeTimers();
+        const { signal, live } = trackedSignal();
+        installFakeXHR(
+            sequence(
+                respond({ status: 503, body: {} }),
+                respond({ status: 503, body: {} }),
+                respond({ status: 200, body: {} }),
+                respond({ status: 503, body: {} }),
+                respond({ status: 200, body: {} }),
+            ),
+        );
+        for (let i = 0; i < 2; i++) {
+            const p = fetchUrl('https://api.example/x', { signal });
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect((await p).status).toBe(200);
+        }
+        expect(live.size).toBe(0);
+        vi.useRealTimers();
+    });
+
+    it('still aborts a retry wait', async () => {
+        vi.useFakeTimers();
+        const controller = new AbortController();
+        const xhrs = installFakeXHR(respond({ status: 503, body: {} }));
+        const p = fetchUrl('https://api.example/x', {
+            signal: controller.signal,
+        });
+        let error;
+        try {
+            await vi.advanceTimersByTimeAsync(100);
+            controller.abort();
+            await p;
+        } catch (e) {
+            error = e;
+        }
+        expect(error).toMatchObject({ name: 'AbortError' });
+        expect(xhrs.length).toBe(1);
+        vi.useRealTimers();
+    });
+});
+
+describe('parseResponse', () => {
+    const blobXhr = ({ status = 200, contentType = null, body = '' }) => ({
+        responseType: 'blob',
+        status,
+        response: new Blob([body]),
+        getResponseHeader: (name) =>
+            name.toLowerCase() === 'content-type' ? contentType : null,
+    });
+
+    it('returns the body of a success that declares no content type', async () => {
+        const xhr = blobXhr({ body: 'bytes' });
+        expect(await parseResponse(xhr)).toBe(xhr.response);
+    });
+
+    it('reads an error body that declares no content type', async () => {
+        expect(
+            await parseResponse(
+                blobXhr({ status: 502, body: '{"code":"bad_gateway"}' }),
+            ),
+        ).toEqual({ code: 'bad_gateway' });
+        expect(
+            await parseResponse(blobXhr({ status: 502, body: 'Bad Gateway' })),
+        ).toBe('Bad Gateway');
+    });
+
+    it('keeps the typed blob branches', async () => {
+        const octet = blobXhr({ contentType: 'application/octet-stream' });
+        expect(await parseResponse(octet)).toBe(octet.response);
+        const png = blobXhr({ contentType: 'image/png' });
+        expect(await parseResponse(png)).toEqual({
+            success: true,
+            result: png.response,
+        });
+    });
+});
+
 describe('dedupe', () => {
     it('coalesces concurrent identical requests into one call', async () => {
         let calls = 0;
@@ -635,78 +1200,6 @@ describe('dedupe', () => {
             new Promise((r) => setTimeout(() => r(++calls), 5));
         await Promise.all([dedupe('a', factory), dedupe('b', factory)]);
         expect(calls).toBe(2);
-    });
-});
-
-describe('driver permission-grant replay (regression)', () => {
-    it('replays exactly once after a grant, preserving the rebuilt request', async () => {
-        // Before the fix, the driver permission replay dropped arguments; here we
-        // assert one prompt, one replay, and the same body on the retry.
-        // requestPermission resolves to a boolean (its real contract).
-        const requestPermission = vi.fn(async () => true);
-        globalThis.puter = { ui: { requestPermission } };
-        const xhrs = installFakeXHR(
-            sequence(
-                respond({
-                    status: 200,
-                    body: {
-                        success: false,
-                        error: { code: 'permission_denied' },
-                    },
-                }),
-                respond({ status: 200, body: { success: true, result: 'ok' } }),
-            ),
-        );
-        const spec = {
-            url: 'https://api.example/drivers/call',
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;actually=json' },
-            buildBody: () =>
-                JSON.stringify({
-                    interface: 'iface',
-                    method: 'm',
-                    args: { a: 1 },
-                }),
-        };
-        const result = await sendWithRetry(spec, {
-            permission: 'driver:iface:m',
-            shapeStream: () => {},
-            shape: (outcome) => outcome.parsed,
-        });
-        expect(requestPermission).toHaveBeenCalledTimes(1);
-        expect(requestPermission).toHaveBeenCalledWith({
-            permission: 'driver:iface:m',
-        });
-        expect(xhrs.length).toBe(2);
-        expect(xhrs[1].reqBody).toBe(
-            JSON.stringify({ interface: 'iface', method: 'm', args: { a: 1 } }),
-        );
-        expect(result).toEqual({ success: true, result: 'ok' });
-    });
-
-    it('does not loop when the grant still yields permission_denied', async () => {
-        // Legacy `{granted}` object shape is still tolerated.
-        const requestPermission = vi.fn(async () => ({ granted: true }));
-        globalThis.puter = { ui: { requestPermission } };
-        const denied = respond({
-            status: 200,
-            body: { success: false, error: { code: 'permission_denied' } },
-        });
-        const xhrs = installFakeXHR(sequence(denied, denied, denied));
-        const spec = {
-            url: 'https://api.example/drivers/call',
-            method: 'POST',
-            headers: {},
-            buildBody: () => '{}',
-        };
-        const result = await sendWithRetry(spec, {
-            permission: 'driver:iface:m',
-            shapeStream: () => {},
-            shape: (outcome) => outcome.parsed,
-        });
-        expect(requestPermission).toHaveBeenCalledTimes(1); // one-shot
-        expect(xhrs.length).toBe(2);
-        expect(result.error.code).toBe('permission_denied');
     });
 });
 
@@ -749,6 +1242,20 @@ describe('driverCall', () => {
             driver: 'ai-chat',
             test_mode: false,
         });
+    });
+
+    it('resolves a blob response that declares no content type', async () => {
+        installFakeXHR((xhr) => {
+            xhr._setHeaders(200);
+            xhr._headersReceived();
+            xhr.response = new Blob(['image']);
+            xhr._done();
+        });
+        const result = await driverCall(
+            { iface: 'puter-image-generation', method: 'generate', args: {} },
+            { responseType: 'blob' },
+        );
+        expect(result).toBeInstanceOf(Blob);
     });
 
     it('resolves the whole response when the driver returns no result field', async () => {
@@ -810,6 +1317,33 @@ describe('driverCall', () => {
             },
         });
         expect(xhrs.length).toBe(0); // no request without a token
+    });
+
+    it('replays a driver call once after a legacy token_auth_failed re-login', async () => {
+        const authenticateWithPuter = vi.fn(async () => {
+            globalThis.puter.authToken = 'fresh';
+        });
+        globalThis.puter = {
+            authToken: 'stale',
+            APIOrigin: 'https://api.example',
+            env: 'web',
+            resetAuthToken: vi.fn(),
+            ui: { authenticateWithPuter },
+        };
+
+        const xhrs = installFakeXHR(
+            sequence(
+                respond({ status: 401, body: { code: 'token_auth_failed' } }),
+                respond({ body: { success: true, result: 'v' } }),
+            ),
+        );
+
+        await expect(driverCall(call)).resolves.toBe('v');
+        expect(authenticateWithPuter).toHaveBeenCalledTimes(1);
+        expect(xhrs.length).toBe(2);
+        // The replay carries the token the new session installed, not the
+        // one the first attempt was rejected for.
+        expect(JSON.parse(xhrs[1].reqBody).auth_token).toBe('fresh');
     });
 
     it('resolves an NDJSON response as an iterator of lines that stringify to their text', async () => {
@@ -940,6 +1474,62 @@ describe('driverCall', () => {
             });
             expect(requestUpgrade).not.toHaveBeenCalled();
         });
+
+        it('resolves a completion cut short by the balance, and prompts', async () => {
+            installFakeXHR(
+                respond({
+                    body: {
+                        success: true,
+                        result: { message: { content: 'partial' } },
+                        metadata: { usage_limited: true },
+                    },
+                }),
+            );
+            await expect(driverCall(call)).resolves.toEqual({
+                message: { content: 'partial' },
+            });
+            expect(requestUpgrade).toHaveBeenCalledTimes(1);
+            expect(requestUpgrade.mock.calls[0][0].reason).toBe('funds');
+        });
+
+        it('prompts on a stream whose usage line says the balance ran out', async () => {
+            installFakeXHR((xhr) => {
+                xhr._setHeaders(200, {
+                    'content-type': 'application/x-ndjson',
+                });
+                xhr._headersReceived();
+                xhr._progress(
+                    '{"type":"text","text":"part"}\n{"type":"usage","usage":{"output_tokens":9},"metadata":{"usage_limited":true}}\n',
+                );
+                xhr._done();
+            });
+            const parts = [];
+            for await (const part of await driverCall(call)) parts.push(part);
+            expect(parts).toHaveLength(2);
+            expect(requestUpgrade).toHaveBeenCalledTimes(1);
+        });
+
+        it('waits out a credits_reserved 429 without prompting', async () => {
+            vi.useFakeTimers();
+            const xhrs = installFakeXHR(
+                sequence(
+                    respond({
+                        status: 429,
+                        body: {
+                            code: 'too_many_requests',
+                            errorCode: 'credits_reserved',
+                        },
+                    }),
+                    respond({ body: { success: true, result: 'v' } }),
+                ),
+            );
+            const p = driverCall(call);
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(await p).toBe('v');
+            expect(xhrs.length).toBe(2);
+            expect(requestUpgrade).not.toHaveBeenCalled();
+            vi.useRealTimers();
+        });
     });
 });
 
@@ -992,5 +1582,148 @@ describe('driverCallEnvelope', () => {
         await expect(driverCallEnvelope(call)).rejects.toThrow(
             'unrecognized content type: text/html',
         );
+    });
+});
+
+describe('driverLineStream', () => {
+    const fakePuter = { env: 'node' };
+
+    const collect = async (lines) => {
+        const out = [];
+        for await (const line of driverLineStream(lines, fakePuter, {})) {
+            out.push(line);
+        }
+        return out;
+    };
+
+    it('gives a text chunk a toString() that returns its text', async () => {
+        const [line] = await collect([{ type: 'text', text: 'hello' }]);
+        expect(String(line)).toBe('hello');
+        expect(Object.keys(line)).toEqual(['type', 'text']); // toString stays non-enumerable
+    });
+
+    it.each([
+        'reasoning_start',
+        'reasoning_detail',
+        'tool_use_start',
+        'tool_input_delta',
+        'server_tool',
+        'safeguard_results',
+    ])('gives a %s chunk a toString() that returns empty string', async (type) => {
+        const [line] = await collect([{ type, extra: 'payload' }]);
+        expect(String(line)).toBe('');
+    });
+
+    it('leaves an unrecognized chunk type with the default Object toString', async () => {
+        const [line] = await collect([{ type: 'usage', usage: {} }]);
+        expect(String(line)).toBe('[object Object]');
+    });
+});
+
+
+describe('NDJSON stream termination', () => {
+    const start = async (signal) => {
+        const xhrs = installFakeXHR((xhr) => {
+            xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
+            xhr._headersReceived();
+            xhr._progress('{"type":"text","text":"partial"}\n');
+        });
+        const response = await fetchUrl('https://api.example/stream', { signal });
+        const stream = response.stream();
+        expect((await stream.next()).value.text).toBe('partial');
+        return { xhr: xhrs[0], stream };
+    };
+
+    it('rejects a pending read when the transport fails after headers', async () => {
+        const { xhr, stream } = await start();
+        const read = stream.next();
+        xhr._networkError();
+        await expect(read).rejects.toMatchObject({ code: 'network_error' });
+    });
+
+    it('rejects a pending read on cancellation after headers', async () => {
+        const controller = new AbortController();
+        const { stream } = await start(controller.signal);
+        const read = stream.next();
+        controller.abort();
+        await expect(read).rejects.toMatchObject({ name: 'AbortError' });
+    });
+
+    it('aborts the request when the consumer stops iteration', async () => {
+        const { xhr, stream } = await start();
+        const abort = vi.spyOn(xhr, 'abort');
+        await stream.return();
+        expect(abort).toHaveBeenCalledOnce();
+    });
+    it('cancels a ReadableStream adapter while its pump is waiting', async () => {
+        const { xhr, stream: lines } = await start();
+        const stream = driverLineStream(lines, {}, undefined);
+        const readable = new ReadableStream(stream);
+        const reader = readable.getReader();
+        const abort = vi.spyOn(xhr, 'abort');
+        await reader.cancel();
+        expect(abort).toHaveBeenCalledOnce();
+        expect((await reader.read()).done).toBe(true);
+    });
+    it('errors the ReadableStream adapter on a transport failure', async () => {
+        const { xhr, stream: lines } = await start();
+        const reader = new ReadableStream(driverLineStream(lines, {}, undefined)).getReader();
+        const read = reader.read();
+        xhr._networkError();
+        await expect(read).rejects.toMatchObject({ code: 'network_error' });
+    });
+    it('rejects a pending read on timeout after headers', async () => {
+        const { xhr, stream } = await start();
+        const read = stream.next();
+        xhr.dispatchEvent(new Event('timeout'));
+        await expect(read).rejects.toMatchObject({ code: 'request_timeout' });
+    });
+
+});
+
+
+describe('driver streaming shapes', () => {
+    it('serializes structured chunks in the ReadableStream adapter', async () => {
+        const chunks = [
+            { type: 'text', text: 'hello' },
+            { type: 'usage', usage: { output_tokens: 1 } },
+            { type: 'tool_use', text: '', name: 'search', input: { query: 'hello' } },
+            { type: 'reasoning', reasoning: 'thinking' },
+            { type: 'error', error: { code: 'failed', message: 'failed' } },
+        ];
+        const lines = (async function* () { yield* chunks; })();
+        const body = await new Response(new ReadableStream(driverLineStream(lines, {}, {}))).text();
+        expect(body).toBe('hello' + chunks.slice(1).map(chunk => JSON.stringify(chunk) + '\n').join(''));
+        expect(body).not.toContain('[object Object]');
+    });
+
+    it('normalizes malformed final JSON to a stable SDK error', async () => {
+        installFakeXHR(xhr => {
+            xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
+            xhr._headersReceived();
+            xhr._progress('{"type":"text","text":"partial');
+            xhr._done();
+        });
+        const resp = await fetchUrl('https://api.example/stream');
+        await expect(resp.stream().next()).rejects.toEqual({
+            message: 'Invalid or truncated stream response.', code: 'invalid_stream_response',
+        });
+    });
+
+    it('passes a driver abort signal through before and after stream headers', async () => {
+        const puter = { APIOrigin: 'https://api.example', authToken: 'token' };
+        const controller = new AbortController();
+        const instances = installFakeXHR(xhr => {
+            xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
+            xhr._headersReceived();
+        });
+        const stream = await driverCall({ iface: 'ai', method: 'complete', puter }, { signal: controller.signal });
+        const abort = vi.spyOn(instances[0], 'abort');
+        const read = stream.next();
+        controller.abort();
+        await expect(read).rejects.toMatchObject({ name: 'AbortError' });
+        expect(abort).toHaveBeenCalledOnce();
+        await expect(driverCall({ iface: 'ai', method: 'complete', puter }, { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+        expect(instances[1].reqBody).toBeUndefined();
     });
 });

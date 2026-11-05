@@ -17,8 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Context } from '../../core/context.js';
+import { actorOwnsRow, requireContextActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { subdomainLabelOf } from '../../core/http/middleware/hostRedirects.js';
+import { extensionStore } from '../../extensions.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -29,20 +31,20 @@ import {
     normalizeRawBase64ImageString,
     validateIconDataUrl,
 } from '../../util/appIcon.js';
+import { isOriginBootstrapApp, toAppReadView } from '../../util/appView.js';
+import { awaitLater } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
-    buildHostedBackingDenial,
     buildHostedSubdomainIndexUrlCandidates,
     extractPuterHostedSubdomain,
-    hostedIndexUrlBackingsAreUnavailable,
+    resolveCustomHostSubdomain,
 } from '../../util/hostedAppBacking.js';
 import {
-    decodeCursor,
-    encodeCursor,
     normalizeLimit,
     normalizeOffset,
+    openCursor,
+    sealCursor,
 } from '../../util/pagination.js';
-import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
 import {
     validateArrayOfStrings,
     validateBool,
@@ -52,6 +54,7 @@ import {
     WEB_AND_EXTENSION_PROTOCOLS,
 } from '../../util/validation.js';
 import { PuterDriver } from '../types.js';
+import { CRUD_CONCURRENT } from '../util/crudLimits.js';
 
 /**
  * Shared by every method that writes an app row. Each one also allocates or
@@ -119,19 +122,6 @@ const hasIndexUrlUniquenessExemption = (candidates) => {
     return false;
 };
 
-/** Parsed `protocol//hostname[:port]` origin of an index_url, or null. */
-function indexUrlOrigin(indexUrl) {
-    if (!indexUrl) return null;
-    try {
-        const parsed = new URL(indexUrl);
-        return `${parsed.protocol}//${parsed.hostname}${
-            parsed.port ? `:${parsed.port}` : ''
-        }`;
-    } catch {
-        return null;
-    }
-}
-
 /**
  * Driver exposing the `puter-apps` interface.
  *
@@ -191,16 +181,7 @@ export class AppDriver extends PuterDriver {
         },
     };
 
-    /** @type {import('../meta.js').DriverConcurrentConfig} */
-    concurrent = {
-        default: {
-            limit: 20,
-            bySubscription: {
-                [DEFAULT_FREE_SUBSCRIPTION]: 10,
-                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
-            },
-        },
-    };
+    concurrent = CRUD_CONCURRENT;
 
     get appStore() {
         return this.stores.app;
@@ -217,35 +198,43 @@ export class AppDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        const actor = this.#requireActor();
+        const actor = requireContextActor();
         this.#requireUserOrAppActor(actor);
 
         const fields = await this.#validateInput(object, { isCreate: true });
 
-        // Puter-hosted index_url handling. Order matches v1 AppES:
-        //   1. Refuse if the index_url's subdomain isn't owned by this user.
+        // Puter-hosted index_url handling (custom domains included). Order
+        // matches v1 AppES:
+        //   1. Refuse if the index_url's site isn't owned by this user.
         //   2. Try to merge into an existing row with the same index_url
         //      (origin-bootstrap takeover, or claiming an unowned row).
         //   3. Otherwise enforce index_url uniqueness so two rows can't
         //      share a hosted URL.
+        // The name lookup runs alongside so the host checks add no round
+        // trip of their own.
+        const nameTaken = awaitLater(this.appStore.existsByName(fields.name));
+        const customSite = await this.#customSiteForIndexUrl(fields.index_url);
         await this.#ensurePuterSiteSubdomainIsOwned(
             fields.index_url,
             actor.user,
+            customSite,
         );
         const joinedApp = await this.#maybeJoinOwnedHostedIndexUrlApp({
             object,
             options,
             user: actor.user,
+            customSite,
         });
         if (joinedApp) {
             return joinedApp;
         }
         await this.#ensureIndexUrlNotAlreadyInUse({
             indexUrl: fields.index_url,
+            customSite,
         });
 
         // Name conflict handling
-        if (await this.appStore.existsByName(fields.name)) {
+        if (await nameTaken) {
             if (options?.dedupe_name) {
                 let candidate;
                 let i = 0;
@@ -292,8 +281,11 @@ export class AppDriver extends PuterDriver {
                 legacyCode: 'app_name_already_in_use',
             });
         }
-        if (filetypes)
+        if (filetypes) {
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
+            // The row was built before they were stored; views re-read them.
+            delete app.filetype_associations;
+        }
 
         this.#emitAppChanged({ app, action: 'created' });
 
@@ -301,7 +293,7 @@ export class AppDriver extends PuterDriver {
     }
 
     async read({ uid, id, params = {}, ...rest } = {}) {
-        const actor = this.#requireActor();
+        const actor = requireContextActor();
         const app = await this.#resolve({ uid, id });
         if (!app)
             throw new HttpError(404, 'App not found', {
@@ -337,15 +329,22 @@ export class AppDriver extends PuterDriver {
         return this.#toClient(app, actor, { ...params, stats });
     }
 
+    /**
+     * Paged app listing. Unlike `/query/app`, which answers only for apps named
+     * by the caller and so must not confirm ones it may not see, this is the
+     * listing surface a launcher reads: `protected` apps are filtered by the
+     * permission check below, and everything else is listable by design. Narrow
+     * it with `predicate: ['user-can-edit']` to the caller's own.
+     */
     async select(args = {}) {
         const { predicate, params = {} } = args;
-        const actor = this.#requireActor();
+        const actor = requireContextActor();
         this.#requireUserOrAppActor(actor);
 
         const limit = normalizeLimit(args.limit, { cap: 5000 }) ?? 500;
         const offset = normalizeOffset(args.offset);
         const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
-        const payload = decodeCursor(args.cursor);
+        const payload = openCursor(args.cursor, this.config.jwt_secret_v2);
         if (payload && offset !== undefined) {
             throw new HttpError(400, 'cursor and offset cannot be combined', {
                 legacyCode: 'bad_request',
@@ -375,80 +374,25 @@ export class AppDriver extends PuterDriver {
             // The cursor tracks the last fetched row, not the last visible
             // one, so rows hidden by the permission filter below aren't
             // re-scanned on the next page.
-            cursor = encodeCursor({ id: Number(apps[apps.length - 1].id) });
+            cursor = sealCursor(
+                { id: Number(apps[apps.length - 1].id) },
+                this.config.jwt_secret_v2,
+            );
         }
 
-        // Resolve protected-app visibility:
-        //  1. Cheap local short-circuits (non-protected, self-app, owner).
-        //  2. Single batched permission check for whatever's left — one
-        //     scan pass covers every remaining app, vs a per-app round
-        //     trip through the permission service.
-        const needsPermCheck = [];
-        const localVisible = new Set();
-        for (const app of apps) {
-            if (
-                !app.protected ||
-                actor.effectiveApp?.uid === app.uid ||
-                actor.user?.id === app.owner_user_id
-            ) {
-                localVisible.add(app);
-            } else {
-                needsPermCheck.push(app);
-            }
-        }
-
-        let permGrants;
-        if (needsPermCheck.length > 0) {
-            try {
-                permGrants = await this.permService.checkMany(
-                    actor,
-                    needsPermCheck.map((a) => `app:uid#${a.uid}:access`),
-                );
-            } catch {
-                permGrants = new Map();
-            }
-        } else {
-            permGrants = new Map();
-        }
-
-        const visible = apps.filter(
-            (app) =>
-                localVisible.has(app) ||
-                permGrants.get(`app:uid#${app.uid}:access`),
-        );
-
-        // Pre-fetch in parallel:
-        //  - per-uid stats (already pipelined inside getAppsStats)
-        //  - filetype associations as a single IN-list query (was N queries)
-        //  - canonical-index-url resolution and the hosted-backing check,
-        //    each batched across every visible app
-        const [
-            statsByUid,
-            filetypesByAppId,
-            canonicalByApp,
-            hostedUnavailableByApp,
-        ] = await Promise.all([
+        // Protected apps are filtered by one batched grant check; stats and
+        // the shared views are each one batched lookup across the page.
+        const visible = await this.services.app.filterReadable(apps, actor);
+        const [statsByUid, views] = await Promise.all([
             this.appStore.getAppsStats(visible.map((a) => a.uid)),
-            this.appStore.getFiletypeAssociationsByIds(
-                visible.map((a) => a.id),
-            ),
-            this.#resolveCanonicalForIndexUrls(visible),
-            this.#hostedBackingUnavailableFlags(visible),
+            this.services.app.views(visible, actor),
         ]);
-
-        const items = await Promise.all(
-            visible.map((app, i) =>
-                this.#toClient(
-                    app,
-                    actor,
-                    { ...params, stats: statsByUid.get(app.uid) },
-                    {
-                        filetypes: filetypesByAppId.get(app.id) ?? [],
-                        canonical: canonicalByApp[i],
-                        hostedBackingUnavailable: hostedUnavailableByApp[i],
-                    },
-                ),
-            ),
+        const items = visible.map((app, i) =>
+            toAppReadView(app, views[i], {
+                viewer: actor.user,
+                stats: statsByUid.get(app.uid),
+                iconSize: params.icon_size,
+            }),
         );
         if (!paginated) return items;
 
@@ -474,7 +418,7 @@ export class AppDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        const actor = this.#requireActor();
+        const actor = requireContextActor();
         this.#requireUserOrAppActor(actor);
 
         const app = await this.#resolve({ uid, id });
@@ -490,13 +434,23 @@ export class AppDriver extends PuterDriver {
             existing: app,
         });
 
-        // Puter-hosted index_url handling on update — same flow as create
-        // but only when the index_url is actually changing. Self-app is
+        // Started before the index_url checks so they add no round trip.
+        const renaming = !!fields.name && fields.name !== app.name;
+        const nameTaken = renaming
+            ? awaitLater(this.appStore.existsByName(fields.name))
+            : null;
+
+        // Puter-hosted index_url handling on update — same flow as create.
+        // #validateInput already dropped an unchanged index_url. Self-app is
         // excluded from the conflict search via `excludeAppId`.
-        if (fields.index_url && fields.index_url !== app.index_url) {
+        if (fields.index_url) {
+            const customSite = await this.#customSiteForIndexUrl(
+                fields.index_url,
+            );
             await this.#ensurePuterSiteSubdomainIsOwned(
                 fields.index_url,
                 actor.user,
+                customSite,
             );
             const joinedApp = await this.#maybeJoinOwnedHostedIndexUrlApp({
                 object,
@@ -504,6 +458,7 @@ export class AppDriver extends PuterDriver {
                 user: actor.user,
                 sourceAppUid: app.uid,
                 excludeAppId: app.id,
+                customSite,
             });
             if (joinedApp) {
                 return joinedApp;
@@ -511,18 +466,31 @@ export class AppDriver extends PuterDriver {
             await this.#ensureIndexUrlNotAlreadyInUse({
                 indexUrl: fields.index_url,
                 excludeAppId: app.id,
+                customSite,
             });
+            if (
+                app.is_private &&
+                (await this.services.auth.originHeldByOtherUser(
+                    fields.index_url,
+                    app.owner_user_id,
+                ))
+            ) {
+                throw new HttpError(
+                    400,
+                    "A private app can't use an index_url whose origin belongs to another user's app or site",
+                    {
+                        legacyCode: 'app_index_url_already_in_use',
+                        fields: { index_url: fields.index_url },
+                    },
+                );
+            }
         }
 
         // Name conflict check (only if name is changing)
-        if (fields.name && fields.name !== app.name) {
-            if (await this.appStore.existsByName(fields.name)) {
-                throw new HttpError(
-                    409,
-                    'An app with this name already exists',
-                    { legacyCode: 'conflict' },
-                );
-            }
+        if (nameTaken && (await nameTaken)) {
+            throw new HttpError(409, 'An app with this name already exists', {
+                legacyCode: 'conflict',
+            });
         }
 
         const filetypes = fields.filetype_associations;
@@ -539,6 +507,8 @@ export class AppDriver extends PuterDriver {
         }
         if (filetypes !== undefined) {
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
+            // A filetype-only update returns the cached row with the old ones.
+            if (updated) delete updated.filetype_associations;
         }
 
         this.#emitAppChanged({ app: updated, old_app: app, action: 'updated' });
@@ -560,7 +530,7 @@ export class AppDriver extends PuterDriver {
     }
 
     async delete({ uid, id } = {}) {
-        const actor = this.#requireActor();
+        const actor = requireContextActor();
         this.#requireUserOrAppActor(actor);
 
         const app = await this.#resolve({ uid, id });
@@ -667,13 +637,20 @@ export class AppDriver extends PuterDriver {
                 required: isCreate,
                 protocols: WEB_AND_EXTENSION_PROTOCOLS,
             });
-            // Only enforce on new/changed values so rows that already
-            // carry a reserved host (migration-seeded builtins) can still
-            // have their other fields updated.
+            if (out.index_url) out.index_url = new URL(out.index_url).href;
+            // A value equal to the stored one after normalization is
+            // unchanged: drop it so legacy spellings stay as stored and
+            // skip the host checks (migration-seeded builtins carry
+            // reserved hosts). Rewriting it would make a dormant
+            // mixed-case/default-port row match again without checks.
             if (
+                existing &&
                 out.index_url !== undefined &&
-                out.index_url !== existing?.index_url
+                out.index_url ===
+                    (URL.parse(existing.index_url)?.href ?? existing.index_url)
             ) {
+                delete out.index_url;
+            } else if (out.index_url !== undefined) {
                 this.#assertIndexUrlHostAllowed(out.index_url);
             }
         }
@@ -773,9 +750,10 @@ export class AppDriver extends PuterDriver {
      * loading from the GUI host would execute third-party code same-origin with
      * the desktop — a full sandbox escape. The API host is reserved for the
      * same reason, and the builtin sentinel host is rewritten by the GUI to
-     * `<gui origin>/builtin/…` (see BUILTIN_APPS_HOST above). Host comparison
-     * (rather than full origin) deliberately also catches scheme/port variants
-     * of these hosts.
+     * `<gui origin>/builtin/…` (see BUILTIN_APPS_HOST above). A subdomain an
+     * extension has claimed is a system host too. Host comparison (rather than
+     * full origin) deliberately also catches scheme/port variants of these
+     * hosts.
      */
     #assertIndexUrlHostAllowed(indexUrl) {
         let hostname;
@@ -807,7 +785,13 @@ export class AppDriver extends PuterDriver {
             }
         }
 
-        if (reserved.has(hostname)) {
+        const label = config.domain
+            ? subdomainLabelOf(hostname, config.domain)
+            : undefined;
+        if (
+            reserved.has(hostname) ||
+            (label !== undefined && extensionStore.claimedSubdomains.has(label))
+        ) {
             throw new HttpError(
                 400,
                 '`index_url` cannot point at a Puter system host',
@@ -817,15 +801,6 @@ export class AppDriver extends PuterDriver {
     }
 
     // -- Permission checks --------------------------------------------
-
-    #requireActor() {
-        const actor = Context.get('actor');
-        if (!actor)
-            throw new HttpError(401, 'Authentication required', {
-                legacyCode: 'unauthorized',
-            });
-        return actor;
-    }
 
     #requireUserOrAppActor(actor) {
         if (!actor.user)
@@ -852,14 +827,12 @@ export class AppDriver extends PuterDriver {
      * keeps resolving to the joined row. Mirrors v1 AppES's `#read` alias
      * plumbing.
      *
-     * The alias query is fired in parallel with the direct lookup so the common
-     * (no-alias) case pays only one round-trip.
+     * The alias is an uncached system KV read, so it waits for a direct miss.
      */
     async #getByUidWithAlias(uid) {
-        const aliasPromise = this.#readCanonicalAppUidAlias(uid);
         const direct = await this.appStore.getByUid(uid);
         if (direct) return direct;
-        const canonicalUid = await aliasPromise;
+        const canonicalUid = await this.#readCanonicalAppUidAlias(uid);
         if (
             typeof canonicalUid === 'string' &&
             canonicalUid &&
@@ -870,278 +843,34 @@ export class AppDriver extends PuterDriver {
         return null;
     }
 
-    async #canReadApp(app, actor) {
-        if (!app.protected) return true;
-        // Self-app access
-        if (actor.effectiveApp?.uid === app.uid) return true;
-        // Owner access
-        if (actor.user?.id === app.owner_user_id) return true;
-        // Permission check
-        try {
-            return await this.permService.check(
-                actor,
-                `app:uid#${app.uid}:access`,
-            );
-        } catch {
-            return false;
-        }
-    }
-
     async #checkReadAccess(app, actor) {
-        if (await this.#canReadApp(app, actor)) return;
+        const [readable] = await this.services.app.filterReadable([app], actor);
+        if (readable) return;
         throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
     }
 
     async #checkWriteAccess(app, actor) {
-        // App actor matching app_owner
-        const ownApp = actor.effectiveApp;
-        let hasAccess = false;
-        if (!ownApp?.id) {
-            hasAccess = actor.user?.id === app.owner_user_id;
-        } else if (ownApp.id === app.app_owner) {
-            hasAccess = actor.user?.id === app.owner_user_id;
+        const owns = actorOwnsRow(actor, {
+            ownerUserId: app.owner_user_id,
+            appOwnerId: app.app_owner,
+        });
+        if (owns) return;
+        if (await this.permService.check(actor, 'system:es:write-all-owners')) {
+            return;
         }
-        // System-wide write
-        if (!hasAccess) {
-            hasAccess = await this.permService.check(
-                actor,
-                'system:es:write-all-owners',
-            );
-        }
-        if (!hasAccess) {
-            throw new HttpError(403, 'Access denied', {
-                legacyCode: 'forbidden',
-            });
-        }
+        throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
     }
 
     // -- Serialization ------------------------------------------------
 
-    /**
-     * Resolve the canonical app row backing each app's `index_url`, batched
-     * across `apps`. Returns an array aligned with `apps`, each entry `{
-     * origin, expectedUid, canonicalApp }`:
-     *
-     * - `origin` — the parsed origin string from `index_url`.
-     * - `expectedUid` — the canonical app uid for that origin (oldest
-     *   `apps.index_url` match, or a deterministic UUIDv5 fallback for unknown
-     *   origins).
-     * - `canonicalApp` — the actual `apps` row at `expectedUid`, or `null` when
-     *   the uid is a UUIDv5 fallback with no DB row.
-     *
-     * Used in `#toClient` for two things:
-     *
-     * 1. `created_from_origin` derivation (only set when `expectedUid ===
-     *    app.uid`, mirroring v1 AppES).
-     * 2. The canonical-private gate — when `expectedUid !== app.uid` and
-     *    `canonicalApp.is_private`, the row is squatting on someone else's
-     *    private hosted URL. We must run the privateAccess gate against the
-     *    _canonical_ row, not the possibly-public squatter row, otherwise
-     *    pre-existing data from before the `subdomain_not_owned` check leaks
-     *    the victim's index_url.
-     *
-     * An entry is `null` when its app has no `index_url` or it doesn't parse.
-     */
-    async #resolveCanonicalForIndexUrls(apps) {
-        const origins = apps.map((app) => indexUrlOrigin(app.index_url));
-        const uniqueOrigins = [...new Set(origins.filter((o) => o !== null))];
-
-        let uidByOrigin = new Map();
-        if (uniqueOrigins.length > 0) {
-            try {
-                uidByOrigin =
-                    await this.services.auth.appUidsFromOrigins(uniqueOrigins);
-            } catch {
-                uidByOrigin = new Map();
-            }
-        }
-
-        // Avoid a needless DB hit on the self-match common case — `app` is
-        // already the row we'd be re-fetching.
-        const uidsToFetch = new Set();
-        for (let i = 0; i < apps.length; i++) {
-            if (!origins[i]) continue;
-            const expectedUid = uidByOrigin.get(origins[i]) ?? null;
-            if (expectedUid && expectedUid !== apps[i].uid) {
-                uidsToFetch.add(expectedUid);
-            }
-        }
-
-        let canonicalAppByUid = new Map();
-        if (uidsToFetch.size > 0) {
-            try {
-                canonicalAppByUid = await this.appStore.getByUids([
-                    ...uidsToFetch,
-                ]);
-            } catch {
-                canonicalAppByUid = new Map();
-            }
-        }
-
-        return apps.map((app, i) => {
-            const origin = origins[i];
-            if (!origin) return null;
-            const expectedUid = uidByOrigin.get(origin) ?? null;
-            if (!expectedUid) return null;
-            if (expectedUid === app.uid) {
-                return { origin, expectedUid, canonicalApp: app };
-            }
-            return {
-                origin,
-                expectedUid,
-                canonicalApp: canonicalAppByUid.get(expectedUid) ?? null,
-            };
-        });
-    }
-
-    /**
-     * Launch-safety check for puter-hosted `index_url`s, batched across `apps`.
-     * See `util/hostedAppBacking.ts` — the check lives there because every
-     * producer of launchable app metadata needs it, not just this driver.
-     */
-    async #hostedBackingUnavailableFlags(apps) {
-        return hostedIndexUrlBackingsAreUnavailable({
-            apps,
-            subdomainStore: this.stores.subdomain,
-            config: this.config,
-        });
-    }
-
-    async #toClient(app, actor, params = {}, prefetched = {}) {
+    async #toClient(app, actor, params = {}) {
         if (!app) return null;
-
-        // `select` batches these lookups per page and passes them in
-        // `prefetched`; single-app callers resolve them here. Never read them
-        // from `params`, which carries the RPC caller's input.
-        const [filetypes, canonicalForIndexUrl, hostedBackingUnavailable] =
-            await Promise.all([
-                prefetched.filetypes !== undefined
-                    ? Promise.resolve(prefetched.filetypes)
-                    : this.appStore.getFiletypeAssociations(app.id),
-                prefetched.canonical !== undefined
-                    ? Promise.resolve(prefetched.canonical)
-                    : this.#resolveCanonicalForIndexUrls([app]).then(
-                          (r) => r[0],
-                      ),
-                prefetched.hostedBackingUnavailable !== undefined
-                    ? Promise.resolve(prefetched.hostedBackingUnavailable)
-                    : this.#hostedBackingUnavailableFlags([app]).then(
-                          (r) => r[0],
-                      ),
-            ]);
-
-        const createdFromOrigin =
-            canonicalForIndexUrl && canonicalForIndexUrl.expectedUid === app.uid
-                ? canonicalForIndexUrl.origin
-                : null;
-
-        const result = {
-            uid: app.uid,
-            name: app.name,
-            title: app.title,
-            description: app.description,
-            icon: app.icon,
-            index_url: app.index_url,
-            background: Boolean(app.background),
-            maximize_on_start: Boolean(app.maximize_on_start),
-            feedback_enabled: Boolean(app.feedback_enabled),
-            godmode: Boolean(app.godmode),
-            is_private: Boolean(app.is_private),
-            protected: Boolean(app.protected),
-            approved_for_listing: Boolean(app.approved_for_listing),
-            approved_for_opening_items: Boolean(app.approved_for_opening_items),
-            approved_for_incentive_program: Boolean(
-                app.approved_for_incentive_program,
-            ),
-            metadata: app.metadata ?? null,
-            filetype_associations: filetypes,
-            created_at: app.created_at ?? app.timestamp,
-            created_from_origin: createdFromOrigin,
-            stats: params.stats ?? null,
-        };
-
-        // Owner info — only expose if actor is the owner or has access
-        if (actor?.user?.id === app.owner_user_id) {
-            result.owner = {
-                username: actor.user.username,
-                uuid: actor.user.uuid,
-            };
-        }
-
-        // Icon sizing hook (for future AppIconService integration)
-        if (params.icon_size) {
-            result.icon_size = params.icon_size;
-        }
-
-        // Private-app gate: callers without an ownership / purchase / grant
-        // must not receive `index_url` (the direct hosting URL). They still
-        // see metadata (title, icon, description) so the marketplace UI can
-        // render a purchase CTA. Owners + entitled users pass through
-        // unchanged. Attach `privateAccess` so clients know to redirect to
-        // app-center rather than launch.
-        //
-        // Gate target picking:
-        //   1. Canonical mismatch + canonical is private → gate against
-        //      the *canonical* row. Catches pre-existing bug data where
-        //      a row's `index_url` points at someone else's private hosted
-        //      URL but the row itself has `is_private = 0`. The
-        //      authoritative privacy decision belongs to the canonical
-        //      row's owner, not the squatter.
-        //   2. Otherwise, if this row is itself private → gate against
-        //      this row (the legitimate path).
-        //   3. Otherwise no gate — public app, no entitlement check.
-        const canonicalApp = canonicalForIndexUrl?.canonicalApp ?? null;
-        const expectedUid = canonicalForIndexUrl?.expectedUid;
-        const canonicalMismatchPrivate =
-            !!expectedUid &&
-            expectedUid !== app.uid &&
-            !!canonicalApp?.is_private;
-        const gateTarget = canonicalMismatchPrivate
-            ? canonicalApp
-            : result.is_private
-              ? app
-              : null;
-        if (gateTarget) {
-            const isOwner =
-                actor?.user?.id !== undefined &&
-                actor.user.id === gateTarget.owner_user_id;
-            const privateAccess = isOwner
-                ? { hasAccess: true, checkedBy: 'core/app-owner' }
-                : await resolvePrivateLaunchAccess({
-                      app: {
-                          uid: gateTarget.uid,
-                          name: gateTarget.name,
-                          is_private: true,
-                      },
-                      eventClient: this.clients.event,
-                      userUid: actor?.user?.uuid ?? null,
-                      source: canonicalMismatchPrivate
-                          ? 'appDriver:toClient:canonical-private'
-                          : 'appDriver:toClient',
-                      args: {},
-                  });
-            result.privateAccess = privateAccess;
-            if (!privateAccess.hasAccess) {
-                delete result.index_url;
-            }
-        }
-
-        // Hosted-subdomain launch guard (independent of the private-app
-        // gate): deny launch when the app's puter-hosted backing is gone or
-        // has been reclaimed by another user, so the GUI never appends the
-        // launch token to an origin the app owner no longer controls. Only
-        // set when not already denied so a private app's existing decision
-        // is preserved.
-        if (hostedBackingUnavailable) {
-            if (result.privateAccess?.hasAccess !== false) {
-                result.privateAccess = buildHostedBackingDenial();
-            }
-            if (actor?.user?.id !== app.owner_user_id) {
-                delete result.index_url;
-            }
-        }
-
-        return result;
+        const [clientView] = await this.services.app.views([app], actor);
+        return toAppReadView(app, clientView, {
+            viewer: actor?.user,
+            stats: params.stats,
+            iconSize: params.icon_size,
+        });
     }
 
     #extractPuterHostedSubdomain(indexUrl) {
@@ -1150,6 +879,26 @@ export class AppDriver extends PuterDriver {
 
     #isPuterHostedIndexUrl(indexUrl) {
         return !!this.#extractPuterHostedSubdomain(indexUrl);
+    }
+
+    /**
+     * `{ host, subdomain }` when `indexUrl` is on a custom domain that serves
+     * one of our sites, else null. Such a host gets the hosted-subdomain rules:
+     * owner-only, one app per URL, bootstrap rows merged.
+     */
+    async #customSiteForIndexUrl(indexUrl) {
+        if (!indexUrl || this.#isPuterHostedIndexUrl(indexUrl)) return null;
+        const parsed = URL.parse(indexUrl);
+        if (parsed?.protocol !== 'https:' && parsed?.protocol !== 'http:') {
+            return null;
+        }
+        const host = parsed.hostname.toLowerCase().replace(/\.+$/, '');
+        const subdomain = await resolveCustomHostSubdomain(
+            host,
+            this.config,
+            this.clients.event,
+        );
+        return subdomain ? { host, subdomain } : null;
     }
 
     /**
@@ -1231,9 +980,18 @@ export class AppDriver extends PuterDriver {
         }
     }
 
-    async #findIndexUrlConflictRow({ indexUrl, excludeAppId } = {}) {
+    async #findIndexUrlConflictRow({
+        indexUrl,
+        excludeAppId,
+        customSite,
+    } = {}) {
         const aliasGroup = this.#findOriginAliasGroupForIndexUrl(indexUrl);
-        if (!this.#isPuterHostedIndexUrl(indexUrl) && !aliasGroup) return null;
+        if (
+            !this.#isPuterHostedIndexUrl(indexUrl) &&
+            !aliasGroup &&
+            !customSite
+        )
+            return null;
 
         const candidates = new Set(
             this.#buildEquivalentIndexUrlCandidates(indexUrl),
@@ -1252,15 +1010,18 @@ export class AppDriver extends PuterDriver {
 
         // For alias-group hosts, treat the group as a host-level reservation:
         // any row whose index_url is the root URL of any group member counts
-        // as a conflict, so a single app owns the whole group.
-        if (aliasGroup) {
-            for (const host of aliasGroup) {
-                for (const proto of ['https', 'http']) {
-                    const base = `${proto}://${host}`;
-                    candidates.add(base);
-                    candidates.add(`${base}/`);
-                    candidates.add(`${base}/index.html`);
-                }
+        // as a conflict, so a single app owns the whole group. A custom
+        // domain's root is reserved the same way.
+        const reservedHosts = [
+            ...(aliasGroup ?? []),
+            ...(customSite ? [customSite.host] : []),
+        ];
+        for (const host of reservedHosts) {
+            for (const proto of ['https', 'http']) {
+                const base = `${proto}://${host}`;
+                candidates.add(base);
+                candidates.add(`${base}/`);
+                candidates.add(`${base}/index.html`);
             }
         }
 
@@ -1273,10 +1034,15 @@ export class AppDriver extends PuterDriver {
         });
     }
 
-    async #ensureIndexUrlNotAlreadyInUse({ indexUrl, excludeAppId } = {}) {
+    async #ensureIndexUrlNotAlreadyInUse({
+        indexUrl,
+        excludeAppId,
+        customSite,
+    } = {}) {
         const conflictRow = await this.#findIndexUrlConflictRow({
             indexUrl,
             excludeAppId,
+            customSite,
         });
         if (conflictRow) {
             throw new HttpError(400, 'App index_url already in use', {
@@ -1289,9 +1055,11 @@ export class AppDriver extends PuterDriver {
         }
     }
 
-    async #ensurePuterSiteSubdomainIsOwned(indexUrl, user) {
+    async #ensurePuterSiteSubdomainIsOwned(indexUrl, user, customSite) {
         if (!user) return;
-        const subdomain = this.#extractPuterHostedSubdomain(indexUrl);
+        const subdomain =
+            customSite?.subdomain ??
+            this.#extractPuterHostedSubdomain(indexUrl);
         if (!subdomain) return;
 
         let row = await this.stores.subdomain.getBySubdomain(subdomain);
@@ -1304,27 +1072,20 @@ export class AppDriver extends PuterDriver {
             });
         }
         if (!row || row.user_id !== user.id) {
-            throw new HttpError(400, 'Subdomain not owned by user', {
-                legacyCode: 'subdomain_not_owned',
-                fields: { subdomain },
-            });
+            // A custom domain's site name isn't the caller's to learn.
+            throw new HttpError(
+                400,
+                customSite
+                    ? 'Domain not owned by user'
+                    : 'Subdomain not owned by user',
+                {
+                    legacyCode: 'subdomain_not_owned',
+                    fields: customSite
+                        ? { hostname: customSite.host }
+                        : { subdomain },
+                },
+            );
         }
-    }
-
-    /**
-     * Origin-bootstrap detection: rows auto-created when an unknown origin
-     * first needed an app row (no human-supplied metadata). Marker is `name ===
-     * uid && title === uid` and a description starting with "App created from
-     * origin ". Only these rows are eligible for same-owner merging — refusing
-     * to merge arbitrary same-owner apps prevents accidental data loss.
-     */
-    #isOriginBootstrapApp(app) {
-        if (!app || typeof app !== 'object') return false;
-        if (typeof app.uid !== 'string' || !app.uid) return false;
-        if (app.name !== app.uid) return false;
-        if (app.title !== app.uid) return false;
-        if (typeof app.description !== 'string') return false;
-        return app.description.startsWith('App created from origin ');
     }
 
     // -- Canonical-uid alias kvstore pair -----------------------------
@@ -1420,17 +1181,19 @@ export class AppDriver extends PuterDriver {
         user,
         sourceAppUid,
         excludeAppId,
+        customSite,
     } = {}) {
         const indexUrl = object?.index_url;
-        // Alias-group hosts (`app_origin_aliases`) get the same merge
-        // treatment as puter-hosted subdomains. Without this, a bootstrap
-        // stub on a custom domain could never be absorbed — and since
-        // `#findIndexUrlConflictRow` *does* honor alias groups, the
-        // uniqueness check below would hard-reject the owner's own
-        // create/update instead of merging into the stub.
+        // Alias-group hosts (`app_origin_aliases`) and custom domains get the
+        // same merge treatment as puter-hosted subdomains. Without this, a
+        // bootstrap stub on such a host could never be absorbed — and since
+        // `#findIndexUrlConflictRow` *does* honor them, the uniqueness check
+        // below would hard-reject the owner's own create/update instead of
+        // merging into the stub.
         if (
             !this.#isPuterHostedIndexUrl(indexUrl) &&
-            !this.#findOriginAliasGroupForIndexUrl(indexUrl)
+            !this.#findOriginAliasGroupForIndexUrl(indexUrl) &&
+            !customSite
         ) {
             return null;
         }
@@ -1438,6 +1201,7 @@ export class AppDriver extends PuterDriver {
         const conflictRow = await this.#findIndexUrlConflictRow({
             indexUrl,
             excludeAppId,
+            customSite,
         });
         if (!conflictRow) return null;
 
@@ -1486,7 +1250,7 @@ export class AppDriver extends PuterDriver {
         if (
             Number.isInteger(conflictOwnerUserId) &&
             conflictOwnerUserId === user.id &&
-            !this.#isOriginBootstrapApp(appToJoin)
+            !isOriginBootstrapApp(appToJoin)
         ) {
             // Prevent merging arbitrary same-owner apps; only allow the
             // auto-created origin bootstrap row to be absorbed.

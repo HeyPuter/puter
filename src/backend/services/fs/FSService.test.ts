@@ -19,7 +19,7 @@
  */
 
 import { Readable } from 'node:stream';
-import { CreateBucketCommand } from '@aws-sdk/client-s3';
+import { CreateBucketCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { v4 as uuidv4 } from 'uuid';
 import {
     afterAll,
@@ -36,7 +36,10 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { appDataPermission } from '../permission/appDataScopes.js';
 import { PuterServer } from '../../server.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
-import { toPendingUploadSessionKey } from '../../stores/fs/pendingUploadSessionHelpers.js';
+import {
+    toPendingUploadSessionKey,
+    toPendingUploadSessionPartition,
+} from '../../stores/fs/pendingUploadSessionHelpers.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
@@ -148,19 +151,25 @@ const caught = async (run: () => Promise<unknown>): Promise<HttpError> => {
  */
 const expirePendingSession = async (sessionId: string): Promise<void> => {
     const key = toPendingUploadSessionKey(sessionId);
-    const { res: stored } = await server.stores.kv.get({ key });
-    await server.stores.kv.batchPut({
-        items: [
-            {
-                key,
-                value: {
-                    ...(stored as Record<string, unknown>),
-                    expiresAt: Date.now() - 1000,
+    const kvOpts = {
+        systemPartition: toPendingUploadSessionPartition(sessionId),
+    };
+    const { res: stored } = await server.stores.kv.get({ key }, kvOpts);
+    await server.stores.kv.batchPut(
+        {
+            items: [
+                {
+                    key,
+                    value: {
+                        ...(stored as Record<string, unknown>),
+                        expiresAt: Date.now() - 1000,
+                    },
+                    expireAt: Math.ceil((Date.now() + 60 * 60 * 1000) / 1000),
                 },
-                expireAt: Math.ceil((Date.now() + 60 * 60 * 1000) / 1000),
-            },
-        ],
-    });
+            ],
+        },
+        kvOpts,
+    );
 };
 
 const entryAt = (user: TestUser, path: string) =>
@@ -503,6 +512,75 @@ describe('FSService write payload handling', () => {
         // Generous timeout: the object-store client retries the torn-off body
         // before giving up, which puts the rejection just past the default.
     }, 20_000);
+
+    /**
+     * Answer every PutObject the way the real store does when the body ends
+     * before the length it was sent with; the in-memory store doesn't check.
+     */
+    const rejectShortPuts = () => {
+        const client = server.clients.s3.get(
+            server.stores.s3Object.resolveRegion(null),
+        );
+        const original = client.send.bind(client);
+        return vi.spyOn(client, 'send').mockImplementation((async (
+            command: unknown,
+        ) => {
+            if (!(command instanceof PutObjectCommand)) {
+                return original(command as never);
+            }
+            const body = command.input.Body;
+            if (body instanceof Readable) {
+                for await (const _chunk of body) {
+                    // drain
+                }
+            }
+            throw Object.assign(
+                new Error(
+                    'You did not provide the number of bytes specified by the Content-Length HTTP header',
+                ),
+                { name: 'IncompleteBody', Code: 'IncompleteBody' },
+            );
+        }) as never);
+    };
+
+    it('rejects a stream shorter than its declared size as a bad request', async () => {
+        const send = rejectShortPuts();
+        try {
+            const error = await caught(() =>
+                fs.write(user.userId, {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/short.bin`,
+                        size: 57,
+                        contentType: 'text/plain',
+                    },
+                    fileContent: Readable.from(['x'.repeat(54)]),
+                }),
+            );
+            expect(error.statusCode).toBe(400);
+            expect(error.message).toBe(
+                'File content is shorter than its declared size',
+            );
+        } finally {
+            send.mockRestore();
+        }
+        expect(await entryAt(user, '/Documents/short.bin')).toBeNull();
+    });
+
+    it('leaves a short-body rejection of a measured payload as a server error', async () => {
+        // A buffer's length is measured here, not declared by the caller, so
+        // the store refusing it is not the caller's fault.
+        const send = rejectShortPuts();
+        try {
+            const error = await write('measured.bin', Buffer.from('abc')).then(
+                () => null,
+                (e: unknown) => e,
+            );
+            expect(error).not.toBeInstanceOf(HttpError);
+            expect((error as { name?: string })?.name).toBe('IncompleteBody');
+        } finally {
+            send.mockRestore();
+        }
+    });
 });
 
 describe('FSService overwrite and dedupe resolution', () => {
@@ -955,6 +1033,70 @@ describe('FSService storage allowance', () => {
         ).resolves.toMatchObject({ size: 40 });
     });
 
+    // `stale` is the row a copy request resolved before an overwrite of the
+    // same file committed; the copy then duplicates the newer bytes.
+    const growUnderCopy = async (
+        user: Awaited<ReturnType<typeof quotaUser>>,
+        before: number,
+        after: number,
+    ) => {
+        const { fsEntry: stale } = await user.write(
+            'grown.txt',
+            'x'.repeat(before),
+        );
+        await limitedFs.write(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/grown.txt`,
+                size: after,
+                overwrite: true,
+            },
+            fileContent: 'y'.repeat(after),
+        });
+        const documents = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents`,
+        ))!;
+        return { stale, documents };
+    };
+
+    it('records the bytes a copy duplicated, not the size it was resolved with', async () => {
+        const user = await quotaUser(1024);
+        const { stale, documents } = await growUnderCopy(user, 10, 50);
+
+        const copy = await limitedFs.copy(user.userId, {
+            source: stale,
+            destinationParent: documents,
+            newName: 'grown-copy.txt',
+        });
+
+        expect(copy.size).toBe(50);
+        await expect(
+            limitedFs.getUsersStorageAllowance(user.userId),
+        ).resolves.toEqual({ curr: 100, max: 1024 });
+    });
+
+    it('rejects a copy whose duplicated bytes exceed the allowance', async () => {
+        const user = await quotaUser(64);
+        const { stale, documents } = await growUnderCopy(user, 10, 40);
+
+        // 10 more bytes fit beside the 40 in use; the 40 actually copied don't.
+        const error = await caught(() =>
+            limitedFs.copy(user.userId, {
+                source: stale,
+                destinationParent: documents,
+                newName: 'grown-copy.txt',
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(
+            await limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Documents/grown-copy.txt`,
+            ),
+        ).toBeNull();
+        await expect(
+            limitedFs.getUsersStorageAllowance(user.userId),
+        ).resolves.toEqual({ curr: 40, max: 64 });
+    });
+
     it('rejects a batch signed write that would exceed the allowance', async () => {
         const user = await quotaUser(64);
         const error = await caught(() =>
@@ -1212,6 +1354,43 @@ describe('FSService storage allowance', () => {
         ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
     });
 
+    it('leaves the file alone when a session signed before staging aborts', async () => {
+        // Rolling deploy: the old code signed against the live key.
+        const user = await quotaUser(64);
+        await user.write('straddle-abort.txt', 'kept');
+        const entry = await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents/straddle-abort.txt`,
+        );
+
+        const started = await limitedFs.startUrlWrite(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/straddle-abort.txt`,
+                size: 40,
+                overwrite: true,
+            },
+        });
+        // Hand abort the session shape the previous release wrote.
+        const real =
+            await limitedServer.stores.fsEntry.getPendingEntryBySessionId(
+                started.sessionId,
+            );
+        vi.spyOn(
+            limitedServer.stores.fsEntry,
+            'getPendingEntryBySessionId',
+        ).mockResolvedValue({ ...real, objectKey: entry.uuid });
+
+        const deleteObject = vi.spyOn(
+            limitedServer.stores.s3Object,
+            'deleteObject',
+        );
+        await limitedFs.abortUrlWrite(user.userId, started.sessionId);
+
+        expect(
+            deleteObject.mock.calls.some((call) => call[1] === entry.uuid),
+        ).toBe(false);
+        vi.restoreAllMocks();
+    });
+
     it('a failed pending-row write releases its reservation', async () => {
         const user = await quotaUser(64);
         const createPendingEntry = vi
@@ -1237,6 +1416,156 @@ describe('FSService storage allowance', () => {
             }),
         ).resolves.toMatchObject({ uploadMode: 'single' });
     });
+
+    // -- Quota is judged before any directory is created --------------
+
+    it('refuses an over-quota batch before creating any directory', async () => {
+        const user = await quotaUser(64);
+        await user.write('full.txt', 'x'.repeat(64));
+        const ensureDirectories = vi.spyOn(
+            limitedServer.stores.fsEntry,
+            'ensureDirectoriesForUserWithCreated',
+        );
+        const resolveParents = vi.spyOn(
+            limitedServer.stores.fsEntry,
+            'resolveParentDirectoriesBatchWithCreated',
+        );
+
+        const error = await caught(() =>
+            limitedFs.batchStartUrlWrites(user.userId, [
+                {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/oq/dir`,
+                        size: 0,
+                        createMissingParents: true,
+                    },
+                    directory: true,
+                },
+                {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/oq/parent/f.txt`,
+                        size: 1,
+                        createMissingParents: true,
+                    },
+                },
+            ]),
+        );
+        const ensureCalls = ensureDirectories.mock.calls.length;
+        const resolveCalls = resolveParents.mock.calls.length;
+        ensureDirectories.mockRestore();
+        resolveParents.mockRestore();
+
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+        expect(ensureCalls).toBe(0);
+        expect(resolveCalls).toBe(0);
+        await expect(
+            limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Documents/oq`,
+                { useTryHardRead: true, skipCache: true },
+            ),
+        ).resolves.toBeNull();
+        await expect(
+            limitedServer.stores.uploadReservation.outstanding(user.userId),
+        ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
+    });
+
+    it('refuses an over-quota signed start before creating its parents', async () => {
+        const user = await quotaUser(64);
+        await user.write('full.txt', 'x'.repeat(64));
+        const resolveParents = vi.spyOn(
+            limitedServer.stores.fsEntry,
+            'resolveParentDirectoriesBatchWithCreated',
+        );
+
+        const error = await caught(() =>
+            limitedFs.startUrlWrite(user.userId, {
+                fileMetadata: {
+                    path: `${user.home}/Documents/oq-single/f.txt`,
+                    size: 1,
+                    createMissingParents: true,
+                },
+            }),
+        );
+        const resolveCalls = resolveParents.mock.calls.length;
+        resolveParents.mockRestore();
+
+        expect(error.statusCode).toBe(413);
+        expect(resolveCalls).toBe(0);
+        await expect(
+            limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Documents/oq-single`,
+                { useTryHardRead: true, skipCache: true },
+            ),
+        ).resolves.toBeNull();
+    });
+
+    it.each([
+        [
+            'a batch whose parent resolution fails',
+            'resolveParentDirectoriesBatchWithCreated',
+            (userId: number, home: string) =>
+                limitedFs.batchStartUrlWrites(userId, [
+                    {
+                        fileMetadata: {
+                            path: `${home}/Documents/dir-fail/f.txt`,
+                            size: 40,
+                            createMissingParents: true,
+                        },
+                    },
+                ]),
+        ],
+        [
+            'a batch whose directory creation fails',
+            'ensureDirectoriesForUserWithCreated',
+            (userId: number, home: string) =>
+                limitedFs.batchStartUrlWrites(userId, [
+                    {
+                        fileMetadata: {
+                            path: `${home}/Documents/dir-fail`,
+                            size: 0,
+                            createMissingParents: true,
+                        },
+                        directory: true,
+                    },
+                    {
+                        fileMetadata: {
+                            path: `${home}/Documents/dir-fail.txt`,
+                            size: 40,
+                        },
+                    },
+                ]),
+        ],
+        [
+            'a single start whose parent resolution fails',
+            'resolveParentDirectoriesBatchWithCreated',
+            (userId: number, home: string) =>
+                limitedFs.startUrlWrite(userId, {
+                    fileMetadata: {
+                        path: `${home}/Documents/dir-fail/f.txt`,
+                        size: 40,
+                        createMissingParents: true,
+                    },
+                }),
+        ],
+    ] as const)(
+        '%s releases its reservation',
+        async (_label, method, start) => {
+            const user = await quotaUser(64);
+            const failing = vi
+                .spyOn(limitedServer.stores.fsEntry, method)
+                .mockRejectedValueOnce(new Error('directory write failed'));
+
+            await expect(start(user.userId, user.home)).rejects.toThrow(
+                'directory write failed',
+            );
+            failing.mockRestore();
+
+            await expect(
+                limitedServer.stores.uploadReservation.outstanding(user.userId),
+            ).resolves.toEqual({ activeBytes: 0, settledBytes: 0 });
+        },
+    );
 
     it('a refused completion releases its reservation', async () => {
         const user = await quotaUser(64);
@@ -1859,21 +2188,19 @@ describe('FSService signed (direct-to-S3) writes', () => {
         consoleWarn.mockRestore();
     });
 
-    it('completes an overwrite with no new PUT by keeping the existing bytes', async () => {
+    it('refuses to complete an overwrite that uploaded nothing', async () => {
         const path = `${user.home}/Documents/overwrite-lenient.txt`;
-        await writeFile(user, path, 'original');
+        const original = await writeFile(user, path, 'original');
 
         const response = await fs.startUrlWrite(user.userId, {
             fileMetadata: { path, size: 999, overwrite: true },
         });
-        // No PUT — the overwrite session reuses the existing entry's object
-        // key, so the confirming HEAD finds the old bytes still there.
-        const completed = await fs.completeUrlWrite(user.userId, {
-            uploadId: response.sessionId,
-        });
-        expect(completed.wasOverwrite).toBe(true);
-        expect(completed.fsEntry.size).toBe(Buffer.byteLength('original'));
-        expect(await readBack(completed.fsEntry)).toBe('original');
+        // Nothing was PUT, and the session's own key is empty.
+        const error = await caught(() =>
+            fs.completeUrlWrite(user.userId, { uploadId: response.sessionId }),
+        );
+        expect(error.statusCode).toBe(400);
+        expect(await readBack(original)).toBe('original');
     });
 
     it('abort of an overwrite session leaves the live file readable', async () => {
@@ -1887,7 +2214,12 @@ describe('FSService signed (direct-to-S3) writes', () => {
 
         await fs.abortUrlWrite(user.userId, response.sessionId);
 
-        expect(deleteObject).not.toHaveBeenCalled();
+        // The session's own key goes; the live one was never its to write.
+        expect(deleteObject).toHaveBeenCalledWith(
+            response.bucket,
+            response.objectKey,
+            response.bucketRegion,
+        );
         const stillThere = await entryAt(
             user,
             '/Documents/abort-overwrite.txt',
@@ -1909,15 +2241,18 @@ describe('FSService signed (direct-to-S3) writes', () => {
         const response = await fs.startUrlWrite(user.userId, {
             fileMetadata: { path, size: 40, overwrite: true },
         });
-        // The entry still exists, so its key is left alone even though it
-        // had no object of its own; a later overwrite reuses the key.
-        expect(response.objectKey).toBe(touched.uuid);
+        // A key of its own, so the empty entry keeps whatever it had.
+        expect(response.objectKey).not.toBe(touched.uuid);
         await fetch(response.url!, { method: 'PUT', body: 'x'.repeat(40) });
         const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
 
         await fs.abortUrlWrite(user.userId, response.sessionId);
 
-        expect(deleteObject).not.toHaveBeenCalled();
+        expect(deleteObject).toHaveBeenCalledWith(
+            response.bucket,
+            response.objectKey,
+            response.bucketRegion,
+        );
         const stillThere = await entryAt(
             user,
             '/Documents/touch-overwrite-abort.txt',
@@ -1928,14 +2263,14 @@ describe('FSService signed (direct-to-S3) writes', () => {
         deleteObject.mockRestore();
     });
 
-    it('abort of an overwrite deletes the object once the target has been removed', async () => {
+    it('abort of an overwrite deletes its object whether or not the target remains', async () => {
         const path = `${user.home}/Documents/overwrite-target-gone.txt`;
         const original = await writeFile(user, path, 'original');
 
         const response = await fs.startUrlWrite(user.userId, {
             fileMetadata: { path, size: 40, overwrite: true },
         });
-        // The target is removed out from under the pending session.
+        // Removed out from under the pending session, which changes nothing.
         await fs.remove(user.userId, { entry: original });
         const deleteObject = vi.spyOn(server.stores.s3Object, 'deleteObject');
 
@@ -2156,6 +2491,154 @@ describe('FSService signed (direct-to-S3) writes', () => {
             )?.status,
         ).toBe('aborted');
         deleteObject.mockRestore();
+    });
+
+    // The PUT never reaches Puter, so the completion is what puts it in place.
+    describe('an overwrite is staged until its completion is accepted', () => {
+        const liveSize = async (entry: FSEntry) =>
+            server.stores.s3Object.headObjectSize(
+                entry.bucket!,
+                entry.uuid,
+                entry.bucketRegion!,
+            );
+
+        it('signs against a key of its own, not the live one', async () => {
+            const existing = await writeFile(
+                user,
+                `${user.home}/Documents/staged-key.txt`,
+                'OLD-CONTENT',
+            );
+            const started = await start(
+                `${user.home}/Documents/staged-key.txt`,
+                {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/staged-key.txt`,
+                        size: 3,
+                        overwrite: true,
+                    },
+                },
+            );
+
+            expect(started.objectKey).not.toBe(existing.uuid);
+            expect(started.url).not.toContain(existing.uuid);
+
+            await fs.abortUrlWrite(user.userId, started.sessionId);
+        });
+
+        it('leaves the live object alone until the upload is completed', async () => {
+            const path = `${user.home}/Documents/staged-live.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+            expect(await liveSize(existing)).toBe(11);
+
+            const started = await start(path, {
+                fileMetadata: { path, size: 3, overwrite: true },
+            });
+            await fetch(started.url!, { method: 'PUT', body: 'NEW' });
+
+            // The bytes are in the store, and the owner's file is untouched.
+            expect(await liveSize(existing)).toBe(11);
+
+            await fs.completeUrlWrite(user.userId, {
+                uploadId: started.sessionId,
+            });
+
+            expect(await liveSize(existing)).toBe(3);
+        });
+
+        it('keeps the entry uuid, so what was granted on it still is', async () => {
+            const path = `${user.home}/Documents/staged-uuid.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+
+            const started = await start(path, {
+                fileMetadata: { path, size: 3, overwrite: true },
+            });
+            await fetch(started.url!, { method: 'PUT', body: 'NEW' });
+            const completed = await fs.completeUrlWrite(user.userId, {
+                uploadId: started.sessionId,
+            });
+
+            expect(completed.wasOverwrite).toBe(true);
+            expect(completed.fsEntry.uuid).toBe(existing.uuid);
+        });
+
+        it('stages a batch-signed overwrite too, which is the path the SDK takes', async () => {
+            const path = `${user.home}/Documents/staged-batch.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+            expect(await liveSize(existing)).toBe(11);
+
+            const [started] = await fs.batchStartUrlWrites(user.userId, [
+                { fileMetadata: { path, size: 3, overwrite: true } },
+            ]);
+            expect(started!.objectKey).not.toBe(existing.uuid);
+            expect(started!.entryUid).toBe(existing.uuid);
+
+            await fetch(started!.url!, { method: 'PUT', body: 'NEW' });
+            expect(await liveSize(existing)).toBe(11);
+
+            await fs.batchCompleteUrlWrite(user.userId, [
+                { uploadId: started!.sessionId },
+            ]);
+            expect(await liveSize(existing)).toBe(3);
+        });
+
+        it('aborting a batch-signed overwrite leaves the live object alone', async () => {
+            const path = `${user.home}/Documents/staged-batch-abort.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+
+            const [started] = await fs.batchStartUrlWrites(user.userId, [
+                { fileMetadata: { path, size: 3, overwrite: true } },
+            ]);
+            await fetch(started!.url!, { method: 'PUT', body: 'NEW' });
+            await fs.abortUrlWrite(user.userId, started!.sessionId);
+
+            expect(await liveSize(existing)).toBe(11);
+        });
+
+        it('refuses to land on a target that moved after the url was signed', async () => {
+            const path = `${user.home}/Documents/staged-moved.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+
+            const started = await start(path, {
+                fileMetadata: { path, size: 3, overwrite: true },
+            });
+            await fetch(started.url!, { method: 'PUT', body: 'NEW' });
+
+            const documents = await entryAt(user, '/Documents');
+            await fs.move(user.userId, {
+                source: existing,
+                destinationParent: documents!,
+                newName: 'staged-moved-elsewhere.txt',
+            });
+
+            const error = await caught(() =>
+                fs.completeUrlWrite(user.userId, {
+                    uploadId: started.sessionId,
+                }),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(await liveSize(existing)).toBe(11);
+        });
+
+        it('drops the staged object when the upload is abandoned', async () => {
+            const path = `${user.home}/Documents/staged-abort.txt`;
+            const existing = await writeFile(user, path, 'OLD-CONTENT');
+
+            const started = await start(path, {
+                fileMetadata: { path, size: 3, overwrite: true },
+            });
+            await fetch(started.url!, { method: 'PUT', body: 'NEW' });
+            await fs.abortUrlWrite(user.userId, started.sessionId);
+
+            // The staged bytes go, and the file they were aimed at stays.
+            await expect(
+                server.stores.s3Object.headObjectSize(
+                    existing.bucket!,
+                    started.objectKey!,
+                    existing.bucketRegion!,
+                ),
+            ).rejects.toMatchObject({ name: 'NotFound' });
+            expect(await liveSize(existing)).toBe(11);
+        });
     });
 
     it('ignores an abort for an unknown session and refuses a foreign one', async () => {
@@ -2428,6 +2911,56 @@ describe('FSService batch signed writes', () => {
             `${user.home}/Documents/auto`,
             `${user.home}/Documents/auto/created`,
         ]);
+    });
+
+    // File targets are resolved before the batch's directories exist.
+    it('refuses a file where the same batch creates a directory', async () => {
+        const error = await caught(() =>
+            fs.batchStartUrlWrites(user.userId, [
+                {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/clash/inner`,
+                        size: 0,
+                        createMissingParents: true,
+                    },
+                    directory: true,
+                },
+                {
+                    fileMetadata: {
+                        path: `${user.home}/Documents/clash`,
+                        size: 1,
+                        overwrite: true,
+                    },
+                },
+            ]),
+        );
+        expect(error.statusCode).toBe(409);
+        expect(error.legacyCode).toBe('cannot_overwrite_a_directory');
+    });
+
+    it('dedupes a file past a directory the same batch creates', async () => {
+        const responses = await fs.batchStartUrlWrites(user.userId, [
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/clash-dd`,
+                    size: 0,
+                    createMissingParents: true,
+                },
+                directory: true,
+            },
+            {
+                fileMetadata: {
+                    path: `${user.home}/Documents/clash-dd`,
+                    size: 1,
+                    dedupeName: true,
+                },
+            },
+        ]);
+
+        const [session] = await fs.getUploadSessions(user.userId, [
+            responses[1]!.sessionId,
+        ]);
+        expect(session?.targetPath).toBe(`${user.home}/Documents/clash-dd (1)`);
     });
 
     it('completes a batch of sessions and rejects duplicate upload ids', async () => {
@@ -2776,10 +3309,34 @@ describe('FSService reads', () => {
         const error = await caught(() => fs.readContent(entry));
         expect(error.statusCode).toBe(404);
         expect(error.legacyCode).toBe('subject_does_not_exist');
-        expect(error.fields).toEqual({ path: entry.path, uid: entry.uuid });
+        // A shared entry is addressed by uuid, not the owner's real path.
+        expect(error.fields).toEqual({ uid: entry.uuid });
         expect(await entryAt(user, '/Documents/ghost.txt')).toBeNull();
 
         consoleError.mockRestore();
+    });
+
+    it('reports 416 when the range starts past the end of the object', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/short.txt`,
+            'abc',
+        );
+        const getObjectStream = vi
+            .spyOn(server.stores.s3Object, 'getObjectStream')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('range not satisfiable'), {
+                    name: 'InvalidRange',
+                }),
+            );
+
+        const error = await caught(() =>
+            fs.readContent(entry, { range: 'bytes=10-' }),
+        );
+        expect(error.statusCode).toBe(416);
+        expect(await entryAt(user, '/Documents/short.txt')).not.toBeNull();
+
+        getObjectStream.mockRestore();
     });
 
     it('propagates a non-NoSuchKey storage failure unchanged', async () => {
@@ -2972,15 +3529,8 @@ describe('FSService reads', () => {
         expect(scoped).toEqual([]);
     });
 
-    it('answers existence and walks the ancestor chain', async () => {
+    it('walks the ancestor chain', async () => {
         await writeFile(user, `${user.home}/Documents/anc.txt`, 'x');
-
-        await expect(
-            fs.entryExistsByPath(`${user.home}/Documents/anc.txt`),
-        ).resolves.toBe(true);
-        await expect(
-            fs.entryExistsByPath(`${user.home}/Documents/missing.txt`),
-        ).resolves.toBe(false);
 
         const chain = await fs.getAncestorChain(
             `${user.home}/Documents/anc.txt`,
@@ -2992,6 +3542,24 @@ describe('FSService reads', () => {
         ]);
     });
 });
+
+/**
+ * MySQL and Postgres keep `(parent_id, name)` unique; the SQLite test schema
+ * only indexes it. Adds the key for one directory so a lost name race raises
+ * the driver's real duplicate-key error. Returns the cleanup.
+ */
+const enforceUniqueNamesIn = async (directoryPath: string) => {
+    const db = server.clients.db;
+    const directory = await server.stores.fsEntry.getEntryByPath(directoryPath);
+    const index = `idx_test_unique_name_${uuidv4().replaceAll('-', '')}`;
+    // sqlite rejects bound parameters in a partial index's WHERE.
+    await db.write(
+        `CREATE UNIQUE INDEX ${index} ON fsentries (parent_id, name) WHERE parent_id = ${Number(directory!.id)}`,
+    );
+    return async () => {
+        await db.write(`DROP INDEX ${index}`);
+    };
+};
 
 describe('FSService mkdir, touch, rename and shortcuts', () => {
     let user: TestUser;
@@ -3065,21 +3633,150 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         }
     });
 
+    describe('parent and target lookups', () => {
+        const store = () => server.stores.fsEntry;
+        const realGetEntryByPath = () =>
+            (Object.getPrototypeOf(store()) as ReturnType<typeof store>)
+                .getEntryByPath;
+
+        it('looks the target up while the parent lookup is still in flight', async () => {
+            const parentPath = `${user.home}/Documents`;
+            const path = `${parentPath}/alongside`;
+            const original = realGetEntryByPath();
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const looked: string[] = [];
+            const spy = vi
+                .spyOn(store(), 'getEntryByPath')
+                .mockImplementation(async (candidate, options) => {
+                    looked.push(candidate);
+                    if (candidate === parentPath) await gate;
+                    return original.call(store(), candidate, options);
+                });
+            try {
+                const pending = fs.mkdir(user.userId, { path });
+                await vi.waitFor(() =>
+                    expect(looked).toEqual(
+                        expect.arrayContaining([parentPath, path]),
+                    ),
+                );
+                release();
+                const created = await pending;
+                expect(created.path).toBe(path);
+                expect(created.isDir).toBe(true);
+            } finally {
+                release();
+                spy.mockRestore();
+            }
+        });
+
+        it('surfaces the parent error ahead of a failed target lookup, leaving nothing unhandled', async () => {
+            const path = `${user.home}/Documents/nowhere/target`;
+            const original = realGetEntryByPath();
+            const spy = vi
+                .spyOn(store(), 'getEntryByPath')
+                .mockImplementation(async (candidate, options) => {
+                    if (candidate === path) throw new Error('replica down');
+                    return original.call(store(), candidate, options);
+                });
+            try {
+                const error = await caught(() =>
+                    fs.mkdir(user.userId, { path }),
+                );
+                expect(error.statusCode).toBe(404);
+                expect(error.legacyCode).toBe('not_found');
+
+                // With the parent in place, the target's own failure surfaces.
+                await fs.mkdir(user.userId, {
+                    path: `${user.home}/Documents/nowhere`,
+                });
+                await expect(fs.mkdir(user.userId, { path })).rejects.toThrow(
+                    'replica down',
+                );
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('writes and emits nothing when the parent is missing or a file', async () => {
+            await writeFile(user, `${user.home}/Documents/a-file`, 'x');
+            const cases = [
+                [`${user.home}/Documents/absent/target`, 404],
+                [`${user.home}/Documents/a-file/target`, 409],
+            ] as const;
+            for (const [path, status] of cases) {
+                const lookups = vi.spyOn(store(), 'getEntryByPath');
+                const writes = vi.spyOn(server.clients.db, 'write');
+                const emits = vi.spyOn(server.clients.event, 'emit');
+                try {
+                    const error = await caught(() =>
+                        fs.mkdir(user.userId, { path }),
+                    );
+                    expect(error.statusCode).toBe(status);
+                    // The target was looked up, and that lookup changed nothing.
+                    expect(lookups).toHaveBeenCalledWith(path);
+                    expect(
+                        writes.mock.calls.filter(([sql]) =>
+                            /fsentries/i.test(String(sql)),
+                        ),
+                    ).toEqual([]);
+                    expect(
+                        emits.mock.calls.filter(([key]) =>
+                            String(key).startsWith('fs.'),
+                        ),
+                    ).toEqual([]);
+                } finally {
+                    lookups.mockRestore();
+                    writes.mockRestore();
+                    emits.mockRestore();
+                }
+                await expect(store().getEntryByPath(path)).resolves.toBeNull();
+            }
+        });
+
+        it('refuses a root path before looking anything up', async () => {
+            const spy = vi.spyOn(store(), 'getEntryByPath');
+            try {
+                const error = await caught(() =>
+                    fs.mkdir(user.userId, { path: '/toplevel' }),
+                );
+                expect(error.statusCode).toBe(400);
+                expect(spy).not.toHaveBeenCalled();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('creates missing parents and then the target', async () => {
+            const path = `${user.home}/Documents/fresh-parent/fresh-child`;
+            const created = await fs.mkdir(user.userId, {
+                path,
+                createMissingParents: true,
+            });
+            expect(created.path).toBe(path);
+            const parent = await store().getEntryByPath(
+                `${user.home}/Documents/fresh-parent`,
+            );
+            expect(created.parentUid).toBe(parent!.uuid);
+        });
+    });
+
     /**
      * Reproduce losing the mkdir race against a concurrent writer: the
      * existence probe finds nothing (it ran before the other writer's commit)
-     * and the INSERT then trips the `(parent_id, name)` unique key. Both halves
-     * are forced, because the probe otherwise sees the row and the sqlite test
-     * schema indexes that pair without a unique constraint.
+     * and the INSERT then trips the `(parent_id, name)` unique key.
      */
-    const simulateLostMkdirRace = (path: string) => {
+    const simulateLostMkdirRace = async (path: string) => {
         const store = server.stores.fsEntry;
-        const db = server.clients.db;
-        // Read the unpatched implementations off the prototypes: each spy
-        // installs an own property, so these stay the real methods.
+        // Read the unpatched implementation off the prototype: the spy
+        // installs an own property, so this stays the real method.
         const originalRead = (Object.getPrototypeOf(store) as typeof store)
             .getEntryByPath;
-        const originalWrite = (Object.getPrototypeOf(db) as typeof db).write;
+        const dropKey = await enforceUniqueNamesIn(
+            path.slice(0, path.lastIndexOf('/')),
+        );
 
         const probeSpy = vi
             .spyOn(store, 'getEntryByPath')
@@ -3088,50 +3785,39 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
                 return originalRead.call(store, candidate, options);
             });
 
-        let insertRejected = false;
-        const writeSpy = vi
-            .spyOn(db, 'write')
-            .mockImplementation(async (sql: string, params?: unknown[]) => {
-                if (!insertRejected && sql.includes('INSERT INTO fsentries')) {
-                    insertRejected = true;
-                    const violation = Object.assign(
-                        new Error(
-                            'UNIQUE constraint failed: fsentries.parent_id, fsentries.name',
-                        ),
-                        { code: 'SQLITE_CONSTRAINT' },
-                    );
-                    throw violation;
-                }
-                return originalWrite.call(db, sql, params);
-            });
-
-        return () => {
+        return async () => {
             probeSpy.mockRestore();
-            writeSpy.mockRestore();
+            await dropKey();
         };
     };
 
     it('returns the racing directory when a concurrent mkdir wins the insert', async () => {
         const path = `${user.home}/Documents/raced`;
         const winner = await fs.mkdir(user.userId, { path });
-        const restore = simulateLostMkdirRace(path);
+        const restore = await simulateLostMkdirRace(path);
 
-        const raced = await fs.mkdir(user.userId, { path });
-
-        expect(raced.uuid).toBe(winner.uuid);
-        restore();
+        try {
+            const raced = await fs.mkdir(user.userId, { path });
+            expect(raced.uuid).toBe(winner.uuid);
+        } finally {
+            await restore();
+        }
     });
 
     it('surfaces a conflict when the racing insert produced a file', async () => {
         const path = `${user.home}/Documents/racedfile`;
         await writeFile(user, path, 'x');
-        const restore = simulateLostMkdirRace(path);
+        const restore = await simulateLostMkdirRace(path);
 
-        const error = await caught(() => fs.mkdir(user.userId, { path }));
-
-        expect(error.statusCode).toBe(409);
-        expect(error.message).toContain(path);
-        restore();
+        try {
+            const error = await caught(() => fs.mkdir(user.userId, { path }));
+            expect(error.statusCode).toBe(409);
+            expect(error.message).toBe(
+                'An entry named `racedfile` already exists',
+            );
+        } finally {
+            await restore();
+        }
     });
 
     it('rethrows an insert failure that is not a unique-key violation', async () => {
@@ -3200,17 +3886,18 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             .tryHardRead;
         const tryHardReadSpy = vi
             .spyOn(db, 'tryHardRead')
-            .mockImplementation(async (query: string, params: unknown[] = []) => {
-                if (
-                    query.includes('WHERE uuid = ? LIMIT 1') &&
-                    params[0] === entry.uuid
-                ) {
-                    return staleRows;
-                }
-                return originalTryHardRead.call(db, query, params);
-            });
+            .mockImplementation(
+                async (query: string, params: unknown[] = []) => {
+                    if (
+                        query.includes('WHERE uuid = ? LIMIT 1') &&
+                        params[0] === entry.uuid
+                    ) {
+                        return staleRows;
+                    }
+                    return originalTryHardRead.call(db, query, params);
+                },
+            );
         try {
-
             const renamed = await fs.rename(
                 user.userId,
                 entry,
@@ -3220,7 +3907,6 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             expect(renamed.path).toBe(
                 `${user.home}/Documents/stale-rename-2.txt`,
             );
-
         } finally {
             tryHardReadSpy.mockRestore();
         }
@@ -3238,6 +3924,32 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             await entryAt(user, '/Documents/newdir/inner.txt'),
         ).not.toBeNull();
         expect(await entryAt(user, '/Documents/olddir/inner.txt')).toBeNull();
+    });
+
+    it('leaves nothing resolvable under the old path of a renamed directory', async () => {
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cachedir`,
+        });
+        const sub = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cachedir/sub`,
+        });
+        // Cached the way a client browsing the folder caches it.
+        await server.stores.fsEntry.getEntryByPath(sub.path);
+
+        await fs.rename(user.userId, dir, 'cachedir-renamed');
+
+        await expect(
+            server.stores.fsEntry.getEntryByPath(sub.path),
+        ).resolves.toBeNull();
+        expect(
+            (await server.stores.fsEntry.getEntryByUuid(sub.uuid))?.path,
+        ).toBe(`${user.home}/Documents/cachedir-renamed/sub`);
+        // A write under the old path finds no parent rather than landing at a
+        // path the renamed parent no longer has.
+        await caught(() => writeFile(user, `${sub.path}/late.txt`, 'x'));
+        expect(
+            await entryAt(user, '/Documents/cachedir/sub/late.txt'),
+        ).toBeNull();
     });
 
     it('rejects an invalid rename and a colliding one', async () => {
@@ -3327,10 +4039,23 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
     });
 
     it('rejects a thumbnail update without an entry identifier', async () => {
-        const error = await caught(() =>
-            fs.updateEntryThumbnail(user.userId, '', 'data:image/png;base64,A'),
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/thumb-blank.txt`,
+            'x',
         );
-        expect(error.statusCode).toBe(400);
+        const [blank, valid] = await fs.updateEntryThumbnails(user.userId, [
+            { uuid: '', thumbnail: 'data:image/png;base64,A' },
+            { uuid: entry.uuid, thumbnail: 'data:image/png;base64,B' },
+        ]);
+        expect(blank).toMatchObject({
+            status: 'rejected',
+            reason: { statusCode: 400 },
+        });
+        expect(valid).toMatchObject({
+            status: 'fulfilled',
+            value: { thumbnail: 'data:image/png;base64,B' },
+        });
     });
 
     it('updates a thumbnail on an owned entry', async () => {
@@ -3339,12 +4064,13 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             `${user.home}/Documents/thumb.txt`,
             'x',
         );
-        const updated = await fs.updateEntryThumbnail(
-            user.userId,
-            entry.uuid,
-            'data:image/png;base64,AAA',
-        );
-        expect(updated.thumbnail).toBe('data:image/png;base64,AAA');
+        const [updated] = await fs.updateEntryThumbnails(user.userId, [
+            { uuid: entry.uuid, thumbnail: 'data:image/png;base64,AAA' },
+        ]);
+        expect(updated).toMatchObject({
+            status: 'fulfilled',
+            value: { thumbnail: 'data:image/png;base64,AAA' },
+        });
     });
 });
 
@@ -3440,6 +4166,71 @@ describe('FSService remove', () => {
                 file.bucketRegion!,
             ),
         ).rejects.toMatchObject({ name: 'NoSuchKey' });
+    });
+
+    describe('fs.remove.node emission', () => {
+        /** Count `fs.remove.node` emissions per uuid while `fn` runs. */
+        const countRemoveEvents = async (fn: () => Promise<void>) => {
+            const counts = new Map<string, number>();
+            const listener = (_key: string, data: unknown) => {
+                const uuid = (data as { node?: FSEntry })?.node?.uuid;
+                if (uuid) counts.set(uuid, (counts.get(uuid) ?? 0) + 1);
+            };
+            server.clients.event.on('fs.remove.node', listener);
+            try {
+                await fn();
+            } finally {
+                server.clients.event.off('fs.remove.node', listener);
+            }
+            return counts;
+        };
+
+        const makeTree = async (name: string) => {
+            const root = await fs.mkdir(user.userId, {
+                path: `${user.home}/Documents/${name}`,
+            });
+            const sub = await fs.mkdir(user.userId, {
+                path: `${root.path}/sub`,
+            });
+            const empty = await fs.mkdir(user.userId, {
+                path: `${root.path}/empty`,
+            });
+            const files = [
+                await writeFile(user, `${root.path}/a.txt`, 'a'),
+                await writeFile(user, `${root.path}/b.txt`, 'b'),
+                await writeFile(user, `${root.path}/c.txt`, 'c'),
+                await writeFile(user, `${sub.path}/d.txt`, 'd'),
+            ];
+            return { root, descendants: [sub, empty, ...files] };
+        };
+
+        it('emits once per entry on a recursive delete', async () => {
+            const { root, descendants } = await makeTree('emit-once');
+
+            const counts = await countRemoveEvents(() =>
+                fs.remove(user.userId, { entry: root, recursive: true }),
+            );
+
+            const expected = [root, ...descendants].map((e) => e.uuid);
+            expect([...counts.keys()].sort()).toEqual([...expected].sort());
+            for (const uuid of expected) expect(counts.get(uuid)).toBe(1);
+        });
+
+        it('emits once per descendant and not for the kept directory', async () => {
+            const { root, descendants } = await makeTree('emit-once-keep');
+
+            const counts = await countRemoveEvents(() =>
+                fs.remove(user.userId, {
+                    entry: root,
+                    recursive: true,
+                    descendantsOnly: true,
+                }),
+            );
+
+            const expected = descendants.map((e) => e.uuid);
+            expect([...counts.keys()].sort()).toEqual([...expected].sort());
+            for (const uuid of expected) expect(counts.get(uuid)).toBe(1);
+        });
     });
 
     it('empties a directory but keeps it when descendantsOnly is set', async () => {
@@ -3617,6 +4408,92 @@ describe('FSService home directory guard', () => {
     });
 });
 
+describe('FSService names starting with a supplementary character', () => {
+    let user: TestUser;
+    beforeAll(async () => {
+        user = await makeUser();
+    });
+
+    // `<top>/🔥 b/c.txt` under Documents.
+    const seed = async (top: string) => {
+        const inner = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/${top}/🔥 b`,
+            createMissingParents: true,
+        });
+        const file = await writeFile(
+            user,
+            `${user.home}/Documents/${top}/🔥 b/c.txt`,
+            'c',
+        );
+        const dir = (await entryAt(user, `/Documents/${top}`))!;
+        return { dir, inner, file };
+    };
+
+    // The column itself: a path lookup would heal a stale row on the way.
+    const storedPaths = async (...entries: FSEntry[]) => {
+        const rows = (await server.clients.db.read(
+            `SELECT uuid, path FROM fsentries WHERE uuid IN (${entries.map(() => '?').join(', ')})`,
+            entries.map((entry) => entry.uuid),
+        )) as Array<{ uuid: string; path: string }>;
+        const byUuid = new Map(rows.map((row) => [row.uuid, row.path]));
+        return entries.map((entry) => byUuid.get(entry.uuid) ?? null);
+    };
+
+    it('rewrites the subtree when the directory is renamed', async () => {
+        const { dir, inner, file } = await seed('🔥 rename');
+
+        await fs.rename(user.userId, dir, '🔥 renamed');
+
+        expect(await storedPaths(inner, file)).toEqual([
+            `${user.home}/Documents/🔥 renamed/🔥 b`,
+            `${user.home}/Documents/🔥 renamed/🔥 b/c.txt`,
+        ]);
+    });
+
+    it('rewrites the subtree when the directory is moved', async () => {
+        const { dir, inner, file } = await seed('🔥 move');
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        await fs.move(user.userId, {
+            source: dir,
+            destinationParent: destination,
+        });
+
+        expect(await storedPaths(inner, file)).toEqual([
+            `${user.home}/Desktop/🔥 move/🔥 b`,
+            `${user.home}/Desktop/🔥 move/🔥 b/c.txt`,
+        ]);
+    });
+
+    it('copies the whole subtree', async () => {
+        const { dir } = await seed('🔥 copy');
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        await fs.copy(user.userId, {
+            source: dir,
+            destinationParent: destination,
+        });
+
+        const copied = await entryAt(user, '/Desktop/🔥 copy/🔥 b/c.txt');
+        expect(copied).not.toBeNull();
+        expect(await readBack(copied!)).toBe('c');
+    });
+
+    it('removes the whole subtree and its objects', async () => {
+        const { dir, inner, file } = await seed('🔥 remove');
+
+        await fs.remove(user.userId, { entry: dir, recursive: true });
+
+        expect(await storedPaths(dir, inner, file)).toEqual([null, null, null]);
+        await expect(
+            server.stores.s3Object.getObjectStream(
+                { bucket: file.bucket!, objectKey: file.uuid },
+                file.bucketRegion!,
+            ),
+        ).rejects.toMatchObject({ name: 'NoSuchKey' });
+    });
+});
+
 describe('FSService move', () => {
     let user: TestUser;
     beforeAll(async () => {
@@ -3656,6 +4533,77 @@ describe('FSService move', () => {
 
         expect(moved.path).toBe(`${user.home}/Desktop/moveddir`);
         expect(await entryAt(user, '/Desktop/moveddir/in.txt')).not.toBeNull();
+    });
+
+    it('leaves nothing resolvable under the old path of a moved directory', async () => {
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/mvcache`,
+        });
+        const sub = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/mvcache/sub`,
+        });
+        await server.stores.fsEntry.getEntryByPath(sub.path);
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        await fs.move(user.userId, {
+            source: dir,
+            destinationParent: destination,
+        });
+
+        await expect(
+            server.stores.fsEntry.getEntryByPath(sub.path),
+        ).resolves.toBeNull();
+        await caught(() => writeFile(user, `${sub.path}/late.txt`, 'x'));
+        expect(
+            await entryAt(user, '/Documents/mvcache/sub/late.txt'),
+        ).toBeNull();
+    });
+
+    it('re-points the owner recorded on a share when a move re-owns the subtree', async () => {
+        const other = await makeUser();
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/ownerdir`,
+        });
+        const inside = await writeFile(
+            user,
+            `${user.home}/Documents/ownerdir/in.txt`,
+            'x',
+        );
+        const destination = (await entryAt(other, '/Documents'))!;
+
+        const ownerOf = async (uuid: string) => {
+            const rows = (await server.clients.db.read(
+                'SELECT s.`entry_owner_user_id` AS owner FROM `share` s ' +
+                    'JOIN `fsentries` f ON f.`id` = s.`fsentry_id` ' +
+                    'WHERE f.`uuid` = ?',
+                [uuid],
+            )) as Array<{ owner: number | null }>;
+            return rows[0]?.owner ?? null;
+        };
+        const shareOn = async (entry: { uuid: string }) =>
+            server.stores.share.upsertActive({
+                issuerUserId: user.userId,
+                holderUserId: other.userId,
+                recipientEmail: other.email,
+                fsentryId: (await server.stores.fsEntry.getEntryByUuid(
+                    entry.uuid,
+                ))!.id,
+                mode: 'read',
+            });
+
+        await shareOn(dir);
+        await shareOn(inside);
+        expect(await ownerOf(dir.uuid)).toBe(user.userId);
+        expect(await ownerOf(inside.uuid)).toBe(user.userId);
+
+        await fs.move(user.userId, {
+            source: dir,
+            destinationParent: destination,
+        });
+
+        // The whole subtree changed hands, so both rows follow it.
+        expect(await ownerOf(dir.uuid)).toBe(other.userId);
+        expect(await ownerOf(inside.uuid)).toBe(other.userId);
     });
 
     it('refuses a name that would steer the move out of the destination', async () => {
@@ -3752,6 +4700,14 @@ describe('FSService move', () => {
             }),
         );
         expect(intoItself.legacyCode).toBe('cannot_move_directory_into_itself');
+
+        const ontoItself = await caught(() =>
+            fs.move(user.userId, {
+                source: dir,
+                destinationParent: dir,
+            }),
+        );
+        expect(ontoItself.legacyCode).toBe('cannot_move_directory_into_itself');
     });
 
     it('handles a destination collision by conflict, overwrite or dedupe', async () => {
@@ -3791,6 +4747,132 @@ describe('FSService move', () => {
         });
         expect(overwritten.path).toBe(`${user.home}/Desktop/coll.txt`);
         expect(await readBack(overwritten)).toBe('winner');
+    });
+
+    it('refuses to overwrite a directory the moved entry sits inside', async () => {
+        const outer = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/nest/photos/photos`,
+            createMissingParents: true,
+        });
+        await writeFile(user, `${user.home}/Documents/nest/photos/photos/a.txt`, 'keep');
+        const nest = (await entryAt(user, '/Documents/nest'))!;
+
+        const refused = await caught(() =>
+            fs.move(user.userId, {
+                source: outer,
+                destinationParent: nest,
+                overwrite: true,
+            }),
+        );
+        expect(refused.statusCode).toBe(400);
+        expect(await entryAt(user, '/Documents/nest/photos/photos/a.txt')).toBeTruthy();
+    });
+
+    /**
+     * Reproduce an occupant arriving after the collision probe: the probe
+     * misses it (a concurrent move, or a replica that hasn't caught up) and the
+     * UPDATE trips the `(parent_id, name)` unique key.
+     */
+    const simulateLostMoveRace = async (targetPath: string) => {
+        const store = server.stores.fsEntry;
+        const originalRead = (Object.getPrototypeOf(store) as typeof store)
+            .getEntryByPath;
+        const dropKey = await enforceUniqueNamesIn(
+            targetPath.slice(0, targetPath.lastIndexOf('/')),
+        );
+
+        const probeSpy = vi
+            .spyOn(store, 'getEntryByPath')
+            .mockImplementation(async (candidate, options) => {
+                if (candidate === targetPath && !options?.useTryHardRead)
+                    return null;
+                return originalRead.call(store, candidate, options);
+            });
+
+        return async () => {
+            probeSpy.mockRestore();
+            await dropKey();
+        };
+    };
+
+    it('reports a name taken after the collision check as a conflict', async () => {
+        const destination = (await entryAt(user, '/Desktop'))!;
+        const targetPath = `${user.home}/Desktop/race-409.txt`;
+        await writeFile(user, targetPath, 'occupant');
+        const source = await writeFile(
+            user,
+            `${user.home}/Documents/race-409.txt`,
+            'incoming',
+        );
+        const restore = await simulateLostMoveRace(targetPath);
+
+        try {
+            const error = await caught(() =>
+                fs.move(user.userId, {
+                    source,
+                    destinationParent: destination,
+                }),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(error.legacyCode).toBe('item_with_same_name_exists');
+            expect(error.fields).toMatchObject({ entry_name: 'race-409.txt' });
+        } finally {
+            await restore();
+        }
+        expect(await entryAt(user, '/Documents/race-409.txt')).not.toBeNull();
+    });
+
+    it('replaces an occupant that arrived after the collision check when overwriting', async () => {
+        const destination = (await entryAt(user, '/Desktop'))!;
+        const targetPath = `${user.home}/Desktop/race-overwrite.txt`;
+        const occupant = await writeFile(user, targetPath, 'occupant');
+        const source = await writeFile(
+            user,
+            `${user.home}/Documents/race-overwrite.txt`,
+            'incoming',
+        );
+        const restore = await simulateLostMoveRace(targetPath);
+
+        let moved: FSEntry;
+        try {
+            moved = await fs.move(user.userId, {
+                source,
+                destinationParent: destination,
+                overwrite: true,
+            });
+        } finally {
+            await restore();
+        }
+        expect(moved.path).toBe(targetPath);
+        expect(moved.uuid).toBe(source.uuid);
+        expect(await readBack(moved)).toBe('incoming');
+        expect(
+            await server.stores.fsEntry.getEntryByUuid(occupant.uuid),
+        ).toBeNull();
+    });
+
+    it('dedupes against an occupant that arrived after the collision check', async () => {
+        const destination = (await entryAt(user, '/Desktop'))!;
+        const targetPath = `${user.home}/Desktop/race-dedupe.txt`;
+        await writeFile(user, targetPath, 'occupant');
+        const source = await writeFile(
+            user,
+            `${user.home}/Documents/race-dedupe.txt`,
+            'incoming',
+        );
+        const restore = await simulateLostMoveRace(targetPath);
+
+        let moved: FSEntry;
+        try {
+            moved = await fs.move(user.userId, {
+                source,
+                destinationParent: destination,
+                dedupeName: true,
+            });
+        } finally {
+            await restore();
+        }
+        expect(moved.path).toBe(`${user.home}/Desktop/race-dedupe (1).txt`);
     });
 
     it('replaces metadata on the moved entry and can clear it', async () => {
@@ -3975,6 +5057,25 @@ describe('FSService copy', () => {
         ).toBe('cannot_copy_directory_into_itself');
     });
 
+    it('refuses to overwrite a directory the copied entry sits inside', async () => {
+        const inner = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cp-nest/photos/photos`,
+            createMissingParents: true,
+        });
+        await writeFile(user, `${user.home}/Documents/cp-nest/photos/photos/a.txt`, 'keep');
+        const nest = (await entryAt(user, '/Documents/cp-nest'))!;
+
+        const refused = await caught(() =>
+            fs.copy(user.userId, {
+                source: inner,
+                destinationParent: nest,
+                overwrite: true,
+            }),
+        );
+        expect(refused.statusCode).toBe(400);
+        expect(await entryAt(user, '/Documents/cp-nest/photos/photos/a.txt')).toBeTruthy();
+    });
+
     it('handles a destination collision by conflict, overwrite or dedupe', async () => {
         const destination = (await entryAt(user, '/Desktop'))!;
         const source = await writeFile(
@@ -4060,6 +5161,7 @@ describe('FSService copy', () => {
         );
         expect(error.statusCode).toBe(404);
         expect(error.legacyCode).toBe('subject_does_not_exist');
+        expect(error.fields).toEqual({ uid: source.uuid });
         expect(await entryAt(user, '/Documents/cp-ghost.txt')).toBeNull();
 
         consoleError.mockRestore();
@@ -4090,9 +5192,7 @@ describe('FSService copy event dispatch', () => {
             eventsServer.stores.user,
             created,
         );
-        const refreshed = (await eventsServer.stores.user.getById(
-            created.id,
-        ))!;
+        const refreshed = (await eventsServer.stores.user.getById(created.id))!;
         user = {
             userId: refreshed.id,
             username: refreshed.username,
@@ -4157,7 +5257,10 @@ describe('FSService copy event dispatch', () => {
                 });
                 return true;
             });
-        const walkSpy = vi.spyOn(eventsFs, 'getAncestorChain');
+        const walkSpy = vi.spyOn(
+            eventsServer.stores.fsEntry,
+            'getAncestorChain',
+        );
         return {
             dispatched,
             walkSpy,
@@ -4194,9 +5297,7 @@ describe('FSService copy event dispatch', () => {
                 path: copy.path,
             });
             expect(
-                dispatched[0].ancestors.some(
-                    (a) => a.uid === destination.uid,
-                ),
+                dispatched[0].ancestors.some((a) => a.uid === destination.uid),
             ).toBe(true);
         } finally {
             restore();
@@ -4264,8 +5365,9 @@ describe('FSService copy event dispatch', () => {
             const nested = dispatched.find((d) =>
                 d.path.endsWith('/cpev2-copy/sub/b.txt'),
             )!;
-            const destinationChain =
-                await eventsFs.getAncestorChain(destination.path);
+            const destinationChain = await eventsFs.getAncestorChain(
+                destination.path,
+            );
             expect(nested.ancestors.map((a) => a.path)).toEqual([
                 `${user.home}/Desktop/cpev2-copy/sub/b.txt`,
                 `${user.home}/Desktop/cpev2-copy/sub`,
@@ -4370,6 +5472,38 @@ describe('FSService copy event dispatch', () => {
             dispatchSpy.mockRestore();
         }
     });
+
+    it('publishes a recursive delete once per entry, against one surviving chain', async () => {
+        await eventsFs.mkdir(user.userId, {
+            path: `${user.home}/Documents/rmev/sub`,
+            createMissingParents: true,
+        });
+        await eventsWriteFile(`${user.home}/Documents/rmev/a.txt`, 'a');
+        await eventsWriteFile(`${user.home}/Documents/rmev/sub/b.txt`, 'b');
+        const root = (await eventsEntryAt('/Documents/rmev'))!;
+        const survivors = await eventsServer.stores.fsEntry.getAncestorChain(
+            `${user.home}/Documents`,
+        );
+
+        const { dispatched, walkSpy, restore } = captureDispatches();
+        try {
+            await eventsFs.remove(user.userId, {
+                entry: root,
+                recursive: true,
+            });
+
+            await vi.waitFor(() => expect(dispatched).toHaveLength(4));
+            expect(new Set(dispatched.map((d) => d.uid)).size).toBe(4);
+            for (const d of dispatched) {
+                expect(d.key).toBe('fs.remove.node');
+                expect(d.ancestors).toEqual(survivors);
+            }
+            expect(walkSpy).toHaveBeenCalledTimes(1);
+            expect(walkSpy.mock.calls[0]?.[0]).toBe(`${user.home}/Documents`);
+        } finally {
+            restore();
+        }
+    });
 });
 
 describe('FSService restructuring a shared tree', () => {
@@ -4452,7 +5586,10 @@ describe('FSService restructuring a shared tree', () => {
             }),
         );
 
-        expect(moved.path).toBe(`${owner.home}/Trash/${file.uuid}`);
+        // Always renamed in, so the name cannot report on the Trash.
+        expect(moved.path).toBe(
+            `${owner.home}/Trash/${file.uuid} (${file.uuid.slice(0, 8)})`,
+        );
         expect(moved.userId).toBe(owner.userId);
         expect(await stillThere(file.path)).toBe(false);
     });
@@ -5036,6 +6173,14 @@ describe('FSService permission rules', () => {
         );
     });
 
+    it('keeps the sub-scope when it widens a mode', async () => {
+        const higher = await server.services.permission.getHigherPermissions(
+            `fs:${file.uuid}:see:thumbnail`,
+        );
+
+        expect(higher).toContain(`fs:${file.uuid}:read:thumbnail`);
+    });
+
     it('does not widen the narrowest mode', async () => {
         const higher = await server.services.permission.getHigherPermissions(
             `fs:${file.uuid}:write`,
@@ -5356,6 +6501,585 @@ describe('FSService — cross-app AppData access', () => {
             await server.stores.fsEntry.getEntryByPath(contactsFile.path),
         ).toBeFalsy();
     });
+
+    // -- Carrying AppData out of AppData ---------------------------------
+
+    describe('the AppData folder or home as a whole', () => {
+        let appData: FSEntry;
+        let desktop: FSEntry;
+        let closedUid: string;
+        let closedFile: FSEntry;
+
+        beforeEach(async () => {
+            const closed = await makeRealApp(owner.userId, {
+                metadata: JSON.stringify({ share_app_data: false }),
+            });
+            closedUid = closed.uid;
+            closedFile = await seedAppData(closed.uid);
+            appData = (await entryAt(owner, '/AppData'))!;
+            desktop = (await entryAt(owner, '/Desktop'))!;
+        });
+
+        it('refuses an app copying, moving or renaming it past a closed app', async () => {
+            const into = { source: appData, destinationParent: desktop };
+            await expect(
+                asCalendar(() =>
+                    fs.copy(owner.userId, { ...into, newName: 'grab' }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                asCalendar(() =>
+                    fs.move(owner.userId, { ...into, newName: 'grab' }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                asCalendar(() => fs.rename(owner.userId, appData, 'grab')),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect(await entryAt(owner, '/Desktop/grab')).toBeFalsy();
+            expect(await entryAt(owner, '/grab')).toBeFalsy();
+
+            // The home carries the same folder.
+            const home = (await entryAt(owner, ''))!;
+            const elsewhere = (await entryAt(await makeUser(), '/Desktop'))!;
+            await expect(
+                asCalendar(() =>
+                    fs.copy(owner.userId, {
+                        source: home,
+                        destinationParent: elsewhere,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('lets the user copy it', async () => {
+            await runWithContext({ actor: owner.actor }, () =>
+                fs.copy(owner.userId, {
+                    source: appData,
+                    destinationParent: desktop,
+                    newName: 'grab',
+                }),
+            );
+            expect(
+                await entryAt(owner, `/Desktop/grab/${closedUid}/state.json`),
+            ).toBeTruthy();
+        });
+
+        it('lets an app copy it while every other app shares', async () => {
+            await fs.remove(owner.userId, {
+                entry: (await entryAt(owner, `/AppData/${closedUid}`))!,
+                recursive: true,
+            });
+            await asCalendar(() =>
+                fs.copy(owner.userId, {
+                    source: appData,
+                    destinationParent: desktop,
+                    newName: 'grab',
+                }),
+            );
+            expect(
+                await entryAt(
+                    owner,
+                    `/Desktop/grab/${contacts.uid}/state.json`,
+                ),
+            ).toBeTruthy();
+        });
+
+        it("leaves a closed app's entries out of an app's recursive listing", async () => {
+            const list = () =>
+                fs.listDirectoryTreePage(owner.userId, owner.home, {
+                    maxDepth: 10,
+                    limit: 1000,
+                });
+            const paths = (await asCalendar(list)).entries.map((e) => e.path);
+            expect(paths).toContain(contactsFile.path);
+            expect(paths).not.toContain(closedFile.path);
+            expect(paths).not.toContain(`${owner.home}/AppData/${closedUid}`);
+
+            const asUser = await runWithContext({ actor: owner.actor }, list);
+            expect(asUser.entries.map((e) => e.path)).toContain(
+                closedFile.path,
+            );
+        });
+    });
+});
+
+describe('FSService AppData root guard', () => {
+    // Launch adopts whatever directory sits at `AppData/<appUid>`, and grants on
+    // a directory follow it, so an app able to put its root in another app's
+    // place would keep its access to everything that app stores there.
+    let owner: TestUser;
+    let appUid: string;
+    let otherUid: string;
+    let root: FSEntry;
+    let userActor: Actor;
+    let appActor: Actor;
+
+    const as = <T>(actor: Actor, fn: () => Promise<T>) =>
+        runWithContext({ actor }, fn);
+
+    const tokenActor = (issuer: Actor, fullAccess: boolean) =>
+        makeActor({
+            user: owner.actor.user,
+            accessToken: { uid: `tok-${uuidv4()}`, issuer, fullAccess },
+        });
+
+    beforeEach(async () => {
+        owner = await makeUser();
+        appUid = `app-${uuidv4()}`;
+        otherUid = `app-${uuidv4()}`;
+        root = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/AppData/${appUid}`,
+            createMissingParents: true,
+        });
+        userActor = makeActor({ user: owner.actor.user });
+        appActor = makeActor({ user: owner.actor.user, app: { uid: appUid } });
+    });
+
+    it('refuses an app renaming its root or moving it away', async () => {
+        const trash = (await entryAt(owner, '/Trash'))!;
+
+        await expect(
+            as(appActor, () => fs.rename(owner.userId, root, otherUid)),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        await expect(
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: root,
+                    destinationParent: trash,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect((await entryAt(owner, `/AppData/${appUid}`))?.uuid).toBe(
+            root.uuid,
+        );
+    });
+
+    it('refuses an app moving an entry into a root’s place', async () => {
+        const inner = await fs.mkdir(owner.userId, {
+            path: `${root.path}/inner`,
+        });
+        const appData = (await entryAt(owner, '/AppData'))!;
+
+        await expect(
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: inner,
+                    destinationParent: appData,
+                    newName: otherUid,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect(await entryAt(owner, `/AppData/${otherUid}`)).toBeNull();
+    });
+
+    it('rewrites a trash origin an app records other than the entry’s own', async () => {
+        const inner = await fs.mkdir(owner.userId, {
+            path: `${root.path}/inner`,
+        });
+        const trash = (await entryAt(owner, '/Trash'))!;
+        const trashAs = (originalPath: string) =>
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: inner,
+                    destinationParent: trash,
+                    newName: inner.uuid,
+                    newMetadata: {
+                        original_name: otherUid,
+                        original_path: originalPath,
+                        trashed_ts: 1,
+                    },
+                }),
+            );
+
+        // Refusing this would also break an ordinary app-initiated delete, so
+        // the forged keys are corrected to the entry's own instead.
+        const trashed = await trashAs(`${owner.home}/AppData/${otherUid}`);
+        expect(trashed.path).toBe(`${owner.home}/Trash/${inner.uuid}`);
+        const metadata = JSON.parse(trashed.metadata!) as Record<
+            string,
+            unknown
+        >;
+        expect(metadata.original_path).toBe(inner.path);
+        expect(metadata.original_name).toBe('inner');
+        expect(metadata.trashed_ts).not.toBe(1);
+    });
+
+    it('refuses an app-issued token and a scoped token', async () => {
+        for (const actor of [
+            tokenActor(appActor, false),
+            tokenActor(userActor, false),
+        ]) {
+            await expect(
+                as(actor, () => fs.rename(owner.userId, root, otherUid)),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        }
+    });
+
+    it('still lets an app rename and move inside its root, and delete the root', async () => {
+        const file = await writeFile(owner, `${root.path}/state.json`, '{}');
+        const sub = await fs.mkdir(owner.userId, { path: `${root.path}/sub` });
+
+        const renamed = await as(appActor, () =>
+            fs.rename(owner.userId, file, 'state-2.json'),
+        );
+        const moved = await as(appActor, () =>
+            fs.move(owner.userId, { source: renamed, destinationParent: sub }),
+        );
+        expect(moved.path).toBe(`${root.path}/sub/state-2.json`);
+
+        await as(appActor, () =>
+            fs.remove(owner.userId, { entry: root, recursive: true }),
+        );
+        expect(await entryAt(owner, `/AppData/${appUid}`)).toBeNull();
+    });
+
+    it('leaves the account free to trash, restore and rename a root', async () => {
+        const trash = (await entryAt(owner, '/Trash'))!;
+        const appData = (await entryAt(owner, '/AppData'))!;
+
+        // As the desktop does it: trash under the entry's uid with its origin
+        // recorded, then restore under the original name.
+        const trashed = await as(userActor, () =>
+            fs.move(owner.userId, {
+                source: root,
+                destinationParent: trash,
+                newName: root.uuid,
+                newMetadata: {
+                    original_name: appUid,
+                    original_path: root.path,
+                    trashed_ts: 1,
+                },
+            }),
+        );
+        const restored = await as(userActor, () =>
+            fs.move(owner.userId, {
+                source: trashed,
+                destinationParent: appData,
+                newName: appUid,
+                newMetadata: {},
+            }),
+        );
+        expect(restored.path).toBe(root.path);
+
+        const renamed = await as(tokenActor(userActor, true), () =>
+            fs.rename(owner.userId, restored, otherUid),
+        );
+        expect(renamed.path).toBe(`${owner.home}/AppData/${otherUid}`);
+
+        // No actor: an internal caller.
+        const back = await fs.rename(owner.userId, renamed, appUid);
+        expect(back.path).toBe(root.path);
+    });
+
+    it('drops forged trash metadata from a write, for an app or the account alike', async () => {
+        // Nothing legitimate sets these through a write — the GUI only ever
+        // sends them via move's trash step — so a write never keeps them,
+        // regardless of who's writing.
+        const forged = {
+            original_path: `${owner.home}/AppData/${otherUid}`,
+            original_name: otherUid,
+            trashed_ts: 1,
+            keep: 'value',
+        };
+
+        const fromApp = await as(appActor, () =>
+            writeFile(owner, `${root.path}/evil.json`, '{}', {
+                metadata: forged,
+            }),
+        );
+        expect(JSON.parse(fromApp.metadata!)).toEqual({
+            keep: 'value',
+            contentType: 'text/plain',
+        });
+
+        const fromAccount = await as(userActor, () =>
+            writeFile(owner, `${root.path}/legit.json`, '{}', {
+                metadata: forged,
+            }),
+        );
+        expect(JSON.parse(fromAccount.metadata!)).toEqual({
+            keep: 'value',
+            contentType: 'text/plain',
+        });
+    });
+
+    it('refuses overwriting another app’s root via move, even with overwrite: true', async () => {
+        const appData = (await entryAt(owner, '/AppData'))!;
+        const otherRoot = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/AppData/${otherUid}`,
+        });
+        const inner = await fs.mkdir(owner.userId, {
+            path: `${root.path}/inner`,
+        });
+
+        await expect(
+            as(appActor, () =>
+                fs.move(owner.userId, {
+                    source: inner,
+                    destinationParent: appData,
+                    newName: otherUid,
+                    overwrite: true,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect((await entryAt(owner, `/AppData/${otherUid}`))?.uuid).toBe(
+            otherRoot.uuid,
+        );
+    });
+
+    it('still protects a root after its AppData folder is renamed to a different case', async () => {
+        const appData = (await entryAt(owner, '/AppData'))!;
+        await as(userActor, () => fs.rename(owner.userId, appData, 'appdata'));
+
+        const recased = (await entryAt(owner, `/appdata/${appUid}`))!;
+        expect(recased.uuid).toBe(root.uuid);
+
+        await expect(
+            as(appActor, () => fs.rename(owner.userId, recased, otherUid)),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        expect((await entryAt(owner, `/appdata/${appUid}`))?.uuid).toBe(
+            root.uuid,
+        );
+    });
+});
+
+describe('FSService trash metadata across a share', () => {
+    // The trash keys steer a later restore, so a recipient never sets them.
+    let owner: TestUser;
+    let holder: TestUser;
+    let ownerActor: Actor;
+    let holderActor: Actor;
+    let shared: FSEntry;
+
+    const as = <T>(actor: Actor, fn: () => Promise<T>) =>
+        runWithContext({ actor }, fn);
+
+    beforeEach(async () => {
+        owner = await makeUser();
+        holder = await makeUser();
+        // `makeActor` resolves `effectiveApp`, which account context reads.
+        ownerActor = makeActor({ user: owner.actor.user });
+        holderActor = makeActor({ user: holder.actor.user });
+        shared = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/Shared`,
+        });
+        await server.services.acl.setUserUser(
+            ownerActor,
+            holderActor,
+            {
+                path: shared.path,
+                resolveAncestors: () => fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+    });
+
+    it('drops forged trash metadata from a recipient’s write into the shared folder', async () => {
+        const forged = {
+            original_path: `${owner.home}/AppData/some-other-app`,
+            original_name: 'some-other-app',
+            trashed_ts: 1,
+        };
+
+        const written = await as(holderActor, () =>
+            writeFile(holder, `${shared.path}/evil.txt`, 'x', {
+                metadata: forged,
+            }),
+        );
+        expect(JSON.parse(written.metadata!)).toEqual({
+            contentType: 'text/plain',
+        });
+    });
+
+    it('recomputes original_path/original_name when a recipient trashes with forged new_metadata', async () => {
+        const file = await writeFile(owner, `${shared.path}/theirs.txt`, 'x');
+        const trash = (await entryAt(owner, '/Trash'))!;
+
+        const moved = await as(holderActor, () =>
+            fs.move(holder.userId, {
+                source: file,
+                destinationParent: trash,
+                newName: file.uuid,
+                newMetadata: {
+                    original_name: 'not-theirs',
+                    original_path: `${owner.home}/AppData/some-other-app`,
+                    trashed_ts: 1,
+                },
+            }),
+        );
+
+        const metadata = JSON.parse(moved.metadata!) as Record<string, unknown>;
+        expect(metadata.original_path).toBe(file.path);
+        expect(metadata.original_name).toBe(file.name);
+        expect(metadata.trashed_ts).not.toBe(1);
+    });
+
+    it('keeps what the owner’s own session sends when trashing its own tree', async () => {
+        const file = await writeFile(owner, `${shared.path}/mine.txt`, 'x');
+        const trash = (await entryAt(owner, '/Trash'))!;
+
+        const moved = await as(ownerActor, () =>
+            fs.move(owner.userId, {
+                source: file,
+                destinationParent: trash,
+                newName: file.uuid,
+                newMetadata: {
+                    original_name: file.name,
+                    original_path: file.path,
+                    trashed_ts: 1,
+                },
+            }),
+        );
+
+        expect(JSON.parse(moved.metadata!)).toEqual({
+            original_name: file.name,
+            original_path: file.path,
+            trashed_ts: 1,
+        });
+    });
+
+    it('drops forged new_metadata when a recipient moves its own file into the shared folder', async () => {
+        const seed = await writeFile(
+            holder,
+            `${holder.home}/Documents/seed.txt`,
+            'x',
+        );
+
+        const moved = await as(holderActor, () =>
+            fs.move(holder.userId, {
+                source: seed,
+                destinationParent: shared,
+                newMetadata: {
+                    original_path: `${owner.home}/AppData/some-other-app`,
+                    original_name: 'some-other-app',
+                    trashed_ts: 1,
+                    keep: true,
+                },
+            }),
+        );
+
+        expect(JSON.parse(moved.metadata!)).toEqual({ keep: true });
+    });
+
+    it('drops trash metadata a recipient set in its own tree once the file moves into the shared folder', async () => {
+        // A recipient may set anything on its own file; it must not survive
+        // the move into someone else's tree.
+        const seed = await writeFile(
+            holder,
+            `${holder.home}/Documents/seed.txt`,
+            'x',
+            {
+                metadata: {
+                    original_path: `${owner.home}/AppData/some-other-app`,
+                    original_name: 'some-other-app',
+                    trashed_ts: 1,
+                },
+            },
+        );
+
+        const moved = await as(holderActor, () =>
+            fs.move(holder.userId, {
+                source: seed,
+                destinationParent: shared,
+            }),
+        );
+
+        expect(JSON.parse(moved.metadata!)).toEqual({
+            contentType: 'text/plain',
+        });
+    });
+
+    it('leaves metadata alone when a recipient moves an entry without trash keys', async () => {
+        const file = await writeFile(owner, `${shared.path}/plain.txt`, 'x', {
+            metadata: { keep: true },
+        });
+        const sub = await fs.mkdir(owner.userId, {
+            path: `${shared.path}/sub`,
+        });
+
+        const moved = await as(holderActor, () =>
+            fs.move(holder.userId, { source: file, destinationParent: sub }),
+        );
+
+        expect(moved.metadata).toBe(file.metadata);
+    });
+
+    it('accepts non-object new_metadata from a recipient', async () => {
+        const file = await writeFile(owner, `${shared.path}/odd.txt`, 'x');
+        const sub = await fs.mkdir(owner.userId, {
+            path: `${shared.path}/odd-sub`,
+        });
+
+        await as(holderActor, () =>
+            fs.move(holder.userId, {
+                source: file,
+                destinationParent: sub,
+                newMetadata: 'x' as never,
+            }),
+        );
+    });
+
+    it('does not carry trash metadata forward onto a copy of a trashed directory', async () => {
+        const trash = (await entryAt(owner, '/Trash'))!;
+        const dir = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/ToTrash`,
+        });
+        const trashedDir = await as(ownerActor, () =>
+            fs.move(owner.userId, {
+                source: dir,
+                destinationParent: trash,
+                newName: dir.uuid,
+                newMetadata: {
+                    original_name: dir.name,
+                    original_path: dir.path,
+                    trashed_ts: 1,
+                },
+            }),
+        );
+
+        const documents = (await entryAt(owner, '/Documents'))!;
+        const copiedDir = await as(ownerActor, () =>
+            fs.copy(owner.userId, {
+                source: trashedDir,
+                destinationParent: documents,
+                newName: 'CopiedDir',
+            }),
+        );
+        expect(JSON.parse(copiedDir.metadata!)).toEqual({});
+    });
+
+    it('does not carry trash metadata forward onto a copy of a trashed empty file', async () => {
+        const trash = (await entryAt(owner, '/Trash'))!;
+        const file = await fs.touch(owner.userId, {
+            path: `${owner.home}/Documents/empty.txt`,
+        });
+        const trashedFile = await as(ownerActor, () =>
+            fs.move(owner.userId, {
+                source: file,
+                destinationParent: trash,
+                newName: file.uuid,
+                newMetadata: {
+                    original_name: file.name,
+                    original_path: file.path,
+                    trashed_ts: 1,
+                },
+            }),
+        );
+
+        const documents = (await entryAt(owner, '/Documents'))!;
+        const copiedFile = await as(ownerActor, () =>
+            fs.copy(owner.userId, {
+                source: trashedFile,
+                destinationParent: documents,
+                newName: 'restored-copy.txt',
+            }),
+        );
+        expect(JSON.parse(copiedFile.metadata!)).toEqual({});
+    });
 });
 
 describe('FSService home-region placement', () => {
@@ -5490,5 +7214,331 @@ describe('FSService home-region placement', () => {
         expect(second.bucket).toBe('puter-far');
         expect(second.bucketRegion).toBe('eu-central-1');
         expect(await readFrom(second)).toBe('second');
+    });
+});
+
+describe('FSService subtree paging', () => {
+    let user: TestUser;
+
+    beforeAll(async () => {
+        user = await makeUser();
+    });
+
+    /** Run `fn` with subtree walks paged `size` rows at a time. */
+    const withPageSize = async (size: number, fn: () => Promise<void>) => {
+        const service = fs.constructor as typeof FSService;
+        const previous = service.SUBTREE_PAGE_SIZE;
+        service.SUBTREE_PAGE_SIZE = size;
+        try {
+            await fn();
+        } finally {
+            service.SUBTREE_PAGE_SIZE = previous;
+        }
+    };
+
+    /** Three levels: files at each, and an empty directory. */
+    const makeTree = async (name: string) => {
+        const root = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/${name}`,
+        });
+        await fs.mkdir(user.userId, {
+            path: `${root.path}/sub/deep`,
+            createMissingParents: true,
+        });
+        await fs.mkdir(user.userId, { path: `${root.path}/empty` });
+        const files = [
+            await writeFile(user, `${root.path}/a.txt`, 'a'),
+            await writeFile(user, `${root.path}/b.txt`, 'b'),
+            await writeFile(user, `${root.path}/c.txt`, 'c'),
+            await writeFile(user, `${root.path}/sub/d.txt`, 'd'),
+            await writeFile(user, `${root.path}/sub/e.txt`, 'e'),
+            await writeFile(user, `${root.path}/sub/deep/f.txt`, 'f'),
+        ];
+        const descendants = await server.stores.fsEntry.listDescendantsByPath(
+            root.path,
+        );
+        return { root, files, descendants };
+    };
+
+    it('deletes a tree larger than a page, every row and object once', async () => {
+        const { root, files, descendants } = await makeTree('page-rm');
+        expect(descendants).toHaveLength(9);
+
+        const counts = new Map<string, number>();
+        const listener = (_key: string, data: unknown) => {
+            const uuid = (data as { node?: FSEntry })?.node?.uuid;
+            if (uuid) counts.set(uuid, (counts.get(uuid) ?? 0) + 1);
+        };
+        const pages = vi.spyOn(server.stores.fsEntry, 'listChildrenOfParents');
+        server.clients.event.on('fs.remove.node', listener);
+        try {
+            await withPageSize(2, () =>
+                fs.remove(user.userId, { entry: root, recursive: true }),
+            );
+            // 2 a page: the root's 5 children in three, then `sub` and `empty`
+            // together in two, then `deep` in one.
+            expect(pages).toHaveBeenCalledTimes(6);
+            expect(pages.mock.calls.every(([, opts]) => opts.limit === 2)).toBe(
+                true,
+            );
+        } finally {
+            server.clients.event.off('fs.remove.node', listener);
+            pages.mockRestore();
+        }
+
+        expect(
+            await server.stores.fsEntry.listDescendantsByPath(root.path),
+        ).toEqual([]);
+        expect(await entryAt(user, '/Documents/page-rm')).toBeNull();
+        for (const entry of [root, ...descendants])
+            expect(counts.get(entry.uuid)).toBe(1);
+        for (const file of files) {
+            await expect(
+                server.stores.s3Object.getObjectStream(
+                    { bucket: file.bucket!, objectKey: file.uuid },
+                    file.bucketRegion!,
+                ),
+            ).rejects.toMatchObject({ name: 'NoSuchKey' });
+        }
+    });
+
+    it('refuses a non-empty directory with one probe, never listing it', async () => {
+        const { root } = await makeTree('page-probe');
+        const probe = vi.spyOn(server.stores.fsEntry, 'hasChildren');
+        const pages = vi.spyOn(server.stores.fsEntry, 'listChildrenOfParents');
+        const listAll = vi.spyOn(
+            server.stores.fsEntry,
+            'listDescendantsByPath',
+        );
+        try {
+            const error = await caught(() =>
+                fs.remove(user.userId, { entry: root }),
+            );
+            expect(error.statusCode).toBe(409);
+            expect(probe).toHaveBeenCalledTimes(1);
+            expect(pages).not.toHaveBeenCalled();
+            expect(listAll).not.toHaveBeenCalled();
+
+            const empty = (await entryAt(user, '/Documents/page-probe/empty'))!;
+            await fs.remove(user.userId, { entry: empty });
+            expect(
+                await entryAt(user, '/Documents/page-probe/empty'),
+            ).toBeNull();
+        } finally {
+            probe.mockRestore();
+            pages.mockRestore();
+            listAll.mockRestore();
+        }
+    });
+
+    it('refuses a directory whose only child links to it by uuid alone', async () => {
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/page-uid-child`,
+        });
+        // The old backend wrote `parent_uid` and never `parent_id`.
+        const childUuid = uuidv4();
+        const now = Math.floor(Date.now() / 1000);
+        await server.clients.db.write(
+            `INSERT INTO fsentries
+             (uuid, user_id, parent_uid, name, path, is_dir, created, modified)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                childUuid,
+                user.userId,
+                dir.uuid,
+                'old',
+                `${dir.path}/old`,
+                server.clients.db.booleanValue(true),
+                now,
+                now,
+            ],
+        );
+
+        const error = await caught(() =>
+            fs.remove(user.userId, { entry: dir }),
+        );
+
+        expect(error.statusCode).toBe(409);
+        expect(await entryAt(user, '/Documents/page-uid-child')).not.toBeNull();
+        await expect(
+            server.clients.db.read('SELECT id FROM fsentries WHERE uuid = ?', [
+                childUuid,
+            ]),
+        ).resolves.toHaveLength(1);
+    });
+
+    it('copies a tree larger than a page, contents and all', async () => {
+        const { root, descendants } = await makeTree('page-cp');
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        let copy: FSEntry | undefined;
+        await withPageSize(2, async () => {
+            copy = await fs.copy(user.userId, {
+                source: root,
+                destinationParent: destination,
+            });
+        });
+
+        const copied = await server.stores.fsEntry.listDescendantsByPath(
+            copy!.path,
+        );
+        const relative = (entries: FSEntry[], base: string) =>
+            entries.map((e) => e.path.slice(base.length)).sort();
+        expect(relative(copied, copy!.path)).toEqual(
+            relative(descendants, root.path),
+        );
+        const leaf = copied.find((e) => e.path.endsWith('/sub/deep/f.txt'))!;
+        expect(await readBack(leaf)).toBe('f');
+    });
+
+    it('copies each level of files as one insert', async () => {
+        const { root } = await makeTree('level-cp');
+        const destination = (await entryAt(user, '/Desktop'))!;
+        const inserts = vi.spyOn(server.stores.fsEntry, 'batchCreateEntries');
+        const objects = vi.spyOn(server.stores.s3Object, 'copyObject');
+        try {
+            await fs.copy(user.userId, {
+                source: root,
+                destinationParent: destination,
+                newName: 'level-cp-copy',
+            });
+            // Files sit at three depths: one insert each, not one per file.
+            expect(inserts).toHaveBeenCalledTimes(3);
+            expect(objects).toHaveBeenCalledTimes(6);
+        } finally {
+            inserts.mockRestore();
+            objects.mockRestore();
+        }
+    });
+
+    it('walks a page of directories in batches, empty ones and all', async () => {
+        const root = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/page-batches`,
+        });
+        for (const name of ['e1', 'e2', 'e3', 'd1', 'd2']) {
+            await fs.mkdir(user.userId, { path: `${root.path}/${name}` });
+        }
+        await writeFile(user, `${root.path}/d1/x.txt`, 'x');
+        await writeFile(user, `${root.path}/d2/y.txt`, 'y');
+        const descendants = await server.stores.fsEntry.listDescendantsByPath(
+            root.path,
+        );
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        const service = fs.constructor as typeof FSService;
+        const previous = service.SUBTREE_WALK_PARENTS;
+        service.SUBTREE_WALK_PARENTS = 2;
+        const counts = new Map<string, number>();
+        const listener = (_key: string, data: unknown) => {
+            const uuid = (data as { node?: FSEntry })?.node?.uuid;
+            if (uuid) counts.set(uuid, (counts.get(uuid) ?? 0) + 1);
+        };
+        server.clients.event.on('fs.remove.node', listener);
+        try {
+            // [e1, e2] hold nothing; [e3, d1] and [d2] each hold a file.
+            const copy = await fs.copy(user.userId, {
+                source: root,
+                destinationParent: destination,
+                newName: 'page-batches-copy',
+            });
+            const copied = await server.stores.fsEntry.listDescendantsByPath(
+                copy.path,
+            );
+            const relative = (entries: FSEntry[], base: string) =>
+                entries.map((e) => e.path.slice(base.length)).sort();
+            expect(relative(copied, copy.path)).toEqual(
+                relative(descendants, root.path),
+            );
+
+            await fs.remove(user.userId, { entry: root, recursive: true });
+        } finally {
+            service.SUBTREE_WALK_PARENTS = previous;
+            server.clients.event.off('fs.remove.node', listener);
+        }
+
+        expect(
+            await server.stores.fsEntry.listDescendantsByPath(root.path),
+        ).toEqual([]);
+        for (const entry of [root, ...descendants])
+            expect(counts.get(entry.uuid)).toBe(1);
+    });
+
+    it('deletes a tree through index lookups alone, never scanning or sorting it', async () => {
+        // The plan is SQLite's; Postgres sorts each page's rows by id.
+        if (server.clients.db.engineName !== 'sqlite') return;
+        const { root } = await makeTree('page-plan');
+        const reads = vi.spyOn(server.clients.db, 'read');
+        let statements: unknown[][] = [];
+        try {
+            await withPageSize(2, () =>
+                fs.remove(user.userId, { entry: root, recursive: true }),
+            );
+            statements = reads.mock.calls.filter(([sql]) =>
+                /\bfsentries\b/.test(String(sql)),
+            );
+        } finally {
+            reads.mockRestore();
+        }
+
+        expect(statements.length).toBeGreaterThan(0);
+        for (const [sql, params] of statements) {
+            const plan = (await server.clients.db.read(
+                `EXPLAIN QUERY PLAN ${sql}`,
+                params as unknown[],
+            )) as Array<{ detail: string }>;
+            const steps = plan.map((step) => step.detail).join('; ');
+            expect(steps).not.toMatch(
+                /\bSCAN (TABLE )?fsentries\b|TEMP B-TREE/,
+            );
+        }
+    });
+
+    it('copies and deletes a child stored without a path', async () => {
+        const { root } = await makeTree('page-legacy');
+        const legacy = await writeFile(user, `${root.path}/sub/old.txt`, 'old');
+        // Rows from before paths were stored carry only their parent link.
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = NULL WHERE uuid = ?',
+            [legacy.uuid],
+        );
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        await fs.copy(user.userId, {
+            source: root,
+            destinationParent: destination,
+            newName: 'page-legacy-copy',
+        });
+        const copied = await entryAt(
+            user,
+            '/Desktop/page-legacy-copy/sub/old.txt',
+        );
+        expect(copied && (await readBack(copied))).toBe('old');
+
+        const removed: FSEntry[] = [];
+        const listener = (_key: string, data: unknown) => {
+            const node = (data as { node?: FSEntry })?.node;
+            if (node?.uuid === legacy.uuid) removed.push(node);
+        };
+        server.clients.event.on('fs.remove.node', listener);
+        try {
+            await fs.remove(user.userId, { entry: root, recursive: true });
+        } finally {
+            server.clients.event.off('fs.remove.node', listener);
+        }
+
+        expect(removed.map((entry) => entry.path)).toEqual([
+            `${root.path}/sub/old.txt`,
+        ]);
+        await expect(
+            server.clients.db.read('SELECT id FROM fsentries WHERE uuid = ?', [
+                legacy.uuid,
+            ]),
+        ).resolves.toEqual([]);
+        await expect(
+            server.stores.s3Object.getObjectStream(
+                { bucket: legacy.bucket!, objectKey: legacy.uuid },
+                legacy.bucketRegion!,
+            ),
+        ).rejects.toMatchObject({ name: 'NoSuchKey' });
     });
 });

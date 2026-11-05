@@ -54,7 +54,6 @@
     "dev": "npm start",
     "build": "npm run setupExtensions && npm run build:ts && cd src/gui && node ./build.js && cd ../puter-js && npm run build",
     "build:workerLib": "cd src/puter-js && npm run build && cd ../worker && npm run build",
-    "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
     "build:ts": "tsc -p tsconfig.build.json && node ./tools/write-dist-package-json.mjs",
     "check:puterjs:types": "node tools/checkPuterjsTypes.mjs",
@@ -77,9 +76,10 @@
     "@aws-sdk/s3-request-presigner": "^3.1028.0",
     "dedent": "^1.5.3",
     "javascript-time-ago": "^2.5.11",
-    "libphonenumber-js": "1.13.14",
+    "libphonenumber-js": "1.13.15",
     "miniflare": "^4.20260617.1",
-    "open": "^10.1.0"
+    "open": "^10.1.0",
+    "sharp": "^0.35.5"
   },
   "engines": {
     "node": ">=24.0.0"

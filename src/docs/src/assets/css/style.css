@@ -213,6 +213,18 @@ ul code {
 	font-size: 14px;
 }
 
+/* A table wider than the page scrolls sideways inside this wrapper, added by
+   the table renderer in build.js. The wrapper takes the table's margin so the
+   scrollbar sits right under the table. */
+.docs-content .table-scroll {
+	overflow-x: auto;
+	margin: 24px 0;
+}
+
+.docs-content .table-scroll > table {
+	margin: 0;
+}
+
 .docs-content table thead{
 	background: #f5f6fb;
 }
@@ -1034,6 +1046,47 @@ ol li::before {
 	margin-top: -4px;
 }
 
+.download-prompt.ai-builder-link {
+	background: linear-gradient(90deg, #ebf3ff, #f5f5f5);
+}
+
+.download-prompt.ai-builder-link:hover {
+	background: linear-gradient(90deg, #e1edff, #f0f0f0);
+}
+
+.sidebar-tooltip {
+	position: fixed;
+	z-index: 1000;
+	max-width: 220px;
+	padding: 8px 12px;
+	border-radius: 5px;
+	background-color: #333;
+	color: #fff;
+	font-size: 13px;
+	line-height: 1.4;
+	pointer-events: none;
+	opacity: 0;
+	visibility: hidden;
+	transform: translate(-4px, -50%);
+	transition: opacity 0.15s, transform 0.15s, visibility 0.15s;
+}
+
+.sidebar-tooltip::before {
+	content: '';
+	position: absolute;
+	right: 100%;
+	top: 50%;
+	margin-top: -6px;
+	border: 6px solid transparent;
+	border-right-color: #333;
+}
+
+.sidebar-tooltip.visible {
+	opacity: 1;
+	visibility: visible;
+	transform: translate(0, -50%);
+}
+
 
 
 
@@ -1579,13 +1632,36 @@ footer .copyright-notice{
 /* Table of Contents Styles */
 #toc-wrapper {
 	position: fixed;
-	height: 100%;
+	top: 40px;
+	bottom: 40px;
 	right: 0;
-	margin-top: 80px;
 }
 
+/* Where both the sidebar and the TOC show, move 24px of width from the
+   sidebar to the TOC. The content column shifts left by the same 24px, so it
+   stays centered between them. */
+@media (min-width: 1200px) {
+	#sidebar {
+		width: 256px;
+	}
+
+	#sidebar-wrapper {
+		width: calc(25% - 24px);
+	}
+
+	#toc-wrapper {
+		width: calc(16.66666667% + 24px);
+	}
+}
+
+/* The TOC scrolls inside the wrapper's padding, so its scrollbar sits away
+   from the page scrollbar. */
 .table-of-contents {
+	max-height: 100%;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 	padding-right: 16px;
+	margin-right: 8px;
 }
 
 .toc-title {
@@ -1598,6 +1674,7 @@ footer .copyright-notice{
 }
 
 .toc-nav {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
@@ -1605,13 +1682,36 @@ footer .copyright-notice{
 
 .toc-link {
 	display: block;
-	font-size: 13px;
+	font-size: 14px;
 	color: #5f5f5f;
 	text-decoration: none;
 	line-height: 1.4;
 	transition: color 0.2s ease;
 	border-left: 2px solid transparent;
-	padding-bottom: 4px;
+	padding: 2px 0 2px 12px;
+}
+
+/* The section being read, set by assets/js/toc.js. */
+.toc-link.active {
+	color: #012238;
+}
+
+/* The bar beside the active link. assets/js/toc.js moves it to the link and
+   sets its height, and the transition makes it slide and resize. */
+.toc-indicator {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 2px;
+	background: #012238;
+	pointer-events: none;
+	transition: transform 0.25s ease, height 0.25s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.toc-indicator {
+		transition: none;
+	}
 }
 
 .toc-link:hover {
@@ -1624,8 +1724,8 @@ footer .copyright-notice{
 }
 
 .toc-link[data-level="2"] {
-	padding-left: 12px;
-	font-size: 12px;
+	padding-left: 24px;
+	font-size: 13px;
 }
 
 /* Platform Compatibility Badges */

@@ -37,6 +37,18 @@ describe('sanitize_recents', () => {
             .toEqual([{ kind: 'user', id: 'bob', name: 'bob' }]);
     });
 
+    it('shows a person or invite by their id, whatever name was stored', () => {
+        expect(sanitize_recents([
+            { kind: 'user', id: 'bob', name: 'alice' },
+            { kind: 'invite', id: 'ann@example.com', name: 'carol@example.com' },
+            { kind: 'team', id: 'team-1', name: 'Design' },
+        ])).toEqual([
+            BOB,
+            ANN,
+            { kind: 'team', id: 'team-1', name: 'Design' },
+        ]);
+    });
+
     it('keeps one entry per recipient, the first', () => {
         expect(sanitize_recents([
             { kind: 'user', id: 'bob', name: 'bob' },

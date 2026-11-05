@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { HttpError } from '../../core/http/HttpError.js';
+
 /** Who the recipient is in relation to the notification. */
 export type NotificationAudience = 'account' | 'developer' | 'app-user';
 
@@ -38,6 +40,12 @@ export interface NotificationType {
     appScoped: boolean;
     /** Whether `notifyUpdate` may fold a later one into an open row. */
     groupable: boolean;
+    /**
+     * `false` keeps the type off the account's own desktop: out of the
+     * whole-mailbox listing, the unread replay and the desktop wire. Apps still
+     * read it through its subject. Absent means it shows there.
+     */
+    accountMailbox?: false;
     /** Where a delivery of this type publishes. */
     subject: (ref: NotificationSubjectRef) => string;
 }
@@ -109,6 +117,36 @@ export const NOTIFICATION_TYPES = [
         groupable: false,
         subject: subjectFor('developer'),
     },
+    // A handler the user published into their own scope stopped taking
+    // deliveries: the code is theirs, so the notice is too.
+    {
+        type: 'app.events.handler_suspended',
+        audience: 'app-user',
+        appScoped: true,
+        groupable: false,
+        subject: subjectFor('app-user'),
+    },
+    // The only type apps create; its kind goes in the value's `channel`. A
+    // newer one replaces the newest with the same `group` unless that one was
+    // shown or dismissed.
+    {
+        type: 'app.message',
+        audience: 'app-user',
+        appScoped: true,
+        groupable: true,
+        accountMailbox: false,
+        subject: subjectFor('app-user'),
+    },
+    // A key-value share is news inside the app whose data it is, and nowhere
+    // else: the desktop has nothing to open it with.
+    {
+        type: 'kv.share.received',
+        audience: 'app-user',
+        appScoped: true,
+        groupable: false,
+        accountMailbox: false,
+        subject: subjectFor('app-user'),
+    },
 ] as const satisfies readonly NotificationType[];
 
 /** Every registered type name; what `notify` accepts. */
@@ -117,6 +155,22 @@ export type NotificationTypeName = (typeof NOTIFICATION_TYPES)[number]['type'];
 /** Serialized `value` may not exceed this many bytes. */
 export const NOTIFICATION_VALUE_MAX_BYTES = 16 * 1024;
 
+export const assertNotificationValueFits = (
+    value: Record<string, unknown>,
+): void => {
+    if (
+        Buffer.byteLength(JSON.stringify(value), 'utf8') >
+        NOTIFICATION_VALUE_MAX_BYTES
+    ) {
+        throw new HttpError(
+            400,
+            `\`value\` may not exceed ${NOTIFICATION_VALUE_MAX_BYTES} bytes`,
+            {
+                legacyCode: 'notification_value_too_large',
+            },
+        );
+    }
+};
 const BY_NAME = new Map<string, NotificationType>(
     NOTIFICATION_TYPES.map((entry) => [entry.type, entry]),
 );
@@ -124,6 +178,16 @@ const BY_NAME = new Map<string, NotificationType>(
 export const findNotificationType = (
     type: string,
 ): NotificationType | undefined => BY_NAME.get(type);
+
+/** Types kept off the account's own desktop; see `accountMailbox`. */
+export const OUTSIDE_ACCOUNT_MAILBOX_TYPES: readonly string[] =
+    NOTIFICATION_TYPES.filter(
+        (entry: NotificationType) => entry.accountMailbox === false,
+    ).map((entry) => entry.type);
+
+/** Whether rows of this type belong on the account's own desktop. */
+export const inAccountMailbox = (type: unknown): boolean =>
+    typeof type !== 'string' || !OUTSIDE_ACCOUNT_MAILBOX_TYPES.includes(type);
 
 /**
  * The registry entry for a write, or a throw. `account` rows never name an app;

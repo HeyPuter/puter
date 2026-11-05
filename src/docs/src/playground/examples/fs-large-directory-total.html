@@ -1,0 +1,27 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h3>File browser — footer count</h3>
+    <script>
+        // The "showing 3 of 7" label a listing UI puts under the table.
+        (async () => {
+            for (let i = 0; i < 7; i++) {
+                await puter.fs.write(`uploads/file-${i}.txt`, `n=${i}`, {
+                    createMissingParents: true,
+                });
+            }
+
+            // includeTotal also switches the result to a page object.
+            const { items, total } = await puter.fs.readdir({
+                path: 'uploads',
+                cursor: null,
+                limit: 3,
+                includeTotal: true,
+            });
+
+            for (const item of items) puter.print(`${item.name}<br>`);
+            puter.print(`<br><b>showing ${items.length} of ${total}</b>`);
+        })();
+    </script>
+</body>
+</html>

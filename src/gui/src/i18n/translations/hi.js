@@ -26,7 +26,7 @@ const hi = {
         account: 'खाता',
         account_password: 'खाता पासवर्ड सत्यापित करें',
         access_granted_to: 'प्रवेश की अनुमति दी गई',
-        add_existing_account: 'मौजूदा खाता जोड़ें',
+        add_another_account: 'दूसरा खाता जोड़ें',
         all_fields_required: 'सभी स्थान आवश्यक हैं',
         allow: 'अनुमति दें',
         apply: 'आवेदन करें',

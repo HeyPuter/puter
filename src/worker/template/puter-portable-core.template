@@ -42,6 +42,11 @@ globalThis.init_puter_portable = (auth, apiOrigin, type, options = {}) => {
         if (options.socket === false) {
             goodContext.puter_socket_enabled = false;
         }
+        // The fetch this client's own requests go through, for a caller that
+        // watches how Puter's API answered them.
+        if (typeof options.fetch === 'function') {
+            goodContext.fetch = options.fetch;
+        }
         // @ts-ignore
         with (goodContext) {
             #include "../../puter-js/dist/puter.js"

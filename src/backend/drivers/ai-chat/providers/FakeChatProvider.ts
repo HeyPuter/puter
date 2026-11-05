@@ -18,6 +18,8 @@
  */
 
 import dedent from 'dedent';
+import { setTimeout as delay } from 'node:timers/promises';
+import { Context } from '../../../core/context.js';
 import { LoremIpsum } from 'lorem-ipsum';
 import { AIChatStream } from '../utils/Streaming.js';
 import {
@@ -72,9 +74,7 @@ export class FakeChatProvider implements IChatProvider {
             },
         ];
     }
-    async list() {
-        return ['fake', 'costly', 'abuse'];
-    }
+
     async complete({
         messages,
         stream,
@@ -100,11 +100,15 @@ export class FakeChatProvider implements IChatProvider {
                 }: {
                     chatStream: AIChatStream;
                 }) => {
-                    await new Promise((rslv) => setTimeout(rslv, 500));
-                    chatStream.stream.write(
+                    await delay(500, undefined, {
+                        signal: Context.get('upstreamSignal'),
+                    });
+                    const response = await resp;
+                    await chatStream.waitForDrain();
+                    chatStream.write(
                         `${JSON.stringify({
                             type: 'text',
-                            text: (await resp).message.content[0].text,
+                            text: response.message.content[0].text,
                         })}\n`,
                     );
                     chatStream.end({});

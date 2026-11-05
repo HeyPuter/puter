@@ -1,0 +1,11 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        puter.ai.txt2vid("A stationary red ball on a white table.", {
+            model: "gemini-omni-1.1-flash",
+            size: "360p"
+        }).then(video => document.body.appendChild(video)).catch(console.error);
+    </script>
+</body>
+</html>

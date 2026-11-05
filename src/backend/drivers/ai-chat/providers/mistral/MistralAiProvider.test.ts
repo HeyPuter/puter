@@ -29,6 +29,7 @@
  * exercises the real Mistral endpoint.
  */
 
+import { Context } from '../../../../core/context.js';
 import { Writable } from 'node:stream';
 import {
     afterAll,
@@ -44,6 +45,7 @@ import {
 
 import { ResponseValidationError } from '@mistralai/mistralai/models/errors/responsevalidationerror.js';
 import { SDKValidationError } from '@mistralai/mistralai/models/errors/sdkvalidationerror.js';
+import { UsageInfo$inboundSchema } from '@mistralai/mistralai/models/components/usageinfo.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
@@ -52,6 +54,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { MISTRAL_MODELS } from './models.js';
 import { MistralAIProvider } from './MistralAiProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── Mistral SDK mock ────────────────────────────────────────────────
 //
@@ -164,7 +167,7 @@ describe('MistralAIProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of MISTRAL_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -174,6 +177,42 @@ describe('MistralAIProvider model catalog', () => {
         // Sanity: a known alias is present alongside its canonical id.
         expect(ids).toContain('mistral-small-latest');
         expect(ids).toContain('mistral-small-2603');
+    });
+
+    it('does not redirect the retired Magistral ids to another model', async () => {
+        const { provider } = makeProvider();
+        const ids = modelLookupNames(await provider.models());
+        expect(ids).not.toContain('magistral-small-latest');
+        expect(ids).not.toContain('magistral-medium-latest');
+    });
+
+    it('keeps mistral-large-2512, which Mistral still serves as active', async () => {
+        const { provider } = makeProvider();
+        const ids = modelLookupNames(await provider.models());
+        expect(ids).toContain('mistral-large-2512');
+        expect(ids).toContain('mistral-large-latest');
+    });
+
+    it('lists Large 4 with standard pricing and multimodal tool support', async () => {
+        const { provider } = makeProvider();
+        const model = (await provider.models()).find(
+            (model) => model.id === 'mistral-large-4',
+        );
+        expect(model).toMatchObject({
+            release_date: '2026-10-06',
+            modalities: { input: ['text', 'image'], output: ['text'] },
+            tool_call: true,
+            context: 1_000_000,
+            max_tokens: 1_000_000,
+            open_weights: false,
+            costs_currency: 'usd-cents',
+            costs: {
+                tokens: 1_000_000,
+                prompt_tokens: 136,
+                cached_tokens: 14,
+                completion_tokens: 418,
+            },
+        });
     });
 });
 
@@ -189,6 +228,25 @@ describe('MistralAIProvider.complete request shape', () => {
         ],
         usage: { promptTokens: 1, completionTokens: 1 },
     };
+
+    it('passes the upstream signal to the SDK', async () => {
+        const { provider } = makeProvider();
+        const abort = new AbortController();
+        completeMock.mockResolvedValueOnce(baseCompletion);
+        await withTestActor(() => {
+            Context.set('upstreamSignal', abort.signal);
+            return provider.complete({
+                model: 'mistral-small-latest',
+                messages: [{ role: 'user', content: 'hi' }],
+            });
+        });
+        // Bounded by the SDK timeout as well, and still aborted with the
+        // upstream signal.
+        const signal: AbortSignal = completeMock.mock.calls[0][1]?.signal;
+        expect(signal.aborted).toBe(false);
+        abort.abort();
+        expect(signal.aborted).toBe(true);
+    });
 
     it('forwards model + messages and threads max_tokens/temperature into camelCase fields', async () => {
         const { provider } = makeProvider();
@@ -269,7 +327,7 @@ describe('MistralAIProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'magistral-small-latest',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'think' }],
                 custom: { prompt_mode: 'reasoning' },
             }),
@@ -475,6 +533,35 @@ describe('MistralAIProvider model resolution', () => {
         );
     });
 
+    it.each([
+        ['mistral-large-4', 'mistral-large-4'],
+        ['mistral-large-4-0', 'mistral-large-4'],
+        ['mistralai/mistral-large-4', 'mistral-large-4'],
+        ['mistralai/mistral-large-4-0', 'mistral-large-4'],
+        ['mistral-large-latest', 'mistral-large-2512'],
+        ['zai-glm-latest', 'zai-glm-5-3'],
+        ['zai-glm-5', 'zai-glm-5-3'],
+        ['mistral-code-latest', 'codestral-2508'],
+    ])('resolves %s to %s', async (model, canonicalId) => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(completeMock.mock.calls[0]![0].model).toBe(canonicalId);
+        expect(recordSpy).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.anything(),
+            `mistral:${canonicalId}`,
+            expect.any(Object),
+        );
+    });
+
     it('falls back to the default model when given an unknown id', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce(baseCompletion);
@@ -499,6 +586,75 @@ describe('MistralAIProvider model resolution', () => {
 // ── Non-stream completion ───────────────────────────────────────────
 
 describe('MistralAIProvider.complete non-stream output', () => {
+    it.each([
+        ['mistral-large-4', false, 136, 14, 418],
+        ['mistral-large-4', true, 136, 14, 418],
+        ['mistral-small-2603', false, 15, 1.5, 60],
+        ['mistral-small-2603', true, 15, 1.5, 60],
+        ['ministral-8b-2512', false, 15, 1.5, 15],
+        ['ministral-3b-2512', false, 10, 1, 10],
+    ] as const)(
+        'meters %s cached input separately (stream=%s)',
+        async (model, stream, inputRate, cacheRate, outputRate) => {
+            const { provider } = makeProvider();
+            const usage = UsageInfo$inboundSchema.parse({
+                prompt_tokens: 1013,
+                completion_tokens: 30,
+                total_tokens: 1043,
+                prompt_tokens_details: { cached_tokens: 1008 },
+            });
+            if (stream) {
+                streamMock.mockResolvedValueOnce(
+                    asAsyncIterable([
+                        { data: { choices: [{ delta: { content: 'hello' } }] } },
+                        { data: { choices: [], usage } },
+                    ]),
+                );
+            } else {
+                completeMock.mockResolvedValueOnce({
+                    choices: [
+                        {
+                            message: { role: 'assistant', content: 'hello' },
+                            finishReason: 'stop',
+                        },
+                    ],
+                    usage,
+                });
+            }
+            const result = await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream,
+                }),
+            );
+            if (stream) {
+                const { chatStream } = makeCapturingChatStream();
+                await withTestActor(() =>
+                    (
+                        result as {
+                            init_chat_stream: (params: {
+                                chatStream: AIChatStream;
+                            }) => Promise<void>;
+                        }
+                    ).init_chat_stream({ chatStream }),
+                );
+            } else {
+                expect(result).toMatchObject({ message: { content: 'hello' } });
+            }
+            expect(recordSpy).toHaveBeenCalledWith(
+                { prompt_tokens: 5, cached_tokens: 1008, completion_tokens: 30 },
+                SYSTEM_ACTOR,
+                `mistral:${model}`,
+                {
+                    prompt_tokens: 5 * inputRate,
+                    cached_tokens: 1008 * cacheRate,
+                    completion_tokens: 30 * outputRate,
+                },
+            );
+        },
+    );
+
     it('returns the first choice and runs the metered usage calculator with camelCase usage coercion', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce({
@@ -524,7 +680,7 @@ describe('MistralAIProvider.complete non-stream output', () => {
         });
         // Mistral's coerce_completion_usage maps promptTokens/completionTokens
         // back to snake_case for the metered usage object. cached_tokens
-        // defaults to 0 because Mistral doesn't expose prompt_tokens_details.
+        // defaults to 0 when Mistral doesn't report prompt_tokens_details.
         expect((result as { usage: unknown }).usage).toEqual({
             prompt_tokens: 100,
             completion_tokens: 50,
@@ -541,15 +697,14 @@ describe('MistralAIProvider.complete non-stream output', () => {
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('mistral:mistral-small-2603');
-        // mistral-small-2603 costs: prompt=15, completion=60. cached_tokens
-        // is undefined in the model row → multiplied by 0 → NaN-safe 0.
+        // mistral-small-2603 costs: prompt=15, completion=60.
         expect(overrides).toMatchObject({
             prompt_tokens: 100 * 15,
             completion_tokens: 50 * 60,
         });
     });
 
-    it('flattens a magistral chunked content array into string content + reasoning', async () => {
+    it('flattens a reasoning chunked content array into string content + reasoning', async () => {
         // Mistral's reasoning models return `content` as a chunk array with
         // the thinking text nested inside `thinking` chunks. Left alone it
         // reaches the caller as an array with no `reasoning`, breaking the
@@ -584,7 +739,7 @@ describe('MistralAIProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'magistral-small-latest',
+                model: 'mistral-small-2603',
                 messages: [{ role: 'user', content: 'think' }],
                 normalize: true,
             }),
@@ -829,7 +984,7 @@ describe('MistralAIProvider.complete streaming', () => {
 
             const result = await withTestActor(() =>
                 provider.complete({
-                    model: 'magistral-small-latest',
+                    model: 'mistral-small-2603',
                     messages: [{ role: 'user', content: 'think' }],
                     stream: true,
                     ...(normalize === undefined ? {} : { normalize }),

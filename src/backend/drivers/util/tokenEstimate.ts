@@ -17,6 +17,49 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/** The code units `\s` matches. */
+const isSpace = (c: number): boolean =>
+    c === 0x20 ||
+    (c >= 0x09 && c <= 0x0d) ||
+    (c >= 0xa0 &&
+        (c === 0xa0 ||
+            c === 0x1680 ||
+            (c >= 0x2000 && c <= 0x200a) ||
+            c === 0x2028 ||
+            c === 0x2029 ||
+            c === 0x202f ||
+            c === 0x205f ||
+            c === 0x3000 ||
+            c === 0xfeff));
+
+/** Whitespace runs in `text.slice(0, end)`, one less than `split(/\s+/)` gives. */
+const countSpaceRuns = (text: string, end: number): number => {
+    let runs = 0;
+    let inSpace = false;
+    for (let i = 0; i < end; i++) {
+        const space = isSpace(text.charCodeAt(i));
+        if (space && !inSpace) runs++;
+        inSpace = space;
+    }
+    return runs;
+};
+
+/** How much text is left to scan for word boundaries, and what was seen. */
+export interface WordScanBudget {
+    chars: number;
+    scannedChars: number;
+    scannedRuns: number;
+}
+
+/** About 5 ms of scanning. */
+const WORD_SCAN_CHARS = 1024 * 1024;
+
+export const createWordScanBudget = (): WordScanBudget => ({
+    chars: WORD_SCAN_CHARS,
+    scannedChars: 0,
+    scannedRuns: 0,
+});
+
 /**
  * Tokens a run of text is worth.
  *
@@ -28,11 +71,27 @@
  * Shared by the chat credit gate, the chat unreported-stream backstop, and
  * image-prompt pricing, so a calibration moves all of them at once.
  *
+ * Words are counted over at most `budget.chars` characters, which this call
+ * spends; text past that is given the word density scanned so far. Pass one
+ * budget across a request's parts to bound the scan per request.
+ *
  * @see https://help.openai.com/en/articles/4936856
  */
-export const estimateTextTokens = (text: string): number => {
+export const estimateTextTokens = (
+    text: string,
+    budget: WordScanBudget = createWordScanBudget(),
+): number => {
     if (!text) return 0;
-    return Math.floor(
-        (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
-    );
+    const scanned = Math.min(text.length, budget.chars);
+    const runs = countSpaceRuns(text, scanned);
+    budget.chars -= scanned;
+    budget.scannedChars += scanned;
+    budget.scannedRuns += runs;
+    const unscannedRuns =
+        budget.scannedChars > 0
+            ? ((text.length - scanned) * budget.scannedRuns) /
+              budget.scannedChars
+            : 0;
+    const words = 1 + runs + unscannedRuns;
+    return Math.floor((text.length / 4 + words * (4 / 3)) / 2);
 };

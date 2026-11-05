@@ -4,12 +4,13 @@ import { hasTestModeFlag, isPlainObject } from './lib/args.js';
 /** @typedef {import('./types.js').ChatMessage} ChatMessage */
 /** @typedef {import('./types.js').ChatOptions} ChatOptions */
 /** @typedef {import('./types.js').ChatResponse} ChatResponse */
-/** @typedef {import('./types.js').ChatResponseChunk} ChatResponseChunk */
+/** @typedef {import('./types.js').ChatResponseStream} ChatResponseStream */
 /** @typedef {import('./types.js').StreamingChatOptions} StreamingChatOptions */
 
 // Parameters copied from the caller's options object onto the driver
-// request. `compaction` (provider-neutral inline-compaction opt-in) and the
-// raw `context_management` escape hatch flow straight through to the driver.
+// request, under the same name on both sides. `compaction` (provider-neutral
+// inline-compaction opt-in) and the raw `context_management` escape hatch
+// flow straight through to the driver.
 const PARAMS_TO_PASS = [
     'tools',
     'response',
@@ -18,10 +19,43 @@ const PARAMS_TO_PASS = [
     'text',
     'verbosity',
     'provider',
+    'fallback',
     'image_config',
     'compaction',
     'context_management',
+    'stopSequences',
+    'outputFormat',
+    'thinking',
+    'streamToolInput',
+    'prompt_cache_key',
+    'prompt_cache_retention',
+    'prompt_cache_options',
 ];
+
+// Parameters renamed between the SDK's camelCase option and the driver's
+// existing (pre-camelCase) field name.
+const RENAMED_PARAMS = {
+    toolChoice: 'tool_choice',
+    parallelToolCalls: 'parallel_tool_calls',
+};
+
+/** OpenAI-style `'auto'|'none'|'required'` → the driver's normalized `ToolChoice` object. */
+const TOOL_CHOICE_STRINGS = {
+    auto: { type: 'auto' },
+    none: { type: 'none' },
+    required: { type: 'any' },
+};
+
+/**
+ * Exported only for direct testing — not part of the public `puter.ai`
+ * surface (`index.js` imports `chat` by name, not `*`).
+ *
+ * @param {unknown} toolChoice
+ */
+export const normalizeToolChoice = (toolChoice) =>
+    typeof toolChoice === 'string'
+        ? (TOOL_CHOICE_STRINGS[toolChoice] ?? toolChoice)
+        : toolChoice;
 
 /**
  * @overload
@@ -34,7 +68,7 @@ const PARAMS_TO_PASS = [
  * @param {string} prompt
  * @param {StreamingChatOptions} options
  * @param {boolean} [testMode]
- * @returns {Promise<AsyncIterable<ChatResponseChunk>>}
+ * @returns {Promise<ChatResponseStream>}
  */
 /**
  * @overload
@@ -63,7 +97,7 @@ const PARAMS_TO_PASS = [
  * @param {string | File} imageURL
  * @param {StreamingChatOptions} options
  * @param {boolean} [testMode]
- * @returns {Promise<AsyncIterable<ChatResponseChunk>>}
+ * @returns {Promise<ChatResponseStream>}
  */
 /**
  * @overload
@@ -79,7 +113,7 @@ const PARAMS_TO_PASS = [
  * @param {string[]} imageURLArray
  * @param {StreamingChatOptions} options
  * @param {boolean} [testMode]
- * @returns {Promise<AsyncIterable<ChatResponseChunk>>}
+ * @returns {Promise<ChatResponseStream>}
  */
 /**
  * @overload
@@ -100,7 +134,7 @@ const PARAMS_TO_PASS = [
  * @param {ChatMessage[]} messages
  * @param {StreamingChatOptions} options
  * @param {boolean} [testMode]
- * @returns {Promise<AsyncIterable<ChatResponseChunk>>}
+ * @returns {Promise<ChatResponseStream>}
  */
 /**
  * @overload
@@ -127,7 +161,7 @@ const PARAMS_TO_PASS = [
  * @param {string | File | string[] | ChatOptions | boolean | null} [mediaOrOptions]
  * @param {ChatOptions | boolean} [optionsOrTestMode]
  * @param {boolean | ChatOptions} [testModeOrOptions]
- * @returns {Promise<ChatResponse | AsyncIterable<ChatResponseChunk>>}
+ * @returns {Promise<ChatResponse | ChatResponseStream>}
  */
 export async function chat (
     promptOrMessages,
@@ -226,6 +260,14 @@ export async function chat (
             requestParams[name] = userParams[name];
         }
     }
+    for (const [name, wireName] of Object.entries(RENAMED_PARAMS)) {
+        if (userParams[name] !== undefined) {
+            requestParams[wireName] = userParams[name];
+        }
+    }
+    if (requestParams.tool_choice !== undefined) {
+        requestParams.tool_choice = normalizeToolChoice(requestParams.tool_choice);
+    }
 
     // Response-format normalization. Both the per-call option and the
     // SDK-wide `puter.ai.normalize` are tri-state: `true` forces the OpenAI
@@ -250,6 +292,7 @@ export async function chat (
         driver: 'ai-chat',
         method: 'complete',
         argNames: ['messages'],
+        signal: userParams.signal,
         puter,
         testMode: testMode ?? false,
         transform: async (result) => {

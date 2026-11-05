@@ -10,6 +10,7 @@ type PuterInternals = {
         flushall: () => void;
     };
     checkAndUpdateGUIFScache: () => void;
+    fsCacheKey: (kind: string, path: string) => string;
     request_rao_: () => Promise<unknown>;
 };
 
@@ -375,14 +376,14 @@ export default suite('system', {
             p._cache.flushall();
             // Outside the GUI the desktop owns no cache to warm.
             p.checkAndUpdateGUIFScache();
-            t.assert.equal(p._cache.get(`item:${home}`), undefined);
+            t.assert.equal(p._cache.get(p.fsCacheKey('item', home)), undefined);
 
             // Inside the GUI but before the user is known there is nothing
             // to build the paths from.
             p.env = 'gui';
             p.whoami = undefined;
             p.checkAndUpdateGUIFScache();
-            t.assert.equal(p._cache.get(`item:${home}`), undefined);
+            t.assert.equal(p._cache.get(p.fsCacheKey('item', home)), undefined);
         } finally {
             p.env = realEnv;
             p.whoami = realWhoami;
@@ -401,19 +402,19 @@ export default suite('system', {
             p.checkAndUpdateGUIFScache();
 
             const homeItem = (await settle(() =>
-                p._cache.get(`item:${home}`),
+                p._cache.get(p.fsCacheKey('item', home)),
             )) as { name?: string; is_dir?: boolean } | undefined;
             t.assert.ok(homeItem, 'the home item should be cached');
             t.assert.equal(homeItem!.name, t.env.users.user.username);
             t.assert.equal(homeItem!.is_dir, true);
 
             const desktopItem = (await settle(() =>
-                p._cache.get(`item:${home}/Desktop`),
+                p._cache.get(p.fsCacheKey('item', `${home}/Desktop`)),
             )) as { name?: string } | undefined;
             t.assert.equal(desktopItem?.name, 'Desktop');
 
             const homeListing = (await settle(() =>
-                p._cache.get(`readdir:${home}`),
+                p._cache.get(p.fsCacheKey('readdir', home)),
             )) as Array<{ name: string }> | undefined;
             t.assert.ok(
                 Array.isArray(homeListing),
@@ -430,7 +431,7 @@ export default suite('system', {
             p.checkAndUpdateGUIFScache();
             await new Promise((resolve) => setTimeout(resolve, 250));
             t.assert.equal(
-                (p._cache.get(`item:${home}`) as { name?: string }).name,
+                (p._cache.get(p.fsCacheKey('item', home)) as { name?: string }).name,
                 t.env.users.user.username,
             );
         } finally {
@@ -455,7 +456,7 @@ export default suite('system', {
             try {
                 await t.puter.fs.stat({ path: home });
                 t.assert.ok(
-                    p._cache.get(`item:${home}`),
+                    p._cache.get(p.fsCacheKey('item', home)),
                     'the stat should have been cached',
                 );
 
@@ -465,7 +466,7 @@ export default suite('system', {
                 });
                 globalThis.dispatchEvent(new Event('offline'));
                 t.assert.equal(
-                    p._cache.get(`item:${home}`),
+                    p._cache.get(p.fsCacheKey('item', home)),
                     undefined,
                     'going offline should have purged the cache',
                 );

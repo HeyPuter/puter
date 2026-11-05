@@ -37,6 +37,8 @@ import {
     acquireDriverConcurrent,
     checkDriverRateLimit,
     checkRateLimit,
+    claimCountedRateLimit,
+    claimRateLimit,
     concurrencyGate,
     consumeRouteRateLimit,
     configureRateLimit,
@@ -910,6 +912,15 @@ describe('concurrencyGate — memory backend', () => {
         route: init.route,
     });
 
+    it.each(['destroyed', 'writableFinished'])('releases a slot when the response is already %s', async (state) => {
+        const opts = { limit: 1, key: 'ip', scope: `cg-already-${state}` };
+        const res = makeRes();
+        res[state] = true;
+        await runGate(opts, baseReq(), res);
+        await new Promise((resolve) => setImmediate(resolve));
+        expect((await runGate(opts, baseReq())).err).toBeUndefined();
+    });
+
     it('admits up to `limit` in-flight requests and 429s the next one', async () => {
         const opts = { limit: 2, key: 'ip', scope: 'cg-basic' };
         // Two outstanding admits.
@@ -1319,6 +1330,22 @@ describe('acquireDriverConcurrent', () => {
         expect(hB.ok).toBe(true);
     });
 
+    it('releases a slot once even when release is called twice', async () => {
+        const req = { actor: { user: { uuid: 'double-release' } } };
+        const opts = { limit: 2 };
+        const h1 = await acquireDriverConcurrent(req, 'iface', 'm', opts);
+        await acquireDriverConcurrent(req, 'iface', 'm', opts);
+        await h1.release();
+        await h1.release();
+
+        expect((await acquireDriverConcurrent(req, 'iface', 'm', opts)).ok).toBe(
+            true,
+        );
+        expect((await acquireDriverConcurrent(req, 'iface', 'm', opts)).ok).toBe(
+            false,
+        );
+    });
+
     it('applies bySubscription overrides via the wired metering service', async () => {
         configureRateLimit({
             metering: {
@@ -1380,6 +1407,10 @@ describe('rate + concurrent limiting — kv backend', () => {
 
     beforeAll(async () => {
         server = await setupTestServer();
+    });
+
+    // The file-level afterEach resets wiring to memory after every test.
+    beforeEach(() => {
         configureRateLimit({ default: 'kv', kv: server.stores.kv });
     });
 
@@ -1389,6 +1420,19 @@ describe('rate + concurrent limiting — kv backend', () => {
     });
 
     const uniqueScope = () => `kv-${Math.random().toString(36).slice(2, 10)}`;
+
+    // Rows from an earlier window: past their ttl, but DynamoDB sweeps expired
+    // rows lazily, so they still sit under the prefix (keys sort oldest).
+    const seedUnswept = async (prefix, count) => {
+        const past = Date.now() - 2 * 60 * 60_000;
+        for (let i = 0; i < count; i++) {
+            await server.stores.kv.set({
+                key: `${prefix}${past + i}:seed-${i}`,
+                value: 1,
+                expireAt: Math.floor(past / 1000),
+            });
+        }
+    };
 
     it('admits up to `limit` hits and rejects the next one', async () => {
         const key = uniqueScope();
@@ -1407,6 +1451,55 @@ describe('rate + concurrent limiting — kv backend', () => {
 
     it('rejects immediately when the limit is zero', async () => {
         expect(await checkRateLimit(uniqueScope(), 0, 60_000)).toBe(false);
+    });
+
+    it('keeps rejecting at the limit while expired rows from a past window are unswept', async () => {
+        const key = uniqueScope();
+        await seedUnswept(`rate:${key}:`, 3);
+        for (let i = 0; i < 3; i++) {
+            expect(await checkRateLimit(key, 3, 60_000)).toBe(true);
+        }
+        expect(await checkRateLimit(key, 3, 60_000)).toBe(false);
+    });
+
+    it('peeks a full bucket as exhausted while expired rows are unswept', async () => {
+        const key = uniqueScope();
+        await seedUnswept(`rate:${key}:`, 3);
+        for (let i = 0; i < 3; i++) await checkRateLimit(key, 3, 60_000);
+        expect(await peekRateLimit(key, 3, 60_000)).toBe(false);
+    });
+
+    it('caps concurrent slots while expired orphan slots are unswept', async () => {
+        const key = uniqueScope();
+        await seedUnswept(`concurrent:${key}:`, 2);
+        const held = [
+            await acquireConcurrent(key, 2),
+            await acquireConcurrent(key, 2),
+        ];
+        expect(held.map((slot) => slot.ok)).toEqual([true, true]);
+        expect((await acquireConcurrent(key, 2)).ok).toBe(false);
+        await Promise.all(held.map((slot) => slot.release()));
+    });
+
+    it('claims many units in one call, admitting only what fits', async () => {
+        const key = uniqueScope();
+        expect(await claimRateLimit(key, 5, 60_000, 3)).toBe(3);
+        expect(await claimRateLimit(key, 5, 60_000, 3)).toBe(2);
+        expect(await claimRateLimit(key, 5, 60_000, 1)).toBe(0);
+    });
+
+    it('claims counted units, admitting only what fits', async () => {
+        const key = uniqueScope();
+        expect(await claimCountedRateLimit(key, 5, 60_000, 3)).toBe(3);
+        expect(await claimCountedRateLimit(key, 5, 60_000, 3)).toBe(2);
+        expect(await claimCountedRateLimit(key, 5, 60_000, 1)).toBe(0);
+    });
+
+    it('claims against a full bucket as full while expired rows are unswept', async () => {
+        const key = uniqueScope();
+        await seedUnswept(`rate:${key}:`, 3);
+        expect(await claimRateLimit(key, 3, 60_000, 3)).toBe(3);
+        expect(await claimRateLimit(key, 3, 60_000, 1)).toBe(0);
     });
 
     it('holds a concurrent slot until it is released', async () => {
@@ -1470,6 +1563,20 @@ describe('checkRateLimit', () => {
         expect(await checkRateLimit('boom', 1, 60_000)).toBe(true);
         expect(spy).toHaveBeenCalled();
         spy.mockRestore();
+    });
+
+    it('throws the backend error instead when asked to fail closed', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis exploded');
+                },
+            },
+        });
+        await expect(
+            checkRateLimit('boom', 1, 60_000, undefined, { failOpen: false }),
+        ).rejects.toThrow('redis exploded');
     });
 });
 
@@ -1908,5 +2015,158 @@ describe('acquireConcurrent (imperative)', () => {
         const result = await acquireConcurrent('any', 1, 'redis');
         expect(result.ok).toBe(true);
         configureRateLimit();
+    });
+});
+
+describe('claimCountedRateLimit', () => {
+    const uniqueKey = () =>
+        `counted-${Math.random().toString(36).slice(2, 10)}`;
+    const WINDOW = 10_000;
+    /** The start of a fixed window, so nothing before it carries in. */
+    const windowStart = (n) => vi.setSystemTime(n * WINDOW);
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    describe.each([
+        ['memory', () => configureRateLimit()],
+        [
+            'redis',
+            () =>
+                configureRateLimit({
+                    default: 'redis',
+                    redis: new RedisMock(),
+                }),
+        ],
+    ])('%s backend', (_name, configure) => {
+        beforeEach(() => {
+            configure();
+            vi.useFakeTimers({ toFake: ['Date'] });
+            windowStart(1_000);
+        });
+
+        it('admits up to the limit and spends only what fits', async () => {
+            const key = uniqueKey();
+            expect(await claimCountedRateLimit(key, 5, WINDOW, 3)).toBe(3);
+            expect(await claimCountedRateLimit(key, 5, WINDOW, 3)).toBe(2);
+            expect(await claimCountedRateLimit(key, 5, WINDOW, 1)).toBe(0);
+        });
+
+        it('spends thousands of units in one claim', async () => {
+            const key = uniqueKey();
+            expect(
+                await claimCountedRateLimit(key, 15_000, WINDOW, 6_000),
+            ).toBe(6_000);
+            expect(
+                await claimCountedRateLimit(key, 15_000, WINDOW, 10_000),
+            ).toBe(9_000);
+        });
+
+        it('carries the previous window by how much of it is still inside', async () => {
+            const key = uniqueKey();
+            expect(await claimCountedRateLimit(key, 100, WINDOW, 100)).toBe(
+                100,
+            );
+            // A quarter into the next window, 75 of those still count.
+            vi.setSystemTime(1_001 * WINDOW + WINDOW / 4);
+            expect(await claimCountedRateLimit(key, 100, WINDOW, 50)).toBe(25);
+            // Two windows on, nothing carries.
+            windowStart(1_003);
+            expect(await claimCountedRateLimit(key, 100, WINDOW, 100)).toBe(
+                100,
+            );
+        });
+
+        it('keeps its buckets apart from claimRateLimit', async () => {
+            const key = uniqueKey();
+            expect(await claimCountedRateLimit(key, 2, WINDOW, 2)).toBe(2);
+            expect(await claimRateLimit(key, 2, WINDOW, 2)).toBe(2);
+        });
+    });
+
+    it('claims nothing for zero units', async () => {
+        const key = uniqueKey();
+        expect(await claimCountedRateLimit(key, 1, WINDOW, 0)).toBe(0);
+        expect(await claimCountedRateLimit(key, 1, WINDOW, 1)).toBe(1);
+    });
+
+    it('fails open, admitting every unit, when the backend throws', async () => {
+        const redis = new RedisMock();
+        redis.multi = () => {
+            throw new Error('redis down');
+        };
+        configureRateLimit({ default: 'redis', redis });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        expect(await claimCountedRateLimit(uniqueKey(), 1, WINDOW, 4)).toBe(4);
+        spy.mockRestore();
+    });
+
+    it('drops a memory counter once its windows have passed', async () => {
+        configureRateLimit();
+        vi.useFakeTimers({ toFake: ['Date'] });
+        windowStart(2_000);
+        const key = uniqueKey();
+        expect(await claimCountedRateLimit(key, 1, WINDOW, 1)).toBe(1);
+        windowStart(2_002);
+        sweepMemoryWindows();
+        windowStart(2_000);
+        expect(await claimCountedRateLimit(key, 1, WINDOW, 1)).toBe(1);
+    });
+});
+
+describe('claimRateLimit', () => {
+    const uniqueKey = () => `claim-${Math.random().toString(36).slice(2, 10)}`;
+
+    describe.each([
+        ['memory', () => configureRateLimit()],
+        [
+            'redis',
+            () => configureRateLimit({ default: 'redis', redis: new RedisMock() }),
+        ],
+    ])('%s backend', (_name, configure) => {
+        beforeEach(configure);
+
+        it('admits every unit while under the limit', async () => {
+            expect(await claimRateLimit(uniqueKey(), 5, 60_000, 3)).toBe(3);
+        });
+
+        it('admits exactly up to the limit and spends only that', async () => {
+            const key = uniqueKey();
+            expect(await claimRateLimit(key, 5, 60_000, 3)).toBe(3);
+            expect(await claimRateLimit(key, 5, 60_000, 3)).toBe(2);
+            // Nothing spent past the limit, so the bucket is exactly full.
+            expect(await checkRateLimit(key, 5, 60_000)).toBe(false);
+            expect(await checkRateLimit(key, 6, 60_000)).toBe(true);
+        });
+
+        it('admits nothing once the bucket is full', async () => {
+            const key = uniqueKey();
+            expect(await claimRateLimit(key, 2, 60_000, 2)).toBe(2);
+            expect(await claimRateLimit(key, 2, 60_000, 4)).toBe(0);
+        });
+
+        it('shares its bucket with checkRateLimit', async () => {
+            const key = uniqueKey();
+            expect(await checkRateLimit(key, 3, 60_000)).toBe(true);
+            expect(await claimRateLimit(key, 3, 60_000, 5)).toBe(2);
+        });
+    });
+
+    it('claims nothing for zero units', async () => {
+        const key = uniqueKey();
+        expect(await claimRateLimit(key, 1, 60_000, 0)).toBe(0);
+        expect(await checkRateLimit(key, 1, 60_000)).toBe(true);
+    });
+
+    it('fails open, admitting every unit, when the backend throws', async () => {
+        const redis = new RedisMock();
+        redis.multi = () => {
+            throw new Error('redis down');
+        };
+        configureRateLimit({ default: 'redis', redis });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        expect(await claimRateLimit(uniqueKey(), 1, 60_000, 4)).toBe(4);
+        spy.mockRestore();
     });
 });

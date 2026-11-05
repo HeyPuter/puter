@@ -21,6 +21,9 @@ import { describe, expect, it } from 'vitest';
 import {
     SharePathMasker,
     maskPathForRequest,
+    maskUnder,
+    maskUnderAnchor,
+    maskedRoot,
     maskerFor,
     parseMaskedSharePath,
     resolveSharePath,
@@ -224,5 +227,48 @@ describe('maskerFor', () => {
                 '/bob/Desktop/mine.txt',
             );
         });
+    });
+});
+
+describe('maskedRoot / maskUnder', () => {
+    const root = { path: '/alice/Documents/Work', uuid: UID, name: 'Work' };
+
+    it('builds the masked root byte for byte', () => {
+        expect(maskedRoot('alice', UID, 'Work')).toBe(`/alice/${UID}/Work`);
+        expect(maskedRoot('a b', UID, 'ünï cødé')).toBe(`/a b/${UID}/ünï cødé`);
+    });
+
+    it('masks the root and anything under it, and nothing else', () => {
+        expect(maskUnder(root, root.path)).toBe(`/alice/${UID}/Work`);
+        expect(maskUnder(root, `${root.path}/a/b.txt`)).toBe(
+            `/alice/${UID}/Work/a/b.txt`,
+        );
+        // A sibling sharing the prefix is not inside the share.
+        expect(maskUnder(root, '/alice/Documents/Workshop')).toBeNull();
+        expect(maskUnder(root, '/alice/Documents')).toBeNull();
+        expect(maskUnder({ ...root, name: '' }, root.path)).toBeNull();
+        expect(maskUnder({ ...root, path: '/' }, '/x')).toBeNull();
+    });
+
+    it('agrees with the anchor and masker forms', () => {
+        const file = `${root.path}/a/b.txt`;
+        expect(
+            maskUnderAnchor(
+                { uid: UID, path: root.path },
+                {
+                    path: file,
+                    uid: 'other',
+                },
+            ),
+        ).toBe(maskUnder(root, file));
+        const masker = new SharePathMasker(2);
+        expect(
+            masker.mask({
+                path: root.path,
+                uuid: UID,
+                name: 'Work',
+                userId: 1,
+            }),
+        ).toBe(maskUnder(root, root.path));
     });
 });

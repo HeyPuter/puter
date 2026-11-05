@@ -1,5 +1,6 @@
 import { assertHandler, assertSubject } from './lib/validate.js';
 import { needsSignIn, signInVisitor } from './lib/signIn.js';
+import { resolveSubject } from './lib/resolveSubject.js';
 
 /** @typedef {import('./lib/subscription.js').EventSubscription} EventSubscription */
 /** @typedef {import('./types.js').EventHandler} EventHandler */
@@ -24,8 +25,9 @@ import { needsSignIn, signInVisitor } from './lib/signIn.js';
  * `auth_canceled` if the visitor closes it.
  *
  * @this {import('./index.js').EventsModule}
- * @param {string} subject The subject to watch, e.g. `fs:~/Documents` or
- *   `fs:~/Documents/inbox.txt:write`.
+ * @param {string} subject The subject to watch, e.g. `fs:~/Documents`,
+ *   `fs:~/Documents/inbox.txt:write`, or `fs:./inbox` (relative paths resolve
+ *   against the app's root directory, the same way `puter.fs` operations do).
  * @param {EventHandler} handler Called with `{ event }` per delivery.
  * @param {OnLocalOptions} [options]
  * @returns {Promise<EventSubscription>} Resolves once the server has confirmed
@@ -36,5 +38,5 @@ export async function onLocal (subject, handler, options = {}) {
     assertHandler(handler);
     if ( needsSignIn(this.puter) ) await signInVisitor(this.puter);
 
-    return await this.channel.subscribe(subject, handler, options);
+    return await this.channel.subscribe(resolveSubject(subject, this.puter), handler, options);
 }

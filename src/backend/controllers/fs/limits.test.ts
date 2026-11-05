@@ -28,7 +28,10 @@ import type { RouteOptions, RouteRateLimit } from '../../core/http/types';
 
 type Spec = RouteRateLimit | NonNullable<RouteOptions['concurrent']>;
 
-const all = Object.entries(limits) as Array<[string, Spec | RouteRateLimit[]]>;
+// Rate and concurrency specs only; the per-request item caps are plain numbers.
+const all = Object.entries(limits).filter(
+    ([, value]) => typeof value === 'object',
+) as Array<[string, Spec | RouteRateLimit[]]>;
 const flat: Array<[string, Spec]> = all.flatMap(([name, value]) =>
     Array.isArray(value)
         ? value.map((v, i): [string, Spec] => [`${name}[${i}]`, v])

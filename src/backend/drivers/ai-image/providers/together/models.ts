@@ -480,16 +480,6 @@ const togetherImageModels: TogetherImageModel[] = [
         ],
     },
     {
-        id: 'togetherai:openai/gpt-image-1.5',
-        aliases: ['openai/gpt-image-1.5', 'gpt-image-1.5'],
-        costs_currency: 'usd-cents',
-        index_cost_key: 'per-image',
-        name: 'openai/gpt-image-1.5',
-        allowedQualityLevels: [''],
-        pricing_unit: 'per-image',
-        costs: { 'per-image': 3.4 },
-    },
-    {
         id: 'togetherai:stabilityai/stable-diffusion-xl-base-1.0',
         aliases: [
             'stabilityai/stable-diffusion-xl-base-1.0',

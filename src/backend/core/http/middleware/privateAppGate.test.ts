@@ -21,7 +21,10 @@ import type { Request } from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor } from '../../actor';
-import type { AuthService } from '../../../services/auth/AuthService';
+import {
+    HOSTED_ASSET_COOKIES,
+    type AuthService,
+} from '../../../services/auth/AuthService';
 import { PuterServer } from '../../../server';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
@@ -32,8 +35,10 @@ import {
     buildPublicHostRedirect,
     getBootstrapToken,
     hostMatchesPrivateDomain,
+    isTopLevelNavigation,
     normalizeHost,
     normalizeHostRaw,
+    pathWithoutQueryParam,
     renderLoginBootstrapHtml,
     resolveOwnedAppForHostedSite,
     resolvePrivateIdentity,
@@ -379,6 +384,61 @@ describe('buildPrivateHostRedirect', () => {
     });
 });
 
+describe('isTopLevelNavigation', () => {
+    const reqOf = (method: string, dest?: string): Request =>
+        ({
+            method,
+            headers: dest ? { 'sec-fetch-dest': dest } : {},
+        }) as unknown as Request;
+
+    it('is true only for a GET of a top-level page', () => {
+        expect(isTopLevelNavigation(reqOf('GET', 'document'))).toBe(true);
+        expect(isTopLevelNavigation(reqOf('GET', 'iframe'))).toBe(false);
+        expect(isTopLevelNavigation(reqOf('GET', 'script'))).toBe(false);
+        expect(isTopLevelNavigation(reqOf('POST', 'document'))).toBe(false);
+        expect(isTopLevelNavigation(reqOf('GET'))).toBe(false);
+    });
+});
+
+describe('pathWithoutQueryParam', () => {
+    const T = 'puter.auth.token';
+
+    it('removes the parameter and keeps the rest exactly as sent', () => {
+        expect(
+            pathWithoutQueryParam('/p/a.html?x=1&puter.auth.token=abc&y=a%20b+c', T),
+        ).toBe('/p/a.html?x=1&y=a%20b+c');
+    });
+
+    it('drops the query when nothing else is left', () => {
+        expect(pathWithoutQueryParam('/?puter.auth.token=abc', T)).toBe('/');
+    });
+
+    it('removes every occurrence, including a percent-encoded key', () => {
+        expect(
+            pathWithoutQueryParam('/?puter.auth.token=a&k=v&puter%2Eauth%2Etoken=b', T),
+        ).toBe('/?k=v');
+    });
+
+    it('returns null when the parameter is absent', () => {
+        expect(pathWithoutQueryParam('/?auth_token=abc', T)).toBeNull();
+        expect(pathWithoutQueryParam('/', T)).toBeNull();
+        expect(pathWithoutQueryParam(undefined, T)).toBeNull();
+    });
+
+    it('never produces a redirect off the current host', () => {
+        expect(pathWithoutQueryParam('//evil.example/?puter.auth.token=a', T)).toBe(
+            '/evil.example/',
+        );
+        expect(pathWithoutQueryParam('/\\evil.example/?puter.auth.token=a', T)).toBe(
+            '/evil.example/',
+        );
+        // URL parsing drops tabs, which would turn this into `//evil.example`.
+        expect(
+            pathWithoutQueryParam('/\t/evil.example/?puter.auth.token=a', T),
+        ).toBeNull();
+    });
+});
+
 describe('buildPublicHostRedirect', () => {
     // Mirror of buildPrivateHostRedirect — swaps the private hosting
     // domain for the public one. Used when a non-private app (or no app
@@ -609,7 +669,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
@@ -624,7 +684,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.app.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
@@ -640,7 +700,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: a.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out).toBeNull();
@@ -656,7 +716,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
@@ -672,7 +732,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
             requirePrivate: true,
         });
@@ -693,18 +753,54 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.app.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
         expect(Boolean(out?.is_private)).toBe(true);
     });
 
+    it('leaves columns the gate never reads, such as an inline icon, out of the match', async () => {
+        const owner = await makeUser();
+        const app = await createPrivateApp(
+            owner.id,
+            'http://beans.site.puter.localhost/',
+        );
+        await server.clients.db.write(
+            'UPDATE `apps` SET `icon` = ?, `description` = ? WHERE `uid` = ?',
+            [`data:image/png;base64,${'A'.repeat(512)}`, 'about', app.uid],
+        );
+        const out = await resolveOwnedAppForHostedSite({
+            req: reqOf('beans.site.puter.localhost'),
+            site: { user_id: owner.id },
+            appStore: server.stores.app,
+            config: baseConfig(),
+        });
+        expect(Object.keys(out!).sort()).toEqual([
+            'id',
+            'index_url',
+            'is_private',
+            'name',
+            'owner_user_id',
+            'title',
+            'uid',
+        ]);
+        expect(out).toMatchObject({
+            id: app.id,
+            uid: app.uid,
+            name: `private-${app.uid}`,
+            title: `private-${app.uid}`,
+            owner_user_id: owner.id,
+            index_url: 'http://beans.site.puter.localhost/',
+        });
+        expect(Boolean(out!.is_private)).toBe(true);
+    });
+
     it('returns null when the site has no owner', async () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: null },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out).toBeNull();
@@ -714,7 +810,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf(''),
             site: { user_id: 1 },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out).toBeNull();
@@ -738,16 +834,16 @@ describe('resolvePrivateIdentity', () => {
     it('returns the sticky private-cookie identity when the token matches the expected app/subdomain/host', async () => {
         const user = await makeUser();
         const appUid = `app-${uuidv4()}`;
-        const token = await authService.createPrivateAssetToken({
+        const token = await authService.createHostedAssetToken('private', {
             appUid,
             userUid: user.uuid,
             subdomain: 'beans',
-            privateHost: 'beans.app.puter.localhost',
+            host: 'beans.app.puter.localhost',
         });
         const out = await resolvePrivateIdentity({
             req: reqOf({
                 cookies: {
-                    [authService.getPrivateAssetCookieName()]: token,
+                    [HOSTED_ASSET_COOKIES.private.legacyName]: token,
                 },
             }),
             authService,
@@ -763,16 +859,16 @@ describe('resolvePrivateIdentity', () => {
 
     it('falls through to req.actor when the private cookie is for a different app', async () => {
         const user = await makeUser();
-        const wrongToken = await authService.createPrivateAssetToken({
+        const wrongToken = await authService.createHostedAssetToken('private', {
             appUid: `app-${uuidv4()}`,
             userUid: user.uuid,
             subdomain: 'beans',
-            privateHost: 'beans.app.puter.localhost',
+            host: 'beans.app.puter.localhost',
         });
         const out = await resolvePrivateIdentity({
             req: reqOf({
                 cookies: {
-                    [authService.getPrivateAssetCookieName()]: wrongToken,
+                    [HOSTED_ASSET_COOKIES.private.legacyName]: wrongToken,
                 },
                 actor: {
                     user: { uuid: user.uuid },
@@ -854,7 +950,8 @@ describe('resolvePrivateIdentity', () => {
         expect(out.userUid).toBeUndefined();
     });
 
-    it('accepts an app-issued access token minted for the target app', async () => {
+    it('ignores an app-issued access token even for the target app', async () => {
+        // A scoped token (e.g. a read URL) is not the account, whoever issued it.
         const user = await makeUser();
         const targetUid = `app-target-${uuidv4()}`;
         const issuer = makeActor({
@@ -874,11 +971,11 @@ describe('resolvePrivateIdentity', () => {
             sessionCookieName: 'puter_auth_token',
             expectedAppUid: targetUid,
         });
-        expect(out.source).toBe('session-cookie');
-        expect(out.userUid).toBe(user.uuid);
+        expect(out.source).toBe('none');
+        expect(out.userUid).toBeUndefined();
     });
 
-    it('still accepts a user-issued access token, which is portable', async () => {
+    it('ignores a user-issued scoped access token', async () => {
         const user = await makeUser();
         const issuer = makeActor({ user: { uuid: user.uuid } });
         const out = await resolvePrivateIdentity({
@@ -887,7 +984,46 @@ describe('resolvePrivateIdentity', () => {
                 actor: makeActor({
                     user: { uuid: user.uuid },
                     accessToken: { uid: `tok-${uuidv4()}`, issuer },
-                    session: { uid: 'sess-1' },
+                }),
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+            expectedAppUid: `app-target-${uuidv4()}`,
+        });
+        expect(out.source).toBe('none');
+        expect(out.userUid).toBeUndefined();
+    });
+
+    it('ignores a scoped access token when the host has no app', async () => {
+        const user = await makeUser();
+        const issuer = makeActor({ user: { uuid: user.uuid } });
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: makeActor({
+                    user: { uuid: user.uuid },
+                    accessToken: { uid: `tok-${uuidv4()}`, issuer },
+                }),
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+        });
+        expect(out.source).toBe('none');
+    });
+
+    it('accepts a full-access token, which holds the account', async () => {
+        const user = await makeUser();
+        const issuer = makeActor({ user: { uuid: user.uuid } });
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: makeActor({
+                    user: { uuid: user.uuid },
+                    accessToken: {
+                        uid: `tok-${uuidv4()}`,
+                        issuer,
+                        fullAccess: true,
+                    },
                 }),
             }),
             authService,
@@ -1007,7 +1143,7 @@ describe('resolvePublicHostedIdentity', () => {
     it('returns the cookie identity when present and valid', async () => {
         const user = await makeUser();
         const appUid = `app-${uuidv4()}`;
-        const token = await authService.createPublicHostedActorToken({
+        const token = await authService.createHostedAssetToken('public', {
             appUid,
             userUid: user.uuid,
             subdomain: 'beans',
@@ -1016,7 +1152,7 @@ describe('resolvePublicHostedIdentity', () => {
         const out = await resolvePublicHostedIdentity({
             req: reqOf({
                 cookies: {
-                    [authService.getPublicHostedActorCookieName()]: token,
+                    [HOSTED_ASSET_COOKIES.public.legacyName]: token,
                 },
             }),
             authService,

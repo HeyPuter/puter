@@ -23,12 +23,15 @@ try {
 } catch { /* not in a git repo — keep "unknown" */ }
 const preambleVersion = `${puterJsPkg.version}+${gitSha}`;
 
+// An included ES module loses its `export` keywords, so a file puter.js imports
+// can be inlined into a preamble as plain declarations. It must have no imports.
 const inlineIncludes = async (filePath) => {
     const fileContents = await readFile(filePath, 'utf-8');
     const lines = fileContents.split('\n');
     const expandedLines = [];
 
-    for (const line of lines) {
+    for (const rawLine of lines) {
+        const line = rawLine.replace(/^export (const|function|class) /, '$1 ');
         const includeMatch = /^([ \t]*)#include "([^"]+)"$/.exec(line);
         if (!includeMatch) {
             expandedLines.push(line);

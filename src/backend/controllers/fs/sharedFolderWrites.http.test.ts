@@ -194,4 +194,87 @@ describe('writes inside a folder shared with write', () => {
             (moved.json!.moved as { path: string }).path,
         ).toBe(`${s.maskedDir}/renamed.txt`);
     }, 180_000);
+
+    // The thumbnail update is scoped to the writer's own rows, so a file the
+    // owner ends up owning keeps none, while the writer's own file in the same
+    // batch gets its thumbnail.
+    it('batchWrite stores thumbnails on the writer’s own files only', async () => {
+        const s = await shareAFolder();
+        const png =
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+        const ownPath = `/${s.recipient.username}/Documents/own.png`;
+        const written = await post('/fs/batchWrite', s.recipient.token, [
+            {
+                fileMetadata: { path: `${s.maskedDir}/shared.png`, size: 1 },
+                fileContent: 'a',
+                thumbnailData: png,
+            },
+            {
+                fileMetadata: { path: ownPath, size: 1 },
+                fileContent: 'b',
+                thumbnailData: png,
+            },
+        ]);
+        expect(written.status).toBe(200);
+
+        const stored = async (path: string) =>
+            env.server.stores.fsEntry.getEntryByUuidFromPrimary(
+                (await env.server.stores.fsEntry.getEntryByPath(path))!.uuid,
+            );
+        expect((await stored(`${s.realDir}/shared.png`))?.thumbnail).toBeNull();
+        expect((await stored(ownPath))?.thumbnail).toMatch(/^s3:\/\//);
+    }, 180_000);
+
+    // The recipient only knows the masked path, so refusals name entries the
+    // way the recipient addressed them.
+    it('keeps the owner’s real path out of error messages', async () => {
+        const s = await shareAFolder();
+        await post('/touch', s.owner.token, {
+            path: `${s.realDir}/other.txt`,
+        });
+
+        const cases = [
+            {
+                res: await post('/fs/stat', s.recipient.token, {
+                    path: `${s.maskedDir}/missing.txt`,
+                }),
+                status: 404,
+                message: 'Subject does not exist',
+            },
+            {
+                res: await post('/fs/mkdir', s.recipient.token, {
+                    path: `${s.maskedDir}/note.txt`,
+                }),
+                status: 409,
+                message: 'An entry named `note.txt` already exists',
+            },
+            {
+                res: await post('/fs/mkdir', s.recipient.token, {
+                    path: `${s.maskedDir}/missing/child`,
+                }),
+                status: 404,
+                message: 'Parent path does not exist: missing',
+            },
+            {
+                res: await post('/fs/rename', s.recipient.token, {
+                    uid: s.noteUid,
+                    new_name: 'other.txt',
+                }),
+                status: 409,
+                message: 'An entry named `other.txt` already exists',
+            },
+            {
+                res: await post('/mkdir', s.recipient.token, {
+                    path: `${s.maskedDir}/note.txt`,
+                }),
+                status: 409,
+                message: 'An entry named `note.txt` already exists',
+            },
+        ];
+        for (const { res, status, message } of cases) {
+            expect(res.status).toBe(status);
+            expect(res.json!.message).toBe(message);
+            expect(JSON.stringify(res.json)).not.toContain(s.realDir);
+        }
+    }, 180_000);
 });

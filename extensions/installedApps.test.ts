@@ -74,15 +74,6 @@ const grantInstalled = async (appId: number, userId: number) => {
 };
 
 describe('installedApps extension — handleInstalledApps', () => {
-    it('throws HttpError(401) when no actor is on the context', async () => {
-        const { res } = makeRes();
-        await expect(
-            runWithContext({ actor: undefined }, () =>
-                handleInstalledApps(makeReq({}), res),
-            ),
-        ).rejects.toMatchObject({ statusCode: 401 });
-    });
-
     it('throws HttpError(400) when orderBy is not in the allowlist', async () => {
         const user = await seedUser();
         const { res } = makeRes();

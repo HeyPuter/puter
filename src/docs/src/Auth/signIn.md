@@ -33,6 +33,8 @@ puter.auth.signIn(options)
 
 - `request_auth`: A boolean value that asks the popup to let the user re-pick their account, even when your site already holds a token for them. Puter otherwise skips that prompt for a site it has seen before. Useful for an explicit "switch account" button.
 
+Each call completes from its own sign-in window, including when multiple calls run at once.
+
 ## Return value
 
 A `Promise` that will resolve to a [`SignInResult`](/Objects/signinresult/) object when the user has signed in.
@@ -46,6 +48,8 @@ The promise will reject with an object containing an `error` code and a human-re
 - `auth_window_closed`: The user closed the sign-in window (or cancelled the consent dialog) without completing the sign-in process.
 
 - `not_available_in_app`: `signIn()` was called from an app running on Puter. An app is already signed in as the user who launched it — the Puter session hands it a token at launch — so there is nothing for the popup to do. Use `puter.auth.getUser()` to read who that is.
+
+- `unsupported_origin`: the page has no origin the browser will vouch for, so there is no app for Puter to issue a token to and no address to deliver it to. This happens when the page is opened straight from disk (`file://`) or sits in an iframe sandboxed without `allow-same-origin`. Serve the page over `http://localhost` or a real domain, or add `allow-same-origin` to the iframe's `sandbox` attribute.
 
 The promise may also reject with the failure response returned by the authentication window itself.
 

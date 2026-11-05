@@ -4,7 +4,7 @@ description: Retrieve the available AI chat models (and providers) that Puter cu
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Returns the AI chat/completion models that are currently available to your app. The list is pulled from the same source as the public `/puterai/chat/models/details` endpoint and includes pricing and capability metadata where available.
+Returns the AI chat/completion models that are currently available to your app, including pricing and capability metadata where available.
 
 ## Syntax
 
@@ -42,6 +42,13 @@ Example model entry:
   }
 ]
 ```
+
+Network and server failures reject the promise; they do not resolve to an empty
+catalogue. Network failures use `{ message, code: "network_error" }`, invalid
+catalogue responses use `invalid_response`, idle timeouts use `request_timeout`,
+and server errors pass through unchanged.
+
+<div class="info">Successful results are cached for 60 seconds per provider.</div>
 
 ## Model variants
 

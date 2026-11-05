@@ -18,8 +18,8 @@ puter.fs.read(options)
 
 #### `path` (String) (required)
 
-Path of the file to read.
-If `path` is not absolute, it will be resolved relative to the app's root directory.
+Path of the file to read, or its UID.
+If `path` is not absolute, it will be resolved relative to the app's root directory. A relative name that looks like a UID is read as one; prefix it with `./` to address a file by that name.
 
 #### `options` (Object) (optional)
 
@@ -28,8 +28,8 @@ An object with the following properties:
 - `path` (String) - Path to the file to read. Required when passing options as the only argument.
 - `offset` (Number) (optional)
 The offset to start reading from.
-- `byte_count` (Number) (required if `offset` is provided)
-The number of bytes to read from the offset.
+- `byte_count` (Number) (optional)
+The number of bytes to read from the offset. When omitted with `offset`, reads through the end of the file.
 
 ## Return value
 

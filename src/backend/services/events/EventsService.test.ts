@@ -24,6 +24,7 @@ import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+    EVENTS_KV_VALUE_DELIVERIES_PER_EVENT,
     EVENTS_KV_VALUE_MAX_BYTES,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SUBSCRIBE_LIMIT,
@@ -33,6 +34,7 @@ import type { Actor } from '../../core/actor.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import {
     EventSubscriptionStore,
+    valueWatchToken,
     type DurableSubscription,
 } from '../../stores/events/EventSubscriptionStore.js';
 import type { KvShareHandle } from '../../stores/events/KvShareHandleStore.js';
@@ -50,8 +52,10 @@ import {
     EVENTS_UNSUBSCRIBE_VERB,
     type DeliveryEnvelope,
     type EventSocket,
+    type KvDispatchOptions,
+    type SubscribeRequest,
 } from './EventsService.js';
-import { kvSharePermission } from './kvShares.js';
+import { kvSharePermission } from '../kvShare/kvShares.js';
 import { FILTER_EVALUATIONS_PER_EVENT } from './matcher.js';
 import { SUBSCRIPTION_CACHE_TTL_MS } from './subscriptionCache.js';
 import { kvAnchorToken } from './subjects.js';
@@ -181,7 +185,11 @@ const aclService = () => ({
         !denied.has(resource.path) && !deniedHolders.has(actor.user?.id ?? -1),
     getSafeAclError: async (_actor: Actor, resource: { path: string }) =>
         denied.get(resource.path) === 'forbidden'
-            ? { status: 403, message: 'Forbidden', fields: { code: 'forbidden' } }
+            ? {
+                  status: 403,
+                  message: 'Forbidden',
+                  fields: { code: 'forbidden' },
+              }
             : {
                   status: 404,
                   message: 'Subject does not exist',
@@ -202,6 +210,16 @@ let handles: Map<string, KvShareHandle>;
 
 const kvShareHandleStore = {
     getByHandle: async (handle: string) => handles.get(handle) ?? null,
+    predatesItsApp: async () => false,
+    getLive: async (handle: string) => {
+        const row = handles.get(handle);
+        if (!row || row.revokedAt !== null) return null;
+        return {
+            row,
+            ownerUuid: `user-${row.ownerUserId}`,
+            ownerSuspended: false,
+        };
+    },
 };
 
 /** Apps the cross-app gate can be asked about, and what they share. */
@@ -267,8 +285,8 @@ interface ForwardedCall {
 }
 
 /**
- * Each service gets its own outbox. A delivery still in flight when a test
- * ends must land in that test's record, not in the next one's.
+ * Each service gets its own outbox. A delivery still in flight when a test ends
+ * must land in that test's record, not in the next one's.
  */
 const buildService = (
     config: IConfig,
@@ -279,12 +297,14 @@ const buildService = (
     metered: MeteredLine[];
     forwarded: ForwardedCall[];
     eventBus: { on: ReturnType<typeof vi.fn>; emit: ReturnType<typeof vi.fn> };
+    jobs: { register: ReturnType<typeof vi.fn> };
 } => {
     const outbox: Array<{ socket?: string; envelope: DeliveryEnvelope }> = [];
     const counted: DeliveryEnvelope[] = [];
     const lines: MeteredLine[] = [];
     const forwardedCalls: ForwardedCall[] = [];
     const bus = { on: vi.fn(), emit: vi.fn() };
+    const jobs = { register: vi.fn() };
     const built = new EventsService(
         config,
         {
@@ -301,6 +321,7 @@ const buildService = (
             kvShareHandle: kvShareHandleStore,
         } as never,
         {
+            jobs,
             eventForward: {
                 // A deployment with no peers has nowhere to forward to, which
                 // is what every test here is.
@@ -309,6 +330,7 @@ const buildService = (
                 noteConnect: async () => undefined,
                 noteDisconnect: async () => undefined,
                 candidateRegion: async () => null,
+                heldInRegion: async () => false,
                 fanOut: async () => undefined,
                 handOff: () => undefined,
                 relayAck: () => undefined,
@@ -329,18 +351,10 @@ const buildService = (
                     });
                 }),
             },
-            fs: {
-                getAncestorChain: vi.fn(async (path: string) =>
-                    ancestorChain(path),
-                ),
-            },
             acl: aclService(),
             permission: permissionService(),
             metering: {
-                bufferIncrementUsages: (
-                    actor: Actor,
-                    usages: UsageInput[],
-                ) => {
+                bufferIncrementUsages: (actor: Actor, usages: UsageInput[]) => {
                     for (const usage of usages)
                         lines.push({
                             userUuid: actor.user?.uuid,
@@ -366,6 +380,7 @@ const buildService = (
         metered: lines,
         forwarded: forwardedCalls,
         eventBus: bus,
+        jobs,
     };
 };
 
@@ -373,6 +388,7 @@ const fsEntryStore = {
     getEntryByUuid: async (uid: string) => entries.get(`uid:${uid}`) ?? null,
     getEntryByPath: async (path: string) => entries.get(`path:${path}`) ?? null,
     getEntryById: async () => null,
+    getAncestorChain: async (path: string) => ancestorChain(path),
 };
 
 const register = (node: FSEntry): FSEntry => {
@@ -381,7 +397,7 @@ const register = (node: FSEntry): FSEntry => {
     return node;
 };
 
-/** Existing ancestors of a path, deepest first — what `FSService` returns. */
+/** Existing ancestors of a path, deepest first — what `FSEntryStore` returns. */
 const ancestorChain = (path: string): Array<{ uid: string; path: string }> => {
     const chain: Array<{ uid: string; path: string }> = [];
     let cursor = path;
@@ -553,6 +569,59 @@ describe('the feature switch', () => {
         );
     });
 
+    it('hands its table sweeps to the job scheduler and arms only the pending sweep itself', () => {
+        const intervals = vi.spyOn(globalThis, 'setInterval');
+        const timeouts = vi.spyOn(globalThis, 'setTimeout');
+        let jobs: { register: ReturnType<typeof vi.fn> };
+        try {
+            ({ jobs } = buildService({ events: { enabled: true } } as IConfig));
+            // The pending sweep is the region's queue, so every node runs it.
+            expect(intervals.mock.calls.map(([, ms]) => ms)).toEqual([10_000]);
+            expect(timeouts).not.toHaveBeenCalled();
+        } finally {
+            intervals.mockRestore();
+            timeouts.mockRestore();
+        }
+        expect(
+            jobs.register.mock.calls.map(([name, job]) => ({
+                name,
+                every: job.every,
+                scope: job.scope,
+                nearPrimary: job.nearPrimary ?? false,
+                leaseMs: job.leaseMs,
+            })),
+        ).toEqual([
+            {
+                name: 'events.subscriptions.expirySweep',
+                every: 60 * 60_000,
+                scope: 'fleet',
+                nearPrimary: true,
+                leaseMs: 15 * 60_000,
+            },
+            {
+                name: 'events.userHandlers.gc',
+                every: 60 * 60_000,
+                scope: 'fleet',
+                nearPrimary: true,
+                leaseMs: 15 * 60_000,
+            },
+            {
+                name: 'events.subscriptions.creditSweep',
+                every: 15 * 60_000,
+                scope: 'fleet',
+                nearPrimary: false,
+                leaseMs: 10 * 60_000,
+            },
+        ]);
+    });
+
+    it('registers no job when off', () => {
+        const { jobs } = buildService({
+            events: { enabled: false },
+        } as IConfig);
+        expect(jobs.register).not.toHaveBeenCalled();
+    });
+
     it('spends nothing at all on a dispatch when off', async () => {
         const { service: off } = buildService({
             events: { enabled: false },
@@ -581,25 +650,18 @@ describe('subscribing', () => {
             anchor: { uid: documents.uid, path: documents.path },
             match: null,
             op: null,
-            // The connection is the only thing a session row can be delivered
-            // to, so it is the only transport it can ask for.
-            targets: ['socket'],
         });
     });
 
-    it('refuses a session subscription a connection could not carry', async () => {
+    it('ignores `targets` on a session subscription', async () => {
         seedTree();
 
-        for (const targets of [['worker'], ['socket', 'push']])
-            await expect(
-                service.subscribe(actorFor(), socketId, {
-                    subject: `fs:/u${userId}/Documents`,
-                    targets,
-                }),
-            ).rejects.toSatisfy(
-                (err: unknown) =>
-                    isHttpError(err) && err.legacyCode === 'invalid_targets',
-            );
+        const { sub } = await service.subscribe(actorFor(), socketId, {
+            subject: `fs:/u${userId}/Documents`,
+            targets: ['worker', 'push'],
+        } as SubscribeRequest);
+
+        expect(sub.subId).toEqual(expect.any(String));
     });
 
     it('rejects a subject that resolves to nothing', async () => {
@@ -628,6 +690,33 @@ describe('subscribing', () => {
         denied.set(documents.path, 'forbidden');
 
         await expect(subscribe(`fs:${documents.uid}`)).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.statusCode === 403 &&
+                err.legacyCode === 'forbidden',
+        );
+    });
+
+    it('answers an anchor gone mid-subscribe with the subject it was sent, not where it was', async () => {
+        const { documents } = seedTree();
+        // Resolvable by path, gone by uid: deleted between the two reads.
+        entries.delete(`uid:${documents.uid}`);
+
+        await expect(subscribe('fs:~/Documents')).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.statusCode === 404 &&
+                err.legacyCode === 'subject_does_not_exist' &&
+                err.message === 'No such entry: fs:~/Documents',
+        );
+    });
+
+    it('asks whether the caller may watch an anchor before saying it is gone', async () => {
+        const { documents } = seedTree();
+        denied.set(documents.path, 'forbidden');
+        entries.delete(`uid:${documents.uid}`);
+
+        await expect(subscribe('fs:~/Documents')).rejects.toSatisfy(
             (err: unknown) =>
                 isHttpError(err) &&
                 err.statusCode === 403 &&
@@ -1064,6 +1153,76 @@ describe('cold-region rebuild concurrency', () => {
     });
 });
 
+describe('a cold process cache', () => {
+    /** A watcher made on another process, so this one's cache stays cold. */
+    const addRemoteWatcher = (documents: FSEntry) =>
+        store.add({
+            subId: `remote-sub-${seq}`,
+            socketId: 'remote-socket',
+            holderUserId: userId,
+            ownerUserId: userId,
+            subject: `fs:${documents.uid}`,
+            token: `f#${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+            op: null,
+            appUid: null,
+            permission: 'list',
+        });
+
+    it('answers a warm region in one pipeline, without consulting the table', async () => {
+        const { file } = seedTree();
+        await store.markRegionWarm(userId);
+        const warm = vi.spyOn(durableSubscriptionStore, 'warmRegion');
+        commands = [];
+        try {
+            await expect(dispatch(file)).resolves.toBe(false);
+            expect(commands).toEqual(['pipeline']);
+            expect(warm).not.toHaveBeenCalled();
+        } finally {
+            warm.mockRestore();
+        }
+    });
+
+    it('sees a watcher in that same pipeline', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        await addRemoteWatcher(documents);
+        await store.markRegionWarm(userId);
+        const warm = vi.spyOn(durableSubscriptionStore, 'warmRegion');
+        try {
+            await dispatch(file);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+            expect(sent).toHaveLength(1);
+            expect(warm).not.toHaveBeenCalled();
+        } finally {
+            warm.mockRestore();
+        }
+    });
+
+    it('rebuilds a cold region, then answers from what the rebuild found', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        const warm = vi
+            .spyOn(durableSubscriptionStore, 'warmRegion')
+            .mockImplementation(async (ownerUserId: number) => {
+                // A rebuild that finds rows the first look did not.
+                await addRemoteWatcher(documents);
+                await store.markRegionWarm(ownerUserId);
+                return true;
+            });
+        try {
+            await dispatch(file);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+            expect(warm).toHaveBeenCalledTimes(1);
+            expect(sent).toHaveLength(1);
+        } finally {
+            warm.mockRestore();
+        }
+    });
+});
+
 // -- Matching --------------------------------------------------------
 
 describe('matching', () => {
@@ -1105,7 +1264,9 @@ describe('matching', () => {
     it('stops delivering to a durable row the moment it expires', async () => {
         const { documents, file } = seedTree();
         const now = Math.floor(Date.now() / 1000);
-        const row = (over: Partial<DurableSubscription>): DurableSubscription => ({
+        const row = (
+            over: Partial<DurableSubscription>,
+        ): DurableSubscription => ({
             subId: `durable-${seq}-${over.expiresAt}`,
             token: `f#${documents.uid}`,
             ownerUserId: userId,
@@ -1119,7 +1280,6 @@ describe('matching', () => {
             permission: 'list',
             durable: true,
             delivery: 'broadcast',
-            targets: ['socket'],
             handlerName: null,
             context: null,
             expiresAt: null,
@@ -1255,9 +1415,9 @@ describe('matching', () => {
         await dispatch(closed);
         await flush();
 
-        expect(sent.map((s) => (s.envelope.event as { uid: string }).uid)).toEqual([
-            reachable.uid,
-        ]);
+        expect(
+            sent.map((s) => (s.envelope.event as { uid: string }).uid),
+        ).toEqual([reachable.uid]);
     });
 
     it('publishes nothing for an event with no registry entry', async () => {
@@ -1299,9 +1459,9 @@ describe('matching', () => {
         await flush();
 
         expect(sent).toHaveLength(1);
-        expect(
-            (sent[0].envelope.event as { path: string }).path,
-        ).toBe(inside.path);
+        expect((sent[0].envelope.event as { path: string }).path).toBe(
+            inside.path,
+        );
     });
 
     it('does not reach a sibling that only shares the missing name as a prefix', async () => {
@@ -1373,8 +1533,9 @@ describe('coalescing', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent).toHaveLength(2);
-        expect(sent.map((s) => (s.envelope.event as { uid: string }).uid).sort())
-            .toEqual([file.uid, second.uid].sort());
+        expect(
+            sent.map((s) => (s.envelope.event as { uid: string }).uid).sort(),
+        ).toEqual([file.uid, second.uid].sort());
     });
 
     it('counts exactly what it delivered', async () => {
@@ -1520,9 +1681,9 @@ describe('limits', () => {
             }
         }
 
-        await expect(subscribe(`fs:${documents.uid}`)).resolves.toMatchObject(
-            { subId: expect.any(String) },
-        );
+        await expect(subscribe(`fs:${documents.uid}`)).resolves.toMatchObject({
+            subId: expect.any(String),
+        });
     });
 
     it('refuses unsubscribes past their own per-minute budget', async () => {
@@ -1591,9 +1752,7 @@ describe('limits', () => {
             ),
         );
 
-        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(
-            1,
-        );
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
         expect(results.filter((r) => r.status === 'rejected')).toHaveLength(
             attempts - 1,
         );
@@ -1637,6 +1796,92 @@ describe('limits', () => {
                 .map((s) => s.envelope.subId),
         );
         expect([...gapped].some((id) => written.has(id))).toBe(false);
+    });
+
+    it('reads no more of a crowded token than one event can use', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        await seedSubscriptions(400, {
+            token: `f#${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+        });
+        const reads = vi.spyOn(store, 'getForTokens');
+
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        const read = await reads.mock.results[0].value;
+        expect(read.length).toBeLessThan(400);
+        const ops = sent.map((s) => s.envelope.event.op);
+        expect(ops.filter((op) => op === 'write')).toHaveLength(
+            EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+        );
+        expect(ops.filter((op) => op === 'gap')).toHaveLength(
+            EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+        );
+    });
+
+    it('settles every row on a removed anchor, past what one event reads', async () => {
+        const { documents } = seedTree();
+        const token = `f#${documents.uid}`;
+        await seedSubscriptions(300, {
+            token,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+        });
+
+        await service.dispatchFs('fs.remove.node', documents, {
+            actingUserId: userId,
+            ancestors: async () => ancestorChain(documents.path),
+        });
+
+        await expect(store.getForTokens(userId, [token])).resolves.toEqual([]);
+    });
+
+    it('finds a forwarded copy`s session rows behind any number of durable ones', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        const token = `f#${documents.uid}`;
+        await store.cacheDurable(
+            Array.from(
+                { length: 300 },
+                (_, i) =>
+                    ({
+                        durable: true,
+                        subId: `durable-${seq}-${i}`,
+                        holderUserId: userId,
+                        ownerUserId: userId,
+                        subject: `fs:${documents.path}`,
+                        token,
+                        anchorUid: documents.uid,
+                        anchorPath: documents.path,
+                        match: null,
+                        op: null,
+                        appUid: null,
+                        permission: 'list',
+                        delivery: 'broadcast',
+                        handlerName: null,
+                        context: null,
+                        expiresAt: null,
+                        suspendedAt: null,
+                        suspendedReason: null,
+                        createdAt: 0,
+                    }) as DurableSubscription,
+            ),
+        );
+        const sub = await subscribe(`fs:${documents.path}`);
+
+        await service.dispatchFs('fs.write.file', file, {
+            actingUserId: userId,
+            ancestors: async () => ancestorChain(file.path),
+            forwarded: true,
+        });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent.map((s) => s.envelope.subId)).toEqual([sub.subId]);
     });
 
     it('never gaps a row whose grant was revoked', async () => {
@@ -1704,9 +1949,9 @@ describe('limits', () => {
         ).toHaveLength(EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT);
         // 200 evaluated, 20 never reached: everything past the delivery cap is
         // told it missed something, itself capped.
-        expect(
-            sent.filter((s) => s.envelope.event.op === 'gap'),
-        ).toHaveLength(EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT);
+        expect(sent.filter((s) => s.envelope.event.op === 'gap')).toHaveLength(
+            EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+        );
         expect(
             sent.find((s) => s.envelope.event.op === 'gap')?.envelope.event,
         ).toMatchObject({ reason: 'filter_evaluation_limit' });
@@ -1757,8 +2002,7 @@ describe('the socket surface', () => {
             fire: (event, ...args) =>
                 (
                     handlers.get(event) as
-                        | ((...a: unknown[]) => void)
-                        | undefined
+                        ((...a: unknown[]) => void) | undefined
                 )?.(...args),
         };
     };
@@ -1926,6 +2170,7 @@ it('sends only the projected shape, never an internal row', async () => {
         'subject',
         'ts',
         'uid',
+        'viaWorker',
     ]);
     expect(sent[0].envelope.event).not.toHaveProperty('userId');
 });
@@ -1938,10 +2183,14 @@ it('names the delivery channel the clients listen on', () => {
 
 describe('asking a kv subscription for the value', () => {
     it('is recorded on the row and reported in the view', async () => {
-        const { sub } = await service.subscribe(appActorFor(OWN_APP), socketId, {
-            subject: `kv:${OWN_APP}:cart`,
-            includeValue: true,
-        });
+        const { sub } = await service.subscribe(
+            appActorFor(OWN_APP),
+            socketId,
+            {
+                subject: `kv:${OWN_APP}:cart`,
+                includeValue: true,
+            },
+        );
         expect(sub.includeValue).toBe(true);
 
         const plain = await subscribeKv(`kv:${OWN_APP}:cart`);
@@ -2024,10 +2273,7 @@ describe('resolving a kv subject', () => {
     });
 
     it('refuses a pattern the grammar cannot enumerate from a key', async () => {
-        for (const subject of [
-            `kv:${OWN_APP}:ca*rt`,
-            `kv:${OWN_APP}:cart?`,
-        ])
+        for (const subject of [`kv:${OWN_APP}:ca*rt`, `kv:${OWN_APP}:cart?`])
             await expect(subscribeKv(subject)).rejects.toSatisfy(
                 (err: unknown) =>
                     isHttpError(err) && err.legacyCode === 'invalid_kv_pattern',
@@ -2142,8 +2388,7 @@ describe('delivering a kv change', () => {
 
     const eventFor = (subId: string) =>
         sent.find((one) => one.envelope.subId === subId)?.envelope.event as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
 
     it('hands the value to the row that asked for it and to no other', async () => {
         vi.useFakeTimers();
@@ -2251,20 +2496,22 @@ describe('delivering a kv change', () => {
         expect(ownerPlanActors).toEqual([]);
     });
 
-    it('omits values and gaps the 129th free-tier KV listener', async () => {
+    it('keeps values on the delivered free-tier KV listeners and gaps the 129th', async () => {
         vi.useFakeTimers();
         await seedKvSubscriptions(129, { includeValue: true });
 
-        await dispatchKv(['cart'], { values: ['re-read'] });
+        await dispatchKv(['cart'], { values: ['kept'] });
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
-        const deliveries = sent.filter((one) => one.envelope.event.op === 'set');
+        const deliveries = sent.filter(
+            (one) => one.envelope.event.op === 'set',
+        );
         const gaps = sent.filter((one) => one.envelope.event.op === 'gap');
         expect(deliveries).toHaveLength(128);
         expect(gaps).toHaveLength(1);
-        expect(deliveries.every((one) => !('value' in one.envelope.event))).toBe(
-            true,
-        );
+        expect(
+            deliveries.every((one) => one.envelope.event.value === 'kept'),
+        ).toBe(true);
         expect(ownerPlanActors).toEqual([
             expect.objectContaining({
                 user: expect.objectContaining({
@@ -2289,9 +2536,10 @@ describe('delivering a kv change', () => {
         expect(sent).toHaveLength(
             EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
         );
-        expect(sent.every((one) => !('value' in one.envelope.event))).toBe(
-            true,
-        );
+        // Values ride on the first deliveries only.
+        expect(
+            sent.filter((one) => 'value' in one.envelope.event),
+        ).toHaveLength(EVENTS_KV_VALUE_DELIVERIES_PER_EVENT);
     });
 
     it('gaps the 513th paid-tier KV listener', async () => {
@@ -2304,12 +2552,12 @@ describe('delivering a kv change', () => {
         await dispatchKv(['cart']);
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
-        expect(sent.filter((one) => one.envelope.event.op === 'set')).toHaveLength(
-            EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
-        );
-        expect(sent.filter((one) => one.envelope.event.op === 'gap')).toHaveLength(
-            1,
-        );
+        expect(
+            sent.filter((one) => one.envelope.event.op === 'set'),
+        ).toHaveLength(EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit);
+        expect(
+            sent.filter((one) => one.envelope.event.op === 'gap'),
+        ).toHaveLength(1);
     });
 
     it('uses the free KV limit when owner policy lookup fails', async () => {
@@ -2320,20 +2568,24 @@ describe('delivering a kv change', () => {
         await dispatchKv(['cart']);
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
-        expect(sent.filter((one) => one.envelope.event.op === 'set')).toHaveLength(
+        expect(
+            sent.filter((one) => one.envelope.event.op === 'set'),
+        ).toHaveLength(
             EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription[
                 DEFAULT_FREE_SUBSCRIPTION
             ],
         );
     });
 
-    it('omits a forwarded value when the KV filter evaluation stops early', async () => {
+    it('keeps a forwarded value on the deliveries made when the KV filter evaluation stops early', async () => {
         vi.useFakeTimers();
         await seedKvSubscriptions(128, { includeValue: true });
         await seedKvSubscriptions(
             EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.bySubscription[
                 DEFAULT_FREE_SUBSCRIPTION
-            ] - 128 + 1,
+            ] -
+                128 +
+                1,
             { includeValue: true, match: 'elsewhere', tag: 'filtered-out' },
         );
 
@@ -2355,11 +2607,115 @@ describe('delivering a kv change', () => {
         });
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
-        const deliveries = sent.filter((one) => one.envelope.event.op === 'set');
-        expect(deliveries).toHaveLength(128);
-        expect(deliveries.every((one) => !('value' in one.envelope.event))).toBe(
-            true,
+        const deliveries = sent.filter(
+            (one) => one.envelope.event.op === 'set',
         );
+        expect(deliveries).toHaveLength(128);
+        expect(
+            deliveries.every(
+                (one) => one.envelope.event.value === 'forwarded-re-read',
+            ),
+        ).toBe(true);
+    });
+
+    describe('shared by several holders', () => {
+        const valueOf = (subIdPart: string) =>
+            sent.filter(
+                (one) =>
+                    one.envelope.subId.includes(subIdPart) &&
+                    one.envelope.event.op === 'set',
+            );
+
+        it('serves the owner`s rows first and every holder before anyone`s second row', async () => {
+            vi.useFakeTimers();
+            ownerPlan = 'paid-plan';
+            const crowd = userId + 600;
+            const quiet = userId + 700;
+            await seedKvSubscriptions(
+                EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit + 50,
+                { includeValue: true, holderUserId: crowd, tag: 'crowd' },
+            );
+            await seedKvSubscriptions(1, {
+                includeValue: true,
+                holderUserId: quiet,
+                tag: 'quiet',
+            });
+            await seedKvSubscriptions(1, { includeValue: true, tag: 'owner' });
+
+            await dispatchKv(['cart'], { values: ['shared'] });
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+            const delivered = sent.filter(
+                (one) => one.envelope.event.op === 'set',
+            );
+            expect(delivered).toHaveLength(
+                EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
+            );
+            for (const tag of ['-owner-', '-quiet-']) {
+                expect(valueOf(tag)).toHaveLength(1);
+                expect(valueOf(tag)[0].envelope.event.value).toBe('shared');
+            }
+            expect(
+                delivered.filter((one) => 'value' in one.envelope.event),
+            ).toHaveLength(EVENTS_KV_VALUE_DELIVERIES_PER_EVENT);
+        });
+
+        it('keeps the owner first even past the filter-check limit', async () => {
+            vi.useFakeTimers();
+            const filters =
+                EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.bySubscription[
+                    DEFAULT_FREE_SUBSCRIPTION
+                ];
+            await seedKvSubscriptions(filters, {
+                includeValue: true,
+                holderUserId: userId + 600,
+                match: 'elsewhere',
+                tag: 'crowd',
+            });
+            await seedKvSubscriptions(1, { includeValue: true, tag: 'owner' });
+
+            await dispatchKv(['cart'], { values: ['first'] });
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+            expect(valueOf('-owner-')).toHaveLength(1);
+            expect(valueOf('-owner-')[0].envelope.event.value).toBe('first');
+        });
+
+        it('starts each event`s turns at a different holder, so none is always past the cap', async () => {
+            vi.useFakeTimers();
+            const holders = 200;
+            for (let i = 0; i < holders; i++)
+                await seedKvSubscriptions(1, {
+                    holderUserId: userId + 1000 + i,
+                    tag: `holder${i}`,
+                });
+            const cap =
+                EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription[
+                    DEFAULT_FREE_SUBSCRIPTION
+                ];
+
+            const reached = new Set<string>();
+            const random = vi.spyOn(Math, 'random');
+            try {
+                for (const start of [0, cap / holders]) {
+                    random.mockReturnValue(start);
+                    sent.length = 0;
+                    await dispatchKv(['cart']);
+                    await vi.advanceTimersByTimeAsync(
+                        EVENTS_COALESCE_WINDOW_MS + 1,
+                    );
+                    const delivered = sent.filter(
+                        (one) => one.envelope.event.op === 'set',
+                    );
+                    expect(delivered).toHaveLength(cap);
+                    for (const one of delivered)
+                        reached.add(one.envelope.subId);
+                }
+            } finally {
+                random.mockRestore();
+            }
+            expect(reached.size).toBe(holders);
+        });
     });
 
     it('leaves another app`s namespace alone', async () => {
@@ -2370,6 +2726,47 @@ describe('delivering a kv change', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent).toEqual([]);
+    });
+
+    it('tells a subscriber the change was theirs only when they made it', async () => {
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OWN_APP}:cart`);
+        const write = (options: KvDispatchOptions) =>
+            service.dispatchKv(
+                {
+                    userId,
+                    namespace: `v1:user-${userId}:${OWN_APP}`,
+                    keys: ['cart'],
+                    op: 'set',
+                },
+                options,
+            );
+
+        // One window each: writes to one key inside a window coalesce.
+        for (const options of [
+            { actingUserId: userId },
+            { actingUserId: userId + 1 },
+            {},
+            { actingUserId: userId, viaWorker: true },
+        ]) {
+            await write(options);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        }
+
+        expect(
+            sent.map(({ envelope }) => {
+                const { self, viaWorker } = envelope.event as {
+                    self: boolean;
+                    viaWorker: boolean;
+                };
+                return { self, viaWorker };
+            }),
+        ).toEqual([
+            { self: true, viaWorker: false },
+            { self: false, viaWorker: false },
+            { self: false, viaWorker: false },
+            { self: true, viaWorker: true },
+        ]);
     });
 
     it('sends only the projected shape', async () => {
@@ -2387,6 +2784,7 @@ describe('delivering a kv change', () => {
             'seq',
             'subject',
             'ts',
+            'viaWorker',
         ]);
     });
 });
@@ -2437,8 +2835,7 @@ describe('what a kv dispatch costs', () => {
 });
 
 describe('the cross-app kv gate', () => {
-    const grantRead = (app: string) =>
-        grants.add(`app-data:${app}:kv:read`);
+    const grantRead = (app: string) => grants.add(`app-data:${app}:kv:read`);
 
     const crossAppService = () =>
         buildService({
@@ -2502,7 +2899,8 @@ describe('the cross-app kv gate', () => {
         ({ service } = crossAppService());
 
         await expect(subscribeKv(`kv:${OTHER_APP}:cart`)).rejects.toSatisfy(
-            (err: unknown) => isHttpError(err) && err.legacyCode === 'forbidden',
+            (err: unknown) =>
+                isHttpError(err) && err.legacyCode === 'forbidden',
         );
     });
 
@@ -2513,8 +2911,7 @@ describe('the cross-app kv gate', () => {
 
         await expect(subscribeKv('kv:app-gone:cart')).rejects.toSatisfy(
             (err: unknown) =>
-                isHttpError(err) &&
-                err.legacyCode === 'subject_does_not_exist',
+                isHttpError(err) && err.legacyCode === 'subject_does_not_exist',
         );
     });
 
@@ -2528,7 +2925,8 @@ describe('the cross-app kv gate', () => {
         });
 
         await expect(subscribeKv(`kv:${OTHER_APP}:cart`)).rejects.toSatisfy(
-            (err: unknown) => isHttpError(err) && err.legacyCode === 'forbidden',
+            (err: unknown) =>
+                isHttpError(err) && err.legacyCode === 'forbidden',
         );
     });
 
@@ -2661,6 +3059,7 @@ describe('the cross-app kv gate', () => {
             'seq',
             'subject',
             'ts',
+            'viaWorker',
         ]);
     });
 
@@ -2692,6 +3091,42 @@ describe('the cross-app kv gate', () => {
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         expect(sent).toEqual([]);
+    });
+
+    it('sends no value to a peer whose rows did not ask for one', async () => {
+        await store.noteRemoteWatch(
+            userId,
+            kvAnchorToken(`user-${userId}`, OWN_APP, 'cart'),
+            'east',
+            'add',
+        );
+
+        await dispatchKv(['cart'], { values: [{ items: 3 }] });
+
+        expect(forwarded).toHaveLength(1);
+        expect(forwarded[0].regions).toEqual(['east']);
+        expect(forwarded[0].item.kv).not.toHaveProperty('value');
+    });
+
+    it('sends the value only to the peers whose rows asked for it', async () => {
+        const token = kvAnchorToken(`user-${userId}`, OWN_APP, 'cart');
+        for (const region of ['east', 'south'])
+            await store.noteRemoteWatch(userId, token, region, 'add');
+        await store.noteRemoteWatch(
+            userId,
+            valueWatchToken(token),
+            'east',
+            'add',
+        );
+
+        await dispatchKv(['cart'], { values: [{ items: 3 }] });
+
+        const to = (region: string) =>
+            forwarded.find((call) => call.regions.includes(region));
+        expect(forwarded).toHaveLength(2);
+        expect(to('east')?.regions).toEqual(['east']);
+        expect(to('east')?.item.kv).toMatchObject({ value: { items: 3 } });
+        expect(to('south')?.item.kv).not.toHaveProperty('value');
     });
 
     it('marks a private key on the way to a peer region', async () => {
@@ -2733,8 +3168,11 @@ describe('cross-user kv handles', () => {
             appUid: OWN_APP,
             keyPrefix: PREFIX,
             permission,
+            label: null,
+            notify: false,
             createdAt: 0,
             revokedAt: null,
+            revokedBy: null,
             ...overrides,
         };
         handles.set(row.handle, row);
@@ -2763,9 +3201,7 @@ describe('cross-user kv handles', () => {
         expect(off.kvHandlesEnabled).toBe(false);
         expect(service.kvHandlesEnabled).toBe(true);
 
-        await expect(
-            subscribeAsGuest(`kv:${handle}:*`, off),
-        ).rejects.toSatisfy(
+        await expect(subscribeAsGuest(`kv:${handle}:*`, off)).rejects.toSatisfy(
             (err: unknown) =>
                 isHttpError(err) &&
                 err.legacyCode === 'events_kv_handles_disabled',
@@ -2803,8 +3239,19 @@ describe('cross-user kv handles', () => {
         expect(wire).not.toContain(`u${userId}`);
     });
 
+    /** The handle at `read`, the lowest level that carries values. */
+    const mintReadHandle = () =>
+        mintHandle({
+            permission: kvSharePermission(
+                `user-${userId}`,
+                OWN_APP,
+                PREFIX,
+                'read',
+            ),
+        });
+
     it('hands a guest the value when it asked, keyed relative to the handle', async () => {
-        mintHandle();
+        mintReadHandle();
         vi.useFakeTimers();
         const asking = (
             await service.subscribe(actorFor(guestId), socketId, {
@@ -2829,6 +3276,23 @@ describe('cross-user kv handles', () => {
         expect(byId.get(silent.subId)).not.toHaveProperty('value');
     });
 
+    it('holds the value back from a guest whose share is at watch', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        const { sub } = await service.subscribe(actorFor(guestId), socketId, {
+            subject: `kv:${handle}:*`,
+            includeValue: true,
+        });
+
+        await dispatchKv([`${PREFIX}title`], { values: ['hello'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].envelope.subId).toBe(sub.subId);
+        expect(sent[0].envelope.event).toMatchObject({ key: 'title' });
+        expect(sent[0].envelope.event).not.toHaveProperty('value');
+    });
+
     it('delivers every key under the granted region', async () => {
         mintHandle();
         vi.useFakeTimers();
@@ -2846,7 +3310,7 @@ describe('cross-user kv handles', () => {
     });
 
     it('withholds a private key from the grantee, value and all', async () => {
-        mintHandle();
+        mintReadHandle();
         vi.useFakeTimers();
         const { sub } = await service.subscribe(actorFor(guestId), socketId, {
             subject: `kv:${handle}:*`,
@@ -2945,10 +3409,13 @@ describe('cross-user kv handles', () => {
     it.each([
         ['an unknown handle', () => undefined],
         ['a revoked handle', () => mintHandle({ revokedAt: 1 })],
-        ['a handle whose grant the caller does not hold', () => {
-            mintHandle();
-            grants.delete(permission);
-        }],
+        [
+            'a handle whose grant the caller does not hold',
+            () => {
+                mintHandle();
+                grants.delete(permission);
+            },
+        ],
     ])('answers %s as absent', async (_case, setUp) => {
         setUp();
         await expect(subscribeAsGuest(`kv:${handle}:*`)).rejects.toSatisfy(

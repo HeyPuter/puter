@@ -28,9 +28,6 @@ Paginated responses are an envelope:
   `cursor` is still returned. Never use `items.length < limit` as an
   end-of-list signal.
 
-New request params are camelCase (`includeTotal`, `fetchUntilFull`).
-Pre-existing snake_case params stay for compatibility.
-
 ## Backward compatibility
 
 Requests without pagination params keep returning the full result in the
@@ -48,14 +45,27 @@ The envelope trigger depends on the endpoint's history:
 ## Cursors
 
 Cursors are opaque base64-encoded JSON, produced and consumed only by the
-backend (`src/backend/util/pagination.ts`). What a cursor wraps is an
-implementation detail per store:
+backend (`src/backend/util/pagination.ts`). A cursor over a global sequence
+(an auto-increment `id`) is sealed with `sealCursor`/`openCursor` instead, so
+two pages can't be decoded into how fast the table grows; `openCursor` still
+reads a plain cursor. What a cursor wraps is an implementation detail per
+store:
 
-- DynamoDB-backed lists wrap `LastEvaluatedKey`.
+- DynamoDB-backed lists wrap `LastEvaluatedKey`. A kv listing of another
+  namespace (cross-app or through a share handle) resumes after the last entry
+  it returned instead, since the scan can stop on a private one, and its cursor
+  is sealed to that listing and padded to one length.
 - SQL-backed lists wrap a keyset position — `(sortValue, id)` of the last
   row — and the query seeks past it (`WHERE (col, id) > (?, ?) ORDER BY col,
   id`). Any SQL list gaining a cursor must have a deterministic `ORDER BY`
   ending in a unique tiebreaker (`id`).
+- The notification catch-up (`GET /events/fetch`) holds two keysets in one
+  sealed cursor: the last `id` it returned, and the last `(replaced_at, id)`
+  among rows up to that id. Each is its own indexed read, merged into one
+  page, so a row replaced after a client read it comes back from that cursor.
+  `from=end` with no cursor answers an empty page whose cursor holds the
+  slice's newest `id` and the slice's latest `(replaced_at, id)` as the
+  replacement mark.
 
 Cursors that carry a sort also pin it: a request that passes a cursor plus a
 conflicting sort is rejected with 400.
@@ -91,7 +101,8 @@ hit, the response simply carries a cursor — still convention-legal.
 ## Adding pagination to a new endpoint
 
 1. Use `encodeCursor`/`decodeCursor`/`normalizeLimit`/`normalizeOffset` from
-   `src/backend/util/pagination.ts`.
+   `src/backend/util/pagination.ts` — `sealCursor`/`openCursor` when the
+   cursor wraps a global id.
 2. Push equality filters into the query so pages and counts operate on the
    true result set; only genuinely per-actor filtering may remain post-query
    (short-pages rule covers it).

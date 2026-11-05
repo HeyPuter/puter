@@ -62,12 +62,15 @@ export default suite('workers', {
     // identity — and therefore its own KV/AppData namespace.
     'create sandboxes the worker under its own app by default': async (t) => {
         const name = 'workers-suite-sbx-default';
-        await deployWorker(t, name);
+        const created = await deployWorker(t, name);
         t.assert.equal(
             await appExists(t, `sandbox-${name}`),
             true,
             'a sandbox app should own the worker',
         );
+        const sandboxApp = await t.puter.apps.get(`sandbox-${name}`);
+        t.assert.equal(created.app_uid, sandboxApp.uid, 'create names the sandbox app');
+        t.assert.equal(created.app_name, `sandbox-${name}`);
     },
 
     'create with sandbox false leaves the worker unsandboxed': async (t) => {
@@ -167,14 +170,18 @@ export default suite('workers', {
         t.assert.ok(worker, 'get should return the worker');
         const sandboxApp = await t.puter.apps.get(`sandbox-${name}`);
         t.assert.equal(worker.app_uid, sandboxApp.uid, 'worker app_uid should match sandbox app uid');
+        t.assert.equal(worker.app_name, `sandbox-${name}`, 'worker app_name should be the sandbox app');
     },
 
-    'get returns null app_uid for unsandboxed worker': async (t) => {
+    'get returns null app_uid and app_name for unsandboxed worker': async (t) => {
         const name = 'workers-suite-get-plain';
-        await deployWorker(t, name, { sandbox: false });
+        const created = await deployWorker(t, name, { sandbox: false });
+        t.assert.equal(created.app_uid, null, 'create names no app');
+        t.assert.equal(created.app_name, null);
         const worker = await t.puter.workers.get(name);
         t.assert.ok(worker, 'get should return the worker');
         t.assert.equal(worker.app_uid, null, 'unsandboxed worker app_uid should be null');
+        t.assert.equal(worker.app_name, null, 'unsandboxed worker app_name should be null');
     },
 
     'list includes deployed workers': async (t) => {
@@ -253,8 +260,11 @@ export default suite('workers', {
             false,
             'binding to an app should not create a sandbox app',
         );
+        t.assert.equal(created.app_uid, hostApp.uid, 'create names the bound app');
+        t.assert.equal(created.app_name, appName);
         const worker = await t.puter.workers.get(name);
         t.assert.equal(worker?.app_uid, hostApp.uid, 'bound worker app_uid should match host app uid');
+        t.assert.equal(worker?.app_name, appName, 'bound worker app_name should match host app name');
     },
 
     'create with an unknown app name rejects with app_not_found': async (t) => {

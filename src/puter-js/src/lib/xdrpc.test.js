@@ -99,6 +99,23 @@ describe('xdrpc callback source binding', () => {
         expect(calls).toEqual([['ok']]);
     });
 
+    it('pins dehydrated callbacks to the configured origin as well as source', () => {
+        const gui = {};
+        const manager = new CallbackManager();
+        const listener = fakeWindow();
+        manager.attach_to_source(listener);
+        const calls = [];
+        const dehydrator = new Dehydrator({
+            callbackManager: manager, source: gui, origin: 'https://gui.test',
+        });
+        const { id } = dehydrator.dehydrate((value) => calls.push(value));
+        const data = { $SCOPE, id, args: ['ok'] };
+        listener.deliver({ source: gui, origin: 'https://other.test', data });
+        expect(calls).toEqual([]);
+        listener.deliver({ source: gui, origin: 'https://gui.test', data });
+        expect(calls).toEqual(['ok']);
+    });
+
     it('ignores the same message from another window', () => {
         const gui = {};
         const { calls, id, listener } = register({ source: gui });
@@ -124,5 +141,59 @@ describe('xdrpc callback source binding', () => {
         for ( const id of ids ) {
             expect(id).toMatch(/^[0-9a-f]{32}$/);
         }
+    });
+});
+
+describe('xdrpc callback lifetime', () => {
+    const $SCOPE = '9a9c83a4-7897-43a0-93b9-53217b84fde6';
+
+    const setup = () => {
+        const handlers = [];
+        const manager = new CallbackManager();
+        manager.attach_to_source({
+            addEventListener: (type, handler) =>
+                type === 'message' && handlers.push(handler),
+        });
+        const deliver = event => handlers.forEach(handler => handler(event));
+        return { manager, deliver };
+    };
+
+    it('drops a one-shot callback after it fires', () => {
+        const gui = {};
+        const { manager, deliver } = setup();
+        const calls = [];
+        const id = manager.register_callback(v => calls.push(v), gui, { once: true });
+
+        deliver({ source: gui, data: { $SCOPE, id, args: ['first'] } });
+        deliver({ source: gui, data: { $SCOPE, id, args: ['second'] } });
+
+        expect(calls).toEqual(['first']);
+        expect(manager.callbacks.size).toBe(0);
+    });
+
+    it('keeps a one-shot callback a forged message failed to invoke', () => {
+        const gui = {};
+        const { manager, deliver } = setup();
+        const calls = [];
+        const id = manager.register_callback(v => calls.push(v), gui, { once: true });
+
+        deliver({ source: { sibling: true }, data: { $SCOPE, id, args: ['forged'] } });
+        deliver({ source: gui, data: { $SCOPE, id, args: ['real'] } });
+
+        expect(calls).toEqual(['real']);
+    });
+
+    it('keeps a dehydrated callback for repeat calls', () => {
+        const gui = {};
+        const { manager, deliver } = setup();
+        const calls = [];
+        const { id } = new Dehydrator({ callbackManager: manager, source: gui })
+            .dehydrate(() => calls.push('clicked'));
+
+        deliver({ source: gui, data: { $SCOPE, id, args: [] } });
+        deliver({ source: gui, data: { $SCOPE, id, args: [] } });
+
+        expect(calls).toEqual(['clicked', 'clicked']);
+        expect(manager.callbacks.size).toBe(1);
     });
 });

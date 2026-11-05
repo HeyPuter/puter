@@ -49,8 +49,10 @@ import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
+import { usdPerMToken } from '../../utils/pricing.js';
 import { MetaProvider } from './MetaProvider.js';
 import { META_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // -- OpenAI SDK mock ----------------------------------------------
 //
@@ -92,16 +94,11 @@ afterAll(async () => {
 
 const makeProvider = (config: { apiKey?: string; apiBaseUrl?: string } = {}) =>
     new MetaProvider(
-        server.services.metering,
-        {
-            fsEntry: server.stores.fsEntry,
-            s3Object: server.stores.s3Object,
-        },
-        server.services.fs,
         {
             apiKey: config.apiKey ?? 'test-key',
             ...(config.apiBaseUrl ? { apiBaseUrl: config.apiBaseUrl } : {}),
         },
+        server.services.metering,
     );
 
 const asAsyncIterable = <T>(items: T[]): AsyncIterable<T> => ({
@@ -178,6 +175,8 @@ describe('MetaProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://api.meta.ai/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -186,6 +185,8 @@ describe('MetaProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://staging.meta.test/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -202,7 +203,7 @@ describe('MetaProvider model catalog', () => {
     });
 
     it('list() flattens canonical ids and aliases', () => {
-        const names = makeProvider().list();
+        const names = modelLookupNames(makeProvider().models());
         for (const m of META_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -212,12 +213,27 @@ describe('MetaProvider model catalog', () => {
         expect(names).toContain('meta/muse-spark-1.2');
     });
 
+    it('exposes muse-spark-1.3 at standard-tier rates', () => {
+        expect(
+            makeProvider()
+                .models()
+                .find((m) => m.id === 'muse-spark-1.3'),
+        ).toMatchObject({
+            puterId: 'meta:meta/muse-spark-1.3',
+            aliases: ['meta/muse-spark-1.3'],
+            context: 1_048_576,
+            max_tokens: 131_072,
+            release_date: '2026-09-02',
+            costs: usdPerMToken(1.25, 4.25, 0.15),
+        });
+    });
+
     it('leaves the contributor tier out of the catalog entirely', () => {
         // It is the cheapest input rate Meta sells, so any name pointing at it
         // would win bucket routing — and Meta trains on what it serves. It is
         // also gated behind a separate enrolment, so a standard-tier key gets
         // `model_not_found` for it.
-        const names = new Set(makeProvider().list());
+        const names = new Set(modelLookupNames(makeProvider().models()));
         for (const name of names) {
             expect(name).not.toContain('contributor');
         }
@@ -277,14 +293,35 @@ describe('MetaProvider.complete request shape', () => {
             temperature: 0.4,
             top_p: 0.9,
             tools,
-            tool_choice: 'auto',
+            tool_choice: { type: 'auto' },
         });
 
         const [args] = createMock.mock.calls[0]!;
         expect(args.temperature).toBe(0.4);
         expect(args.top_p).toBe(0.9);
-        expect(args.tools).toBe(tools);
+        expect(args.tools).toEqual(tools);
         expect(args.tool_choice).toBe('auto');
+    });
+
+    it('omits a non-auto tool_choice (e.g. {type:"any"}), but keeps the rest of the compat mapper', async () => {
+        createMock.mockResolvedValueOnce(OK_COMPLETION);
+        const tools = [
+            {
+                type: 'function',
+                function: { name: 'lookup', parameters: {} },
+            },
+        ];
+        await complete(makeProvider(), {
+            tools,
+            tool_choice: { type: 'any' },
+            parallel_tool_calls: true,
+            stopSequences: ['STOP'],
+        });
+
+        const [args] = createMock.mock.calls[0]!;
+        expect('tool_choice' in args).toBe(false);
+        expect(args.parallel_tool_calls).toBe(true);
+        expect(args.stop).toEqual(['STOP']);
     });
 
     it('forwards reasoning_effort, including the Meta-only tiers', async () => {
@@ -457,17 +494,18 @@ describe('MetaProvider model resolution', () => {
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
-        createMock.mockResolvedValueOnce(OK_COMPLETION);
-        await complete(makeProvider(), { model: 'totally-not-a-real-model' });
+    it('rejects an unknown id instead of substituting the default', async () => {
+        const provider = makeProvider();
 
-        expect(createMock.mock.calls[0]![0].model).toBe('muse-spark-1.2');
-        expect(recordSpy).toHaveBeenCalledWith(
-            expect.any(Object),
-            expect.anything(),
-            'meta:muse-spark-1.2',
-            expect.any(Object),
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 

@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { GetObjectCommand } from '@aws-sdk/client-s3';
@@ -24,7 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../types';
-import { S3Client } from './S3Client';
+import { S3Client, withPresignHeadroom } from './S3Client';
 
 const LOCAL_BUCKET = 'puter-local';
 
@@ -485,5 +486,56 @@ describe('S3Client — short reads during multipart', () => {
         });
 
         expect(parts).toEqual([10, 10]);
+    });
+});
+
+describe('withPresignHeadroom', () => {
+    const HOUR = 60 * 60 * 1000;
+    const creds = (msLeft?: number, id = 'a') => ({
+        accessKeyId: id,
+        secretAccessKey: 's',
+        ...(msLeft === undefined
+            ? {}
+            : { expiration: new Date(Date.now() + msLeft) }),
+    });
+
+    it('reports expiry an hour early so the SDK refreshes while an hour remains', async () => {
+        const chain = vi.fn(async () => creds(5 * HOUR));
+        const identity = await withPresignHeadroom(chain)();
+
+        expect(chain).toHaveBeenCalledTimes(1);
+        const left = identity.expiration!.getTime() - Date.now();
+        expect(left).toBeGreaterThan(4 * HOUR - 1000);
+        expect(left).toBeLessThanOrEqual(4 * HOUR);
+    });
+
+    it('force-refreshes credentials that are inside the presign window', async () => {
+        const chain = vi.fn(async (options?: { forceRefresh?: boolean }) =>
+            options?.forceRefresh
+                ? creds(6 * HOUR, 'fresh')
+                : creds(30 * 60 * 1000, 'stale'),
+        );
+        const identity = await withPresignHeadroom(chain)();
+
+        expect(chain).toHaveBeenLastCalledWith(
+            expect.objectContaining({ forceRefresh: true }),
+        );
+        expect(identity.accessKeyId).toBe('fresh');
+    });
+
+    it('leaves long-lived credentials alone', async () => {
+        const chain = vi.fn(async () => creds(undefined));
+        const identity = await withPresignHeadroom(chain)();
+
+        expect(chain).toHaveBeenCalledTimes(1);
+        expect(identity.expiration).toBeUndefined();
+    });
+
+    it('never reports an expiry inside the SDK refresh margin', async () => {
+        const chain = vi.fn(async () => creds(20 * 60 * 1000));
+        const identity = await withPresignHeadroom(chain)();
+
+        const left = identity.expiration!.getTime() - Date.now();
+        expect(left).toBeGreaterThan(5 * 60 * 1000);
     });
 });

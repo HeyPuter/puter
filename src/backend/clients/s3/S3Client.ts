@@ -43,6 +43,43 @@ const DEFAULT_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
 const FAUXQS_SAFE_PUT_OBJECT_LIMIT_BYTES = 10 * 1024 * 1024;
 const LEGACY_STORAGE_BUCKET = 'puter-local';
 
+// A presigned URL stops working when the credentials that signed it expire.
+// Presigns last up to an hour, but the SDK only refreshes temporary
+// credentials five minutes before expiry.
+const PRESIGN_MAX_LIFETIME_MS = 60 * 60 * 1000;
+const SDK_REFRESH_MARGIN_MS = 5 * 60 * 1000;
+
+type CredentialChain = ReturnType<typeof fromNodeProviderChain>;
+
+/**
+ * Keeps temporary credentials at least an hour from expiry when they sign. The
+ * SDK is handed each identity with its expiration moved an hour early, so its
+ * own refresh comes back here while an hour remains, and a credential already
+ * inside that window is force-refreshed from the chain.
+ */
+export function withPresignHeadroom(chain: CredentialChain): CredentialChain {
+    return async (options) => {
+        let identity = await chain(options);
+        const remaining = (i: typeof identity) =>
+            i.expiration ? i.expiration.getTime() - Date.now() : Infinity;
+        if (
+            remaining(identity) <
+            PRESIGN_MAX_LIFETIME_MS + SDK_REFRESH_MARGIN_MS
+        ) {
+            identity = await chain({ ...options, forceRefresh: true });
+        }
+        if (!identity.expiration) return identity;
+        // If even fresh credentials are short-lived, report an expiry just past
+        // the SDK's margin rather than one in the past, which would make it
+        // re-resolve on every request.
+        const reported = Math.max(
+            identity.expiration.getTime() - PRESIGN_MAX_LIFETIME_MS,
+            Date.now() + SDK_REFRESH_MARGIN_MS + 60 * 1000,
+        );
+        return { ...identity, expiration: new Date(reported) };
+    };
+}
+
 type S3CommandSender = Pick<AwsS3Client, 'send'>;
 
 export class S3Client extends PuterClient {
@@ -83,7 +120,9 @@ export class S3Client extends PuterClient {
 
             if (useCredentialChain) {
                 this.useProviderChain = true;
-                this.awsConfig = { credentials: fromNodeProviderChain() };
+                this.awsConfig = {
+                    credentials: withPresignHeadroom(fromNodeProviderChain()),
+                };
                 this.partSize = 64 * 1024 * 1024;
                 this.maxSingleUploadSize = 128 * 1024 * 1024;
             } else {

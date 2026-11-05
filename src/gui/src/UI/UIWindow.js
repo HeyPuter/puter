@@ -51,14 +51,14 @@ async function UIWindow (options) {
     }
 
     // we don't want to increment window_counter for dominant windows
-    if ( !options.dominant && !options.is_panel )
+    if ( !options.dominant )
     {
         window.window_counter++;
     }
 
     // add this window's id to the window_stack
     // don't add if invisible
-    if ( options.is_visible && !options.is_panel ) {
+    if ( options.is_visible ) {
         window.window_stack.push(win_id);
     }
 
@@ -146,7 +146,7 @@ async function UIWindow (options) {
     }
 
     // left
-    let desktop_width = window.innerWidth - ( is_panel_open() ? PANEL_WIDTH : 0);
+    let desktop_width = window.innerWidth;
     if ( !options.dominant && !options.center ) {
         options.left = options.left ?? `${(desktop_width / 2 - options.width / 2) + (window.window_counter - 1) % 10 * 30 }px`;
     } else if ( !options.dominant && options.center ) {
@@ -208,31 +208,6 @@ async function UIWindow (options) {
         {
             user_set_url_params = `?${ user_set_url_params.join('&')}`;
         }
-    }
-
-    // --------------------------------------------------------
-    // Panel
-    // --------------------------------------------------------
-    if ( options.is_panel ) {
-        options.width = PANEL_WIDTH;
-        options.has_head = false;
-        options.show_in_taskbar = false;
-        options.is_resizable = false;
-        options.left = `${window.innerWidth - options.width }px`;
-        options.width = `${options.width }px`;
-        options.height = '100%';
-        options.top = 0;
-        options.right = '0 !important';
-        options.border_radius = '0px';
-        options.border = 'none';
-        options.box_shadow = 'none';
-        options.background_color = 'transparent';
-        options.is_visible = false;
-        options.position = 'absolute !important';
-        options.left = 'auto !important';
-
-        // panel is not visible by default
-        options.is_visible = false;
     }
 
     // --------------------------------------------------------
@@ -303,7 +278,6 @@ async function UIWindow (options) {
                 data-update_window_url = "${options.update_window_url && options.is_visible}"
                 data-custom_path = "${html_encode(options.custom_path)}"
                 data-user_set_url_params = "${html_encode(user_set_url_params)}"
-                data-is_panel ="${options.is_panel ? 1 : 0}"
                 data-is_visible ="${options.is_visible ? 1 : 0}"
                 ${options.launched_hidden ? 'data-launched_hidden ="1"' : ''}
                 style=" z-index: ${zindex}; 
@@ -951,6 +925,8 @@ async function UIWindow (options) {
 
             const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
             if ( options.return_to_parent_window ) {
+                // Before the answer: a picker's token rides out with it.
+                window.deliverPopupTokenToOpener?.();
                 window.opener.postMessage({
                     msg: 'fileOpenPicked',
                     original_msg_id: ifram_msg_uid,
@@ -1033,6 +1009,8 @@ async function UIWindow (options) {
             const ifram_msg_uid = $(el_window).attr('data-iframe_msg_uid');
 
             if ( options.return_to_parent_window ) {
+                // Before the answer: a picker's token rides out with it.
+                window.deliverPopupTokenToOpener?.();
                 window.opener.postMessage({
                     msg: 'directoryPicked',
                     original_msg_id: ifram_msg_uid,
@@ -1322,8 +1300,11 @@ async function UIWindow (options) {
     // set iframe url
     if ( options.iframe_url ) {
         $(el_window_app_iframe).attr('src', options.iframe_url);
-        //bring focus to iframe
-        el_window_app_iframe.contentWindow.focus();
+        // Not for a hidden window: focusing a display:none iframe still takes
+        // the keyboard from whatever had it. Showing it later focuses it.
+        if ( options.is_visible ) {
+            el_window_app_iframe.contentWindow.focus();
+        }
     }
     // set the position of window
     if ( ! options.is_maximized ) {
@@ -3992,13 +3973,6 @@ $.fn.makeWindowVisible = function (options) {
             $(this).attr({
                 'data-is_visible': '1',
             });
-
-            // if sidepanel, shift desktop toolbar to the left
-            if ( $(this).attr('data-is_panel') === '1' ) {
-                $('.toolbar').css('left', `calc(50% - ${window.PANEL_WIDTH / 2}px)`);
-                $('.taskbar.taskbar-position-bottom').css('left', `calc(50% - ${window.PANEL_WIDTH / 2}px)`);
-                $('.window[data-is_panel="0"]').css('transform', `translateX(-${window.PANEL_WIDTH / 2}px)`);
-            }
         }
     });
 };
@@ -4029,13 +4003,6 @@ $.fn.makeWindowInvisible = async function (options) {
                     && $next.attr('data-is_minimized') !== 'true' ) {
                     $next.focusWindow();
                 }
-            }
-            // if sidepanel, shift desktop toolbar to the right
-            if ( $(this).attr('data-is_panel') === '1' ) {
-                $('.toolbar').css('left', 'calc(50%)');
-                $('.taskbar.taskbar-position-bottom').css('left', 'calc(50%)');
-                $('.window[data-is_panel="0"]').css('transform', 'translateX(0px)');
-                // update taskbar position
             }
         }
     });
@@ -4263,10 +4230,6 @@ $.fn.focusWindow = function (event) {
         window.active_item_container = $(this).find('.item-container').get(0);
         // grey out all selected items on other windows/desktop
         $('.item-container').not(window.active_item_container).find('.item-selected').addClass('item-blurred');
-        // update window-stack
-        if ( !$(this).attr('data-is_panel') === '1' ) {
-            window.window_stack.push(parseInt($(this).attr('data-id')));
-        }
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
         // Update the tab title to the focused window. The URL itself is
@@ -5645,11 +5608,6 @@ window.update_maximized_window_for_taskbar = function (el_window) {
         let height = window.innerHeight - window.taskbar_height - window.toolbar_height - 6;
         let width = '100%';
 
-        // any open panels?
-        if ( is_panel_open() ) {
-            width = window.innerWidth - PANEL_WIDTH - 2;
-        }
-
         $(el_window).css({
             'top': `${window.toolbar_height }px`,
             'left': '0',
@@ -5658,11 +5616,6 @@ window.update_maximized_window_for_taskbar = function (el_window) {
         });
     } else if ( position === 'left' ) {
         let width = window.innerWidth - window.taskbar_height - 1;
-
-        // any open panels?
-        if ( is_panel_open() ) {
-            width = `calc(100% - ${window.taskbar_height + 1}px - ${PANEL_WIDTH}px - 1px)`;
-        }
 
         $(el_window).css({
             'top': `${window.toolbar_height }px`,
@@ -5703,11 +5656,6 @@ function getSnapDimensions () {
         start_y = window.toolbar_height;
     }
 
-    // Adjust for open panel
-    if ( is_panel_open() ) {
-        available_width = available_width - PANEL_WIDTH;
-    }
-
     return {
         available_width,
         available_height,
@@ -5715,9 +5663,5 @@ function getSnapDimensions () {
         start_y,
     };
 }
-
-window.is_panel_open = function () {
-    return $('.window[data-is_panel="1"][data-is_visible="1"]').length > 0;
-};
 
 export default UIWindow;

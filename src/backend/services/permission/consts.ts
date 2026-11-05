@@ -20,6 +20,9 @@
 export const MANAGE_PERM_PREFIX = 'manage';
 export const PERM_KEY_PREFIX = 'perm';
 
+/** Per-app consent for an app's notifications to go out as pushes. */
+export const NOTIFICATIONS_PUSH_PERMISSION = 'notifications:push';
+
 /**
  * Width of the `permission` column in the permission tables, which every
  * dialect declares as `varchar(255)`. Anything building a permission string

@@ -37,14 +37,24 @@ const createDeferred = () => {
 };
 
 /**
- * Boot-time read cache for the GUI's well-known keys. Lazy: nothing is
- * fetched until the first `lookup()` resolves the init deferred; every read
- * within the lifetime window is then served from the one batched response.
+ * Boot-time read cache for the GUI's well-known keys, active only when the SDK
+ * runs as the GUI. Lazy: nothing is fetched until the first `lookup()`
+ * resolves the init deferred; every read within the lifetime window is then
+ * served from the one batched response, except for keys written through the
+ * module since it was created.
  */
 export class GuiBootCache {
     /** @param {import('../../../index.js').Puter} puter */
     constructor (puter) {
         this.puter = puter;
+        /** @type {Set<string>} */
+        this.written = new Set();
+        // Elsewhere these are ordinary keys in the caller's own store.
+        if ( puter.env !== 'gui' ) {
+            this.batch = null;
+            this.init = null;
+            return;
+        }
         this.batch = createDeferred();
         this.init = createDeferred();
         (async () => {
@@ -85,19 +95,40 @@ export class GuiBootCache {
 
     /** True when `key` is a boot key this cache can still serve. */
     serves (key) {
-        return typeof key === 'string' && GUI_CACHE_KEYS.includes(key) && this.batch !== null;
+        return typeof key === 'string' && GUI_CACHE_KEYS.includes(key) && !this.written.has(key) && this.batch !== null;
+    }
+
+    /**
+     * Stops serving `keys` from the batch, so a read after a write goes to the
+     * store. Called when a write is issued, before it lands.
+     *
+     * @param {...unknown} keys
+     */
+    invalidate (...keys) {
+        if ( this.batch === null ) return;
+        for ( const key of keys ) {
+            if ( typeof key === 'string' && GUI_CACHE_KEYS.includes(key) ) {
+                this.written.add(key);
+            }
+        }
+    }
+
+    invalidateAll () {
+        this.invalidate(...GUI_CACHE_KEYS);
     }
 
     /**
      * @param {string} key
      * @returns {Promise<{ hit: true, value: unknown } | { hit: false }>}
-     *   `hit: false` when the batch failed or came back malformed — the
-     *   caller should fall through to its own driver call.
+     *   `hit: false` when the batch failed, came back malformed, or the key
+     *   was written meanwhile — the caller should fall through to its own
+     *   driver call.
      */
     async lookup (key) {
         this.init && this.init.resolve();
         const cache = await this.batch.promise;
-        if ( cache === null ) return { hit: false };
+        // Written while this read waited: the batch may predate the write.
+        if ( cache === null || this.written.has(key) ) return { hit: false };
         // `null`, not `undefined`, to match a normal miss from `kv.get()`.
         return { hit: true, value: cache[key] ?? null };
     }

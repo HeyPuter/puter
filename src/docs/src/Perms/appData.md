@@ -41,10 +41,10 @@ What access to ask for. Three equivalent forms:
 | Class | Covers |
 | --- | --- |
 | `read` | `get`, `list` |
-| `write` | `set`, `add`, `incr`, `decr`, `update` |
-| `delete` | `del`, `remove`, `expire`, `expireAt` |
+| `write` | everything in `read`, plus `set`, `add`, `incr`, `decr`, `update` |
+| `delete` | everything in `write`, plus `del`, `remove`, `expire`, `expireAt` |
 
-**`delete` is separate from `write`.** An app granted `write` can add and change entries but cannot remove any — ask for `delete` explicitly when it needs to. Emptying another app's whole key-value store is never available at any scope.
+**Each class includes the ones above it.** An app granted `write` can read, add and change entries but cannot remove any — ask for `delete` when it needs to. Emptying another app's whole key-value store is never available at any scope.
 
 ## Return value
 

@@ -21,6 +21,7 @@ import { Mistral } from '@mistralai/mistralai';
 import { ChatCompletionResponse } from '@mistralai/mistralai/models/components/chatcompletionresponse.js';
 import { MistralError } from '@mistralai/mistralai/models/errors/mistralerror.js';
 import { SDKValidationError } from '@mistralai/mistralai/models/errors/sdkvalidationerror.js';
+import type { UsageInfo } from '@mistralai/mistralai/models/components/usageinfo.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
@@ -35,12 +36,13 @@ import {
 } from '../../utils/mediaParts.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { MISTRAL_MODELS } from './models.js';
-import { modelLookupNames } from '../../utils/modelRouting.js';
 import { shouldPresentAsOpenAI } from '../../utils/normalizeToOpenAI.js';
+import { withSdkTimeout } from '../../utils/sdkClient.js';
+import { meterChatUsage } from '../../utils/meterChatUsage.js';
 
 /**
- * Mistral's reasoning models (`magistral-*`) return `content` as a chunk array
- * rather than a string, with the thinking text nested one level deeper inside
+ * Mistral's reasoning-capable models return `content` as a chunk array rather
+ * than a string, with the thinking text nested one level deeper inside
  * `thinking` chunks. Split it into the string content + `reasoning` string
  * every other provider produces. Text nested in a chunk is joined; a `thinking`
  * chunk's own chunks are flattened the same way, and separate thinking chunks
@@ -94,6 +96,19 @@ const MISTRAL_FINISH_REASON_MAP: Record<string, string> = {
     tool_calls: 'tool_calls',
 };
 
+// The SDK keeps unrecognized wire fields in additionalProperties. Prompt
+// totals include cache hits, which must be removed before billing input.
+const coerceMistralUsage = (usage: UsageInfo) => {
+    const details = usage.additionalProperties?.prompt_tokens_details as
+        { cached_tokens?: number } | undefined;
+    const cachedTokens = details?.cached_tokens ?? 0;
+    return {
+        prompt_tokens: (usage.promptTokens ?? 0) - cachedTokens,
+        completion_tokens: usage.completionTokens ?? 0,
+        prompt_tokens_details: { cached_tokens: cachedTokens },
+    };
+};
+
 export class MistralAIProvider implements IChatProvider {
     #client: Mistral;
 
@@ -112,10 +127,6 @@ export class MistralAIProvider implements IChatProvider {
 
     async models() {
         return MISTRAL_MODELS;
-    }
-
-    async list() {
-        return modelLookupNames(await this.models());
     }
 
     /**
@@ -165,6 +176,11 @@ export class MistralAIProvider implements IChatProvider {
         });
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string): string {
+        return `mistral:${modelId}`;
+    }
+
     async complete({
         messages,
         stream,
@@ -177,7 +193,7 @@ export class MistralAIProvider implements IChatProvider {
         custom,
     }: ICompleteArguments): Promise<IChatCompleteResult> {
         // Mistral's reasoning prompt mode: with `prompt_mode: 'reasoning'`,
-        // magistral models return their thinking as structured ThinkChunk
+        // reasoning-capable models return their thinking as structured ThinkChunk
         // content (which the splitter below separates into `reasoning`)
         // instead of inlining it as answer prose. Opt-in passthrough rather
         // than a default because the API rejects it on accounts/models where
@@ -212,16 +228,25 @@ export class MistralAIProvider implements IChatProvider {
         try {
             completion = await this.#client.chat[
                 stream ? 'stream' : 'complete'
-            ]({
-                model: selectedModel.id,
-                ...(tools ? { tools: tools as any[] } : {}),
-                ...(customParams.prompt_mode !== undefined
-                    ? { promptMode: customParams.prompt_mode }
-                    : {}),
-                messages,
-                maxTokens: max_tokens,
-                temperature,
-            });
+            ](
+                {
+                    model: selectedModel.id,
+                    ...(tools ? { tools: tools as any[] } : {}),
+                    ...(customParams.prompt_mode !== undefined
+                        ? { promptMode: customParams.prompt_mode }
+                        : {}),
+                    messages,
+                    maxTokens: max_tokens,
+                    temperature,
+                },
+                // The SDK retries nothing by default and has no timeout once a
+                // signal is passed; a stream is bounded by its caller instead.
+                {
+                    signal: stream
+                        ? Context.get('upstreamSignal')
+                        : withSdkTimeout(Context.get('upstreamSignal')),
+                },
+            );
         } catch (e) {
             // The SDK validates input client-side and throws without a status,
             // which the driver would count as a route failure. Its `instanceof`
@@ -325,19 +350,10 @@ export class MistralAIProvider implements IChatProvider {
         return await OpenAIUtil.handle_completion_output({
             deviations: {
                 index_usage_from_stream_chunk: (chunk: {
-                    usage?: Record<string, number>;
+                    usage?: UsageInfo;
                 }) => {
                     if (!chunk.usage) return;
-
-                    const snake_usage: Record<string, number> = {};
-                    for (const key in chunk.usage) {
-                        const snakeKey = key
-                            .replace(/([A-Z])/g, '_$1')
-                            .toLowerCase();
-                        snake_usage[snakeKey] = chunk.usage[key]!;
-                    }
-
-                    return snake_usage;
+                    return coerceMistralUsage(chunk.usage);
                 },
                 // Mistral wraps each event; unwrap it, then split a
                 // reasoning model's chunked `delta.content` into the two
@@ -377,29 +393,23 @@ export class MistralAIProvider implements IChatProvider {
                 index_tool_calls_from_stream_choice: (choice: {
                     delta?: unknown;
                 }) => (choice.delta as any).toolCalls,
-                coerce_completion_usage: (
-                    completion: ChatCompletionResponse,
-                ) => ({
-                    prompt_tokens: completion.usage.promptTokens,
-                    completion_tokens: completion.usage.completionTokens,
-                }),
+                coerce_completion_usage: (completion: ChatCompletionResponse) =>
+                    coerceMistralUsage(completion.usage),
             },
             completion: completion as ChatCompletionResponse,
             stream,
-            usage_calculator: ({ usage }) => {
-                const trackedUsage = OpenAIUtil.extractMeteredUsage(usage);
-                const costsOverrideFromModel = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * selectedModel.costs[k]];
-                    }),
-                );
-                this.#meteringService.utilRecordUsageObject(
-                    trackedUsage,
+            usage_calculator: ({ usage, setUsageCosts }) => {
+                // `coerceMistralUsage` has already taken cached reads out of
+                // `prompt_tokens`.
+                const metered = meterChatUsage(
+                    this.#meteringService,
                     actor,
-                    `mistral:${selectedModel.id}`,
-                    costsOverrideFromModel,
+                    this.meteringModelKey(selectedModel.id),
+                    selectedModel,
+                    OpenAIUtil.extractMeteredUsage(usage),
                 );
-                return trackedUsage;
+                setUsageCosts(metered.costs);
+                return metered.usage;
             },
         });
     }

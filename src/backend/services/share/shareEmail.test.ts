@@ -650,6 +650,81 @@ describe('share email', () => {
         expect(mail.html).not.toContain('?shared=');
     });
 
+    const mailToInbox = (address: string) =>
+        sent.filter((mail) => mail.to.toLowerCase() === address.toLowerCase());
+
+    it("keys an invitee's digest and budget case-insensitively", async () => {
+        const owner = env.users.user;
+        const invitee = uninvitedAddress();
+        const shouted = invitee.toUpperCase();
+        const [first, second, third] = [
+            await makeFile(owner, 'case-a'),
+            await makeFile(owner, 'case-b'),
+            await makeFile(owner, 'case-c'),
+        ];
+
+        await withDigestWindow(env, DIGEST_WINDOW_SECONDS, async () => {
+            await shareWith(owner, invitee, [{ uid: first.uid }]);
+            await sleep(SETTLE_MS);
+            await shareWith(owner, shouted, [{ uid: second.uid }]);
+        });
+
+        // One inbox, one digest, both files.
+        const mail = await waitForMail({ to: invitee });
+        await sleep(SETTLE_MS);
+        expect(mailToInbox(invitee)).toHaveLength(1);
+        expect(mail.html).toContain(first.name);
+        expect(mail.html).toContain(second.name);
+
+        // The pair's quiet window holds whatever case the next share uses.
+        const capitalized = `${invitee[0].toUpperCase()}${invitee.slice(1)}`;
+        await shareWith(owner, capitalized, [{ uid: third.uid }]);
+        await sleep(SETTLE_MS);
+        expect(mailToInbox(invitee)).toHaveLength(1);
+    }, 15_000);
+
+    it('folds gmail spellings of one invitee into one digest', async () => {
+        const owner = env.users.admin;
+        const local = `gm${uniqueSuffix()}`;
+        // Gmail ignores dots and `+tag`: both are `${local}@gmail.com`.
+        const tagged = `${local.slice(0, 4)}.${local.slice(4)}+news@gmail.com`;
+        const plain = `${local}@gmail.com`;
+        const first = await makeFile(owner, 'gmail-a');
+        const second = await makeFile(owner, 'gmail-b');
+
+        await withDigestWindow(env, DIGEST_WINDOW_SECONDS, async () => {
+            await shareWith(owner, tagged, [{ uid: first.uid }]);
+            await sleep(SETTLE_MS);
+            await shareWith(owner, plain, [{ uid: second.uid }]);
+        });
+
+        const mail = await waitForMail({ to: tagged });
+        await sleep(SETTLE_MS);
+        expect(mailToInbox(plain)).toHaveLength(0);
+        expect(mailToInbox(tagged)).toHaveLength(1);
+        expect(mail.html).toContain(first.name);
+        expect(mail.html).toContain(second.name);
+    }, 15_000);
+
+    it('treats dotted and undotted iCloud addresses as two invitees', async () => {
+        const owner = env.users.admin;
+        const local = `ic${uniqueSuffix()}`;
+        // Apple allocates the exact string: these are two mailboxes.
+        const dotted = `${local.slice(0, 4)}.${local.slice(4)}@icloud.com`;
+        const undotted = `${local}@icloud.com`;
+        const first = await makeFile(owner, 'icloud-a');
+        const second = await makeFile(owner, 'icloud-b');
+
+        await shareWith(owner, dotted, [{ uid: first.uid }]);
+        expect((await waitForMail({ to: dotted })).html).toContain(first.name);
+
+        // Its own budget: the dotted address's window doesn't silence it.
+        await shareWith(owner, undotted, [{ uid: second.uid }]);
+        const mail = await waitForMail({ to: undotted });
+        expect(mail.html).toContain(second.name);
+        expect(mail.html).not.toContain(first.name);
+    });
+
     it('honors an account-wide unsubscribe, and offers the link to those who have not', async () => {
         const owner = env.users.user;
         const recipient = await signUpAndConfirm(uninvitedAddress());
@@ -802,6 +877,53 @@ describe('share email digest durability', () => {
         await env.server.services.shareNotification.sweepForTests();
 
         expect(sent.filter((mail) => mail.to === invitee)).toHaveLength(0);
+    });
+
+    it('sends the entries it claimed when one cannot be claimed, and that one on a later sweep', async () => {
+        const owner = env.users.user;
+        const invitee = `partial-${crypto.randomUUID().slice(0, 8)}@puter.local`;
+        const names = ['one.txt', 'two.txt', 'three.txt'];
+        const keys = names.map(
+            () => `share:digest:invite:${invitee}:${crypto.randomUUID()}`,
+        );
+        for (const [i, name] of names.entries()) {
+            await env.server.stores.kv.set({
+                key: keys[i],
+                value: {
+                    kind: 'invite',
+                    to: invitee,
+                    sender: owner.username,
+                    count: 1,
+                    names: [name],
+                    queuedAt: Date.now() - 60 * 60_000 + i,
+                },
+            });
+        }
+
+        // The store refuses the claim on the first entry once.
+        const dynamo = env.server.clients.dynamo;
+        const realDel = dynamo.del.bind(dynamo);
+        let refused = false;
+        vi.spyOn(dynamo, 'del').mockImplementation(async (table, key, opts) => {
+            if (!refused && (key as { key?: string }).key === keys[0]) {
+                refused = true;
+                throw new Error('transient store failure');
+            }
+            return realDel(table, key, opts);
+        });
+
+        await env.server.services.shareNotification.sweepForTests();
+        const first = sent.filter((mail) => mail.to === invitee);
+        expect(first).toHaveLength(1);
+        expect(first[0].html).toContain('two.txt');
+        expect(first[0].html).toContain('three.txt');
+        expect(first[0].html).not.toContain('one.txt');
+
+        await env.server.services.shareNotification.sweepForTests();
+        const all = sent.filter((mail) => mail.to === invitee);
+        expect(all).toHaveLength(2);
+        expect(all[1].html).toContain('one.txt');
+        expect(all[1].html).not.toContain('two.txt');
     });
 
     it('holds queued sends durably and drains them once on shutdown', async () => {

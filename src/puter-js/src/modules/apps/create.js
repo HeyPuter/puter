@@ -19,8 +19,8 @@ import { invalidRequest } from './lib/validate.js';
  * @returns {Promise<CreateAppResult>}
  */
 /**
- * Creates a Puter app. The name must be unique to the user's apps (rejects
- * otherwise) and `indexURL` must start with `http://` or `https://`. Accepts
+ * Creates a Puter app. The name must not be used by any app on any account
+ * (rejects otherwise) and `indexURL` must start with `http://` or `https://`. Accepts
  * either positional `create(name, indexURL, title?)` or an options object.
  *
  * @this {import('./index.js').AppsModule}

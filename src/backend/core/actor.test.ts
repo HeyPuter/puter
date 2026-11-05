@@ -23,6 +23,7 @@ import {
     makeActor,
     SYSTEM_ACTOR,
     userRelatedActor,
+    viaWorkerOf,
     type Actor,
 } from './actor';
 
@@ -109,5 +110,30 @@ describe('assertResolvedActor', () => {
         expect(() => assertResolvedActor(unresolved as Actor)).toThrow(
             /effectiveApp/,
         );
+    });
+});
+
+describe('viaWorkerOf', () => {
+    const user = { uuid: 'u-1', id: 1 };
+
+    it('reads a worker session or an events handler as server-side', () => {
+        expect(
+            viaWorkerOf(
+                makeActor({ user, session: { uid: 's-1', kind: 'worker' } }),
+            ),
+        ).toBe(true);
+        expect(viaWorkerOf(makeActor({ user, handlerDepth: 1 }))).toBe(true);
+    });
+
+    it('reads a browser session, an app or no actor at all as not', () => {
+        expect(
+            viaWorkerOf(
+                makeActor({ user, session: { uid: 's-1', kind: 'web' } }),
+            ),
+        ).toBe(false);
+        expect(viaWorkerOf(makeActor({ user, app: { uid: 'app-1' } }))).toBe(
+            false,
+        );
+        expect(viaWorkerOf(undefined)).toBe(false);
     });
 });

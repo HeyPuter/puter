@@ -20,7 +20,7 @@
 /**
  * Integration test for the DeepSeek provider.
  *
- * Uses `deepseek-chat` (the cheap V3 chat model, provider default).
+ * Uses `deepseek-flash` (the cheap V4.1 Flash model, provider default).
  * Skipped when `PUTER_TEST_AI_DEEPSEEK_API_KEY` is unset.
  */
 
@@ -39,7 +39,7 @@ const ENV_VAR = 'PUTER_TEST_AI_DEEPSEEK_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'DeepSeekProvider (integration)',
     () => {
-        it('returns a non-empty completion from deepseek-chat', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        it('returns a non-empty completion from deepseek-flash', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new DeepSeekProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),
@@ -47,7 +47,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             const result = await withTestActor(() =>
                 provider.complete({
-                    model: 'deepseek-chat',
+                    model: 'deepseek-flash',
                     messages: [
                         { role: 'user', content: 'Say hi in one word.' },
                     ],

@@ -18,10 +18,11 @@
  */
 
 // vite.config.ts - Vite configuration for Puter API tests (TypeScript)
+import { globSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { transform } from 'esbuild';
 import { loadEnv } from 'vite';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 const isCi = process.env.CI === 'true';
 const backendDir = __dirname;
@@ -36,6 +37,53 @@ const repoRoot = path.resolve(backendDir, '../..');
 const isPgmockMode =
     (process.env.PUTER_TEST_DB_ENGINE ?? '').toLowerCase() === 'postgres';
 const pgmockTimeoutMs = 600_000;
+
+// Tests that always boot pgmock regardless of PUTER_TEST_DB_ENGINE. Too slow
+// for CI; run locally or via `npm run test:backend:postgres`.
+const postgresOnlyTests = [
+    'src/backend/clients/database/PostgresDatabaseClient.integration.test.ts',
+    'src/backend/services/appIcon/AppIconService.test.ts',
+];
+
+const testInclude = [
+    'src/backend/**/*.test.{js,ts}',
+    'extensions/**/*.test.{js,ts}',
+    // The MCP connector's signed-upload tools call the `/fs` HTTP API
+    // directly, so their tests need a booted backend (`setupPuterTestEnv`).
+    'src/mcp-connector/**/*.test.{js,ts}',
+    // Root-level tools/ scripts are exercised through this suite.
+    'tools/**/*.test.mjs',
+    // The worker runtimes ship as a preamble rather than as their own
+    // package, so their unit tests run with the backend's.
+    'src/worker/**/*.test.{js,ts}',
+];
+
+const testExclude = [
+    ...configDefaults.exclude,
+    ...(isCi && !isPgmockMode ? postgresOnlyTests : []),
+];
+
+// Test files that boot a server pay most of their runtime importing the
+// backend. Sharing a module graph per worker (`isolate: false`) pays that once
+// per worker instead; testSharedWorkerSetup.ts resets process-wide state
+// between files. Stays isolated: module mocks (can't be undone in a shared
+// graph), anything loading extensions (they register into the process-wide
+// extension store and read config only on first import), and pgmock.
+const sharedWorkerTests = isPgmockMode
+    ? []
+    : globSync(testInclude, {
+          cwd: repoRoot,
+          exclude: (p) => path.basename(String(p)) === 'node_modules',
+      }).filter((file) => {
+          if (file.startsWith('extensions/')) return false;
+          if (postgresOnlyTests.includes(file)) return false;
+          const source = readFileSync(path.join(repoRoot, file), 'utf8');
+          return (
+              /\bsetupTestServer\(/.test(source) &&
+              !/\bsetupPuterTestEnv\(/.test(source) &&
+              !/\bvi\.(mock|doMock)\(/.test(source)
+          );
+      });
 
 // Vite 8's oxc transform leaves TC39 stage-3 decorators in place
 // (used by `@Controller`/`@Post`), so they reach Node verbatim and
@@ -84,6 +132,13 @@ export default defineConfig(({ mode }) => ({
     },
     test: {
         globals: true,
+        // A console call still in flight when a file tears down is dropped
+        // with this error; that loses a log line, not a test result.
+        onUnhandledError: (error) =>
+            !(
+                error.name === 'EnvironmentTeardownError' &&
+                error.message.includes('"onUserConsoleLog"')
+            ),
         ...(isPgmockMode
             ? {
                   testTimeout: pgmockTimeoutMs,
@@ -106,21 +161,37 @@ export default defineConfig(({ mode }) => ({
             reportsDirectory: path.join(backendDir, 'coverage'),
         },
         env: loadEnv(mode, '', 'PUTER_'),
-        include: [
-            'src/backend/**/*.test.{js,ts}',
-            'extensions/**/*.test.{js,ts}',
-            // The MCP connector's signed-upload tools call the `/fs` HTTP API
-            // directly, so their tests need a booted backend (`setupPuterTestEnv`).
-            'src/mcp-connector/**/*.test.{js,ts}',
-            // Root-level tools/ scripts are exercised through this suite.
-            'tools/**/*.test.mjs',
-            // The worker runtimes ship as a preamble rather than as their own
-            // package, so their unit tests run with the backend's.
-            'src/worker/**/*.test.{js,ts}',
-        ],
         // Root is the repo root so that the file transformer (which
         // applies `lowerDecoratorsPlugin`) sees both src/backend and
         // extensions/ — vitest skips transform for files outside root.
         root: repoRoot,
+        // `extends: true` concatenates arrays, so include/exclude live only
+        // on the projects.
+        projects: [
+            {
+                extends: true,
+                test: {
+                    name: 'isolated',
+                    include: testInclude,
+                    exclude: [...testExclude, ...sharedWorkerTests],
+                },
+            },
+            ...(sharedWorkerTests.length > 0
+                ? [
+                      {
+                          extends: true as const,
+                          test: {
+                              name: 'shared-worker',
+                              include: sharedWorkerTests,
+                              exclude: testExclude,
+                              isolate: false,
+                              setupFiles: [
+                                  'src/backend/testSharedWorkerSetup.ts',
+                              ],
+                          },
+                      },
+                  ]
+                : []),
+        ],
     },
 }));

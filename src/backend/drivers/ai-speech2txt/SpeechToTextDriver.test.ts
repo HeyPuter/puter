@@ -49,6 +49,7 @@ import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { withAiCostFactorHook } from '../integrationTestUtil.js';
 import type { SpeechToTextDriver } from './SpeechToTextDriver.js';
 import { SPEECH_TO_TEXT_COSTS } from './costs.js';
 
@@ -121,7 +122,7 @@ vi.mock('openai', () => {
 
 let server: PuterServer;
 let driver: SpeechToTextDriver;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -144,7 +145,7 @@ beforeEach(() => {
     toFileMock.mockClear();
     // Spy on metering — keep the real impl so its recording side runs,
     // but capture calls so per-test assertions can inspect them.
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -194,10 +195,10 @@ describe('SpeechToTextDriver.getReportedCosts', () => {
     it('mirrors every entry in costs.ts as a per-second line item', () => {
         const reported = driver.getReportedCosts();
 
-        // One extra line item comes from the xAI provider, which the
-        // driver aggregates alongside OpenAI's catalogue.
+        // The driver aggregates the xAI line item and Gemini's two token
+        // rates alongside OpenAI's catalogue.
         expect(reported).toHaveLength(
-            Object.keys(SPEECH_TO_TEXT_COSTS).length + 1,
+            Object.keys(SPEECH_TO_TEXT_COSTS).length + 3,
         );
         for (const [usageType, ucentsPerUnit] of Object.entries(
             SPEECH_TO_TEXT_COSTS,
@@ -219,44 +220,22 @@ describe('SpeechToTextDriver.list_models', () => {
         const models = await driver.list_models();
         const ids = models.map((m) => m.id);
 
-        expect(ids).toEqual(
-            expect.arrayContaining([
-                'gpt-4o-mini-transcribe',
-                'gpt-4o-transcribe',
-                'gpt-4o-transcribe-diarize',
-                'whisper-1',
-            ]),
-        );
+        expect(ids).toContain('gpt-transcribe');
+        // Deprecated by OpenAI; must not be advertised.
+        for (const id of [
+            'gpt-4o-mini-transcribe',
+            'gpt-4o-transcribe',
+            'gpt-4o-transcribe-diarize',
+            'whisper-1',
+        ]) {
+            expect(ids).not.toContain(id);
+        }
 
-        const miniTranscribe = models.find(
-            (m) => m.id === 'gpt-4o-mini-transcribe',
-        )!;
-        expect(miniTranscribe.type).toBe('transcription');
-        expect(miniTranscribe.supports_prompt).toBe(true);
-        expect(miniTranscribe.supports_logprobs).toBe(true);
-        expect(miniTranscribe.response_formats).toEqual(['json', 'text']);
-
-        // whisper-1 is the only one we classify as "translation" since
-        // it's the default model the driver picks for translate().
-        const whisper = models.find((m) => m.id === 'whisper-1')!;
-        expect(whisper.type).toBe('translation');
-        expect(whisper.response_formats).toEqual(
-            expect.arrayContaining(['json', 'text', 'srt', 'verbose_json', 'vtt']),
-        );
-        expect(
-            (whisper as { supports_timestamp_granularities?: boolean })
-                .supports_timestamp_granularities,
-        ).toBe(true);
-
-        const diarize = models.find(
-            (m) => m.id === 'gpt-4o-transcribe-diarize',
-        )!;
-        expect(diarize.supports_prompt).toBe(false);
-        expect(diarize.supports_logprobs).toBe(false);
-        expect(
-            (diarize as { supports_diarization?: boolean }).supports_diarization,
-        ).toBe(true);
-        expect(diarize.response_formats).toContain('diarized_json');
+        const transcribe = models.find((m) => m.id === 'gpt-transcribe')!;
+        expect(transcribe.type).toBe('transcription');
+        expect(transcribe.supports_prompt).toBe(true);
+        expect(transcribe.supports_logprobs).toBe(true);
+        expect(transcribe.response_formats).toEqual(['json', 'text']);
     });
 });
 
@@ -275,25 +254,16 @@ describe('SpeechToTextDriver.transcribe test_mode', () => {
         expect(transcriptionsCreateMock).not.toHaveBeenCalled();
         expect(translationsCreateMock).not.toHaveBeenCalled();
         expect(incrementUsageSpy).not.toHaveBeenCalled();
-        expect(result.model).toBe('gpt-4o-mini-transcribe');
-    });
-
-    it('returns the canned sample for translate with whisper-1 default', async () => {
-        const result = (await driver.translate({
-            file: undefined,
-            test_mode: true,
-        })) as { text: string; model: string };
-        expect(result.model).toBe('whisper-1');
-        expect(translationsCreateMock).not.toHaveBeenCalled();
+        expect(result.model).toBe('gpt-transcribe');
     });
 
     it('echoes an explicit model in test_mode rather than the default', async () => {
         const result = (await driver.transcribe({
             file: undefined,
             test_mode: true,
-            model: 'whisper-1',
+            model: 'custom-model',
         })) as { model: string };
-        expect(result.model).toBe('whisper-1');
+        expect(result.model).toBe('custom-model');
     });
 });
 
@@ -343,42 +313,46 @@ describe('SpeechToTextDriver argument validation', () => {
 
     it('throws 400 when response_format is not supported by the chosen model', async () => {
         const { actor } = await makeUser();
-        // `srt` is whisper-only — not in the gpt-4o-mini-transcribe catalog.
         await expect(
             withActor(actor, () =>
                 driver.transcribe({
                     file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                    model: 'gpt-4o-mini-transcribe',
+                    model: 'gpt-transcribe',
                     response_format: 'srt',
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('throws 400 when prompt is supplied to a model that does not support it', async () => {
+    it('rejects diarized_json, which gpt-transcribe does not produce', async () => {
         const { actor } = await makeUser();
         await expect(
             withActor(actor, () =>
                 driver.transcribe({
                     file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                    model: 'gpt-4o-transcribe-diarize',
-                    prompt: 'context',
+                    response_format: 'diarized_json',
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+        expect(transcriptionsCreateMock).not.toHaveBeenCalled();
     });
 
-    it('throws 400 when logprobs is requested on a model that does not support it', async () => {
+    it.each([
+        'gpt-4o-mini-transcribe',
+        'gpt-4o-transcribe',
+        'gpt-4o-transcribe-diarize',
+        'whisper-1',
+    ])('rejects the deprecated %s model', async (model) => {
         const { actor } = await makeUser();
         await expect(
             withActor(actor, () =>
                 driver.transcribe({
                     file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                    model: 'whisper-1',
-                    logprobs: true,
+                    model,
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+        expect(transcriptionsCreateMock).not.toHaveBeenCalled();
     });
 });
 
@@ -386,7 +360,7 @@ describe('SpeechToTextDriver argument validation', () => {
 
 describe('SpeechToTextDriver credit gate', () => {
     it('throws 402 BEFORE hitting OpenAI when actor lacks credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         const { actor } = await makeUser();
 
         await expect(
@@ -480,7 +454,7 @@ describe('SpeechToTextDriver audio input handling', () => {
 // ── Model selection / payload shape ─────────────────────────────────
 
 describe('SpeechToTextDriver model selection and payload shape', () => {
-    it('defaults transcribe() to gpt-4o-mini-transcribe', async () => {
+    it('defaults transcribe() to gpt-transcribe', async () => {
         const { actor } = await makeUser();
         transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
 
@@ -491,34 +465,34 @@ describe('SpeechToTextDriver model selection and payload shape', () => {
         );
 
         const sent = transcriptionsCreateMock.mock.calls[0]![0];
-        expect(sent.model).toBe('gpt-4o-mini-transcribe');
+        expect(sent.model).toBe('gpt-transcribe');
         // translate endpoint must not be touched.
         expect(translationsCreateMock).not.toHaveBeenCalled();
     });
 
-    it('defaults translate() to whisper-1 and hits the translations endpoint', async () => {
+    it('rejects translate() with 400, since no current OpenAI model translates', async () => {
         const { actor } = await makeUser();
-        translationsCreateMock.mockResolvedValueOnce({ text: 'x' });
 
-        await withActor(actor, () =>
-            driver.translate({
-                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-            }),
-        );
-
-        const sent = translationsCreateMock.mock.calls[0]![0];
-        expect(sent.model).toBe('whisper-1');
+        await expect(
+            withActor(actor, () =>
+                driver.translate({
+                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(translationsCreateMock).not.toHaveBeenCalled();
         expect(transcriptionsCreateMock).not.toHaveBeenCalled();
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('forwards optional fields (language, prompt, logprobs, temperature)', async () => {
+    it('forwards optional fields (language, prompt, temperature) and requests logprobs via include', async () => {
         const { actor } = await makeUser();
         transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
 
         await withActor(actor, () =>
             driver.transcribe({
                 file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                model: 'gpt-4o-mini-transcribe',
+                model: 'gpt-transcribe',
                 language: 'en',
                 prompt: 'transcribe this carefully',
                 logprobs: true,
@@ -529,117 +503,78 @@ describe('SpeechToTextDriver model selection and payload shape', () => {
         const sent = transcriptionsCreateMock.mock.calls[0]![0];
         expect(sent.language).toBe('en');
         expect(sent.prompt).toBe('transcribe this carefully');
-        expect(sent.logprobs).toBe(true);
+        expect(sent.include).toEqual(['logprobs']);
+        expect(sent.logprobs).toBeUndefined();
         expect(sent.temperature).toBe(0.2);
     });
 
-    it('forwards timestamp_granularities only on whisper-1 (the model that supports it)', async () => {
+    it('keeps extra_body from overriding the response shape billing reads', async () => {
         const { actor } = await makeUser();
         transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
 
         await withActor(actor, () =>
             driver.transcribe({
                 file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                model: 'whisper-1',
-                response_format: 'verbose_json',
+                model: 'gpt-transcribe',
+                extra_body: {
+                    response_format: 'text',
+                    stream: true,
+                    chunking_strategy: 'auto',
+                },
+            }),
+        );
+
+        const sent = transcriptionsCreateMock.mock.calls[0]![0];
+        expect(sent.extra_body).toEqual({ chunking_strategy: 'auto' });
+    });
+
+    it('does not forward timestamp_granularities, which gpt-transcribe ignores', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
+
+        await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
                 timestamp_granularities: ['word'],
             }),
         );
 
         const sent = transcriptionsCreateMock.mock.calls[0]![0];
-        expect(sent.timestamp_granularities).toEqual(['word']);
+        expect(sent.timestamp_granularities).toBeUndefined();
     });
 
-    it('passes extra_body through verbatim for non-diarize models', async () => {
+    it('accepts but does not forward chunking or known-speaker options', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
+
+        const result = await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                chunking_strategy: 'auto',
+                known_speaker_names: ['agent'],
+            }),
+        );
+
+        expect(result).toEqual({ text: 'x' });
+        const sent = transcriptionsCreateMock.mock.calls[0]![0];
+        expect(sent.chunking_strategy).toBeUndefined();
+        expect(sent.known_speaker_names).toBeUndefined();
+    });
+
+    it('passes extra_body through verbatim', async () => {
         const { actor } = await makeUser();
         transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
 
         await withActor(actor, () =>
             driver.transcribe({
                 file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                model: 'gpt-4o-mini-transcribe',
+                model: 'gpt-transcribe',
                 extra_body: { custom: 'value' },
             }),
         );
 
         const sent = transcriptionsCreateMock.mock.calls[0]![0];
         expect(sent.extra_body).toEqual({ custom: 'value' });
-    });
-});
-
-// ── Diarization branch ──────────────────────────────────────────────
-
-describe('SpeechToTextDriver diarization handling', () => {
-    it('defaults response_format to diarized_json on the diarize model', async () => {
-        const { actor } = await makeUser();
-        transcriptionsCreateMock.mockResolvedValueOnce({ segments: [] });
-
-        await withActor(actor, () =>
-            driver.transcribe({
-                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                model: 'gpt-4o-transcribe-diarize',
-            }),
-        );
-
-        const sent = transcriptionsCreateMock.mock.calls[0]![0];
-        expect(sent.response_format).toBe('diarized_json');
-    });
-
-    it('auto-enables chunking_strategy when estimated duration exceeds 30s', async () => {
-        const { actor } = await makeUser();
-        transcriptionsCreateMock.mockResolvedValueOnce({ segments: [] });
-
-        // estimatedSeconds = ceil(bytes / 16000); 16000 * 31 = 496000 bytes
-        // → 31s > 30s threshold → driver sets chunking_strategy = 'auto'.
-        const longAudio = Buffer.alloc(16000 * 31, 0);
-        await withActor(actor, () =>
-            driver.transcribe({
-                file: dataUrl(longAudio, 'audio/mp3'),
-                model: 'gpt-4o-transcribe-diarize',
-            }),
-        );
-
-        const sent = transcriptionsCreateMock.mock.calls[0]![0];
-        expect(sent.chunking_strategy).toBe('auto');
-    });
-
-    it('does NOT auto-enable chunking_strategy for short audio', async () => {
-        const { actor } = await makeUser();
-        transcriptionsCreateMock.mockResolvedValueOnce({ segments: [] });
-
-        // 16000 bytes = 1s estimated → below the 30s threshold.
-        const shortAudio = Buffer.from('short');
-        await withActor(actor, () =>
-            driver.transcribe({
-                file: dataUrl(shortAudio, 'audio/mp3'),
-                model: 'gpt-4o-transcribe-diarize',
-            }),
-        );
-
-        const sent = transcriptionsCreateMock.mock.calls[0]![0];
-        expect(sent.chunking_strategy).toBeUndefined();
-    });
-
-    it('packs known_speaker_names / known_speaker_references into extra_body', async () => {
-        const { actor } = await makeUser();
-        transcriptionsCreateMock.mockResolvedValueOnce({ segments: [] });
-
-        await withActor(actor, () =>
-            driver.transcribe({
-                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                model: 'gpt-4o-transcribe-diarize',
-                known_speaker_names: ['Alice', 'Bob'],
-                known_speaker_references: ['ref1', 'ref2'],
-                extra_body: { keep_me: true },
-            }),
-        );
-
-        const sent = transcriptionsCreateMock.mock.calls[0]![0];
-        expect(sent.extra_body).toEqual({
-            keep_me: true,
-            known_speaker_names: ['Alice', 'Bob'],
-            known_speaker_references: ['ref1', 'ref2'],
-        });
     });
 });
 
@@ -655,7 +590,7 @@ describe('SpeechToTextDriver response shape', () => {
         const result = await withActor(actor, () =>
             driver.transcribe({
                 file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                model: 'gpt-4o-mini-transcribe',
+                model: 'gpt-transcribe',
                 response_format: 'text',
             }),
         );
@@ -672,7 +607,7 @@ describe('SpeechToTextDriver response shape', () => {
         const result = await withActor(actor, () =>
             driver.transcribe({
                 file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                model: 'gpt-4o-mini-transcribe',
+                model: 'gpt-transcribe',
                 response_format: 'text',
             }),
         );
@@ -693,7 +628,7 @@ describe('SpeechToTextDriver response shape', () => {
         const result = await withActor(actor, () =>
             driver.transcribe({
                 file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                model: 'gpt-4o-mini-transcribe',
+                model: 'gpt-transcribe',
             }),
         );
 
@@ -713,11 +648,11 @@ describe('SpeechToTextDriver metering', () => {
         await withActor(actor, () =>
             driver.transcribe({
                 file: dataUrl(audio, 'audio/mp3'),
-                model: 'gpt-4o-mini-transcribe',
+                model: 'gpt-transcribe',
             }),
         );
 
-        const usageType = 'openai:gpt-4o-mini-transcribe:second';
+        const usageType = 'openai:gpt-transcribe:second';
         const perSecond = SPEECH_TO_TEXT_COSTS[usageType];
         const sttCalls = incrementUsageSpy.mock.calls.filter(
             ([, type]) => type === usageType,
@@ -737,11 +672,11 @@ describe('SpeechToTextDriver metering', () => {
         await withActor(actor, () =>
             driver.transcribe({
                 file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                model: 'whisper-1',
+                model: 'gpt-transcribe',
             }),
         );
 
-        const usageType = 'openai:whisper-1:second';
+        const usageType = 'openai:gpt-transcribe:second';
         const sttCalls = incrementUsageSpy.mock.calls.filter(
             ([, type]) => type === usageType,
         );
@@ -751,7 +686,7 @@ describe('SpeechToTextDriver metering', () => {
         expect(cost).toBe(SPEECH_TO_TEXT_COSTS[usageType]);
     });
 
-    it('asks hasEnoughCredits for the same total it later meters', async () => {
+    it('reserves the same total it later meters', async () => {
         const { actor } = await makeUser();
         transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
 
@@ -759,14 +694,108 @@ describe('SpeechToTextDriver metering', () => {
         await withActor(actor, () =>
             driver.transcribe({
                 file: dataUrl(audio, 'audio/mp3'),
-                model: 'gpt-4o-mini-transcribe',
+                model: 'gpt-transcribe',
             }),
         );
 
-        const usageType = 'openai:gpt-4o-mini-transcribe:second';
+        const usageType = 'openai:gpt-transcribe:second';
         const expected = SPEECH_TO_TEXT_COSTS[usageType] * 2;
-        const creditCall = hasCreditsSpy.mock.calls[0]!;
+        const creditCall = admitSpy.mock.calls[0]!;
         expect(creditCall[1]).toBe(expected);
+    });
+
+    it('meters the duration OpenAI reports, not the byte estimate', async () => {
+        const { actor } = await makeUser();
+        const usageType = 'openai:gpt-transcribe:second';
+        const billed = async (bytes: number, seconds: number) => {
+            incrementUsageSpy.mockClear();
+            transcriptionsCreateMock.mockResolvedValueOnce({
+                text: 'x',
+                usage: { type: 'duration', seconds },
+            });
+            await withActor(actor, () =>
+                driver.transcribe({
+                    file: dataUrl(Buffer.alloc(bytes, 1), 'audio/ogg'),
+                }),
+            );
+            const [, , count, cost] = incrementUsageSpy.mock.calls.find(
+                ([, type]) => type === usageType,
+            )!;
+            expect(cost).toBe(SPEECH_TO_TEXT_COSTS[usageType]! * count);
+            return count;
+        };
+        // 600 s of Opus at 8 kbps, and 60 s of 44.1 kHz stereo WAV.
+        expect(await billed(441_078, 600)).toBe(600);
+        expect(await billed(10_584_078, 59.2)).toBe(60);
+    });
+
+    it('asks for json behind response_format=text so usage comes back', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({
+            text: 'plain transcript',
+            usage: { type: 'duration', seconds: 42 },
+        });
+        const result = await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                response_format: 'text',
+            }),
+        );
+        expect(result).toBe('plain transcript');
+        expect(transcriptionsCreateMock.mock.calls[0]![0].response_format).toBe(
+            'json',
+        );
+        const usageType = 'openai:gpt-transcribe:second';
+        const [, , count] = incrementUsageSpy.mock.calls.find(
+            ([, type]) => type === usageType,
+        )!;
+        expect(count).toBe(42);
+    });
+
+    it('falls back to the byte estimate when OpenAI reports token usage', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({
+            text: 'x',
+            usage: { type: 'tokens', input_tokens: 10, output_tokens: 2 },
+        });
+        await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.alloc(32000, 0), 'audio/mp3'),
+            }),
+        );
+        const usageType = 'openai:gpt-transcribe:second';
+        const [, , count] = incrementUsageSpy.mock.calls.find(
+            ([, type]) => type === usageType,
+        )!;
+        expect(count).toBe(2);
+    });
+
+    it('holds and meters at the AI cost factor', async () => {
+        const { actor } = await makeUser();
+        const usageType = 'openai:gpt-transcribe:second';
+        const metered = () =>
+            incrementUsageSpy.mock.calls
+                .filter(([, type]) => type === usageType)
+                .map(([, , , cost]) => cost);
+        const transcribe = async (charges: number) => {
+            transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
+            await withActor(actor, () =>
+                driver.transcribe({
+                    file: dataUrl(Buffer.alloc(32000, 0), 'audio/mp3'),
+                    model: 'gpt-transcribe',
+                }),
+            );
+            await vi.waitFor(() => expect(metered()).toHaveLength(charges));
+        };
+        await transcribe(1);
+        await withAiCostFactorHook(server.clients.event, 2, () =>
+            transcribe(2),
+        );
+
+        const [base, factored] = metered();
+        expect(factored).toBe(base! * 2);
+        const held = admitSpy.mock.calls.map(([, amount]) => amount);
+        expect(held).toEqual([base, base! * 2]);
     });
 });
 

@@ -23,7 +23,7 @@ const nn = {
     code: 'nn',
     dictionary: {
         access_granted_to: 'Tilgang gjeven til',
-        add_existing_account: 'Legg til eksisterande konto',
+        add_another_account: 'Legg til ein annan konto',
         all_fields_required: 'Alle felt er obligatoriske.',
         apply: 'Bruk',
         ascending: 'Stigande',

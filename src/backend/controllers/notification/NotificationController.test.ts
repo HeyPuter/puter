@@ -183,3 +183,74 @@ describe('NotificationController.markAck', () => {
         expect(after?.acknowledged).toBeFalsy();
     });
 });
+
+// ── /notif/delete ───────────────────────────────────────────────────
+
+describe('NotificationController.remove', () => {
+    it('deletes the underlying notification row', async () => {
+        const { actor, userId } = await makeUser();
+        const created = await server.stores.notification.create({
+            userId,
+            value: { title: 't' },
+        });
+
+        const { res, captured } = makeRes();
+        await controller.remove(
+            makeReq({ body: { uid: created.uid }, actor }),
+            res,
+        );
+
+        expect(captured.body).toEqual({});
+        const after = await server.stores.notification.getByUid(
+            created.uid as string,
+            { userId },
+        );
+        expect(after).toBeNull();
+    });
+
+    it('succeeds for a uid that names no row', async () => {
+        const { actor } = await makeUser();
+        const { res, captured } = makeRes();
+        await controller.remove(
+            makeReq({ body: { uid: 'no-such-uid' }, actor }),
+            res,
+        );
+        expect(captured.body).toEqual({});
+    });
+
+    it('rejects a missing uid with 400', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            controller.remove(makeReq({ body: {}, actor }), res),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('throws 401 when there is no actor on the request', async () => {
+        const { res } = makeRes();
+        await expect(
+            controller.remove(makeReq({ body: { uid: 'whatever' } }), res),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+
+    it("does not delete another user's notification", async () => {
+        const a = await makeUser();
+        const b = await makeUser();
+        const created = await server.stores.notification.create({
+            userId: a.userId,
+            value: {},
+        });
+
+        const { res } = makeRes();
+        await controller.remove(
+            makeReq({ body: { uid: created.uid }, actor: b.actor }),
+            res,
+        );
+
+        const after = await server.stores.notification.getByUid(
+            created.uid as string,
+            { userId: a.userId },
+        );
+        expect(after?.uid).toBe(created.uid);
+    });
+});

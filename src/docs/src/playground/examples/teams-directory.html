@@ -7,16 +7,7 @@
         const select = document.getElementById('colleagues');
 
         (async () => {
-            let teams;
-            try {
-                teams = await puter.teams.list();
-            } catch (e) {
-                if (e.code !== 'not_found') throw e;
-                select.innerHTML = '<option>Teams are not available here</option>';
-                return;
-            }
-
-            const team = teams[0];
+            const [team] = await puter.teams.list();
             if (!team) {
                 select.innerHTML = '<option>You are not on a team</option>';
                 return;

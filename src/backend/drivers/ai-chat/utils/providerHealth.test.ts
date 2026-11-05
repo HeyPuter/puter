@@ -24,6 +24,7 @@ import {
     clearUnhealthyRoutes,
     isRouteUnhealthy,
     markRouteUnhealthy,
+    TRANSIENT_UNHEALTHY_TTL_SEC,
     UNHEALTHY_TTL_SEC,
 } from './providerHealth.js';
 
@@ -62,6 +63,17 @@ describe('providerHealth', () => {
         const ttl = kv.ttl('aiChat:unhealthyRoute:groq:llama-3.3-70b');
         expect(ttl).toBeGreaterThan(0);
         expect(ttl).toBeLessThanOrEqual(UNHEALTHY_TTL_SEC);
+    });
+
+    it('marks a route for the time it is given', () => {
+        markRouteUnhealthy(
+            'groq',
+            'llama-3.3-70b',
+            TRANSIENT_UNHEALTHY_TTL_SEC,
+        );
+        const ttl = kv.ttl('aiChat:unhealthyRoute:groq:llama-3.3-70b');
+        expect(ttl).toBeGreaterThan(0);
+        expect(ttl).toBeLessThanOrEqual(TRANSIENT_UNHEALTHY_TTL_SEC);
     });
 
     it('forgets the route once the mark has expired', () => {

@@ -31,6 +31,18 @@ export interface ModelModalities {
     output: string[];
 }
 
+export interface ModelPricingOverride {
+    /** Applies above this many input tokens, or at it too when inclusive. */
+    minPromptTokens?: number;
+    minPromptTokensInclusive?: boolean;
+    utcStart?: number;
+    utcEnd?: number;
+    utcDays?: number[];
+    /** ISO instant from which this override applies, e.g. a list-price change. */
+    startsAt?: string;
+    costs: ModelCost;
+}
+
 export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     string,
     unknown
@@ -54,6 +66,7 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
         input_multiplier: number;
         output_multiplier: number;
     };
+    pricingOverrides?: ModelPricingOverride[];
     context?: number;
     max_tokens: number;
     subscriberOnly?: boolean;
@@ -63,22 +76,161 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     tool_call?: boolean;
     responses_api?: boolean;
     responses_api_only?: boolean;
+    /**
+     * Omitted preserves sampling; reasoningDisabled requires explicit effort
+     * none.
+     */
+    responsesSampling?: 'never' | 'reasoningDisabled';
     knowledge?: string;
     release_date?: string;
+    /**
+     * Claude only: this model accepts `role:'system'` messages after the first
+     * non-system message (live-verified per model). Unsupported models 400 on a
+     * mid-conversation system message, so ClaudeProvider folds one into the
+     * leading `system` blocks instead.
+     */
+    midConversationSystem?: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PuterMessage = any;
 
+/**
+ * `reasoning_effort` vocabulary, widened to cover Claude's
+ * `output_config.effort`.
+ */
+export type ReasoningEffort =
+    'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+/** Normalized tool choice, Anthropic vocabulary. */
+export type ToolChoice =
+    | { type: 'auto' }
+    | { type: 'any' }
+    | { type: 'none' }
+    | { type: 'tool'; name: string };
+
+export interface ThinkingConfig {
+    type: 'adaptive' | 'enabled' | 'disabled' | 'between_tools';
+    /** `enabled` only; Claude clamps it below `max_tokens`. */
+    budgetTokens?: number;
+    display?: 'summarized' | 'omitted' | 'updates';
+    /** Claude only (`thinking.block_binding`). */
+    blockBinding?: { prefixMismatchBehavior: 'error' | 'drop_block' };
+}
+
+export interface OutputFormat {
+    type: 'json_schema';
+    schema: Record<string, unknown>;
+    name?: string;
+    strict?: boolean;
+}
+
+export interface CacheControl {
+    type: 'ephemeral';
+    ttl?: '5m' | '1h';
+}
+
+export interface SafeguardRequest {
+    type: 'dangerous_tool_use';
+    classifier_context: Record<string, unknown>;
+}
+
+export type StopReason =
+    | 'end_turn'
+    | 'max_tokens'
+    | 'stop_sequence'
+    | 'tool_use'
+    | 'pause_turn'
+    | 'refusal'
+    | 'model_context_window_exceeded'
+    | (string & {});
+
+/**
+ * Provider-neutral usage breakdown. `inputTokens` excludes cache reads/writes.
+ * Cache writes are keyed by the lifetime the entry was written with: Claude and
+ * Moonshot write 5m and 1h entries, OpenAI writes 30m and 12h entries.
+ */
+export interface UsageDetails {
+    inputTokens: number;
+    outputTokens: number; // includes reasoning
+    cacheReadTokens?: number;
+    cacheWrite5mTokens?: number;
+    cacheWrite30mTokens?: number;
+    cacheWrite1hTokens?: number;
+    cacheWrite12hTokens?: number;
+    reasoningTokens?: number;
+    webSearchRequests?: number;
+    webFetchRequests?: number;
+    speed?: 'fast' | 'standard';
+    serviceTier?: string;
+    /**
+     * Per-pass breakdown when the upstream ran several passes (compaction,
+     * advisor).
+     */
+    iterations?: Array<{
+        type: string;
+        model?: string;
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens?: number;
+        cacheWrite5mTokens?: number;
+        cacheWrite30mTokens?: number;
+        cacheWrite1hTokens?: number;
+        cacheWrite12hTokens?: number;
+    }>;
+}
+
+/**
+ * OpenAI `prompt_cache_options`, GPT-5.6 and later. `ttl` is the minimum
+ * lifetime of every cache entry the request writes; `12h` entries cost twice
+ * what `30m` entries do to write and only the Responses API writes them.
+ */
+export interface PromptCacheOptions {
+    mode?: 'implicit' | 'explicit';
+    ttl?: '30m' | '12h';
+}
+
 export interface ICompleteArguments {
     messages: PuterMessage[];
     provider?: string;
+    /**
+     * `false` makes the first route's failure final instead of retrying the
+     * request on another provider that serves the same model.
+     */
+    fallback?: boolean;
     stream?: boolean;
     model: string;
     test_mode?: boolean;
     tools?: unknown[];
-    tool_choice?: unknown;
+    /** Normalized tool choice; providers map it to their own wire shape. */
+    tool_choice?: ToolChoice;
     parallel_tool_calls?: boolean;
+    /**
+     * `null` sends no `thinking` field at all (model default). `undefined`
+     * falls back to the legacy derivation from `reasoning_effort`.
+     */
+    thinking?: ThinkingConfig | null;
+    outputFormat?: OutputFormat;
+    stopSequences?: string[];
+    topK?: number;
+    /** Claude only (`output_config.task_budget`). */
+    taskBudget?: { total: number; remaining?: number };
+    /** Claude only: top-level automatic `cache_control`. */
+    cacheControl?: CacheControl;
+    /**
+     * Claude only; forwarded only when the model's catalog entry has
+     * `fast_output_tokens`.
+     */
+    speed?: 'fast' | 'standard';
+    /** Claude only. */
+    safeguards?: SafeguardRequest[];
+    /**
+     * Claude only: the raw `anthropic-beta` header, intersected with an
+     * allowlist.
+     */
+    anthropicBetas?: string[];
+    /** Emit `tool_use_start` / `tool_input_delta` chunks while streaming. */
+    streamToolInput?: boolean;
     include?: unknown[];
     conversation?: unknown;
     /**
@@ -100,7 +252,9 @@ export interface ICompleteArguments {
     metadata?: Record<string, string>;
     prompt?: unknown;
     prompt_cache_key?: string;
-    prompt_cache_retention?: 'in-memory' | '24h' | undefined;
+    /** `in-memory` is accepted as a spelling of OpenAI's `in_memory`. */
+    prompt_cache_retention?: 'in-memory' | 'in_memory' | '24h' | undefined;
+    prompt_cache_options?: PromptCacheOptions;
     store?: boolean;
     top_p?: number;
     truncation?: 'auto' | 'disabled' | undefined;
@@ -109,9 +263,9 @@ export interface ICompleteArguments {
         'auto' | 'default' | 'flex' | 'scale' | 'priority' | undefined;
     max_tokens?: number;
     temperature?: number;
-    reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;
+    reasoning?: { effort: ReasoningEffort } | undefined;
     text?: { verbosity?: 'low' | 'medium' | 'high' | undefined } | undefined;
-    reasoning_effort?: 'low' | 'medium' | 'high' | undefined;
+    reasoning_effort?: ReasoningEffort | undefined;
     verbosity?: 'low' | 'medium' | 'high' | undefined;
     moderation?: boolean;
     custom?: unknown;
@@ -155,15 +309,38 @@ export interface IChatMessageResult {
      * turn in place of the summarized history. See [[ICompleteArguments]].
      */
     compaction?: { type: 'compaction'; id?: string; encrypted_content: string };
+    stopReason?: StopReason;
+    stopSequence?: string | null;
+    stopDetails?: Record<string, unknown> | null;
+    usageDetails?: UsageDetails;
+    /** Claude only. */
+    safeguardResults?: unknown[];
+    /** Claude only. */
+    contextManagement?: Record<string, unknown>;
+    /**
+     * Internal: per-usage-key cost (µ¢) the provider already metered with, so
+     * the driver's reported cost matches the ledger exactly. Stripped before
+     * the result reaches the caller.
+     */
+    usageCosts?: Record<string, number>;
 }
 
 export type IChatCompleteResult = IChatStreamResult | IChatMessageResult;
 
 export interface IChatProvider {
     models(extra_params?: unknown): IChatModel[] | Promise<IChatModel[]>;
-    list(): string[] | Promise<string[]>;
     getDefaultModel(): string;
-    complete(arg: ICompleteArguments): Promise<IChatCompleteResult>;
+    /**
+     * `model` is this provider's own catalog entry for `arg.model`, as the
+     * driver resolved it; a provider resolves `arg.model` itself without it.
+     * `pricingTime` is the instant the driver's credit gate priced this attempt
+     * at; usage metered for the attempt is priced at the same instant.
+     */
+    complete(
+        arg: ICompleteArguments,
+        model?: IChatModel,
+        pricingTime?: Date,
+    ): Promise<IChatCompleteResult>;
     checkModeration(
         text: string,
     ): Promise<{ flagged: boolean; categories?: string[] }> | void;
@@ -173,4 +350,33 @@ export interface IChatProvider {
      * attempt.
      */
     readonly resolvesPuterPaths?: boolean;
+    /**
+     * The model key usage is recorded under, which is also what the AI cost
+     * factor is looked up by. The driver assumes `<provider>:<model id>` when
+     * absent.
+     */
+    meteringModelKey?(modelId: string): string;
+    /**
+     * Request-specific pricing the credit gate must reserve for (web search,
+     * fast mode, the advisor tool), in µ¢, before the AI cost factor.
+     * `maxTokens` is an output cap the provider holds this request to; the gate
+     * caps `max_tokens` and sizes the hold to it as well.
+     */
+    requestPricing?(
+        args: ICompleteArguments,
+        model: IChatModel,
+        est: { promptTokenEstimate: number },
+    ): {
+        inputKey?: string;
+        outputKey?: string;
+        extraCost?: number;
+        /** Provider-specific prompt tokens outside message.content. */
+        additionalPromptTokens?: number;
+        maxTokens?: number;
+    };
+    /**
+     * Exact prompt token count, when the vendor offers one (e.g. Claude's
+     * `count_tokens`).
+     */
+    countTokens?(args: ICompleteArguments): Promise<number>;
 }

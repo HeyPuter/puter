@@ -1,0 +1,27 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h3>Settings</h3>
+    <ul id="rows"></ul>
+    <script>
+        // A settings page renders its real state on open, with no dialog
+        // appearing just because the user navigated there.
+        const WANTED = [
+            { resource: 'folder', name: 'Documents', access: 'write' },
+            { resource: 'email' },
+            { resource: 'apps' },
+        ];
+        const LABELS = ['Autosave to Documents', 'Email notifications', 'Show my apps'];
+
+        (async () => {
+            // Same array as request(), but every entry answers a boolean.
+            const held = await puter.perms.check(WANTED);
+
+            document.getElementById('rows').innerHTML = held
+                .map((on, i) => `<li>${LABELS[i]}: <b>${on ? 'on' : 'off'}</b></li>`)
+                .join('');
+            puter.print('Nothing was prompted for — check() never asks.');
+        })();
+    </script>
+</body>
+</html>

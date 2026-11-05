@@ -3,23 +3,27 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import clusterKeySlot from 'cluster-key-slot';
 import { setupTestServer } from '../../testUtil.ts';
+import { decodeCursor } from '../../util/pagination.ts';
+import { ShareStore } from './ShareStore.js';
 
 describe('ShareStore', () => {
     let server;
@@ -124,72 +128,6 @@ describe('ShareStore', () => {
         expect(await store.getByUid('no-such-share')).toBeNull();
     });
 
-    it('lists only the shares addressed to the requested recipient', async () => {
-        const email = `recipient-${Date.now()}@test.local`;
-        const mine = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: { n: 1 },
-        });
-        await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: `other-${Date.now()}@test.local`,
-            data: { n: 2 },
-        });
-
-        const rows = await store.listByRecipientEmail(email);
-        expect(rows.map((r) => r.uid)).toEqual([mine.uid]);
-        expect(rows[0].data).toEqual({ n: 1 });
-    });
-
-    it('returns an empty list for a recipient with no shares', async () => {
-        expect(await store.listByRecipientEmail('nobody@test.local')).toEqual(
-            [],
-        );
-    });
-
-    it('never leaks another issuer rows through listByIssuer', async () => {
-        const mine = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: 'iso-a@test.local',
-            data: {},
-        });
-        const theirs = await store.create({
-            issuerUserId: otherIssuer.id,
-            recipientEmail: 'iso-b@test.local',
-            data: {},
-        });
-
-        const uids = (await store.listByIssuer(otherIssuer.id)).map(
-            (r) => r.uid,
-        );
-        expect(uids).toContain(theirs.uid);
-        expect(uids).not.toContain(mine.uid);
-    });
-
-    it('orders a recipient inbox newest-first', async () => {
-        const email = `ordered-${Date.now()}@test.local`;
-        const older = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: { which: 'older' },
-        });
-        const newer = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: { which: 'newer' },
-        });
-        // `created_at` defaults to a second-granularity timestamp, so both
-        // rows can land in the same second. Age one explicitly.
-        await server.clients.db.write(
-            "UPDATE `share` SET `created_at` = '2020-01-01 00:00:00' WHERE `uid` = ?",
-            [older.uid],
-        );
-
-        const rows = await store.listByRecipientEmail(email);
-        expect(rows.map((r) => r.uid)).toEqual([newer.uid, older.uid]);
-    });
-
     // -- deletes ------------------------------------------------------
 
     it('deletes a single share by uid and reports whether a row was removed', async () => {
@@ -203,35 +141,6 @@ describe('ShareStore', () => {
         expect(await store.getByUid(created.uid)).toBeNull();
         // Second delete finds nothing.
         expect(await store.deleteByUid(created.uid)).toBe(false);
-    });
-
-    it('deletes every share for a recipient in one call', async () => {
-        const email = `bulk-${Date.now()}@test.local`;
-        await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: email,
-            data: {},
-        });
-        await store.create({
-            issuerUserId: otherIssuer.id,
-            recipientEmail: email,
-            data: {},
-        });
-        const survivor = await store.create({
-            issuerUserId: issuer.id,
-            recipientEmail: `keep-${Date.now()}@test.local`,
-            data: {},
-        });
-
-        expect(await store.deleteByRecipientEmail(email)).toBe(true);
-        expect(await store.listByRecipientEmail(email)).toEqual([]);
-        expect(await store.getByUid(survivor.uid)).not.toBeNull();
-    });
-
-    it('reports false when a recipient bulk delete matches nothing', async () => {
-        expect(await store.deleteByRecipientEmail('ghost@test.local')).toBe(
-            false,
-        );
     });
 
     // -- active shares (the index) -------------------------------------
@@ -262,12 +171,49 @@ describe('ShareStore', () => {
             holder = await makeUser();
         });
 
+        it('says whether an owner has anything shared, legacy rows included', async () => {
+            const owner = await makeUser();
+            await expect(store.ownerHasShares(owner.id)).resolves.toBe(false);
+
+            const entry = await makeEntry(owner);
+            await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await expect(store.ownerHasShares(owner.id)).resolves.toBe(true);
+
+            // A row written before the owner column existed.
+            const legacyOwner = await makeUser();
+            const legacy = await makeEntry(legacyOwner);
+            await store.upsertActive({
+                issuerUserId: legacyOwner.id,
+                holderUserId: holder.id,
+                fsentryId: legacy.id,
+                mode: 'read',
+            });
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `fsentry_id` = ?',
+                [legacy.id],
+            );
+            await expect(store.ownerHasShares(legacyOwner.id)).resolves.toBe(
+                true,
+            );
+        });
+
         it('finds a subtree share even when the descendant has no path yet', async () => {
             const now = Math.floor(Date.now() / 1000);
             const dirUuid = uuidv4();
             await server.clients.db.write(
                 'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 1, ?)',
-                [dirUuid, `d-${dirUuid.slice(0, 8)}`, `/x/${dirUuid}`, issuer.id, now],
+                [
+                    dirUuid,
+                    `d-${dirUuid.slice(0, 8)}`,
+                    `/x/${dirUuid}`,
+                    issuer.id,
+                    now,
+                ],
             );
             const dirRows = await server.clients.db.read(
                 'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
@@ -278,7 +224,14 @@ describe('ShareStore', () => {
             const childUuid = uuidv4();
             await server.clients.db.write(
                 'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, NULL, ?, 0, ?, ?, ?)',
-                [childUuid, `f-${childUuid.slice(0, 8)}`, issuer.id, now, dirId, dirUuid],
+                [
+                    childUuid,
+                    `f-${childUuid.slice(0, 8)}`,
+                    issuer.id,
+                    now,
+                    dirId,
+                    dirUuid,
+                ],
             );
             const childRows = await server.clients.db.read(
                 'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
@@ -294,9 +247,9 @@ describe('ShareStore', () => {
             });
 
             const rows = await store.listByFsentrySubtree(dirId);
-            expect(
-                rows.some((r) => Number(r.fsentry_id) === childId),
-            ).toBe(true);
+            expect(rows.some((r) => Number(r.fsentry_id) === childId)).toBe(
+                true,
+            );
         });
 
         it('records an active share and lists it for the holder', async () => {
@@ -315,6 +268,138 @@ describe('ShareStore', () => {
 
             const page = await store.listByHolder(holder.id);
             expect(page.items.map((r) => r.uid)).toContain(created.uid);
+        });
+
+        it('sends only lookups naming the withdrawn node to the primary', async () => {
+            const withdrawn = await makeEntry(issuer);
+            const other = await makeEntry(issuer);
+            for (const entry of [withdrawn, other]) {
+                await store.upsertAnyone({
+                    issuerUserId: issuer.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+            }
+            await store.deleteAnyone(withdrawn.id, withdrawn.uuid);
+
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                await store.getAnyone(other.id);
+                await store.listAnyoneOnFsentries([other.id]);
+                await store.listAnyoneReaching([other.uuid]);
+                expect(pread).not.toHaveBeenCalled();
+
+                // Every lookup the withdrawn row could appear in, by id or by
+                // uuid, alone or among ancestors.
+                await store.getAnyone(withdrawn.id);
+                await store.listAnyoneOnFsentries([other.id, withdrawn.id]);
+                expect(
+                    await store.listAnyoneReaching([
+                        other.uuid,
+                        withdrawn.uuid,
+                    ]),
+                ).toHaveLength(1);
+                expect(pread).toHaveBeenCalledTimes(3);
+            } finally {
+                pread.mockRestore();
+            }
+
+            const ttl = await server.clients.redis.ttl(
+                ShareStore.revokedLinkKey('uuid', withdrawn.uuid),
+            );
+            expect(ttl).toBeGreaterThan(25);
+        });
+
+        it('marks the uuid too when the caller passes only the row id', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await store.deleteAnyone(entry.id);
+            expect(
+                await server.clients.redis.get(
+                    ShareStore.revokedLinkKey('uuid', entry.uuid),
+                ),
+            ).toBe('1');
+        });
+
+        it('keeps every revoke marker in one cluster slot', () => {
+            const keys = [
+                ShareStore.revokedLinkKey('id', 1),
+                ShareStore.revokedLinkKey('id', 987654),
+                ShareStore.revokedLinkKey('uuid', uuidv4()),
+                ShareStore.revokedLinkKey('uuid', uuidv4()),
+            ];
+            expect(new Set(keys.map((key) => clusterKeySlot(key))).size).toBe(
+                1,
+            );
+        });
+
+        it('reads a link past the replica once one has been withdrawn', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            const read = vi.spyOn(server.clients.db, 'read');
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                // Nothing withdrawn: the ordinary read serves it.
+                await store.getAnyone(entry.id);
+                expect(read).toHaveBeenCalled();
+                expect(pread).not.toHaveBeenCalled();
+
+                read.mockClear();
+                pread.mockClear();
+                await store.deleteAnyone(entry.id);
+                // Withdrawn just now, so the row is read where it is gone.
+                expect(await store.getAnyone(entry.id)).toBeNull();
+                expect(pread).toHaveBeenCalled();
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+        });
+
+        it('lets a link share lose its app, and never take another one', async () => {
+            const entry = await makeEntry(issuer);
+            const appOf = (row) => {
+                const data =
+                    typeof row.data === 'string'
+                        ? JSON.parse(row.data || '{}')
+                        : (row.data ?? {});
+                return data.issuedByApp ?? null;
+            };
+
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+                issuerAppUid: 'app-one',
+            });
+            expect(appOf(await store.getAnyone(entry.id))).toBe('app-one');
+
+            // The same app again keeps it.
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'write',
+                issuerAppUid: 'app-one',
+            });
+            expect(appOf(await store.getAnyone(entry.id))).toBe('app-one');
+
+            // A different one does not take it.
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+                issuerAppUid: 'app-two',
+            });
+            expect(appOf(await store.getAnyone(entry.id))).toBeNull();
         });
 
         it('moves an existing share to a new mode instead of duplicating it', async () => {
@@ -425,7 +510,7 @@ describe('ShareStore', () => {
 
             expect(
                 await store.getSharedFsentryIds([shared.id, untouched.id]),
-            ).toEqual(new Set([shared.id]));
+            ).toEqual(new Map([[shared.id, true]]));
 
             await store.deleteActive({
                 holderUserId: holder.id,
@@ -434,7 +519,7 @@ describe('ShareStore', () => {
 
             expect(
                 await store.getSharedFsentryIds([shared.id, untouched.id]),
-            ).toEqual(new Set());
+            ).toEqual(new Map());
         });
 
         it('counts a node whose only share is an unclaimed invite', async () => {
@@ -447,8 +532,73 @@ describe('ShareStore', () => {
             });
 
             expect(await store.getSharedFsentryIds([entry.id])).toEqual(
-                new Set([entry.id]),
+                new Map([[entry.id, true]]),
             );
+        });
+
+        it('tells a node whose only share is a link from one that also has a holder', async () => {
+            const linkOnly = await makeEntry(issuer);
+            const both = await makeEntry(issuer);
+            for (const entry of [linkOnly, both]) {
+                await store.upsertAnyone({
+                    issuerUserId: issuer.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+            }
+            await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: both.id,
+                mode: 'read',
+            });
+
+            expect(
+                await store.getSharedFsentryIds([linkOnly.id, both.id]),
+            ).toEqual(
+                new Map([
+                    [linkOnly.id, false],
+                    [both.id, true],
+                ]),
+            );
+        });
+
+        it('lists invites for an address, not for its accent variants', async () => {
+            const local = `inv-${uuidv4().slice(0, 8)}`;
+            const stored = `${local}@exámple.org`;
+            const { row: invite } = await store.upsertPending({
+                issuerUserId: issuer.id,
+                recipientEmail: stored,
+                fsentryId: (await makeEntry(issuer)).id,
+                mode: 'read',
+            });
+
+            // MySQL's collation matches either typed form to the stored one;
+            // sqlite compares bytes, so fold the bound value the same way.
+            const db = server.clients.db;
+            const realRead = db.read.bind(db);
+            const listFolded = async (typed) => {
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation((q, p = []) =>
+                        realRead(
+                            q,
+                            p.map((v) => (v === typed ? stored : v)),
+                        ),
+                    );
+                try {
+                    return await store.listPendingByEmail(typed);
+                } finally {
+                    read.mockRestore();
+                }
+            };
+
+            expect(await listFolded(`${local}@example.org`)).toEqual([]);
+            expect(
+                (await listFolded(`${local.toUpperCase()}@EXÁMPLE.ORG`)).map(
+                    (r) => r.uid,
+                ),
+            ).toEqual([invite.uid]);
         });
 
         it('reaches ids past the first chunk', async () => {
@@ -468,13 +618,13 @@ describe('ShareStore', () => {
 
             expect(
                 await store.getSharedFsentryIds([...padding, entry.id]),
-            ).toEqual(new Set([entry.id]));
+            ).toEqual(new Map([[entry.id, true]]));
         });
 
         it('answers an empty request without a query', async () => {
             const read = vi.spyOn(store.clients.db, 'read');
             try {
-                expect(await store.getSharedFsentryIds([])).toEqual(new Set());
+                expect(await store.getSharedFsentryIds([])).toEqual(new Map());
                 expect(read).not.toHaveBeenCalled();
             } finally {
                 read.mockRestore();
@@ -505,11 +655,65 @@ describe('ShareStore', () => {
                 seen.push(...page.items.map((r) => r.uid));
                 cursor = page.cursor;
                 if (!cursor) break;
+                // Sealed: it reads as nothing but a cursor.
+                expect(() => decodeCursor(cursor)).toThrow();
             }
 
             expect(seen).toEqual(uids);
             expect(cursor).toBeUndefined();
             expect(await store.countByHolder(pageHolder.id)).toBe(5);
+        });
+
+        it("leaves a member's own items out of their team's rows, page and count", async () => {
+            const member = await makeUser();
+            const mate = await makeUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                    '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                [groupUid, member.id, 'team', 'Own items', '{}', '{}'],
+            );
+            const [{ id: groupId }] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
+            const groupRow = async (issuerUserId, entry) =>
+                store.upsertActiveGroup({
+                    issuerUserId,
+                    holderGroupId: Number(groupId),
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+
+            // Issued by the member.
+            await groupRow(member.id, await makeEntry(member));
+            // A teammate's share of the member's item.
+            await groupRow(mate.id, await makeEntry(member));
+            // As that, from before `entry_owner_user_id` was recorded.
+            const legacy = await groupRow(mate.id, await makeEntry(member));
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `uid` = ?',
+                [legacy.uid],
+            );
+            const theirs = await groupRow(mate.id, await makeEntry(mate));
+            const direct = await store.upsertActive({
+                issuerUserId: mate.id,
+                holderUserId: member.id,
+                fsentryId: (await makeEntry(mate)).id,
+                mode: 'read',
+            });
+
+            const opts = { groupIds: [Number(groupId)] };
+            const page = await store.listByHolder(member.id, opts);
+            expect(page.items.map((r) => r.uid).sort()).toEqual(
+                [theirs.uid, direct.uid].sort(),
+            );
+            expect(await store.countByHolder(member.id, opts)).toBe(2);
+
+            // The teammate gets the member's items, and not their own.
+            const matePage = await store.listByHolder(mate.id, opts);
+            expect(matePage.items).toHaveLength(1);
+            expect(await store.countByHolder(mate.id, opts)).toBe(1);
         });
 
         it('lists what a user issued alongside what was issued on their node', async () => {
@@ -583,6 +787,7 @@ describe('ShareStore', () => {
                 seen.push(...page.items.map((r) => r.uid));
                 cursor = page.cursor;
                 if (!cursor) break;
+                expect(() => decodeCursor(cursor)).toThrow();
             }
 
             expect(seen).toEqual(uids);
@@ -916,6 +1121,274 @@ describe('ShareStore', () => {
             ).toBe(1);
             expect(await store.getByUid(mine.row.uid)).toBeNull();
             expect(await store.getByUid(theirs.row.uid)).not.toBeNull();
+        });
+
+        describe('behind a lagging replica', () => {
+            const rawRow = async (uid) =>
+                (
+                    await server.clients.db.read(
+                        'SELECT * FROM `share` WHERE `uid` = ?',
+                        [uid],
+                    )
+                )[0];
+
+            /**
+             * Replica reads of `share` see only `staleRows`. sqlite's pread
+             * delegates to read, so the primary is pinned to the real one.
+             */
+            const lagShares = (staleRows = []) => {
+                const db = server.clients.db;
+                const realRead = db.read.bind(db);
+                const pread = vi
+                    .spyOn(db, 'pread')
+                    .mockImplementation(realRead);
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation(async (q, p) =>
+                        /FROM `share`/u.test(q)
+                            ? staleRows.map((r) => ({ ...r }))
+                            : realRead(q, p),
+                    );
+                return () => {
+                    read.mockRestore();
+                    pread.mockRestore();
+                };
+            };
+
+            it('returns the rows it inserts before the replica has them', async () => {
+                const entry = await makeEntry(issuer);
+                // A group row written directly: the share only needs its id,
+                // and teams ships separately.
+                const groupUid = uuidv4();
+                await server.clients.db.write(
+                    'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                        '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                    [groupUid, issuer.id, 'team', 'Lagging replica', '{}', '{}'],
+                );
+                const [team] = await server.clients.db.read(
+                    'SELECT id FROM `group` WHERE uid = ?',
+                    [groupUid],
+                );
+
+                const restore = lagShares();
+                try {
+                    const invite = await store.create({
+                        issuerUserId: issuer.id,
+                        recipientEmail: `lag-${uuidv4()}@test.local`,
+                        data: {},
+                    });
+                    expect(invite?.issuer_user_id).toBe(issuer.id);
+
+                    const pending = await store.upsertPending({
+                        issuerUserId: issuer.id,
+                        recipientEmail: `lag-${uuidv4()}@test.local`,
+                        fsentryId: entry.id,
+                        mode: 'read',
+                    });
+                    expect(pending.created).toBe(true);
+                    expect(pending.row?.mode).toBe('read');
+
+                    const active = await store.upsertActive({
+                        issuerUserId: issuer.id,
+                        holderUserId: holder.id,
+                        fsentryId: entry.id,
+                        mode: 'read',
+                    });
+                    expect(active?.holder_user_id).toBe(holder.id);
+
+                    const group = await store.upsertActiveGroup({
+                        issuerUserId: issuer.id,
+                        holderGroupId: team.id,
+                        fsentryId: entry.id,
+                        mode: 'read',
+                    });
+                    expect(group?.holder_group_id).toBe(team.id);
+
+                    const link = await store.upsertAnyone({
+                        issuerUserId: issuer.id,
+                        fsentryId: entry.id,
+                        mode: 'read',
+                    });
+                    expect(link?.mode).toBe('read');
+                } finally {
+                    restore();
+                }
+            });
+
+            it('returns the row as written, not the replica copy from before', async () => {
+                const entry = await makeEntry(issuer);
+                const email = `lag-${uuidv4()}@test.local`;
+                const { row: invite } = await store.upsertPending({
+                    issuerUserId: issuer.id,
+                    recipientEmail: email,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                const active = await store.upsertActive({
+                    issuerUserId: issuer.id,
+                    holderUserId: holder.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                const claimable = await store.create({
+                    issuerUserId: issuer.id,
+                    recipientEmail: `lag-${uuidv4()}@test.local`,
+                    data: {},
+                });
+
+                let restore = lagShares([await rawRow(invite.uid)]);
+                try {
+                    const remoded = await store.upsertPending({
+                        issuerUserId: issuer.id,
+                        recipientEmail: email,
+                        fsentryId: entry.id,
+                        mode: 'write',
+                    });
+                    expect(remoded.created).toBe(false);
+                    expect(remoded.row.mode).toBe('write');
+                } finally {
+                    restore();
+                }
+
+                restore = lagShares([await rawRow(active.uid)]);
+                try {
+                    const upgraded = await store.upsertActive({
+                        issuerUserId: issuer.id,
+                        holderUserId: holder.id,
+                        fsentryId: entry.id,
+                        mode: 'write',
+                    });
+                    expect(upgraded.mode).toBe('write');
+                } finally {
+                    restore();
+                }
+
+                restore = lagShares([await rawRow(claimable.uid)]);
+                try {
+                    const applied = await store.applyPending({
+                        uid: claimable.uid,
+                        holderUserId: holder.id,
+                        fsentryId: (await makeEntry(issuer)).id,
+                        mode: 'read',
+                    });
+                    expect(applied.holder_user_id).toBe(holder.id);
+                } finally {
+                    restore();
+                }
+            });
+        });
+
+        describe('without reading the row back', () => {
+            /** `fn`'s result, and the reads of `share` it made after writing. */
+            const readsAfterWrite = async (fn) => {
+                const db = server.clients.db;
+                const real = {
+                    read: db.read.bind(db),
+                    pread: db.pread.bind(db),
+                    write: db.write.bind(db),
+                };
+                const reads = [];
+                let wrote = false;
+                const spies = ['read', 'pread', 'write'].map((method) =>
+                    vi.spyOn(db, method).mockImplementation(async (q, p) => {
+                        if (method === 'write') wrote = true;
+                        else if (wrote && /FROM `share`/u.test(q))
+                            reads.push(q);
+                        return real[method](q, p);
+                    }),
+                );
+                try {
+                    return { result: await fn(), reads };
+                } finally {
+                    for (const spy of spies) spy.mockRestore();
+                }
+            };
+
+            it('create returns the row the table holds', async () => {
+                const { result: created, reads } = await readsAfterWrite(() =>
+                    store.create({
+                        issuerUserId: issuer.id,
+                        recipientEmail: `built-${uuidv4()}@test.local`,
+                        data: { note: 'built' },
+                    }),
+                );
+                expect(reads).toEqual([]);
+                expect(created).toEqual(
+                    await store.getByUid(created.uid, { primary: true }),
+                );
+            });
+
+            it('upsertPending returns a re-invite as the table holds it', async () => {
+                const entry = await makeEntry(issuer);
+                const email = `built-${uuidv4()}@test.local`;
+                await store.upsertPending({
+                    issuerUserId: issuer.id,
+                    recipientEmail: email,
+                    displayEmail: `Built.${email}`,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+
+                const { result, reads } = await readsAfterWrite(() =>
+                    store.upsertPending({
+                        issuerUserId: issuer.id,
+                        recipientEmail: email,
+                        fsentryId: entry.id,
+                        mode: 'write',
+                    }),
+                );
+                expect(result.created).toBe(false);
+                expect(reads).toEqual([]);
+                expect(result.row).toMatchObject({ mode: 'write', data: {} });
+                expect(result.row).toEqual(
+                    await store.getByUid(result.row.uid, { primary: true }),
+                );
+            });
+
+            it('upsertPending asks the primary when the invite the replica found is gone', async () => {
+                const entry = await makeEntry(issuer);
+                const email = `built-${uuidv4()}@test.local`;
+                const { row: invite } = await store.upsertPending({
+                    issuerUserId: issuer.id,
+                    recipientEmail: email,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                const [stale] = await server.clients.db.read(
+                    'SELECT * FROM `share` WHERE `uid` = ?',
+                    [invite.uid],
+                );
+                await store.deleteByUid(invite.uid);
+
+                const db = server.clients.db;
+                const realRead = db.read.bind(db);
+                const pread = vi
+                    .spyOn(db, 'pread')
+                    .mockImplementation(realRead);
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation(async (q, p) =>
+                        /FROM `share`/u.test(q)
+                            ? [{ ...stale }]
+                            : realRead(q, p),
+                    );
+                let result;
+                let primaryReads;
+                try {
+                    result = await store.upsertPending({
+                        issuerUserId: issuer.id,
+                        recipientEmail: email,
+                        fsentryId: entry.id,
+                        mode: 'write',
+                    });
+                } finally {
+                    primaryReads = pread.mock.calls.length;
+                    read.mockRestore();
+                    pread.mockRestore();
+                }
+                expect(primaryReads).toBe(1);
+                expect(result).toEqual({ row: null, created: false });
+            });
         });
     });
 });

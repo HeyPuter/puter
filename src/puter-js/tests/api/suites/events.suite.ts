@@ -17,6 +17,7 @@ type Delivered = {
     path?: string;
     key?: string;
     self?: boolean;
+    viaWorker?: boolean;
     ts: number;
     seq?: number;
     reason?: string;
@@ -100,7 +101,7 @@ const recorded = (): Array<{ path?: string; label?: unknown }> =>
 
 /**
  * A broadcast handler, reporting whether it was handed the same environment a
- * `single` handler gets — `user` and `fetch` are not conditioned on an `ack`
+ * `queue` handler gets — `user` and `fetch` are not conditioned on an `ack`
  * existing, so every consumer of a broadcast delivery gets them too.
  */
 const BROADCAST_ENV_HANDLER = async ({
@@ -143,12 +144,13 @@ const asApp = async <T>(
     t: TestContext,
     appUid: string,
     run: () => Promise<T>,
+    account: { token: string } = t.env.users.user,
 ): Promise<T> => {
     const response = await fetch(`${t.env.apiOrigin}/auth/get-user-app-token`, {
         method: 'POST',
         headers: {
             'content-type': 'application/json',
-            authorization: `Bearer ${t.env.users.user.token}`,
+            authorization: `Bearer ${account.token}`,
         },
         body: JSON.stringify({ app_uid: appUid }),
     });
@@ -257,6 +259,7 @@ export default suite('events', {
         for (const method of [
             'onPersistent',
             'unsubscribe',
+            'update',
             'list',
             'fetch',
         ] as const) {
@@ -322,10 +325,11 @@ export default suite('events', {
             t.assert.ok(event, `no delivery for ${file}; saw ${JSON.stringify(seen)}`);
             t.assert.deepEqual(
                 Object.keys(event as Delivered).sort(),
-                ['id', 'op', 'path', 'self', 'seq', 'subject', 'ts', 'uid'],
+                ['id', 'op', 'path', 'self', 'seq', 'subject', 'ts', 'uid', 'viaWorker'],
                 'the delivered event carries exactly the projected fields',
             );
             t.assert.equal(event?.self, true, 'the writer is the subscriber');
+            t.assert.equal(event?.viaWorker, false, 'a write from the SDK is not a worker\'s');
             t.assert.ok(event?.uid, 'the event names the node');
             t.assert.ok(
                 ['add', 'write'].includes(event?.op as string),
@@ -599,12 +603,13 @@ export default suite('events', {
             t.assert.ok(event, `no delivery for ${exact}`);
             t.assert.deepEqual(
                 Object.keys(event as Delivered).sort(),
-                ['id', 'key', 'op', 'self', 'seq', 'subject', 'ts'],
+                ['id', 'key', 'op', 'self', 'seq', 'subject', 'ts', 'viaWorker'],
                 'a kv delivery carries a key, not a uid and path',
             );
             t.assert.equal(event?.key, exact);
             t.assert.equal(event?.op, 'set');
             t.assert.equal(event?.self, true);
+            t.assert.equal(event?.viaWorker, false);
 
             t.assert.deepEqual(
                 exactSeen.map((one) => one.key),
@@ -660,14 +665,64 @@ export default suite('events', {
 
     // -- Persistent subscriptions ------------------------------------
 
-    'refuses an inline handler with no name to publish it under': async (t) => {
-        const error = await t.assert.rejects(() =>
-            t.puter.events.onPersistent({
-                subject: `fs:/${t.env.users.user.username}`,
+    'creates an inline handler with no name, and binds the subscription to it': async (
+        t,
+    ) => {
+        const dir = await makeDir(t, 'events-inline');
+        const appUid = await makeApp(t);
+        await t.puter.perms.grantApp(appUid, `fs:${dir}:list`);
+        await t.puter.perms.grantApp(appUid, 'events:background');
+
+        await asApp(t, appUid, async () => {
+            const sub = await t.puter.events.onPersistent({
+                subject: `fs:${dir}`,
                 handler: HANDLER,
-            }),
-        );
-        t.assert.equal(codeOf(error), 'events_handler_name_required');
+            });
+            t.assert.ok(
+                /^@[0-9a-f]{64}$/.test(sub.handlerName ?? ''),
+                `the server names it by its hash, got ${sub.handlerName}`,
+            );
+            t.assert.equal(
+                (sub as { handlerScope?: string }).handlerScope,
+                'user',
+            );
+
+            // The same source again binds to the same handler.
+            const again = await t.puter.events.onPersistent({
+                subject: `fs:${dir}/other`,
+                queue: true,
+                handler: HANDLER,
+            });
+            t.assert.equal(again.handlerName, sub.handlerName);
+            t.assert.equal(again.queue, true);
+
+            await sub.off!();
+            await again.off!();
+        });
+    },
+
+    'creates an inline schedule with no handler name': async (t) => {
+        const appUid = await makeApp(t);
+        await t.puter.perms.grantApp(appUid, 'events:background');
+
+        await asApp(t, appUid, async () => {
+            let schedule;
+            try {
+                schedule = await t.puter.events.onSchedule({
+                    every: '1h',
+                    handler: HANDLER,
+                });
+            } catch (error) {
+                // Without a schedules service every schedule call is refused.
+                if (codeOf(error) === 'events_disabled') return;
+                throw error;
+            }
+            t.assert.ok(
+                /^@[0-9a-f]{64}$/.test(schedule.handlerName ?? ''),
+                `the server names it by its hash, got ${schedule.handlerName}`,
+            );
+            await schedule.off();
+        });
     },
 
     'refuses a handler that closes over something it cannot carry': async (t) => {
@@ -706,7 +761,7 @@ export default suite('events', {
         try {
             t.assert.ok(sub.subId, 'the subscription carries a server id');
             t.assert.equal(sub.subject, `fs:${dir}`);
-            t.assert.equal(sub.delivery, 'broadcast');
+            t.assert.equal(sub.queue, false);
             t.assert.equal(sub.suspendedAt, null);
 
             const held = await t.puter.events.list();
@@ -733,6 +788,39 @@ export default suite('events', {
             ! after.some((row) => row.subId === sub.subId),
             'the subscription is gone once unsubscribed',
         );
+    },
+
+    'replaces a persistent subscription`s context in place': async (t) => {
+        const dir = await makeDir(t, 'events-update');
+        const sub = await t.puter.events.onPersistent({
+            subject: `fs:${dir}`,
+            context: { label: 'old' },
+        });
+
+        try {
+            const updated = await t.puter.events.update(sub.subId, {
+                context: { label: 'new', region: 'eu' },
+            });
+            t.assert.equal(updated.subId, sub.subId, 'the id is kept');
+            t.assert.deepEqual(updated.contextKeys, ['label', 'region']);
+
+            const listed = (await t.puter.events.list()).find(
+                (row) => row.subId === sub.subId,
+            );
+            t.assert.deepEqual(listed?.contextKeys, ['label', 'region']);
+
+            const cleared = await t.puter.events.update(sub.subId, {
+                context: null,
+            });
+            t.assert.equal(cleared.contextKeys, null);
+        } finally {
+            await t.puter.events.unsubscribe(sub.subId);
+        }
+
+        const error = await t.assert.rejects(() =>
+            t.puter.events.update(sub.subId, { context: {} }),
+        );
+        t.assert.equal(codeOf(error), 'subscription_does_not_exist');
     },
 
     'answers a listing page when asked for one': async (t) => {
@@ -783,7 +871,7 @@ export default suite('events', {
 
             const sub = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
-                delivery: 'single',
+                queue: true,
                 handlerName: 'ingestUpload',
                 handler: RECORDING_HANDLER,
                 context: { label: 'ingest' },
@@ -803,7 +891,7 @@ export default suite('events', {
                     'the handler is handed the context the subscription carries',
                 );
 
-                // A `single` hands out one delivery at a time, so a second one
+                // A queue hands out one delivery at a time, so a second one
                 // arriving is the acknowledgement of the first.
                 await t.puter.fs.write(`${dir}/second.txt`, 'two');
                 const settled = await waitFor(
@@ -840,7 +928,6 @@ export default suite('events', {
 
             const sub = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
-                targets: ['socket'],
                 handlerName: 'ingestEvict',
                 handler: RECORDING_HANDLER,
                 context: { label: 'ingest' },
@@ -883,8 +970,9 @@ export default suite('events', {
             const live = await open(t, `fs:${dir}`, () => {});
             if (! live) return;
 
-            // Default delivery: `broadcast`, not `single` — nobody owes an
-            // `ack`, but the environment is the same either way.
+            // Default delivery, not `queue` — nobody owes an
+            // `ack`, but the environment is the same either way. This client
+            // runs it alongside the events worker.
             const sub = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
                 handlerName: 'ingestBroadcastEnv',
@@ -920,7 +1008,7 @@ export default suite('events', {
             t.assert.rejects(() =>
                 t.puter.events.onPersistent({
                     subject: `fs:${dir}`,
-                    delivery: 'single',
+                    queue: true,
                     handlerName: 'ingestUpload',
                     handler: RECORDING_HANDLER,
                 }),
@@ -932,7 +1020,7 @@ export default suite('events', {
         const subId = await asApp(t, appUid, async () => {
             const sub = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
-                delivery: 'single',
+                queue: true,
                 handlerName: 'ingestUpload',
                 handler: RECORDING_HANDLER,
             });
@@ -963,12 +1051,11 @@ export default suite('events', {
             const sub = await open(t, `fs:${dir}`, () => {});
             if (sub) await sub.off();
 
-            // So is a durable one that asks for nothing else.
+            // So is a durable one with no handler to run.
             const durable = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
-                targets: ['socket'],
             });
-            t.assert.deepEqual(durable.targets, ['socket']);
+            t.assert.equal(durable.handlerName, null);
             await durable.off!();
         });
     },
@@ -1078,6 +1165,85 @@ export default suite('events', {
     },
 
     // -- Events workers -----------------------------------------------
+
+    'publishes, lists and destroys a handler in the user scope': async (t) => {
+        const appUid = await makeApp(t);
+
+        await asApp(t, appUid, async () => {
+            const published = await t.puter.events.handlers.publish(
+                'mine',
+                HANDLER,
+                { scope: 'user' },
+            );
+            t.assert.equal(published.name, 'mine');
+            t.assert.equal(published.outcome, 'created');
+
+            const listed = await t.puter.events.handlers.list({ scope: 'user' });
+            t.assert.deepEqual(
+                listed.map((row) => row.name),
+                ['mine'],
+            );
+            t.assert.deepEqual(
+                await t.puter.events.handlers.list(),
+                [],
+                'the app scope does not see it',
+            );
+
+            const page = await t.puter.events.workers.list();
+            const worker = page.items.find(
+                (row) => row.scope === 'user' && row.appUid === appUid,
+            );
+            t.assert.ok(worker, 'the user scope is listed with its scope');
+            t.assert.equal(worker?.handlerCount, 1);
+
+            const destroyed = await t.puter.events.workers.destroy(appUid, {
+                scope: 'user',
+            });
+            t.assert.equal(destroyed.removed, 1);
+            t.assert.deepEqual(
+                await t.puter.events.handlers.list({ scope: 'user' }),
+                [],
+            );
+        });
+    },
+
+    'keeps one user\'s scope out of another\'s': async (t) => {
+        const appUid = await makeApp(t);
+
+        await asApp(t, appUid, () =>
+            t.puter.events.handlers.publish('mine', HANDLER, { scope: 'user' }),
+        );
+
+        await asApp(
+            t,
+            appUid,
+            async () => {
+                t.assert.deepEqual(
+                    await t.puter.events.handlers.list({ scope: 'user' }),
+                    [],
+                    'the other user sees none of it',
+                );
+                const page = await t.puter.events.workers.list();
+                t.assert.equal(
+                    page.items.find((row) => row.appUid === appUid),
+                    undefined,
+                );
+                const removed = await t.puter.events.handlers.remove('mine', {
+                    scope: 'user',
+                });
+                t.assert.equal(removed.removed, false);
+            },
+            t.env.users.other,
+        );
+
+        await asApp(t, appUid, async () => {
+            t.assert.equal(
+                (await t.puter.events.handlers.list({ scope: 'user' })).length,
+                1,
+            );
+            await t.puter.events.workers.destroy(appUid, { scope: 'user' });
+        });
+    },
 
     'exposes the workers surface': async (t) => {
         for (const method of ['list', 'destroy'] as const) {
@@ -1260,6 +1426,71 @@ export default suite('events', {
         );
     },
 
+    'pages on `cursor`, the name every list takes it under': async (t) => {
+        const firstTitle = unique('cursor-one');
+        const secondTitle = unique('cursor-two');
+        await postNotification(t, firstTitle);
+        await postNotification(t, secondTitle);
+
+        const all = await readAllNotifications(t);
+        const index = all.findIndex(
+            (event) =>
+                (event.notification as { title?: string }).title === firstTitle,
+        );
+        t.assert.ok(index >= 0, 'the first notification is in the mailbox');
+
+        const page = await t.puter.events.fetch({
+            subject: 'notif:account',
+            limit: index + 1,
+        });
+        t.assert.ok(page.cursor, 'more to come, so a cursor comes back');
+
+        const next = await t.puter.events.fetch({
+            subject: 'notif:account',
+            cursor: page.cursor,
+        });
+        t.assert.equal(
+            (next.items[0]?.notification as { title?: string } | undefined)
+                ?.title,
+            secondTitle,
+            'the page after the cursor starts at the next row',
+        );
+    },
+
+    'starts from the newest notification with `from: end`': async (t) => {
+        await postNotification(t, unique('before-end'));
+
+        const end = await t.puter.events.fetch({
+            subject: 'notif:account',
+            from: 'end',
+        });
+        t.assert.equal(end.items.length, 0);
+        t.assert.ok(end.cursor, 'an end read comes back with a cursor');
+
+        const title = unique('after-end');
+        await postNotification(t, title);
+        const next = await t.puter.events.fetch({
+            subject: 'notif:account',
+            cursor: end.cursor,
+        });
+        t.assert.deepEqual(
+            next.items.map(
+                (event) => (event.notification as { title?: string }).title,
+            ),
+            [title],
+        );
+    },
+
+    'rejects a `from` that is neither start nor end': async (t) => {
+        const error = await t.assert.rejects(() =>
+            t.puter.events.fetch({
+                subject: 'notif:account',
+                from: 'middle' as 'end',
+            }),
+        );
+        t.assert.equal(codeOf(error), 'invalid_request');
+    },
+
     'refuses to publish into an app this account does not own': async (t) => {
         const error = await t.assert.rejects(() =>
             t.puter.events.handlers.publish('ingestUpload', HANDLER, {
@@ -1274,5 +1505,77 @@ export default suite('events', {
             t.puter.events.handlers.publish('ingestUpload', HANDLER),
         );
         t.assert.equal(codeOf(error), 'events_handler_app_required');
+    },
+
+    // -- Schedules ---------------------------------------------------
+    //
+    // This server has no schedules service, as a self-hosted one doesn't:
+    // every schedule call answers `events_disabled`.
+
+    'exposes the schedule surface': async (t) => {
+        for (const method of [
+            'onSchedule',
+            'listSchedules',
+            'getSchedule',
+            'removeSchedule',
+        ] as const) {
+            t.assert.equal(
+                typeof t.puter.events[method],
+                'function',
+                `puter.events.${method} is a function`,
+            );
+        }
+    },
+
+    'answers every schedule call events_disabled without schedules': async (
+        t,
+    ) => {
+        const appUid = await makeApp(t);
+        const scheduleId = '2f7c1b6e-4d1a-4c55-9a8e-0e6f3c2b1a90';
+        const calls: Array<[string, () => Promise<unknown>]> = [
+            [
+                'onSchedule',
+                () =>
+                    t.puter.events.onSchedule({
+                        every: '6h',
+                        handlerName: 'digest',
+                    }),
+            ],
+            ['listSchedules', () => t.puter.events.listSchedules()],
+            ['getSchedule', () => t.puter.events.getSchedule(scheduleId)],
+            ['removeSchedule', () => t.puter.events.removeSchedule(scheduleId)],
+        ];
+        for (const [name, call] of calls) {
+            // Final, not replayed as a transient 503.
+            const started = Date.now();
+            const asTheApp = await asApp(t, appUid, () =>
+                t.assert.rejects(call),
+            );
+            t.assert.equal(codeOf(asTheApp), 'events_disabled', name);
+            t.assert.ok(
+                Date.now() - started < 2_000,
+                `${name} answers at once`,
+            );
+            const asTheAccount = await t.assert.rejects(call);
+            t.assert.equal(codeOf(asTheAccount), 'events_disabled', name);
+        }
+    },
+
+    'checks schedule options in the client before asking': async (t) => {
+        const cases: Array<[Record<string, unknown>, string]> = [
+            [{ every: '1h' }, 'events_handler_required'],
+            [
+                { at: new Date(Number.NaN), handlerName: 'digest' },
+                'events_schedule_invalid',
+            ],
+        ];
+        for (const [options, code] of cases) {
+            const error = await t.assert.rejects(() =>
+                t.puter.events.onSchedule(
+                    options as Parameters<typeof t.puter.events.onSchedule>[0],
+                ),
+            );
+            t.assert.equal(codeOf(error), code, JSON.stringify(options));
+        }
     },
 });

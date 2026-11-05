@@ -17,28 +17,33 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Gemini TTS pricing in USD per 1M tokens:
-//   gemini-2.5-flash-preview-tts:  input $0.50, output (audio) $10.00
-//   gemini-2.5-pro-preview-tts:    input $1.00, output (audio) $20.00
-//   gemini-3.1-flash-tts-preview:  input $1.00, output (audio) $20.00
-//
-// Audio output tokens = ~25 tokens/second of audio.
-//
-// Costs here are in USD-cents per 1M tokens for input and output.
-export const GEMINI_TTS_COSTS: Record<
-    string,
-    { input: number; output_audio: number }
-> = {
-    'gemini-2.5-flash-preview-tts': {
-        input: 50, // $0.50 per 1M tokens = 50 cents
-        output_audio: 1000, // $10.00 per 1M tokens = 1000 cents
+/** USD-cents per 1M tokens: text input, and audio output (~25 tokens/s). */
+export interface GeminiTTSCosts {
+    input: number;
+    output_audio: number;
+}
+
+/** The instant launch pricing ends and both rates double. */
+export const GEMINI_TTS_LAUNCH_PRICING_ENDS = Date.UTC(2027, 0, 1);
+
+/** Launch pricing, through 2026-12-31 UTC. */
+export const GEMINI_TTS_COSTS: Record<string, GeminiTTSCosts> = {
+    'gemini-3.8-flash-tts': {
+        input: 50, // $0.50 per 1M tokens
+        output_audio: 900, // $9.00 per 1M tokens
     },
-    'gemini-2.5-pro-preview-tts': {
-        input: 100, // $1.00 per 1M tokens
-        output_audio: 2000, // $20.00 per 1M tokens
+    'gemini-3.8-flash-lite-tts': {
+        input: 50, // $0.50 per 1M tokens
+        output_audio: 600, // $6.00 per 1M tokens
     },
-    'gemini-3.1-flash-tts-preview': {
-        input: 100, // $1.00 per 1M tokens
-        output_audio: 2000, // $20.00 per 1M tokens
-    },
+};
+
+/** `model`'s rates in force at `at` (ms since epoch); undefined when unpriced. */
+export const geminiTTSCostsAt = (
+    model: string,
+    at: number,
+): GeminiTTSCosts | undefined => {
+    const launch = GEMINI_TTS_COSTS[model];
+    if (!launch || at < GEMINI_TTS_LAUNCH_PRICING_ENDS) return launch;
+    return { input: launch.input * 2, output_audio: launch.output_audio * 2 };
 };

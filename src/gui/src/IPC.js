@@ -29,14 +29,26 @@ import UIPopover from './UI/UIPopover.js';
 import UIPrompt from './UI/UIPrompt.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
+import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
 import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
+import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UINotification from './UI/UINotification.js';
 
+import { renewGodmodeToken } from './helpers/godmodeTokens.js';
+import { appHoldsPermissions } from './helpers/holdsPermissions.js';
+import {
+    browserPushState,
+    PUSH_PERMISSION,
+    pushClientWithin,
+    withEnableDeadline,
+} from './helpers/pushClient.js';
+import { ipc_target_window } from './helpers/ipcTargetWindow.js';
+import { addItemWatcher } from './helpers/watchItems.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
@@ -48,6 +60,30 @@ window.ipc_handlers = {};
 // handler below): one dialog at a time, and nothing else — reopening is always
 // allowed. See feedbackDialogGuard.js.
 const feedback_dialog_guard = createFeedbackDialogGuard();
+const enable_push_dialog_guard = createFeedbackDialogGuard();
+// Same one-at-a-time rule for the custom domain dialog.
+const custom_domain_dialog_guard = createFeedbackDialogGuard();
+
+/** For an app without `notifications:push`: the permission dialog, whose Allow also turns push on here. Resolves this browser's push state once that settles, `'off'` when denied. @returns {Promise<import('./helpers/pushClient.js').BrowserPushState>} */
+const ask_push_permission = async (app_uid, app_name) => {
+    if ( ! app_uid ) return 'unavailable';
+    const client = await pushClientWithin();
+    const state = await browserPushState(client);
+    // A grant can't turn push on in this browser.
+    if ( state === 'unavailable' || state === 'blocked' ) return state;
+    let enabling = null;
+    const granted = await UIPermissionDialog({
+        permission: PUSH_PERMISSION,
+        app_uid,
+        app_name,
+        on_push_enable: (promise) => {
+            enabling = promise;
+        },
+    });
+    if ( granted !== true ) return 'off';
+    if ( enabling ) await withEnableDeadline(enabling);
+    return await browserPushState(client);
+};
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
@@ -157,8 +193,17 @@ const ipc_listener = async (event, handled) => {
         // Registered IPC handlers are an object with a `handle()`
         // method. We call it "spec" here, meaning specification.
         const spec = window.ipc_handlers[event.data.msg];
-        let retval = await spec.handler(event.data.parameters, { msg_id, ipc_context });
-
+        let retval;
+        try {
+            retval = await spec.handler(event.data.parameters, { msg_id, ipc_context });
+        } catch ( e ) {
+            console.error(`IPC handler ${event.data.msg} failed`, e);
+            // Generic on purpose: the error text stays out of the app.
+            retval = {
+                $: 'puter-ipc-error',
+                error: { code: 'ipc_handler_failed', message: 'The request could not be completed.' },
+            };
+        }
         puter.util.rpc.send(iframe.contentWindow, msg_id, retval);
 
         return;
@@ -234,6 +279,14 @@ const ipc_listener = async (event, handled) => {
             msg: 'requestEmailConfirmationResponded',
             response: email_confirm_resp,
         }, '*');
+    }
+    //--------------------------------------------------------
+    // reauth_required
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'reauth_required' ) {
+        // A godmode app's token stopped working; it waits for one that does.
+        // Other apps are left alone, so revoking them sticks.
+        await renewGodmodeToken(event.data.appInstanceID, { origin: event.origin });
     }
     //--------------------------------------------------------
     // requestVerificationGate
@@ -494,49 +547,64 @@ const ipc_listener = async (event, handled) => {
         // app-side promise only settles when a message with its id comes back
         // — so a rejected call is answered anyway rather than left hanging
         // forever. Logged here because that is the only place it is visible.
-        puter.kv.set({
-            key: event.data.key,
-            value: event.data.value,
-            app_uid: app_uuid,
-        }).catch(err => console.warn('kv.setItem failed for app:', err)).then(() => {
-            // send confirmation to requester window
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-            }, '*');
-        });
+        // These run on the user's session, so without an explicit app namespace
+        // they would land in the desktop's own account-wide settings.
+        if ( app_uuid ) {
+            try {
+                await puter.kv.set({
+                    key: event.data.key,
+                    value: event.data.value,
+                    optConfig: { appUuid: app_uuid },
+                });
+            } catch ( err ) {
+                console.warn('kv.setItem failed for app:', err);
+            }
+        }
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+        }, '*');
     }
     //--------------------------------------------------------
     // getItem
     //--------------------------------------------------------
     else if ( event.data.msg === 'getItem' && event.data.key ) {
-        puter.kv.get({
-            key: event.data.key,
-            app_uid: app_uuid,
-        }).catch(err => {
-            console.warn('kv.getItem failed for app:', err);
-            return null;
-        }).then((result) => {
-            // send confirmation to requester window
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-                msg: 'getItemSucceeded',
-                value: result ?? null,
-            }, '*');
-        });
+        let result = null;
+        if ( app_uuid ) {
+            try {
+                result = await puter.kv.get({
+                    key: event.data.key,
+                    optConfig: { appUuid: app_uuid },
+                });
+            } catch ( err ) {
+                console.warn('kv.getItem failed for app:', err);
+            }
+        }
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+            msg: 'getItemSucceeded',
+            value: result ?? null,
+        }, '*');
     }
     //--------------------------------------------------------
     // removeItem
     //--------------------------------------------------------
     else if ( event.data.msg === 'removeItem' && event.data.key ) {
-        puter.kv.del({
-            key: event.data.key,
-            app_uid: app_uuid,
-        }).catch(err => console.warn('kv.removeItem failed for app:', err)).then(() => {
-            // send confirmation to requester window
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-            }, '*');
-        });
+        if ( app_uuid ) {
+            try {
+                await puter.kv.del({
+                    key: event.data.key,
+                    optConfig: { appUuid: app_uuid },
+                });
+            } catch ( err ) {
+                console.warn('kv.removeItem failed for app:', err);
+            }
+        }
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+        }, '*');
     }
     //--------------------------------------------------------
     // showOpenFilePicker
@@ -639,6 +707,12 @@ const ipc_listener = async (event, handled) => {
             path: `/${ window.user.username }/Desktop`,
             // this is the uuid of the window to which this dialog will return
             parent_uuid: event.data.appInstanceID,
+            onDialogCancel: () => {
+                target_iframe.contentWindow.postMessage({
+                    msg: 'directoryOpenCancelled',
+                    original_msg_id: msg_id,
+                }, '*');
+            },
             show_maximize_button: false,
             show_minimize_button: false,
             title: 'Open',
@@ -654,17 +728,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowTitle
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowTitle' && event.data.new_title !== undefined ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1005,17 +1069,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowWidth
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowWidth' && event.data.width !== undefined ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1040,17 +1094,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowHeight
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowHeight' && event.data.height !== undefined ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1077,17 +1121,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowSize
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowSize' && (event.data.width !== undefined || event.data.height !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1125,17 +1159,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowPosition
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowPosition' && (event.data.x !== undefined || event.data.y !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1185,17 +1209,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowX
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowX' && (event.data.x !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1229,17 +1243,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowY
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowY' && (event.data.y !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1273,12 +1277,8 @@ const ipc_listener = async (event, handled) => {
     // watchItem
     //--------------------------------------------------------
     else if ( event.data.msg === 'watchItem' && event.data.item_uid !== undefined ) {
-        if ( ! window.watchItems[event.data.item_uid] )
-        {
-            window.watchItems[event.data.item_uid] = [];
-        }
-
-        window.watchItems[event.data.item_uid].push(event.data.appInstanceID);
+        // Taken only for a file this app can see; see `helpers/watchItems.js`.
+        addItemWatcher(event.data.item_uid, event.data.appInstanceID, app_uuid);
     }
     //--------------------------------------------------------
     // readAppDataFile
@@ -1522,6 +1522,103 @@ const ipc_listener = async (event, handled) => {
             feedback_dialog_guard.markClosed();
         }
     }
+    // -- enablePush --
+    else if ( event.data.msg === 'enablePush' ) {
+        // Always respond, into an iframe that may be gone by then.
+        const respond = (state) => {
+            target_iframe?.contentWindow?.postMessage({
+                msg: 'pushEnabled',
+                state,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
+        // One dialog at a time, checked before the auth gate as for the feedback dialog.
+        if ( ! enable_push_dialog_guard.mayOpen() ) {
+            console.warn('IPC enablePush: a dialog is already open; ignoring this call');
+            respond('unavailable');
+            return;
+        }
+
+        enable_push_dialog_guard.markOpened();
+        try {
+            try {
+                if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+                {
+                    respond('unavailable');
+                    return;
+                }
+            } catch ( e ) {
+                console.error('IPC enablePush: auth gate failed', e);
+                respond('unavailable');
+                return;
+            }
+
+            let state = 'unavailable';
+            try {
+                // The push dialog says this app wants to send pushes, so an app that may not asks for that first.
+                state = await appHoldsPermissions([PUSH_PERMISSION], app_uuid)
+                    ? await UIEnablePushDialog({ app_name })
+                    : await ask_push_permission(app_uuid, app_name);
+            } catch ( e ) {
+                console.error('IPC enablePush failed', e);
+            }
+            respond(state);
+            $(target_iframe).get(0)?.focus({ preventScroll: true });
+        } finally {
+            enable_push_dialog_guard.markClosed();
+        }
+    }
+    //--------------------------------------------------------
+    // attachCustomDomain
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'attachCustomDomain' ) {
+        // Always answer, as for showFeedbackDialog: the SDK promise only
+        // settles on a reply.
+        const respond = (domain) => {
+            target_iframe?.contentWindow?.postMessage({
+                msg: 'customDomainAttached',
+                domain: domain ?? null,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
+        const subdomain = typeof event.data.subdomain === 'string' ? event.data.subdomain : '';
+        if ( ! subdomain || ! custom_domain_dialog_guard.mayOpen() ) {
+            respond(null);
+            return;
+        }
+
+        custom_domain_dialog_guard.markOpened();
+        try {
+            try {
+                if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) ) {
+                    respond(null);
+                    return;
+                }
+            } catch ( e ) {
+                console.error('IPC attachCustomDomain: auth gate failed', e);
+                respond(null);
+                return;
+            }
+
+            let domain = null;
+            try {
+                // The requester shown is the app's registered name from the
+                // GUI's own records; its window title is app-controlled.
+                domain = await UIWindowAttachCustomDomain({
+                    subdomain,
+                    requester: app_name,
+                });
+            } catch ( e ) {
+                console.error('IPC attachCustomDomain failed', e);
+            }
+            respond(domain);
+            $(target_iframe).get(0)?.focus({ preventScroll: true });
+        } finally {
+            custom_domain_dialog_guard.markClosed();
+        }
+    }
     //--------------------------------------------------------
     // showFontPicker
     //--------------------------------------------------------
@@ -1533,6 +1630,9 @@ const ipc_listener = async (event, handled) => {
         }
 
         // set options
+        if ( typeof event.data.options === 'string' ) {
+            event.data.options = { defaultFont: event.data.options };
+        }
         event.data.options = event.data.options ?? {};
 
         // clear window_options for security reasons
@@ -1586,65 +1686,18 @@ const ipc_listener = async (event, handled) => {
         $(target_iframe).get(0).focus({ preventScroll: true });
     }
     //--------------------------------------------------------
-    // setWallpaper
-    //--------------------------------------------------------
-    else if ( event.data.msg === 'setWallpaper' ) {
-        // Auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
-        {
-            return;
-        }
-
-        // No options?
-        if ( ! event.data.options )
-        {
-            event.data.options = {};
-        }
-
-        // /set-desktop-bg
-        try {
-            await $.ajax({
-                url: `${window.api_origin }/set-desktop-bg`,
-                type: 'POST',
-                data: JSON.stringify({
-                    url: event.data.readURL,
-                    fit: event.data.options.fit ?? 'cover',
-                    color: event.data.options.color,
-                }),
-                async: true,
-                contentType: 'application/json',
-                headers: {
-                    'Authorization': `Bearer ${window.auth_token}`,
-                },
-                statusCode: {
-                    401: function (xhr) {
-                        window.handle401(xhr);
-                    },
-                },
-            });
-
-            // Set wallpaper
-            window.set_desktop_background({
-                url: event.data.readURL,
-                fit: event.data.options.fit ?? 'cover',
-                color: event.data.options.color,
-            });
-
-            // Send success to app
-            target_iframe.contentWindow.postMessage({
-                msg: 'wallpaperSet',
-                original_msg_id: msg_id,
-            }, '*');
-            $(target_iframe).get(0).focus({ preventScroll: true });
-        } catch ( err ) {
-            console.error(err);
-        }
-    }
-
-    //--------------------------------------------------------
     // showSaveFilePicker
     //--------------------------------------------------------
     else if ( event.data.msg === 'showSaveFilePicker' ) {
+        // Only copy and move have a matching consent prompt; refuse anything else.
+        if ( event.data.source_path && !['copy', 'move'].includes(event.data.save_type) ) {
+            target_iframe.contentWindow.postMessage({
+                msg: 'fileSaveCancelled',
+                original_msg_id: msg_id,
+            }, '*');
+            return;
+        }
+
         //auth
         if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
         {
@@ -1845,14 +1898,14 @@ const ipc_listener = async (event, handled) => {
                         await puter.fs.delete(target_path);
                     }
 
-                    if ( save_type === 'copy' ) {
+                    if ( save_type === 'move' ) {
+                        await puter.fs.move(source_path, target_path);
+                    } else {
                         const target_dir = path.dirname(target_path);
                         const new_name = path.basename(target_path);
                         await puter.fs.copy(source_path, target_dir, {
                             newName: new_name,
                         });
-                    } else {
-                        await puter.fs.move(source_path, target_path);
                     }
                     node = await puter.fs.stat(target_path);
                 },

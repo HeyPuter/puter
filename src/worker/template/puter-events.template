@@ -5,4 +5,6 @@
 
 #include "./puter-portable-core.template"
 
+#include "../../puter-js/src/modules/events/lib/retryable.js"
+
 #include "../src/events-runtime.js"

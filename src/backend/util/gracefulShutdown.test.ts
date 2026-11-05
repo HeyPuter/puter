@@ -25,6 +25,7 @@ import {
 import { registerTelemetryShutdown } from './telemetryShutdown.js';
 
 let events: string[] = [];
+let drainInfo: unknown[] = [];
 let unregisterTelemetry: (() => void) | null = null;
 
 const makeTarget = (opts?: {
@@ -32,8 +33,9 @@ const makeTarget = (opts?: {
     shutdownFails?: boolean;
     shutdownHangs?: boolean;
 }): ShutdownTarget => ({
-    prepareShutdown: async () => {
+    prepareShutdown: async (info) => {
         events.push('prepare');
+        drainInfo.push(info);
         if (opts?.prepareFails) throw new Error('prepare failed');
     },
     shutdown: async () => {
@@ -49,6 +51,7 @@ beforeEach(() => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     events = [];
+    drainInfo = [];
     unregisterTelemetry = registerTelemetryShutdown(async () => {
         events.push('telemetry');
     });
@@ -77,6 +80,53 @@ describe('createGracefulShutdown', () => {
         await vi.advanceTimersByTimeAsync(1);
         await done;
         expect(events).toEqual(['prepare', 'shutdown', 'telemetry', 'exit:0']);
+        expect(drainInfo).toEqual([{ drainMs: 90_000 }]);
+    });
+
+    it('counts time spent in prepareShutdown against the drain window', async () => {
+        const exit = vi.fn((code: number) => events.push(`exit:${code}`));
+        const target = makeTarget();
+        const trigger = createGracefulShutdown(
+            {
+                ...target,
+                prepareShutdown: async (info) => {
+                    await target.prepareShutdown(info);
+                    await new Promise((resolve) => setTimeout(resolve, 15_000));
+                },
+            },
+            { drainMs: 90_000, exit },
+        );
+
+        const done = trigger('SIGTERM');
+        await vi.advanceTimersByTimeAsync(89_999);
+        expect(events).toEqual(['prepare']);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await done;
+        expect(events).toEqual(['prepare', 'shutdown', 'telemetry', 'exit:0']);
+    });
+
+    it('waits for prepareShutdown when it outlasts the drain window', async () => {
+        const exit = vi.fn((code: number) => events.push(`exit:${code}`));
+        const target = makeTarget();
+        const trigger = createGracefulShutdown(
+            {
+                ...target,
+                prepareShutdown: async (info) => {
+                    await target.prepareShutdown(info);
+                    await new Promise((resolve) => setTimeout(resolve, 2_000));
+                },
+            },
+            { drainMs: 1_000, exit },
+        );
+
+        const done = trigger('SIGTERM');
+        await vi.advanceTimersByTimeAsync(1_999);
+        expect(events).toEqual(['prepare']);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await done;
+        expect(events).toEqual(['prepare', 'shutdown', 'telemetry', 'exit:0']);
     });
 
     it('SIGINT with a drain function returning 0 for SIGINT exits without waiting', async () => {
@@ -89,6 +139,7 @@ describe('createGracefulShutdown', () => {
 
         await trigger('SIGINT');
         expect(events).toEqual(['prepare', 'shutdown', 'telemetry', 'exit:0']);
+        expect(drainInfo).toEqual([{ drainMs: 0 }]);
     });
 
     it('runs prepare/shutdown/exit exactly once across repeat signals during the drain', async () => {

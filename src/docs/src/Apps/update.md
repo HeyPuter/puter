@@ -17,7 +17,7 @@ The name of the app to update.
 
 #### `attributes` (required)
 An object containing the attributes to update. The object can contain the following properties:
-- `name` (optional): The new name of the app. This name must be unique to the user's apps. If an app with this name already exists, the promise will be rejected.
+- `name` (optional): The new name of the app. App names are unique across all Puter accounts. If any app already has this name, the promise will be rejected.
 - `indexURL` (optional): The new URL of the app's index page. This URL must be accessible to the user.
 - `title` (optional): The new title of the app.
 - `description` (optional): The new description of the app aimed at the end user.
@@ -27,6 +27,8 @@ An object containing the attributes to update. The object can contain the follow
 - `feedbackEnabled` (optional): Whether users can send feedback to you through [`puter.ui.showFeedbackDialog()`](/UI/showFeedbackDialog/). Omitted leaves the app's current value unchanged.
 - `filetypeAssociations` (optional): An array of strings representing the filetypes that the app can open. Defaults to `[]`. File extentions and MIME types are supported; For example, `[".txt", ".md", "application/pdf"]` would allow the app to open `.txt`, `.md`, and PDF files. At most 200 entries, each at most 60 characters.
 - `metadata` (optional): An object containing custom metadata for the app. This can be used to store arbitrary key-value pairs associated with the app. At most 16 KiB when serialized as JSON.
+
+Changing `indexURL` can merge the app into an existing app for that hosted origin. The returned app can have a different UID. The deleted source app's KV data and KV shares are removed. Data already belonging to the surviving app is retained.
 
 ## Return value
 A `Promise` that will resolve to the [`App`](/Objects/app/) object that was updated.

@@ -1,0 +1,78 @@
+import { fetchUrl } from '../../../lib/networkUtils.js';
+import { PuterJSError } from '../../../lib/PuterJSError.js';
+
+const UNAVAILABLE_MESSAGE =
+    "Push notifications aren't available on this deployment";
+
+/** A request the browser still sends after the page unloads; no sign-in. */
+const sendKeepalive = (puter, method, route, body, authToken) => {
+    const token = authToken ?? puter.authToken;
+    return fetch(`${puter.APIOrigin}${route}`, {
+        method,
+        keepalive: true,
+        credentials: 'include',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+};
+
+/**
+ * One `/push` call; the server's `{ message, code }` passes through. A 404 the
+ * device routes didn't answer themselves becomes `push_unavailable`. With
+ * `authToken`, that token is sent instead of the live one, and a rejected one
+ * opens no sign-in. `interactiveReauth: false` keeps a rejected live token from
+ * opening one too. `keepalive` sends it even if the page unloads meanwhile,
+ * where the browser allows it.
+ */
+export async function request(
+    puter,
+    method,
+    route,
+    body,
+    { authToken, interactiveReauth = true, keepalive = false } = {},
+) {
+    const send = () =>
+        fetchUrl(`${puter.APIOrigin}${route}`, {
+            method,
+            ...(authToken
+                ? { authToken, interactiveReauth: false }
+                : { includePuterAuth: true }),
+            ...(interactiveReauth ? {} : { interactiveReauth: false }),
+            headers: { 'Content-Type': 'application/json' },
+            ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+    // Some browsers refuse a keepalive request that needs a CORS preflight.
+    const response = keepalive
+        ? await sendKeepalive(puter, method, route, body, authToken).catch(send)
+        : await send();
+
+    const isJson = response.headers
+        .get('content-type')
+        ?.includes('application/json');
+    const parsed = isJson ? await response.json() : null;
+
+    // The device routes name a missing device `device_not_found`.
+    if (response.status === 404 && (!parsed || parsed.code === 'not_found')) {
+        throw new PuterJSError(UNAVAILABLE_MESSAGE, 'push_unavailable');
+    }
+
+    if (response.status !== 200) {
+        const fallback = `The notifications request failed (HTTP ${response.status})`;
+        if (!parsed) throw new PuterJSError(fallback, 'notifications_failed');
+        const { message, error, code, ...rest } = parsed;
+        throw new PuterJSError(
+            typeof message === 'string'
+                ? message
+                : typeof error === 'string'
+                  ? error
+                  : fallback,
+            typeof code === 'string' ? code : 'notifications_failed',
+            rest,
+        );
+    }
+
+    return parsed ?? {};
+}

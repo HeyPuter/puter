@@ -20,11 +20,19 @@
 
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
+import { insufficientCreditsError } from '../../services/metering/enforcement.js';
+import {
+    type CreditHold,
+    NO_CREDIT_HOLD,
+} from '../../services/metering/types.js';
+import { type AiMeteringService, aiModelKey } from '../util/aiCostFactor.js';
+import { VIDEO_HOLD_TTL_MS } from './providers/polling.js';
 
 export interface ICapSecondsParams {
-    metering: MeteringService;
+    metering: AiMeteringService;
     actor: Actor;
+    /** What the clip is metered under; its model's cost factor prices it. */
+    usageType: string;
     /** Price of one second of output, in micro-cents. */
     perSecondMicroCents: number;
     /** Duration the provider resolved from the request, in seconds. */
@@ -37,8 +45,6 @@ export interface ICapSecondsParams {
     allowedSeconds?: readonly number[] | null;
     /** Floor for models with no discrete ladder. Defaults to 1. */
     minSeconds?: number;
-    /** Model id, for the 402 message. */
-    modelId?: string;
 }
 
 /**
@@ -53,17 +59,18 @@ export interface ICapSecondsParams {
  *
  * Returns the duration the caller must actually request upstream — callers MUST
  * use the returned value both for the upstream call and for metering, or the
- * cap buys nothing.
+ * cap buys nothing — plus a hold on that duration's cost, which the caller
+ * releases once usage is recorded.
  */
 export async function capSecondsToRemainingCredits({
     metering,
     actor,
+    usageType,
     perSecondMicroCents,
     requestedSeconds,
     allowedSeconds,
     minSeconds,
-    modelId,
-}: ICapSecondsParams): Promise<number> {
+}: ICapSecondsParams): Promise<{ seconds: number; hold: CreditHold }> {
     if (!actor) {
         throw new HttpError(401, 'Authentication required', {
             legacyCode: 'unauthorized',
@@ -72,25 +79,40 @@ export async function capSecondsToRemainingCredits({
 
     // Unpriced or free output — nothing to clamp against.
     if (!Number.isFinite(perSecondMicroCents) || perSecondMicroCents <= 0) {
-        return requestedSeconds;
+        return { seconds: requestedSeconds, hold: NO_CREDIT_HOLD };
     }
 
-    const remaining = await metering.getRemainingUsage(actor);
-    const affordableSeconds = Math.floor(remaining / perSecondMicroCents);
+    // Usage is recorded at the factored rate, so the clamp prices at it too.
+    const [factor, remaining] = await Promise.all([
+        metering.costFactor(actor, aiModelKey(usageType)),
+        metering.getRemainingUsage(actor),
+    ]);
+    const perSecond = perSecondMicroCents * factor;
+    const seconds = pickAffordableSeconds(
+        Math.floor(remaining / perSecond),
+        requestedSeconds,
+        allowedSeconds,
+        minSeconds,
+    );
+    // Already factored, so held through the plain service.
+    const hold = await metering.reserveCredits(
+        actor,
+        Math.round(seconds * perSecond),
+        { ttlMs: VIDEO_HOLD_TTL_MS },
+    );
+    return { seconds, hold };
+}
 
+/** The longest clip up to the request that `affordableSeconds` covers. */
+function pickAffordableSeconds(
+    affordableSeconds: number,
+    requestedSeconds: number,
+    allowedSeconds?: readonly number[] | null,
+    minSeconds?: number,
+): number {
     const ladder = (allowedSeconds ?? [])
         .filter((s) => Number.isFinite(s) && s > 0)
         .sort((a, b) => a - b);
-
-    const usd = (microCents: number) => (microCents / 1e8).toFixed(2);
-    const insufficient = (shortest: number) =>
-        new HttpError(
-            402,
-            `Insufficient funds: the shortest ${modelId ?? 'video'} clip is ` +
-                `${shortest}s ($${usd(shortest * perSecondMicroCents)}), ` +
-                `more than the $${usd(remaining)} remaining.`,
-            { legacyCode: 'insufficient_funds' },
-        );
 
     if (ladder.length > 0) {
         // A sub-ladder request already gets rounded up to the shortest
@@ -102,11 +124,11 @@ export async function capSecondsToRemainingCredits({
         for (let i = ladder.length - 1; i >= 0; i--) {
             if (ladder[i] <= ceiling) return ladder[i];
         }
-        throw insufficient(ladder[0]);
+        throw insufficientCreditsError();
     }
 
     const floor = Math.max(1, minSeconds ?? 1);
     const capped = Math.min(requestedSeconds, affordableSeconds);
-    if (capped < floor) throw insufficient(floor);
+    if (capped < floor) throw insufficientCreditsError();
     return capped;
 }

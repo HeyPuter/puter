@@ -1,0 +1,36 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            if (!await puter.perms.request('backgroundEvents')) {
+                puter.print('background events were not allowed<br>');
+                return;
+            }
+
+            // (1) A folder to watch
+            const dir = puter.randName();
+            await puter.fs.mkdir(dir);
+
+            // (2) The handler runs in the events worker for every change, even with this page closed
+            const sub = await puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                handler: async ({ event, ctx, fetch }) => {
+                    await fetch(ctx.webhook, { method: 'POST', body: event.path });
+                },
+                context: { webhook: 'https://example.com/ingest' },
+            });
+            puter.print(`watching ${dir} with ${sub.handlerName}<br>`);
+
+            // (3) A change to deliver
+            await puter.fs.write(`${dir}/hello.txt`, 'Hello!');
+
+            // (4) Cleanup: end the subscription, remove its handler, delete the folder
+            await puter.events.unsubscribe(sub.subId);
+            await puter.events.handlers.remove(sub.handlerName, { scope: 'user' });
+            await puter.fs.delete(dir);
+            puter.print('removed<br>');
+        })();
+    </script>
+</body>
+</html>

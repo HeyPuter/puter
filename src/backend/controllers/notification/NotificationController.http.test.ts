@@ -21,9 +21,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 
 /**
- * Route-level coverage for the notification endpoint. Dismissing is the only
- * mark the desktop performs over HTTP, so this suite is what catches the route
- * going missing or a gate turning a legitimate dismiss away.
+ * Route-level coverage for the notification endpoints the desktop calls over
+ * HTTP, so this suite is what catches a route going missing or a gate turning
+ * a legitimate dismiss or removal away.
  */
 describe('notification endpoints over HTTP', () => {
     let env: PuterTestEnv;
@@ -84,5 +84,35 @@ describe('notification endpoints over HTTP', () => {
             userId,
         });
         expect(after?.acknowledged).toBeFalsy();
+    });
+
+    it('removes a notification', async () => {
+        const owner = env.users.user;
+        const { userId, uid } = await seedNotification(owner.username);
+
+        const res = await post('/notif/delete', owner.token, { uid });
+
+        expect(res.status).toBe(200);
+        await expect(res.json()).resolves.toEqual({});
+        const after = await env.server.stores.notification.getByUid(uid, {
+            userId,
+        });
+        expect(after).toBeNull();
+    });
+
+    it('refuses an anonymous removal', async () => {
+        const { userId, uid } = await seedNotification(env.users.other.username);
+
+        const res = await fetch(new URL('/notif/delete', env.apiOrigin), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ uid }),
+        });
+
+        expect(res.status).toBeGreaterThanOrEqual(400);
+        const after = await env.server.stores.notification.getByUid(uid, {
+            userId,
+        });
+        expect(after?.uid).toBe(uid);
     });
 });

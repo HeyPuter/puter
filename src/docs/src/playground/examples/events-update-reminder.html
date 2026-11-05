@@ -1,0 +1,27 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Store a reminder for an hour from now
+            const reminder = await puter.notifications.notify({
+                title: 'Review your notes',
+                sendAt: Date.now() + 60 * 60 * 1000,
+            });
+            if (typeof reminder !== 'object' || !reminder) return;    // due now, so it was sent at once
+            puter.print(`goes out ${new Date(reminder.sendAt).toLocaleTimeString()}<br>`);
+
+            // (2) Move it an hour later and change what it says, keeping its id
+            const updated = await puter.events.updateSchedule(reminder.scheduleId, {
+                sendAt: Date.now() + 2 * 60 * 60 * 1000,
+                title: 'Review your meeting notes',
+            });
+            puter.print(`now goes out ${new Date(updated.nextRunAt).toLocaleTimeString()}<br>`);
+
+            // (3) Cleanup
+            await puter.notifications.cancel(reminder.scheduleId);
+            puter.print('cancelled<br>');
+        })();
+    </script>
+</body>
+</html>

@@ -31,6 +31,7 @@
 
 import MockRedis from 'ioredis-mock';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CONCURRENT_SLOT_TTL_MS } from '../../core/http/middleware/rateLimit.js';
 import type { Actor } from '../../core/actor.js';
 import { EventSubscriptionStore } from '../../stores/events/EventSubscriptionStore.js';
 import { PendingDeliveryStore } from '../../stores/events/PendingDeliveryStore.js';
@@ -39,15 +40,17 @@ import {
     presenceItemKey,
     PRESENCE_NO_APP,
 } from '../../stores/events/PresenceStore.js';
-import type {
-    DurableSubscription,
-    SubscriptionTarget,
-} from '../../stores/events/types.js';
+import type { DurableSubscription } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
 import { EventForwardService } from './EventForwardService.js';
 import { EventsService, type DeliveryEnvelope } from './EventsService.js';
-import type { ForwardBatch, ForwardDelivery } from './forwardQueue.js';
+import { appSocketRoom } from '../socket/SocketService.js';
+import type {
+    ForwardBatch,
+    ForwardDelivery,
+    ForwardEvent,
+} from './forwardQueue.js';
 import { fsAnchorToken } from './subjects.js';
 import type {
     WorkerInvocation,
@@ -76,6 +79,14 @@ vi.mock(import('@opentelemetry/api'), async (importOriginal) => ({
                     metricCalls.push({ name, value, attributes });
                 },
             }),
+            createHistogram: (name: string) => ({
+                record: (
+                    value: number,
+                    attributes: Record<string, unknown> = {},
+                ) => {
+                    metricCalls.push({ name, value, attributes });
+                },
+            }),
         }),
     },
 }));
@@ -96,51 +107,87 @@ interface StoredItem {
 let table: Map<string, StoredItem>;
 let tableReads: number;
 let tableWrites: number;
+/** Which region wrote which item, for the one-writer-per-item rule. */
+let itemWrites: Array<{ region: string; key: string }>;
+/** Writes the table refuses before it takes any again. */
+let refusedWrites: number;
 
 /**
  * The reserved-item path, as the key-value store exposes it. Stubbed at the
  * store boundary so both regions share one table; the real path against the
  * real table is covered by the presence integration suite.
+ *
+ * A region with a `replica` reads and evaluates its conditions against that
+ * lagging copy instead, and a write it makes replaces the whole item — the
+ * last-writer-wins resolution a replicated table applies.
  */
-const kvStub = () => ({
-    queryReservedItems: async <T extends Record<string, unknown>>(
-        prefix: string,
-    ): Promise<T[]> => {
-        tableReads++;
-        const now = Date.now() / 1000;
-        const items: T[] = [];
-        for (const [key, item] of table.entries()) {
-            if (!key.startsWith(prefix)) continue;
-            if (item.ttl && item.ttl <= now) continue;
-            items.push({ key, connectedAt: item.connectedAt } as unknown as T);
+const kvStub = (region: Region) => {
+    const view = () => region.replica ?? table;
+    const write = (key: string, item: StoredItem): void => {
+        if (refusedWrites > 0) {
+            refusedWrites--;
+            throw new Error('table refused the write');
         }
-        return items;
-    },
-    putReservedItem: async (
-        key: string,
-        attributes: Record<string, unknown>,
-    ): Promise<void> => {
         tableWrites++;
-        table.set(key, {
-            connectedAt: Number(attributes.connectedAt),
-            ttl: Number(attributes.ttl),
-        });
-    },
-    retireReservedItemIf: async (
-        key: string,
-        _condition: string,
-        conditionValues: Record<string, unknown>,
-    ): Promise<boolean> => {
-        tableWrites++;
-        const item = table.get(key);
-        if (!item || item.connectedAt !== conditionValues[':expected'])
-            return false;
-        // 1, not 0: a falsy ttl reads as "no expiry" everywhere else here,
-        // the same convention the real store follows.
-        table.set(key, { ...item, ttl: 1 });
-        return true;
-    },
-});
+        itemWrites.push({ region: region.name, key });
+        table.set(key, item);
+        region.replica?.set(key, item);
+    };
+    return {
+        queryReservedItems: async <T extends Record<string, unknown>>(
+            prefix: string,
+        ): Promise<T[]> => {
+            tableReads++;
+            const now = Date.now() / 1000;
+            const items: T[] = [];
+            for (const [key, item] of view().entries()) {
+                if (!key.startsWith(prefix)) continue;
+                if (item.ttl && item.ttl <= now) continue;
+                items.push({
+                    key,
+                    connectedAt: item.connectedAt,
+                } as unknown as T);
+            }
+            return items;
+        },
+        putReservedItem: async (
+            key: string,
+            attributes: Record<string, unknown>,
+        ): Promise<void> => {
+            write(key, {
+                connectedAt: Number(attributes.connectedAt),
+                ttl: Number(attributes.ttl),
+            });
+        },
+        retireReservedItemIf: async (
+            key: string,
+            _condition: string,
+            conditionValues: Record<string, unknown>,
+        ): Promise<boolean> => {
+            const item = view().get(key);
+            if (!item || item.connectedAt !== conditionValues[':expected']) {
+                tableWrites++;
+                return false;
+            }
+            // 1, not 0: a falsy ttl reads as "no expiry" everywhere else here,
+            // the same convention the real store follows.
+            write(key, { ...item, ttl: 1 });
+            return true;
+        },
+        refreshReservedItem: async (
+            key: string,
+            set: Record<string, unknown>,
+            setIfAbsent: Record<string, unknown> = {},
+        ): Promise<void> => {
+            write(key, {
+                connectedAt: Number(
+                    view().get(key)?.connectedAt ?? setIfAbsent.connectedAt,
+                ),
+                ttl: Number(set.ttl),
+            });
+        },
+    };
+};
 
 // -- Regions ----------------------------------------------------------
 
@@ -157,6 +204,8 @@ interface Region {
     /** Rooms this region terminates a socket for. */
     rooms: Set<string>;
     sent: DeliveryEnvelope[];
+    /** Usage lines this region wrote, by the holder they were billed to. */
+    metered: Array<{ userId: number | undefined; usageType: string }>;
     invoked: WorkerInvocation[];
     alarms: ReturnType<typeof vi.fn>;
     /** Peers whose POSTs never come back — a timeout, not a refusal. */
@@ -165,6 +214,13 @@ interface Region {
     /** `outer.*` emits held here instead of reaching peers, when `deferBus`. */
     busQueue: Array<{ key: string; data: unknown; meta: object }>;
     deferBus: boolean;
+    /** This region's lagging copy of the table, when a test gives it one. */
+    replica?: Map<string, StoredItem>;
+    /**
+     * Runs once this region has answered a batch, before the sender reads the
+     * reply.
+     */
+    afterReceive?: () => Promise<void>;
 }
 
 let regions: Map<string, Region>;
@@ -186,6 +242,9 @@ const entry = (over: Partial<FSEntry> = {}): FSEntry =>
         isDir: false,
         ...over,
     }) as FSEntry;
+
+/** An app whose rows run a handler in its events worker. */
+const APP_UID = 'app-forwarded';
 
 const actorFor = (
     appUid: string | null = null,
@@ -217,7 +276,6 @@ const durableRow = (
     appUid: null,
     permission: 'list',
     delivery: 'broadcast',
-    targets: ['socket'] as SubscriptionTarget[],
     handlerName: null,
     context: null,
     expiresAt: null,
@@ -245,6 +303,7 @@ const makeRegion = (
         posts: [],
         rooms: new Set(),
         sent: [],
+        metered: [],
         invoked: [],
         alarms: vi.fn(),
         unreachable: new Set(),
@@ -293,7 +352,7 @@ const makeRegion = (
     } as never;
 
     const presence = new PresenceStore(fullConfig, clients, {
-        kv: kvStub(),
+        kv: kvStub(region),
     } as never);
     const pending = new PendingDeliveryStore(fullConfig, clients, {} as never);
     const subscriptions = new EventSubscriptionStore(
@@ -326,14 +385,15 @@ const makeRegion = (
             if (!target) throw new Error(`no such peer ${peerId}`);
             // The controller passes the peer the signature proved, not the
             // one the body names.
-            return target.forward.receive(batch, name);
+            const reply = await target.forward.receive(batch, name);
+            await target.afterReceive?.();
+            return reply;
         },
     };
 
     const services: Record<string, unknown> = {
         broadcast,
         socket,
-        fs: { getAncestorChain: async () => ancestors() },
         acl: {
             check: async () => true,
             getSafeAclError: async () => ({
@@ -342,15 +402,24 @@ const makeRegion = (
                 fields: { code: 'subject_does_not_exist' },
             }),
         },
-        notification: { notify: vi.fn() },
+        notification: { notify: vi.fn(), deliverOverSocket: vi.fn() },
         metering: {
-            bufferIncrementUsages: () => undefined,
+            bufferIncrementUsages: (
+                actor: Actor,
+                usages: Array<{ usageType: string }>,
+            ) => {
+                for (const usage of usages)
+                    region.metered.push({
+                        userId: actor.user?.id,
+                        usageType: usage.usageType,
+                    });
+            },
             hasAnyUsageCached: async () => true,
         },
     };
 
     const stores = {
-        kv: kvStub(),
+        kv: kvStub(region),
         presence,
         pendingDelivery: pending,
         eventSubscription: subscriptions,
@@ -380,6 +449,7 @@ const makeRegion = (
             ): Promise<{
                 row: DurableSubscription;
                 bump: { userId: number; generation: number };
+                reaped: [];
             }> => {
                 const row = durableRow({
                     holderUserId: input.holderUserId as number,
@@ -392,7 +462,6 @@ const makeRegion = (
                     op: (input.op as DurableSubscription['op']) ?? null,
                     appUid: (input.appUid as string | null) ?? null,
                     delivery: input.delivery as DurableSubscription['delivery'],
-                    targets: input.targets as DurableSubscription['targets'],
                     handlerName: (input.handlerName as string | null) ?? null,
                     context: (input.context as string | null) ?? null,
                     permission:
@@ -409,6 +478,7 @@ const makeRegion = (
                             row.ownerUserId,
                         ),
                     },
+                    reaped: [],
                 };
             },
         },
@@ -419,6 +489,7 @@ const makeRegion = (
                     : null,
             getEntryByPath: async () => null,
             getEntryById: async () => null,
+            getAncestorChain: async () => ancestors(),
         },
         user: { getById: async (id: number) => ({ id, uuid: `user-${id}` }) },
         app: { getByUid: async (uid: string) => ({ uid, id: 1 }) },
@@ -446,7 +517,7 @@ const makeRegion = (
     region.events.worker = {
         invoke: async (invocation: WorkerInvocation) => {
             region.invoked.push(invocation);
-            return workerOutcome;
+            return { outcome: workerOutcome };
         },
     };
     region.forward.onServerStart();
@@ -589,6 +660,8 @@ beforeEach(() => {
     table = new Map();
     tableReads = 0;
     tableWrites = 0;
+    itemWrites = [];
+    refusedWrites = 0;
     regions = new Map();
     rows = new Map();
     workerOutcome = 'deferred';
@@ -610,7 +683,8 @@ describe('what a connection writes', () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
 
-        for (let i = 0; i < 5; i++) await west.forward.noteConnect(actorFor());
+        for (let i = 0; i < 5; i++)
+            await west.forward.noteConnect(actorFor(), `tab-${i}`);
 
         expect(tableWrites).toBe(1);
         expect(rowFor()?.regions).toEqual({ west: expect.any(Number) });
@@ -620,11 +694,11 @@ describe('what a connection writes', () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
 
-        await west.forward.noteConnect(actorFor());
+        await west.forward.noteConnect(actorFor(), 'tab-1');
         const afterConnect = tableWrites;
 
-        await west.forward.noteDisconnect(actorFor());
-        await west.forward.noteConnect(actorFor());
+        await west.forward.noteDisconnect(actorFor(), 'tab-1');
+        await west.forward.noteConnect(actorFor(), 'tab-2');
         await quiet(150);
 
         expect(tableWrites).toBe(afterConnect);
@@ -635,8 +709,8 @@ describe('what a connection writes', () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
 
-        await west.forward.noteConnect(actorFor());
-        await west.forward.noteDisconnect(actorFor());
+        await west.forward.noteConnect(actorFor(), 'tab-1');
+        await west.forward.noteDisconnect(actorFor(), 'tab-1');
 
         await vi.waitFor(() => expect(rowFor()?.regions).toEqual({}), {
             timeout: 2_000,
@@ -648,9 +722,9 @@ describe('what a connection writes', () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
 
-        await west.forward.noteConnect(actorFor());
-        await west.forward.noteConnect(actorFor());
-        await west.forward.noteDisconnect(actorFor());
+        await west.forward.noteConnect(actorFor(), 'tab-1');
+        await west.forward.noteConnect(actorFor(), 'tab-2');
+        await west.forward.noteDisconnect(actorFor(), 'tab-1');
         await quiet(150);
 
         expect(rowFor()?.regions).toEqual({ west: expect.any(Number) });
@@ -659,7 +733,7 @@ describe('what a connection writes', () => {
     it('never writes on a timer — a session sits connected across many windows', async () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
-        await west.forward.noteConnect(actorFor());
+        await west.forward.noteConnect(actorFor(), 'tab-1');
         expect(tableWrites).toBe(1);
 
         vi.useFakeTimers();
@@ -674,10 +748,10 @@ describe('what a connection writes', () => {
     it('skips the leaving write under a drain, where every socket goes at once', async () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
-        await west.forward.noteConnect(actorFor());
+        await west.forward.noteConnect(actorFor(), 'tab-1');
 
         await west.forward.onServerPrepareShutdown();
-        await west.forward.noteDisconnect(actorFor());
+        await west.forward.noteDisconnect(actorFor(), 'tab-1');
         await quiet(150);
 
         expect(tableWrites).toBe(1);
@@ -688,8 +762,8 @@ describe('what a connection writes', () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
 
-        await west.forward.noteConnect(actorFor('app-a'));
-        await west.forward.noteConnect(actorFor('app-b'));
+        await west.forward.noteConnect(actorFor('app-a'), 'tab-1');
+        await west.forward.noteConnect(actorFor('app-b'), 'tab-2');
 
         expect(rowFor('app-a')?.regions).toEqual({ west: expect.any(Number) });
         expect(rowFor('app-b')?.regions).toEqual({ west: expect.any(Number) });
@@ -721,8 +795,8 @@ describe('what a connection writes', () => {
     it('takes no part in presence where nothing is configured to read it', async () => {
         const alone = makeRegion('west', []);
 
-        await alone.forward.noteConnect(actorFor());
-        await alone.forward.noteDisconnect(actorFor());
+        await alone.forward.noteConnect(actorFor(), 'tab-1');
+        await alone.forward.noteDisconnect(actorFor(), 'tab-1');
         await quiet(150);
 
         expect(tableWrites).toBe(0);
@@ -735,9 +809,25 @@ describe('what a connection writes', () => {
             events: { enabled: false },
         } as Partial<IConfig>);
 
-        await off.forward.noteConnect(actorFor());
+        await off.forward.noteConnect(actorFor(), 'tab-1');
 
         expect(tableWrites).toBe(0);
+    });
+
+    it('lets the next connection write the region in after a join the table refused', async () => {
+        const east = makeRegion('east', ['west']);
+        makeRegion('west', ['east']);
+
+        refusedWrites = 1;
+        await expect(
+            east.forward.noteConnect(actorFor(), 'tab-1'),
+        ).rejects.toThrow('table refused the write');
+        expect(rowFor().regions).toEqual({});
+
+        // A second tab for the same pair, while the first is still open.
+        await east.forward.noteConnect(actorFor(), 'tab-2');
+
+        expect(rowFor().regions).toEqual({ east: expect.any(Number) });
     });
 
     it('a flapping client across two nodes in one region writes at most one join per real transition', async () => {
@@ -754,11 +844,11 @@ describe('what a connection writes', () => {
         tableWrites = 0;
         // Connect on A, and flap to B before A's disconnect write would ever
         // land — B has no idea A scheduled anything.
-        await nodeA.forward.noteConnect(actorFor());
-        await nodeA.forward.noteDisconnect(actorFor());
-        await nodeB.forward.noteConnect(actorFor());
-        await nodeB.forward.noteDisconnect(actorFor());
-        await nodeA.forward.noteConnect(actorFor());
+        await nodeA.forward.noteConnect(actorFor(), 'tab-1');
+        await nodeA.forward.noteDisconnect(actorFor(), 'tab-1');
+        await nodeB.forward.noteConnect(actorFor(), 'tab-2');
+        await nodeB.forward.noteDisconnect(actorFor(), 'tab-2');
+        await nodeA.forward.noteConnect(actorFor(), 'tab-3');
 
         expect(tableWrites).toBe(1);
         expect(rowFor().regions).toEqual({ east: expect.any(Number) });
@@ -784,7 +874,7 @@ describe('a broadcast delivery', () => {
         const east = makeRegion('east', ['west', 'south']);
         makeRegion('south', ['west', 'east']);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         await register(west);
 
         await dispatch(west);
@@ -800,7 +890,7 @@ describe('a broadcast delivery', () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         // A session row is addressed at the socket that made it, so another
         // region's tabs are not among its subscribers.
         await register(west, { socketId: 'socket-here', durable: undefined });
@@ -817,8 +907,8 @@ describe('a broadcast delivery', () => {
         const south = makeRegion('south', ['west', 'east']);
         east.rooms.add(String(userId));
         south.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
-        await south.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
+        await south.forward.noteConnect(actorFor(), 'tab-1');
         await register(west);
 
         await dispatch(west);
@@ -834,7 +924,7 @@ describe('a broadcast delivery', () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         await register(west);
 
         // Distinct nodes, so nothing is coalesced away upstream.
@@ -854,7 +944,7 @@ describe('a broadcast delivery', () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         await register(west);
 
         tableReads = 0;
@@ -870,16 +960,144 @@ describe('a broadcast delivery', () => {
     });
 });
 
+describe('what a broadcast delivery bills', () => {
+    /** Past the coalescing window, with the send and its meter settled. */
+    const flushed = async (region: Region): Promise<void> => {
+        await arrived(region);
+        await quiet(100);
+    };
+
+    it('bills nothing when no connection anywhere could take it', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        await register(west);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.sent).toHaveLength(1);
+        expect(west.metered).toEqual([]);
+    });
+
+    it('bills one a connection on another node of this region takes', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        // Counted for the region, but not on the node that sends.
+        await west.forward.noteConnect(actorFor(), 'tab-1');
+        await register(west);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.metered).toEqual([
+            { userId, usageType: 'events:delivery:broadcast' },
+        ]);
+    });
+
+    it('bills one only another region holds the socket for, once, where it was sent', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor(), 'tab-1');
+        await register(west);
+
+        await dispatch(west);
+        await flushed(west);
+        await arrived(east);
+
+        expect(west.metered).toHaveLength(1);
+        expect(east.metered).toEqual([]);
+    });
+
+    it('bills nothing for a session row whose connection is gone', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        await subscribeSession(west);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.metered).toEqual([]);
+    });
+
+    it('bills a session row while its connection is still here', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        const { socketId } = await subscribeSession(west);
+        west.rooms.add(socketId);
+
+        await dispatch(west);
+        await flushed(west);
+
+        expect(west.metered).toHaveLength(1);
+    });
+
+    it('bills as it always has where nothing counts connections', async () => {
+        const alone = makeRegion('west', []);
+        await register(alone);
+
+        await dispatch(alone);
+        await flushed(alone);
+
+        expect(alone.metered).toHaveLength(1);
+    });
+});
+
+describe('a delivery the worker takes', () => {
+    it('carries the mark through a forwarded delivery, to the socket', async () => {
+        const east = makeRegion('east', ['west']);
+
+        await east.events.deliverForwarded({
+            kind: 'delivery',
+            userId,
+            appUid: null,
+            subId: 'sub-marked',
+            event: {
+                id: 'e-marked',
+                subject: anchorPath(),
+                op: 'write',
+                uid: 'node-1',
+                path: `${anchorPath()}/notes.txt`,
+                self: true,
+                seq: 0,
+                ts: 1,
+            },
+            skipHandler: true,
+        });
+
+        expect(east.sent[0]).toMatchObject({
+            subId: 'sub-marked',
+            skipHandler: true,
+        });
+    });
+
+    it('fans an unmarked copy out while the worker also runs it', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(appSocketRoom(userId, APP_UID));
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
+        await register(west, { appUid: APP_UID, handlerName: 'onWrite' });
+
+        await dispatch(west);
+        await posted(west);
+        await arrived(east);
+
+        expect(west.invoked).toHaveLength(1);
+        expect(deliveriesIn(west)[0].skipHandler).toBeUndefined();
+        expect(east.sent[0].skipHandler).toBeUndefined();
+    });
+});
+
 // -- Lazy repair ------------------------------------------------------
 
 describe('a row naming a region that holds nothing', () => {
-    it('is corrected once, on the region saying so itself', async () => {
+    it('is corrected once, by the region it names', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         // The socket goes without east ever reporting it — a node that died.
         east.rooms.clear();
-        await east.presence.removeConnection(userId, PRESENCE_NO_APP);
+        await east.presence.removeConnection(userId, PRESENCE_NO_APP, 'tab-1');
         await register(west);
 
         tableWrites = 0;
@@ -896,9 +1114,9 @@ describe('a row naming a region that holds nothing', () => {
     it('is left alone when the region simply did not answer', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         east.rooms.clear();
-        await east.presence.removeConnection(userId, PRESENCE_NO_APP);
+        await east.presence.removeConnection(userId, PRESENCE_NO_APP, 'tab-1');
         west.unreachable.add('east');
         await register(west);
 
@@ -915,9 +1133,9 @@ describe('a row naming a region that holds nothing', () => {
     it('cannot be stormed by a busy subscription', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         east.rooms.clear();
-        await east.presence.removeConnection(userId, PRESENCE_NO_APP);
+        await east.presence.removeConnection(userId, PRESENCE_NO_APP, 'tab-1');
         await register(west);
 
         tableWrites = 0;
@@ -936,16 +1154,16 @@ describe('a row naming a region that holds nothing', () => {
     it('re-joins once its pin is released — a dead node recovers on its next connect', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         const original = rowFor().regions.east;
         // The socket goes without east ever reporting it — a node that died
         // holding the join pin along with the row entry.
         east.rooms.clear();
-        await east.presence.removeConnection(userId, PRESENCE_NO_APP);
+        await east.presence.removeConnection(userId, PRESENCE_NO_APP, 'tab-1');
         await register(west);
 
-        // West's forward comes back `noSocket`, repairs the row, and — as a
-        // side effect of east answering that itself — releases east's pin.
+        // West's forward reaches east, which retires its own item and
+        // releases its pin along with it.
         await dispatch(west);
         await posted(west);
         await vi.waitFor(() => expect(rowFor().regions).toEqual({}));
@@ -954,10 +1172,75 @@ describe('a row naming a region that holds nothing', () => {
         // join, not a skip: the pair is visible again without waiting for a
         // disconnect/reconnect cycle of its own to notice.
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
 
         expect(rowFor().regions.east).toEqual(expect.any(Number));
         expect(rowFor().regions.east).not.toBe(original);
+    });
+
+    it('is never written by the region forwarding to it, whose replica may be stale', async () => {
+        const west = makeRegion('west', ['east']);
+        // East's presence bump reaches west after its reply does, as it would
+        // over the real channels.
+        const east = makeRegion('east', ['west'], {}, { deferBus: true });
+        await east.forward.noteConnect(actorFor(), 'tab-1');
+        // East's sockets went without it ever reporting them.
+        east.rooms.clear();
+        await east.presence.removeConnection(userId, PRESENCE_NO_APP, 'tab-1');
+        await register(west);
+
+        // West's copy of the table stops at this point, and a socket arrives
+        // in east as soon as east has answered west's forward.
+        west.replica = new Map(table);
+        east.afterReceive = async () => {
+            east.afterReceive = undefined;
+            east.rooms.add(String(userId));
+            await east.forward.noteConnect(actorFor(), 'tab-2');
+        };
+
+        await dispatch(west);
+        await posted(west);
+        await quiet(200);
+
+        expect(rowFor().regions.east).toEqual(expect.any(Number));
+        expect(
+            itemWrites.filter(
+                (write) => !write.key.endsWith(`#${write.region}`),
+            ),
+        ).toEqual([]);
+    });
+
+    it('keeps a region whose socket arrives on another node while it checks', async () => {
+        const west = makeRegion('west', ['east']);
+        const eastA = makeRegion('east', ['west']);
+        await eastA.forward.noteConnect(actorFor(), 'tab-1');
+        eastA.rooms.clear();
+        await eastA.presence.removeConnection(userId, PRESENCE_NO_APP, 'tab-1');
+        // West's forwards land on this node.
+        const eastB = makeRegion('east', ['west']);
+        await register(west);
+
+        // A socket connects on the other node right after this one read the
+        // region's count at zero.
+        const holds = eastB.presence.holdsConnection.bind(eastB.presence);
+        let raced = false;
+        vi.spyOn(eastB.presence, 'holdsConnection').mockImplementation(
+            async (id: number, app: string) => {
+                const held = await holds(id, app);
+                if (!held && !raced) {
+                    raced = true;
+                    eastA.rooms.add(String(userId));
+                    await eastA.forward.noteConnect(actorFor(), 'tab-2');
+                }
+                return held;
+            },
+        );
+
+        await dispatch(west);
+        await posted(west);
+        await quiet(200);
+
+        expect(rowFor().regions.east).toEqual(expect.any(Number));
     });
 
     it('is not repaired away while the region holding it is still inside its own disconnect window', async () => {
@@ -967,14 +1250,14 @@ describe('a row naming a region that holds nothing', () => {
             const west = makeRegion('west', ['east']);
             const east = makeRegion('east', ['west']);
             east.rooms.add(String(userId));
-            await east.forward.noteConnect(actorFor());
+            await east.forward.noteConnect(actorFor(), 'tab-1');
             await register(west);
 
             // The socket is gone and the disconnect is in flight, but still
             // inside its window: east expects the pair back, and has not
             // written itself out of the row for it.
             east.rooms.delete(String(userId));
-            await east.forward.noteDisconnect(actorFor());
+            await east.forward.noteDisconnect(actorFor(), 'tab-1');
 
             tableWrites = 0;
             await dispatch(west);
@@ -990,13 +1273,89 @@ describe('a row naming a region that holds nothing', () => {
     });
 });
 
+// -- Dead nodes and the grace window ----------------------------------
+
+describe('a region whose node goes away', () => {
+    it('retires its item once the only sockets holding it stopped renewing', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        await east.forward.noteConnect(actorFor(), 'tab-1');
+        // The node holding it dies: no disconnect, and no renewals after.
+        await register(west);
+
+        jump(CONCURRENT_SLOT_TTL_MS + 1_000);
+        expect(await east.forward.heldInRegion(userId, null)).toBe(false);
+
+        await dispatch(west);
+        await posted(west);
+        await vi.waitFor(() => expect(rowFor().regions).toEqual({}), {
+            timeout: 2_000,
+            interval: 10,
+        });
+    });
+
+    it('stays held by a node still renewing, and leaves once that node`s socket goes', async () => {
+        makeRegion('west', ['east']);
+        const eastA = makeRegion('east', ['west']);
+        const eastB = makeRegion('east', ['west']);
+        // Node A dies holding its socket; node B's keeps renewing.
+        await eastA.forward.noteConnect(actorFor(), 'tab-a');
+        await eastB.forward.noteConnect(actorFor(), 'tab-b');
+
+        jump(CONCURRENT_SLOT_TTL_MS / 2);
+        await eastB.forward.touchPresence(userId, PRESENCE_NO_APP, 'tab-b');
+        jump(CONCURRENT_SLOT_TTL_MS / 2 + 1_000);
+        expect(await eastB.forward.heldInRegion(userId, null)).toBe(true);
+
+        await eastB.forward.noteDisconnect(actorFor(), 'tab-b');
+
+        await vi.waitFor(() => expect(rowFor().regions).toEqual({}), {
+            timeout: 2_000,
+            interval: 10,
+        });
+    });
+
+    it('is not retired by another node while its own leave is inside the grace window', async () => {
+        EventForwardService.LEAVE_DELAY_MIN_MS = 10_000;
+        EventForwardService.LEAVE_DELAY_MAX_MS = 10_000;
+        const west = makeRegion('west', ['east']);
+        const eastA = makeRegion('east', ['west']);
+        try {
+            eastA.rooms.add(String(userId));
+            await eastA.forward.noteConnect(actorFor(), 'tab-1');
+            // West's forwards land on this node, which holds no leave timer.
+            const eastB = makeRegion('east', ['west']);
+            await register(west);
+
+            eastA.rooms.clear();
+            await eastA.forward.noteDisconnect(actorFor(), 'tab-1');
+
+            tableWrites = 0;
+            await dispatch(west);
+            await posted(west);
+            await quiet(200);
+            expect(rowFor().regions).toEqual({ east: expect.any(Number) });
+
+            // The tab comes back on the other node inside the window.
+            eastB.rooms.add(String(userId));
+            await eastB.forward.noteConnect(actorFor(), 'tab-2');
+
+            expect(tableWrites).toBe(0);
+            expect(rowFor().regions).toEqual({ east: expect.any(Number) });
+        } finally {
+            await eastA.forward.onServerPrepareShutdown();
+            EventForwardService.LEAVE_DELAY_MIN_MS = 60;
+            EventForwardService.LEAVE_DELAY_MAX_MS = 60;
+        }
+    });
+});
+
 // -- `single` across regions ------------------------------------------
 
 describe('a delivery owed to exactly one consumer', () => {
     const single = (region: Region) =>
         register(region, {
             delivery: 'single',
-            targets: ['socket', 'worker'] as SubscriptionTarget[],
             handlerName: 'onWrite',
         });
 
@@ -1005,15 +1364,35 @@ describe('a delivery owed to exactly one consumer', () => {
         const east = makeRegion('east', ['west']);
         west.rooms.add(String(userId));
         east.rooms.add(String(userId));
-        await west.forward.noteConnect(actorFor());
-        await east.forward.noteConnect(actorFor());
+        await west.forward.noteConnect(actorFor(), 'tab-1');
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         await single(west);
 
         await dispatch(west);
         await arrived(west);
 
-        expect(west.posts).toEqual([]);
+        // Deliveries only: its own connect announces presence to peers.
+        expect(deliveriesIn(west)).toEqual([]);
         expect(west.sent[0]).toMatchObject({ ackRequired: true });
+    });
+
+    it('takes a socket on another node of the emitting region before any other region', async () => {
+        const west = makeRegion('west', ['east']);
+        const eastA = makeRegion('east', ['west']);
+        const eastB = makeRegion('east', ['west']);
+        west.rooms.add(String(userId));
+        await west.forward.noteConnect(actorFor(), 'tab-1');
+        eastB.rooms.add(String(userId));
+        await eastB.forward.noteConnect(actorFor(), 'tab-1');
+        await single(eastA);
+
+        await dispatch(eastA);
+        // Addressed at the room, which reaches whichever node holds it.
+        await arrived(eastA);
+
+        expect(eastA.sent[0]).toMatchObject({ ackRequired: true });
+        expect(eastA.posts).toEqual([]);
+        expect(eastA.invoked).toEqual([]);
     });
 
     it('hands off to the most recently connected region when it holds none', async () => {
@@ -1022,9 +1401,9 @@ describe('a delivery owed to exactly one consumer', () => {
         const south = makeRegion('south', ['west', 'east']);
         east.rooms.add(String(userId));
         south.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         await quiet(5);
-        await south.forward.noteConnect(actorFor());
+        await south.forward.noteConnect(actorFor(), 'tab-1');
         const row = await single(west);
 
         await dispatch(west);
@@ -1049,7 +1428,7 @@ describe('a delivery owed to exactly one consumer', () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         const row = await single(west);
 
         await dispatch(west);
@@ -1068,7 +1447,7 @@ describe('a delivery owed to exactly one consumer', () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         const row = await single(west);
 
         await dispatch(west);
@@ -1092,11 +1471,48 @@ describe('a delivery owed to exactly one consumer', () => {
         });
     });
 
+    it('sends a decline home, and the emitting region runs the worker', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(appSocketRoom(userId, APP_UID));
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
+        workerOutcome = 'settled';
+        const row = await register(west, {
+            appUid: APP_UID,
+            delivery: 'single',
+            handlerName: 'onWrite',
+        });
+
+        await dispatch(west);
+        await posted(west);
+        await arrived(east);
+        expect(west.invoked).toEqual([]);
+
+        const envelope = east.sent[0];
+        await east.events.declineDelivery(actorFor(APP_UID), {
+            subId: row.subId,
+            id: envelope.ackId,
+            origin: envelope.origin,
+            reason: 'no_handler',
+        });
+
+        await vi.waitFor(() => expect(west.invoked).toHaveLength(1), {
+            timeout: 3_000,
+            interval: 20,
+        });
+        expect(east.invoked).toEqual([]);
+        expect(east.posts.at(-1)?.batch.items[0]).toMatchObject({
+            kind: 'nack',
+            subId: row.subId,
+            reason: 'no_handler',
+        });
+    });
+
     it('never settles a lease in the region the client happened to reach', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         const row = await single(west);
 
         await dispatch(west);
@@ -1112,13 +1528,17 @@ describe('a delivery owed to exactly one consumer', () => {
         expect(await east.pending.depth(row.subId)).toBe(0);
     });
 
-    it('gives the handler what two socket candidates could not take', async () => {
+    it('gives the handler what the socket candidate could not take', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        east.rooms.add(appSocketRoom(userId, APP_UID));
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
         workerOutcome = 'settled';
-        const row = await single(west);
+        const row = await register(west, {
+            appUid: APP_UID,
+            delivery: 'single',
+            handlerName: 'onWrite',
+        });
 
         await dispatch(west);
         await posted(west);
@@ -1144,7 +1564,7 @@ describe('a forward queue that cannot keep up', () => {
             const west = makeRegion('west', ['east']);
             const east = makeRegion('east', ['west']);
             east.rooms.add(String(userId));
-            await east.forward.noteConnect(actorFor());
+            await east.forward.noteConnect(actorFor(), 'tab-1');
             const row = await register(west);
 
             for (let i = 0; i < 6; i++)
@@ -1186,6 +1606,46 @@ describe('a forward queue that cannot keep up', () => {
             EventForwardService.MAX_QUEUED = 5_000;
         }
     });
+
+    it('sends its marker unmarked even when the shed copies skipped the client handler', async () => {
+        EventForwardService.MAX_QUEUED = 2;
+        try {
+            const west = makeRegion('west', ['east']);
+            const east = makeRegion('east', ['west']);
+            east.rooms.add(String(userId));
+            await east.forward.noteConnect(actorFor(), 'tab-1');
+            const row = await register(west);
+
+            for (let i = 0; i < 6; i++)
+                west.forward.handOff('east', {
+                    holderUserId: userId,
+                    appUid: null,
+                    subId: row.subId,
+                    event: {
+                        id: `ev-${i}`,
+                        subject: `fs:${anchorPath()}`,
+                        op: 'write',
+                        uid: `file-${i}`,
+                        path: `${anchorPath()}/n${i}.txt`,
+                        self: true,
+                        seq: 0,
+                        ts: Date.now(),
+                    },
+                    skipHandler: true,
+                });
+
+            await posted(west);
+            await arrived(east, 2);
+
+            const gaps = east.sent.filter(
+                (envelope) => envelope.event.op === 'gap',
+            );
+            expect(gaps).toHaveLength(1);
+            expect(gaps[0].skipHandler).toBeUndefined();
+        } finally {
+            EventForwardService.MAX_QUEUED = 5_000;
+        }
+    });
 });
 
 // -- Generation propagation -------------------------------------------
@@ -1200,37 +1660,54 @@ describe('presence moving in another region', () => {
         const reads = tableReads;
 
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
 
         expect(await west.forward.regionsFor(userId, null)).toEqual(['east']);
         expect(tableReads).toBeGreaterThan(reads);
     });
 });
 
+describe('isOnline', () => {
+    it('is true for a socket on this node, in this region or in a peer region', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        await register(west);
+        expect(await west.forward.isOnline(userId, null)).toBe(false);
+
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor(), 'tab-1');
+        expect(await east.forward.isOnline(userId, null)).toBe(true);
+        expect(await west.forward.isOnline(userId, null)).toBe(true);
+        expect(await west.forward.isOnline(userId, 'app-other')).toBe(false);
+    });
+});
+
 // -- Decommissioned regions --------------------------------------------
 
 describe('a row naming a region that is not a peer', () => {
-    it('never offers it as a candidate, and prunes it out of the table', async () => {
+    it('never offers it as a candidate, and leaves its item to the region it names', async () => {
         const west = makeRegion('west', ['east']);
         makeRegion('east', ['west']);
         await register(west);
 
-        // A region taken out of the peer list — decommissioned, or never one
-        // to begin with — whose item nothing ever cleaned up.
-        table.set(presenceItemKey(`user-${userId}`, PRESENCE_NO_APP, 'ghost'), {
+        // A region added after west last loaded its peer list: its item is
+        // live, and only it may retire it.
+        table.set(presenceItemKey(`user-${userId}`, PRESENCE_NO_APP, 'north'), {
             connectedAt: Date.now(),
             ttl: Math.floor(Date.now() / 1000) + 999,
         });
 
         expect(await west.forward.regionsFor(userId, null)).toEqual([]);
-        await vi.waitFor(() => expect(rowFor().regions.ghost).toBeUndefined());
+        await quiet(50);
+        expect(rowFor().regions.north).toEqual(expect.any(Number));
+        expect(itemWrites).toEqual([]);
     });
 
     it('still offers a peer alongside a non-peer name in the same row', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         await register(west);
 
         table.set(presenceItemKey(`user-${userId}`, PRESENCE_NO_APP, 'ghost'), {
@@ -1328,13 +1805,47 @@ describe('receiving a batch', () => {
 
 // -- Observability ------------------------------------------------------
 
+describe('presence write metrics', () => {
+    it('counts each table write by op, and labels it with nothing else', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+
+        await east.forward.noteConnect(actorFor(), 'tab-1');
+        await east.forward.noteDisconnect(actorFor(), 'tab-1');
+        await vi.waitFor(() => expect(rowFor().regions).toEqual({}));
+
+        await east.forward.noteConnect(actorFor(), 'tab-2');
+        east.rooms.clear();
+        await east.presence.removeConnection(userId, PRESENCE_NO_APP, 'tab-2');
+        await register(west);
+        await dispatch(west);
+        await posted(west);
+        await vi.waitFor(() => expect(rowFor().regions).toEqual({}));
+
+        await east.forward.touchPresence(userId, PRESENCE_NO_APP, 'tab-3');
+
+        const writes = metricCalls.filter(
+            (call) => call.name === 'events.presence.write',
+        );
+        expect(writes.map((call) => call.attributes.op)).toEqual([
+            'join',
+            'leave',
+            'join',
+            'retire',
+            'refresh',
+        ]);
+        for (const call of writes)
+            expect(Object.keys(call.attributes)).toEqual(['op']);
+    });
+});
+
 describe('forward-path metrics', () => {
     it('counts a broadcast fan-out as sent, and the receiving region as received', async () => {
         const west = makeRegion('west', ['east', 'south']);
         const east = makeRegion('east', ['west', 'south']);
         makeRegion('south', ['west', 'east']);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         await register(west);
 
         await dispatch(west);
@@ -1366,12 +1877,11 @@ describe('forward-path metrics', () => {
         const south = makeRegion('south', ['west', 'east']);
         east.rooms.add(String(userId));
         south.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         await quiet(5);
-        await south.forward.noteConnect(actorFor());
+        await south.forward.noteConnect(actorFor(), 'tab-1');
         await register(west, {
             delivery: 'single',
-            targets: ['socket', 'worker'] as SubscriptionTarget[],
             handlerName: 'onWrite',
         });
 
@@ -1399,11 +1909,10 @@ describe('forward-path metrics', () => {
         const east = makeRegion('east', ['west']);
         west.rooms.add(String(userId));
         east.rooms.add(String(userId));
-        await west.forward.noteConnect(actorFor());
-        await east.forward.noteConnect(actorFor());
+        await west.forward.noteConnect(actorFor(), 'tab-1');
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         await register(west, {
             delivery: 'single',
-            targets: ['socket', 'worker'] as SubscriptionTarget[],
             handlerName: 'onWrite',
         });
 
@@ -1420,12 +1929,12 @@ describe('forward-path metrics', () => {
     it('counts a single attempt that reaches the handler', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        east.rooms.add(appSocketRoom(userId, APP_UID));
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
         workerOutcome = 'settled';
         await register(west, {
+            appUid: APP_UID,
             delivery: 'single',
-            targets: ['socket', 'worker'] as SubscriptionTarget[],
             handlerName: 'onWrite',
         });
 
@@ -1450,6 +1959,154 @@ describe('forward-path metrics', () => {
 /** Session forwarding is on by default, so this is the ordinary config. */
 const forwardCfg = { events: { enabled: true } } as Partial<IConfig>;
 
+describe('a kv value crossing to another region', () => {
+    const APP = 'app-cart';
+
+    const subscribeKv = async (
+        region: Region,
+        socketId: string,
+        includeValue?: true,
+    ) =>
+        (
+            await region.events.subscribe(actorFor(), socketId, {
+                subject: `kv:${APP}:cart`,
+                ...(includeValue ? { includeValue } : {}),
+            })
+        ).sub.subId;
+
+    const write = (region: Region) =>
+        region.events.dispatchKv({
+            userId,
+            namespace: `v1:user-${userId}:${APP}`,
+            keys: ['cart'],
+            op: 'set',
+            values: [{ items: 3 }],
+        });
+
+    /** The raw events a region forwarded, in order. */
+    const eventsIn = (region: Region): ForwardEvent[] =>
+        region.posts.flatMap((post) =>
+            post.batch.items.filter(
+                (item): item is ForwardEvent => item.kind === 'event',
+            ),
+        );
+
+    /** Let `region` post past `before`, then let what it queued land. */
+    const announced = async (region: Region, before = 0): Promise<void> => {
+        await posted(region, before + 1);
+        await quiet(100);
+    };
+
+    it('goes nowhere a row did not ask for it', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        await subscribeKv(east, 'socket-plain');
+        await announced(east);
+
+        await write(west);
+        await posted(west);
+        await arrived(east);
+
+        expect(eventsIn(west)).toHaveLength(1);
+        expect(eventsIn(west)[0].kv).not.toHaveProperty('value');
+        expect(east.sent[0].event).not.toHaveProperty('value');
+    });
+
+    it('goes to a region holding a row that asked for it', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        await subscribeKv(east, 'socket-valued', true);
+        await announced(east);
+
+        await write(west);
+        await posted(west);
+        await arrived(east);
+
+        expect(eventsIn(west)[0].kv).toMatchObject({ value: { items: 3 } });
+        expect(east.sent[0].event).toMatchObject({ value: { items: 3 } });
+    });
+
+    it('stops once the last row asking for it is unsubscribed', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        const valued = await subscribeKv(east, 'socket-valued', true);
+        await subscribeKv(east, 'socket-plain');
+        await announced(east);
+        const before = east.posts.length;
+
+        await east.events.unsubscribe(actorFor(), 'socket-valued', {
+            subId: valued,
+        });
+        await announced(east, before);
+        await write(west);
+        await posted(west);
+
+        expect(eventsIn(west)).toHaveLength(1);
+        expect(eventsIn(west)[0].kv).not.toHaveProperty('value');
+    });
+
+    it('stops once the connection holding it is reaped', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        await subscribeKv(east, 'socket-valued', true);
+        await subscribeKv(east, 'socket-plain');
+        await announced(east);
+        const before = east.posts.length;
+
+        await east.events.reapSocket(userId, 'socket-valued');
+        await announced(east, before);
+        await write(west);
+        await posted(west);
+
+        expect(eventsIn(west)[0].kv).not.toHaveProperty('value');
+    });
+
+    it('keeps going while another row there still asks for it', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        const valued = await subscribeKv(east, 'socket-valued', true);
+        await subscribeKv(east, 'socket-also-valued', true);
+        await announced(east);
+
+        await east.events.unsubscribe(actorFor(), 'socket-valued', {
+            subId: valued,
+        });
+        await quiet(100);
+        await write(west);
+        await posted(west);
+
+        expect(eventsIn(west)[0].kv).toMatchObject({ value: { items: 3 } });
+    });
+
+    it('carries who wrote it, so `self` and `viaWorker` hold on the far side', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        await subscribeKv(east, 'socket-writer');
+        await announced(east);
+
+        await west.events.dispatchKv(
+            {
+                userId,
+                namespace: `v1:user-${userId}:${APP}`,
+                keys: ['cart'],
+                op: 'set',
+            },
+            { actingUserId: userId + 1, viaWorker: true },
+        );
+        await posted(west);
+        await arrived(east);
+
+        expect(eventsIn(west)[0]).toMatchObject({
+            actingUserId: userId + 1,
+            viaWorker: true,
+        });
+        expect(east.sent[0].event).toMatchObject({
+            self: false,
+            viaWorker: true,
+        });
+    });
+});
+
 describe('a session subscription in another region', () => {
     it('delivers a write committed in the region that has no rows', async () => {
         const west = makeRegion('west', ['east'], forwardCfg);
@@ -1462,8 +2119,31 @@ describe('a session subscription in another region', () => {
         await dispatch(west);
 
         await arrived(east);
-        expect(east.sent[0].event).toMatchObject({ op: 'write', self: true });
+        expect(east.sent[0].event).toMatchObject({
+            op: 'write',
+            self: true,
+            viaWorker: false,
+        });
         expect(west.sent).toEqual([]);
+    });
+
+    it('carries a server-side write as one on the far side', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        await subscribeSession(east);
+        await posted(east);
+
+        await west.events.dispatchFs('fs.write.file', entry(), {
+            actingUserId: userId,
+            viaWorker: true,
+            ancestors: async () => ancestors(),
+        });
+
+        await arrived(east);
+        expect(east.sent[0].event).toMatchObject({
+            self: true,
+            viaWorker: true,
+        });
     });
 
     it('delivers to a subscriber who is not the writer', async () => {
@@ -1519,7 +2199,7 @@ describe('a session subscription in another region', () => {
         const west = makeRegion('west', ['east'], forwardCfg);
         const east = makeRegion('east', ['west'], forwardCfg);
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
         const durable = await register(west);
         const { subId: sessionSubId } = await subscribeSession(east);
         await posted(east);
@@ -1663,14 +2343,13 @@ describe('a durable row created in another region', () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west'], {}, { deferBus: true });
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
 
         // West marks itself warm-and-empty before the row exists to find.
         await dispatch(west);
 
         await east.events.subscribeDurable(actorFor(), {
             subject: `fs:${anchorUid()}`,
-            targets: ['socket'],
         });
         // A tick for the 25 ms addressed queue — the bus stays held.
         await quiet(80);
@@ -1686,13 +2365,12 @@ describe('a durable row created in another region', () => {
         const east = makeRegion('east', ['west'], {}, { deferBus: true });
         east.unreachable.add('west');
         east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor());
+        await east.forward.noteConnect(actorFor(), 'tab-1');
 
         await dispatch(west);
 
         await east.events.subscribeDurable(actorFor(), {
             subject: `fs:${anchorUid()}`,
-            targets: ['socket'],
         });
         await quiet(80);
 
@@ -1713,7 +2391,7 @@ describe('a durable row created in another region', () => {
         makeRegion('east', ['west']);
         metricCalls.length = 0;
 
-        await west.forward.noteConnect(actorFor());
+        await west.forward.noteConnect(actorFor(), 'tab-1');
 
         expect(metricCalls).toContainEqual(
             expect.objectContaining({
@@ -1721,5 +2399,70 @@ describe('a durable row created in another region', () => {
                 attributes: expect.objectContaining({ class: 'bump' }),
             }),
         );
+    });
+});
+
+
+describe('notification dismissals across connected pages', () => {
+    const config = { events: { enabled: true, notificationsFoldIn: true } } as Partial<IConfig>;
+    const appUid = 'notification-app';
+    const input = (uid = 'one') => ({
+        userId, userUuid: `user-${userId}`, uid,
+        type: 'app.message', audience: 'app-user', appUid,
+        value: {}, createdAt: Date.now(), dismissed: true as const,
+    });
+
+    it('reaches local and remote session pages without content or a forwarding loop', async () => {
+        const west = makeRegion('west', ['east'], config);
+        const east = makeRegion('east', ['west'], config);
+        for (const [region, socket] of [[west, 'local'], [east, 'remote']] as const) {
+            await region.events.subscribe(actorFor(appUid), socket, { subject: 'notif:app-user' });
+        }
+        await posted(east);
+        await quiet(100);
+        await west.events.dispatchNotif({ ...input(), value: { title: 'private' } });
+        await arrived(west);
+        await arrived(east);
+        for (const region of [west, east]) {
+            expect(region.sent).toHaveLength(1);
+            expect(region.sent[0].event).toMatchObject({ op: 'dismiss', uid: 'one', appUid });
+            expect(region.sent[0].event).not.toHaveProperty('notification');
+        }
+        expect(east.sent[0].event.id).toBe(west.sent[0].event.id);
+        const forwarded = west.posts.flatMap((p) => p.batch.items)
+            .find((item): item is ForwardEvent => item.kind === 'event');
+        expect(forwarded?.notif?.value).toEqual({});
+        expect(east.posts.flatMap((p) => p.batch.items).filter((i) => i.kind === 'event')).toEqual([]);
+    });
+
+    it('keeps separate dismissed ids in the same coalescing window', async () => {
+        const region = makeRegion('west', [], config);
+        await region.events.subscribe(actorFor(appUid), 'local', { subject: 'notif:app-user' });
+        await region.events.dispatchNotif(input('one'));
+        await region.events.dispatchNotif(input('two'));
+        await arrived(region, 2);
+        expect(region.sent.map((item) => 'uid' in item.event && item.event.uid)).toEqual(['one', 'two']);
+    });
+
+    it('does not deliver another app, account audience or another user to an app page', async () => {
+        const region = makeRegion('west', [], config);
+        await region.events.subscribe(actorFor(appUid), 'local', { subject: 'notif:app-user' });
+        await region.events.dispatchNotif({ ...input(), appUid: 'other-app' });
+        await region.events.dispatchNotif({ ...input(), audience: 'account' });
+        await region.events.dispatchNotif({ ...input(), userId: userId + 1, userUuid: 'other-user' });
+        await quiet(350);
+        expect(region.sent).toEqual([]);
+    });
+
+    it('also forwards postings through the same session path', async () => {
+        const west = makeRegion('west', ['east'], config);
+        const east = makeRegion('east', ['west'], config);
+        await east.events.subscribe(actorFor(appUid), 'remote', { subject: 'notif:app-user' });
+        await posted(east);
+        await quiet(100);
+        const { dismissed, ...postedInput } = input();
+        await west.events.dispatchNotif({ ...postedInput, value: { title: 'Hello' } });
+        await arrived(east);
+        expect(east.sent[0].event).toMatchObject({ op: 'post', uid: 'one', notification: { title: 'Hello' } });
     });
 });

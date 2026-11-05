@@ -9,7 +9,8 @@ import { assertKeyPresent, assertKeySize } from './lib/validate.js';
  * Removes values from a key by one or more dot-separated paths (e.g.
  * `"profile.bio"`), returning the updated value. An `optConfig` object may
  * trail the paths. Removing the root path (`''`) deletes the key and
- * resolves to `null`.
+ * resolves to `null`, as does a call on another app's data the caller may
+ * delete from but not read.
  *
  * @this {import('./index.js').KVModule}
  * @param {string} key
@@ -42,6 +43,7 @@ export async function remove (key, ...pathsAndOptConfig) {
     if ( paths.some((path) => typeof path !== 'string') ) {
         throw { message: 'All paths must be strings', code: 'paths_invalid' };
     }
+    this.guiCache.invalidate(key);
 
     return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'remove', argNames: ['key', 'paths'], puter: this.puter })({ key, paths, optConfig });
 }

@@ -69,6 +69,356 @@ const happyBatch = (sql: string) => {
     ];
 };
 
+// Each query on this connection waits until the test releases it, so its
+// flush stays in flight.
+const makeHeldConnection = () => {
+    const held: Array<() => void> = [];
+    const conn = makeConnection(
+        (sql) =>
+            new Promise((resolve) => {
+                held.push(() => resolve(happyBatch(sql)));
+            }),
+    );
+    const releaseAll = () => {
+        for (const release of held.splice(0)) release();
+    };
+    const sent = () => conn.query.mock.calls.map(([sql]) => sql);
+    return { conn, releaseAll, sent };
+};
+
+const fakeFlushTimers = () =>
+    vi.useFakeTimers({
+        toFake: [
+            'setTimeout',
+            'clearTimeout',
+            'setImmediate',
+            'clearImmediate',
+        ],
+    });
+
+describe('SQLBatcher flush timing', () => {
+    it('flushes a lone query on the next turn while under the in-flight cap', async () => {
+        const conn = makeConnection(happyBatch);
+        const { pool, getConnection } = makePool(conn);
+        const batcher = new SQLBatcher(pool, {
+            readOnly: true,
+            maxTimeInQueue: 60_000,
+            maxInFlightImmediate: 2,
+        });
+
+        const pending = batcher.query('SELECT a', []);
+        expect(getConnection).not.toHaveBeenCalled();
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(getConnection).toHaveBeenCalledTimes(1);
+        expect((await pending)[0]).toEqual([{ n: 0 }]);
+    });
+
+    it('holds a lone query for maxTimeInQueue without an in-flight cap', async () => {
+        fakeFlushTimers();
+        try {
+            const conn = makeConnection(happyBatch);
+            const { pool, getConnection } = makePool(conn);
+            const batcher = new SQLBatcher(pool, {
+                readOnly: true,
+                maxTimeInQueue: 30,
+            });
+
+            const pending = batcher.query('SELECT a', []);
+            await vi.advanceTimersByTimeAsync(29);
+            expect(getConnection).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(getConnection).toHaveBeenCalledTimes(1);
+            expect((await pending)[0]).toEqual([{ n: 0 }]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('batches queries from the same turn and sends later ones separately', async () => {
+        const conn = makeConnection(happyBatch);
+        const { pool, getConnection } = makePool(conn);
+        const batcher = new SQLBatcher(pool, {
+            readOnly: true,
+            maxInFlightImmediate: 8,
+        });
+
+        const sameTurn = [
+            batcher.query('SELECT a', []),
+            batcher.query('SELECT b', []),
+            batcher.query('SELECT c', []),
+        ];
+        await new Promise((resolve) => setImmediate(resolve));
+        const nextTurn = batcher.query('SELECT d', []);
+        const results = await Promise.all([...sameTurn, nextTurn]);
+
+        expect(results.map((r) => r[0])).toEqual([
+            [{ n: 0 }],
+            [{ n: 1 }],
+            [{ n: 2 }],
+            [{ n: 0 }],
+        ]);
+        expect(getConnection).toHaveBeenCalledTimes(2);
+        expect(conn.query.mock.calls.map(([sql]) => sql)).toEqual([
+            'SELECT a;SELECT b;SELECT c; SELECT 1',
+            'SELECT d; SELECT 1',
+        ]);
+    });
+
+    it('gives a query enqueued during an in-flight flush its own flush while under the cap', async () => {
+        const { conn, releaseAll, sent } = makeHeldConnection();
+        const { pool } = makePool(conn);
+        const batcher = new SQLBatcher(pool, {
+            readOnly: true,
+            maxInFlightImmediate: 2,
+        });
+        const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+        const a = batcher.query('SELECT a', []);
+        await turn();
+        const b = batcher.query('SELECT b', []);
+        await turn();
+        expect(sent()).toEqual(['SELECT a; SELECT 1', 'SELECT b; SELECT 1']);
+
+        releaseAll();
+        expect((await a)[0]).toEqual([{ n: 0 }]);
+        expect((await b)[0]).toEqual([{ n: 0 }]);
+    });
+
+    it('holds a lone query for maxTimeInQueue at the in-flight cap and coalesces what follows', async () => {
+        fakeFlushTimers();
+        try {
+            const { conn, releaseAll, sent } = makeHeldConnection();
+            const { pool } = makePool(conn);
+            const batcher = new SQLBatcher(pool, {
+                readOnly: true,
+                maxTimeInQueue: 30,
+                maxInFlightImmediate: 1,
+            });
+
+            const a = batcher.query('SELECT a', []);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(sent()).toEqual(['SELECT a; SELECT 1']);
+
+            const b = batcher.query('SELECT b', []);
+            await vi.advanceTimersByTimeAsync(29);
+            const c = batcher.query('SELECT c', []);
+            expect(sent()).toHaveLength(1);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(sent()).toEqual([
+                'SELECT a; SELECT 1',
+                'SELECT b;SELECT c; SELECT 1',
+            ]);
+
+            releaseAll();
+            expect((await a)[0]).toEqual([{ n: 0 }]);
+            expect((await b)[0]).toEqual([{ n: 0 }]);
+            expect((await c)[0]).toEqual([{ n: 1 }]);
+
+            // Settled flushes free the cap again.
+            const d = batcher.query('SELECT d', []);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(sent()).toHaveLength(3);
+            releaseAll();
+            expect((await d)[0]).toEqual([{ n: 0 }]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('shares the in-flight cap between batchers given one counter', async () => {
+        fakeFlushTimers();
+        try {
+            const { conn, releaseAll, sent } = makeHeldConnection();
+            const { pool } = makePool(conn);
+            const inFlight = { count: 0 };
+            const opts = {
+                readOnly: true,
+                maxTimeInQueue: 30,
+                maxInFlightImmediate: 1,
+                inFlight,
+            };
+            const first = new SQLBatcher(pool, opts);
+            const second = new SQLBatcher(pool, opts);
+            const own = new SQLBatcher(pool, { ...opts, inFlight: undefined });
+
+            const a = first.query('SELECT a', []);
+            await vi.advanceTimersByTimeAsync(0);
+            const b = second.query('SELECT b', []);
+            const c = own.query('SELECT c', []);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(sent()).toEqual([
+                'SELECT a; SELECT 1',
+                'SELECT c; SELECT 1',
+            ]);
+            await vi.advanceTimersByTimeAsync(30);
+            expect(sent()).toHaveLength(3);
+            expect(sent()[2]).toBe('SELECT b; SELECT 1');
+
+            releaseAll();
+            await Promise.all([a, b, c]);
+            expect(inFlight.count).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('counts a flush as in flight until its per-item fallback settles', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        fakeFlushTimers();
+        try {
+            const held: Array<() => void> = [];
+            const conn = makeConnection((sql) => {
+                if (isBatchQuery(sql)) throw makeError('ECONNRESET');
+                return new Promise((resolve) => {
+                    held.push(() => resolve([[{ ok: sql }], undefined]));
+                });
+            });
+            const { pool } = makePool(conn);
+            const sent = () => conn.query.mock.calls.map(([sql]) => sql);
+            const batcher = new SQLBatcher(pool, {
+                readOnly: true,
+                maxTimeInQueue: 30,
+                maxInFlightImmediate: 1,
+                acquireTimeoutMs: 0,
+            });
+
+            const a = batcher.query('SELECT a', []);
+            await vi.advanceTimersByTimeAsync(0);
+            // The batch failed; the per-item retry of `a` is still running.
+            expect(sent()).toEqual(['SELECT a; SELECT 1', 'SELECT a']);
+
+            const b = batcher.query('SELECT b', []);
+            await vi.advanceTimersByTimeAsync(29);
+            expect(sent()).toHaveLength(2);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(sent()).toEqual([
+                'SELECT a; SELECT 1',
+                'SELECT a',
+                'SELECT b; SELECT 1',
+                'SELECT b',
+            ]);
+
+            for (const release of held.splice(0)) release();
+            expect((await a)[0]).toEqual([{ ok: 'SELECT a' }]);
+            expect((await b)[0]).toEqual([{ ok: 'SELECT b' }]);
+        } finally {
+            vi.useRealTimers();
+            warnSpy.mockRestore();
+        }
+    });
+
+    it('flushes a full batch at once past the cap and cancels the armed wait', async () => {
+        fakeFlushTimers();
+        try {
+            const { conn, releaseAll, sent } = makeHeldConnection();
+            const { pool, getConnection } = makePool(conn);
+            const batcher = new SQLBatcher(pool, {
+                readOnly: true,
+                maxBatchSize: 2,
+                maxTimeInQueue: 30,
+                maxInFlightImmediate: 1,
+                acquireTimeoutMs: 0,
+            });
+
+            const a = batcher.query('SELECT a', []);
+            await vi.advanceTimersByTimeAsync(0);
+            const b = batcher.query('SELECT b', []);
+            expect(vi.getTimerCount()).toBe(1);
+            const c = batcher.query('SELECT c', []);
+            expect(getConnection).toHaveBeenCalledTimes(2);
+            expect(vi.getTimerCount()).toBe(0);
+
+            // A later lone query waits its own full maxTimeInQueue.
+            await vi.advanceTimersByTimeAsync(10);
+            const d = batcher.query('SELECT d', []);
+            await vi.advanceTimersByTimeAsync(29);
+            expect(getConnection).toHaveBeenCalledTimes(2);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(getConnection).toHaveBeenCalledTimes(3);
+            expect(sent()).toEqual([
+                'SELECT a; SELECT 1',
+                'SELECT b;SELECT c; SELECT 1',
+                'SELECT d; SELECT 1',
+            ]);
+
+            releaseAll();
+            await Promise.all([a, b, c, d]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('cancels the pending next-turn flush when a batch fills up', async () => {
+        fakeFlushTimers();
+        try {
+            const conn = makeConnection(happyBatch);
+            const { pool, getConnection } = makePool(conn);
+            const batcher = new SQLBatcher(pool, {
+                maxBatchSize: 2,
+                readOnly: true,
+                maxInFlightImmediate: 8,
+                acquireTimeoutMs: 0,
+            });
+
+            const a = batcher.query('SELECT a', []);
+            expect(vi.getTimerCount()).toBe(1);
+            const b = batcher.query('SELECT b', []);
+            expect(vi.getTimerCount()).toBe(0);
+
+            const c = batcher.query('SELECT c', []);
+            expect(vi.getTimerCount()).toBe(1);
+            await vi.runAllTimersAsync();
+            await Promise.all([a, b, c]);
+
+            expect(vi.getTimerCount()).toBe(0);
+            expect(getConnection).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('leaves no timer armed after a failed flush, a drop or a breaker rejection', async () => {
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        fakeFlushTimers();
+        try {
+            const getConnection = vi.fn(async () => {
+                throw makeError('ECONNREFUSED');
+            });
+            const batcher = new SQLBatcher(
+                { promise: () => ({ getConnection }) },
+                {
+                    readOnly: true,
+                    maxQueueSize: 1,
+                    failureThreshold: 1,
+                    cooldownMs: 60_000,
+                    maxInFlightImmediate: 8,
+                },
+            );
+
+            const dropped = expect(
+                batcher.query('SELECT a', []),
+            ).rejects.toMatchObject({ reason: 'queueOverflow' });
+            const failed = expect(
+                batcher.query('SELECT b', []),
+            ).rejects.toMatchObject({ reason: 'connAcquire' });
+            expect(vi.getTimerCount()).toBe(1);
+            await vi.runAllTimersAsync();
+            await dropped;
+            await failed;
+            expect(vi.getTimerCount()).toBe(0);
+
+            await expect(batcher.query('SELECT c', [])).rejects.toMatchObject({
+                reason: 'breakerOpen',
+            });
+            expect(vi.getTimerCount()).toBe(0);
+            expect(batcher.queue).toHaveLength(0);
+        } finally {
+            vi.useRealTimers();
+            warnSpy.mockRestore();
+        }
+    });
+});
+
 describe('SQLBatcher', () => {
     it('resolves each batched item with its own result', async () => {
         const conn = makeConnection(happyBatch);

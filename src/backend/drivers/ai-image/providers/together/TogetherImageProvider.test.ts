@@ -38,10 +38,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { TogetherImageProvider } from './TogetherImageProvider.js';
 import { TOGETHER_IMAGE_GENERATION_MODELS } from './models.js';
 
@@ -69,7 +71,7 @@ vi.mock('together-ai', () => {
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -80,13 +82,21 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-image',
+    );
+
 const makeProvider = () =>
-    new TogetherImageProvider({ apiKey: 'test-key' }, server.services.metering);
+    new TogetherImageProvider({ apiKey: 'test-key' }, aiMetering());
 
 beforeEach(() => {
     generateMock.mockReset();
     togetherCtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -105,11 +115,7 @@ describe('TogetherImageProvider construction', () => {
 
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new TogetherImageProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+            () => new TogetherImageProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 });
@@ -152,7 +158,7 @@ describe('TogetherImageProvider.generate test_mode', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     });
 });
@@ -183,7 +189,7 @@ describe('TogetherImageProvider.generate argument validation', () => {
 describe('TogetherImageProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting Together when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withTestActor(() =>
@@ -193,6 +199,42 @@ describe('TogetherImageProvider.generate credit gate', () => {
 
         expect(generateMock).not.toHaveBeenCalled();
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('holds the image cost while Together runs and releases it afterwards', async () => {
+        const provider = makeProvider();
+        const actor = makeActor({
+            user: {
+                id: 81,
+                uuid: `together-hold-${Date.now()}`,
+                username: 'hold',
+            },
+        });
+        let heldDuringCall = -1;
+        generateMock.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user!.uuid,
+            );
+            return { data: [{ url: 'https://t.ai/img/1' }] };
+        });
+
+        // Wan2.6-image is per-image @ 3 cents.
+        await withTestActor(
+            () =>
+                provider.generate({
+                    model: 'togetherai:Wan-AI/Wan2.6-image',
+                    prompt: 'hi',
+                }),
+            actor,
+        );
+
+        expect(heldDuringCall).toBe(3 * 1_000_000);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user!.uuid),
+            ).toBe(0),
+        );
     });
 });
 
@@ -718,7 +760,7 @@ describe('Together supported sizes and references', () => {
             width: 1024,
             height: 1024,
         });
-        expect(Number.isFinite(hasCreditsSpy.mock.calls[0][1])).toBe(true);
+        expect(Number.isFinite(admitSpy.mock.calls[0][1])).toBe(true);
     });
 
     it('resolves provider aliases without changing the selected model', async () => {
@@ -748,7 +790,7 @@ describe('Together supported sizes and references', () => {
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     });
 
@@ -817,7 +859,7 @@ it.each(['3K', 'unknown', ' 5k '])(
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     },
 );
@@ -853,7 +895,7 @@ describe('Together current API prices', () => {
                 input_image: 'https://example.com/reference.png',
             }),
         );
-        expect(hasCreditsSpy).toHaveBeenCalledWith(expect.anything(), 4685000);
+        expect(admitSpy).toHaveBeenCalledWith(expect.anything(), 4685000, undefined);
         expect(incrementUsageSpy).toHaveBeenCalledWith(
             expect.anything(),
             'togetherai:google/flash-image-3.1:0.5K',

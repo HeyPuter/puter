@@ -4,15 +4,16 @@ import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 
 /** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
 
-const delDriverCall = (puter, args) =>
+const delDriverCall = (/** @type {import('./index.js').KVModule} */ kv, args) =>
     utils.makeDriverMethod({
         iface: 'puter-kvstore',
         method: 'del',
         argNames: ['key'],
-        puter,
+        puter: kv.puter,
         preprocess: (driverArgs) => {
             assertKeyPresent(driverArgs.key);
             assertKeySize(driverArgs.key);
+            kv.guiCache.invalidate(driverArgs.key);
             return driverArgs;
         },
     })(args);
@@ -35,12 +36,10 @@ const delDriverCall = (puter, args) =>
  * @returns {Promise<boolean>}
  */
 export async function del (keyOrObject, ...rest) {
-    const { puter } = this;
-
     if ( isObject(keyOrObject) && rest.length === 0 ) {
-        return await delDriverCall(puter, keyOrObject);
+        return await delDriverCall(this, keyOrObject);
     }
 
     const { optConfig, success, error } = parseOptConfigThenCallbacks(rest);
-    return await delDriverCall(puter, { key: keyOrObject, optConfig, success, error });
+    return await delDriverCall(this, { key: keyOrObject, optConfig, success, error });
 }

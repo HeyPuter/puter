@@ -30,6 +30,7 @@
 import type { EventClient } from '../clients/event/EventClient';
 import type { PreludeClient } from '../clients/prelude/PreludeClient';
 import type { IConfig } from '../types';
+import { BoundedTtlMap } from './boundedTtlMap';
 
 /**
  * `/send-confirm-phone` route rate limit: how many verification texts one
@@ -133,11 +134,14 @@ export function cardFallbackDepsFrom(
  * switch still takes effect immediately.
  */
 const CARD_STATUS_TTL_MS = 60_000;
-let cardStatusCache: { at: number; enabled: boolean | null } | null = null;
+const cardStatusCache = new BoundedTtlMap<'status', boolean | null>({
+    maxEntries: 1,
+    ttlMs: CARD_STATUS_TTL_MS,
+});
 
 /** Drops the memoized probe answer. For tests, and for a config reload. */
 export function resetCardVerificationStatusCache(): void {
-    cardStatusCache = null;
+    cardStatusCache.clear();
 }
 
 /**
@@ -147,10 +151,8 @@ export function resetCardVerificationStatusCache(): void {
 export async function isCardVerificationEnabled(
     deps: CardFallbackDeps,
 ): Promise<boolean | null> {
-    const now = Date.now();
-    if (cardStatusCache && now - cardStatusCache.at < CARD_STATUS_TTL_MS) {
-        return cardStatusCache.enabled;
-    }
+    const cached = cardStatusCache.get('status');
+    if (cached !== undefined) return cached;
     let enabled: boolean | null = null;
     try {
         enabled = await deps.probeCardVerification();
@@ -159,7 +161,7 @@ export async function isCardVerificationEnabled(
         // not work is worse than not offering one.
         console.warn('[card-verification] status probe failed:', e);
     }
-    cardStatusCache = { at: now, enabled };
+    cardStatusCache.set('status', enabled);
     return enabled;
 }
 

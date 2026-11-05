@@ -21,7 +21,7 @@ import type { RouteRateLimit } from '../../core/http/types';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
-    FREE_SUBSCRIPTION_IDS,
+    subscriptionOverride,
 } from '../../services/metering/consts.js';
 
 // -- Shared event limits ---------------------------------------------
@@ -45,7 +45,7 @@ const userWindow = (
 
 /**
  * A plan-varying cap in route-gate shape: `limit` is what a subscribed account
- * gets, `bySubscription` carves out the free tiers, unlisted plans get the
+ * gets, `bySubscription` carves out the free tiers, unlisted paid plans get the
  * base.
  */
 export interface TieredLimit {
@@ -53,7 +53,12 @@ export interface TieredLimit {
     bySubscription: Record<string, number>;
 }
 
-const tiered = (paid: number, free: number, temp: number): TieredLimit => ({
+/** Paid, free and temporary caps as a {@link TieredLimit}. Called by extensions. */
+export const tiered = (
+    paid: number,
+    free: number,
+    temp: number,
+): TieredLimit => ({
     limit: paid,
     bySubscription: {
         [DEFAULT_FREE_SUBSCRIPTION]: free,
@@ -67,11 +72,9 @@ export const limitFor = (
     subscriptionId: string | null,
 ): number => {
     if (subscriptionId === null) return tier.limit;
-    const own = tier.bySubscription[subscriptionId];
-    if (typeof own === 'number') return own;
-    return FREE_SUBSCRIPTION_IDS.has(subscriptionId)
-        ? (tier.bySubscription[DEFAULT_FREE_SUBSCRIPTION] ?? tier.limit)
-        : tier.limit;
+    return (
+        subscriptionOverride(tier.bySubscription, subscriptionId) ?? tier.limit
+    );
 };
 
 /**
@@ -94,6 +97,18 @@ export interface TieredQuota {
  * one subscription on their common parent instead.
  */
 export const EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET = 50;
+
+/**
+ * Live subscriptions one user may hold through a share handle someone else
+ * minted for them, across all of their connections.
+ *
+ * Those rows sit in the owner's keyspace, where each one costs a filter
+ * evaluation on the owner's writes. The count also takes in connections that
+ * dropped and haven't been reaped yet, so the cap sits far above what
+ * reconnects leave behind. The owner's own rows through the handle don't
+ * count.
+ */
+export const EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE = 1000;
 
 /**
  * Durable subscriptions one account may hold, across every app.
@@ -128,6 +143,13 @@ export const EVENTS_DURABLE_SUBSCRIPTIONS_MAX =
 export const SUSPENDED_ROW_TTL_DAYS = 30;
 
 /**
+ * Subscriptions stopped by a revoked grant that one account keeps for `list`.
+ * They hold no quota slot, so past this the oldest are deleted when the account
+ * subscribes again, keeping its rows bounded.
+ */
+export const EVENTS_REVOKED_SUBSCRIPTIONS_KEPT = 500;
+
+/**
  * Subscribe calls per minute, per user.
  *
  * Resolves a path and takes a write, so a loop over subscribes is a write loop.
@@ -158,6 +180,13 @@ export const EVENTS_LIST_LIMIT = userWindow('events:list', 120);
 export const EVENTS_ACK_LIMIT = userWindow('events:ack', 600);
 
 /**
+ * How long a connected client holds a queued delivery before the events worker
+ * may take it. A client that has no handler for it, or whose handler fails,
+ * declines it at once; this only bounds one that never answers.
+ */
+export const EVENTS_SOCKET_LEASE_MS = 15_000;
+
+/**
  * Share-handle mint + revoke calls per minute, per user.
  *
  * Each one issues or withdraws a grant and settles what stood on it, so it is
@@ -166,22 +195,67 @@ export const EVENTS_ACK_LIMIT = userWindow('events:ack', 600);
 export const EVENTS_KV_HANDLE_LIMIT = userWindow('events:kvHandles', 60);
 
 /**
- * Live share handles one account may hold out at a time, across every app.
- *
- * Each is a standing grant on part of the account's data, and revoking marks
- * rather than deletes, so without a ceiling the rate limit alone lets the rows
- * grow forever. A temporary account holds none: the grant outlives the session
- * that made it, and no account is left to take it back.
+ * `kv.share.received` notices per hour, per owner and holder. A share past it
+ * is still made, without a notice.
  */
-export const EVENTS_KV_HANDLES_PER_USER = tiered(512, 200, 0);
+export const KV_SHARE_NOTICE_LIMIT = userWindow(
+    'kvShare:notices',
+    5,
+    60 * 60_000,
+);
 
 /**
- * Live share handles one app may hold out for one account.
+ * Live share handles one account may hold out at a time, across every app.
  *
- * Separately bounded from the account cap so one namespace cannot consume the
- * whole budget on free accounts.
+ * A backstop above the per-app cap: every count reads a covering index, so the
+ * bound is on standing grants, not query cost. A temporary account holds none:
+ * the grant outlives the session that made it, and no account is left to take
+ * it back.
  */
-export const EVENTS_KV_HANDLES_PER_APP = tiered(512, 128, 0);
+export const EVENTS_KV_HANDLES_PER_USER = tiered(25_000, 5_000, 0);
+
+/**
+ * Live share handles one app may hold out for one account, so one namespace
+ * cannot consume the whole account budget.
+ */
+export const EVENTS_KV_HANDLES_PER_APP = tiered(10_000, 2_000, 0);
+
+/**
+ * Live share handles one owner may hold out to one holder, on every plan.
+ * Bounds the rows a revoke or unshare walks to find the narrower handles inside
+ * one.
+ */
+export const EVENTS_KV_HANDLES_PER_HOLDER = 256;
+
+/**
+ * Recipients one account may share with, per minute and per hour. A call spends
+ * one per recipient that doesn't already hold the share, on top of the per-call
+ * mint budget.
+ */
+export const KV_SHARE_GRANT_LIMITS = [
+    userWindow('kvShare:grants:minute', 300),
+    userWindow('kvShare:grants:hour', 2_000, 60 * 60_000),
+] as const;
+
+/**
+ * Recipients one account may name in share calls per minute, existing shares
+ * included. Each one is looked up before the call knows whether it changes
+ * anything, so a client that shares again on every load is bounded here.
+ */
+export const KV_SHARE_LOOKUP_LIMIT = userWindow('kvShare:lookups', 1_200);
+
+/** Recipients one `POST /kv/shares` call may name. */
+export const KV_SHARE_BATCH_MAX = 50;
+
+/**
+ * Notifications one party of a share may send the other through share handles,
+ * per minute and per day, in one app. Keeps one share from spending the
+ * recipient's whole notification allowance.
+ */
+export const KV_SHARE_NOTIFY_LIMITS = [
+    userWindow('kvShare:notify:minute', 30),
+    userWindow('kvShare:notify:day', 500, 24 * 60 * 60_000),
+] as const;
 
 // -- Handler surface -------------------------------------------------
 
@@ -195,6 +269,12 @@ export const EVENTS_KV_HANDLES_PER_APP = tiered(512, 128, 0);
  */
 export const EVENTS_HANDLERS_PER_APP = 100;
 
+/**
+ * Handlers one user may hold in their own scope of one app. Each is a script of
+ * its own, so the cap is tighter than the app's.
+ */
+export const EVENTS_USER_HANDLERS_PER_SCOPE = 20;
+
 /** Longest a serialized handler may be. */
 export const EVENTS_HANDLER_SOURCE_MAX_BYTES = 64 * 1024;
 
@@ -206,6 +286,9 @@ export const EVENTS_HANDLER_SOURCE_MAX_BYTES = 64 * 1024;
  */
 export const EVENTS_WORKER_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
 
+/** Source one user scope may hold, all its handlers combined. */
+export const EVENTS_USER_SCOPE_SOURCE_MAX_BYTES = 1024 * 1024;
+
 /**
  * Deploys one app's events worker may trigger per hour.
  *
@@ -214,6 +297,16 @@ export const EVENTS_WORKER_SOURCE_MAX_BYTES = 5 * 1024 * 1024;
  * namespace miss) counts the same as a publish-triggered deploy.
  */
 export const EVENTS_WORKER_DEPLOYS_PER_HOUR = 30;
+
+/** Deploys one user scope may trigger per hour. */
+export const EVENTS_USER_WORKER_DEPLOYS_PER_HOUR = 10;
+
+/**
+ * Units one user may rent at once: ordinary workers, user scopes, and the
+ * events workers of apps they own. Only creating a unit is refused; holdings
+ * over the cap are kept.
+ */
+export const RENTED_UNITS_PER_USER = tiered(100, 16, 16);
 
 /**
  * Handlers one `publishAll` may carry. A build step publishes its whole set in
@@ -279,8 +372,11 @@ export const EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT = tiered(512, 128, 128);
  */
 export const EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT = tiered(2048, 512, 512);
 
-/** Omit all inline KV values when the matched audience exceeds this count. */
-export const EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS = 128;
+/**
+ * Deliveries of one key-value change that carry its value inline, in the order
+ * the fan-out serves them. Later ones carry the key alone.
+ */
+export const EVENTS_KV_VALUE_DELIVERIES_PER_EVENT = 128;
 
 /**
  * Largest inline KV value in serialized bytes. Larger values are omitted;
@@ -372,16 +468,20 @@ export const EVENTS_REGION_PENDING_CEILING = 1_000_000;
 // a handler that answers "no" is not. Retrying on a fixed cadence turns one
 // broken deploy into a permanent load on whatever is failing, so the wait
 // doubles per attempt up to a ceiling, and a run of failures stops the
-// subscription rather than retrying it forever.
+// subscription rather than retrying it forever. A run Puter could not start or
+// finish backs off the same way but is not the handler's failure, so it never
+// counts toward that run.
 
-/** Wait before the first retry of a delivery a handler could not take. */
-export const EVENTS_RETRY_BASE_MS = 2_000;
-
-/** Longest wait between retries, however many have failed. */
-export const EVENTS_RETRY_MAX_MS = 5 * 60 * 1000;
+// Wait before the first retry of a delivery a handler could not take, the
+// longest wait, and the doubling between them. Shared with system jobs.
+export {
+    deliveryBackoffMs,
+    EVENTS_RETRY_BASE_MS,
+    EVENTS_RETRY_MAX_MS,
+} from '../../util/retryBackoff.js';
 
 /**
- * Failures in a row before a subscription is suspended. Counted per
+ * Handler failures in a row before a subscription is suspended. Counted per
  * subscription and reset by the first delivery a handler takes, so an
  * occasional failure never accumulates into one.
  */
@@ -393,13 +493,6 @@ export const EVENTS_CONSECUTIVE_FAILURES = 5;
  * a run that ended.
  */
 export const EVENTS_FAILURE_COUNTER_TTL_MS = 60 * 60 * 1000;
-
-/** How long to hold a delivery whose handler has failed `attempts` times. */
-export const deliveryBackoffMs = (attempts: number): number =>
-    Math.min(
-        EVENTS_RETRY_MAX_MS,
-        EVENTS_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1),
-    );
 
 // -- Suspended backlog -----------------------------------------------
 //

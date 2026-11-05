@@ -130,6 +130,16 @@ describe('opening the list', () => {
         expect(options()).not.toContain('me');
     });
 
+    it('marks people, not teams or addresses, for their pictures', async () => {
+        const { picker, $input } = mount();
+        picker.setTeams([ACME]);
+        $input.trigger('click');
+        await settle();
+
+        const marked = $('.share-suggest-avatar').toArray().map((el) => el.getAttribute('data-avatar-user'));
+        expect(marked).toEqual([null, null, 'bob', 'carol']);
+    });
+
     it('narrows to what is typed', async () => {
         const { picker, $input } = mount();
         picker.setTeams([ACME]);
@@ -256,6 +266,17 @@ describe('choosing someone', () => {
             value: { team: 't-1' },
             label: 'Acme',
         });
+    });
+
+    it('leaves Enter and the arrows to an IME that is composing', async () => {
+        const { picker, $input } = await open();
+        const key = (k, init = {}) => $input[0].dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }));
+        key('ArrowDown', { isComposing: true });
+        key('Enter', { isComposing: true });
+        expect(picker.recipient()).toBe(null);
+        key('ArrowDown');
+        key('Enter');
+        expect(picker.recipient()).not.toBe(null);
     });
 
     it('hands a typed address over untouched', async () => {

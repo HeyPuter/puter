@@ -34,6 +34,16 @@ writeFileSync(
     }, null, 2)}\n`,
 );
 
+// The backend requires SDK modules it shares with puter.js (the handler
+// free-variable scan). They are ES modules in their own package, and tsc emits
+// them as such, so the build output says so too.
+if ( existsSync('dist/src/puter-js') ) {
+    writeFileSync(
+        'dist/src/puter-js/package.json',
+        `${JSON.stringify({ type: 'module' }, null, 2)}\n`,
+    );
+}
+
 // tsc only emits .js for .ts inputs. Non-source files the runtime needs
 // (SQL migrations + .dbmig.js scripts resolved relative to __dirname) have
 // to be copied over by hand — otherwise `SqliteDatabaseClient.runMigrations`

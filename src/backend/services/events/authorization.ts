@@ -17,17 +17,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { actorUid, makeActor, type Actor } from '../../core/actor.js';
+import {
+    actorUid,
+    isAccessTokenActor,
+    isAccountContext,
+    makeActor,
+    type Actor,
+} from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import type {
-    SubscriptionPermission,
-    SubscriptionTarget,
-} from '../../stores/events/types.js';
-import type {
-    AclError,
-    AclMode,
-    ResourceDescriptor,
+import type { SubscriptionPermission } from '../../stores/events/types.js';
+import {
+    aclRefusal,
+    memoizedDescriptor,
+    type AclError,
+    type AclMode,
+    type ResourceDescriptor,
 } from '../acl/ACLService.js';
 import {
     appDataPermission,
@@ -101,24 +106,13 @@ export interface EventAclDeps {
 export const nodeDescriptor = (
     node: AuthorizedNode,
     deps: Pick<EventAclDeps, 'getAncestorChain'>,
-): ResourceDescriptor => {
-    let ancestors: Promise<
-        ReadonlyArray<{ uid: string; path: string }>
-    > | null = null;
-    return {
-        path: node.path,
-        resolveAncestors: () => {
-            ancestors ??= deps
-                .getAncestorChain(node.path)
-                .then((chain) =>
-                    chain[0]?.uid === node.uid
-                        ? chain
-                        : [{ uid: node.uid, path: node.path }, ...chain],
-                );
-            return ancestors;
-        },
-    };
-};
+): ResourceDescriptor =>
+    memoizedDescriptor(node.path, async () => {
+        const chain = await deps.getAncestorChain(node.path);
+        return chain[0]?.uid === node.uid
+            ? chain
+            : [{ uid: node.uid, path: node.path }, ...chain];
+    });
 
 /**
  * The identity a stored subscription acts as when its access is re-checked. An
@@ -172,18 +166,10 @@ export const assertSubscribeAuthorized = async (
     if (await deps.acl.check(actor, resource, SUBSCRIBE_MODE))
         return SUBSCRIBE_MODE;
 
-    const safe = await deps.acl.getSafeAclError(
-        actor,
-        resource,
-        SUBSCRIBE_MODE,
+    throw aclRefusal(
+        await deps.acl.getSafeAclError(actor, resource, SUBSCRIBE_MODE),
+        { notFoundMessage: `No such entry: ${subject}` },
     );
-    if (safe.status === 404)
-        throw new HttpError(404, `No such entry: ${subject}`, {
-            legacyCode: 'subject_does_not_exist',
-        });
-    throw new HttpError(403, safe.message, {
-        legacyCode: safe.fields.code,
-    });
 };
 
 /**
@@ -218,11 +204,6 @@ export const checkDeliveryAuthorized = async (
  * through the same flow as every other one and revocable in the same place.
  */
 export const EVENTS_BACKGROUND_PERMISSION = 'events:background';
-
-/** Whether a row's transports include one that runs code with nobody there. */
-export const needsBackgroundConsent = (
-    targets: readonly SubscriptionTarget[],
-): boolean => targets.includes('worker');
 
 export const backgroundConsentRequired = (): HttpError =>
     new HttpError(
@@ -259,16 +240,17 @@ export const unknownKvShareHandle = (handle: string): HttpError =>
         legacyCode: 'subject_does_not_exist',
     });
 
+/** Whether the grant holds, or `null` when the check failed and can't say. */
 export const kvSharedRegionAuthorized = async (
     actor: Actor,
     permission: string,
     deps: KvSharedRegionDeps,
-): Promise<boolean> => {
+): Promise<boolean | null> => {
     if (!deps.enabled) return false;
     try {
         return await deps.checkPermission(actor, permission);
     } catch {
-        return false;
+        return null;
     }
 };
 
@@ -359,10 +341,10 @@ export const assertCrossAppKvAuthorized = async (
 };
 
 /**
- * Whether a row is inside what this actor may see and remove. An app-context
- * actor — an app token, or an access token an app issued — is confined to the
- * rows its own app created; a user-context one sees everything of theirs across
- * apps, which is what makes the account the revoke surface.
+ * Whether a row is inside what this actor may see and remove. An app token is
+ * confined to the rows its own app created; the account sees everything of
+ * theirs across apps, which is what makes it the revoke surface. A scoped
+ * access token sees nothing, whether the account or an app issued it.
  */
 export const rowInActorScope = (
     actor: Actor,
@@ -372,5 +354,7 @@ export const rowInActorScope = (
     // Unresolved is not "no app": reading it that way is what would hand an
     // app the account-wide view.
     if (app === undefined) return false;
-    return app === null || row.appUid === app.uid;
+    if (isAccessTokenActor(actor) && !isAccountContext(actor)) return false;
+    if (app === null) return isAccountContext(actor);
+    return row.appUid === app.uid;
 };

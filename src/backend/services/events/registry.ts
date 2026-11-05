@@ -20,6 +20,7 @@
 import type { EventKey, KvOp } from '../../clients/event/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { AclMode } from '../acl/ACLService.js';
+import { scheduleToken } from '../../stores/events/types.js';
 import type { NotificationAudience } from '../notification/notificationTypes.js';
 import { relativeTo } from './matcher.js';
 import {
@@ -64,6 +65,11 @@ export interface ProjectedFsEvent extends ProjectedEventBase {
     path: string;
     /** Present only on a `move` a subscribed folder lost the node from. */
     from?: string;
+    /**
+     * The change was made by server-side code running as the account (a worker,
+     * or an events handler) rather than by the account directly.
+     */
+    viaWorker: boolean;
 }
 
 /**
@@ -80,33 +86,44 @@ export interface ProjectedKvEvent extends ProjectedEventBase {
      * value is small enough to inline; an `expire` never carries one.
      */
     value?: unknown;
+    /** See {@link ProjectedFsEvent.viaWorker}. */
+    viaWorker: boolean;
 }
 
 /**
  * What a notification subscriber receives.
  *
- * `id` is the row's own uid rather than a per-dispatch uuid: a client that
- * fetched a missed notification and then received the live copy has to be able
- * to tell they are the same thing, and the mailbox uid is the only identity
- * both halves share. `uid` carries it under the name the mailbox verbs
- * (`mark-ack`, `mark-shown`) take.
+ * For postings, `id` is the row's own uid: a client that fetched a missed
+ * notification and then received the live copy has to be able to tell they are
+ * the same thing, and the mailbox uid is the only identity both halves share.
+ * `uid` carries it under the name the mailbox verbs (`mark-ack`, `mark-shown`)
+ * take.
  *
  * `notification` is the payload the caller sent, which is exactly what the
  * socket adapter puts on `notif.message` — a subscriber reading this channel
- * sees no less than the desktop does, and no internal row either.
+ * sees no less than the desktop does, and no internal row either. Dismissals
+ * use a fresh dispatch id and omit the payload.
  */
 export interface ProjectedNotifEvent extends ProjectedEventBase {
-    op: 'post';
+    op: 'post' | 'dismiss';
     uid: string;
     type: string;
     audience: NotificationAudience;
     /** App the notification is about; `null` for platform notifications. */
     appUid: string | null;
-    notification: Record<string, unknown>;
+    notification?: Record<string, unknown>;
+    /**
+     * Present when the notification replaced an earlier one under the same uid.
+     * `ts` is then the replacement time, the same on live and fetched copies,
+     * so it versions the uid.
+     */
+    replaced?: true;
 }
 
 export type ProjectedEvent =
-    ProjectedFsEvent | ProjectedKvEvent | ProjectedNotifEvent;
+    | ProjectedFsEvent
+    | ProjectedKvEvent
+    | ProjectedNotifEvent;
 
 export type GapReason =
     | 'matched_subscription_limit'
@@ -142,6 +159,8 @@ export interface EventContextBase {
     ts: number;
     /** Handler runs behind the change. Never projected. */
     handlerDepth?: number;
+    /** Made by server-side code running as the account; see `viaWorkerOf`. */
+    viaWorker?: boolean;
 }
 
 /** What dispatch knows about one committed filesystem change. */
@@ -184,6 +203,7 @@ export interface KvEventContext extends EventContextBase {
  * recipient's uuid because the anchor token is the mailbox.
  */
 export interface NotifEventContext extends EventContextBase {
+    dismissed?: true;
     userId: number;
     userUuid: string;
     uid: string;
@@ -191,26 +211,13 @@ export interface NotifEventContext extends EventContextBase {
     audience: NotificationAudience;
     appUid: string | null;
     notification: Record<string, unknown>;
+    /** An earlier notification replaced in place; `ts` is when. */
+    replaced?: true;
 }
 
 export type FsDeliveryContext = FsEventContext & DeliveryFields;
 export type KvDeliveryContext = KvEventContext & DeliveryFields;
 export type NotifDeliveryContext = NotifEventContext & DeliveryFields;
-
-export interface PushMessage {
-    title: string;
-    body?: string;
-    icon?: string;
-    url?: string;
-}
-
-/**
- * Human-facing projection. Its absence is what makes a subject unpushable —
- * which subjects have one is a privacy decision, not a formatting one.
- */
-export type NotifyProjection<P extends ProjectedEvent = ProjectedEvent> = (
-    event: P,
-) => PushMessage | null;
 
 /** How one family's filters are compiled and what they are tested against. */
 export interface MatchSpec {
@@ -239,8 +246,6 @@ export interface SubjectSpec<
     /** What a match filter globs against. */
     matchOn: (event: C) => string;
     project: (delivery: C & DeliveryFields) => P;
-    notify: NotifyProjection<P> | null;
-    defaultDelivery: DeliveryClass;
 }
 
 export interface FsPublicSubject extends SubjectSpec<
@@ -267,7 +272,9 @@ export interface NotifPublicSubject extends SubjectSpec<
 }
 
 export type PublicSubject =
-    FsPublicSubject | KvPublicSubject | NotifPublicSubject;
+    | FsPublicSubject
+    | KvPublicSubject
+    | NotifPublicSubject;
 
 export interface UnpublishedInternalEvent {
     event: EventKey;
@@ -291,9 +298,6 @@ const fsTokens = (event: FsEventContext): string[] => [
 
 const fsMatchOn = (event: FsEventContext): string => event.entry.path;
 
-/** No human-facing projection, so nothing is push-eligible yet. */
-const NOT_PUSHABLE: NotifyProjection<never> | null = null;
-
 const fsProject =
     (op: FsOp) =>
     (delivery: FsDeliveryContext): ProjectedFsEvent => ({
@@ -304,6 +308,7 @@ const fsProject =
         path: delivery.entry.path,
         ...(delivery.movedFrom ? { from: delivery.movedFrom.path } : {}),
         self: delivery.self,
+        viaWorker: delivery.viaWorker === true,
         ts: delivery.ts,
         seq: delivery.seq,
     });
@@ -329,6 +334,7 @@ const kvProject = (delivery: KvDeliveryContext): ProjectedKvEvent => ({
     key: delivery.kvKey,
     ...(delivery.value !== undefined ? { value: delivery.value } : {}),
     self: delivery.self,
+    viaWorker: delivery.viaWorker === true,
     ts: delivery.ts,
     seq: delivery.seq,
 });
@@ -346,17 +352,62 @@ const notifMatchTarget = (event: NotifEventContext): string =>
 const notifMatchScope = (_anchorPath: string, slice: string): string => slice;
 
 const notifProject = (delivery: NotifDeliveryContext): ProjectedNotifEvent => ({
-    id: delivery.uid,
+    id: delivery.dismissed ? delivery.id : delivery.uid,
     subject: `notif:${delivery.appUid ?? delivery.userUuid}:${delivery.audience}`,
-    op: 'post',
+    op: delivery.dismissed ? 'dismiss' : 'post',
     uid: delivery.uid,
     type: delivery.type,
     audience: delivery.audience,
     appUid: delivery.appUid,
-    notification: delivery.notification,
+    ...(delivery.dismissed ? {} : { notification: delivery.notification }),
+    ...(delivery.replaced ? { replaced: true as const } : {}),
     self: delivery.self,
     ts: delivery.ts,
     seq: delivery.seq,
+});
+
+// -- Schedule ticks ---------------------------------------------------
+
+/**
+ * What a schedule's handler is handed as `event`. No bus event stands behind
+ * it, so it has no registry entry: the runner builds it from the slot it fires.
+ * Additive only, as for the other projections.
+ */
+export interface ScheduleEvent {
+    /** `schedule:<scheduleId>`. */
+    subject: string;
+    op: 'tick';
+    /** `${scheduleId}:${scheduledFor}`: the same across retries of one slot. */
+    id: string;
+    scheduleId: string;
+    /** The slot this run is for, in epoch ms. */
+    scheduledFor: number;
+    /** When the invocation was sent; stamped as it goes out. */
+    firedAt?: number;
+    /** Slots skipped since the last one that ran. */
+    missed: number;
+    /** Set when `missed` stopped counting at its cap. */
+    missedCapped?: true;
+    /** Attempts at this slot, this one included. */
+    attempt: number;
+}
+
+/** The {@link ScheduleEvent} of one run. Called by extensions. */
+export const projectScheduleTick = (tick: {
+    scheduleId: string;
+    scheduledFor: number;
+    missed: number;
+    missedCapped: boolean;
+    attempt: number;
+}): ScheduleEvent => ({
+    subject: scheduleToken(tick.scheduleId),
+    op: 'tick',
+    id: `${tick.scheduleId}:${tick.scheduledFor}`,
+    scheduleId: tick.scheduleId,
+    scheduledFor: tick.scheduledFor,
+    missed: tick.missed,
+    ...(tick.missedCapped ? { missedCapped: true as const } : {}),
+    attempt: tick.attempt,
 });
 
 // -- Registry ---------------------------------------------------------
@@ -372,8 +423,6 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: '/',
         matchScope: relativeTo,
         project: fsProject('write'),
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
     {
         family: 'fs',
@@ -385,8 +434,6 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: '/',
         matchScope: relativeTo,
         project: fsProject('add'),
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
     {
         family: 'fs',
@@ -398,8 +445,6 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: '/',
         matchScope: relativeTo,
         project: fsProject('move'),
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
     {
         family: 'fs',
@@ -411,8 +456,6 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: '/',
         matchScope: relativeTo,
         project: fsProject('remove'),
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
     {
         family: 'kv',
@@ -423,22 +466,16 @@ export const PUBLIC_SUBJECTS = [
         matchSeparator: KV_MATCH_SEPARATOR,
         matchScope: kvMatchScope,
         project: kvProject,
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
     {
         family: 'notif',
         subject: 'notif:*',
-        internal: ['notif.created'],
+        internal: ['notif.created', 'notif.acknowledged'],
         tokens: notifTokens,
         matchOn: notifMatchTarget,
         matchSeparator: NOTIF_MATCH_SEPARATOR,
         matchScope: notifMatchScope,
         project: notifProject,
-        // The push seam fills this in; until then a notification is delivered
-        // to what is connected, and found in the mailbox otherwise.
-        notify: NOT_PUSHABLE,
-        defaultDelivery: 'broadcast',
     },
 ] as const satisfies readonly PublicSubject[];
 
@@ -462,6 +499,22 @@ export const UNPUBLISHED_INTERNAL_EVENTS = [
     {
         event: 'kv.flushed',
         reason: 'No subject addresses "the whole namespace went": the grammar anchors on a key or a prefix, and fanning a flush out per key would report keys a truncated enumeration never saw.',
+    },
+    {
+        event: 'kv.share.retired',
+        reason: 'A share handle stopping is not a change to any key; it ends the subscriptions made through the handle rather than being delivered to them.',
+    },
+    {
+        event: 'notif.written',
+        reason: 'A node-local hook after a notification is written, for extensions; the notification itself publishes through `notif.created`.',
+    },
+    {
+        event: 'notif.delivery.settled',
+        reason: 'A node-local report on how the live socket copy of a notification went; the notification itself publishes through `notif.created`.',
+    },
+    {
+        event: 'notif.handled',
+        reason: 'A node-local report that a page saw a notification live, for extensions deciding whether to push it; not a change to the notification.',
     },
 ] as const satisfies readonly UnpublishedInternalEvent[];
 
@@ -507,9 +560,3 @@ export const lookupNotifSubject = (
     const found = lookupPublicSubject(key);
     return found?.family === 'notif' ? found : undefined;
 };
-
-/** The push payload for an event, or `null` when the subject isn't pushable. */
-export const pushProjection = <P extends ProjectedEvent>(
-    subject: { notify: NotifyProjection<P> | null },
-    event: P,
-): PushMessage | null => subject.notify?.(event) ?? null;

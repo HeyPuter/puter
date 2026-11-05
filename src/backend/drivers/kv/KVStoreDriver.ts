@@ -19,12 +19,13 @@
 
 import { HttpError } from '../../core/http/HttpError.js';
 import { Context } from '../../core/context.js';
+import { claimCountedRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
-import type { Actor } from '../../core/actor.js';
+import { type Actor, isAccountContext, isAppActor } from '../../core/actor.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import {
     APP_DATA_KV_METHOD_OPS,
@@ -32,18 +33,226 @@ import {
     appDataPermission,
     appDataSharingAllowed,
 } from '../../services/permission/appDataScopes.js';
-import type { KVOpts, KVUsage } from '../../stores/systemKv/SystemKVStore.js';
+import {
+    KV_GLOBAL_APP_KEY,
+    KV_MAX_KEY_BYTES,
+    KvPrivateEntryError,
+    kvNamespace,
+    type KVOpts,
+    type KVUsage,
+} from '../../stores/systemKv/SystemKVStore.js';
+import { KV_SHARE_HANDLE_WIDTHS } from '../../stores/events/columnWidths.js';
 import { assertActorHasCredits } from '../../services/metering/enforcement.js';
+import { isKvHandleId } from '../../services/events/subjects.js';
+import {
+    KV_HANDLE_KEY_MAX_BYTES,
+    KV_SHARE_PREFIX_MAX_BYTES,
+    kvHandlesDisabled,
+    kvShareLevelForMethod,
+    kvSharePermission,
+} from '../../services/kvShare/kvShares.js';
+import {
+    decodeCursor,
+    normalizeLimit,
+    sealCursor,
+    unsealCursor,
+} from '../../util/pagination.js';
+import { predatesApp } from '../../util/appGeneration.js';
 import { KV_COSTS } from './costs.js';
+import {
+    KV_HANDLE_NAMESPACE_BUDGET,
+    KV_HANDLE_WRITE_UNIT_WEIGHT,
+    KV_MAX_BATCH_PUT_ITEMS,
+    KV_MAX_GET_KEYS,
+    KV_MAX_LIST_LIMIT,
+} from './limits.js';
+
+/** `optConfig` as every KV method takes it. */
+interface KvOptConfig {
+    /** Another app's namespace, which the user let this app reach. */
+    appUuid?: string;
+    /** Writes the entry private to the app that wrote it. */
+    disableSharing?: boolean;
+    /**
+     * A share handle: the call reaches that region of its owner's data, with
+     * keys relative to it.
+     */
+    handle?: string;
+    /** `set` only: write only when no live entry holds the key. */
+    onlyIfAbsent?: boolean;
+}
 
 /**
  * Every KV method's argument object, as far as option resolution cares: the
  * namespace override, plus the expiry parameters that can delete an entry.
  */
 type KvCallArgs = {
-    optConfig?: { appUuid?: string; disableSharing?: boolean };
+    optConfig?: KvOptConfig;
+    /** `list` only: what the listing returns. */
+    as?: unknown;
     expireAt?: unknown;
     ttl?: unknown;
+};
+
+/**
+ * Store options plus, for a call through a share handle, the handle and its
+ * region's prefix: keys go in under it and come back out relative to it.
+ */
+type DriverKvOpts = KVOpts & {
+    handle?: string;
+    handlePrefix?: string;
+    /** Set when the call spends from a namespace's handle budget. */
+    handleBudget?: HandleBudget;
+};
+
+/** The budgets a holder's call through a handle spends from. */
+interface HandleBudget {
+    /** Every holder of a share into the namespace together. */
+    namespace: string;
+    /** This holder alone, within the namespace. */
+    holder: string;
+}
+
+type KvListResult =
+    unknown[] | { items: unknown[]; cursor?: string; total?: number };
+
+/**
+ * A listing of another namespace, cross-app or through a handle: what its
+ * cursors are sealed to, the namespace a position rebuilds in, and the prefix
+ * its keys are relative to.
+ */
+interface ForeignListing {
+    bind: string;
+    namespace: string;
+    prefix: string;
+    /** Cross-app cursors were plain before they were sealed. */
+    acceptsPlain: boolean;
+}
+
+/**
+ * Plaintext bytes a foreign listing's cursor is padded to: a key at the store's
+ * limit in base64url, plus room for the binding and the envelope.
+ */
+const FOREIGN_CURSOR_BYTES = Math.ceil((KV_MAX_KEY_BYTES * 4) / 3) + 256;
+
+/** Whether `value` is a store position, `{ namespace, key }`, in `namespace`. */
+const isPositionIn = (value: unknown, namespace: string): boolean => {
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+        return false;
+    const { namespace: named, key, ...rest } = value as Record<string, unknown>;
+    return (
+        named === namespace &&
+        typeof key === 'string' &&
+        Object.keys(rest).length === 0
+    );
+};
+
+// -- Share-handle errors ----------------------------------------------
+
+/**
+ * Unknown, retired, not the caller's, owner gone or suspended, or namespace app
+ * deleted: one body for all of them, so no call can tell them apart.
+ */
+const handleNotFound = (): HttpError =>
+    new HttpError(404, 'kv: no such share handle', {
+        legacyCode: 'kv_handle_not_found',
+    });
+
+/** Only ever told to the handle's holder. */
+const handleAccessDenied = (): HttpError =>
+    new HttpError(403, 'kv: this share handle does not allow this call', {
+        legacyCode: 'kv_handle_access_denied',
+    });
+
+const handleOptionInvalid = (message: string): HttpError =>
+    new HttpError(400, message, { legacyCode: 'kv_handle_option_invalid' });
+
+const handleKeyInvalid = (): HttpError =>
+    new HttpError(
+        400,
+        `kv: a key used with a share handle must be a non-empty string of at most ${KV_HANDLE_KEY_MAX_BYTES} bytes`,
+        { legacyCode: 'kv_handle_key_invalid' },
+    );
+
+/** The key limit, so no pattern length can tell how long the prefix is. */
+const handlePatternInvalid = (): HttpError =>
+    new HttpError(
+        400,
+        `kv: a pattern used with a share handle may be at most ${KV_HANDLE_KEY_MAX_BYTES} bytes`,
+        { legacyCode: 'kv_handle_key_invalid' },
+    );
+
+/** The holder's budget in the namespace, or the namespace's, is used up. */
+const handleBudgetSpent = (): HttpError =>
+    new HttpError(429, 'Too many requests.', {
+        legacyCode: 'too_many_requests',
+    });
+
+/** The budgets a holder's calls into `namespace` spend from. */
+const handleBudget = (
+    namespace: string,
+    holderUserId: number,
+): HandleBudget => ({
+    namespace: `kv:handles:${namespace}`,
+    holder: `kv:handles:${namespace}:holder:${holderUserId}`,
+});
+
+/** Spend `units` from a budget, and say whether any of them fit. */
+const spendHandleBudget = async (
+    key: string,
+    limit: number,
+    units: number,
+): Promise<boolean> =>
+    (await claimCountedRateLimit(
+        key,
+        limit,
+        KV_HANDLE_NAMESPACE_BUDGET.window,
+        units,
+    )) > 0;
+
+/**
+ * Whether a share's grant can answer for this actor at all: the holder's own
+ * account, or the app whose data is shared. Any other caller is refused as if
+ * the handle weren't there.
+ */
+const onShareSurface = (actor: Actor, appUid: string): boolean =>
+    isAccountContext(actor) ||
+    (isAppActor(actor) && actor.effectiveApp?.uid === appUid);
+
+const invalidCursor = (): HttpError =>
+    new HttpError(400, 'invalid kv: cursor', { legacyCode: 'bad_request' });
+
+/** A stored key outside the handle's region, which a scan can't return. */
+const outsideRegion = (): HttpError =>
+    new HttpError(500, 'kv: internal error', { legacyCode: 'internal_error' });
+
+const viaHandle = (args?: KvCallArgs): boolean =>
+    args?.optConfig?.handle !== undefined && args.optConfig.handle !== null;
+
+/** `onlyIfAbsent` as a boolean, refusing anything else a raw body sends. */
+const parseOnlyIfAbsent = (value: unknown): boolean => {
+    if (value === undefined || value === null || value === false) return false;
+    if (value === true) return true;
+    throw new HttpError(400, 'kv: onlyIfAbsent must be a boolean', {
+        legacyCode: 'bad_request',
+    });
+};
+
+/**
+ * A store error with every stored key it names put back the way the caller
+ * named it, so the handle's prefix never leaves in a message.
+ */
+const relativizeError = (
+    err: unknown,
+    prefix: string,
+    keys: readonly string[],
+): unknown => {
+    if (!(err instanceof Error) || typeof err.message !== 'string') return err;
+    let message = err.message;
+    for (const key of keys)
+        message = message.split(`${prefix}${key}`).join(key);
+    if (message !== err.message) err.message = message;
+    return err;
 };
 
 /**
@@ -135,13 +344,25 @@ export class KVStoreDriver extends PuterDriver {
         }));
     }
 
-    #coerceKey(key: unknown): string {
+    /**
+     * A key as the caller sent it. Through a handle it is relative to the
+     * region, and held to the handle's own fixed limit.
+     */
+    #coerceKey(key: unknown, args?: KvCallArgs): string {
         if (key === null || key === undefined) {
             throw new HttpError(400, 'Missing `key`', {
                 legacyCode: 'bad_request',
             }); // legacyCode for backward compatibility with old error handling in controllers
         }
         const str = typeof key === 'string' ? key : String(key);
+        if (viaHandle(args)) {
+            if (
+                str === '' ||
+                Buffer.byteLength(str, 'utf8') > KV_HANDLE_KEY_MAX_BYTES
+            )
+                throw handleKeyInvalid();
+            return str;
+        }
         if (str === '')
             throw new HttpError(400, 'Missing `key`', {
                 legacyCode: 'bad_request',
@@ -149,7 +370,40 @@ export class KVStoreDriver extends PuterDriver {
         return str;
     }
 
-    async #opts(method: string, args: KvCallArgs): Promise<KVOpts> {
+    /** The key as stored: through a handle, placed under its prefix. */
+    #storeKey(key: string, opts: DriverKvOpts): string {
+        return opts.handlePrefix === undefined
+            ? key
+            : `${opts.handlePrefix}${key}`;
+    }
+
+    /** A stored key as a handle's caller names it; fails closed outside it. */
+    #relativeKey(key: unknown, prefix: string): string {
+        if (typeof key !== 'string' || !key.startsWith(prefix))
+            throw outsideRegion();
+        return key.slice(prefix.length);
+    }
+
+    /**
+     * Run one store call. Through a handle, an error naming a stored key names
+     * the caller's relative key instead, and a write refused for a private
+     * entry gets the refusal any call the handle doesn't allow gets.
+     */
+    async #inRegion<T>(
+        opts: DriverKvOpts,
+        keys: readonly string[],
+        call: () => Promise<T>,
+    ): Promise<T> {
+        if (opts.handlePrefix === undefined) return call();
+        try {
+            return await call();
+        } catch (err) {
+            if (err instanceof KvPrivateEntryError) throw handleAccessDenied();
+            throw relativizeError(err, opts.handlePrefix, keys);
+        }
+    }
+
+    async #opts(method: string, args: KvCallArgs): Promise<DriverKvOpts> {
         const actor = Context.get('actor') as Actor | undefined;
 
         // Every method resolves its options here first, so this is the one
@@ -163,6 +417,8 @@ export class KVStoreDriver extends PuterDriver {
                 this.config,
             );
         }
+
+        if (viaHandle(args)) return this.#handleOpts(actor, method, args);
 
         const appUuid = args.optConfig?.appUuid;
         // Through the issuer chain, not `actor.app`: an access-token actor
@@ -190,6 +446,245 @@ export class KVStoreDriver extends PuterDriver {
 
         await this.#assertCrossAppKvAccess(actor!, appUuid, method, args);
         return { actor, namespaceAppUuid: appUuid };
+    }
+
+    /**
+     * A call through a share handle, resolved to the owner's namespace. The
+     * handle row only names the region and whose it is; the grant, checked here
+     * on every call, is the authority. One check covers every key of the call,
+     * since they all sit under the handle's prefix.
+     */
+    async #handleOpts(
+        actor: Actor | undefined,
+        method: string,
+        args: KvCallArgs,
+    ): Promise<DriverKvOpts> {
+        if (this.config.kv?.shareHandles !== true) throw kvHandlesDisabled();
+
+        const optConfig = args.optConfig ?? {};
+        const level = kvShareLevelForMethod(method, args);
+        if (optConfig.appUuid || optConfig.disableSharing)
+            throw handleOptionInvalid(
+                'kv: `handle` cannot be combined with `appUuid` or `disableSharing`',
+            );
+        if (level === null)
+            throw handleOptionInvalid(
+                `kv: \`${method}\` is not available through a share handle`,
+            );
+
+        const handle: unknown = optConfig.handle;
+        if (typeof handle !== 'string')
+            throw handleOptionInvalid('kv: `handle` must be a string');
+        const userId = actor?.user?.id;
+        if (
+            !actor ||
+            typeof userId !== 'number' ||
+            handle.length > KV_SHARE_HANDLE_WIDTHS.handle.max ||
+            !isKvHandleId(handle)
+        )
+            throw handleNotFound();
+
+        const live = await this.stores.kvShareHandle.getLive(handle);
+        if (!live || live.ownerSuspended) throw handleNotFound();
+        const { row, ownerUuid } = live;
+        // Bound to its grantee: a handle id is an address, not a bearer
+        // credential, so another holder's overlapping grant doesn't reach it.
+        if (userId !== row.granteeUserId && userId !== row.ownerUserId)
+            throw handleNotFound();
+
+        // The holder's own budget goes before the grant lookups, so throttled
+        // retries cost none. It only counts the holder's own calls, so it says
+        // nothing about the namespace. The owner spends no handle budget.
+        const { limit, perHolder } = KV_HANDLE_NAMESPACE_BUDGET;
+        const budget =
+            userId === row.ownerUserId
+                ? undefined
+                : handleBudget(kvNamespace(ownerUuid, row.appUid), userId);
+        const holderFirst =
+            budget !== undefined && onShareSurface(actor, row.appUid);
+        if (
+            holderFirst &&
+            !(await spendHandleBudget(budget.holder, perHolder, 1))
+        )
+            throw handleBudgetSpent();
+
+        // Side by side, so the app lookup costs no round trip of its own. A
+        // handle older than its app was made for an earlier app under the
+        // same uid, and is gone with it.
+        const [appGone, allowed] = await Promise.all([
+            row.appUid === KV_GLOBAL_APP_KEY
+                ? false
+                : this.stores.app
+                      .getByUid(row.appUid)
+                      .then((app) => !app || predatesApp(row.createdAt, app)),
+            this.services.permission.check(
+                actor,
+                kvSharePermission(ownerUuid, row.appUid, row.keyPrefix, level),
+            ),
+        ]);
+        if (appGone) throw handleNotFound();
+        if (!allowed) {
+            // Asked only on the way out: whoever can still watch the region
+            // is its holder, and only they may learn the level is too low.
+            const holds = await this.services.permission.check(
+                actor,
+                kvSharePermission(
+                    ownerUuid,
+                    row.appUid,
+                    row.keyPrefix,
+                    'watch',
+                ),
+            );
+            throw holds ? handleAccessDenied() : handleNotFound();
+        }
+        // Past the cap only a watch handle can be, reached through a wider
+        // grant; the fixed key limit holders are shown assumes the cap.
+        if (
+            Buffer.byteLength(row.keyPrefix, 'utf8') > KV_SHARE_PREFIX_MAX_BYTES
+        )
+            throw handleAccessDenied();
+        // The namespace's budget tells how busy other holders are, so only a
+        // caller the grant admits may hear it. `#meter` spends the rest.
+        if (budget) {
+            if (
+                !holderFirst &&
+                !(await spendHandleBudget(budget.holder, perHolder, 1))
+            )
+                throw handleBudgetSpent();
+            if (!(await spendHandleBudget(budget.namespace, limit, 1)))
+                throw handleBudgetSpent();
+        }
+
+        return {
+            actor,
+            namespaceUser: { uuid: ownerUuid, id: row.ownerUserId },
+            namespaceAppUuid: row.appUid,
+            handle,
+            handlePrefix: row.keyPrefix,
+            ...(budget ? { handleBudget: budget } : {}),
+        };
+    }
+
+    /** Set when a listing covers another namespace, cross-app or by handle. */
+    #foreignListing(opts: DriverKvOpts): ForeignListing | undefined {
+        if (opts.handle !== undefined)
+            return {
+                bind: opts.handle,
+                namespace: kvNamespace(
+                    opts.namespaceUser!.uuid,
+                    opts.namespaceAppUuid!,
+                ),
+                prefix: opts.handlePrefix!,
+                acceptsPlain: false,
+            };
+        if (!opts.namespaceAppUuid) return undefined;
+        const namespace = kvNamespace(
+            opts.actor!.user.uuid!,
+            opts.namespaceAppUuid,
+        );
+        return { bind: namespace, namespace, prefix: '', acceptsPlain: true };
+    }
+
+    /**
+     * A foreign listing's cursor as a store position, rebuilt in the listing's
+     * own namespace and region. Only a cursor sealed to this listing opens, or
+     * a plain cross-app one naming the same namespace.
+     */
+    #cursorIn(
+        cursor: unknown,
+        listing: ForeignListing,
+    ): Record<string, unknown> | undefined {
+        if (cursor === undefined || cursor === null) return undefined;
+        if (typeof cursor === 'string') {
+            if (cursor.trim() === '') return undefined;
+            const sealed = unsealCursor(
+                cursor.trim(),
+                this.config.jwt_secret_v2,
+            );
+            if (sealed) {
+                const { s, k, r, ...rest } = sealed;
+                if (
+                    s !== listing.bind ||
+                    typeof k !== 'string' ||
+                    (r !== undefined && r !== true) ||
+                    Object.keys(rest).length > 0
+                )
+                    throw invalidCursor();
+                const position = {
+                    namespace: listing.namespace,
+                    key: `${listing.prefix}${Buffer.from(k, 'base64url').toString('utf8')}`,
+                };
+                return r ? { reverse: true, key: position } : position;
+            }
+        } else if (typeof cursor !== 'object') throw invalidCursor();
+        if (!listing.acceptsPlain) throw invalidCursor();
+
+        const plain = decodeCursor(
+            cursor as string | Record<string, unknown>,
+            'kv: cursor',
+        );
+        if (plain === undefined || isPositionIn(plain, listing.namespace))
+            return plain;
+        const { reverse, key, ...rest } = plain;
+        if (
+            reverse === true &&
+            Object.keys(rest).length === 0 &&
+            isPositionIn(key, listing.namespace)
+        )
+            return plain;
+        throw invalidCursor();
+    }
+
+    /**
+     * The store's next-page position, sealed to the listing and padded to one
+     * length, with its key relative to the region.
+     */
+    #cursorOut(cursor: string, listing: ForeignListing): string | undefined {
+        const decoded = decodeCursor(cursor);
+        const reverse = decoded?.reverse === true;
+        const position = (reverse ? decoded?.key : decoded) as
+            { namespace?: unknown; key?: unknown } | undefined;
+        if (position?.namespace !== listing.namespace) throw outsideRegion();
+        const key = this.#relativeKey(position.key, listing.prefix);
+        return sealCursor(
+            {
+                s: listing.bind,
+                k: Buffer.from(key, 'utf8').toString('base64url'),
+                ...(reverse ? { r: true } : {}),
+            },
+            this.config.jwt_secret_v2,
+            { padTo: FOREIGN_CURSOR_BYTES },
+        );
+    }
+
+    /** A foreign listing as its caller sees it: keys relative, cursor sealed. */
+    #foreignResult(
+        res: KvListResult,
+        as: string | undefined,
+        listing: ForeignListing,
+    ): KvListResult {
+        const { prefix } = listing;
+        const relative = (items: unknown[]): unknown[] => {
+            if (as === 'values' || prefix === '') return items;
+            if (as === 'keys')
+                return items.map((key) => this.#relativeKey(key, prefix));
+            return items.map((entry) => {
+                const { key, value } = entry as {
+                    key: unknown;
+                    value: unknown;
+                };
+                return { key: this.#relativeKey(key, prefix), value };
+            });
+        };
+        if (Array.isArray(res)) return relative(res);
+        const cursor = res.cursor
+            ? this.#cursorOut(res.cursor, listing)
+            : undefined;
+        return {
+            items: relative(res.items),
+            ...(cursor ? { cursor } : {}),
+            ...(res.total !== undefined ? { total: res.total } : {}),
+        };
     }
 
     async #assertCrossAppKvAccess(
@@ -234,8 +729,10 @@ export class KVStoreDriver extends PuterDriver {
             });
         }
 
+        // `expire` takes its TTL as `ttl`, and its own op is already a deletion.
         const raw = args as Record<string, unknown>;
         if (
+            op !== 'expire' &&
             APP_DATA_KV_TTL_PARAMS.some(
                 (p) => raw[p] !== undefined && raw[p] !== null,
             )
@@ -264,7 +761,23 @@ export class KVStoreDriver extends PuterDriver {
         }
     }
 
-    #meter(actor: Actor | undefined, usage: KVUsage): void {
+    /**
+     * Bill the caller for what the call consumed. A holder's call through a
+     * handle also spends it from its budgets, past the unit admission took.
+     */
+    #meter(opts: DriverKvOpts, usage: KVUsage): void {
+        const budget = opts.handleBudget;
+        if (budget) {
+            const units = Math.ceil(
+                usage.read + usage.write * KV_HANDLE_WRITE_UNIT_WEIGHT,
+            );
+            if (units > 1) {
+                const { limit, perHolder } = KV_HANDLE_NAMESPACE_BUDGET;
+                void spendHandleBudget(budget.holder, perHolder, units - 1);
+                void spendHandleBudget(budget.namespace, limit, units - 1);
+            }
+        }
+        const actor = opts.actor;
         if (!actor) return;
         const metering = this.services.metering;
         if (usage.read > 0) {
@@ -314,7 +827,7 @@ export class KVStoreDriver extends PuterDriver {
 
     async get(args: {
         key: unknown;
-        optConfig?: { appUuid?: string };
+        optConfig?: KvOptConfig;
     }): Promise<unknown> {
         const { key } = args;
         if (key === undefined || key === null) {
@@ -323,57 +836,75 @@ export class KVStoreDriver extends PuterDriver {
             }); // legacyCode for backward compatibility with old error handling in controllers
         }
 
+        if (Array.isArray(key) && key.length > KV_MAX_GET_KEYS) {
+            throw new HttpError(
+                400,
+                `kv: get accepts at most ${KV_MAX_GET_KEYS} keys per call`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+
         const opts = await this.#opts('get', args);
 
         if (Array.isArray(key)) {
             if (key.length === 0) return [];
-            const coerced = key.map((k) => this.#coerceKey(k));
-            const { res, usage } = await this.stores.kv.get(
-                { key: coerced },
-                opts,
+            const coerced = key.map((k) => this.#coerceKey(k, args));
+            const { res, usage } = await this.#inRegion(opts, coerced, () =>
+                this.stores.kv.get(
+                    { key: coerced.map((k) => this.#storeKey(k, opts)) },
+                    opts,
+                ),
             );
-            this.#meter(opts.actor, usage);
+            this.#meter(opts, usage);
             return res;
         }
 
-        const { res, usage } = await this.stores.kv.get(
-            { key: this.#coerceKey(key) },
-            opts,
+        const coerced = this.#coerceKey(key, args);
+        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
+            this.stores.kv.get({ key: this.#storeKey(coerced, opts) }, opts),
         );
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
         return res;
     }
 
+    /**
+     * `false` only for an `onlyIfAbsent` write that found a live entry, which
+     * is left as it was.
+     */
     async set(args: {
         key: unknown;
         value: unknown;
         expireAt?: number | null;
-        optConfig?: { appUuid?: string; disableSharing?: boolean };
+        optConfig?: KvOptConfig;
     }): Promise<boolean> {
         const { key, value, expireAt } = args;
-        const coerced = this.#coerceKey(key);
+        const coerced = this.#coerceKey(key, args);
         if (value === undefined)
             throw new HttpError(400, 'Missing `value`', {
                 legacyCode: 'bad_request',
             }); // legacyCode for backward compatibility with old error handling in controllers
+        const onlyIfAbsent = parseOnlyIfAbsent(args.optConfig?.onlyIfAbsent);
 
         const opts = await this.#opts('set', args);
-        const { res, usage } = await this.stores.kv.set(
-            {
-                key: coerced,
-                value,
-                expireAt,
-                disableSharing: args.optConfig?.disableSharing,
-            },
-            opts,
+        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
+            this.stores.kv.set(
+                {
+                    key: this.#storeKey(coerced, opts),
+                    value,
+                    expireAt,
+                    disableSharing: args.optConfig?.disableSharing,
+                    onlyIfAbsent,
+                },
+                opts,
+            ),
         );
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
         return res;
     }
 
     async batchPut(args: {
         items: Array<{ key: string; value: unknown; expireAt?: number | null }>;
-        optConfig?: { appUuid?: string; disableSharing?: boolean };
+        optConfig?: KvOptConfig;
     }): Promise<boolean> {
         const { items } = args;
         if (!Array.isArray(items) || items.length === 0) {
@@ -381,17 +912,34 @@ export class KVStoreDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             }); // legacyCode for backward compatibility with old error handling in controllers
         }
+        if (items.length > KV_MAX_BATCH_PUT_ITEMS) {
+            throw new HttpError(
+                400,
+                `kv: a batch write accepts at most ${KV_MAX_BATCH_PUT_ITEMS} items per call`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        // A batch write takes no condition, so it can't promise this per item.
+        if (parseOnlyIfAbsent(args.optConfig?.onlyIfAbsent)) {
+            throw new HttpError(
+                400,
+                'kv: onlyIfAbsent is not available on a batch write',
+                { legacyCode: 'invalid_request' },
+            );
+        }
 
         const coerced = items.map((item) => ({
-            key: this.#coerceKey(item.key),
+            key: this.#coerceKey(item.key, args),
             value: item.value,
             expireAt: item.expireAt,
         }));
 
         const opts = await this.#opts('batchPut', args);
-        // Per-item expiry, which the top-level scan in `#opts` cannot see.
+        // Per-item expiry, which the top-level scan in `#opts` cannot see. A
+        // handle's `write` level already carries expiries.
         if (
             opts.namespaceAppUuid &&
+            opts.handlePrefix === undefined &&
             coerced.some(
                 (item) => item.expireAt !== undefined && item.expireAt !== null,
             )
@@ -401,25 +949,35 @@ export class KVStoreDriver extends PuterDriver {
                 opts.namespaceAppUuid,
             );
         }
-        const { res, usage } = await this.stores.kv.batchPut(
-            {
-                items: coerced,
-                disableSharing: args.optConfig?.disableSharing,
-            },
+        const { res, usage } = await this.#inRegion(
             opts,
+            coerced.map((item) => item.key),
+            () =>
+                this.stores.kv.batchPut(
+                    {
+                        items: coerced.map((item) => ({
+                            ...item,
+                            key: this.#storeKey(item.key, opts),
+                        })),
+                        disableSharing: args.optConfig?.disableSharing,
+                    },
+                    opts,
+                ),
         );
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
         return res;
     }
 
     async del(args: {
         key: unknown;
-        optConfig?: { appUuid?: string };
+        optConfig?: KvOptConfig;
     }): Promise<boolean> {
-        const coerced = this.#coerceKey(args.key);
+        const coerced = this.#coerceKey(args.key, args);
         const opts = await this.#opts('del', args);
-        const { res, usage } = await this.stores.kv.del({ key: coerced }, opts);
-        this.#meter(opts.actor, usage);
+        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
+            this.stores.kv.del({ key: this.#storeKey(coerced, opts) }, opts),
+        );
+        this.#meter(opts, usage);
         return res;
     }
 
@@ -432,49 +990,67 @@ export class KVStoreDriver extends PuterDriver {
         includeTotal?: boolean;
         fetchUntilFull?: boolean;
         reverse?: boolean;
-        optConfig?: { appUuid?: string };
+        optConfig?: KvOptConfig;
     }): Promise<unknown> {
         const opts = await this.#opts('list', args);
         // Naming what it holds is how an account with nothing left decides what
         // to delete, so the keys stay readable. Reading the values back out is
-        // the same egress every other read is turned away for.
-        if (args.as !== 'keys') {
+        // the same egress every other read is turned away for, and a total is
+        // a count over the whole namespace that naming keys doesn't need.
+        if (args.as !== 'keys' || args.includeTotal) {
             await assertActorHasCredits(
                 this.services.metering,
                 opts.actor,
                 this.config,
             );
         }
+        const handlePrefix = opts.handlePrefix;
+        const listing = this.#foreignListing(opts);
+        if (
+            handlePrefix !== undefined &&
+            typeof args.pattern === 'string' &&
+            Buffer.byteLength(args.pattern, 'utf8') > KV_HANDLE_KEY_MAX_BYTES
+        )
+            throw handlePatternInvalid();
         const { res, usage } = await this.stores.kv.list(
             {
                 as: args.as,
-                limit: args.limit,
-                cursor: args.cursor,
+                limit: normalizeLimit(args.limit, {
+                    cap: KV_MAX_LIST_LIMIT,
+                    label: 'kv: limit',
+                }),
+                cursor: listing
+                    ? this.#cursorIn(args.cursor, listing)
+                    : args.cursor,
                 pattern: args.pattern,
                 offset: args.offset,
                 includeTotal: args.includeTotal,
                 fetchUntilFull: args.fetchUntilFull,
                 reverse: args.reverse,
+                ...(handlePrefix === undefined
+                    ? {}
+                    : { keyPrefix: handlePrefix }),
             },
             opts,
         );
-        this.#meter(opts.actor, usage);
-        return res;
+        this.#meter(opts, usage);
+        if (!listing) return res;
+        return this.#foreignResult(res as KvListResult, args.as, listing);
     }
 
-    async flush(args: { optConfig?: { appUuid?: string } }): Promise<boolean> {
+    async flush(args: { optConfig?: KvOptConfig }): Promise<boolean> {
         const opts = await this.#opts('flush', args);
         const { res, usage } = await this.stores.kv.flush(opts);
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
         return res;
     }
 
     async incr(args: {
         key: unknown;
         pathAndAmountMap: Record<string, number>;
-        optConfig?: { appUuid?: string };
+        optConfig?: KvOptConfig;
     }): Promise<unknown> {
-        const coerced = this.#coerceKey(args.key);
+        const coerced = this.#coerceKey(args.key, args);
         if (
             !args.pathAndAmountMap ||
             typeof args.pathAndAmountMap !== 'object'
@@ -484,20 +1060,25 @@ export class KVStoreDriver extends PuterDriver {
             });
         }
         const opts = await this.#opts('incr', args);
-        const { res, usage } = await this.stores.kv.incr(
-            { key: coerced, pathAndAmountMap: args.pathAndAmountMap },
-            opts,
+        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
+            this.stores.kv.incr(
+                {
+                    key: this.#storeKey(coerced, opts),
+                    pathAndAmountMap: args.pathAndAmountMap,
+                },
+                opts,
+            ),
         );
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
         return res;
     }
 
     async decr(args: {
         key: unknown;
         pathAndAmountMap: Record<string, number>;
-        optConfig?: { appUuid?: string };
+        optConfig?: KvOptConfig;
     }): Promise<unknown> {
-        const coerced = this.#coerceKey(args.key);
+        const coerced = this.#coerceKey(args.key, args);
         if (
             !args.pathAndAmountMap ||
             typeof args.pathAndAmountMap !== 'object'
@@ -507,51 +1088,63 @@ export class KVStoreDriver extends PuterDriver {
             });
         }
         const opts = await this.#opts('decr', args);
-        const { res, usage } = await this.stores.kv.decr(
-            { key: coerced, pathAndAmountMap: args.pathAndAmountMap },
-            opts,
+        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
+            this.stores.kv.decr(
+                {
+                    key: this.#storeKey(coerced, opts),
+                    pathAndAmountMap: args.pathAndAmountMap,
+                },
+                opts,
+            ),
         );
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
         return res;
     }
 
     async expireAt(args: {
         key: unknown;
         timestamp: number;
-        optConfig?: { appUuid?: string };
+        optConfig?: KvOptConfig;
     }): Promise<boolean> {
-        const coerced = this.#coerceKey(args.key);
+        const coerced = this.#coerceKey(args.key, args);
         if (typeof args.timestamp !== 'number') {
             throw new HttpError(400, '`timestamp` must be a number', {
                 legacyCode: 'bad_request',
             });
         }
         const opts = await this.#opts('expireAt', args);
-        const { res, usage } = await this.stores.kv.expireAt(
-            { key: coerced, timestamp: args.timestamp },
-            opts,
+        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
+            this.stores.kv.expireAt(
+                {
+                    key: this.#storeKey(coerced, opts),
+                    timestamp: args.timestamp,
+                },
+                opts,
+            ),
         );
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
         return res;
     }
 
     async expire(args: {
         key: unknown;
         ttl: number;
-        optConfig?: { appUuid?: string };
+        optConfig?: KvOptConfig;
     }): Promise<boolean> {
-        const coerced = this.#coerceKey(args.key);
+        const coerced = this.#coerceKey(args.key, args);
         if (typeof args.ttl !== 'number') {
             throw new HttpError(400, '`ttl` must be a number (seconds)', {
                 legacyCode: 'bad_request',
             });
         }
         const opts = await this.#opts('expire', args);
-        const { res, usage } = await this.stores.kv.expire(
-            { key: coerced, ttl: args.ttl },
-            opts,
+        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
+            this.stores.kv.expire(
+                { key: this.#storeKey(coerced, opts), ttl: args.ttl },
+                opts,
+            ),
         );
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
         return res;
     }
 
@@ -559,64 +1152,85 @@ export class KVStoreDriver extends PuterDriver {
         key: unknown;
         pathAndValueMap: Record<string, unknown>;
         ttl?: number | null;
-        optConfig?: { appUuid?: string };
+        optConfig?: KvOptConfig;
     }): Promise<unknown> {
-        const coerced = this.#coerceKey(args.key);
+        const coerced = this.#coerceKey(args.key, args);
         if (!args.pathAndValueMap || typeof args.pathAndValueMap !== 'object') {
             throw new HttpError(400, 'Missing or invalid `pathAndValueMap`', {
                 legacyCode: 'bad_request',
             });
         }
         const opts = await this.#opts('update', args);
-        const { res, usage } = await this.stores.kv.update(
-            {
-                key: coerced,
-                pathAndValueMap: args.pathAndValueMap,
-                ttl: args.ttl,
-            },
-            opts,
+        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
+            this.stores.kv.update(
+                {
+                    key: this.#storeKey(coerced, opts),
+                    pathAndValueMap: args.pathAndValueMap,
+                    ttl: args.ttl,
+                },
+                opts,
+            ),
         );
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
         return res;
     }
 
     async add(args: {
         key: unknown;
         pathAndValueMap: Record<string, unknown>;
-        optConfig?: { appUuid?: string };
+        optConfig?: KvOptConfig;
     }): Promise<unknown> {
-        const coerced = this.#coerceKey(args.key);
+        const coerced = this.#coerceKey(args.key, args);
         if (!args.pathAndValueMap || typeof args.pathAndValueMap !== 'object') {
             throw new HttpError(400, 'Missing or invalid `pathAndValueMap`', {
                 legacyCode: 'bad_request',
             });
         }
         const opts = await this.#opts('add', args);
-        const { res, usage } = await this.stores.kv.add(
-            { key: coerced, pathAndValueMap: args.pathAndValueMap },
-            opts,
+        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
+            this.stores.kv.add(
+                {
+                    key: this.#storeKey(coerced, opts),
+                    pathAndValueMap: args.pathAndValueMap,
+                },
+                opts,
+            ),
         );
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
         return res;
     }
 
     async remove(args: {
         key: unknown;
         paths: string[];
-        optConfig?: { appUuid?: string };
+        optConfig?: KvOptConfig;
     }): Promise<unknown> {
-        const coerced = this.#coerceKey(args.key);
+        const coerced = this.#coerceKey(args.key, args);
         if (!Array.isArray(args.paths) || args.paths.length === 0) {
             throw new HttpError(400, 'Missing or invalid `paths`', {
                 legacyCode: 'bad_request',
             });
         }
         const opts = await this.#opts('remove', args);
-        const { res, usage } = await this.stores.kv.remove(
-            { key: coerced, paths: args.paths },
-            opts,
+        const { res, usage } = await this.#inRegion(opts, [coerced], () =>
+            this.stores.kv.remove(
+                { key: this.#storeKey(coerced, opts), paths: args.paths },
+                opts,
+            ),
         );
-        this.#meter(opts.actor, usage);
+        this.#meter(opts, usage);
+        // The result is the entry's value, so a delete-only grant gets none. A
+        // handle's `write` level reads too.
+        if (
+            opts.namespaceAppUuid &&
+            opts.handlePrefix === undefined &&
+            !(await this.services.permission.check(
+                opts.actor!,
+                appDataPermission(opts.namespaceAppUuid, 'kv', 'get'),
+            ))
+        ) {
+            return null;
+        }
         return res;
     }
 }

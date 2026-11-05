@@ -10,8 +10,12 @@ import { incr } from './incr.js';
 import { GuiBootCache } from './lib/guiCache.js';
 import { MAX_KEY_SIZE, MAX_VALUE_SIZE } from './lib/validate.js';
 import { list } from './list.js';
+import { listShared } from './listShared.js';
+import { listSharedByMe } from './listSharedByMe.js';
 import { remove } from './remove.js';
 import { set } from './set.js';
+import { share } from './share.js';
+import { unshare } from './unshare.js';
 import { update } from './update.js';
 
 /** @typedef {import('../../index.js').Puter} Puter */
@@ -30,14 +34,15 @@ export class KVModule extends PuterModule {
     guiCache;
 
     /**
-     * The maximum allowed key size, in bytes (`1 KB`).
+     * The maximum allowed key size, in UTF-8 bytes (`1 KB`).
      *
      * @readonly
      */
     MAX_KEY_SIZE = MAX_KEY_SIZE;
 
     /**
-     * The maximum allowed value size, in bytes (`400 KB`).
+     * The maximum allowed value size, in UTF-8 bytes of the value's JSON
+     * encoding (`399 KB`).
      *
      * @readonly
      */
@@ -61,6 +66,10 @@ export class KVModule extends PuterModule {
     flush = flush;
     /** Alias of {@link flush}. */
     clear = flush;
+    share = share;
+    unshare = unshare;
+    listShared = listShared;
+    listSharedByMe = listSharedByMe;
 
     /** @param {Puter} puter */
     constructor (puter) {
@@ -73,6 +82,7 @@ export class KVModule extends PuterModule {
         for ( const name of [
             'set', 'get', 'del', 'incr', 'decr', 'add', 'remove',
             'update', 'expire', 'expireAt', 'list', 'flush',
+            'share', 'unshare', 'listShared', 'listSharedByMe',
         ] ) {
             methods[name] = methods[name].bind(this);
         }

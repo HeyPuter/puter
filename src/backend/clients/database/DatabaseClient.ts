@@ -17,13 +17,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { readdirSync, readFileSync } from 'fs';
+import { isAbsolute, resolve as resolvePath } from 'path';
 import type { IConfig } from '../../types';
+import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
+import { compareMigrationFilenames } from './migrationFilenames.js';
 
 export interface WriteResult {
     insertId: number | bigint;
     affectedRows: number;
     anyRowsAffected: boolean;
+    /**
+     * Warnings the statement raised; nonzero means a value may have been stored
+     * differently from how it was sent. Absent when the engine can't vouch that
+     * a clean insert stored exactly what was sent, on a fresh id.
+     */
+    warningStatus?: number;
 }
 
 export interface BatchEntry {
@@ -32,6 +42,12 @@ export interface BatchEntry {
 }
 
 type SqlJsonPath = readonly [string, ...string[]];
+
+/** The slice of a pooled connection that migrations need. */
+export interface MigrationConnection {
+    query(sql: string): Promise<unknown>;
+    release(): void;
+}
 
 /**
  * Base database client. Subclasses must override every method that throws here.
@@ -94,49 +110,154 @@ export class AbstractDatabaseClient extends PuterClient {
         tableName: string,
         data: Record<string, unknown>,
     ): Promise<WriteResult> {
+        const entry = this.insertEntry(tableName, data);
+        return this.write(
+            entry.statement + this.returningIdClause(),
+            entry.values,
+        );
+    }
+
+    /** An insert that can join other writes in a transaction. */
+    insertEntry(tableName: string, data: Record<string, unknown>): BatchEntry {
         const cols = Object.keys(data);
-        const values = Object.values(data);
-        const sql =
-            `INSERT INTO ${this.quoteIdentifier(tableName)} ` +
-            `(${cols.map((c) => this.quoteIdentifier(c)).join(', ')}) ` +
-            `VALUES (${cols.map(() => '?').join(', ')})` +
-            this.returningIdClause();
-        return this.write(sql, values);
+        return {
+            statement:
+                `INSERT INTO ${this.quoteIdentifier(tableName)} ` +
+                `(${cols.map((c) => this.quoteIdentifier(c)).join(', ')}) ` +
+                `VALUES (${cols.map(() => '?').join(', ')})`,
+            values: Object.values(data),
+        };
+    }
+
+    /** Whether `read()` goes to a separate replica rather than the primary. */
+    protected hasReadReplica(): boolean {
+        return false;
     }
 
     /**
-     * Like `read()` but falls back to the primary when read-replicas are in
-     * use. Subclasses may override with replica-aware logic; the default
-     * delegates to `pread()`.
+     * The replica leg of `tryHardRead`. Override when `read()` falls back to
+     * the primary by itself, or a replica failure reads the primary twice.
      */
+    protected replicaRead(
+        query: string,
+        params: unknown[],
+    ): Promise<Record<string, unknown>[]> {
+        return this.read(query, params);
+    }
+
+    /**
+     * Like `read()`, but an empty or failed replica read falls back to the
+     * primary, so replication lag can't hide a row that was just written. By
+     * default the primary read starts alongside the replica one; `race: false`
+     * reads the primary only after the replica returns empty or fails. Without
+     * a replica this is a single `read()`.
+     */
+    @Span('db.tryHardRead', (query: string) => ({ 'db.statement': query }))
     async tryHardRead(
         query: string,
         params: unknown[] = [],
+        { race = true }: { race?: boolean } = {},
     ): Promise<Record<string, unknown>[]> {
-        const primary = this.pread(query, params);
-        primary.catch(() => {});
+        if (!this.hasReadReplica()) return this.read(query, params);
 
+        const primary = race ? settle(this.pread(query, params)) : null;
         try {
-            const rows = await this.read(query, params);
-            if (rows.length > 0) {
-                return rows;
-            }
+            const rows = await this.replicaRead(query, params);
+            if (rows.length > 0) return rows;
         } catch {
             // replica failed — fall through to primary
         }
-        return primary;
+        const result = await (primary ?? settle(this.pread(query, params)));
+        if ('error' in result) throw result.error;
+        return result.value;
     }
 
-    /** Like `tryHardRead()` but throws when the result set is empty. */
-    async requireRead(
-        query: string,
-        params: unknown[] = [],
-    ): Promise<Record<string, unknown>[]> {
-        const rows = await this.tryHardRead(query, params);
-        if (rows.length === 0) {
-            throw new Error(`required read returned no rows: ${query}`);
+    /**
+     * Apply the `.sql` files named `<engineName>*` in each configured migration
+     * directory, in filename order. Files must be idempotent: nothing records
+     * which ones already ran. A failure aborts startup. `transactional` wraps
+     * each file in BEGIN/COMMIT, for engines whose DDL can roll back.
+     */
+    protected async applyMigrationPaths(
+        connect: () => Promise<MigrationConnection>,
+        splitStatements: (contents: string) => string[],
+        { transactional }: { transactional: boolean },
+    ): Promise<void> {
+        const paths = this.config.database?.migrationPaths;
+        if (!paths || paths.length === 0) return;
+
+        const tag = `[${this.engineName}]`;
+        const conn = await connect();
+        try {
+            for (const rawPath of paths) {
+                const dir = isAbsolute(rawPath)
+                    ? rawPath
+                    : resolvePath(process.cwd(), rawPath);
+
+                let files: string[];
+                try {
+                    files = readdirSync(dir)
+                        .filter(
+                            (f) =>
+                                f.endsWith('.sql') &&
+                                f.startsWith(this.engineName),
+                        )
+                        .sort(compareMigrationFilenames);
+                } catch (e) {
+                    throw new Error(
+                        `${tag} migration path is unreadable: ${dir}`,
+                        {
+                            cause: e,
+                        },
+                    );
+                }
+
+                if (files.length === 0) {
+                    console.log(`${tag} no migrations in ${dir}`);
+                    continue;
+                }
+
+                console.log(
+                    `${tag} running migrations from ${dir}: ${files.length} file(s)`,
+                );
+
+                for (const file of files) {
+                    const contents = readFileSync(
+                        resolvePath(dir, file),
+                        'utf8',
+                    );
+                    const statements = splitStatements(contents);
+                    if (transactional) await conn.query('BEGIN');
+                    try {
+                        for (let i = 0; i < statements.length; i++) {
+                            try {
+                                await conn.query(statements[i]);
+                            } catch (e) {
+                                throw new Error(
+                                    `${tag} failed to apply ${file} at statement ${i}`,
+                                    { cause: e },
+                                );
+                            }
+                        }
+                        if (transactional) await conn.query('COMMIT');
+                    } catch (e) {
+                        if (transactional) {
+                            try {
+                                await conn.query('ROLLBACK');
+                            } catch {
+                                // the original failure is the one worth surfacing
+                            }
+                        }
+                        throw e;
+                    }
+                    console.log(
+                        `${tag} applied ${file} (${statements.length} statements)`,
+                    );
+                }
+            }
+        } finally {
+            conn.release();
         }
-        return rows;
     }
 
     /**
@@ -226,6 +347,30 @@ export class AbstractDatabaseClient extends PuterClient {
         });
     }
 
+    /**
+     * Whole `periodSeconds` buckets since the epoch, from a unix-seconds
+     * column. MySQL's `/` yields a decimal, which would split a bucket.
+     */
+    periodBucket(secondsExpression: string, periodSeconds: number): string {
+        return this.case({
+            mysql: `(${secondsExpression} DIV ${periodSeconds})`,
+            otherwise: `(${secondsExpression} / ${periodSeconds})`,
+        });
+    }
+
+    /**
+     * Counts each (`userExpression`, bucket) pair once. `COUNT(DISTINCT a, b)`
+     * is MySQL-only, so the pair folds into one number — injective while the
+     * bucket stays under the multiplier, which hourly reaches in the 2980s.
+     */
+    countDistinctUserPeriods(
+        userExpression: string,
+        secondsExpression: string,
+        periodSeconds: number,
+    ): string {
+        return `COUNT(DISTINCT ${userExpression} * 10000000 + ${this.periodBucket(secondsExpression, periodSeconds)})`;
+    }
+
     nullCoalesce(...expressions: readonly string[]): string {
         if (expressions.length === 0) {
             throw new Error('nullCoalesce requires at least one expression');
@@ -240,7 +385,71 @@ export class AbstractDatabaseClient extends PuterClient {
         });
     }
 
+    /**
+     * A timestamp column value from one bound parameter in unix seconds, stored
+     * the way `CURRENT_TIMESTAMP` would store that instant.
+     */
+    timestampFromUnixSql(): string {
+        return this.case({
+            sqlite: "datetime(?, 'unixepoch')",
+            postgres: 'to_timestamp(?)',
+            otherwise: 'FROM_UNIXTIME(?)',
+        });
+    }
+
+    /**
+     * A timestamp column as unix seconds, computed by the database: the mysql
+     * driver reads a stored UTC timestamp as local time, so parsing it in JS
+     * can be off by the server's UTC offset.
+     */
+    unixSecondsSql(column: string): string {
+        return this.case({
+            postgres: `EXTRACT(EPOCH FROM ${column})::bigint`,
+            mysql: `UNIX_TIMESTAMP(${column})`,
+            otherwise: `CAST(strftime('%s', ${column}) AS INTEGER)`,
+        });
+    }
+
+    /**
+     * The database's own clock as epoch milliseconds, so nodes whose clocks
+     * disagree still agree on it. The mysql form ignores the session time zone,
+     * so a DST change can't shift it.
+     */
+    nowMsExpr(): string {
+        return this.case({
+            sqlite: "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)",
+            postgres:
+                'CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS BIGINT)',
+            otherwise:
+                "(TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(6)) DIV 1000)",
+        });
+    }
+
+    /**
+     * What a read of a timestamp column holding `seconds` returns: sqlite gives
+     * back the UTC text it stored, mysql2 and pg a `Date` read in node's time
+     * zone (so this matches when node and the database session share one).
+     */
+    timestampValue(seconds: number): Date | string {
+        const date = new Date(seconds * 1000);
+        return this.case<Date | string>({
+            sqlite: date.toISOString().slice(0, 19).replace('T', ' '),
+            otherwise: date,
+        });
+    }
+
     protected sqlStringLiteral(value: string): string {
         return `'${value.replaceAll("'", "''")}'`;
     }
 }
+
+/** Await later without an unhandled rejection in the meantime. */
+const settle = async <T>(
+    promise: Promise<T>,
+): Promise<{ value: T } | { error: unknown }> => {
+    try {
+        return { value: await promise };
+    } catch (error) {
+        return { error };
+    }
+};

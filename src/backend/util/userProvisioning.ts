@@ -141,6 +141,38 @@ export async function generateDefaultFsentries(
 }
 
 /**
+ * Insert a user row, put it in `group`, and give it its default folders. The
+ * group and the folders are best-effort: a failure is logged and the account is
+ * still returned, re-read so it carries the folder columns.
+ */
+export async function provisionUser(
+    deps: {
+        db: AbstractDatabaseClient;
+        userStore: UserStore;
+        groupStore: GroupStore;
+    },
+    fields: Parameters<UserStore['create']>[0],
+    group: string | null | undefined,
+): Promise<UserRow> {
+    const created = await deps.userStore.create(fields);
+    if (group) {
+        try {
+            await deps.groupStore.addUsers(group, [created.username]);
+        } catch (e) {
+            console.warn('[provision] group assignment failed:', e);
+        }
+    }
+    try {
+        await generateDefaultFsentries(deps.db, deps.userStore, created);
+    } catch (e) {
+        console.warn('[provision] generateDefaultFsentries failed:', e);
+    }
+    return (
+        (await deps.userStore.getById(created.id, { force: true })) ?? created
+    );
+}
+
+/**
  * Moves a user from the default _temp_ group to the default _user_ group. Call
  * after a user's `email_confirmed` flips to 1.
  *

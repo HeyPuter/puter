@@ -1,0 +1,216 @@
+// Shapes shared across the `puter.notifications` surface. JSDoc-only; no runtime exports.
+
+/**
+ * What an app sends with `notify()`. Only `title` is required.
+ *
+ * @typedef {Object} NotificationInput
+ * @property {string} title Up to 120 characters, on one line.
+ * @property {string} [text] Up to 240 characters. Newlines are kept.
+ * @property {string} [icon] An `https` URL. The app's own icon is shown without
+ *   one.
+ * @property {string} [target] A path inside the app, starting with `/`, such as
+ *   `/chats/42`. Handed back to the app when the user clicks the notification.
+ * @property {unknown} [data] Any JSON value up to 1 KB, handed back to the app
+ *   on click. Push providers can read it, so keep it to IDs.
+ * @property {string} [group] A newer notification with the same group replaces
+ *   the one showing and alerts again. Up to 128 letters, digits and
+ *   `. _ : @ -`.
+ * @property {string} [channel] The kind of notification, such as `messages`.
+ *   Lowercase letters, digits and `-`.
+ * @property {boolean} [sensitive] Pushes show a generic line instead of the
+ *   title and text.
+ * @property {'normal' | 'high'} [priority] Default `'normal'`. High priority asks
+ *   for immediate push delivery even when the device is idle. Pair it with a
+ *   short `ttl` for time-sensitive notifications.
+ * @property {number} [ttl] Seconds a push may wait for an offline device, 1 to
+ *   86400. Default 3600.
+ */
+
+/**
+ * What an app sends with `notify()` to the other party of a KV share instead of
+ * the user it runs for.
+ *
+ * @typedef {NotificationInput & { to: NotificationRecipient }} ShareNotificationInput
+ */
+
+/**
+ * Sends a notification later instead of now.
+ *
+ * @typedef {Object} DelayedNotificationOptions
+ * @property {number | string | Date} sendAt When to send it: an ISO-8601 time
+ *   with a zone (or a plain date, read as UTC midnight), a `Date`, or whole
+ *   milliseconds since the epoch. Rounded up to the next whole second, and at
+ *   most 366 days ahead. Within 5 seconds, or in the past, it is sent at once.
+ */
+
+/**
+ * A notification stored to be sent later.
+ *
+ * @typedef {Object} ScheduledNotification
+ * @property {string} scheduleId What `cancel()` and `puter.events.getSchedule()`
+ *   name.
+ * @property {number} sendAt When it goes, in milliseconds since the epoch.
+ */
+
+/**
+ * Who a notification goes to, when it isn't the user the app runs for.
+ *
+ * @typedef {Object} NotificationRecipient
+ * @property {string} handle A KV share handle made with `notify: true`. The
+ *   notification goes to the share's other party: the holder when its owner
+ *   sends, the owner when its holder sends.
+ */
+
+/**
+ * The app that sent a notification, as the server records it.
+ *
+ * @typedef {Object} NotificationSender
+ * @property {string} uid
+ * @property {string} [name]
+ * @property {string} [icon]
+ */
+
+/**
+ * One of the app's notifications, as `onNotification()` hands it over. Fields
+ * the notification was sent without are `null`.
+ *
+ * @typedef {Object} AppNotification
+ * @property {string} uid The notification's uid. The same on every delivery of
+ *   it, live or caught up. Pass it to `markShown()` or `dismiss()`.
+ * @property {string} title
+ * @property {string | null} text
+ * @property {string | null} icon
+ * @property {string | null} target
+ * @property {unknown} data
+ * @property {string | null} group
+ * @property {string | null} channel
+ * @property {boolean} sensitive Sent with `sensitive: true`; its push and the
+ *   notification the page shows for it name only the app.
+ * @property {number} createdAt Milliseconds since the epoch. For a replacement,
+ *   when it was replaced.
+ * @property {boolean} replaced It replaced an earlier notification in its
+ *   `group` and kept that one's uid.
+ * @property {NotificationSender | null} app
+ */
+
+/**
+ * Called once per notification.
+ *
+ * @typedef {(notification: AppNotification) => unknown} NotificationHandler
+ */
+
+/**
+ * Options for {@link import('./onNotification.js').onNotification}.
+ *
+ * @typedef {Object} OnNotificationOptions
+ * @property {boolean} [catchUp] Also deliver the notifications the app already
+ *   has, oldest first, before live ones. Default `true`.
+ * @property {number} [since] Milliseconds since the epoch. Notifications read
+ *   back, not live ones, are delivered only if created in or after this
+ *   second.
+ * @property {(error: Error & { code?: string }) => void} [onError] Called when
+ *   the listener stops on its own: the connection could not be restored,
+ *   reading what was missed after a reconnect failed, or the token changed
+ *   (`auth_changed`). Nothing is delivered after it. Also called, without
+ *   stopping, with `catch_up_truncated` if a read had to stop early. Without
+ *   it, errors are reported on the console.
+ */
+
+/**
+ * What `onNotification()` resolves to.
+ *
+ * @typedef {Object} NotificationListener
+ * @property {() => Promise<void>} off Stops delivering. Safe to call more than
+ *   once.
+ */
+
+/**
+ * What a click handler receives, for a push the user clicked.
+ *
+ * @typedef {Object} NotificationClick
+ * @property {string} uid The notification's uid.
+ * @property {string | null} target The `target` it was sent with.
+ * @property {unknown} data The `data` it was sent with, or `null`.
+ * @property {string | null} action The pressed button's id, or `null` for a
+ *   tap on the notification body.
+ */
+
+/**
+ * A button on a browser notification, where supported.
+ *
+ * @typedef {Object} NotificationAction
+ * @property {string} action A non-empty button id, up to 64 UTF-16 code units.
+ * @property {string} title A non-empty button label, up to 64 UTF-16 code units.
+ * @property {string} [icon] An icon image URL.
+ */
+
+/**
+ * What a push handler may return to change the shown notification. `url` is a
+ * path or URL on the app's own origin, opened when it is tapped.
+ *
+ * @typedef {Object} PushShown
+ * @property {string} [title]
+ * @property {string} [body]
+ * @property {string} [icon]
+ * @property {string} [badge]
+ * @property {string} [image]
+ * @property {string} [tag]
+ * @property {string} [url]
+ * @property {boolean} [requireInteraction] Keeps the notification on screen
+ *   until the user acts on it, where the browser supports it.
+ * @property {NotificationAction[]} [actions] Up to two valid buttons. Pressing
+ *   one opens or focuses the page and delivers its id to the click handler.
+ */
+
+/**
+ * Called for each notification sent with the handler's key. It runs in the page
+ * while the app is connected and, on websites, in the service worker when a
+ * push arrives: it must be self-contained there (no outside variables or
+ * imports), finish within 5 seconds, and not touch the DOM.
+ *
+ * @typedef {(
+ *     notification: AppNotification,
+ * ) => PushShown | void | Promise<PushShown | void>} PushHandler
+ */
+
+/**
+ * Options for {@link import('./onPush.js').onPush}.
+ *
+ * @typedef {Object} OnPushOptions
+ * @property {string} [serviceWorker] Path of the app's worker that imports
+ *   `push-sw.js`. Default `/puter-sw.js`.
+ * @property {(error: Error & { code?: string }) => void} [onError] Called when
+ *   the handler throws or runs past 5 seconds (`push_handler_timeout`), the
+ *   live listener stops, keeping the browser's subscription current fails, or
+ *   the confirmation push after `enable()` doesn't arrive
+ *   (`push_verification_timeout`).
+ */
+
+/**
+ * Whether this app's pushes reach the browser the user is in. `off` means
+ * `enable()` can turn them on, `blocked` that the browser blocks notifications,
+ * and `unavailable` that this browser, page or server can't receive pushes.
+ *
+ * @typedef {'on' | 'off' | 'blocked' | 'unavailable'} PushStatus
+ */
+
+/** @typedef {'webpush' | 'web'} PushPlatform `web` gets no pushes. */
+
+/**
+ * A device registered for push notifications.
+ *
+ * @typedef {Object} PushDevice
+ * @property {string} uid
+ * @property {PushPlatform} platform
+ * @property {string | null} label
+ * @property {string | null} userAgent
+ * @property {number} createdAt Unix seconds.
+ * @property {number} lastSeenAt Unix seconds.
+ * @property {boolean} current Registered from the session making the call.
+ */
+
+/**
+ * A live dismissal of one of this app's notifications.
+ * @typedef {Object} NotificationDismissal
+ * @property {string} uid The dismissed notification's id.
+ */

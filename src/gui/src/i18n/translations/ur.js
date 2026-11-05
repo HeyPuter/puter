@@ -26,7 +26,7 @@ const ur = {
         account: 'اکاؤنٹ',
         account_password: 'اکاؤنٹ پاس ورڈ کی تصدیق کریں',
         access_granted_to: 'رسائی مسموح ہے',
-        add_existing_account: 'موجودہ اکاؤنٹ شامل کریں',
+        add_another_account: 'دوسرا اکاؤنٹ شامل کریں',
         all_fields_required: 'تمام شعبوں کی ضرورت ہے',
         apply: 'لگائیں ',
         ascending: 'بڑھتی ہوئی',

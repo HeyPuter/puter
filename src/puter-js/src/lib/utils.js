@@ -1,7 +1,7 @@
 import { FileReaderPoly } from './polyfills/fileReaderPoly.js';
 import {
-    buildXhr, driverCall, isVerificationGateCode, parseResponse, resolveReauth,
-    resolveVerificationGate,
+    buildXhr, driverCall, isVerificationGateCode, parseResponse, requestTimeoutError,
+    resolveReauth, resolveVerificationGate,
 } from './networkUtils.js';
 
 /**
@@ -72,7 +72,7 @@ function replayXhr (response, success_cb, error_cb, resolve_func, reject_func) {
     const newSpec = { ...spec, _replayed: true };
     const newXhr = buildXhr(newSpec);
     setupXhrEventHandlers(newXhr, success_cb, error_cb, resolve_func, reject_func);
-    newXhr.send(spec.body);
+    newXhr.send(typeof newSpec.buildBody === 'function' ? newSpec.buildBody() : spec.body);
     return true;
 }
 
@@ -98,7 +98,8 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     // error - unauthorized
     if ( response.status === 401 ) {
         const spec = response._puterReq;
-        const reauth = await resolveReauth(resp, {
+        // A replay's 401 is final: one sign-in per call.
+        const reauth = spec?._replayed ? null : await resolveReauth(resp, {
             interactive: spec?.interactiveReauth !== false,
             sentToken: spec?._sentAuthToken,
         });
@@ -138,7 +139,7 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
         return reject_func(resp);
     }
     // error - other
-    else if ( response.status !== 200 ) {
+    else if ( response.status < 200 || response.status >= 300 ) {
         // if error callback is provided, call it
         if ( error_cb && typeof error_cb === 'function' )
         {
@@ -149,14 +150,6 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     }
     // success
     else {
-        // This is a driver error
-        if ( resp.success === false && resp.error?.code === 'permission_denied' ) {
-            let perm = await puter.ui.requestPermission({ permission: 'driver:puter-image-generation:generate' });
-            // try sending again if permission was granted
-            if ( perm === true ) {
-                // todo repeat request
-            }
-        }
         // if success callback is provided, call it
         if ( success_cb && typeof success_cb === 'function' )
         {
@@ -221,6 +214,21 @@ function setupXhrEventHandlers (xhr, success_cb, error_cb, resolve_func, reject_
         }
         return handle_error(error_cb, reject_func, this);
     });
+
+    // The idle timeout ends a request by aborting it (see `watchIdle`).
+    xhr.addEventListener('abort', function () {
+        if ( ! xhr._puterTimedOut ) return;
+        const error = requestTimeoutError();
+        if ( globalThis.puter?.apiCallLogger?.isEnabled() && xhr._puterRequestId ) {
+            globalThis.puter.apiCallLogger.logRequest({
+                service: xhr._puterRequestId.service,
+                operation: xhr._puterRequestId.operation,
+                params: xhr._puterRequestId.params,
+                error,
+            });
+        }
+        return handle_error(error_cb, reject_func, error);
+    });
 }
 
 /**
@@ -242,6 +250,7 @@ function setupXhrEventHandlers (xhr, success_cb, error_cb, resolve_func, reject_
  *   puter?: unknown,
  *   testMode?: boolean,
  *   readonly?: boolean,
+ *   signal?: AbortSignal,
  *   responseType?: '' | 'text' | 'blob',
  *   preprocess?: (args: Record<string, unknown>) => Record<string, unknown>,
  *   transform?: (result: unknown) => unknown,
@@ -291,7 +300,7 @@ function makeDriverMethod (spec) {
 
         return await driverCall(
             { iface, driver, method, args: driverArgs, testMode, puter },
-            { readonly, responseType, transform, onError, upgradePrompt },
+            { readonly, responseType, transform, onError, upgradePrompt, signal: spec.signal },
         );
     };
 }

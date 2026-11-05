@@ -26,7 +26,7 @@ const id = {
         account: 'Akun',
         account_password: 'Verifikasi Kata Sandi Akun',
         access_granted_to: 'Akses Diberikan Kepada',
-        add_existing_account: 'Tambahkan Akun yang Sudah Ada',
+        add_another_account: 'Tambahkan Akun Lain',
         all_fields_required: 'Semua kolom diperlukan.',
         allow: 'Izinkan',
         apply: 'Terapkan',

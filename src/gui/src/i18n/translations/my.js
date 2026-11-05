@@ -33,7 +33,7 @@ const my = {
         account: 'Akaun',
         account_password: 'Sahkan Kata Laluan Akaun',
         access_granted_to: 'Akses Diberikan Kepada',
-        add_existing_account: 'Tambah Akaun Sedia Ada',
+        add_another_account: 'Tambah Akaun Lain',
         all_fields_required: 'Semua medan diperlukan.',
         allow: 'Benarkan',
         apply: 'Tetapkan',

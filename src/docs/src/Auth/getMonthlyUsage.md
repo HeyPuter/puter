@@ -8,7 +8,7 @@ Get the user's current monthly resource usage in the Puter ecosystem.
 
 <div class="info">
 
-Usage data is scoped to the calling app only.
+When called from an app, `usage` and `appTotals` cover only that app's own usage. `allowanceInfo` is the user's allowance for the whole account.
 
 </div>
 

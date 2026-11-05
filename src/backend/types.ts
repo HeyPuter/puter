@@ -23,6 +23,8 @@ export interface IAWSCredentials {
     access_key?: string;
     secret_key?: string;
     region?: string;
+    /** Use the default AWS credential chain instead of the keys. */
+    useCredentialChain?: boolean;
 }
 
 export interface IDynamoConfig {
@@ -214,6 +216,11 @@ export interface IUserEmailConfig {
     /** Envelope recipients accepted per message. Default 50. */
     localMaxRecipients?: number;
     /**
+     * Local parts that take feedback instead of naming a mailbox. Default
+     * `['fbl', 'abuse', 'postmaster']`.
+     */
+    feedbackAddresses?: string[];
+    /**
      * Concurrent client connections. Default 20. Each message is held in memory
      * while it is delivered, so this also bounds memory use.
      */
@@ -249,7 +256,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -275,8 +287,8 @@ export interface IThumbnailStoreConfig {
  */
 export interface IAIProviderConfig {
     /**
-     * API key. Sole canonical name — drivers no longer accept
-     * `secret_key`/`api_key`/`key` aliases.
+     * API key, the canonical name. `readProviderKey` also takes `secret_key`,
+     * `api_key` or `key` from older configs, the same way in every AI driver.
      */
     apiKey?: string;
     /**
@@ -400,6 +412,12 @@ export interface IBroadcastConfig {
      * 2000ms.
      */
     outbound_flush_ms?: number;
+    /**
+     * Largest outbound POST body in bytes; a flush over it goes out as several
+     * POSTs, and a peer that is down is owed at most four bodies' worth.
+     * Default 4 MiB.
+     */
+    outboundMaxBodyBytes?: number;
 }
 
 /** Cloudflare Workers deployment config used by `WorkerDriver`. */
@@ -421,7 +439,12 @@ export interface IWorkersConfig {
      * worker logs.
      */
     loggingUrl?: string;
-    [key: string]: string | undefined;
+    /**
+     * Let locally run workers reach private-network (LAN) addresses. Off by
+     * default; public addresses and this machine are always reachable.
+     */
+    allowLanAccess?: boolean;
+    [key: string]: string | boolean | undefined;
 }
 
 /**
@@ -625,6 +648,21 @@ export interface IDevWatcherConfig {
 }
 
 /**
+ * System jobs config (`jobs`). An extension that runs jobs types its own keys
+ * by augmenting this interface.
+ *
+ * - `namespace` — keys this deployment's jobs and schedules, so deployments
+ *   sharing one database or Redis never run each other's. Defaults to `domain`;
+ *   one that can't be held falls back to `default` (`resolveJobsNamespace`).
+ * - `enabled` — `false` keeps this node from polling for jobs (logged at start);
+ *   the rest of the fleet still runs them. Test servers turn it off.
+ */
+export interface IJobsConfig {
+    namespace?: string;
+    enabled?: boolean;
+}
+
+/**
  * Root config. Only `port` and `extensions` are mandatory; they are added in
  * `IConfig` below. Every config field is declared here with a doc comment so
  * this is the one reference. Each setting has exactly one key, no aliases.
@@ -672,14 +710,18 @@ interface IConfigOptional {
      * Teams and teams. Off means `/teams` 404s and the schema is inert, so the
      * tables can ship to production before anything can create a team. It is
      * also the backout: turning it off removes the feature without touching
-     * data.
+     * data. On, boot refuses unless an extension registers the `team` store and
+     * service.
      */
     teams_enabled: boolean;
     /** Live teams one user may own. Default 1. */
     max_teams_per_user?: number;
-    /** Seats a team whose owner pays nothing may provision. Default 4. */
+    /** Seats a team whose owner pays nothing may provision. Default 3. */
     max_seats_per_team_free?: number;
-    /** Seats a paying owner's team may provision. Default 40. */
+    /**
+     * Seats a paying owner's team may provision. Default 40; a plan's
+     * `teamSeatCap` wins.
+     */
     max_seats_per_team_paid?: number;
     /** One flat cap whatever the owner pays; overrides both of the above. */
     max_seats_per_team?: number;
@@ -795,6 +837,14 @@ interface IConfigOptional {
     allow_gui_origins?: string[];
     /** HMAC secret for signed file URLs (/file, /writeFile, /sign). */
     url_signature_secret: string;
+    /**
+     * Accept the pre-owner-binding signature format on signed file URLs
+     * alongside the current owner-bound one. Default true, so URLs minted
+     * before owner binding shipped keep working. Set false once those have aged
+     * out — the old format has no owner check, so a signed folder URL keeps
+     * authorizing reads after the folder moves to another owner.
+     */
+    legacy_file_signatures?: boolean;
     /** Name of the session cookie the auth probe reads. */
     cookie_name: string;
     /** Minimum password length for login/signup validation. */
@@ -895,6 +945,8 @@ interface IConfigOptional {
      * use the built-in default.
      */
     share_daily_limit?: number;
+    /** Mode changes on existing shares; defaults to ten times the above. */
+    share_remode_daily_limit?: number;
 
     /**
      * How often a share may interrupt its recipient — the notification pushed
@@ -938,6 +990,19 @@ interface IConfigOptional {
      * set 0, and nothing is ever swept.
      */
     notificationRetentionDays?: number;
+
+    /** Ms a live notification waits for sockets to acknowledge it; 5000. */
+    notificationAckTimeoutMs?: number;
+
+    /**
+     * How many `app.message` notifications one app may write for one user. A
+     * replacement spends only the minute. Omit a field for the built-in default
+     * (30 per minute, 1000 per day); a non-positive value removes that bound.
+     */
+    notificationAppMessageLimits?: {
+        perMinute?: number;
+        perDay?: number;
+    };
 
     // -- Storage / S3 ------------------------------------------------
 
@@ -1015,6 +1080,16 @@ interface IConfigOptional {
     peers: IPeersConfig;
     /** WISP relay proxy. */
     wisp: IWispConfig;
+    /** OpenAI Realtime WebSocket relay. */
+    realtime: {
+        /** Concurrent realtime sessions per user. Default 20. */
+        maxConnectionsPerUser?: number;
+        /**
+         * Upstream WebSocket URL. Default OpenAI's; point at a mock to
+         * load-test.
+         */
+        upstreamUrl?: string;
+    };
     /** Cloudflare Workers driver config. */
     workers: IWorkersConfig;
     /** Optional CORS-stripping signed-Worker proxy used by `secureFetch`. */
@@ -1065,7 +1140,7 @@ interface IConfigOptional {
      * are coerced before use.
      *
      * Server-only by default. Flags are surfaced to clients via `/whoami` only
-     * if their key is on the allowlist in `extensions/whoami.ts`
+     * if their key is on the allowlist in `util/userDetails.ts`
      * (`CLIENT_VISIBLE_FEATURE_FLAGS`). New flags should be assumed internal —
      * add them to the allowlist explicitly if (and only if) the client needs to
      * read them.
@@ -1195,6 +1270,11 @@ interface IConfigOptional {
      *   through a handle both reject with `events_kv_handles_disabled`, and a
      *   handle row already made stops delivering. Nothing on the write path
      *   reads it.
+     * - `userHandlers` — whether an app may publish handlers into a signed-in
+     *   user's own scope, including inline handlers created with a
+     *   subscription. Absent means off: user-scope publishing and inline
+     *   creates reject with `events_user_handlers_disabled`; app-scope handlers
+     *   are unaffected.
      * - `workerRuntime` — whether publishing handlers deploys a per-app events
      *   worker and delivery invokes it. Absent means off: publish stores rows
      *   and nothing is deployed, and the invoker keeps its null resolver, so
@@ -1211,10 +1291,21 @@ interface IConfigOptional {
         crossAppKv?: boolean;
         notificationsFoldIn?: boolean;
         kvHandles?: boolean;
+        userHandlers?: boolean;
         workerRuntime?: boolean;
         forwardSession?: boolean;
         /** How long a handler has to answer an invocation. Default 30 s. */
         invokeTimeoutMs?: number;
+        /**
+         * Invocations sent to the dispatcher in one request. Default 60; 1
+         * sends each on its own.
+         */
+        invokeBatchSize?: number;
+        /**
+         * How long the first invocation of a batch waits for others to join it.
+         * Default 5 ms.
+         */
+        invokeBatchWindowMs?: number;
         /**
          * Dispatch namespace events workers are deployed into. Must not be the
          * one the public worker dispatcher serves — that namespace is reachable
@@ -1222,6 +1313,12 @@ interface IConfigOptional {
          * default: deploys refuse rather than land somewhere public.
          */
         workerNamespace?: string;
+        /**
+         * Per-invocation CPU limit, in milliseconds, set on every events worker
+         * at deploy. Unset means no limit. Scripts already deployed pick it up
+         * on their next deploy.
+         */
+        workerCpuMs?: number;
         /**
          * Where the events dispatcher answers `POST /invoke` — its own
          * hostname, since it carries no zone route. Unset means invocations
@@ -1234,6 +1331,22 @@ interface IConfigOptional {
          * Rotating it rotates every key at the next deploy.
          */
         internalSecret?: string;
+    };
+
+    /** System jobs (`services.jobs`); see {@link IJobsConfig}. */
+    jobs?: IJobsConfig;
+
+    /**
+     * Key-value sharing beyond watching.
+     *
+     * - `shareHandles` — whether a share handle may carry `read` or `write`
+     *   access, and be used for key-value calls. Absent means off: those mints
+     *   and upgrades reject with `kv_handles_disabled`. Watch-only handles stay
+     *   under `events.kvHandles`, and revoking, unsharing and listing are never
+     *   gated.
+     */
+    kv?: {
+        shareHandles?: boolean;
     };
 
     /**
@@ -1264,11 +1377,23 @@ export interface WithLifecycle extends Object {
     onServerStart?: () => Promise<void> | void;
     onServerShutdown?: () => Promise<void> | void;
     onServerPrepareShutdown?: () => Promise<void> | void;
+    /**
+     * When the drain starts, before `onServerPrepareShutdown`, which waits for
+     * every connection (upgraded sockets included) to close or the drain to
+     * end. Hooks run concurrently, and the server keeps accepting connections
+     * until all of them settle, so a hook can hold the listener open (until
+     * traffic stops arriving, say) by returning a promise.
+     */
+    onServerDrainStart?: (info?: ServerDrainInfo) => Promise<void> | void;
+}
+
+export interface ServerDrainInfo {
+    /** The longest the drain runs before teardown, when known. */
+    drainMs?: number;
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

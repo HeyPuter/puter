@@ -33,11 +33,12 @@ import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 describe('AI wire routes require a subscription', () => {
     let env: PuterTestEnv;
 
+    const ANTHROPIC_ROUTE = '/puterai/anthropic/v1/messages';
     const WIRE_ROUTES = [
         '/puterai/openai/v1/chat/completions',
         '/puterai/openai/v1/completions',
         '/puterai/openai/v1/responses',
-        '/puterai/anthropic/v1/messages',
+        ANTHROPIC_ROUTE,
     ];
 
     /**
@@ -105,13 +106,24 @@ describe('AI wire routes require a subscription', () => {
         }
     };
 
-    it('turns a free account away with 402 subscription_required', async () => {
+    it('turns a free account away with 402, in each vendor route\'s own envelope', async () => {
         for (const route of WIRE_ROUTES) {
             const res = await call(route, env.users.user.apiToken);
             expect(res.status, route).toBe(402);
-            expect(await res.json(), route).toMatchObject({
-                code: 'subscription_required',
-            });
+            const body = await res.json();
+            if (route === ANTHROPIC_ROUTE) {
+                // The vendor-compatible routes render every error — gate
+                // failures included — in their vendor's own envelope.
+                expect(body, route).toMatchObject({
+                    type: 'error',
+                    error: { type: 'billing_error' },
+                });
+                expect(res.headers.get('request-id'), route).toBeTruthy();
+            } else {
+                expect(body, route).toMatchObject({
+                    error: { code: 'subscription_required' },
+                });
+            }
         }
     });
 
@@ -132,8 +144,10 @@ describe('AI wire routes require a subscription', () => {
         // never learns anything about the account's plan.
         const res = await call(WIRE_ROUTES[0]!, env.users.user.token);
         expect(res.status).toBe(403);
+        // Still rendered in the OpenAI envelope — the renderer is wired
+        // before any gate runs, not just around the handler.
         expect(await res.json()).toMatchObject({
-            code: 'app_or_api_token_required',
+            error: { code: 'app_or_api_token_required' },
         });
     });
 

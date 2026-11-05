@@ -774,6 +774,21 @@ describe('createAuthProbe — reauth signal', () => {
         expect(signSpy).toHaveBeenCalledTimes(1);
     });
 
+    it('signs the rejection reason into the reauth token', async () => {
+        const stub = makeStubAuth();
+        stub.setNextResult({
+            reauth: { reason: 'session_revoked', auth_id: 'u-revoked' },
+        });
+        const signSpy = vi.spyOn(stub.service, 'signReauthToken');
+        const { req } = await runProbe(
+            createAuthProbe({ authService: stub.service }),
+            makeReq({ headers: { authorization: 'Bearer tok' } }),
+        );
+
+        void req.requiresReauth?.reauth_token;
+        expect(signSpy).toHaveBeenCalledWith('u-revoked', 'session_revoked');
+    });
+
     it('does not emit a reauth log line on a healthy v2 verify', async () => {
         const stub = makeStubAuth({ user: { uuid: 'u-1' } });
         const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});

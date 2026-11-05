@@ -37,6 +37,8 @@ export interface ParsedFsPathPermission {
 export function parseFsPathPermission(
     permission: string,
 ): ParsedFsPathPermission | null {
+    // The list is only checked for being an array, so an element is anything.
+    if (typeof permission !== 'string') return null;
     if (
         !permission.startsWith('fs:') &&
         !permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`)
@@ -49,6 +51,26 @@ export function parseFsPathPermission(
     const path = parts[fsIndex + 1];
     if (!path || !path.startsWith('/')) return null;
     return { hasManage, path, rest: parts.slice(fsIndex + 2) };
+}
+
+export interface ParsedFsUidPermission {
+    uid: string;
+    mode: string;
+}
+
+/** Splits `fs:<uid>:<mode>`. Null for the path form, `manage:`, and longer. */
+export function parseFsUidPermission(
+    permission: string,
+): ParsedFsUidPermission | null {
+    // The list is only checked for being an array, so an element is anything.
+    if (typeof permission !== 'string') return null;
+    if (!permission.startsWith('fs:')) return null;
+    const parts = PermissionUtil.split(permission);
+    if (parts.length !== 3) return null;
+    const [, uid, mode] = parts;
+    // A leading slash is the path form, which `parseFsPathPermission` reads.
+    if (!uid || !mode || uid.startsWith('/')) return null;
+    return { uid, mode };
 }
 
 /** Most path components a `create` grant may add below the home root. */
@@ -70,7 +92,10 @@ export function assertCreatablePath(path: string, username: string): void {
         });
     }
     const segments = path.slice(home.length + 1).split('/');
-    if (segments[0] === 'AppData' || segments[0] === 'Trash') {
+    // fsentries.path collates case-insensitively, so a differently-cased
+    // segment names the same row — the refusal must match that.
+    const first = segments[0]?.toLowerCase();
+    if (first === 'appdata' || first === 'trash') {
         throw new HttpError(403, 'Cannot create at this location', {
             legacyCode: 'forbidden',
         });
@@ -80,6 +105,12 @@ export function assertCreatablePath(path: string, username: string): void {
             legacyCode: 'directory_depth_limit_exceeded',
         });
     }
+}
+
+/** Whether `path` is inside this user's own home tree. */
+export function isOwnHomePath(path: string, username: string): boolean {
+    const home = `/${username}`;
+    return path === home || path.startsWith(`${home}/`);
 }
 
 export type FsCreateKind = 'dir' | 'file';

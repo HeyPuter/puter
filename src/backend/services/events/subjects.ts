@@ -21,7 +21,9 @@ import type { KvOp } from '../../clients/event/types.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { isTildePath } from '../fs/resolveNode.js';
 import type { NotificationAudience } from '../notification/notificationTypes.js';
+import { PERMISSION_MAX_LEN } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
+import { MATCH_PATTERN_MAX_LENGTH } from './matcher.js';
 
 /**
  * Subscription subjects, `:`-delimited with the same component escaping as
@@ -46,8 +48,7 @@ export type SubjectFamily = 'fs' | 'kv' | 'notif';
 
 export type FsOp = 'add' | 'write' | 'move' | 'remove' | 'meta';
 
-/** A notification is only ever posted; the mailbox verbs are their own surface. */
-export type NotifOp = 'post';
+export type NotifOp = 'post' | 'dismiss';
 
 export type SubjectOp = FsOp | KvOp | NotifOp;
 
@@ -131,6 +132,14 @@ export const KV_KEY_SEPARATOR = ':';
  */
 export const KV_MATCH_SEPARATOR: string | null = null;
 
+/**
+ * Longest KV filter compiled. A handle's pattern is held to
+ * {@link MATCH_PATTERN_MAX_LENGTH} as its holder wrote it, then stored composed
+ * onto the shared prefix, which always fits inside its grant string.
+ */
+export const KV_MATCH_MAX_LENGTH =
+    MATCH_PATTERN_MAX_LENGTH + PERMISSION_MAX_LEN;
+
 const FS_TOKEN_PREFIX = 'f#';
 const KV_TOKEN_PREFIX = 'k#';
 const NOTIF_TOKEN_PREFIX = 'n#';
@@ -141,6 +150,8 @@ const NOTIF_TOKEN_PREFIX = 'n#';
  * confused for one another in the same position.
  */
 export const KV_HANDLE_PREFIX = 'kvh-';
+
+const KV_HANDLE_SUBJECT_PREFIX = `kv:${KV_HANDLE_PREFIX}`;
 
 export const isKvHandleId = (value: string): boolean =>
     value.startsWith(KV_HANDLE_PREFIX) &&
@@ -194,6 +205,10 @@ export const notifMatchOn = (
     audience: NotificationAudience | string,
 ): string => `${ref}${NOTIF_MATCH_SEPARATOR}${audience}`;
 
+/** Whether a notif filter spans every app: a session's generic slice. */
+export const notifMatchSpansEveryApp = (match: string | null): boolean =>
+    match?.startsWith(`*${NOTIF_MATCH_SEPARATOR}`) === true;
+
 /** Which family a stored row belongs to, without re-parsing its subject. */
 export const isKvToken = (token: string): boolean =>
     token.startsWith(KV_TOKEN_PREFIX);
@@ -211,9 +226,25 @@ export const isNotifToken = (token: string): boolean =>
  * can sit in its app slot.
  */
 export const kvHandleFromSubject = (subject: string): string | null => {
+    // Asked of every KV delivery. A stored handle subject is rebuilt from the
+    // parsed handle, so anything else is turned away before the split.
+    if (!subject.startsWith(KV_HANDLE_SUBJECT_PREFIX)) return null;
     const parts = PermissionUtil.split(subject);
     if (parts[0] !== 'kv' || parts.length < 3) return null;
     return isKvHandleId(parts[1]) ? parts[1] : null;
+};
+
+/**
+ * The filter a handle row is described with to its holder: what the pattern
+ * they wrote would filter by if the handle were the namespace root. The stored
+ * filter is composed onto the shared prefix, so whether it has one at all
+ * depends on how long the prefix is.
+ */
+export const kvHandleMatchFromSubject = (subject: string): string | null => {
+    const parts = PermissionUtil.split(subject);
+    if (parts[0] !== 'kv' || parts.length < 3 || !isKvHandleId(parts[1]))
+        return null;
+    return kvAnchorFor(parts.slice(2).join(KV_KEY_SEPARATOR)).rawMatch;
 };
 
 /**

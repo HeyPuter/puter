@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import webpack from 'webpack';
 
@@ -9,6 +10,23 @@ import webpack from 'webpack';
 // and add an extra flag everywhere we use webpack.
 import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// `push-sw.js` is a standalone classic script apps import into their own service worker; it ships next to the bundle as-is.
+const PUSH_WORKER = path.resolve(__dirname, 'src/push-sw.js');
+class EmitPushWorker {
+    apply(compiler) {
+        compiler.hooks.thisCompilation.tap('EmitPushWorker', (compilation) => {
+            compilation.fileDependencies.add(PUSH_WORKER);
+            compilation.hooks.processAssets.tap(
+                { name: 'EmitPushWorker', stage: webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL },
+                () => {
+                    // `minimized` keeps terser off it, so the published file is the source.
+                    compilation.emitAsset('push-sw.js', new webpack.sources.RawSource(readFileSync(PUSH_WORKER, 'utf8')), { minimized: true });
+                },
+            );
+        });
+    }
+}
 
 export default (env = {}) => ({
     entry: './src/index.js',
@@ -58,6 +76,7 @@ export default (env = {}) => ({
         },
     } : {}),
     plugins: [
+        new EmitPushWorker(),
         new webpack.DefinePlugin({
             'globalThis.PUTER_ORIGIN_ENV': JSON.stringify(process.env.PUTER_ORIGIN || 'https://puter.com'),
             'globalThis.PUTER_API_ORIGIN_ENV': JSON.stringify(process.env.PUTER_API_ORIGIN || 'https://api.puter.com'),

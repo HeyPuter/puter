@@ -58,6 +58,15 @@ const museSpark = (model: {
 // route callers' prompts into Meta's training set.
 export const META_MODELS: IChatModel[] = [
     museSpark({
+        id: 'muse-spark-1.3',
+        name: 'Muse Spark 1.3',
+        context: 1_048_576,
+        maxTokens: 131_072,
+        releaseDate: '2026-09-02',
+        inputModalities: ['text', 'image', 'video', 'audio', 'pdf'],
+        costs: usdPerMToken(1.25, 4.25, 0.15),
+    }),
+    museSpark({
         id: 'muse-spark-1.2',
         name: 'Muse Spark 1.2',
         context: 1_048_576,

@@ -632,6 +632,29 @@ describe('AppFeedbackService owner email', () => {
         }
     });
 
+    it('stores without emailing an owner on a blocked domain, whatever its case', async () => {
+        const send = mockEmailReady();
+        const ownerId = await makeDeliverableOwner();
+        await server.stores.user.update(ownerId, {
+            email: `Owner-${ownerId}@Blocked.Example`,
+        });
+        await server.stores.user.invalidateById(ownerId);
+        const app = await makeApp(ownerId, { feedbackEnabled: true });
+        const userId = await makeUser();
+        const prev = liveConfig().blockedEmailDomains;
+        liveConfig().blockedEmailDomains = ['blocked.example'];
+        try {
+            await service.submit({ userId, app: app.name, message: 'hi' });
+        } finally {
+            liveConfig().blockedEmailDomains = prev;
+        }
+
+        expect(send).not.toHaveBeenCalled();
+        const rows = await feedbackRows(userId);
+        expect(rows).toHaveLength(1);
+        expect(Boolean(rows[0].email_sent)).toBe(false);
+    });
+
     it('stores but does not email past the per-app daily email cap', async () => {
         const send = mockEmailReady();
         const ownerId = await makeDeliverableOwner();

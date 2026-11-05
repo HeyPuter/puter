@@ -20,7 +20,7 @@
 /**
  * Integration test for the Groq provider.
  *
- * Uses `llama-3.1-8b-instant` (the provider's default and cheapest
+ * Uses `openai/gpt-oss-20b` (the provider's default and cheapest
  * generally-available model). Skipped when `PUTER_TEST_AI_GROQ_API_KEY`
  * is unset.
  */
@@ -38,7 +38,7 @@ import { GroqAIProvider } from './GroqAIProvider.js';
 const ENV_VAR = 'PUTER_TEST_AI_GROQ_API_KEY';
 
 describe.skipIf(skipUnlessEnv(ENV_VAR))('GroqAIProvider (integration)', () => {
-    it('returns a non-empty completion from llama-3.1-8b-instant', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+    it('returns a non-empty completion from openai/gpt-oss-20b', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
         const provider = new GroqAIProvider(
             { apiKey: optionalEnv(ENV_VAR)! },
             makeMeteringStub(),
@@ -46,7 +46,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))('GroqAIProvider (integration)', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'llama-3.1-8b-instant',
+                model: 'openai/gpt-oss-20b',
                 messages: [{ role: 'user', content: 'Say hi in one word.' }],
                 max_tokens: 16,
             }),

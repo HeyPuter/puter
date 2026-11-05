@@ -8,7 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { Actor } from '../../core/actor.ts';
+import { SYSTEM_ACTOR_UUID, type Actor } from '../../core/actor.ts';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import type { SystemKVStore } from './SystemKVStore.ts';
@@ -146,6 +146,41 @@ describe('SystemKVStore read cache', () => {
             await target.get({ key });
 
             expect(get).toHaveBeenCalledTimes(2);
+        });
+
+        it('never caches a system partition', async () => {
+            const key = `sys-${Math.random().toString(36).slice(2)}`;
+            const partition = { systemPartition: 'cache-test' };
+            const partitionNamespace = `v1:${SYSTEM_ACTOR_UUID}:os-global:cache-test`;
+            await target.batchPut({ items: [{ key, value: 'v' }] }, partition);
+            const get = vi.spyOn(server.clients.dynamo, 'get');
+            const batchGet = vi.spyOn(server.clients.dynamo, 'batchGet');
+            const batchGetsHere = () =>
+                batchGet.mock.calls.filter((call) =>
+                    call[0].some(
+                        (request) =>
+                            request.items.namespace === partitionNamespace,
+                    ),
+                );
+
+            await target.get({ key }, partition);
+            await target.get({ key: [key] }, partition);
+            await settle();
+            await target.get({ key }, partition);
+            const second = await target.get({ key: [key] }, partition);
+
+            expect(second.res).toEqual(['v']);
+            expect(
+                get.mock.calls.filter(
+                    (call) =>
+                        (call[1] as { namespace?: string })?.namespace ===
+                        partitionNamespace,
+                ),
+            ).toHaveLength(2);
+            expect(batchGetsHere()).toHaveLength(2);
+            await expect(
+                server.clients.redis.get(kvCacheKey(partitionNamespace, key)),
+            ).resolves.toBeNull();
         });
 
         it('leaves an oversized value uncached', async () => {
@@ -314,6 +349,34 @@ describe('SystemKVStore read cache', () => {
             expect(result.res).toEqual([null, null]);
         });
 
+        it('serves nothing after a namespace purge', async () => {
+            await warm('a', 1);
+            await warm('b', 2);
+            await target.purgeNamespace(namespace, { maxItems: 10 });
+            const result = await target.get({ key: ['a', 'b'] }, opts);
+            expect(result.res).toEqual([null, null]);
+        });
+
+        it('serves nothing after a flush whose delete failed partway', async () => {
+            await warm('a', 1);
+            await warm('b', 2);
+            // The rows go, then the batch reports an error anyway.
+            const real = server.clients.dynamo.batchDel.bind(
+                server.clients.dynamo,
+            );
+            vi.spyOn(server.clients.dynamo, 'batchDel').mockImplementationOnce(
+                async (params) => {
+                    await real(params);
+                    throw new Error('batch write failed');
+                },
+            );
+            await expect(target.flush(opts)).rejects.toThrow(
+                'batch write failed',
+            );
+            const result = await target.get({ key: ['a', 'b'] }, opts);
+            expect(result.res).toEqual([null, null]);
+        });
+
         it('keeps reads off the cache for a window, then lets it fill again', async () => {
             await warm('k', 'old');
             await target.set({ key: 'k', value: 'new' }, opts);
@@ -400,6 +463,20 @@ describe('SystemKVStore read cache', () => {
         it('says nothing for a write to the system namespace', async () => {
             const emit = vi.spyOn(server.clients.event, 'emit');
             await target.set({ key: 'sys-key', value: 'v' });
+
+            expect(emit).not.toHaveBeenCalledWith(
+                'outer.kv.cacheInvalidated',
+                expect.anything(),
+                expect.anything(),
+            );
+        });
+
+        it('says nothing for a write to a system partition', async () => {
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            await target.batchPut(
+                { items: [{ key: 'sys-key', value: 'v' }] },
+                { systemPartition: 'cache-test' },
+            );
 
             expect(emit).not.toHaveBeenCalledWith(
                 'outer.kv.cacheInvalidated',

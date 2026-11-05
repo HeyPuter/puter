@@ -104,6 +104,8 @@ const default_user_permissions = {
     // is there; which app may is the per-app grant, which is what the user is
     // actually asked about.
     'events:background': {},
+    // Likewise, the per-app grant decides whose notifications go out as pushes.
+    'notifications:push': {},
 };
 
 module.exports = {

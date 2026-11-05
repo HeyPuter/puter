@@ -1,4 +1,5 @@
 import { PuterModule } from '../../lib/PuterModule.js';
+import { Access, Folder, Resource } from './constants.js';
 import { requestAppData } from './appData.js';
 import { requestReadAppRootDir, requestWriteAppRootDir } from './appRootDir.js';
 import {
@@ -60,6 +61,13 @@ export class PermsModule extends PuterModule {
     request = request;
     check = check;
 
+    /** The resources `request` and `check` take, by name. */
+    Resource = Resource;
+    /** The access levels `request` and `check` take, by name. */
+    Access = Access;
+    /** The special folders a `folder` request can name. */
+    Folder = Folder;
+
     // -- Deprecated aliases --
     //
     // Still bound and callable, and still in the generated declarations:
@@ -71,7 +79,7 @@ export class PermsModule extends PuterModule {
     /** @deprecated Use `request('appData', { app, scopes })`. */
     requestAppData = requestAppData;
 
-    /** @deprecated Use {@link request}. */
+    /** @deprecated Use {@link request} with a resource, such as `request('fs', { path, access })`. */
     requestPermission = requestPermission;
     /** @deprecated Use `request('folder', { name, access })`. */
     requestFolder_ = requestFolder_;

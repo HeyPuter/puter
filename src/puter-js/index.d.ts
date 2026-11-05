@@ -38,11 +38,25 @@ export type {
     ChatOptions,
     ChatResponse,
     ChatResponseChunk,
+    ChatResponseStream,
     ImageContent,
     Img2TxtOptions,
     ListTTSEnginesOptions,
     ListTTSVoicesOptions,
     OcrAnnotationFormat,
+    ConvoOptions,
+    ConvoTextEvent,
+    ConvoAudioEvent,
+    ConvoTranscriptEvent,
+    ConvoInterruptedEvent,
+    ConvoTurnDoneEvent,
+    ConvoErrorEvent,
+    ConvoEventMap,
+    ConvoSessionOptions,
+    ConvoPlaybackPosition,
+    ConvoSpeakerOptions,
+    RealtimeServerEvent,
+    RealtimeClientEvent,
     Speech2SpeechOptions,
     Speech2TxtOptions,
     Speech2TxtResult,
@@ -125,11 +139,23 @@ export type {
     HandlerSummary,
     OnLocalOptions,
     OnPersistentOptions,
+    OnScheduleOptions,
     PersistentSubscription,
     PublishedHandler,
     PuterEvent,
     PuterKvEvent,
     PuterNotifEvent,
+    PuterNotifDismissEvent,
+    PuterScheduleEvent,
+    Schedule,
+    ScheduleDelivery,
+    ScheduleErrorCode,
+    ScheduleHandler,
+    ScheduleListOptions,
+    ScheduleChanges,
+    HandlerScheduleChanges,
+    DeferredScheduleChanges,
+    UpdatePersistentOptions,
 } from './types/modules/events/types.js';
 export type { EventSubscription } from './types/modules/events/lib/subscription.js';
 export type { EventHandlers } from './types/modules/events/lib/handlers.js';
@@ -174,7 +200,11 @@ export type {
 } from './types/modules/FSItem.js';
 
 // -- puter.hosting --
-export type { Subdomain } from './types/modules/hosting/types.js';
+export type {
+    CustomDomain,
+    CustomDomainRecord,
+    Subdomain,
+} from './types/modules/hosting/types.js';
 
 // -- puter.kv --
 export type {
@@ -190,6 +220,21 @@ export type {
     KVSetBatch,
     KVSetItem,
     KVSetObject,
+    KVShare,
+    KVShareAccess,
+    KVSharedByMe,
+    KVSharedByMeListOptions,
+    KVSharedWithMe,
+    KVShareListOptions,
+    KVShareManyFailed,
+    KVShareManyItem,
+    KVShareManyOptions,
+    KVShareManyShared,
+    KVShareOptions,
+    KVShareRecipient,
+    KVShareRevokedBy,
+    KVShareState,
+    KVUnshareResult,
     KVUpdateObject,
     KVUpdatePath,
     KVValue,
@@ -197,21 +242,61 @@ export type {
 
 // -- puter.net --
 export type { Networking, SocketEvent } from './types/modules/networking/types.js';
-export type { PSocket } from './types/modules/networking/PSocket.js';
-export type { PTLSSocket } from './types/modules/networking/PTLS.js';
+export type { PSocket, PTLSSocket } from './types/modules/networking/PSocket.js';
+
+// -- puter.notifications --
+export type {
+    AppNotification,
+    DelayedNotificationOptions,
+    NotificationAction,
+    NotificationClick,
+    NotificationDismissal,
+    NotificationHandler,
+    NotificationInput,
+    NotificationListener,
+    NotificationRecipient,
+    NotificationSender,
+    OnNotificationOptions,
+    OnPushOptions,
+    PushDevice,
+    PushHandler,
+    PushPlatform,
+    PushShown,
+    PushStatus,
+    ScheduledNotification,
+    ShareNotificationInput,
+} from './types/modules/notifications/types.js';
 
 // -- puter.os --
 
 // -- puter.peer --
 export type {
-    PuterPeerConnection,
     PuterPeerDescription,
     PuterPeerIceCandidate,
     PuterPeerMessage,
     PuterPeerOptions,
-    PuterPeerServer,
     PuterPeerUser,
-} from './types/modules/Peer.js';
+} from './types/modules/Peer/types.js';
+export type { PuterPeerConnection } from './types/modules/Peer/PuterPeerConnection.js';
+export type { PuterPeerServer } from './types/modules/Peer/PuterPeerServer.js';
+export type {
+    PuterPeerEncoding,
+    PuterPeerPublishOptions,
+} from './types/modules/Peer/tracks.js';
+export type {
+    PuterPeerConnectionCloseEvent,
+    PuterPeerConnectionErrorEvent,
+    PuterPeerConnectionEventMap,
+    PuterPeerConnectionMessageEvent,
+    PuterPeerConnectionOpenEvent,
+    PuterPeerLinkState,
+    PuterPeerLinkStateEvent,
+    PuterPeerMediaEndedEvent,
+    PuterPeerMediaEvent,
+    PuterPeerServerConnectionEvent,
+    PuterPeerServerEventMap,
+    PuterPeerServerReconnectEvent,
+} from './types/modules/Peer/events.js';
 
 // -- puter.perms --
 export type {
@@ -229,6 +314,9 @@ export type {
     PermsCreateKind,
     PermsFolderName,
     PermsFolderRequest,
+    PermsFsRequest,
+    PermsKvShareAccess,
+    PermsKvShareRequest,
     PermsPermissionRequest,
     PermsRequestDetails,
     PermsResource,
@@ -295,9 +383,13 @@ export type Events = InstanceType<import('./types/modules/events/index.js').Even
 export type FS = InstanceType<import('./types/modules/FileSystem/index.js').FSConstructor>;
 export type Hosting = InstanceType<import('./types/modules/hosting/index.js').HostingConstructor>;
 export type KV = InstanceType<import('./types/modules/kv/index.js').KVConstructor>;
+export type Notifications = InstanceType<import('./types/modules/notifications/index.js').NotificationsConstructor>;
 export type OS = InstanceType<import('./types/modules/os/index.js').OSConstructor>;
-export type Peer = InstanceType<import('./types/modules/Peer.js').PeerConstructor>;
+export type Peer = InstanceType<import('./types/modules/Peer/index.js').PeerConstructor>;
 export type Perms = InstanceType<import('./types/modules/perms/index.js').PermsConstructor>;
 export type Teams = InstanceType<import('./types/modules/teams/index.js').TeamsConstructor>;
 export type UI = InstanceType<import('./types/modules/UI.js').UIConstructor>;
 export type WorkersHandler = InstanceType<import('./types/modules/Workers.js').WorkersConstructor>;
+
+export type { Conversation, ConvoError } from './types/modules/ai/convo.js';
+export type { ConvoMicrophone, ConvoSpeaker } from './types/modules/ai/convoMedia.js';

@@ -1,0 +1,419 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// The Account (and Security) tab's dialogs: dashboard form dialogs rather
+// than desktop windows, so they read as part of the dashboard and dock as
+// bottom sheets on phones.
+
+import check_password_strength from '../../helpers/checkPasswordStrength.js';
+import create_access_token from '../../helpers/createAccessToken.js';
+import postUserProtected from '../../helpers/postUserProtected.js';
+import update_username_in_gui from '../../helpers/updateUsernameInGui.js';
+import UIWindowManageSessions from '../UIWindowManageSessions.js';
+import UIDashboardFormDialog, { copyRowHtml } from './UIDashboardFormDialog.js';
+
+// Keep in sync with ProfileService on the backend.
+const DISPLAY_NAME_MAX_LENGTH = 64;
+const BIO_MAX_LENGTH = 280;
+const TOKEN_LABEL_MAX_LENGTH = 64;
+
+/**
+ * @typedef {object} AccountDialogOptions
+ * @property {jQuery} [$container] Where the overlay mounts.
+ * @property {HTMLElement} [returnFocusTo] Where focus goes on close.
+ */
+
+const t = (key) => i18n(key, [], false);
+
+/** An account that signs in only through a linked provider has no password to ask for. */
+const isOidcOnly = () => !! window.user?.oidc_only;
+
+/** The account-password field the protected routes need, unless the account has none. */
+const passwordField = (label) => ({
+    name: 'password',
+    type: 'password',
+    label,
+    hidden: isOidcOnly(),
+    attrs: { autocomplete: 'current-password' },
+});
+
+/** Puts a refused password's status on the field, to be typed again. */
+const wrongPassword = (result, field) => (result.data?.code === 'password_mismatch' ? { field } : undefined);
+
+/** Text that tells a provider-only account what will happen instead of a password. */
+const oidcNotice = () => (isOidcOnly() ? `<p>${i18n('revalidate_flow_notice')}</p>` : '');
+
+/** Status while the provider's sign-in popup is up. */
+const revalidating = (dialog) => () => dialog.setStatus(t('revalidate_sign_in_popup'), { kind: 'info' });
+
+/**
+ * Edits the signed-in user's display name and bio.
+ *
+ * @param {AccountDialogOptions & { onSave?: (profile: { displayName?: string|null, bio?: string|null }) => void }} [opts]
+ */
+export function openEditProfileDialog ({ onSave, ...opts } = {}) {
+    const initial = {
+        displayName: window.user?.profile?.displayName ?? '',
+        bio: window.user?.profile?.bio ?? '',
+    };
+    return UIDashboardFormDialog({
+        ...opts,
+        title: t('edit_profile'),
+        submitLabel: t('save'),
+        fields: [
+            {
+                name: 'displayName',
+                label: i18n('display_name'),
+                value: initial.displayName,
+                attrs: { maxlength: DISPLAY_NAME_MAX_LENGTH, autocomplete: 'off' },
+            },
+            {
+                name: 'bio',
+                type: 'textarea',
+                label: i18n('bio'),
+                value: initial.bio,
+                attrs: { maxlength: BIO_MAX_LENGTH, rows: 4 },
+            },
+        ],
+        async onSubmit (dialog) {
+            const values = dialog.values();
+            // Only what was edited: the prefill comes from this session's copy
+            // of the profile, which can be stale, and sending an untouched
+            // field would write that copy over a newer one. An empty field
+            // clears it.
+            const patch = {};
+            for ( const key of ['displayName', 'bio'] ) {
+                if ( values[key].trim() !== initial[key].trim() ) {
+                    patch[key] = values[key].trim() || null;
+                }
+            }
+            if ( ! Object.keys(patch).length ) {
+                dialog.close();
+                return;
+            }
+            // update_profile resolves with no profile when the request failed.
+            const profile = await window.update_profile(window.user.username, patch);
+            if ( ! profile ) {
+                dialog.setStatus(t('profile_save_failed'));
+                return;
+            }
+            onSave?.(profile);
+            dialog.close();
+        },
+    });
+}
+
+/**
+ * Changes the signed-in user's username.
+ *
+ * @param {AccountDialogOptions} [opts]
+ */
+export function openChangeUsernameDialog (opts = {}) {
+    return UIDashboardFormDialog({
+        ...opts,
+        title: t('change_username'),
+        intro: oidcNotice(),
+        submitLabel: t('change_username'),
+        fields: [
+            {
+                name: 'username',
+                label: i18n('new_username'),
+                attrs: { autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' },
+            },
+            passwordField(i18n('account_password')),
+        ],
+        async onSubmit (dialog) {
+            const { username, password } = dialog.values();
+            const new_username = username.trim();
+            if ( ! new_username ) {
+                dialog.setStatus(t('all_fields_required'), { field: 'username' });
+                return;
+            }
+            // The server would call it taken, and count the password try.
+            if ( new_username.toLowerCase() === String(window.user?.username).toLowerCase() ) {
+                dialog.setStatus(t('username_unchanged'), { field: 'username' });
+                return;
+            }
+            if ( ! isOidcOnly() && ! password ) {
+                dialog.setStatus(t('all_fields_required'), { field: 'password' });
+                return;
+            }
+            const result = await postUserProtected('change-username', { new_username }, {
+                password,
+                onRevalidate: revalidating(dialog),
+            });
+            if ( ! result.ok ) {
+                dialog.setStatus(result.message, wrongPassword(result, 'password'));
+                return;
+            }
+            update_username_in_gui(new_username);
+            window.user.username = new_username;
+            dialog.finish({ message: t('username_changed') });
+        },
+    });
+}
+
+/**
+ * Changes the signed-in user's password.
+ *
+ * @param {AccountDialogOptions} [opts]
+ */
+export function openChangePasswordDialog (opts = {}) {
+    return UIDashboardFormDialog({
+        ...opts,
+        title: t('window_title_change_password'),
+        intro: oidcNotice(),
+        submitLabel: t('change_password'),
+        fields: [
+            {
+                ...passwordField(i18n('current_password')),
+                name: 'current',
+            },
+            {
+                name: 'next',
+                type: 'password',
+                label: i18n('new_password'),
+                hint: i18n('password_strength_error'),
+                attrs: { autocomplete: 'new-password' },
+            },
+            {
+                name: 'confirm',
+                type: 'password',
+                label: i18n('confirm_new_password'),
+                attrs: { autocomplete: 'new-password' },
+            },
+        ],
+        async onSubmit (dialog) {
+            const { current, next, confirm } = dialog.values();
+            if ( ! isOidcOnly() && ! current ) {
+                dialog.setStatus(t('all_fields_required'), { field: 'current' });
+                return;
+            }
+            if ( ! next || ! confirm ) {
+                dialog.setStatus(t('all_fields_required'), { field: next ? 'confirm' : 'next' });
+                return;
+            }
+            if ( next !== confirm ) {
+                dialog.setStatus(t('passwords_do_not_match'), { field: 'confirm' });
+                return;
+            }
+            // It would go through, and sign every other session out for nothing.
+            if ( current && next === current ) {
+                dialog.setStatus(t('password_unchanged'), { field: 'next' });
+                return;
+            }
+            if ( ! check_password_strength(next).overallPass ) {
+                dialog.setStatus(t('password_strength_error'), { field: 'next' });
+                return;
+            }
+            const result = await postUserProtected('change-password', { new_pass: next }, {
+                password: current,
+                onRevalidate: revalidating(dialog),
+            });
+            if ( ! result.ok ) {
+                dialog.setStatus(result.message, wrongPassword(result, 'current'));
+                return;
+            }
+            // A provider-only account now has a password, and the other
+            // dialogs ask for it instead of the provider's sign-in.
+            if ( window.user ) window.user.oidc_only = false;
+            dialog.finish({ message: t('password_changed') });
+        },
+    });
+}
+
+/**
+ * Starts changing the signed-in user's email: the server mails a link to
+ * the new address, and the change lands when it is followed.
+ *
+ * @param {AccountDialogOptions} [opts]
+ */
+export function openChangeEmailDialog (opts = {}) {
+    const dialog = UIDashboardFormDialog({
+        ...opts,
+        title: t('change_email'),
+        intro: oidcNotice(),
+        submitLabel: t('change_email'),
+        fields: [
+            {
+                name: 'email',
+                type: 'email',
+                label: i18n('new_email'),
+                attrs: { autocomplete: 'email', inputmode: 'email', autocapitalize: 'off', spellcheck: 'false' },
+            },
+            passwordField(i18n('account_password')),
+            {
+                name: 'code',
+                label: i18n('confirm_code_2fa_instruction'),
+                hidden: ! window.user?.otp,
+                attrs: { inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 6, pattern: '[0-9]*' },
+            },
+        ],
+        async onSubmit () {
+            const { email, password, code } = dialog.values();
+            const new_email = email.trim();
+            if ( ! new_email ) {
+                dialog.setStatus(t('all_fields_required'), { field: 'email' });
+                return;
+            }
+            // The server would accept it: mail the same inbox, and unlink any
+            // sign-in provider once confirmed.
+            if ( new_email.toLowerCase() === String(window.user?.email).toLowerCase() ) {
+                dialog.setStatus(t('email_unchanged'), { field: 'email' });
+                return;
+            }
+            if ( ! isOidcOnly() && ! password ) {
+                dialog.setStatus(t('all_fields_required'), { field: 'password' });
+                return;
+            }
+            // Kept as typed: an authenticator code can start with zeroes.
+            const result = await postUserProtected('change-email', { new_email, code: code || undefined }, {
+                password,
+                onRevalidate: revalidating(dialog),
+            });
+            if ( ! result.ok ) {
+                // Accounts with 2FA turned on since the page loaded learn about it here.
+                const needs_code = result.data.factor === 'otp';
+                if ( needs_code ) dialog.showField('code', true);
+                dialog.setStatus(result.message, needs_code ? { field: 'code' } : wrongPassword(result, 'password'));
+                return;
+            }
+            // The address is the account's once the emailed link is followed, not yet.
+            dialog.finish({ message: t('email_change_confirmation_sent') });
+        },
+    });
+    return dialog;
+}
+
+/**
+ * Mints a named, revocable API token and shows it once.
+ *
+ * @param {AccountDialogOptions & { $sessionsParent?: jQuery }} [opts]
+ *   `$sessionsParent` is the window the session manager link opens over.
+ */
+export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
+    const dialog = UIDashboardFormDialog({
+        ...opts,
+        title: t('create_api_token'),
+        intro: `<p>${i18n('create_token_message')}</p>`,
+        submitLabel: t('create_token'),
+        fields: [
+            {
+                name: 'label',
+                label: i18n('token_label'),
+                placeholder: i18n('token_label_placeholder'),
+                attrs: { maxlength: TOKEN_LABEL_MAX_LENGTH, autocomplete: 'off' },
+            },
+            {
+                name: 'expiresIn',
+                type: 'select',
+                label: i18n('token_expiry'),
+                value: '',
+                options: [
+                    { value: '', label: i18n('token_expiry_never') },
+                    { value: '7d', label: i18n('token_expiry_7d') },
+                    { value: '30d', label: i18n('token_expiry_30d') },
+                    { value: '90d', label: i18n('token_expiry_90d') },
+                ],
+            },
+        ],
+        async onSubmit () {
+            const { label, expiresIn } = dialog.values();
+            if ( ! label.trim() ) {
+                dialog.setStatus(t('token_label_required'), { field: 'label' });
+                return;
+            }
+            const token = await create_access_token({ label: label.trim(), expiresIn: expiresIn || null });
+
+            let h = `<div class="dashboard-token-warning">${i18n('token_shown_once_warning')}</div>`;
+            h += copyRowHtml({ value: token, label: t('api_token'), copiedLabel: t('token_copied') });
+            h += `<p class="dashboard-form-hint">${i18n('token_manage_hint')} <button type="button" class="dashboard-token-sessions">${i18n('ui_manage_sessions')}</button>.</p>`;
+            // The token is shown only once; only Done, ✕ or Escape put it away.
+            dialog.finish({ html: h, describe: '.dashboard-token-warning', keepOnBackdrop: true });
+        },
+    });
+
+    dialog.$dialog.on('click', '.dashboard-token-sessions', () => {
+        UIWindowManageSessions({
+            window_options: {
+                parent_uuid: $sessionsParent?.attr('data-element_uuid'),
+                backdrop: true,
+                close_on_backdrop_click: true,
+                parent_center: true,
+                stay_on_top: true,
+                has_head: false,
+            },
+        });
+    });
+    return dialog;
+}
+
+/**
+ * Deletes the signed-in user's account once they confirm it: by typing
+ * "confirm" for a temporary account, with their password, or by signing in
+ * with their linked provider when the account has no password.
+ *
+ * @param {AccountDialogOptions} [opts]
+ */
+export function openDeleteAccountDialog (opts = {}) {
+    const is_temp = !! window.user?.is_temp;
+    const fields = [];
+    if ( is_temp ) {
+        fields.push({
+            name: 'confirm',
+            label: i18n('type_confirm_to_delete_account'),
+            attrs: { autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' },
+        });
+    } else if ( ! isOidcOnly() ) {
+        fields.push(passwordField(i18n('enter_password_to_confirm_delete_user')));
+    }
+
+    return UIDashboardFormDialog({
+        ...opts,
+        tone: 'danger',
+        title: t('confirm_delete_user_title'),
+        intro: `<p>${i18n('confirm_delete_user')}</p>${is_temp ? '' : oidcNotice()}`,
+        submitLabel: t('delete_account'),
+        fields,
+        async onSubmit (dialog) {
+            const { confirm, password } = dialog.values();
+            if ( is_temp ) {
+                // "confirm", or the word in the user's language.
+                const typed = confirm.trim().toLowerCase();
+                if ( typed !== 'confirm' && typed !== t('confirm').toLowerCase() ) {
+                    dialog.setStatus(t('type_confirm_to_delete_account'), { field: 'confirm' });
+                    return;
+                }
+            } else if ( ! isOidcOnly() && ! password ) {
+                dialog.setStatus(t('all_fields_required'), { field: 'password' });
+                return;
+            }
+            const result = await postUserProtected('delete-own-user', {}, {
+                password: is_temp ? undefined : password,
+                onRevalidate: revalidating(dialog),
+            });
+            if ( ! result.ok || ! result.data.success ) {
+                dialog.setStatus(result.message ?? t('error_unknown_cause'), wrongPassword(result, 'password'));
+                return;
+            }
+            window.user.deleted = true;
+            window.logout();
+        },
+    });
+}

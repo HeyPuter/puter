@@ -67,6 +67,9 @@ export function installI18n (translations) {
         for ( let i = 0; i < replacements.length; i++ ) {
             // sanitize the replacement
             replacements[i] = encode_html ? html_encode(replacements[i]) : replacements[i];
+            // Function replacements below: a string one would expand `$&`, `$'`
+            // and the like inside the value (a team named "R&D $& Co").
+            const value = replacements[i];
             // find first occurrence of %strong%
             let index = str.indexOf('%strong%');
             // find first occurrence of %%
@@ -75,13 +78,13 @@ export function installI18n (translations) {
             if ( index === -1 && index2 === -1 ) {
                 break;
             } else if ( index === -1 ) {
-                str = str.replace('%%', replacements[i]);
+                str = str.replace('%%', () => value);
             } else if ( index2 === -1 ) {
-                str = str.replace('%strong%', `<strong>${ replacements[i] }</strong>`);
+                str = str.replace('%strong%', () => `<strong>${ value }</strong>`);
             } else if ( index < index2 ) {
-                str = str.replace('%strong%', `<strong>${ replacements[i] }</strong>`);
+                str = str.replace('%strong%', () => `<strong>${ value }</strong>`);
             } else {
-                str = str.replace('%%', replacements[i]);
+                str = str.replace('%%', () => value);
             }
         }
         return str;

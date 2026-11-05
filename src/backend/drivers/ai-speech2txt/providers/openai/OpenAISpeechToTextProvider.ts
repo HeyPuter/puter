@@ -19,6 +19,7 @@
 
 import OpenAI, { toFile } from 'openai';
 import { HttpError } from '../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { loadFileInput } from '../../../util/fileInput.js';
 import { SPEECH_TO_TEXT_COSTS } from '../../costs.js';
 import type {
@@ -29,14 +30,13 @@ import type {
 import { SpeechToTextProvider } from '../SpeechToTextProvider.js';
 
 /**
- * Wraps OpenAI's audio API (Whisper + GPT-4o transcribe models) for
- * transcription and translation.
+ * Wraps OpenAI's audio transcription API. No current OpenAI model serves
+ * `/audio/translations`, so translate() rejects.
  *
  * `file` may be a path, uid/uuid ref, or data URL.
  */
 
-const DEFAULT_TRANSCRIBE_MODEL = 'gpt-4o-mini-transcribe';
-const DEFAULT_TRANSLATE_MODEL = 'whisper-1';
+const DEFAULT_TRANSCRIBE_MODEL = 'gpt-transcribe';
 const MAX_AUDIO_FILE_SIZE = 25 * 1024 * 1024;
 
 const SAMPLE_TRANSCRIPT = {
@@ -53,34 +53,13 @@ interface ModelCapabilities {
     canPrompt: boolean;
     canLogprobs: boolean;
     responseFormats: string[];
-    timestampGranularities?: boolean;
-    diarization?: boolean;
-    requiresChunkingOverThirtySeconds?: boolean;
 }
 
 const MODEL_CAPS: Record<string, ModelCapabilities> = {
-    'gpt-4o-mini-transcribe': {
+    'gpt-transcribe': {
         canPrompt: true,
         canLogprobs: true,
         responseFormats: ['json', 'text'],
-    },
-    'gpt-4o-transcribe': {
-        canPrompt: true,
-        canLogprobs: true,
-        responseFormats: ['json', 'text'],
-    },
-    'gpt-4o-transcribe-diarize': {
-        canPrompt: false,
-        canLogprobs: false,
-        responseFormats: ['json', 'text', 'diarized_json'],
-        diarization: true,
-        requiresChunkingOverThirtySeconds: true,
-    },
-    'whisper-1': {
-        canPrompt: true,
-        canLogprobs: false,
-        responseFormats: ['json', 'text', 'srt', 'verbose_json', 'vtt'],
-        timestampGranularities: true,
     },
 };
 
@@ -113,38 +92,26 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
         return Object.entries(MODEL_CAPS).map(([id, caps]) => ({
             id,
             name: id,
-            type: caps.diarization
-                ? 'transcription'
-                : id === 'whisper-1'
-                  ? 'translation'
-                  : 'transcription',
+            type: 'transcription',
             response_formats: caps.responseFormats,
             supports_prompt: caps.canPrompt,
             supports_logprobs: caps.canLogprobs,
-            ...(caps.diarization ? { supports_diarization: true } : {}),
-            ...(caps.timestampGranularities
-                ? { supports_timestamp_granularities: true }
-                : {}),
         }));
     }
 
+    async translate(_args: ITranscribeArgs): Promise<never> {
+        throw new HttpError(
+            400,
+            'Translation is not supported by any current OpenAI model',
+            { legacyCode: 'bad_request' },
+        );
+    }
+
     async transcribe(args: ITranscribeArgs) {
-        return this.#handleTranscription(args, false);
-    }
-
-    async translate(args: ITranscribeArgs) {
-        return this.#handleTranscription(args, true);
-    }
-
-    async #handleTranscription(args: ITranscribeArgs, translate: boolean) {
         if (args.test_mode) {
             return {
                 ...SAMPLE_TRANSCRIPT,
-                model:
-                    args.model ||
-                    (translate
-                        ? DEFAULT_TRANSLATE_MODEL
-                        : DEFAULT_TRANSCRIBE_MODEL),
+                model: args.model || DEFAULT_TRANSCRIBE_MODEL,
             };
         }
         if (args.stream) {
@@ -170,9 +137,7 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
             { maxBytes: MAX_AUDIO_FILE_SIZE, acceptWebInput: true },
         );
 
-        const selectedModel =
-            args.model ||
-            (translate ? DEFAULT_TRANSLATE_MODEL : DEFAULT_TRANSCRIBE_MODEL);
+        const selectedModel = args.model || DEFAULT_TRANSCRIBE_MODEL;
         const caps = MODEL_CAPS[selectedModel];
         if (!caps) {
             throw new HttpError(400, `Unsupported model: ${selectedModel}`, {
@@ -205,9 +170,9 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
             );
         }
 
-        // Estimate seconds from raw bytes — 16 kbps is a conservative speech-audio
-        // lower bound. Full metadata parsing (music-metadata) is deferred — clients
-        // aren't observably sensitive to billing-time delta vs real duration.
+        // The hold estimates seconds from bytes at 128 kbps: compact audio is
+        // under-held rather than refused, and usage is metered from the
+        // duration OpenAI reports.
         const estimatedSeconds = Math.max(
             1,
             Math.ceil(loaded.buffer.byteLength / 16000),
@@ -215,87 +180,86 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
         const usageType = `openai:${selectedModel}:second`;
         const ucentsPerSecond = SPEECH_TO_TEXT_COSTS[usageType] ?? 0;
         const estimatedCost = ucentsPerSecond * estimatedSeconds;
-        const allowed = await this.deps.metering.hasEnoughCredits(
-            actor,
-            estimatedCost,
-        );
-        if (!allowed)
-            throw new HttpError(402, 'Insufficient credits', {
-                legacyCode: 'insufficient_funds',
-            });
-
-        const openaiFile = await toFile(
-            loaded.buffer,
-            loaded.filename,
-            loaded.mimeType ? { type: loaded.mimeType } : undefined,
-        );
-
-        const payload: Record<string, unknown> = {
-            file: openaiFile,
-            model: selectedModel,
-        };
-        if (args.response_format)
-            payload.response_format = args.response_format;
-        if (args.language) payload.language = args.language;
-        if (typeof args.temperature === 'number')
-            payload.temperature = args.temperature;
-        if (args.prompt && caps.canPrompt) payload.prompt = args.prompt;
-        if (args.logprobs && caps.canLogprobs) payload.logprobs = args.logprobs;
-        if (args.timestamp_granularities && caps.timestampGranularities) {
-            payload.timestamp_granularities = args.timestamp_granularities;
-        }
-        if (caps.diarization) {
-            if (!args.response_format)
-                payload.response_format = 'diarized_json';
-            const needsChunking =
-                caps.requiresChunkingOverThirtySeconds && estimatedSeconds > 30;
-            const strategy =
-                args.chunking_strategy ?? (needsChunking ? 'auto' : undefined);
-            if (strategy) payload.chunking_strategy = strategy;
-
-            if (args.known_speaker_names || args.known_speaker_references) {
-                payload.extra_body = {
-                    ...(args.extra_body ?? {}),
-                    ...(args.known_speaker_names
-                        ? { known_speaker_names: args.known_speaker_names }
-                        : {}),
-                    ...(args.known_speaker_references
-                        ? {
-                              known_speaker_references:
-                                  args.known_speaker_references,
-                          }
-                        : {}),
-                };
-            }
-        } else if (args.extra_body) {
-            payload.extra_body = args.extra_body;
-        }
-
-        const result = translate
-            ? await this.#openai.audio.translations.create(
-                  payload as unknown as Parameters<
-                      OpenAI['audio']['translations']['create']
-                  >[0],
-              )
-            : await this.#openai.audio.transcriptions.create(
-                  payload as unknown as Parameters<
-                      OpenAI['audio']['transcriptions']['create']
-                  >[0],
-              );
-
-        this.deps.metering.incrementUsage(
+        const hold = await this.deps.metering.reserveAiCredits(
             actor,
             usageType,
-            estimatedSeconds,
-            ucentsPerSecond * estimatedSeconds,
+            estimatedCost,
         );
+        if (!hold) throw insufficientCreditsError();
 
-        // Text response_format: return raw string; otherwise forward the OpenAI object.
-        if (args.response_format === 'text') {
-            return typeof result === 'string'
-                ? result
-                : ((result as { text?: string }).text ?? '');
+        try {
+            const openaiFile = await toFile(
+                loaded.buffer,
+                loaded.filename,
+                loaded.mimeType ? { type: loaded.mimeType } : undefined,
+            );
+
+            const payload: Record<string, unknown> = {
+                file: openaiFile,
+                model: selectedModel,
+            };
+            // A `text` response carries no usage, so json is asked for and
+            // its text returned.
+            if (args.response_format)
+                payload.response_format =
+                    args.response_format === 'text'
+                        ? 'json'
+                        : args.response_format;
+            if (args.language) payload.language = args.language;
+            if (typeof args.temperature === 'number')
+                payload.temperature = args.temperature;
+            if (args.prompt && caps.canPrompt) payload.prompt = args.prompt;
+            // The API ignores a bare `logprobs` flag; it only honors `include`.
+            if (args.logprobs && caps.canLogprobs)
+                payload.include = ['logprobs'];
+            if (args.extra_body && typeof args.extra_body === 'object') {
+                // Billing reads usage off the response; these can strip it.
+                const extra = {
+                    ...(args.extra_body as Record<string, unknown>),
+                };
+                delete extra.response_format;
+                delete extra.stream;
+                payload.extra_body = extra;
+            }
+
+            const result = await this.#openai.audio.transcriptions.create(
+                payload as unknown as Parameters<
+                    OpenAI['audio']['transcriptions']['create']
+                >[0],
+            );
+
+            const billedSeconds = reportedSeconds(result) ?? estimatedSeconds;
+            this.deps.metering.incrementUsage(
+                actor,
+                usageType,
+                billedSeconds,
+                ucentsPerSecond * billedSeconds,
+            );
+
+            // Text response_format: return raw string; otherwise forward the OpenAI object.
+            if (args.response_format === 'text') {
+                return typeof result === 'string'
+                    ? result
+                    : ((result as { text?: string }).text ?? '');
+            }
+            return result;
+        } finally {
+            await hold.release();
         }
-        return result;
     }
+}
+
+/** Whole seconds of audio OpenAI reports billing for, if it reports them. */
+function reportedSeconds(result: unknown): number | undefined {
+    if (!result || typeof result !== 'object') return undefined;
+    const { usage, duration } = result as {
+        usage?: { type?: string; seconds?: unknown };
+        duration?: unknown;
+    };
+    const seconds = usage?.type === 'duration' ? usage.seconds : duration;
+    return typeof seconds === 'number' &&
+        Number.isFinite(seconds) &&
+        seconds > 0
+        ? Math.max(1, Math.ceil(seconds))
+        : undefined;
 }

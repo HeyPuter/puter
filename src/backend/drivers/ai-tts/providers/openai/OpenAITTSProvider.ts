@@ -18,18 +18,23 @@
  */
 
 import OpenAI from 'openai';
-import { Readable } from 'node:stream';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
-import type { ITTSVoice, ITTSEngine, ISynthesizeArgs } from '../../types.js';
-import { TTSProvider } from '../TTSProvider.js';
+import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
+import { upstreamBodyStream } from '../../../util/upstreamErrors.js';
+import type {
+    ITTSVoice,
+    ITTSEngine,
+    ISynthesizeArgs,
+    ITTSProvider,
+} from '../../types.js';
+import { characterCostReport, meterPerCharacter } from '../common.js';
 import { OPENAI_TTS_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'gpt-4o-mini-tts';
 const DEFAULT_VOICE = 'alloy';
-const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 
 const RESPONSE_CONTENT_TYPES: Record<string, string> = {
     mp3: 'audio/mpeg',
@@ -40,17 +45,21 @@ const RESPONSE_CONTENT_TYPES: Record<string, string> = {
     pcm: 'audio/pcm',
 };
 
-const OPENAI_TTS_VOICES = [
+// Voices without `models` work on every engine; the rest are gpt-4o-mini-tts only.
+const OPENAI_TTS_VOICES: { id: string; name: string; models?: string[] }[] = [
     { id: 'alloy', name: 'Alloy' },
     { id: 'ash', name: 'Ash' },
-    { id: 'ballad', name: 'Ballad' },
+    { id: 'ballad', name: 'Ballad', models: [DEFAULT_MODEL] },
+    { id: 'cedar', name: 'Cedar', models: [DEFAULT_MODEL] },
     { id: 'coral', name: 'Coral' },
     { id: 'echo', name: 'Echo' },
     { id: 'fable', name: 'Fable' },
+    { id: 'marin', name: 'Marin', models: [DEFAULT_MODEL] },
     { id: 'nova', name: 'Nova' },
     { id: 'onyx', name: 'Onyx' },
     { id: 'sage', name: 'Sage' },
     { id: 'shimmer', name: 'Shimmer' },
+    { id: 'verse', name: 'Verse', models: [DEFAULT_MODEL] },
 ];
 
 const OPENAI_TTS_MODELS = [
@@ -75,13 +84,15 @@ const OPENAI_TTS_MODELS = [
  * OpenAI TTS provider. Wraps the OpenAI speech synthesis API and returns audio
  * as a DriverStreamResult.
  */
-export class OpenAITTSProvider extends TTSProvider {
+export class OpenAITTSProvider implements ITTSProvider {
     readonly providerName = 'openai';
 
     private openai: OpenAI;
 
-    constructor(meteringService: MeteringService, config: { apiKey: string }) {
-        super(meteringService, config);
+    constructor(
+        private readonly meteringService: AiMeteringService,
+        config: { apiKey: string },
+    ) {
         this.openai = new OpenAI({ apiKey: config.apiKey });
     }
 
@@ -94,7 +105,8 @@ export class OpenAITTSProvider extends TTSProvider {
                 code: 'en',
             },
             provider: 'openai',
-            supported_models: OPENAI_TTS_MODELS.map((m) => m.id),
+            supported_models:
+                voice.models ?? OPENAI_TTS_MODELS.map((m) => m.id),
         }));
     }
 
@@ -107,15 +119,8 @@ export class OpenAITTSProvider extends TTSProvider {
         }));
     }
 
-    override getReportedCosts(): Record<string, unknown>[] {
-        return Object.entries(OPENAI_TTS_COSTS).map(
-            ([model, ucentsPerUnit]) => ({
-                usageType: `openai:${model}:character`,
-                ucentsPerUnit,
-                unit: 'character',
-                source: 'driver:aiTts/openai',
-            }),
-        );
+    getReportedCosts(): Record<string, unknown>[] {
+        return characterCostReport('openai', OPENAI_TTS_COSTS);
     }
 
     async synthesize(
@@ -160,7 +165,8 @@ export class OpenAITTSProvider extends TTSProvider {
         }
 
         const voice = voiceArg || DEFAULT_VOICE;
-        if (!OPENAI_TTS_VOICES.find(({ id }) => id === voice)) {
+        const voiceEntry = OPENAI_TTS_VOICES.find(({ id }) => id === voice);
+        if (!voiceEntry) {
             throw new HttpError(
                 400,
                 `Invalid voice: ${voice}. Expected: ${OPENAI_TTS_VOICES.map(({ id }) => id).join(', ')}`,
@@ -177,57 +183,45 @@ export class OpenAITTSProvider extends TTSProvider {
             );
         }
 
+        if (voiceEntry.models && !voiceEntry.models.includes(model)) {
+            throw new HttpError(
+                400,
+                `Voice ${voice} is not supported by ${model}. Expected: ${voiceEntry.models.join(', ')}`,
+                {
+                    legacyCode: 'field_invalid',
+                    fields: {
+                        key: 'voice',
+                        expected: voiceEntry.models.join(', '),
+                        got: voice,
+                    },
+                },
+            );
+        }
+
         const format = response_format || 'mp3';
         const contentType =
             RESPONSE_CONTENT_TYPES[format] || RESPONSE_CONTENT_TYPES.mp3;
 
-        const actor = Context.get('actor')!;
-        const usageType = `openai:${model}:character`;
-        const ucentsPerChar = OPENAI_TTS_COSTS[model] ?? 0;
-        const totalCost = ucentsPerChar * text.length;
-
-        const usageAllowed = await this.meteringService.hasEnoughCredits(
-            actor,
-            totalCost,
-        );
-        if (!usageAllowed) {
-            throw new HttpError(402, 'Insufficient funds', {
-                legacyCode: 'insufficient_funds',
-            });
-        }
-
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const payload: any = {
-            model,
-            voice,
-            input: text,
-        };
+        const payload: any = { model, voice, input: text };
+        if (instructions) payload.instructions = instructions;
+        if (response_format) payload.response_format = response_format;
 
-        if (instructions) {
-            payload.instructions = instructions;
-        }
-
-        if (response_format) {
-            payload.response_format = response_format;
-        }
-
-        const response = await this.openai.audio.speech.create(payload);
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const stream = Readable.from(buffer);
-
-        this.meteringService.incrementUsage(
-            actor,
-            usageType,
-            text.length,
-            totalCost,
+        return meterPerCharacter(
+            this.meteringService,
+            Context.get('actor')!,
+            `openai:${model}:character`,
+            OPENAI_TTS_COSTS[model] ?? 0,
+            text,
+            async () => {
+                const response = await this.openai.audio.speech.create(payload);
+                return {
+                    dataType: 'stream',
+                    content_type: contentType,
+                    chunked: true,
+                    stream: upstreamBodyStream(response),
+                };
+            },
         );
-
-        return {
-            dataType: 'stream',
-            content_type: contentType,
-            chunked: true,
-            stream,
-        };
     }
 }

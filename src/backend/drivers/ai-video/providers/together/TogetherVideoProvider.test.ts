@@ -39,12 +39,16 @@ import {
     vi,
     type MockInstance,
 } from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
 
+import { type Actor, makeActor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
+import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { TogetherVideoProvider } from './TogetherVideoProvider.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from './models.js';
@@ -81,7 +85,7 @@ vi.mock('together-ai', () => {
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let remainingUsageSpy: MockInstance<MeteringService['getRemainingUsage']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
@@ -96,21 +100,30 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
-const makeProvider = () =>
-    new TogetherVideoProvider(
-        { apiKey: 'test-key' },
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
         server.services.metering,
+        server.clients.event,
+        'ai-video',
     );
+
+const fileDeps = () => ({ stores: server.stores, fs: server.services.fs });
+
+const makeProvider = () =>
+    new TogetherVideoProvider({ apiKey: 'test-key' }, aiMetering(), fileDeps());
 
 beforeEach(() => {
     videosCreateMock.mockReset();
     videosRetrieveMock.mockReset();
     togetherCtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     // Default to "has credits" so per-test setup only needs to override
     // for the explicit credit-gate scenarios. SYSTEM_ACTOR has no uuid,
     // so the live `getRemainingUsage` path can short-circuit to 0.
-    hasCreditsSpy.mockResolvedValue(true);
+    admitSpy.mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        );
     remainingUsageSpy = vi.spyOn(server.services.metering, 'getRemainingUsage');
     remainingUsageSpy.mockResolvedValue(AMPLE_CREDIT);
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
@@ -137,7 +150,8 @@ describe('TogetherVideoProvider construction', () => {
             () =>
                 new TogetherVideoProvider(
                     { apiKey: '' },
-                    server.services.metering,
+                    aiMetering(),
+                    fileDeps(),
                 ),
         ).toThrow(/API key/i);
     });
@@ -146,11 +160,22 @@ describe('TogetherVideoProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('TogetherVideoProvider model catalog', () => {
-    it('getDefaultModel() returns the togetherai-prefixed director model', () => {
+    it('getDefaultModel() returns the togetherai-prefixed Wan 2.7 T2V model', () => {
         const provider = makeProvider();
-        expect(provider.getDefaultModel()).toBe(
-            'togetherai:minimax/video-01-director',
-        );
+        expect(provider.getDefaultModel()).toBe('togetherai:wan-ai/wan2.7-t2v');
+    });
+
+    it('drops the models Together no longer serves', () => {
+        const ids = TOGETHER_VIDEO_GENERATION_MODELS.map((m) => m.model);
+        for (const retired of [
+            'google/veo-2.0',
+            'kwaivgI/kling-2.1-master',
+            'kwaivgI/kling-2.1-standard',
+            'kwaivgI/kling-2.1-pro',
+            'kwaivgI/kling-1.6-standard',
+        ]) {
+            expect(ids).not.toContain(retired);
+        }
     });
 
     it('models() lists every catalog entry with togetherai- aliases populated', async () => {
@@ -174,7 +199,7 @@ describe('TogetherVideoProvider.generate test_mode', () => {
             provider.generate({ prompt: 'hi', test_mode: true }),
         );
         expect(result).toBe('https://assets.puter.site/txt2vid.mp4');
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(videosCreateMock).not.toHaveBeenCalled();
     });
 });
@@ -209,13 +234,18 @@ describe('TogetherVideoProvider.generate argument validation', () => {
 
 // ── Credit gate ─────────────────────────────────────────────────────
 
+// Flat per-clip, pixel-sized model for tests that exercise that path.
+const DIRECTOR = 'togetherai:minimax/video-01-director';
+
 describe('TogetherVideoProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting Together when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
-            withTestActor(() => provider.generate({ prompt: 'hi' })),
+            withTestActor(() =>
+                provider.generate({ prompt: 'hi', model: DIRECTOR }),
+            ),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(videosCreateMock).not.toHaveBeenCalled();
     });
@@ -271,7 +301,11 @@ describe('TogetherVideoProvider.generate parameter mapping', () => {
         });
 
         await withTestActor(() =>
-            provider.generate({ prompt: 'hi', no_extra_params: true }),
+            provider.generate({
+                prompt: 'hi',
+                model: DIRECTOR,
+                no_extra_params: true,
+            }),
         );
 
         const sent = videosCreateMock.mock.calls[0]![0];
@@ -290,6 +324,7 @@ describe('TogetherVideoProvider.generate parameter mapping', () => {
         await withTestActor(() =>
             provider.generate({
                 prompt: 'hi',
+                model: DIRECTOR,
                 width: 1280,
                 height: 720,
                 fps: 24,
@@ -420,31 +455,76 @@ describe('TogetherVideoProvider.generate polling', () => {
         }
     });
 
-    it('gives up after the wait window as HttpError 504 upstream_timeout, without metering', async () => {
+    /** Starts a job that is still running when the wait window closes. */
+    const outliveWindow = async () => {
+        const provider = makeProvider();
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-slow' });
+        videosRetrieveMock.mockResolvedValue({
+            id: 'job-slow',
+            status: 'in_progress',
+        });
+
+        const rejection = (async () => {
+            try {
+                await withTestActor(() =>
+                    provider.generate({
+                        prompt: 'hi',
+                        model: 'togetherai:minimax/video-01-director',
+                    }),
+                );
+            } catch (e) {
+                return e;
+            }
+        })();
+
+        // Ten-minute wait window, polled every 5s.
+        await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
+
+        expect(await rejection).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+            message:
+                'Timed out waiting for Together AI video generation to complete',
+            fields: { provider: 'together' },
+        });
+        // Together still renders and bills the job past the window.
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    };
+
+    it('passes through what Together charged for a job that fails after the window', async () => {
         vi.useFakeTimers();
         try {
-            const provider = makeProvider();
-            videosCreateMock.mockResolvedValueOnce({ id: 'job-slow' });
+            await outliveWindow();
             videosRetrieveMock.mockResolvedValue({
                 id: 'job-slow',
-                status: 'in_progress',
+                status: 'failed',
+                outputs: { cost: 0.5 },
             });
+            await vi.advanceTimersByTimeAsync(10_000);
 
-            const rejection = withTestActor(() =>
-                provider.generate({ prompt: 'hi' }),
-            ).catch((e: unknown) => e);
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+            const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
+            expect(usageType).toBe('together-video:minimax/video-01-director');
+            expect(count).toBe(1);
+            expect(cost).toBe(50 * 1_000_000);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
 
-            // Ten-minute wait window, polled every 5s.
-            await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
+    it('charges the held estimate when Together loses track of a late job', async () => {
+        vi.useFakeTimers();
+        try {
+            await outliveWindow();
+            videosRetrieveMock.mockRejectedValue(
+                Object.assign(new Error('no such job'), { status: 404 }),
+            );
+            await vi.advanceTimersByTimeAsync(10_000);
 
-            expect(await rejection).toMatchObject({
-                statusCode: 504,
-                legacyCode: 'upstream_timeout',
-                message:
-                    'Timed out waiting for Together AI video generation to complete',
-                fields: { provider: 'together' },
-            });
-            expect(incrementUsageSpy).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+            const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+            expect(count).toBe(1);
+            expect(cost).toBe(28 * 1_000_000);
         } finally {
             vi.useRealTimers();
         }
@@ -477,33 +557,35 @@ describe('TogetherVideoProvider.generate polling', () => {
         }
     });
 
-    it('stops polling and skips metering when the client disconnects', async () => {
+    it('keeps polling and meters the finished job after the client disconnects', async () => {
         vi.useFakeTimers();
         try {
             const provider = makeProvider();
             videosCreateMock.mockResolvedValueOnce({ id: 'job-gone' });
-            videosRetrieveMock.mockResolvedValue({
-                id: 'job-gone',
-                status: 'in_progress',
-            });
+            videosRetrieveMock
+                .mockResolvedValueOnce({
+                    id: 'job-gone',
+                    status: 'in_progress',
+                })
+                .mockResolvedValueOnce({
+                    id: 'job-gone',
+                    status: 'completed',
+                    outputs: { video_url: 'https://together/gone.mp4' },
+                });
             const abort = new AbortController();
 
-            const rejection = withTestActor(() => {
+            const result = withTestActor(() => {
                 Context.set('abortSignal', abort.signal);
                 return provider.generate({ prompt: 'hi' });
-            }).catch((e: unknown) => e);
-
-            await vi.advanceTimersByTimeAsync(5_000);
-            abort.abort();
-            await vi.advanceTimersByTimeAsync(0);
-
-            expect(await rejection).toMatchObject({
-                statusCode: 400,
-                legacyCode: 'client_aborted',
-                fields: { provider: 'together' },
             });
+
+            await vi.advanceTimersByTimeAsync(0);
+            abort.abort();
+            await vi.advanceTimersByTimeAsync(5_000);
+
+            expect(await result).toBe('https://together/gone.mp4');
             expect(videosRetrieveMock).toHaveBeenCalledTimes(2);
-            expect(incrementUsageSpy).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
         } finally {
             vi.useRealTimers();
         }
@@ -635,7 +717,7 @@ describe('TogetherVideoProvider.generate per-second models', () => {
         expect('height' in sent).toBe(false);
         expect('ratio' in sent).toBe(false);
         // The flat-rate gate is not consulted for per-second models.
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
 
         const seedance = TOGETHER_VIDEO_GENERATION_MODELS.find(
             (m) => m.model === 'ByteDance/Seedance-2.5',
@@ -699,6 +781,27 @@ describe('TogetherVideoProvider.generate per-second models', () => {
         expect(videosCreateMock.mock.calls[0]![0].generate_audio).toBe(false);
     });
 
+    it('routes MiniMax H3 by its lowercased id and meters its 2k per-second rate', async () => {
+        const provider = makeProvider();
+        completeJob();
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'togetherai:minimaxai/minimax-h3',
+                seconds: 5,
+            }),
+        );
+
+        const sent = videosCreateMock.mock.calls[0]![0];
+        expect(sent.model).toBe('MiniMaxAI/MiniMax-H3');
+        expect(sent.seconds).toBe('5');
+        const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe('together-video:MiniMaxAI/MiniMax-H3');
+        expect(count).toBe(5);
+        expect(cost).toBe(Math.round(13.91 * 5 * 1_000_000));
+    });
+
     // Seedance 2.5 at its default 720p tier is 24.9 usd-cents/second and
     // accepts any whole number of seconds from 4 to 30.
     it('caps the clip to the longest supported duration the credit buys', async () => {
@@ -738,6 +841,184 @@ describe('TogetherVideoProvider.generate per-second models', () => {
             legacyCode: 'insufficient_funds',
         });
         expect(videosCreateMock).not.toHaveBeenCalled();
+    });
+});
+
+// ── Credit holds ────────────────────────────────────────────────────
+
+describe('TogetherVideoProvider.generate credit holds', () => {
+    // Seedance 2.5 at its default 720p tier: 24.9 usd-cents/second, 4-30s.
+    const SEEDANCE = 'togetherai:bytedance/seedance-2.5';
+    const perSecond = 24.9 * 1_000_000;
+    const holdUser = (name: string) =>
+        makeActor({
+            user: {
+                id: 101,
+                uuid: `together-video-${name}-${Date.now()}`,
+                username: name,
+            },
+        });
+    const outstanding = (actor: Actor) =>
+        server.stores.creditHold.outstanding(actor.user!.uuid);
+    const completed = (id: string) => ({
+        id,
+        status: 'completed',
+        outputs: { video_url: `https://together/${id}.mp4` },
+    });
+
+    it('holds the clamped clip for the whole job and releases it once metered', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('hold');
+        let heldWhilePolling = -1;
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-held' });
+        videosRetrieveMock.mockImplementationOnce(async () => {
+            heldWhilePolling = await outstanding(actor);
+            return completed('job-held');
+        });
+
+        await withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: SEEDANCE,
+                    seconds: 10,
+                }),
+            actor,
+        );
+
+        expect(heldWhilePolling).toBe(Math.round(10 * perSecond));
+        expect(await outstanding(actor)).toBe(0);
+    });
+
+    // Usage is recorded only when a job finishes, minutes later, so a job
+    // started meanwhile must be clamped to what the first leaves uncommitted.
+    it('clamps a concurrent job to the balance the first one leaves', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('concurrent');
+        // A balance that buys 15.5 seconds, with holds subtracted for real.
+        remainingUsageSpy.mockRestore();
+        vi.spyOn(server.services.metering, 'getAllowedUsage').mockResolvedValue(
+            {
+                remaining: 15.5 * perSecond,
+                monthUsageAllowance: 15.5 * perSecond,
+                addons: {},
+            } as never,
+        );
+        let finishFirst: () => void = () => {};
+        videosCreateMock
+            .mockResolvedValueOnce({ id: 'job-first' })
+            .mockResolvedValueOnce({ id: 'job-second' });
+        videosRetrieveMock
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finishFirst = () => resolve(completed('job-first'));
+                    }),
+            )
+            .mockResolvedValueOnce(completed('job-second'));
+
+        const first = withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'first',
+                    model: SEEDANCE,
+                    seconds: 10,
+                }),
+            actor,
+        );
+        await vi.waitFor(() =>
+            expect(videosRetrieveMock).toHaveBeenCalledTimes(1),
+        );
+        await withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'second',
+                    model: SEEDANCE,
+                    seconds: 10,
+                }),
+            actor,
+        );
+        finishFirst();
+        await first;
+
+        const sent = videosCreateMock.mock.calls.map(([body]) => body.seconds);
+        expect(sent).toEqual(['10', '5']);
+        expect(await outstanding(actor)).toBe(0);
+    });
+
+    it('prices the clamp and the hold at the model cost factor', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('factor');
+        // 10.5 seconds at list price; doubled, it buys 5.
+        remainingUsageSpy.mockResolvedValue(10.5 * perSecond);
+        const doubled = (_key: string, event: { factor: number }) => {
+            event.factor = 2;
+        };
+        let heldWhilePolling = -1;
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-factor' });
+        videosRetrieveMock.mockImplementationOnce(async () => {
+            heldWhilePolling = await outstanding(actor);
+            return completed('job-factor');
+        });
+
+        server.clients.event.on('ai.cost.factor.*', doubled);
+        try {
+            await withTestActor(
+                () =>
+                    provider.generate({
+                        prompt: 'hi',
+                        model: SEEDANCE,
+                        seconds: 10,
+                    }),
+                actor,
+            );
+        } finally {
+            server.clients.event.off('ai.cost.factor.*', doubled);
+        }
+
+        expect(videosCreateMock.mock.calls[0]![0].seconds).toBe('5');
+        expect(heldWhilePolling).toBe(Math.round(5 * perSecond * 2));
+    });
+
+    it("holds a per-clip model's price for the job", async () => {
+        const provider = makeProvider();
+        const actor = holdUser('per-clip');
+        let heldWhilePolling = -1;
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-clip' });
+        videosRetrieveMock.mockImplementationOnce(async () => {
+            heldWhilePolling = await outstanding(actor);
+            return completed('job-clip');
+        });
+
+        await withTestActor(
+            () => provider.generate({ prompt: 'hi', model: DIRECTOR }),
+            actor,
+        );
+
+        // The director model is 28 cents per video.
+        expect(heldWhilePolling).toBe(28 * 1_000_000);
+        expect(await outstanding(actor)).toBe(0);
+    });
+
+    it('holds through a disconnected job and releases it once metered', async () => {
+        const provider = makeProvider();
+        const actor = holdUser('abort');
+        const abort = new AbortController();
+        abort.abort();
+        let heldWhilePolling = -1;
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-gone' });
+        videosRetrieveMock.mockImplementationOnce(async () => {
+            heldWhilePolling = await outstanding(actor);
+            return completed('job-gone');
+        });
+
+        await withTestActor(() => {
+            Context.set('abortSignal', abort.signal);
+            return provider.generate({ prompt: 'hi', model: SEEDANCE });
+        }, actor);
+        expect(heldWhilePolling).toBeGreaterThan(0);
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        expect(await outstanding(actor)).toBe(0);
     });
 });
 
@@ -874,5 +1155,300 @@ describe('TogetherVideoProvider.generate input_reference / last_frame', () => {
         expect(videosCreateMock.mock.calls[0]![0].frame_images).toEqual([
             { input_image: 'https://example.com/keyframe.png', frame: 0 },
         ]);
+    });
+});
+
+describe('TogetherVideoProvider.generate input_video', () => {
+    const FLUX = 'togetherai:black-forest-labs/flux-3';
+    // The head of an MP4: an `ftyp` box with an `isom` brand.
+    const MP4 = Buffer.concat([
+        Buffer.from([0, 0, 0, 0x18]),
+        Buffer.from('ftypisom', 'latin1'),
+        Buffer.from([0, 0, 2, 0]),
+        Buffer.from('isomiso2', 'latin1'),
+        Buffer.from('mdat-frames', 'latin1'),
+    ]);
+    const mp4DataUri = `data:video/mp4;base64,${MP4.toString('base64')}`;
+
+    const completeJob = () => {
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-v2v' });
+        videosRetrieveMock.mockResolvedValueOnce({
+            id: 'job-v2v',
+            status: 'completed',
+            outputs: { video_url: 'https://together/v2v.mp4' },
+        });
+    };
+
+    const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
+        const username = `together-v2v-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            server.clients.db,
+            server.stores.user,
+            created,
+        );
+        const user = (await server.stores.user.getById(created.id))!;
+        return {
+            userId: user.id,
+            actor: {
+                user: {
+                    id: user.id,
+                    uuid: user.uuid,
+                    username: user.username,
+                    email: user.email ?? null,
+                    email_confirmed: true,
+                } as Actor['user'],
+            },
+        };
+    };
+
+    it('passes a URL through as the source video and bills the editing rate', async () => {
+        const provider = makeProvider();
+        completeJob();
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'Make this dog a dinosaur.',
+                model: FLUX,
+                seconds: 6,
+                input_video: 'https://example.com/dog.mp4',
+            }),
+        );
+
+        const sent = videosCreateMock.mock.calls[0]![0];
+        expect(sent.model).toBe('black-forest-labs/FLUX-3');
+        expect(sent.media).toEqual({
+            source_video: 'https://example.com/dog.mp4',
+        });
+        const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(count).toBe(6);
+        expect(cost).toBe(43 * 6 * 1_000_000);
+    });
+
+    it.each([1, 2, 3, 4, 4.99])(
+        'rejects an editing balance covering only %s seconds before creating a job',
+        async (affordableSeconds) => {
+            remainingUsageSpy.mockResolvedValueOnce(
+                affordableSeconds * 43 * 1_000_000,
+            );
+
+            await expect(
+                withTestActor(() =>
+                    makeProvider().generate({
+                        prompt: 'Make this dog a dinosaur.',
+                        model: FLUX,
+                        seconds: 10,
+                        input_video: 'https://example.com/dog.mp4',
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 402,
+                legacyCode: 'insufficient_funds',
+            });
+            expect(videosCreateMock).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([
+        [10, 5, 5],
+        [10, 7.5, 7],
+        [2, 30, 5],
+        [25, 30, 20],
+    ])(
+        'bounds a %s-second edit with credit for %s seconds to %s seconds',
+        async (requestedSeconds, affordableSeconds, expectedSeconds) => {
+            remainingUsageSpy.mockResolvedValueOnce(
+                affordableSeconds * 43 * 1_000_000,
+            );
+            completeJob();
+
+            await withTestActor(() =>
+                makeProvider().generate({
+                    prompt: 'Make this dog a dinosaur.',
+                    model: FLUX,
+                    seconds: requestedSeconds,
+                    input_video: 'https://example.com/dog.mp4',
+                }),
+            );
+
+            expect(videosCreateMock.mock.calls[0]![0].seconds).toBe(
+                String(expectedSeconds),
+            );
+            const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+            expect(count).toBe(expectedSeconds);
+            expect(cost).toBe(expectedSeconds * 43 * 1_000_000);
+        },
+    );
+
+    it.each([2, 25])(
+        'keeps the text-only duration behavior for %s seconds',
+        async (seconds) => {
+            remainingUsageSpy.mockResolvedValueOnce(seconds * 29 * 1_000_000);
+            completeJob();
+
+            await withTestActor(() =>
+                makeProvider().generate({
+                    prompt: 'A dinosaur.',
+                    model: FLUX,
+                    seconds,
+                }),
+            );
+
+            const sent = videosCreateMock.mock.calls[0]![0];
+            expect(sent.seconds).toBe(String(seconds));
+            expect(sent.media).toBeUndefined();
+            const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+            expect(count).toBe(seconds);
+            expect(cost).toBe(seconds * 29 * 1_000_000);
+        },
+    );
+
+    it('sends a small data URI inline, typed by its bytes', async () => {
+        const provider = makeProvider();
+        const { actor } = await makeUser();
+        completeJob();
+        await withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'Make this dog a dinosaur.',
+                    model: FLUX,
+                    input_video: `data:application/octet-stream;base64,${MP4.toString('base64')}`,
+                }),
+            actor,
+        );
+        expect(videosCreateMock.mock.calls[0]![0].media).toEqual({
+            source_video: mp4DataUri,
+        });
+    });
+
+    it("hands Together a short-lived signed URL to the caller's own Puter file", async () => {
+        const provider = makeProvider();
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user.username}/dog.tmp`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: MP4.byteLength,
+                contentType: 'application/octet-stream',
+            },
+            fileContent: MP4,
+        });
+        completeJob();
+        await withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'Make this dog a dinosaur.',
+                    model: FLUX,
+                    input_video: path,
+                }),
+            actor,
+        );
+
+        const url = videosCreateMock.mock.calls[0]![0].media.source_video;
+        const params = new URL(url).searchParams;
+        expect(params.get('X-Amz-Expires')).toBe('1140');
+        expect(params.get('response-content-type')).toBe('video/mp4');
+        const fetched = await fetch(url);
+        expect(Buffer.from(await fetched.arrayBuffer())).toEqual(MP4);
+    });
+
+    it('reads a Puter file only once credit is held', async () => {
+        const provider = makeProvider();
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user.username}/dog.mp4`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: MP4.byteLength,
+                contentType: 'video/mp4',
+            },
+            fileContent: MP4,
+        });
+        const read = vi.spyOn(server.stores.s3Object, 'getObjectStream');
+        remainingUsageSpy.mockResolvedValueOnce(0);
+
+        await expect(
+            withTestActor(
+                () =>
+                    provider.generate({
+                        prompt: 'Make this dog a dinosaur.',
+                        model: FLUX,
+                        input_video: path,
+                    }),
+                actor,
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(read).not.toHaveBeenCalled();
+        expect(videosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses another user's Puter file before creating a job", async () => {
+        const provider = makeProvider();
+        const owner = await makeUser();
+        const intruder = await makeUser();
+        const path = `/${owner.actor.user.username}/private.mp4`;
+        await server.services.fs.write(owner.userId, {
+            fileMetadata: {
+                path,
+                size: MP4.byteLength,
+                contentType: 'video/mp4',
+            },
+            fileContent: MP4,
+        });
+
+        const err = await withTestActor(
+            () =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: FLUX,
+                    input_video: path,
+                }),
+            intruder.actor,
+        ).then(
+            () => null,
+            (e: unknown) => e,
+        );
+        expect([403, 404]).toContain(
+            (err as { statusCode?: number } | null)?.statusCode,
+        );
+        expect(videosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['a non-string', { input_video: 42 }, 'input_video must be a video URL, data URI or Puter file path'],
+        [
+            'an image input alongside',
+            { input_video: mp4DataUri, input_reference: 'https://example.com/a.png' },
+            'input_video cannot be combined with image inputs',
+        ],
+        [
+            'image bytes',
+            { input_video: `data:image/png;base64,${Buffer.from('not a video').toString('base64')}` },
+            'input_video must be an MP4, QuickTime, WebM or Matroska video',
+        ],
+    ])('refuses %s before creating a job', async (_label, args, message) => {
+        const provider = makeProvider();
+        const { actor } = await makeUser();
+        await expect(
+            withTestActor(
+                () =>
+                    provider.generate({
+                        prompt: 'hi',
+                        model: FLUX,
+                        ...args,
+                    } as never),
+                actor,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400, message });
+        expect(videosCreateMock).not.toHaveBeenCalled();
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 });

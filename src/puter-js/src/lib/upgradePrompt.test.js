@@ -96,7 +96,7 @@ describe('promptIfUpgradeRequired', () => {
             promptIfUpgradeRequired({ code: 'insufficient_funds', status: 402 }, { method: 'puter-kvstore::set' });
             expect(showUsageLimitDialog).toHaveBeenCalledWith(
                 'Your account does not have enough funding to complete this request.',
-                { title: 'Low Balance', method: 'puter-kvstore::set' },
+                { title: 'Low Balance', method: 'puter-kvstore::set', reason: 'funds' },
             );
         });
 
@@ -104,7 +104,7 @@ describe('promptIfUpgradeRequired', () => {
             promptIfUpgradeRequired({ code: 'storage_limit_reached', status: 413 }, { method: 'puter.fs.upload' });
             expect(showUsageLimitDialog).toHaveBeenCalledWith(
                 'Not enough storage space available.',
-                { title: 'Out of Storage', method: 'puter.fs.upload' },
+                { title: 'Out of Storage', method: 'puter.fs.upload', reason: 'storage' },
             );
         });
 
@@ -115,7 +115,7 @@ describe('promptIfUpgradeRequired', () => {
             );
             expect(showUsageLimitDialog).toHaveBeenCalledWith(
                 'Sending email requires a subscription.',
-                { title: 'Subscription Required', method: 'puter.email.sendTransactional' },
+                { title: 'Subscription Required', method: 'puter.email.sendTransactional', reason: 'subscription' },
             );
         });
 
@@ -126,7 +126,7 @@ describe('promptIfUpgradeRequired', () => {
             );
             expect(showUsageLimitDialog).toHaveBeenCalledWith(
                 'External email requires a subscription.',
-                { title: 'Subscription Required', method: 'puter.email.send' },
+                { title: 'Subscription Required', method: 'puter.email.send', reason: 'subscription' },
             );
         });
 
@@ -137,7 +137,7 @@ describe('promptIfUpgradeRequired', () => {
             });
             expect(showUsageLimitDialog).toHaveBeenCalledWith(
                 'Pro plan only.',
-                { title: 'Subscription Required', method: undefined },
+                { title: 'Subscription Required', method: undefined, reason: 'subscription' },
             );
         });
 
@@ -145,7 +145,28 @@ describe('promptIfUpgradeRequired', () => {
             promptIfUpgradeRequired({ code: 'subscription_required', status: 402 });
             expect(showUsageLimitDialog).toHaveBeenCalledWith(
                 'This action requires a subscription.',
-                { title: 'Subscription Required', method: undefined },
+                { title: 'Subscription Required', method: undefined, reason: 'subscription' },
+            );
+        });
+
+        it('names the app the refused call ran as, from its token first', () => {
+            globalThis.puter = {
+                env: 'web',
+                authToken: 'token',
+                appID: 'app-set-by-page',
+                getAppIDFromAuthToken: (token) => (token === 'token' ? 'app-from-token' : null),
+            };
+            promptIfUpgradeRequired({ status: 402 }, { method: 'puter.ai.chat' });
+            expect(showUsageLimitDialog).toHaveBeenLastCalledWith(
+                expect.any(String),
+                expect.objectContaining({ appID: 'app-from-token' }),
+            );
+
+            globalThis.puter.getAppIDFromAuthToken = () => null;
+            promptIfUpgradeRequired({ status: 402 }, { method: 'puter.ai.chat' });
+            expect(showUsageLimitDialog).toHaveBeenLastCalledWith(
+                expect.any(String),
+                expect.objectContaining({ appID: 'app-set-by-page' }),
             );
         });
 
@@ -185,7 +206,7 @@ describe('promptIfUpgradeRequired', () => {
                 promptIfUpgradeRequired({ code: 'storage_limit_reached' }, { method: 'puter.fs (/copy)' });
                 expect(showUsageLimitDialog).toHaveBeenCalledWith(
                     'Not enough storage space available.',
-                    { title: 'Out of Storage', method: 'puter.fs (/copy)' },
+                    { title: 'Out of Storage', method: 'puter.fs (/copy)', reason: 'storage' },
                 );
                 expect(globalThis.puter.ui.requestUpgrade).not.toHaveBeenCalled();
             },

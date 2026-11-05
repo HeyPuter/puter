@@ -83,7 +83,7 @@ describe('shared app browser', () => {
         expect(onLaunch).toHaveBeenCalledWith({ appName: 'sheet', targetLink: '' });
         expect($('.window')).toHaveLength(0);
         $('.myapps-search').val('missing').trigger('input');
-        expect($('.myapps-empty').text()).toBe('app_browser_no_matches');
+        expect($('.myapps-empty').text()).toBe('no_apps_match');
         expect(browser._page).toBe(0);
         expect($('.myapps-add-tile')).toHaveLength(0);
     });
@@ -154,12 +154,12 @@ describe('shared app browser', () => {
         installed = [];
         recommended = [];
         await mount();
-        expect($('.myapps-empty').text()).toBe('app_browser_empty');
+        expect($('.myapps-empty').text()).toBe('no_apps_installed');
         fetch.mockRejectedValue(new Error('unauthorized'));
         browser._apps = null;
         const log = vi.spyOn(console, 'error').mockImplementation(() => {});
         await browser.loadApps($root);
-        expect($('.myapps-empty').text()).toBe('app_browser_load_failed');
+        expect($('.myapps-empty').text()).toBe('apps_load_failed');
         expect($('.window, form')).toHaveLength(0);
         log.mockRestore();
     });

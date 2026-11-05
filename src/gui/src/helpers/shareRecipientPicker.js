@@ -18,6 +18,7 @@
  */
 
 import { avatarHue, avatarInitial } from './shareAvatar.js';
+import { avatarUserAttr, paintAvatars } from './profilePictures.js';
 import { colleagues_for_sharing } from './shareTeams.js';
 import { recent_recipients, remember_recipient } from './shareRecents.js';
 import { build_suggestions, recipient_for } from './shareSuggest.js';
@@ -239,7 +240,7 @@ export default function shareRecipientPicker ({
         const aria = raw_sub ? `${suggestion.name} — ${raw_sub}` : suggestion.name;
         const mark = suggestion.kind === 'team'
             ? `<span class="share-suggest-avatar share-suggest-avatar-team" aria-hidden="true">${teamIcon}</span>`
-            : `<span class="share-suggest-avatar" style="--share-avatar-hue: ${avatarHue(suggestion.name)}" aria-hidden="true">${html_encode(avatarInitial(suggestion.name))}</span>`;
+            : `<span class="share-suggest-avatar" style="--share-avatar-hue: ${avatarHue(suggestion.name)}"${avatarUserAttr(suggestion.kind === 'user' ? suggestion.id : undefined)} aria-hidden="true">${html_encode(avatarInitial(suggestion.name))}</span>`;
         return `<li class="share-suggest-option" role="option" aria-selected="false"
                 id="${list_id}-${index}" data-index="${index}" aria-label="${html_encode(aria)}">
                 ${mark}
@@ -292,8 +293,9 @@ export default function shareRecipientPicker ({
         // is a perfectly good recipient, and an empty box would only cover it.
         if ( shown.length === 0 ) return close();
         active = -1;
-        $panel.find('.share-suggest-list')
+        const $options = $panel.find('.share-suggest-list')
             .html(shown.map((suggestion, index) => option_html(suggestion, index)).join(''));
+        paintAvatars($options[0]);
         $panel.prop('hidden', false);
         $input.attr('aria-expanded', 'true');
         place();
@@ -369,6 +371,9 @@ export default function shareRecipientPicker ({
     });
 
     $input.on('keydown', (e) => {
+        // Keys that drive an IME (picking or confirming a candidate) are its
+        // own; jQuery's event doesn't carry isComposing, the browser's does.
+        if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
         if ( e.key === 'ArrowDown' ) {
             e.preventDefault();
             if ( picked ) return;

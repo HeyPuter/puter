@@ -49,6 +49,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { setupTestServer } from '../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import type { SpeechToTextDriver } from '../../SpeechToTextDriver.js';
+import { callerError } from '../../../integrationTestUtil.js';
 
 // Mirror the driver's per-second cost so test expectations stay in lockstep
 // with the real value rather than restating an arbitrary literal.
@@ -69,7 +70,7 @@ const driver = {
     getReportedCosts: () => sttDriver.getReportedCosts(),
 };
 let fetchSpy: MockInstance<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -87,7 +88,7 @@ afterAll(async () => {
 
 beforeEach(() => {
     fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -160,9 +161,12 @@ describe('XAISpeechToTextProvider.getReportedCosts', () => {
 // ── list_models ─────────────────────────────────────────────────────
 
 describe('XAISpeechToTextProvider.list_models', () => {
-    it('returns the single xai-stt entry with diarization support', async () => {
+    it('returns the default xai-stt entry plus pinnable versions', async () => {
         const models = await driver.list_models();
-        expect(models).toHaveLength(1);
+        expect(models.map((m) => m.id)).toEqual([
+            'xai-stt',
+            'grok-voice-transcribe-2.0',
+        ]);
         expect(models[0]).toEqual({
             id: 'xai-stt',
             name: 'xAI Speech to Text',
@@ -189,7 +193,7 @@ describe('XAISpeechToTextProvider test_mode', () => {
         expect(Array.isArray(result.words)).toBe(true);
         // No file required, no actor required, no fetch / metering hit.
         expect(fetchSpy).not.toHaveBeenCalled();
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
@@ -254,7 +258,7 @@ describe('XAISpeechToTextProvider missing API key', () => {
 
 describe('XAISpeechToTextProvider credit gate', () => {
     it('throws 402 BEFORE hitting xAI when actor lacks credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         const { actor } = await makeUser();
 
         await expect(
@@ -269,7 +273,7 @@ describe('XAISpeechToTextProvider credit gate', () => {
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('asks hasEnoughCredits for estimated seconds × per-second ucents', async () => {
+    it('reserves estimated seconds × per-second ucents', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(
             sttResponse({ text: 'ok', duration: 1 }),
@@ -281,7 +285,7 @@ describe('XAISpeechToTextProvider credit gate', () => {
             driver.transcribe({ file: dataUrl(audio, 'audio/mp3') }),
         );
 
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 2);
+        expect(admitSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 2);
     });
 
     it('estimates 60 seconds for URL inputs (we cannot inspect size locally)', async () => {
@@ -294,7 +298,7 @@ describe('XAISpeechToTextProvider credit gate', () => {
             driver.transcribe({ file: 'https://example.com/clip.mp3' }),
         );
 
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 60);
+        expect(admitSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 60);
     });
 });
 
@@ -316,6 +320,7 @@ describe('XAISpeechToTextProvider audio input handling', () => {
         expect(String(url)).toBe('https://api.x.ai/v1/stt');
         const initObj = init as RequestInit;
         expect(initObj.method).toBe('POST');
+        expect(initObj.signal).toBeInstanceOf(AbortSignal);
         expect((initObj.headers as Record<string, string>).Authorization).toBe(
             'Bearer xai-test-key',
         );
@@ -433,7 +438,74 @@ describe('XAISpeechToTextProvider request shape', () => {
         expect(form.get('channels')).toBeNull();
         expect(form.get('audio_format')).toBeNull();
         expect(form.get('sample_rate')).toBeNull();
+        expect(form.get('model')).toBeNull();
     });
+
+    it('accepts but ignores legacy transcription options', async () => {
+        const { actor } = await makeUser();
+        fetchSpy.mockResolvedValueOnce(
+            sttResponse({ text: 'ok', duration: 1 }),
+        );
+
+        const result = await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                timestamp_granularities: ['word'],
+                chunking_strategy: 'auto',
+                known_speaker_names: ['agent'],
+            }),
+        );
+
+        expect(result).toMatchObject({ text: 'ok' });
+        const form = (fetchSpy.mock.calls[0]![1] as RequestInit)
+            .body as FormData;
+        expect(form.get('timestamp_granularities')).toBeNull();
+        expect(form.get('timestamp_granularities[]')).toBeNull();
+        expect(form.get('chunking_strategy')).toBeNull();
+        expect(form.get('known_speaker_names')).toBeNull();
+        expect(form.get('known_speaker_names[]')).toBeNull();
+    });
+
+    it('forwards a pinned grok-voice-transcribe version as `model`', async () => {
+        const { actor } = await makeUser();
+        fetchSpy.mockResolvedValueOnce(
+            sttResponse({ text: 'ok', duration: 1 }),
+        );
+
+        await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                model: 'grok-voice-transcribe-2.0',
+            }),
+        );
+
+        const form = (fetchSpy.mock.calls[0]![1] as RequestInit)
+            .body as FormData;
+        expect(form.get('model')).toBe('grok-voice-transcribe-2.0');
+        // xAI requires `file` to be the last field.
+        expect([...form.keys()].at(-1)).toBe('file');
+    });
+
+    it.each(['xai-stt', 'grok-voice-transcribe-1.0', 'whisper-1'])(
+        'sends no `model` for %s so xAI serves its default',
+        async (model) => {
+            const { actor } = await makeUser();
+            fetchSpy.mockResolvedValueOnce(
+                sttResponse({ text: 'ok', duration: 1 }),
+            );
+
+            await withActor(actor, () =>
+                driver.transcribe({
+                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    model,
+                }),
+            );
+
+            const form = (fetchSpy.mock.calls[0]![1] as RequestInit)
+                .body as FormData;
+            expect(form.get('model')).toBeNull();
+        },
+    );
 
     it('routes translate() to the same /v1/stt endpoint as transcribe()', async () => {
         const { actor } = await makeUser();
@@ -477,6 +549,32 @@ describe('XAISpeechToTextProvider response shape', () => {
 // ── Metering ────────────────────────────────────────────────────────
 
 describe('XAISpeechToTextProvider metering', () => {
+    it('holds the estimated cost while xAI runs and releases it afterwards', async () => {
+        const { actor } = await makeUser();
+        let heldDuringCall = -1;
+        fetchSpy.mockImplementationOnce(async () => {
+            heldDuringCall = await server.stores.creditHold.outstanding(
+                actor.user.uuid,
+            );
+            return sttResponse({ text: 'ok', duration: 1 });
+        });
+
+        // 32000 bytes → estimated 2s.
+        await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.alloc(32000, 0), 'audio/mp3'),
+            }),
+        );
+
+        expect(heldDuringCall).toBe(UCENTS_PER_SECOND * 2);
+        // The hold stays until the usage write lands.
+        await vi.waitFor(async () =>
+            expect(
+                await server.stores.creditHold.outstanding(actor.user.uuid),
+            ).toBe(0),
+        );
+    });
+
     it('meters ceil(duration) seconds × per-second ucents using the API duration', async () => {
         const { actor } = await makeUser();
         // Upstream reports 3.2s → driver should ceil to 4s.
@@ -530,13 +628,15 @@ describe('XAISpeechToTextProvider error paths', () => {
             new Response('bad request', { status: 400 }),
         );
 
-        await expect(
-            withActor(actor, () =>
-                driver.transcribe({
-                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                }),
+        expect(
+            await callerError(
+                () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    }),
+                actor,
             ),
-        ).rejects.toMatchObject({
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
         });
@@ -547,13 +647,15 @@ describe('XAISpeechToTextProvider error paths', () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(new Response('oops', { status: 503 }));
 
-        await expect(
-            withActor(actor, () =>
-                driver.transcribe({
-                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                }),
+        expect(
+            await callerError(
+                () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    }),
+                actor,
             ),
-        ).rejects.toMatchObject({
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_provider_unavailable',
         });
@@ -566,13 +668,15 @@ describe('XAISpeechToTextProvider error paths', () => {
             new Response('forbidden', { status: 403 }),
         );
 
-        await expect(
-            withActor(actor, () =>
-                driver.transcribe({
-                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                }),
+        expect(
+            await callerError(
+                () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    }),
+                actor,
             ),
-        ).rejects.toMatchObject({
+        ).toMatchObject({
             statusCode: 500,
             legacyCode: 'upstream_auth_failed',
         });
@@ -585,13 +689,15 @@ describe('XAISpeechToTextProvider error paths', () => {
             new Response('slow down', { status: 429 }),
         );
 
-        await expect(
-            withActor(actor, () =>
-                driver.transcribe({
-                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                }),
+        expect(
+            await callerError(
+                () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    }),
+                actor,
             ),
-        ).rejects.toMatchObject({
+        ).toMatchObject({
             statusCode: 429,
             legacyCode: 'upstream_rate_limited',
         });
@@ -604,13 +710,15 @@ describe('XAISpeechToTextProvider error paths', () => {
             new Response('boom', { status: 502 }),
         );
 
-        await expect(
-            withActor(actor, () =>
-                driver.transcribe({
-                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
-                }),
+        expect(
+            await callerError(
+                () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    }),
+                actor,
             ),
-        ).rejects.toMatchObject({
+        ).toMatchObject({
             fields: { provider: 'xai', upstreamStatus: 502 },
         });
     });

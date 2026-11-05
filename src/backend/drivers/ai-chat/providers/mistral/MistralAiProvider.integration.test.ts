@@ -20,8 +20,7 @@
 /**
  * Integration test for the Mistral provider.
  *
- * Uses `mistral-small-2603` (provider default, cheapest tier). Skipped
- * when `PUTER_TEST_AI_MISTRAL_API_KEY` is unset.
+ * Skipped when `PUTER_TEST_AI_MISTRAL_API_KEY` is unset.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -39,7 +38,7 @@ const ENV_VAR = 'PUTER_TEST_AI_MISTRAL_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'MistralAIProvider (integration)',
     () => {
-        it('returns a non-empty completion from mistral-small', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        it.each(['mistral-small-2603', 'mistral-large-4'])('returns a non-empty completion from %s', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async (model) => {
             const provider = new MistralAIProvider(
                 { apiKey: optionalEnv(ENV_VAR)! },
                 makeMeteringStub(),
@@ -47,11 +46,11 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
             const result = await withTestActor(() =>
                 provider.complete({
-                    model: 'mistral-small-2603',
+                    model,
                     messages: [
                         { role: 'user', content: 'Say hi in one word.' },
                     ],
-                    max_tokens: 16,
+                    max_tokens: model === 'mistral-large-4' ? 1024 : 16,
                 }),
             );
 

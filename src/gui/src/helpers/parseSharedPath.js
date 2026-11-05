@@ -53,10 +53,15 @@ export function clear_shared_param (hash = window.location.hash) {
  * once: whichever account the next load lands on opens the link as itself.
  */
 export function clear_share_recipient_param () {
-    window.url_query_params?.delete(SHARE_RECIPIENT_PARAM);
+    clear_query_param(SHARE_RECIPIENT_PARAM);
+}
+
+/** Take one query parameter off the page and the address bar. */
+export function clear_query_param (name) {
+    window.url_query_params?.delete(name);
     const params = new URLSearchParams(window.location.search);
-    if ( ! params.has(SHARE_RECIPIENT_PARAM) ) return;
-    params.delete(SHARE_RECIPIENT_PARAM);
+    if ( ! params.has(name) ) return;
+    params.delete(name);
     replace_query(params, window.location.hash);
 }
 

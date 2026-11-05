@@ -27,17 +27,22 @@ import {
     ImagesResponse,
 } from 'openai/resources/images.js';
 import { Context } from '../../../../core/context.js';
-import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
     IGenerateParams,
     IImageModel,
     IImageProvider,
 } from '../../types.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
-import { fetchImageAsBase64, isHttpUrl } from '../../inputImage.js';
+import {
+    fetchImageAsBase64,
+    isHttpUrl,
+    parseDataUri,
+} from '../../inputImage.js';
 import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 
 interface OpenAIImageUsage {
     inputTokens: number;
@@ -51,11 +56,11 @@ interface OpenAIImageUsage {
 
 /**
  * OpenAI image generation provider for v2. Supports the GPT Image models
- * (gpt-image-2, -2.5-sunburst, -2.5-flare), including image-to-image editing
- * via `input_images` (the `images.edit` endpoint).
+ * (gpt-image-2 and the 2.5/2.6 Sunburst and Flare models), including
+ * image-to-image editing via `input_images` (the `images.edit` endpoint).
  */
 export class OpenAiImageProvider implements IImageProvider {
-    #meteringService: MeteringService;
+    #meteringService: AiMeteringService;
     #openai: OpenAI;
 
     static #NON_SIZE_COST_KEYS = [
@@ -89,7 +94,10 @@ export class OpenAiImageProvider implements IImageProvider {
         max: 96,
     };
 
-    constructor(config: { apiKey: string }, meteringService: MeteringService) {
+    constructor(
+        config: { apiKey: string },
+        meteringService: AiMeteringService,
+    ) {
         this.#meteringService = meteringService;
         this.#openai = new openai.OpenAI({
             apiKey: config.apiKey,
@@ -101,7 +109,7 @@ export class OpenAiImageProvider implements IImageProvider {
     }
 
     getDefaultModel(): string {
-        return 'gpt-image-2';
+        return 'gpt-image-2.6-flare';
     }
 
     async generate({
@@ -207,104 +215,108 @@ export class OpenAiImageProvider implements IImageProvider {
         const estimatedTotalCostInMicroCents = this.#toMicroCents(
             estimatedInputCostInCents + estimatedOutputCostInCents,
         );
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+        const usageType = `openai:${selectedModel.id}:${price_key}`;
+        const hold = await this.#meteringService.reserveAiCredits(
             actor,
+            usageType,
             estimatedTotalCostInMicroCents,
         );
 
-        if (!usageAllowed) {
-            throw new HttpError(
-                402,
-                'Insufficient credits for image generation',
-                { legacyCode: 'insufficient_funds' },
+        if (!hold) {
+            throw insufficientCreditsError();
+        }
+
+        try {
+            // With input images we use the edit endpoint (gpt-image only);
+            // otherwise the standard generate endpoint.
+            const result = hasInputImages
+                ? await this.#openai.images.edit(
+                      await this.#buildEditParams(
+                          selectedModel.id,
+                          { user: userIdentifier, prompt, size, quality },
+                          input_images!,
+                          input_image_mime_type,
+                      ),
+                  )
+                : await this.#openai.images.generate(
+                      this.#buildApiParams(selectedModel.id, {
+                          user: userIdentifier,
+                          prompt,
+                          size,
+                          quality,
+                      } as Partial<ImageGenerateParamsNonStreaming>),
+                  );
+
+            const usage = this.#extractUsage(result);
+            const hasInputTokenUsage =
+                usage.inputTokens > 0 ||
+                usage.inputTextTokens > 0 ||
+                usage.inputImageTokens > 0;
+
+            const billableUsage = hasInputTokenUsage
+                ? usage
+                : {
+                      ...usage,
+                      inputTokens: estimatedPromptTokenCount,
+                      inputTextTokens: estimatedPromptTokenCount,
+                  };
+
+            const inputCostInCents = hasInputTokenUsage
+                ? this.#calculateInputCostInCents(selectedModel, billableUsage)
+                : estimatedInputCostInCents;
+            const outputCostInCents = this.#calculateOutputCostInCents(
+                selectedModel,
+                usage,
+                outputPriceInCents,
             );
+
+            const usageEntries: Array<{
+                usageType: string;
+                usageAmount: number;
+                costOverride: number;
+            }> = [];
+            if (inputCostInCents > 0) {
+                usageEntries.push({
+                    usageType: `${usageType}:input`,
+                    usageAmount: Math.max(
+                        billableUsage.inputTokens || estimatedPromptTokenCount,
+                        1,
+                    ),
+                    costOverride: this.#toMicroCents(inputCostInCents),
+                });
+            }
+            if (outputCostInCents > 0) {
+                usageEntries.push({
+                    usageType: `${usageType}:output`,
+                    usageAmount: Math.max(usage.outputTokens, 1),
+                    costOverride: this.#toMicroCents(outputCostInCents),
+                });
+            }
+            if (usageEntries.length) {
+                await this.#meteringService.batchIncrementUsages(
+                    actor,
+                    usageEntries,
+                );
+            }
+
+            const url =
+                result.data?.[0]?.url ||
+                (result.data?.[0]?.b64_json
+                    ? imageDataUri(result.data[0].b64_json)
+                    : null);
+
+            if (!url) {
+                throw new HttpError(
+                    400,
+                    'Failed to extract image URL from OpenAI response',
+                    { legacyCode: 'unknown_error' },
+                );
+            }
+
+            return url;
+        } finally {
+            await hold.release();
         }
-
-        // With input images we use the edit endpoint (gpt-image only);
-        // otherwise the standard generate endpoint.
-        const result = hasInputImages
-            ? await this.#openai.images.edit(
-                  await this.#buildEditParams(
-                      selectedModel.id,
-                      { user: userIdentifier, prompt, size, quality },
-                      input_images!,
-                      input_image_mime_type,
-                  ),
-              )
-            : await this.#openai.images.generate(
-                  this.#buildApiParams(selectedModel.id, {
-                      user: userIdentifier,
-                      prompt,
-                      size,
-                      quality,
-                  } as Partial<ImageGenerateParamsNonStreaming>),
-              );
-
-        const usage = this.#extractUsage(result);
-        const hasInputTokenUsage =
-            usage.inputTokens > 0 ||
-            usage.inputTextTokens > 0 ||
-            usage.inputImageTokens > 0;
-
-        const billableUsage = hasInputTokenUsage
-            ? usage
-            : {
-                  ...usage,
-                  inputTokens: estimatedPromptTokenCount,
-                  inputTextTokens: estimatedPromptTokenCount,
-              };
-
-        const inputCostInCents = hasInputTokenUsage
-            ? this.#calculateInputCostInCents(selectedModel, billableUsage)
-            : estimatedInputCostInCents;
-        const outputCostInCents = this.#calculateOutputCostInCents(
-            selectedModel,
-            usage,
-            outputPriceInCents,
-        );
-
-        const usageType = `openai:${selectedModel.id}:${price_key}`;
-        const usageEntries: Array<{
-            usageType: string;
-            usageAmount: number;
-            costOverride: number;
-        }> = [];
-        if (inputCostInCents > 0) {
-            usageEntries.push({
-                usageType: `${usageType}:input`,
-                usageAmount: Math.max(
-                    billableUsage.inputTokens || estimatedPromptTokenCount,
-                    1,
-                ),
-                costOverride: this.#toMicroCents(inputCostInCents),
-            });
-        }
-        if (outputCostInCents > 0) {
-            usageEntries.push({
-                usageType: `${usageType}:output`,
-                usageAmount: Math.max(usage.outputTokens, 1),
-                costOverride: this.#toMicroCents(outputCostInCents),
-            });
-        }
-        if (usageEntries.length) {
-            this.#meteringService.batchIncrementUsages(actor, usageEntries);
-        }
-
-        const url =
-            result.data?.[0]?.url ||
-            (result.data?.[0]?.b64_json
-                ? imageDataUri(result.data[0].b64_json)
-                : null);
-
-        if (!url) {
-            throw new HttpError(
-                400,
-                'Failed to extract image URL from OpenAI response',
-                { legacyCode: 'unknown_error' },
-            );
-        }
-
-        return url;
     }
 
     #extractUsage(result: ImagesResponse): OpenAIImageUsage {
@@ -592,17 +604,36 @@ export class OpenAiImageProvider implements IImageProvider {
         height: number,
         quality?: string,
     ): number {
-        const factors = model.startsWith('gpt-image-2.5')
-            ? OpenAiImageProvider.#GPT_IMAGE_2_5_LATENT_FACTORS
-            : OpenAiImageProvider.#GPT_IMAGE_2_LATENT_FACTORS;
+        const isGptImage26 = model.startsWith('gpt-image-2.6');
+        const factors =
+            isGptImage26 || model.startsWith('gpt-image-2.5')
+                ? OpenAiImageProvider.#GPT_IMAGE_2_5_LATENT_FACTORS
+                : OpenAiImageProvider.#GPT_IMAGE_2_LATENT_FACTORS;
         const factor = factors[quality ?? ''] ?? factors.medium;
         const longEdge = Math.max(width, height);
         const shortEdge = Math.min(width, height);
-        const shortLatent = Math.round((factor * shortEdge) / longEdge);
+        const shortGrid = (factor * shortEdge) / longEdge;
+        const floorGrid = Math.floor(shortGrid);
+        const shortLatent =
+            isGptImage26 && shortGrid - floorGrid === 0.5
+                ? floorGrid + (floorGrid % 2)
+                : Math.round(shortGrid);
         const latentW = width >= height ? factor : shortLatent;
         const latentH = width >= height ? shortLatent : factor;
         const baseArea = latentW * latentH;
-        return Math.ceil((baseArea * (2_000_000 + width * height)) / 4_000_000);
+        const tokens = Math.ceil(
+            (baseArea * (2_000_000 + width * height)) / 4_000_000,
+        );
+        // GPT Image 2.6 bills more tokens at low and medium quality.
+        const estimatedQuality =
+            quality && quality in factors ? quality : 'medium';
+        const multiplier =
+            estimatedQuality === 'low'
+                ? 4.2
+                : estimatedQuality === 'medium'
+                  ? 3.3
+                  : 1;
+        return isGptImage26 ? Math.round(tokens * multiplier) : tokens;
     }
 
     #estimateOutputCostFromTokens(
@@ -679,10 +710,10 @@ export class OpenAiImageProvider implements IImageProvider {
             mime = fetched.mime;
             base64 = fetched.base64;
         } else {
-            const dataUri = /^data:([^;]+);base64,(.*)$/s.exec(img);
+            const dataUri = parseDataUri(img);
             if (dataUri) {
-                mime = dataUri[1];
-                base64 = dataUri[2];
+                mime = dataUri.mime;
+                base64 = dataUri.base64;
             }
         }
 

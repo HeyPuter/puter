@@ -1,0 +1,16 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const [team] = await puter.teams.list();
+
+            if (team?.isOwner) {
+                puter.print(`You own ${team.name ?? team.handle}. Showing the admin page.`);
+            } else {
+                puter.print('You are not a team owner. The admin page stays hidden.');
+            }
+        })();
+    </script>
+</body>
+</html>

@@ -1,14 +1,8 @@
 import type { Request, Response } from 'express';
+import { installSeatStub } from '@heyputer/backend/testFixtures/seatStub';
 import { v4 as uuidv4 } from 'uuid';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { makeActor } from '../src/backend/core/actor.ts';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { makeActor, type Actor } from '../src/backend/core/actor.ts';
 import { runWithContext } from '../src/backend/core/context.ts';
 import { configContainer } from '../src/backend/exports.ts';
 import { PuterServer } from '../src/backend/server.ts';
@@ -49,7 +43,6 @@ beforeAll(async () => {
             create_shortcut: true,
             payment_bypass: true,
         },
-        teams_enabled: true,
     } as never);
 });
 
@@ -83,21 +76,20 @@ describe('whoami extension — handleWhoami', () => {
         };
 
         const seatOf = async (teamName: string) => {
-            const owner = await seedUser();
             const seat = await seedSeat();
-            const team = await server.stores.team.create({
-                ownerUserId: owner.id as number,
+            const team = {
+                uid: `wt-${Math.random().toString(36).slice(2, 9)}`,
                 name: teamName,
-                handle: `wt-${Math.random().toString(36).slice(2, 9)}`,
-            });
-            await server.stores.team.addMember(team.uid, seat.id as number, {
-                orgOwned: true,
+            };
+            installSeatStub(server as never, [seat.id as number], {
+                teamUid: team.uid,
+                teamName: team.name,
             });
             return { seat, team };
         };
 
-        it('names the team for a seat', async () => {
-            const { seat, team } = await seatOf('Acme Corp');
+        it('names no team where teams is off', async () => {
+            const { seat } = await seatOf('Acme Corp');
             const { res, captured } = makeRes();
 
             await runWithContext(
@@ -105,10 +97,8 @@ describe('whoami extension — handleWhoami', () => {
                 () => handleWhoami(makeReq(), res),
             );
 
-            expect((captured.body as { team?: unknown }).team).toEqual({
-                uid: team.uid,
-                name: 'Acme Corp',
-            });
+            // Off, so the seat is never looked up.
+            expect((captured.body as { team?: unknown }).team).toBeUndefined();
         });
 
         it('says nothing for an account that is not a seat', async () => {
@@ -168,6 +158,81 @@ describe('whoami extension — handleWhoami', () => {
 
         expect(captured.statusCode).toBe(404);
         expect(captured.body).toEqual({ error: 'User not found' });
+    });
+
+    describe("an app's view of the email", () => {
+        const appActorFor = async (user: { uuid: string; id: unknown }) => {
+            const app = await (
+                server.stores.app.create as unknown as (
+                    fields: Record<string, unknown>,
+                    opts: { ownerUserId: number },
+                ) => Promise<{ uid: string; id: number }>
+            )(
+                {
+                    name: `we-${uuidv4()}`,
+                    title: 'Email reader',
+                    index_url: `https://${uuidv4()}.example/`,
+                },
+                { ownerUserId: user.id as number },
+            );
+            return {
+                app,
+                actor: makeActor({
+                    user: { uuid: user.uuid, id: user.id as number },
+                    app: { uid: app.uid, id: app.id },
+                }),
+            };
+        };
+
+        const whoamiAs = async (actor: Actor) => {
+            const { res, captured } = makeRes();
+            await runWithContext({ actor }, () =>
+                handleWhoami(makeReq(), res),
+            );
+            return captured;
+        };
+
+        it('is withheld until the user grants it, then shown', async () => {
+            const user = await seedUser();
+            const { app, actor } = await appActorFor(user);
+
+            const before = (await whoamiAs(actor)).body as Record<
+                string,
+                unknown
+            >;
+            expect(before).not.toHaveProperty('email');
+            expect(before).not.toHaveProperty('unconfirmed_email');
+
+            await server.services.permission.grantUserAppPermission(
+                makeActor({ user: { uuid: user.uuid, id: user.id as number } }),
+                app.uid,
+                `user:${user.uuid}:email:read`,
+            );
+            const after = (await whoamiAs(actor)).body as Record<
+                string,
+                unknown
+            >;
+            expect(after.email).toBe(user.email);
+            expect(after.unconfirmed_email).toBe(user.email);
+        });
+
+        it('answers 404 for a missing account even when the check fails', async () => {
+            const check = vi
+                .spyOn(server.services.permission, 'check')
+                .mockRejectedValue(new Error('scan failed'));
+            try {
+                const captured = await whoamiAs(
+                    makeActor({
+                        user: { uuid: 'ghost-uuid', id: 99_999_998 },
+                        app: { uid: 'app-ghost', id: 1 },
+                    }),
+                );
+                expect(captured.statusCode).toBe(404);
+                expect(captured.body).toEqual({ error: 'User not found' });
+            } finally {
+                check.mockRestore();
+            }
+        });
     });
 
     it('returns full user details for a user actor', async () => {
@@ -285,6 +350,104 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.directories).toBeUndefined();
     });
 
+    describe('fields added by whoami.details listeners', () => {
+        const addAccountDetails = (
+            _key: unknown,
+            event: { details: Record<string, unknown> },
+        ) => {
+            Object.assign(event.details, {
+                subscribed: true,
+                paid_storage: 1024,
+                subscription: { tier: 'pro', status: 'trialing' },
+                accountEligible: true,
+            });
+        };
+
+        const whoamiWithListener = async (
+            actor: Actor,
+            listener: typeof addAccountDetails = addAccountDetails,
+        ) => {
+            const { res, captured } = makeRes();
+            server.clients.event.on('whoami.details', listener);
+            try {
+                await runWithContext({ actor }, () =>
+                    handleWhoami(makeReq(), res),
+                );
+            } finally {
+                server.clients.event.off('whoami.details', listener);
+            }
+            return captured.body as Record<string, unknown>;
+        };
+
+        it('reach an app actor only as the documented subscribed / paid_storage', async () => {
+            const user = await seedUser();
+            const body = await whoamiWithListener(
+                makeActor({
+                    user: { uuid: user.uuid, id: user.id as number },
+                    app: { uid: 'app-test-actor' },
+                }),
+            );
+
+            expect(body.subscribed).toBe(true);
+            expect(body.paid_storage).toBe(1024);
+            expect(body).not.toHaveProperty('subscription');
+            expect(body).not.toHaveProperty('accountEligible');
+            // Fields the handler built itself still ship.
+            expect(body.username).toBe(user.username);
+            expect(body.app_name).toBe('app-test-actor');
+        });
+
+        it('are withheld from an app reached through an access token it issued', async () => {
+            const user = await seedUser();
+            const owner = { uuid: user.uuid, id: user.id as number };
+            const body = await whoamiWithListener(
+                makeActor({
+                    user: owner,
+                    accessToken: {
+                        uid: 'tok-1',
+                        issuer: makeActor({
+                            user: owner,
+                            app: { uid: 'app-issuer' },
+                        }),
+                    },
+                }),
+            );
+
+            expect(body.subscribed).toBe(true);
+            expect(body).not.toHaveProperty('subscription');
+            expect(body).not.toHaveProperty('accountEligible');
+        });
+
+        it('all reach a user actor', async () => {
+            const user = await seedUser();
+            const body = await whoamiWithListener(
+                makeActor({ user: { uuid: user.uuid, id: user.id as number } }),
+            );
+
+            expect(body).toMatchObject({
+                subscribed: true,
+                paid_storage: 1024,
+                subscription: { tier: 'pro', status: 'trialing' },
+                accountEligible: true,
+            });
+        });
+
+        it('cannot add taskbar_items for an app actor, which core omits', async () => {
+            const user = await seedUser();
+            const body = await whoamiWithListener(
+                makeActor({
+                    user: { uuid: user.uuid, id: user.id as number },
+                    app: { uid: 'app-test-actor' },
+                }),
+                (_key, event) => {
+                    event.details.taskbar_items = [{ name: 'injected' }];
+                },
+            );
+
+            expect(body).not.toHaveProperty('taskbar_items');
+        });
+    });
+
     it('redacts tmp_password from metadata for user actors', async () => {
         const user = await seedUser();
         await server.stores.user.updateMetadata(user.id as number, {
@@ -353,9 +516,7 @@ describe('whoami extension — handleWhoami', () => {
             }),
         ]) {
             const { res, captured } = makeRes();
-            await runWithContext({ actor }, () =>
-                handleWhoami(makeReq(), res),
-            );
+            await runWithContext({ actor }, () => handleWhoami(makeReq(), res));
 
             const body = captured.body as Record<string, unknown>;
             expect(body.phone).toBeUndefined();

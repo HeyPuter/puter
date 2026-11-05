@@ -20,18 +20,19 @@ const build = () => {
 };
 
 describe('WorkerDriver hot-reload subscription', () => {
-    it('registers each fs listener exactly once across repeated onServerStart calls', () => {
+    it('registers each listener exactly once across repeated onServerStart calls', () => {
         const { driver, on } = build();
 
         driver.onServerStart();
         driver.onServerStart();
         driver.onServerStart();
 
-        expect(on).toHaveBeenCalledTimes(3);
+        expect(on).toHaveBeenCalledTimes(4);
         expect(on.mock.calls.map((c) => c[0]).sort()).toEqual([
             'fs.move.node',
             'fs.remove.node',
             'fs.write.file',
+            'subdomain.delete',
         ]);
     });
 });

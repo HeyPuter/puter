@@ -31,7 +31,7 @@ const nb = {
         account: 'Konto',
         account_password: 'kontopassord',
         access_granted_to: 'Tilgang gitt til',
-        add_existing_account: 'Legg til eksisterende konto',
+        add_another_account: 'Legg til en annen konto',
         all_fields_required: 'Alle felt er obligatoriske.',
         allow: 'Tillate',
         apply: 'Bruk',

@@ -1,8 +1,15 @@
 import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
+import { hasOpaqueOrigin } from './lib/auth-popup.js';
 import { fetchUrl } from './lib/networkUtils.js';
+import { handleToolRequest } from './lib/toolBridge.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
 import { isFramedDocument } from './lib/appModeGate.js';
+import {
+    isGodmodeTokenPayload,
+    isUserSessionTokenPayload,
+    urlWithoutQueryParam,
+} from './lib/launchToken.js';
 import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
@@ -18,9 +25,8 @@ import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import FSItem from './modules/FSItem.js';
 import { Hosting } from './modules/hosting/index.js';
 import { KV } from './modules/kv/index.js';
-import { PSocket } from './modules/networking/PSocket.js';
-import { PTLSSocket } from './modules/networking/PTLS.js';
-import { pFetch } from './modules/networking/requests.js';
+import { netAPI } from './modules/networking/index.js';
+import { Notifications } from './modules/notifications/index.js';
 import { OS } from './modules/os/index.js';
 import { Perms } from './modules/perms/index.js';
 import PuterDialog from './modules/PuterDialog.js';
@@ -28,7 +34,7 @@ import { Teams } from './modules/teams/index.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
 import { WorkersHandler } from './modules/Workers.js';
-import Peer from './modules/Peer.js';
+import Peer from './modules/Peer/index.js';
 import { registerComponents } from './ui/registerComponents.js';
 
 class SimpleLogger {
@@ -176,6 +182,8 @@ export class Puter {
     email;
     /** @type {InstanceType<typeof Events>} */
     events;
+    /** @type {InstanceType<typeof Notifications>} */
+    notifications;
     /** @type {InstanceType<typeof Perms>} */
     perms;
     /** @type {InstanceType<typeof Teams>} */
@@ -318,6 +326,10 @@ export class Puter {
         this.email = this.registerModule('email', Email);
         this.events = this.registerModule('events', Events);
         this.perms = this.registerModule('perms', Perms);
+        this.notifications = this.registerModule(
+            'notifications',
+            Notifications,
+        );
         this.teams = this.registerModule('teams', Teams);
         this.drivers = this.registerModule('drivers', Drivers);
         this.debug = this.registerModule('debug', Debug);
@@ -617,6 +629,12 @@ export class Puter {
         // cached user without issuing its own request.
         this.whoamiCache_ = null;
 
+        // A user session token must never be adopted from storage, and an
+        // earlier boot may have left one behind.
+        if (this.env === 'web' || this.env === 'app') {
+            this.discardStoredSessionToken_();
+        }
+
         // === Start :: Modules === //
 
         // The SDK is running in the Puter GUI (i.e. 'gui')
@@ -628,14 +646,26 @@ export class Puter {
         // Loaded in an iframe in the Puter GUI (i.e. 'app')
         // When SDK is loaded in App mode the initiation process should start when the DOM is ready
         else if (this.env === 'app') {
+            const urlTokenParam = URLParams.has('puter.auth.token')
+                ? 'puter.auth.token'
+                : 'auth_token';
             const bootstrapAuthToken = this.normalizeAuthTokenCandidate(
-                URLParams.get('puter.auth.token') ??
-                    URLParams.get('auth_token'),
+                URLParams.get(urlTokenParam),
             );
+            if (bootstrapAuthToken) {
+                this.stripLaunchTokenFromUrl_(urlTokenParam);
+            }
             try {
                 let selectedAuthToken = bootstrapAuthToken;
+                const godmodeToken = bootstrapAuthToken
+                    ? null
+                    : this.readStoredSessionToken_();
                 if (bootstrapAuthToken) {
                     this.setAuthToken(bootstrapAuthToken);
+                } else if (godmodeToken) {
+                    // A godmode app reloading in the same tab.
+                    this.setAuthToken(godmodeToken);
+                    selectedAuthToken = godmodeToken;
                 } else {
                     // No token in the URL — fall back to a stored token,
                     // but ONLY if it is allowed for the current API origin.
@@ -699,8 +729,6 @@ export class Puter {
         // When SDK is loaded in GUI the initiation process should start when the DOM is ready. This is because
         // the SDK needs to show a dialog to the user to ask for permission to access their Puter account.
         else if (this.env === 'web') {
-            // initialize submodules
-            this.initSubmodules();
             try {
                 const storedToken = this.normalizeAuthTokenCandidate(
                     localStorage.getItem(STORAGE_KEY_V2),
@@ -731,13 +759,12 @@ export class Puter {
                 console.error('Error accessing localStorage:', error);
             }
 
+            this.initSubmodules();
+
             // Print a CTA for developers to publish their app on the Puter App Store
             this.printDevCTA();
 
-            // If the page was opened directly from disk (file:// protocol),
-            // Puter.js cannot function. Warn the developer immediately on
-            // load rather than waiting for an action that triggers auth.
-            this.warnUnsupportedProtocol();
+            this.warnUnsupportedOrigin();
         } else if (
             this.env === 'web-worker' ||
             this.env === 'service-worker' ||
@@ -777,36 +804,7 @@ export class Puter {
         })();
 
         /** @type {import('./modules/networking/types.js').Networking} */
-        this.net = {
-            /**
-             * Mints a relay URL (server + single-use token) for speaking
-             * the Wisp v1 protocol directly, which is what the sockets
-             * below do for you.
-             *
-             * @returns {Promise<string>}
-             */
-            generateWispV1URL: async () => {
-                const { token: wispToken, server: wispServer } = await (
-                    await fetchUrl(
-                        `${this.APIOrigin}/wisp/relay-token/create`,
-                        {
-                            method: 'POST',
-                            includePuterAuth: true,
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({}),
-                        },
-                    )
-                ).json();
-                return `${wispServer}/${wispToken}/`;
-            },
-            Socket: PSocket,
-            tls: {
-                TLSSocket: PTLSSocket,
-            },
-            fetch: pFetch,
-        };
+        this.net = netAPI;
 
         // Initialize network connectivity monitoring and cache purging
         this.initNetworkMonitoring();
@@ -879,6 +877,7 @@ export class Puter {
         // Same opt-out as `/rao`: a disposable per-invocation client has no
         // use for a cached user and shouldn't pay for the request.
         if (!this.authToken || !this.socketEnabled) return null;
+        const issuedUnder = this.authToken;
         try {
             const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
                 authToken: this.authToken,
@@ -890,7 +889,10 @@ export class Puter {
                 },
             });
             if (!resp.ok) return null;
-            this.whoami = await resp.json();
+            const body = await resp.json();
+            // The answer belongs to the token that asked for it.
+            if (this.authToken !== issuedUnder) return null;
+            this.whoami = body;
             return this.whoami;
         } catch (e) {
             // Best-effort cache — a network failure leaves it unset.
@@ -963,7 +965,11 @@ export class Puter {
     setAuthToken = function (authToken) {
         const normalizedAuthToken =
             this.normalizeAuthTokenCandidate(authToken);
+        // Keys carry the token, and the store is persisted with no TTL.
+        const changed =
+            this.authToken && this.authToken !== normalizedAuthToken;
         this.authToken = normalizedAuthToken;
+        if (changed) this._dropIdentityCaches();
 
         // Keep app identity consistent with token claims whenever available.
         const tokenAppID = this.getAppIDFromAuthToken(normalizedAuthToken);
@@ -971,10 +977,21 @@ export class Puter {
             this.setAppID(tokenAppID);
         }
 
-        // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
+        // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage.
+        // A user session token (a godmode app's launch token) never goes there:
+        // an app keeps it in sessionStorage so a frame reload still has it.
         if (this.env === 'web' || this.env === 'app') {
+            this.storeSessionToken_(
+                this.env === 'app' &&
+                    this.isUserSessionToken_(normalizedAuthToken)
+                    ? normalizedAuthToken
+                    : null,
+            );
             try {
-                if (normalizedAuthToken) {
+                if (!normalizedAuthToken) {
+                    localStorage.removeItem(STORAGE_KEY_V2);
+                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
+                } else if (!this.isUserSessionToken_(normalizedAuthToken)) {
                     localStorage.setItem(
                         STORAGE_KEY_V2,
                         normalizedAuthToken,
@@ -985,9 +1002,6 @@ export class Puter {
                         STORAGE_KEY_ORIGIN_V2,
                         this.APIOrigin,
                     );
-                } else {
-                    localStorage.removeItem(STORAGE_KEY_V2);
-                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
                 }
                 // Clear the retired key on every write, so a stale value
                 // never outlives the token that replaced it.
@@ -997,10 +1011,13 @@ export class Puter {
                 console.error('Error accessing localStorage:', error);
             }
         }
-        // initialize loop for updating caches for major directories
-        if (this.env === 'gui') {
-            // check and update gui fs cache regularly
-            setInterval(puter.checkAndUpdateGUIFScache, 10000);
+        // initialize loop for updating caches for major directories; the GUI
+        // sets the token many times, but one loop is enough
+        if (this.env === 'gui' && !this.guiFSCacheTimer_) {
+            this.guiFSCacheTimer_ = setInterval(
+                () => this.checkAndUpdateGUIFScache(),
+                10000,
+            );
         }
         this._emitAuthStateChanged();
 
@@ -1063,9 +1080,61 @@ export class Puter {
      *
      * @internal
      */
+    /** Windows this SDK opened; the GUI posts a token back to its opener. */
+    openedWindows_ = new Set();
+
+    /** @internal */
+    trackOpenedWindow_ = function (win) {
+        if (!win) return;
+        this.openedWindows_.add(win);
+        // Closed ones are kept, so bound the set rather than the lifetime.
+        while (this.openedWindows_.size > 8) {
+            this.openedWindows_.delete(
+                this.openedWindows_.values().next().value,
+            );
+        }
+    };
+
+    /** Framed, only the embedder sends a token; top-level, only our popup. */
+    tokenSourceAllowed_ = function (source) {
+        if (!source) return false;
+        if (globalThis.parent !== globalThis) {
+            return source === globalThis.parent;
+        }
+        // Closed still counts, as `UI.js` does: it may post, then close.
+        for (const win of [...this.openedWindows_]) {
+            if (win === source) return true;
+        }
+        return false;
+    };
+
+    /** Cache key for `kind` at `path`, scoped to the identity it was read as. */
+    fsCacheKey = function (kind, path) {
+        // `~` resolved, so two spellings of one place share a key.
+        const username = this.whoami?.username;
+        const resolved =
+            username && typeof path === 'string' && path.startsWith('~')
+                ? `/${username}${path.slice(1)}`
+                : path;
+        return `${kind}:${this.APIOrigin}:${this.authToken}:${resolved}`;
+    };
+
+    /** Nothing read as one identity may answer for the next. */
+    _dropIdentityCaches = function () {
+        this.whoami = undefined;
+        this.whoamiCache_ = null;
+        try {
+            this._cache.flushall();
+        } catch (e) {
+            // A cache we cannot clear must not stop the sign-out.
+        }
+    };
+
     _clearAuthToken = function () {
         this.authToken = null;
+        this._dropIdentityCaches();
         if (this.env === 'web' || this.env === 'app') {
+            this.storeSessionToken_(null);
             try {
                 localStorage.removeItem(STORAGE_KEY_V2);
                 localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
@@ -1165,6 +1234,12 @@ export class Puter {
                 // ensures the message came from the actual embedder.
                 await new Promise((resolve, reject) => {
                     const expectedSource = globalThis.parent;
+                    let timer = null;
+                    const stop = () => {
+                        globalThis.removeEventListener?.('message', onToken);
+                        if (timer) clearTimeout(timer);
+                        timer = null;
+                    };
                     const onToken = (event) => {
                         if (event.origin !== this.defaultGUIOrigin) return;
                         if (
@@ -1173,17 +1248,14 @@ export class Puter {
                         )
                             return;
                         if (event.data?.msg !== 'puter.token') return;
-                        globalThis.removeEventListener('message', onToken);
+                        stop();
                         resolve();
                     };
                     globalThis.addEventListener?.('message', onToken);
                     // Give the user a generous window to re-auth.
-                    setTimeout(
+                    timer = setTimeout(
                         () => {
-                            globalThis.removeEventListener?.(
-                                'message',
-                                onToken,
-                            );
+                            stop();
                             reject(new Error('reauth_timeout'));
                         },
                         5 * 60 * 1000,
@@ -1276,6 +1348,129 @@ export class Puter {
             localStorage.removeItem(STORAGE_KEY_V1);
         } catch (e) {
             // No storage to clean up.
+        }
+    };
+
+    /**
+     * @internal
+     * Whether `token` is a user session token rather than an app token.
+     * Godmode apps are launched with one; it never goes to localStorage.
+     *
+     * @param {string | null} token
+     * @returns {boolean}
+     */
+    isUserSessionToken_ = function (token) {
+        return isUserSessionTokenPayload(this.decodeJwtPayload(token));
+    };
+
+    /**
+     * @internal
+     * Whether `token` is a godmode app's launch token, which the desktop
+     * renews on request.
+     *
+     * @param {string | null} token
+     * @returns {boolean}
+     */
+    isGodmodeToken_ = function (token) {
+        return isGodmodeTokenPayload(this.decodeJwtPayload(token));
+    };
+
+    /**
+     * @internal
+     * Keep a godmode app's session token in sessionStorage, bound to the API
+     * origin like the localStorage copy, or clear it with `null`.
+     *
+     * @param {string | null} token
+     */
+    storeSessionToken_ = function (token) {
+        try {
+            if (token) {
+                sessionStorage.setItem(STORAGE_KEY_V2, token);
+                sessionStorage.setItem(STORAGE_KEY_ORIGIN_V2, this.APIOrigin);
+            } else {
+                sessionStorage.removeItem(STORAGE_KEY_V2);
+                sessionStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
+            }
+        } catch (e) {
+            // No sessionStorage here.
+        }
+    };
+
+    /**
+     * @internal
+     * The session token a godmode app stored earlier in this tab, if it is one
+     * and is bound to the current API origin.
+     *
+     * @returns {string | null}
+     */
+    readStoredSessionToken_ = function () {
+        try {
+            const token = this.normalizeAuthTokenCandidate(
+                sessionStorage.getItem(STORAGE_KEY_V2),
+            );
+            const boundOrigin = this.normalizeStringCandidate(
+                sessionStorage.getItem(STORAGE_KEY_ORIGIN_V2),
+            );
+            if (
+                token &&
+                this.isUserSessionToken_(token) &&
+                this._storedTokenUsableForCurrentOrigin(boundOrigin)
+            ) {
+                return token;
+            }
+        } catch (e) {
+            // No sessionStorage here.
+        }
+        return null;
+    };
+
+    /**
+     * @internal
+     * Delete a user session token persisted by an older SDK build.
+     */
+    discardStoredSessionToken_ = function () {
+        try {
+            if (this.isUserSessionToken_(localStorage.getItem(STORAGE_KEY_V2))) {
+                localStorage.removeItem(STORAGE_KEY_V2);
+                localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
+            }
+        } catch (e) {
+            // No storage to clean up.
+        }
+    };
+
+    /**
+     * @internal
+     * Remove the launch token from the address bar after the page loads, so it
+     * stops going out in Referer headers and in anything that records the page
+     * URL. Waiting for `load` keeps it readable to the app's own boot code.
+     *
+     * @param {string} param
+     */
+    stripLaunchTokenFromUrl_ = function (param) {
+        const strip = () => {
+            try {
+                const cleaned = urlWithoutQueryParam(
+                    globalThis.location.href,
+                    param,
+                );
+                if (cleaned) {
+                    globalThis.history.replaceState(
+                        globalThis.history.state,
+                        '',
+                        cleaned,
+                    );
+                }
+            } catch (e) {
+                // No history API, or a document that can't rewrite its URL.
+            }
+        };
+        // One task later, so the app's own `load` listeners still see it.
+        const stripSoon = () => setTimeout(strip, 0);
+        if (globalThis.document?.readyState === 'complete') {
+            stripSoon();
+        } else {
+            globalThis.addEventListener?.('load', stripSoon, { once: true });
         }
     };
 
@@ -1656,27 +1851,31 @@ export class Puter {
     };
 
     /**
-     * Shows the "Unsupported Protocol" warning dialog when the SDK is
-     * loaded directly from the file:// protocol. Runs once on load (when
-     * the DOM is ready) so the developer is told to use a web server
-     * immediately, instead of only when an action triggers the auth flow.
+     * Warns, once on load, when this page has no origin to sign in with,
+     * rather than at the first action that authenticates.
      *
      * @internal
      */
-    warnUnsupportedProtocol = function () {
+    warnUnsupportedOrigin = function () {
+        if (!hasOpaqueOrigin()) return;
+        if (this._opaqueOriginWarned) return;
+        this._opaqueOriginWarned = true;
+
+        console.warn(
+            'Puter.js: this page has no origin to sign in with. Serve it over http://localhost or a real domain instead of opening it from a file, and give sandboxed iframes allow-same-origin.',
+        );
+
+        // A sandboxed iframe is someone else's embed; don't modal into it.
         if (globalThis.location?.protocol !== 'file:') return;
-        if (this._fileProtocolWarned) return;
-        this._fileProtocolWarned = true;
 
         const showDialog = () => {
-            // On file:// PuterDialog renders the "Unsupported Protocol"
-            // warning instead of the auth consent content.
+            // PuterDialog renders the warning instead of the consent content.
             const dialog = new PuterDialog(
                 () => {},
                 () => {},
             );
             document.body.appendChild(dialog);
-            dialog.open();
+            dialog.openNotice();
         };
 
         if (document.readyState === 'loading') {
@@ -1687,6 +1886,14 @@ export class Puter {
             showDialog();
         }
     };
+
+    /**
+     * The loop running `checkAndUpdateGUIFScache`, once a token is set.
+     *
+     * @internal
+     * @type {ReturnType<typeof setInterval> | null}
+     */
+    guiFSCacheTimer_ = null;
 
     /**
      * Checks and updates the GUI FS cache for most-commonly used paths
@@ -1715,7 +1922,7 @@ export class Puter {
         let public_path = `/${username}/Public`;
 
         // item:Home
-        if (!puter._cache.get(`item:${home_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', home_path))) {
             console.log(
                 `/${username} item is not cached, refetching cache`,
             );
@@ -1723,7 +1930,7 @@ export class Puter {
             warm(puter.fs.stat(home_path));
         }
         // item:Desktop
-        if (!puter._cache.get(`item:${desktop_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', desktop_path))) {
             console.log(
                 `/${username}/Desktop item is not cached, refetching cache`,
             );
@@ -1731,7 +1938,7 @@ export class Puter {
             warm(puter.fs.stat(desktop_path));
         }
         // item:Documents
-        if (!puter._cache.get(`item:${documents_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', documents_path))) {
             console.log(
                 `/${username}/Documents item is not cached, refetching cache`,
             );
@@ -1739,7 +1946,7 @@ export class Puter {
             warm(puter.fs.stat(documents_path));
         }
         // item:Public
-        if (!puter._cache.get(`item:${public_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('item', public_path))) {
             console.log(
                 `/${username}/Public item is not cached, refetching cache`,
             );
@@ -1748,13 +1955,13 @@ export class Puter {
         }
 
         // readdir:Home
-        if (!puter._cache.get(`readdir:${home_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', home_path))) {
             console.log(`/${username} is not cached, refetching cache`);
             // fetch home
             warm(puter.fs.readdir(home_path));
         }
         // readdir:Desktop
-        if (!puter._cache.get(`readdir:${desktop_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', desktop_path))) {
             console.log(
                 `/${username}/Desktop is not cached, refetching cache`,
             );
@@ -1762,7 +1969,7 @@ export class Puter {
             warm(puter.fs.readdir(desktop_path));
         }
         // readdir:Documents
-        if (!puter._cache.get(`readdir:${documents_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', documents_path))) {
             console.log(
                 `/${username}/Documents is not cached, refetching cache`,
             );
@@ -1770,7 +1977,7 @@ export class Puter {
             warm(puter.fs.readdir(documents_path));
         }
         // readdir:Public
-        if (!puter._cache.get(`readdir:${public_path}`)) {
+        if (!puter._cache.get(puter.fsCacheKey('readdir', public_path))) {
             console.log(
                 `/${username}/Public is not cached, refetching cache`,
             );
@@ -1792,41 +1999,10 @@ if (puterParent) {
     console.log('I have a parent, registering tools');
     puterParent.on('message', async (event) => {
         console.log('Got tool req ', event);
-        if (event.$ === 'requestTools') {
-            console.log('Responding with tools');
-            puterParent.postMessage({
-                $: 'providedTools',
-                tools: JSON.parse(JSON.stringify(puter.tools)),
-            });
-        }
-
-        if (event.$ === 'executeTool') {
-            console.log('xecuting tools');
-            /**
-             * Puter tools format
-             *
-             * @type {[
-             *     {
-             *         exec: Function;
-             *         function: {
-             *             description: string;
-             *             name: string;
-             *             parameters: { properties: any; required: string[] };
-             *             type: string;
-             *         };
-             *     },
-             * ]}
-             */
-            const [tool] = puter.tools.filter(
-                (e) => e.function.name === event.toolName,
-            );
-
-            const response = await tool.exec(event.parameters);
-            puterParent.postMessage({
-                $: 'toolResponse',
-                response,
-                tag: event.tag,
-            });
+        try {
+            await handleToolRequest(puter.tools, puterParent, event);
+        } catch (e) {
+            console.error(e);
         }
     });
     puterParent.postMessage({ $: 'ready' });
@@ -1836,6 +2012,7 @@ globalThis.addEventListener &&
     globalThis.addEventListener('message', async (event) => {
         // if the message is not from Puter, then ignore it
         if (event.origin !== puter.defaultGUIOrigin) return;
+        if (!event.data || typeof event.data !== 'object') return;
 
         if (event.data.msg && event.data.msg === 'requestOrigin') {
             event.source.postMessage(
@@ -1845,6 +2022,14 @@ globalThis.addEventListener &&
                 '*',
             );
         } else if (event.data.msg === 'puter.token') {
+            if (puter.auth?.pendingSignInMessageIds_?.has(event.data.msg_id))
+                return;
+            if (!puter.tokenSourceAllowed_(event.source)) {
+                return;
+            }
+            // Could be a late reply from an old popup; the flow that owns the
+            // prompt settles its own failures.
+            if (event.data.success === false) return;
             // Set the authToken property
             puter.setAuthToken(event.data.token);
             // update appID only when token does not include app identity
@@ -1862,9 +2047,15 @@ globalThis.addEventListener &&
 
             // Call onAuth callback
             if (puter.onAuth && typeof puter.onAuth === 'function') {
-                puter.getUser().then((user) => {
-                    puter.onAuth(user);
-                });
+                // Not awaited: the waiting sign-ins below settle first.
+                (async () => {
+                    try {
+                        const user = await puter.whoamiCache_;
+                        puter.onAuth(user ?? (await puter.getUser()));
+                    } catch (e) {
+                        console.error(e);
+                    }
+                })();
             }
 
             puter.puterAuthState.isPromptOpen = false;

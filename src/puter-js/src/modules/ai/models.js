@@ -1,5 +1,10 @@
 import { fetchUrl } from '../../lib/networkUtils.js';
 
+const MODEL_CACHE_MS = 60_000;
+const MAX_CACHED_PROVIDERS = 32;
+/** @type {WeakMap<object, { origin: string; token: string; entries: Map<string, { expires: number; promise: Promise<Record<string, unknown>[]> }> }>} */
+const modelCaches = new WeakMap();
+
 /**
  * @overload
  * @param {string} [provider]
@@ -16,36 +21,62 @@ import { fetchUrl } from '../../lib/networkUtils.js';
 export async function listModels (provider) {
     const { puter } = this;
 
-    const byProvider = (models) =>
-        (provider ? models.filter(model => model.provider === provider) : models);
-
-    const tryFetchModels = async () => {
-        // `includePuterAuth` attaches the global instance's token.
-        const resp = await fetchUrl(`${puter.APIOrigin }/puterai/chat/models/details`, {
-            includePuterAuth: !! puter.authToken,
-        });
-        if ( ! resp.ok ) return null;
-        const data = await resp.json();
-        return byProvider(Array.isArray(data?.models) ? data.models : []);
-    };
-
-    const tryDriverModels = async () => {
-        const models = /** @type {{ result?: unknown } | undefined} */ (
-            await puter.drivers.call('puter-chat-completion', 'ai-chat', 'models')
-        );
-        return byProvider(Array.isArray(models?.result) ? models.result : []);
-    };
-
-    try {
-        const apiModels = await tryFetchModels();
-        if ( apiModels !== null ) return apiModels;
-    } catch (e) {
-        // Ignore and fall back to the driver call below.
+    let cache = modelCaches.get(puter);
+    if (!cache || cache.origin !== puter.APIOrigin || cache.token !== puter.authToken) {
+        cache = { origin: puter.APIOrigin, token: puter.authToken, entries: new Map() };
+        modelCaches.set(puter, cache);
     }
+    const key = provider || '';
+    const existing = cache.entries.get(key);
+    if (existing && existing.expires > Date.now()) {
+        return structuredClone(await existing.promise);
+    }
+
+    const load = async () => {
+        const query = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+        const resp = await fetchUrl(
+            `${puter.APIOrigin}/puterai/chat/models/details${query}`,
+            { includePuterAuth: !!puter.authToken, authToken: puter.authToken },
+        );
+        let models;
+        if (resp.ok) {
+            models = (await resp.json())?.models;
+        } else if (resp.status === 404 || resp.status === 501) {
+            const envelope = await puter.drivers.call('puter-chat-completion', 'ai-chat', 'models');
+            models = envelope?.result;
+        } else {
+            throw await resp.json();
+        }
+        if (!Array.isArray(models)) {
+            throw { message: 'Invalid model catalogue response.', code: 'invalid_response' };
+        }
+        // Older servers ignore the provider query.
+        return provider ? models.filter(model => model.provider === provider) : models;
+    };
+    const entry = {
+        expires: Infinity,
+        promise: load().catch(error => {
+            if (error instanceof TypeError) {
+                throw { message: 'Failed to fetch model catalogue.', code: error.code ?? 'network_error' };
+            }
+            if (error instanceof SyntaxError) {
+                throw { message: 'Invalid model catalogue response.', code: 'invalid_response' };
+            }
+            throw error;
+        }),
+    };
+    cache.entries.delete(key);
+    if (cache.entries.size >= MAX_CACHED_PROVIDERS) {
+        cache.entries.delete(cache.entries.keys().next().value);
+    }
+    cache.entries.set(key, entry);
     try {
-        return await tryDriverModels();
-    } catch (e) {
-        return [];
+        const models = await entry.promise;
+        entry.expires = Date.now() + MODEL_CACHE_MS;
+        return structuredClone(models);
+    } catch (error) {
+        if (cache.entries.get(key) === entry) cache.entries.delete(key);
+        throw error;
     }
 }
 

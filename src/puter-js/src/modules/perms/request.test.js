@@ -12,7 +12,9 @@ const ROOT_DIR_ROUTE = '/auth/request-app-root-dir';
 const WHOAMI = { username: 'alice', uuid: 'u-1' };
 const SELF_UID = 'app-00000000-0000-4000-8000-000000000001';
 
-const denied = async () => { throw new Error('no access'); };
+const denied = async () => {
+    throw new Error('no access');
+};
 
 /**
  * Answer the mocked helper by route, so a test says what is held and what the
@@ -23,8 +25,8 @@ const denied = async () => { throw new Error('no access'); };
 const routes = ({ held = {}, rootDir = [] } = {}) => {
     const pending = [...rootDir];
     mockReq.mockImplementation(async (_puter, route) => {
-        if ( route === CHECK_ROUTE ) return { permissions: held };
-        if ( route === ROOT_DIR_ROUTE ) {
+        if (route === CHECK_ROUTE) return { permissions: held };
+        if (route === ROOT_DIR_ROUTE) {
             return pending.length
                 ? pending.shift()
                 : { error: true, code: 'forbidden' };
@@ -92,8 +94,230 @@ describe('perms request(resource, details)', () => {
     it('resolves undefined when a folder request is denied', async () => {
         const mod = makeModule({ requestPermission: () => false });
         expect(
-            await request.call(mod, 'folder', { name: 'Videos', access: 'write' }),
+            await request.call(mod, 'folder', {
+                name: 'Videos',
+                access: 'write',
+            }),
         ).toBeUndefined();
+    });
+
+    // -- Files and folders by path or uid --
+
+    it('asks for one file or folder by path, expanding `~` to the home folder', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(await request.call(mod, 'fs', {
+            path: '~/Documents/notes.txt',
+            access: 'write',
+        })).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: 'fs:/alice/Documents/notes.txt:write',
+        });
+
+        await request.call(mod, 'fs', { path: '/alice//Projects/./a/' });
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: 'fs:/alice/Projects/a:read',
+        });
+
+        await request.call(mod, 'fs', { path: '~' });
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: 'fs:/alice:read',
+        });
+    });
+
+    it('asks for one file or folder by uid', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+        const uid = 'b3c1d2e4-5f6a-4b7c-8d9e-0f1a2b3c4d5e';
+
+        await request.call(mod, 'fs', { uid, access: 'read' });
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: `fs:${uid}:read`,
+        });
+    });
+
+    it('escapes a colon in a path so the server splits it back', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        await request.call(mod, 'fs', { path: '/alice/a:b\\c.txt' });
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: 'fs:/alice/a\\Cb\\\\c.txt:read',
+        });
+    });
+
+    it('forwards `create` from an fs request', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        await request.call(mod, 'fs', { path: '~/.mail', access: 'write', create: 'dir' });
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: 'fs:/alice/.mail:write',
+            create: 'dir',
+        });
+    });
+
+    it.each([
+        [{}, /pass `path` or `uid`/],
+        [{ path: '/a', uid: 'b3c1d2e4-5f6a-4b7c-8d9e-0f1a2b3c4d5e' }, /not both/],
+        [{ path: 'relative/file.txt' }, /must start with/],
+        [{ path: '~alice/file.txt' }, /must start with/],
+        [{ uid: 'not-a-uid' }, /uid of a file or folder/],
+        // Version 0, and a variant outside RFC 4122: the server reads neither as a uid.
+        [{ uid: 'b3c1d2e4-5f6a-0b7c-8d9e-0f1a2b3c4d5e' }, /uid of a file or folder/],
+        [{ uid: 'b3c1d2e4-5f6a-4b7c-0d9e-0f1a2b3c4d5e' }, /uid of a file or folder/],
+        [{ path: '/a', access: 'delete' }, /access must be/],
+        [{ path: '/a', create: 'yes' }, /create/],
+        [{ path: '/a', acess: 'write' }, /unknown field: acess/],
+    ])('rejects fs details %o', async (details, message) => {
+        const mod = makeModule();
+        await expect(request.call(mod, 'fs', details)).rejects.toMatchObject({
+            code: 'invalid_argument',
+            message: expect.stringMatching(message),
+        });
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
+    // -- Background events, share delegation --
+
+    it('asks to run in the background', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(await request.call(mod, 'backgroundEvents')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: 'events:background',
+        });
+        await expect(
+            request.call(mod, 'backgroundEvents', { access: 'write' }),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
+    });
+
+    it('asks to send pushes, alone or behind one prompt with background events', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(await request.call(mod, 'pushNotifications')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: 'notifications:push',
+        });
+
+        expect(await request.call(mod, [
+            { resource: 'backgroundEvents' },
+            { resource: 'pushNotifications' },
+        ])).toEqual([true, true]);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledTimes(2);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permissions: ['events:background', 'notifications:push'],
+        });
+
+        await expect(
+            request.call(mod, 'pushNotifications', { access: 'write' }),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
+    });
+
+    it('checks pushNotifications against the same permission string, without prompting', async () => {
+        routes({ held: { 'notifications:push': true } });
+        const mod = makeModule();
+
+        expect(await check.call(mod, 'pushNotifications')).toBe(true);
+        expect(mockReq).toHaveBeenLastCalledWith(mod.puter, CHECK_ROUTE, {
+            permissions: ['notifications:push'],
+        });
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
+    it('asks to share a region of the app\'s own data, named by its prefix', async () => {
+        const mod = makeModule({
+            requestPermission: () => true,
+            whoami: { ...WHOAMI, app_name: SELF_UID },
+        });
+
+        expect(await request.call(mod, 'kvShare', { prefix: 'workspace:abc:', access: 'write' })).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: `manage:kv-share-write:u-1:${SELF_UID}:workspace:abc`,
+        });
+
+        await request.call(mod, 'kvShare', { prefix: 'rooms', access: 'watch' });
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: `manage:kv-share:u-1:${SELF_UID}:rooms`,
+        });
+    });
+
+    it('asks for the level `puter.kv.share()` creates when no access is given', async () => {
+        const mod = makeModule({
+            requestPermission: () => true,
+            whoami: { ...WHOAMI, app_name: SELF_UID },
+        });
+
+        expect(await request.call(mod, 'kvShare', { prefix: 'rooms:abc:' })).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: `manage:kv-share-read:u-1:${SELF_UID}:rooms:abc`,
+        });
+    });
+
+    it.each([
+        ['read', 'kv-share-read'],
+        ['write', 'kv-share-write'],
+    ])('asks to share a region at the %s level', async (access, root) => {
+        const mod = makeModule({
+            requestPermission: () => true,
+            whoami: { ...WHOAMI, app_name: SELF_UID },
+        });
+
+        expect(await request.call(mod, 'kvShare', { prefix: 'rooms:abc:', access })).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: `manage:${root}:u-1:${SELF_UID}:rooms:abc`,
+        });
+    });
+
+    it.each([
+        [{}, /prefix/],
+        [{ prefix: '' }, /not all of it/],
+        [{ prefix: ':' }, /empty key segment/],
+        [{ prefix: 'a::b' }, /empty key segment/],
+        [{ prefix: 'rooms:*' }, /not a pattern/],
+        [{ prefix: 'a\\b' }, /backslash/],
+        [{ prefix: 'Rooms:abc' }, /lowercase letters/],
+        [{ prefix: 'rooms:café' }, /lowercase letters/],
+        [{ prefix: 'rooms:a b' }, /lowercase letters/],
+        [{ prefix: 'a'.repeat(256), access: 'read' }, /at most \d+ characters for this app with `read` access/],
+        [{ prefix: 'rooms', access: 'delete' }, /access must be one of: watch, read, write/],
+        [{ prefix: 'rooms', access: 'toString' }, /access must be one of/],
+        [{ prefix: 'rooms', app: 'other' }, /unknown field: app/],
+    ])('rejects kvShare details %o', async (details, message) => {
+        const mod = makeModule();
+        await expect(request.call(mod, 'kvShare', details)).rejects.toMatchObject({
+            code: 'invalid_argument',
+            message: expect.stringMatching(message),
+        });
+    });
+
+    it.each([
+        ['watch', 'kv-share'],
+        ['read', 'kv-share-read'],
+        ['write', 'kv-share-write'],
+    ])('refuses a %s prefix whose consent the server could not store', async (access, root) => {
+        const mod = makeModule({
+            requestPermission: () => true,
+            whoami: { ...WHOAMI, app_name: SELF_UID },
+        });
+        // The column the consent is stored in holds 255 characters.
+        const room = 255 - `manage:${root}:u-1:${SELF_UID}:`.length;
+        const fits = `${'a'.repeat(room - 2)}:b`;
+        expect(await request.call(mod, 'kvShare', { prefix: `${fits}:`, access })).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: `manage:${root}:u-1:${SELF_UID}:${fits}`,
+        });
+        await expect(
+            request.call(mod, 'kvShare', { prefix: `${fits}b`, access }),
+        ).rejects.toMatchObject({
+            code: 'invalid_argument',
+            message: `\`prefix\` may be at most ${room} characters for this app with \`${access}\` access`,
+        });
+    });
+
+    it('refuses a share delegation outside an app', async () => {
+        const mod = makeModule();
+        mod.puter.appID = undefined;
+        await expect(
+            request.call(mod, 'kvShare', { prefix: 'rooms' }),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
     });
 
     // -- Apps, subdomains, email --
@@ -147,7 +371,10 @@ describe('perms request(resource, details)', () => {
             }),
         ).toBe(true);
         expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
-            permissions: ['app-data:app-target:fs:read', 'app-data:app-target:kv:read'],
+            permissions: [
+                'app-data:app-target:fs:read',
+                'app-data:app-target:kv:read',
+            ],
         });
     });
 
@@ -210,12 +437,21 @@ describe('perms request(resource, details)', () => {
         });
     });
 
+    it('asks for push consent as a bare permission string', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(await request.call(mod, 'notifications:push')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'notifications:push',
+        });
+    });
+
     // A resource is looked up on an own property, so a permission string that
     // shares a name with an `Object.prototype` member is still that string.
     it('reads a permission string that collides with an Object member', async () => {
         const mod = makeModule({ requestPermission: () => true });
 
-        for ( const name of ['constructor', 'toString', 'hasOwnProperty'] ) {
+        for (const name of ['constructor', 'toString', 'hasOwnProperty']) {
             expect(await request.call(mod, name)).toBe(true);
             expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
                 permission: name,
@@ -280,9 +516,9 @@ describe('perms request(resource, details)', () => {
         await expect(
             request.call(mod, 'apps', { access: 'delete' }),
         ).rejects.toMatchObject({ code: 'invalid_argument' });
-        await expect(
-            request.call(mod, 'apps', 'read'),
-        ).rejects.toMatchObject({ code: 'invalid_argument' });
+        await expect(request.call(mod, 'apps', 'read')).rejects.toMatchObject({
+            code: 'invalid_argument',
+        });
         await expect(
             request.call(mod, 'appRootDir', { app: 42 }),
         ).rejects.toMatchObject({ code: 'invalid_argument' });
@@ -435,6 +671,18 @@ describe('perms request([...]) batching', () => {
         expect(results).toEqual([true, undefined]);
     });
 
+    // Another app's root dir can never be claimed, so asking must not cost the
+    // user a consent prompt or leave a grant behind.
+    it('does not prompt for an app root dir that is not the caller own', async () => {
+        routes({ rootDir: [{ error: true, reason: 'app_mismatch' }] });
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(
+            await request.call(mod, [{ resource: 'appRootDir', app: 'app-2' }]),
+        ).toEqual([undefined]);
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
     // A grant can lag the permission cache, so the first refusal after one
     // isn't final — in a batch exactly as in a single request.
     it('keeps asking for the app root dir after the pooled grant', async () => {
@@ -489,7 +737,11 @@ describe('perms request([...]) batching', () => {
         await expect(
             request.call(mod, [
                 { resource: 'permission', permission: 'a:read', create: true },
-                { resource: 'permission', permission: 'b:read', create: 'file' },
+                {
+                    resource: 'permission',
+                    permission: 'b:read',
+                    create: 'file',
+                },
             ]),
         ).rejects.toMatchObject({ code: 'invalid_argument' });
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
@@ -535,7 +787,9 @@ describe('perms request([...]) batching', () => {
 
     it('rejects an entry with no resource, an unknown one, or a stray second argument', async () => {
         const mod = makeModule();
-        await expect(request.call(mod, [{ name: 'Desktop' }])).rejects.toMatchObject({
+        await expect(
+            request.call(mod, [{ name: 'Desktop' }]),
+        ).rejects.toMatchObject({
             code: 'invalid_argument',
         });
         await expect(
@@ -597,6 +851,27 @@ describe('perms check(resource, details)', () => {
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
     });
 
+    it('checks the new resources without prompting, in one batch', async () => {
+        routes({
+            held: {
+                'fs:/alice/notes.txt:write': true,
+                'events:background': false,
+                [`manage:kv-share-read:u-1:${SELF_UID}:rooms`]: true,
+            },
+        });
+        const mod = makeModule({ whoami: { ...WHOAMI, app_name: SELF_UID } });
+
+        expect(
+            await check.call(mod, [
+                { resource: 'fs', path: '~/notes.txt', access: 'write', create: false },
+                { resource: 'backgroundEvents' },
+                { resource: 'kvShare', prefix: 'rooms:' },
+            ]),
+        ).toEqual([true, false, true]);
+        expect(callsTo(CHECK_ROUTE)).toHaveLength(1);
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
     it('checks the same permission strings the request asks for', async () => {
         const mod = makeModule();
 
@@ -613,6 +888,11 @@ describe('perms check(resource, details)', () => {
         await check.call(mod, 'fs:/alice:read');
         expect(mockReq).toHaveBeenLastCalledWith(mod.puter, CHECK_ROUTE, {
             permissions: ['fs:/alice:read'],
+        });
+
+        await check.call(mod, 'kvShare', { prefix: 'rooms:', access: 'write' });
+        expect(mockReq).toHaveBeenLastCalledWith(mod.puter, CHECK_ROUTE, {
+            permissions: [`manage:kv-share-write:u-1:${SELF_UID}:rooms`],
         });
     });
 
@@ -685,7 +965,9 @@ describe('perms check(resource, details)', () => {
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
 
         // The queue is empty now, so the route refuses: not held.
-        expect(await check.call(mod, 'appRootDir', { app: 'app-1' })).toBe(false);
+        expect(await check.call(mod, 'appRootDir', { app: 'app-1' })).toBe(
+            false,
+        );
     });
 
     it('rejects an invalid `create` value the same way `request` does', async () => {

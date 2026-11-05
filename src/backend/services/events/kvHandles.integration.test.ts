@@ -33,6 +33,7 @@ import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_KV_HANDLE_LIMIT,
     EVENTS_KV_HANDLES_PER_APP,
+    EVENTS_KV_HANDLES_PER_HOLDER,
     EVENTS_KV_HANDLES_PER_USER,
 } from '../../controllers/events/limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
@@ -46,13 +47,17 @@ import {
 import type { IConfig } from '../../types.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import type { DeliveryEnvelope } from './EventsService.js';
-import { kvSharePermission } from './kvShares.js';
+import { kvSharePermission } from '../kvShare/kvShares.js';
+import { seedKvShareHandles } from '../kvShare/kvShareTestUtil.js';
+import { MATCH_PATTERN_MAX_LENGTH } from './matcher.js';
 import { isKvHandleId, kvAnchorToken } from './subjects.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 const SOCKET_ID = 'kv-handle-socket';
 const TABLE = 'event_subscriptions';
 const PREFIX = 'workspace:abc:';
+/** Long enough that anything composed onto it passes the indexed-prefix cap. */
+const LONG_PREFIX = `workspace:${'a'.repeat(150)}:`;
 
 interface TestUser {
     actor: Actor;
@@ -68,6 +73,7 @@ let stranger: TestUser;
 let delivered: DeliveryEnvelope[];
 
 const events = () => env.server.services.events;
+const shares = () => env.server.services.kvShare;
 
 const settled = (count = 1) =>
     vi.waitFor(() => expect(delivered.length).toBeGreaterThanOrEqual(count), {
@@ -97,14 +103,34 @@ const ownerWrites = (key: string, value: unknown): Promise<unknown> =>
     );
 
 const mint = (
-    request: Record<string, unknown> = {},
+    {
+        granteeUsername = guest.username,
+        ...request
+    }: Record<string, unknown> = {},
     actor: Actor = owner.actor,
 ) =>
-    events().mintKvHandle(actor, {
-        granteeUsername: guest.username,
-        prefix: PREFIX,
-        ...request,
-    });
+    shares().mintKvHandle(
+        actor,
+        {
+            prefix: PREFIX,
+            ...request,
+            recipient: { username: granteeUsername as string },
+        },
+        { defaultAccess: 'watch' },
+    );
+
+/** An app row under a fresh uid, since a share may only name an app that exists. */
+const registerApp = async (
+    on: PuterTestEnv = env,
+    ownerUserId: number = owner.id,
+): Promise<string> => {
+    const uid = `app-${uuidv4()}`;
+    await on.server.clients.db.write(
+        'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+        [uid, uid, uid, `https://${uid}.example/`, ownerUserId],
+    );
+    return uid;
+};
 
 const clearRows = async () => {
     await env.server.clients.db.write(`DELETE FROM \`${TABLE}\``, []);
@@ -148,7 +174,12 @@ describe('minting a handle', () => {
         const minted = await mint();
 
         expect(isKvHandleId(minted.handle)).toBe(true);
-        expect(minted).toEqual({ handle: minted.handle, prefix: PREFIX });
+        expect(minted).toMatchObject({
+            handle: minted.handle,
+            prefix: PREFIX,
+            access: 'watch',
+            holderUsername: guest.username,
+        });
         const wire = JSON.stringify(minted);
         expect(wire).not.toContain(owner.uuid);
         expect(wire).not.toContain(owner.username);
@@ -250,42 +281,42 @@ describe('minting a handle', () => {
         });
     });
 
+    // Seeded rows go to `stranger`, so the per-holder cap on `guest` is not
+    // what trips.
+    const seedForStranger = (count: number, appUid: (i: number) => string) =>
+        seedKvShareHandles(env.server, {
+            ownerUserId: owner.id,
+            ownerUuid: owner.uuid,
+            granteeUserId: stranger.id,
+            count,
+            appUid,
+        });
+
     it('stops at the number of handles one account may hold out', async () => {
-        const seeded: string[] = [];
         try {
             const { total: live } =
                 await env.server.stores.kvShareHandle.countLiveForOwner(
                     owner.id,
                 );
-            // Rotate namespaces so the per-account cap is what trips here — no
-            // namespace sitting anywhere near its own per-app cap.
+            // Rotate namespaces so the per-account cap is what trips.
             const spread = EVENTS_KV_HANDLES_PER_APP.limit - 1;
-            for (let i = live; i < EVENTS_KV_HANDLES_PER_USER.limit; i++) {
-                const namespace = `app-ceiling-${Math.floor(i / spread)}`;
-                const prefix = `ceiling:${i}:`;
-                const row = await env.server.stores.kvShareHandle.mint({
-                    ownerUserId: owner.id,
-                    granteeUserId: guest.id,
-                    appUid: namespace,
-                    keyPrefix: prefix,
-                    permission: kvSharePermission(owner.uuid, namespace, prefix),
-                });
-                seeded.push(row.handle);
-            }
+            await seedForStranger(
+                EVENTS_KV_HANDLES_PER_USER.limit - live,
+                (i) => `app-ceiling-${Math.floor(i / spread)}`,
+            );
 
-            // `mint()` defaults to `os-global`, a namespace nowhere near any
-            // per-app cap here.
             await expect(
                 mint({ prefix: 'over:the:line:' }),
             ).rejects.toMatchObject({
                 legacyCode: 'events_kv_handle_limit_reached',
+                message: expect.stringContaining('at a time'),
             });
 
-            // Retiring one frees a slot: the ceiling counts live handles, not
-            // the audit trail.
+            // Retiring one frees a slot: the ceiling counts live handles.
             await env.server.clients.db.write(
-                'UPDATE `kv_share_handles` SET `revoked_at` = ? WHERE `handle` = ?',
-                [Math.floor(Date.now() / 1000), seeded[0]],
+                'UPDATE `kv_share_handles` SET `revoked_at` = ? WHERE `id` = ' +
+                    '(SELECT MIN(`id`) FROM `kv_share_handles` WHERE `grantee_user_id` = ?)',
+                [Math.floor(Date.now() / 1000), stranger.id],
             );
             await expect(mint({ prefix: 'over:the:line:' })).resolves.toEqual(
                 expect.objectContaining({ prefix: 'over:the:line:' }),
@@ -298,54 +329,41 @@ describe('minting a handle', () => {
         }
     });
 
-    it('lets a paid namespace fill the account cap and then refuses other namespaces', async () => {
-        const namespace = 'app-perapp-probe';
+    it('refuses a full namespace and leaves room in another', async () => {
+        const namespace = await registerApp();
+        const another = await registerApp();
         try {
-            for (let i = 0; i < EVENTS_KV_HANDLES_PER_APP.limit; i++) {
-                const prefix = `perapp:${i}:`;
-                await env.server.stores.kvShareHandle.mint({
-                    ownerUserId: owner.id,
-                    granteeUserId: guest.id,
-                    appUid: namespace,
-                    keyPrefix: prefix,
-                    permission: kvSharePermission(owner.uuid, namespace, prefix),
-                });
-            }
+            await seedForStranger(
+                EVENTS_KV_HANDLES_PER_APP.limit,
+                () => namespace,
+            );
 
             await expect(
                 mint({ appUid: namespace, prefix: 'over:the:app:' }),
             ).rejects.toMatchObject({
                 legacyCode: 'events_kv_handle_limit_reached',
+                message: expect.stringContaining('for one account'),
             });
             await expect(
-                mint({ appUid: 'app-another-probe', prefix: 'still:room:' }),
-            ).rejects.toMatchObject({
-                legacyCode: 'events_kv_handle_limit_reached',
-            });
+                mint({ appUid: another, prefix: 'still:room:' }),
+            ).resolves.toMatchObject({ appUid: another });
         } finally {
             await env.server.clients.db.write(
                 'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ? AND `app_uid` IN (?, ?)',
-                [owner.id, namespace, 'app-another-probe'],
+                [owner.id, namespace, another],
             );
         }
     });
 
     it('hands back an existing handle at the cap, taking no slot', async () => {
-        const namespace = 'app-idempotent-probe';
+        const namespace = await registerApp();
         const prefix = 'idempotent:cap:';
         try {
             const first = await mint({ appUid: namespace, prefix });
-
-            for (let i = 0; i < EVENTS_KV_HANDLES_PER_APP.limit - 1; i++) {
-                const filler = `filler:${i}:`;
-                await env.server.stores.kvShareHandle.mint({
-                    ownerUserId: owner.id,
-                    granteeUserId: guest.id,
-                    appUid: namespace,
-                    keyPrefix: filler,
-                    permission: kvSharePermission(owner.uuid, namespace, filler),
-                });
-            }
+            await seedForStranger(
+                EVENTS_KV_HANDLES_PER_APP.limit - 1,
+                () => namespace,
+            );
 
             const before = (
                 await env.server.stores.kvShareHandle.countLiveForOwner(
@@ -376,6 +394,44 @@ describe('minting a handle', () => {
             await env.server.clients.db.write(
                 'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ? AND `app_uid` = ?',
                 [owner.id, namespace],
+            );
+        }
+    });
+
+    it('stops at the number of handles one owner holds out to one holder', async () => {
+        const prefix = 'pair:existing:';
+        try {
+            const first = await mint({ prefix });
+            await seedKvShareHandles(env.server, {
+                ownerUserId: owner.id,
+                ownerUuid: owner.uuid,
+                granteeUserId: guest.id,
+                count: EVENTS_KV_HANDLES_PER_HOLDER - 1,
+                appUid: () => KV_GLOBAL_APP_KEY,
+            });
+            expect(
+                await env.server.stores.kvShareHandle.countLiveForOwnerAndGrantee(
+                    owner.id,
+                    guest.id,
+                ),
+            ).toBe(EVENTS_KV_HANDLES_PER_HOLDER);
+
+            await expect(mint({ prefix: 'pair:over:' })).rejects.toMatchObject(
+                {
+                    legacyCode: 'events_kv_handle_limit_reached',
+                    message: expect.stringContaining('to one user'),
+                },
+            );
+            // Minting the same region again takes no slot, so it isn't refused.
+            await expect(mint({ prefix })).resolves.toEqual(first);
+            // Another holder has a cap of their own.
+            await expect(
+                mint({ prefix: 'pair:over:', granteeUsername: stranger.username }),
+            ).resolves.toMatchObject({ holderUsername: stranger.username });
+        } finally {
+            await env.server.clients.db.write(
+                'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ?',
+                [owner.id],
             );
         }
     });
@@ -489,6 +545,58 @@ describe('subscribing through a handle', () => {
         }
     });
 
+    it('holds a pattern to its limit as the holder wrote it, whatever the prefix', async () => {
+        await clearRows();
+        const handles = [
+            (await mint()).handle,
+            (await mint({ prefix: LONG_PREFIX })).handle,
+        ];
+        const longest = `${'x'.repeat(MATCH_PATTERN_MAX_LENGTH - 1)}*`;
+        const over = `${'x'.repeat(MATCH_PATTERN_MAX_LENGTH)}*`;
+
+        for (const handle of handles) {
+            await expect(
+                events().subscribe(guest.actor, SOCKET_ID, {
+                    subject: `kv:${handle}:${longest}`,
+                }),
+            ).resolves.toBeDefined();
+            // The same refusal for both, naming only what the holder wrote.
+            await expect(
+                events().subscribe(guest.actor, SOCKET_ID, {
+                    subject: `kv:${handle}:${over}`,
+                }),
+            ).rejects.toMatchObject({
+                legacyCode: 'invalid_subject_pattern',
+                message: `Match pattern exceeds ${MATCH_PATTERN_MAX_LENGTH} characters: ${over}`,
+            });
+        }
+    });
+
+    it('describes its filter the same way whatever the prefix', async () => {
+        const handles = [
+            (await mint()).handle,
+            (await mint({ prefix: LONG_PREFIX })).handle,
+        ];
+        for (const pattern of ['messages:*', 'messages*', 'a:b:c:d:e:f']) {
+            await clearRows();
+            const views = [];
+            for (const handle of handles) {
+                const { sub } = await events().subscribe(
+                    guest.actor,
+                    SOCKET_ID,
+                    { subject: `kv:${handle}:${pattern}` },
+                );
+                const [listed] = await events().listSubscriptions(
+                    guest.actor,
+                    SOCKET_ID,
+                );
+                views.push(sub.match, listed.match);
+                await events().reapSocket(guest.id, SOCKET_ID);
+            }
+            expect(new Set(views).size).toBe(1);
+        }
+    });
+
     it('refuses a user the handle was not granted to', async () => {
         await clearRows();
         const { handle } = await mint();
@@ -532,6 +640,24 @@ describe('a write in the shared region', () => {
         });
         expect(JSON.stringify(delivered[0])).not.toContain(PREFIX);
         expect(JSON.stringify(delivered[0])).not.toContain(owner.uuid);
+    });
+
+    it('reaches a pattern that runs past the limit once composed onto the prefix', async () => {
+        await clearRows();
+        const { handle } = await mint({ prefix: LONG_PREFIX });
+        const key = 'k'.repeat(200);
+        const { sub } = await events().subscribe(guest.actor, SOCKET_ID, {
+            subject: `kv:${handle}:${key}*`,
+        });
+        delivered.length = 0;
+
+        await ownerWrites(`${LONG_PREFIX}${key}:1`, 1);
+        await settled();
+
+        expect(delivered[0]).toMatchObject({
+            subId: sub.subId,
+            event: { key: `${key}:1` },
+        });
     });
 
     it('reaches a durable subscription, key after key', async () => {
@@ -593,9 +719,10 @@ describe('a write in the shared region', () => {
                 ),
             { timeout: EVENTS_COALESCE_WINDOW_MS * 12, interval: 25 },
         );
-        expect(
-            delivered.find((one) => one.subId === sub.subId)?.event,
-        ).toMatchObject({ key: 'title', value: 'hello' });
+        // A `watch` share carries keys only, whatever the subscription asked.
+        const event = delivered.find((one) => one.subId === sub.subId)?.event;
+        expect(event).toMatchObject({ key: 'title' });
+        expect(event).not.toHaveProperty('value');
     });
 
     it('stays inside the region the handle was granted on', async () => {
@@ -661,6 +788,8 @@ describe('what a plan lets an account hold', () => {
     let tiered: PuterTestEnv;
     let tieredUserId: number;
     let tieredUuid: string;
+    // Seeded rows go to a third user, so the per-holder cap is not what trips.
+    let thirdUserId: number;
 
     const mintTiered = async (
         prefix: string,
@@ -708,6 +837,14 @@ describe('what a plan lets an account hold', () => {
         );
         tieredUserId = user!.id;
         tieredUuid = user!.uuid as string;
+        const thirdName = `kv-third-${uuidv4().slice(0, 8)}`;
+        await createTestUser(tiered.server, {
+            username: thirdName,
+            password: 'pw-test-1234',
+        });
+        thirdUserId = (await tiered.server.stores.user.getByUsername(
+            thirdName,
+        ))!.id!;
     }, BOOT_TIMEOUT_MS);
 
     afterAll(async () => {
@@ -749,12 +886,9 @@ describe('what a plan lets an account hold', () => {
 
     it('holds a free account to the free per-app cap, with room left in the account cap', async () => {
         await setEmail(`${tiered.users.user.username}@example.invalid`);
-        const namespace = 'app-tiered-free-probe';
+        const namespace = await registerApp(tiered, tieredUserId);
         const cap =
             EVENTS_KV_HANDLES_PER_APP.bySubscription[DEFAULT_FREE_SUBSCRIPTION];
-        const grantee = await tiered.server.stores.user.getByUsername(
-            tiered.users.other.username,
-        );
 
         // Both servers in this file share the process-wide Redis mock, so this
         // user id's call budget already carries the other server's mints.
@@ -762,28 +896,23 @@ describe('what a plan lets an account hold', () => {
             `rate:${EVENTS_KV_HANDLE_LIMIT.scope}:${tieredUserId}`,
         );
 
-        for (let i = 0; i < cap; i++)
-            await tiered.server.stores.kvShareHandle.mint({
-                ownerUserId: tieredUserId,
-                granteeUserId: grantee!.id,
-                appUid: namespace,
-                keyPrefix: `seeded:${i}:`,
-                permission: kvSharePermission(
-                    tieredUuid,
-                    namespace,
-                    `seeded:${i}:`,
-                ),
-            });
+        await seedKvShareHandles(tiered.server, {
+            ownerUserId: tieredUserId,
+            ownerUuid: tieredUuid,
+            granteeUserId: thirdUserId,
+            count: cap,
+            appUid: () => namespace,
+        });
 
         const refused = await mintTiered('over:the:app:', namespace);
         expect(refused.status).toBe(409);
         expect(refused.body.code).toBe('events_kv_handle_limit_reached');
 
-        // The account itself is nowhere near its own cap (200), so a mint into
+        // The account itself is nowhere near its own cap, so a mint into
         // another namespace still succeeds.
         const accepted = await mintTiered(
             'still:room:',
-            'app-tiered-free-other',
+            await registerApp(tiered, tieredUserId),
         );
         expect(accepted.status).toBe(200);
     });
@@ -796,24 +925,14 @@ describe('what a plan lets an account hold', () => {
         );
         const cap =
             EVENTS_KV_HANDLES_PER_APP.bySubscription[DEFAULT_FREE_SUBSCRIPTION];
-        const grantee = await tiered.server.stores.user.getByUsername(
-            tiered.users.other.username,
-        );
         try {
-            for (let i = 0; i < cap; i++) {
-                const prefix = `global:${i}:`;
-                await tiered.server.stores.kvShareHandle.mint({
-                    ownerUserId: tieredUserId,
-                    granteeUserId: grantee!.id,
-                    appUid: KV_GLOBAL_APP_KEY,
-                    keyPrefix: prefix,
-                    permission: kvSharePermission(
-                        tieredUuid,
-                        KV_GLOBAL_APP_KEY,
-                        prefix,
-                    ),
-                });
-            }
+            await seedKvShareHandles(tiered.server, {
+                ownerUserId: tieredUserId,
+                ownerUuid: tieredUuid,
+                granteeUserId: thirdUserId,
+                count: cap,
+                appUid: () => KV_GLOBAL_APP_KEY,
+            });
             const accepted = await mintTiered('global:still:room:');
             expect(accepted.status).toBe(200);
         } finally {

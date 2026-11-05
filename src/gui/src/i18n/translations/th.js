@@ -26,7 +26,7 @@ const th = {
         account: 'บัญชี',
         account_password: 'ยืนยันรหัสผ่านบัญชี',
         access_granted_to: 'อนุญาตให้เข้าถึง',
-        add_existing_account: 'เพิ่มบัญชี',
+        add_another_account: 'เพิ่มบัญชีอื่น',
         all_fields_required: 'จำเป็นต้องกรอกข้อมูลทุกช่อง',
         allow: 'อนุญาต',
         apply: 'ปรับใช้',

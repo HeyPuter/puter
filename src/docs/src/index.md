@@ -166,15 +166,15 @@ Puter.js is powered by [Puter](https://github.com/HeyPuter/puter), the open-sour
 
 <div class="example-content" data-section="ai" style="display:block;">
 
-#### Chat with GPT-5.6 Luna
+#### Chat with GPT-6 Luna
 
 ```html;intro-chatgpt
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
-        // Chat with GPT-5.6 Luna
-        puter.ai.chat(`What is life?`, { model: "gpt-5.6-luna" }).then(puter.print);
+        // Chat with GPT-6 Luna
+        puter.ai.chat(`What is life?`, { model: "gpt-6-luna" }).then(puter.print);
     </script>
 </body>
 </html>
@@ -190,7 +190,7 @@ Puter.js is powered by [Puter](https://github.com/HeyPuter/puter), the open-sour
     <script>
         puter.ai
             .chat(`What do you see?`, `https://assets.puter.site/doge.jpeg`, {
-                model: "gpt-5.6-luna",
+                model: "gpt-6-luna",
             })
             .then(puter.print);
     </script>
@@ -222,7 +222,7 @@ Puter.js is powered by [Puter](https://github.com/HeyPuter/puter), the open-sour
     <script src="https://js.puter.com/v2/"></script>
     <script>
     (async () => {
-        const resp = await puter.ai.chat('Tell me in detail what Rick and Morty is all about.', {model: 'gemini-3.1-flash-lite', stream: true });
+        const resp = await puter.ai.chat('Tell me in detail what Rick and Morty is all about.', {model: 'gemini-3.5-flash-lite', stream: true });
         for await ( const part of resp ) puter.print(part?.text?.replaceAll('\n', '<br>'));
     })();
     </script>

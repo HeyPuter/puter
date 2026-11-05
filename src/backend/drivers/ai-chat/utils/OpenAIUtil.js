@@ -1,5 +1,7 @@
 import { HttpError } from '@heyputer/backend/src/core/http';
+import { Context } from '../../../core/context.js';
 import { mediaUrlOf, unsupportedMediaTextPart } from './mediaParts.js';
+import { fromFinishReason } from './stopReason.js';
 
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.
@@ -21,14 +23,195 @@ import { mediaUrlOf, unsupportedMediaTextPart } from './mediaParts.js';
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
+// Anthropic-only content block types an OpenAI-family provider can never
+// carry — dropped rather than forwarded unrecognized. A reasoning/server-tool
+// turn survives a fallback with no such content left if nothing else was on
+// the message (the caller's next turn simply isn't told the dropped part
+// happened, same as any other lossy-dialect fallback).
+const ANTHROPIC_ONLY_BLOCK_TYPES = new Set([
+    'thinking',
+    'redacted_thinking',
+    'server_tool_use',
+]);
+
+const isServerResultBlockType = (type) =>
+    typeof type === 'string' && type.endsWith('_tool_result');
+
+const flattenToolResultContentItem = (item) => {
+    if (typeof item === 'string') return item;
+    if (!item || typeof item !== 'object') return '';
+    switch (item.type) {
+        case 'text':
+            return typeof item.text === 'string' ? item.text : '';
+        case 'tool_reference':
+            return `[tool reference: ${item.name ?? ''}]`;
+        case 'image':
+        case 'document':
+        case 'search_result':
+            return unsupportedMediaTextPart(
+                `${item.type} content is not supported by this model`,
+            ).text;
+        default:
+            return '';
+    }
+};
+
+/** A `tool_result.content` array (or string) flattened to plain text. */
+const flattenToolResultContent = (content) => {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    return content.map(flattenToolResultContentItem).join('');
+};
+
+const transformBlockForOpenAI = (block, { keepCacheControl }) => {
+    if (!block || typeof block !== 'object') return block;
+    const type = block.type;
+    if (ANTHROPIC_ONLY_BLOCK_TYPES.has(type) || isServerResultBlockType(type)) {
+        return undefined;
+    }
+    if (type === 'tool_result') {
+        const flattened = flattenToolResultContent(block.content);
+        const {
+            citations: _citations,
+            cache_control,
+            is_error,
+            ...rest
+        } = block;
+        return {
+            ...rest,
+            content: is_error ? `Error: ${flattened}` : flattened,
+            ...(keepCacheControl && cache_control ? { cache_control } : {}),
+        };
+    }
+    const { citations: _citations, cache_control, ...rest } = block;
+    return {
+        ...rest,
+        ...(keepCacheControl && cache_control ? { cache_control } : {}),
+    };
+};
+
+const BILLING_HEADER_PREFIX = 'x-anthropic-billing-header:';
+
+/**
+ * Copy-on-write pre-pass that strips the Anthropic-only shape an OpenAI-family
+ * provider can receive on fallback — a prior turn's native Claude content
+ * (`thinking`/`redacted_thinking`/`server_tool_use`/`*_tool_result` blocks,
+ * `cache_control`, `citations`, `clear_at`) replayed into a request this
+ * dialect can't carry. Runs before `process_input_messages(_responses_api)`,
+ * which still mutates in place — operating on this pass's copy keeps the
+ * caller's own message objects untouched across a fallback retry.
+ *
+ * @param {Message[]} messages
+ * @param {{ keepCacheControl?: boolean }} [opts] `keepCacheControl`: OpenRouter
+ *   passes Anthropic prompt caching through, so it keeps the field.
+ * @returns {Message[]}
+ */
+export const toOpenAIChatMessages = (
+    messages,
+    { keepCacheControl = false } = {},
+) => {
+    const out = [];
+    for (const msg of messages) {
+        if (!msg || typeof msg !== 'object') {
+            out.push(msg);
+            continue;
+        }
+        const { clear_at: _clearAt, cache_control, ...rest } = msg;
+        if (keepCacheControl && cache_control !== undefined) {
+            rest.cache_control = cache_control;
+        }
+        if (!Array.isArray(msg.content)) {
+            out.push(rest);
+            continue;
+        }
+        const content = [];
+        for (const block of msg.content) {
+            if (
+                block &&
+                typeof block === 'object' &&
+                block.type === 'text' &&
+                typeof block.text === 'string' &&
+                block.text.startsWith(BILLING_HEADER_PREFIX)
+            ) {
+                continue;
+            }
+            const transformed = transformBlockForOpenAI(block, {
+                keepCacheControl,
+            });
+            if (transformed !== undefined) content.push(transformed);
+        }
+        // Nothing left to send from this message (its only block(s) were
+        // Anthropic-only content) — drop it rather than send empty content.
+        if (content.length === 0) continue;
+        out.push({ ...rest, content });
+    }
+    return out;
+};
+
+/**
+ * Moves a message's `tool_use` blocks into OpenAI `tool_calls`, in place. True
+ * when this call created `tool_calls`. `canonicalId` keeps the Responses item
+ * id a replayed call carries. `preserveOrder` appends the hoisted calls in
+ * content order instead of reversed. `extraContent` keeps Gemini's
+ * `extra_content`, which other vendors may reject as an unknown field.
+ */
+const hoistToolUseBlocks = (
+    msg,
+    { canonicalId = false, preserveOrder = false, extraContent = false } = {},
+) => {
+    const content = msg.content;
+    const calls = [];
+    for (let i = content.length - 1; i >= 0; i--) {
+        const block = content[i];
+        if (block.type !== 'tool_use') continue;
+        calls.push({
+            id: block.id,
+            ...(canonicalId ? { canonical_id: block.canonical_id } : {}),
+            type: 'function',
+            function: {
+                name: block.name,
+                // A replayed OpenAI-shaped call arrives with `input` already
+                // serialized; encoding it again sends a JSON string literal.
+                arguments:
+                    typeof block.input === 'string'
+                        ? block.input
+                        : JSON.stringify(block.input),
+            },
+            ...(extraContent && block.extra_content
+                ? { extra_content: block.extra_content }
+                : {}),
+        });
+        content.splice(i, 1);
+    }
+    if (!calls.length) return false;
+    const hoisted = !msg.tool_calls;
+    msg.tool_calls ??= [];
+    msg.tool_calls.push(...(preserveOrder ? calls.reverse() : calls));
+    return hoisted;
+};
+
 /**
  * Process input messages from Puter's normalized format to OpenAI's format May
  * make changes in-place.
  *
  * @param {Message[]} messages - Array of normalized messages
+ * @param {{
+ *     preserveToolCallOrder?: boolean;
+ *     keepExtraContent?: boolean;
+ *     keepAssistantContent?: boolean;
+ * }} [opts]
+ *   `preserveToolCallOrder` keeps a turn's tool calls in the order the model made
+ *   them. `keepExtraContent` keeps each tool call's `extra_content`.
  * @returns {Message[]} - Array of messages in OpenAI format
  */
-export const process_input_messages = async (messages) => {
+export const process_input_messages = async (
+    messages,
+    {
+        preserveToolCallOrder = false,
+        keepExtraContent = false,
+        keepAssistantContent = false,
+    } = {},
+) => {
     for (const msg of messages) {
         if (!msg.content) continue;
         if (typeof msg.content !== 'object') continue;
@@ -44,32 +227,18 @@ export const process_input_messages = async (messages) => {
             }
         }
 
-        // coerce tool calls
-        let is_tool_call = false;
-        for (let i = content.length - 1; i >= 0; i--) {
-            const content_block = content[i];
-
-            if (content_block.type === 'tool_use') {
-                if (!msg.tool_calls) {
-                    msg.tool_calls = [];
-                    is_tool_call = true;
-                }
-                msg.tool_calls.push({
-                    id: content_block.id,
-                    type: 'function',
-                    function: {
-                        name: content_block.name,
-                        arguments: JSON.stringify(content_block.input),
-                    },
-                    ...(content_block.extra_content
-                        ? { extra_content: content_block.extra_content }
-                        : {}),
-                });
-                content.splice(i, 1);
-            }
-        }
-
-        if (is_tool_call) msg.content = null;
+        if (
+            hoistToolUseBlocks(msg, {
+                preserveOrder: preserveToolCallOrder,
+                extraContent: keepExtraContent,
+            })
+        )
+            msg.content =
+                keepAssistantContent &&
+                msg.role === 'assistant' &&
+                content.length
+                    ? content
+                    : null;
 
         // coerce tool results
         // (we assume multiple tool results were already split into separate messages)
@@ -176,6 +345,7 @@ export const process_input_messages_responses_api = async (messages) => {
         };
     });
 
+    const flattened = [];
     for (const msg of messages) {
         const content_as_string = (content) => {
             if (content === undefined || content === null) return '';
@@ -208,11 +378,14 @@ export const process_input_messages_responses_api = async (messages) => {
             delete msg.tool_call_id;
             delete msg.tool_use_id;
             delete msg.tool_calls;
+            flattened.push(msg);
             continue;
         }
 
-        if (!msg.content) continue;
-        if (typeof msg.content !== 'object') continue;
+        if (!msg.content || typeof msg.content !== 'object') {
+            flattened.push(msg);
+            continue;
+        }
 
         const content = msg.content;
 
@@ -249,10 +422,7 @@ export const process_input_messages_responses_api = async (messages) => {
             }
         }
 
-        // coerce tool calls
-        let is_tool_call = false;
-        for (let i = content.length - 1; i >= 0; i--) {
-            const content_block = content[i];
+        for (const content_block of content) {
             if (
                 content_block.type === 'text' &&
                 (msg.role === 'user' || msg.role === 'system')
@@ -262,43 +432,26 @@ export const process_input_messages_responses_api = async (messages) => {
             if (content_block.type === 'text' && msg.role === 'assistant') {
                 content_block.type = 'output_text';
             }
-
-            if (content_block.type === 'tool_use') {
-                if (!msg.tool_calls) {
-                    msg.tool_calls = [];
-                    is_tool_call = true;
-                }
-                msg.tool_calls.push({
-                    id: content_block.id,
-                    canonical_id: content_block.canonical_id,
-                    type: 'function',
-                    function: {
-                        name: content_block.name,
-                        arguments: JSON.stringify(content_block.input),
-                    },
-                    ...(content_block.extra_content
-                        ? { extra_content: content_block.extra_content }
-                        : {}),
-                });
-
-                content.splice(i, 1);
-            }
         }
 
-        // Right now this does NOT support parallel tool calls!
-        // We only allow sequential toolcalling right now so this shouldn't be an issue right now
-        // but this probably needs to be changed in the future to split "one completions message"
-        // into multiple responses inputs.
-        if (is_tool_call) {
-            msg.call_id = msg.tool_calls[0].id;
-            msg.id = msg.tool_calls[0].canonical_id;
-            msg.name = msg.tool_calls[0].function.name;
-            msg.arguments = msg.tool_calls[0].function.arguments;
-            msg.type = 'function_call';
-
-            delete msg.role;
-            delete msg.content;
-            delete msg.tool_calls;
+        if (hoistToolUseBlocks(msg, { canonicalId: true })) {
+            // One Responses `function_call` item per tool_use block. A
+            // parallel tool-call turn used to keep only the first, which
+            // silently dropped every other call the model made — the
+            // caller's next request then carries no `function_call_output`
+            // for them and the Responses API 400s on the mismatch.
+            // `tool_calls` was built walking `content` back to front, so
+            // restore the original left-to-right order here.
+            for (const toolCall of msg.tool_calls.slice().reverse()) {
+                flattened.push({
+                    type: 'function_call',
+                    call_id: toolCall.id,
+                    id: toolCall.canonical_id,
+                    name: toolCall.function.name,
+                    arguments: toolCall.function.arguments,
+                });
+            }
+            continue;
         }
 
         // coerce tool results
@@ -312,31 +465,11 @@ export const process_input_messages_responses_api = async (messages) => {
             delete msg.role;
             delete msg.content;
         }
+
+        flattened.push(msg);
     }
 
-    return messages;
-};
-
-export const create_usage_calculator = ({ model_details }) => {
-    return ({ usage }) => {
-        const tokens = [];
-
-        tokens.push({
-            type: 'prompt',
-            model: model_details.id,
-            amount: usage.prompt_tokens,
-            cost: model_details.cost.input * usage.prompt_tokens,
-        });
-
-        tokens.push({
-            type: 'completion',
-            model: model_details.id,
-            amount: usage.completion_tokens,
-            cost: model_details.cost.output * usage.completion_tokens,
-        });
-
-        return tokens;
-    };
+    return flattened;
 };
 
 export const extractMeteredUsage = (usage) => {
@@ -344,6 +477,112 @@ export const extractMeteredUsage = (usage) => {
         prompt_tokens: usage.prompt_tokens ?? 0,
         completion_tokens: usage.completion_tokens ?? 0,
         cached_tokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    };
+};
+
+/**
+ * @typedef {{
+ *     cached_tokens?: number | null;
+ *     cache_write_tokens?: number | null;
+ *     cache_write_tokens_details?: {
+ *         ttl_30m_tokens?: number | null;
+ *         ttl_12h_tokens?: number | null;
+ *     } | null;
+ * }} OpenAiCacheDetails
+ */
+
+/**
+ * OpenAI-shaped usage as it's metered. The prompt count reports cached reads
+ * and cache writes inside it, so they come out of it and are priced once each
+ * under their own keys: `cached_tokens` for reads, `cache_write_tokens` for
+ * writes at the model's default lifetime and `cache_write_12h_tokens` for
+ * writes at OpenAI's 12h lifetime. Without the per-lifetime breakdown every
+ * write is a default-lifetime write: Chat Completions writes no 12h entries,
+ * and Responses reports the breakdown whenever a request asked for them. Reads
+ * the Chat Completions (`prompt_tokens`) and Responses (`input_tokens`)
+ * spellings alike.
+ *
+ * @param {{
+ *           prompt_tokens?: number;
+ *           completion_tokens?: number;
+ *           prompt_tokens_details?: OpenAiCacheDetails | null;
+ *           input_tokens?: number;
+ *           output_tokens?: number;
+ *           input_tokens_details?: OpenAiCacheDetails | null;
+ *       }
+ *     | undefined} usage
+ */
+export const splitCachedPrompt = (usage) => {
+    const details = usage?.prompt_tokens_details ?? usage?.input_tokens_details;
+    const cachedTokens = details?.cached_tokens ?? 0;
+    // Moonshot and GPT-5.6+ count the prompt tokens they wrote to the prefix
+    // cache here; they're billed at the model's write rate, not the prompt rate.
+    const writeTokens =
+        typeof details?.cache_write_tokens === 'number'
+            ? details.cache_write_tokens
+            : undefined;
+    const reported12h = details?.cache_write_tokens_details?.ttl_12h_tokens;
+    const write12hTokens =
+        typeof reported12h === 'number'
+            ? Math.min(reported12h, writeTokens ?? 0)
+            : undefined;
+    return {
+        prompt_tokens:
+            (usage?.prompt_tokens ?? usage?.input_tokens ?? 0) -
+            cachedTokens -
+            (writeTokens ?? 0),
+        completion_tokens:
+            usage?.completion_tokens ?? usage?.output_tokens ?? 0,
+        cached_tokens: cachedTokens,
+        ...(writeTokens !== undefined
+            ? { cache_write_tokens: writeTokens - (write12hTokens ?? 0) }
+            : {}),
+        ...(write12hTokens !== undefined
+            ? { cache_write_12h_tokens: write12hTokens }
+            : {}),
+    };
+};
+
+/**
+ * The `{prompt_tokens, completion_tokens, cached_tokens, cache_write_tokens,
+ * cache_write_12h_tokens}` shape every OpenAI-family `usage_calculator` already
+ * returns for billing, mapped to the provider-neutral `UsageDetails` the
+ * end-of-stream/non-stream result carries. `inputTokens`/`outputTokens` are the
+ * same numbers already billed — this never introduces a new figure, only
+ * exposes the breakdown.
+ *
+ * @param {Record<string, number> | undefined | null} trackedUsage
+ * @param {{ writeTtl?: '5m' | '30m' }} [opts] The lifetime `cache_write_tokens`
+ *   were written with: 5m unless the provider says otherwise (OpenAI's default
+ *   entries live 30m).
+ * @returns {import('../types.js').UsageDetails | undefined}
+ */
+export const usageDetailsFromTrackedUsage = (
+    trackedUsage,
+    { writeTtl = '5m' } = {},
+) => {
+    if (!trackedUsage || typeof trackedUsage !== 'object') return undefined;
+    // OpenRouter, Infron and Ollama track `{prompt, completion,
+    // input_cache_read}` instead; any other shape is left to the driver.
+    const input = trackedUsage.prompt_tokens ?? trackedUsage.prompt;
+    const output = trackedUsage.completion_tokens ?? trackedUsage.completion;
+    if (input === undefined && output === undefined) return undefined;
+    const cacheRead =
+        trackedUsage.cached_tokens ?? trackedUsage.input_cache_read;
+    const cacheWrite = trackedUsage.cache_write_tokens;
+    return {
+        inputTokens: input ?? 0,
+        outputTokens: output ?? 0,
+        ...(cacheRead ? { cacheReadTokens: cacheRead } : {}),
+        ...(cacheWrite && writeTtl === '30m'
+            ? { cacheWrite30mTokens: cacheWrite }
+            : {}),
+        ...(cacheWrite && writeTtl !== '30m'
+            ? { cacheWrite5mTokens: cacheWrite }
+            : {}),
+        ...(trackedUsage.cache_write_12h_tokens
+            ? { cacheWrite12hTokens: trackedUsage.cache_write_12h_tokens }
+            : {}),
     };
 };
 
@@ -401,16 +640,33 @@ export const create_chat_stream_handler =
         let toolblock = null;
         let mode = 'text';
         const tool_call_blocks = [];
+        // A parallel tool-call turn opens one block per call; each is ended
+        // exactly once, in open order, so every call reaches the stream.
+        const opened_tool_blocks = [];
+        const ended_tool_blocks = new Set();
+        const endToolBlock = (block) => {
+            if (!block || ended_tool_blocks.has(block)) return;
+            ended_tool_blocks.add(block);
+            block.end();
+        };
 
         let last_usage = null;
         let last_extra_content = null;
+        let finish_reason = null;
         for await (let chunk of completion) {
+            await chatStream.waitForDrain();
             chunk = deviations.chunk_but_like_actually(chunk);
             const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
             if (chunk_usage) last_usage = chunk_usage;
             if (chunk.choices.length < 1) continue;
 
             const choice = chunk.choices[0];
+            // Arrives on the final chunk; capture it before any `continue`
+            // below skips the rest of this iteration. Mistral's SDK
+            // spells it in camelCase.
+            const chunk_finish_reason =
+                choice.finish_reason ?? choice.finishReason;
+            if (chunk_finish_reason) finish_reason = chunk_finish_reason;
 
             // Deepseek returns choice.delta.reasoning_content, openrouter returns choice.delta.reasoning.
             if (choice.delta.reasoning_content || choice.delta.reasoning) {
@@ -423,7 +679,7 @@ export const create_chat_stream_handler =
 
             if (choice.delta.content) {
                 if (mode === 'tool') {
-                    toolblock.end();
+                    endToolBlock(toolblock);
                     mode = 'text';
                     textblock = message.contentBlock({ type: 'text' });
                 }
@@ -465,6 +721,7 @@ export const create_chat_stream_handler =
                                 : {}),
                         });
                         tool_call_blocks[tool_call.index] = toolblock;
+                        opened_tool_blocks.push(toolblock);
                     } else {
                         toolblock = tool_call_blocks[tool_call.index];
                     }
@@ -473,16 +730,27 @@ export const create_chat_stream_handler =
             }
         }
 
+        if (!finish_reason && !last_usage) {
+            // Some SDKs end an aborted stream as if it were complete.
+            Context.get('upstreamSignal')?.throwIfAborted();
+            throw new Error('Stream ended before completion');
+        }
+
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
         // No usage chunk means there is nothing to meter from — reaching into
         // a null usage object here used to throw, which took down a response
         // the upstream had already produced *and* skipped its billing. Leave
         // the usage undefined instead; the driver charges an estimate for a
         // stream that produced output nobody reported.
+        let usageDetails;
         const usage = last_usage
             ? usage_calculator({
                   usage: last_usage,
                   extra_content: last_extra_content,
+                  setUsageCosts: (c) => chatStream.setUsageCosts(c),
+                  setUsageDetails: (d) => {
+                      usageDetails = d;
+                  },
               })
             : undefined;
         // The calculator just metered. Reported here, not only via `end`:
@@ -490,36 +758,42 @@ export const create_chat_stream_handler =
         // say) must not leave a metered stream looking unmetered — the driver
         // would charge its estimate on top.
         chatStream.reportUsage(usage);
+        if (finish_reason) {
+            chatStream.setStop({ reason: fromFinishReason(finish_reason) });
+        } else if (opened_tool_blocks.length > 0) {
+            chatStream.setStop({ reason: 'tool_use' });
+        }
+        usageDetails ??= usageDetailsFromTrackedUsage(usage);
+        if (usageDetails) chatStream.setUsageDetails(usageDetails);
 
         if (mode === 'text') textblock.end();
-        if (mode === 'tool') toolblock.end();
+        for (const block of opened_tool_blocks) endToolBlock(block);
 
         message.end();
         chatStream.end(usage);
     };
 
 export const create_chat_stream_handler_responses_api =
-    ({ deviations, completion, usage_calculator }) =>
+    ({ completion, usage_calculator }) =>
     async ({ chatStream }) => {
-        deviations = Object.assign(
-            {
-                // affected by: Groq
-                index_usage_from_stream_chunk: (chunk) => chunk.usage,
-                // affected by: Mistral
-                chunk_but_like_actually: (chunk) => chunk,
-                index_tool_calls_from_stream_choice: (choice) =>
-                    choice.delta.tool_calls,
-            },
-            deviations,
-        );
-
         const message = chatStream.message();
         const textblock = message.contentBlock({ type: 'text' });
-        let toolblock = null;
-        const mode = 'text';
 
         let last_usage = null;
+        let completed = false;
+        let sawFunctionCall = false;
+        let incompleteReason = null;
+        let webSearchCalls = 0;
+        let toolUsage = null;
         for await (const chunk of completion) {
+            await chatStream.waitForDrain();
+            if (chunk.type === 'response.failed' || chunk.type === 'error') {
+                throw new Error(
+                    chunk.response?.error?.message ??
+                        chunk.message ??
+                        'Upstream response failed',
+                );
+            }
             if (chunk.type === 'response.output_text.delta') {
                 textblock.addText(chunk.delta);
                 continue;
@@ -544,8 +818,45 @@ export const create_chat_stream_handler_responses_api =
                 continue;
             }
 
-            if (chunk.type === 'response.completed') {
+            // A truncated response ends with `response.incomplete`, which
+            // carries the same usage and status as `response.completed`.
+            if (
+                chunk.type === 'response.completed' ||
+                chunk.type === 'response.incomplete'
+            ) {
+                completed = true;
                 last_usage = chunk.response.usage;
+                toolUsage = chunk.response.tool_usage ?? toolUsage;
+                if (
+                    chunk.response.status === 'incomplete' &&
+                    chunk.response.incomplete_details?.reason ===
+                        'max_output_tokens'
+                ) {
+                    incompleteReason = 'max_tokens';
+                }
+            }
+
+            if (
+                chunk.type === 'response.output_item.done' &&
+                chunk.item?.type === 'reasoning'
+            ) {
+                const item = chunk.item;
+                if (
+                    item.id !== undefined ||
+                    item.encrypted_content !== undefined
+                ) {
+                    chatStream.reasoningDetail({
+                        type: 'reasoning',
+                        ...(item.id !== undefined ? { id: item.id } : {}),
+                        ...(item.encrypted_content !== undefined
+                            ? { encrypted_content: item.encrypted_content }
+                            : {}),
+                        ...(Array.isArray(item.summary)
+                            ? { summary: item.summary }
+                            : {}),
+                    });
+                }
+                continue;
             }
 
             if (
@@ -563,10 +874,23 @@ export const create_chat_stream_handler_responses_api =
 
             if (
                 chunk.type === 'response.output_item.done' &&
+                chunk.item?.type === 'web_search_call'
+            ) {
+                // Only the search action itself is billed — a page-open or
+                // find probe inside the same web_search_call is free.
+                if ((chunk.item.action?.type ?? 'search') === 'search') {
+                    webSearchCalls++;
+                }
+                continue;
+            }
+
+            if (
+                chunk.type === 'response.output_item.done' &&
                 chunk.item?.type === 'function_call'
             ) {
+                sawFunctionCall = true;
                 const tool_call = chunk.item;
-                toolblock = message.contentBlock({
+                const toolblock = message.contentBlock({
                     type: 'tool_use',
                     canonical_id: tool_call.id,
                     id: tool_call.call_id,
@@ -580,27 +904,79 @@ export const create_chat_stream_handler_responses_api =
             }
         }
 
+        if (!completed) {
+            // Some SDKs end an aborted stream as if it were complete.
+            Context.get('upstreamSignal')?.throwIfAborted();
+            throw new Error('Stream ended before completion');
+        }
+
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
         // Missing usage is left undefined rather than fed to the calculator —
         // see the sibling handler above, including why usage is reported
         // before the block flushes.
+        let usageDetails;
         const usage = last_usage
-            ? usage_calculator({ usage: last_usage })
+            ? usage_calculator({
+                  usage: last_usage,
+                  webSearchCalls,
+                  tool_usage: toolUsage,
+                  setUsageCosts: (c) => chatStream.setUsageCosts(c),
+                  setUsageDetails: (d) => {
+                      usageDetails = d;
+                  },
+              })
             : undefined;
         chatStream.reportUsage(usage);
+        chatStream.setStop({
+            reason:
+                incompleteReason ?? (sawFunctionCall ? 'tool_use' : 'end_turn'),
+        });
+        usageDetails ??= usageDetailsFromTrackedUsage(usage);
+        if (usageDetails) chatStream.setUsageDetails(usageDetails);
 
-        if (mode === 'text') textblock.end();
-        if (mode === 'tool') toolblock.end();
+        textblock.end();
 
         message.end();
         chatStream.end(usage);
     };
+
+/**
+ * Withholds a completion that moderation flags, or that it couldn't check. The
+ * `code` tells the driver this is a refusal of a completion that was produced
+ * and charged, not a route failure — retrying it on a fallback provider would
+ * bill the account again for a completion the user never sees.
+ *
+ * @param {(text: string) => Promise<{ flagged: boolean }>} moderate
+ * @param {string} text
+ */
+const applyModeration = async (moderate, text) => {
+    let moderationResult;
+    try {
+        moderationResult = await moderate(text);
+    } catch (e) {
+        console.warn('[ai-chat] moderation check failed:', e?.message ?? e);
+        throw new HttpError(400, 'message could not be moderated', {
+            legacyCode: 'upstream_provider_unavailable',
+            code: 'moderation_unavailable',
+        });
+    }
+    if (moderationResult.flagged) {
+        throw new HttpError(400, 'message is not allowed', {
+            legacyCode: 'bad_request',
+            code: 'moderation_flagged',
+        });
+    }
+};
 
 export const handle_completion_output = async (
     /**
      * @type {Record<string, unknown> & {
      *     usage_calculator: (args: {
      *         usage: import('openai/resources/completions.mjs').CompletionUsage;
+     *         setUsageCosts: (costs: Record<string, number>) => void;
+     *         setUsageDetails: (
+     *             details: import('../types.js').UsageDetails,
+     *         ) => void;
      *     }) => unknown;
      * }}
      */
@@ -630,6 +1006,19 @@ export const handle_completion_output = async (
 
     if (finally_fn) await finally_fn();
 
+    // Some OpenAI-compatible upstreams answer 200 with an error body and no
+    // choices. That's the upstream failing, not a crash of ours.
+    if (!completion?.choices?.length) {
+        const upstreamMessage = completion?.error?.message;
+        throw new HttpError(
+            400,
+            typeof upstreamMessage === 'string' && upstreamMessage
+                ? upstreamMessage
+                : 'no completion was returned',
+            { legacyCode: 'bad_response', cause: completion?.error },
+        );
+    }
+
     // Metered before moderation: the completion exists and the upstream has
     // billed us for it whether or not we go on to withhold it, and running
     // the moderation gate first meant a flagged completion was served to
@@ -640,11 +1029,21 @@ export const handle_completion_output = async (
         ? usage_calculator({
               ...completion,
               usage: completion_usage,
+              setUsageCosts: (c) => {
+                  ret.usageCosts = c;
+              },
+              setUsageDetails: (d) => {
+                  ret.usageDetails = d;
+              },
           })
         : {
               input_tokens: completion_usage.prompt_tokens,
               output_tokens: completion_usage.completion_tokens,
           };
+    if (usage_calculator && ret.usageDetails === undefined) {
+        const usageDetails = usageDetailsFromTrackedUsage(ret.usage);
+        if (usageDetails) ret.usageDetails = usageDetails;
+    }
 
     // Providers following the DeepSeek wire convention return
     // `reasoning_content`; expose it as Puter's `reasoning` key here so every
@@ -654,17 +1053,7 @@ export const handle_completion_output = async (
 
     const mod_text = completion.choices[0].message.content;
     if (moderate && mod_text !== null) {
-        const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
-            // `code` tells the driver this is a refusal of a completion that
-            // was produced and charged, not a route failure — retrying it on
-            // a fallback provider would bill the account again for another
-            // completion the user will never see.
-            throw new HttpError(400, 'message is not allowed', {
-                legacyCode: 'bad_request',
-                code: 'moderation_flagged',
-            });
-        }
+        await applyModeration(moderate, mod_text);
     }
 
     return ret;
@@ -672,35 +1061,28 @@ export const handle_completion_output = async (
 
 /**
  * @param {object} params
- * @param {Record<string, unknown>} [params.deviations]
  * @param {boolean} [params.stream]
  * @param {any} params.completion
  * @param {((text: string) => Promise<{ flagged: boolean }>) | undefined} [params.moderate]
  * @param {(args: {
- *     usage: import('openai/resources/completions.mjs').CompletionUsage;
+ *     usage: import('openai/resources/responses/responses.mjs').ResponseUsage;
+ *     webSearchCalls?: number;
+ *     tool_usage?: Record<string, unknown>;
+ *     setUsageCosts?: (costs: Record<string, number>) => void;
+ *     setUsageDetails?: (details: import('../types').UsageDetails) => void;
  * }) => unknown} params.usage_calculator
  * @param {() => Promise<void>} [params.finally_fn]
  * @returns {ReturnType<import('../types').IChatProvider['complete']>}
  */
 export const handle_completion_output_responses_api = async ({
-    deviations,
     stream,
     completion,
     moderate,
     usage_calculator,
     finally_fn,
 }) => {
-    deviations = Object.assign(
-        {
-            // affected by: Mistral
-            coerce_completion_usage: (completion) => completion.usage,
-        },
-        deviations,
-    );
-
     if (stream) {
         const init_chat_stream = create_chat_stream_handler_responses_api({
-            deviations,
             completion,
             usage_calculator,
         });
@@ -769,8 +1151,16 @@ export const handle_completion_output_responses_api = async ({
             ...(Array.isArray(item.summary) ? { summary: item.summary } : {}),
         }));
 
+    const isIncompleteForLength =
+        completion.status === 'incomplete' &&
+        completion.incomplete_details?.reason === 'max_output_tokens';
+
     const ret = {
-        finish_reason: responseToolCalls.length ? 'tool_calls' : 'stop',
+        finish_reason: isIncompleteForLength
+            ? 'length'
+            : responseToolCalls.length
+              ? 'tool_calls'
+              : 'stop',
         index: 0,
         message: {
             content: completion.output_text,
@@ -802,6 +1192,14 @@ export const handle_completion_output_responses_api = async ({
 
     delete ret.type;
 
+    // Only the search action itself is billed — a page-open or find probe
+    // inside the same web_search_call is free.
+    const webSearchCalls = output.filter(
+        (item) =>
+            item?.type === 'web_search_call' &&
+            (item.action?.type ?? 'search') === 'search',
+    ).length;
+
     // Metered before moderation, same as the sibling handler above: the
     // completion exists and the upstream has billed us for it whether or not
     // we go on to withhold it.
@@ -809,21 +1207,26 @@ export const handle_completion_output_responses_api = async ({
         ? usage_calculator({
               ...completion,
               usage: completion.usage,
+              webSearchCalls,
+              setUsageCosts: (c) => {
+                  ret.usageCosts = c;
+              },
+              setUsageDetails: (d) => {
+                  ret.usageDetails = d;
+              },
           })
         : {
               input_tokens: completion.usage.input_tokens,
               output_tokens: completion.usage.output_tokens,
           };
+    if (usage_calculator && ret.usageDetails === undefined) {
+        const usageDetails = usageDetailsFromTrackedUsage(ret.usage);
+        if (usageDetails) ret.usageDetails = usageDetails;
+    }
 
     const mod_text = completion.output_text;
     if (moderate && mod_text !== null) {
-        const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
-            throw new HttpError(400, 'message is not allowed', {
-                legacyCode: 'bad_request',
-                code: 'moderation_flagged',
-            });
-        }
+        await applyModeration(moderate, mod_text);
     }
 
     return ret;

@@ -1,3 +1,22 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 /**
  * ContextMenuModal
  *
@@ -16,6 +35,18 @@ function isTouchPrimaryDevice () {
     );
 }
 
+/** Widest the touch menu gets, so phones (90% of up to ~440px) are unaffected. */
+const MAX_TOUCH_MENU_WIDTH = 400;
+
+/**
+ * The menu on screen. A long-press fires both contextmenu and taphold, and
+ * the second must not stack another sheet over the first.
+ */
+let openMenu = null;
+
+/** Labels of the destructive file actions, in the current language. */
+const dangerLabels = () => new Set([i18n('delete'), i18n('delete_permanently')]);
+
 export default class ContextMenuModal {
     constructor (options = {}) {
         this.onClose = options.onClose || (() => {
@@ -24,11 +55,13 @@ export default class ContextMenuModal {
         this.modal = null;
         this.menuItems = null;
         this.ignoreInteractions = false;
+        this.previousFocus = null;
 
         // Event handler references for cleanup
         this.backdropClickHandler = null;
         this.escapeKeyHandler = null;
         this.itemClickHandler = null;
+        this.arrowKeyHandler = null;
     }
 
     /**
@@ -40,6 +73,8 @@ export default class ContextMenuModal {
      */
     show (menuItems, targetRect, options = {}) {
         if ( this.backdrop ) return; // Already showing
+        if ( openMenu && document.contains(openMenu.backdrop) ) return;
+        openMenu = this;
 
         this.menuItems = menuItems;
         // Stack of parent menus for submenu drill-in, and the anchor rect so we
@@ -54,6 +89,11 @@ export default class ContextMenuModal {
         // Create modal dialog
         this.modal = document.createElement('div');
         this.modal.className = 'context-menu-modal-dialog';
+        this.modal.setAttribute('role', 'menu');
+        this.modal.tabIndex = -1;
+        if ( options.title ) {
+            this.modal.setAttribute('aria-label', options.title);
+        }
 
         // Build modal content
         let titleHtml = '';
@@ -82,6 +122,11 @@ export default class ContextMenuModal {
         // Setup event listeners
         this.setupEventListeners();
 
+        // Move focus into the menu, so assistive tech announces it and the
+        // keyboard reaches its items rather than the page behind it.
+        this.previousFocus = document.activeElement;
+        this.modal.focus({ preventScroll: true });
+
         // Ignore interactions briefly to prevent accidental selection on touch devices
         this.ignoreInteractions = true;
         setTimeout(() => {
@@ -100,13 +145,20 @@ export default class ContextMenuModal {
      */
     positionModal (targetRect) {
         const isMobile = isTouchPrimaryDevice();
-        const modalHeight = this.modal.offsetHeight;
-        const modalWidth = this.modal.offsetWidth;
         const viewportHeight = window.innerHeight;
         const viewportWidth = window.innerWidth;
         const margin = 20; // Minimum margin from viewport edges
 
-        const width = isMobile ? viewportWidth * 0.9 : modalWidth;
+        // Touch: most of a phone's width, but a phone-sized card on a tablet
+        // rather than a strip spanning the screen. Applied before measuring
+        // the height, which depends on how the labels wrap at this width.
+        if ( isMobile ) {
+            this.modal.style.width = `${Math.min(viewportWidth * 0.9, MAX_TOUCH_MENU_WIDTH)}px`;
+        } else {
+            this.modal.style.width = 'auto';
+        }
+        const modalHeight = this.modal.offsetHeight;
+        const width = this.modal.offsetWidth;
 
         // Center over the target horizontally, clamped to the viewport. (The
         // old code hardcoded left:300px on non-touch devices — which used to
@@ -128,7 +180,6 @@ export default class ContextMenuModal {
 
         this.modal.style.top = `${top}px`;
         this.modal.style.left = `${left}px`;
-        this.modal.style.width = isMobile ? '90%' : 'auto';
     }
 
     /**
@@ -138,7 +189,7 @@ export default class ContextMenuModal {
      */
     getVisibleItems () {
         if ( this._menuStack && this._menuStack.length > 0 ) {
-            return [{ label: '‹ Back', _isBack: true }, '-', ...this.menuItems];
+            return [{ label: `‹ ${i18n('back')}`, _isBack: true }, '-', ...this.menuItems];
         }
         return this.menuItems;
     }
@@ -152,6 +203,8 @@ export default class ContextMenuModal {
         if ( container ) {
             container.innerHTML = this.renderMenuItems(this.getVisibleItems());
         }
+        // The row that had focus was just replaced.
+        this.modal.focus({ preventScroll: true });
         this.positionModal(this._targetRect);
     }
 
@@ -162,17 +215,19 @@ export default class ContextMenuModal {
      * @returns {string} HTML string
      */
     renderMenuItems (menuItems) {
+        const danger = dangerLabels();
         return menuItems.map((item, index) => {
             // Handle separators
             if ( item === '-' || item.is_divider ) {
-                return '<div class="context-menu-separator"></div>';
+                return '<div class="context-menu-separator" role="separator"></div>';
             }
 
             // Get label - support both formats
             const label = item.label || item.html || '';
 
-            // Check for delete/danger styling
-            const isDelete = label.toLowerCase().includes('delete');
+            // Danger styling for the delete actions, matched in the
+            // current language rather than by the English word
+            const isDelete = danger.has(label);
             const deleteClass = isDelete ? 'context-menu-item--delete' : '';
             const disabledClass = item.disabled ? 'context-menu-item--disabled' : '';
             const hasSubmenu = Array.isArray(item.items) && item.items.length > 0;
@@ -195,7 +250,7 @@ export default class ContextMenuModal {
                 : '';
 
             return `
-                <button class="context-menu-item ${deleteClass} ${disabledClass}" data-index="${index}"${item.disabled ? ' disabled' : ''}>
+                <button class="context-menu-item ${deleteClass} ${disabledClass}" role="menuitem" data-index="${index}"${hasSubmenu ? ' aria-haspopup="menu"' : ''}${item.disabled ? ' disabled' : ''}>
                     <div class="context-menu-item-icon">
                         ${iconHtml}
                     </div>
@@ -275,6 +330,25 @@ export default class ContextMenuModal {
             }
         };
         document.addEventListener('keydown', this.escapeKeyHandler);
+
+        // Arrow keys move between the enabled items, as in any menu. So does
+        // Tab: the sheet is modal, and focus mustn't reach the page behind.
+        this.arrowKeyHandler = (e) => {
+            const items = [...this.modal.querySelectorAll('.context-menu-item:not(:disabled)')];
+            if ( items.length === 0 ) return;
+            const current = items.indexOf(document.activeElement);
+            const forward = e.key === 'ArrowDown' || (e.key === 'Tab' && ! e.shiftKey);
+            const back = e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey);
+            let next;
+            if ( forward ) next = (current + 1) % items.length;
+            else if ( back ) next = current <= 0 ? items.length - 1 : current - 1;
+            else if ( e.key === 'Home' ) next = 0;
+            else if ( e.key === 'End' ) next = items.length - 1;
+            else return;
+            e.preventDefault();
+            items[next].focus();
+        };
+        this.modal.addEventListener('keydown', this.arrowKeyHandler);
     }
 
     /**
@@ -282,6 +356,7 @@ export default class ContextMenuModal {
      */
     close () {
         if ( ! this.backdrop ) return;
+        if ( openMenu === this ) openMenu = null;
 
         // Remove event listeners
         if ( this.backdropClickHandler ) {
@@ -293,6 +368,17 @@ export default class ContextMenuModal {
         if ( this.escapeKeyHandler ) {
             document.removeEventListener('keydown', this.escapeKeyHandler);
         }
+        if ( this.arrowKeyHandler && this.modal ) {
+            this.modal.removeEventListener('keydown', this.arrowKeyHandler);
+        }
+
+        // Hand focus back to where it was, unless something else took it.
+        const el_active = document.activeElement;
+        if ( this.previousFocus && document.contains(this.previousFocus)
+            && (this.modal?.contains(el_active) || el_active === document.body) ) {
+            this.previousFocus.focus({ preventScroll: true });
+        }
+        this.previousFocus = null;
 
         // Trigger closing animation
         this.backdrop.classList.remove('show');

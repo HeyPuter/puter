@@ -47,28 +47,33 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 import type { Actor } from '../../../../core/actor.js';
+import { Context } from '../../../../core/context.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { normalize_messages } from '../../utils/Messages.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { FILES_API_BETA } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
 import { ClaudeProvider } from './ClaudeProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── Anthropic SDK mock ──────────────────────────────────────────────
 
 const {
     messagesCreateMock,
     messagesStreamMock,
+    countTokensMock,
     anthropicCtor,
     filesUploadMock,
     filesDeleteMock,
 } = vi.hoisted(() => ({
     messagesCreateMock: vi.fn(),
     messagesStreamMock: vi.fn(),
+    countTokensMock: vi.fn(),
     anthropicCtor: vi.fn(),
     filesUploadMock: vi.fn(),
     filesDeleteMock: vi.fn(),
@@ -91,6 +96,7 @@ vi.mock('@anthropic-ai/sdk', () => {
             messages: {
                 create: messagesCreateMock,
                 stream: messagesStreamMock,
+                countTokens: countTokensMock,
             },
         };
     });
@@ -194,7 +200,7 @@ const makeUserWithFile = async () => {
     return { actor, path };
 };
 
-const makeCapturingChatStream = () => {
+const makeCapturingChatStream = (opts: { streamToolInput?: boolean } = {}) => {
     const chunks: string[] = [];
     const sink = new Writable({
         write(chunk, _enc, cb) {
@@ -202,7 +208,7 @@ const makeCapturingChatStream = () => {
             cb();
         },
     });
-    const chatStream = new AIChatStream({ stream: sink });
+    const chatStream = new AIChatStream({ stream: sink, ...opts });
     return {
         chatStream,
         events: () =>
@@ -217,6 +223,7 @@ const makeCapturingChatStream = () => {
 beforeEach(() => {
     messagesCreateMock.mockReset();
     messagesStreamMock.mockReset();
+    countTokensMock.mockReset();
     anthropicCtor.mockReset();
     filesUploadMock.mockReset();
     filesDeleteMock.mockReset();
@@ -237,12 +244,33 @@ describe('ClaudeProvider construction', () => {
         expect(opts.apiKey).toBe('test-key');
         // ~10 minutes — long enough for slow Opus 4.7 thinking responses.
         expect(opts.timeout).toBeGreaterThan(60_000);
+        // The driver's fallback chain retries, not the SDK.
+        expect(opts.maxRetries).toBe(0);
     });
 });
 
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('ClaudeProvider model catalog', () => {
+    it('lists Haiku 5.5 with its context, output, and long-prompt pricing', () => {
+        const { provider } = makeProvider();
+        expect(
+            provider.models().find((model) => model.id === 'claude-haiku-5-5'),
+        ).toMatchObject({
+            release_date: '2026-10-07',
+            knowledge: '2026-06',
+            context: 1_000_000,
+            max_tokens: 128_000,
+            modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+            tool_call: true,
+            long_context_pricing: {
+                threshold: 100_000,
+                input_multiplier: 5,
+                output_multiplier: 5,
+            },
+        });
+    });
+
     it('returns claude-haiku-4-5-20251001 as the default', () => {
         const { provider } = makeProvider();
         expect(provider.getDefaultModel()).toBe('claude-haiku-4-5-20251001');
@@ -255,7 +283,7 @@ describe('ClaudeProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', async () => {
         const { provider } = makeProvider();
-        const ids = await provider.list();
+        const ids = modelLookupNames(await provider.models());
         for (const m of CLAUDE_MODELS) {
             expect(ids).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -264,6 +292,22 @@ describe('ClaudeProvider model catalog', () => {
         }
         expect(ids).toContain('claude-haiku');
         expect(ids).toContain('claude-haiku-4-5-20251001');
+    });
+
+    it('caps claude-sonnet-4-6 output at its 128K sync limit', () => {
+        const { provider } = makeProvider();
+        expect(
+            provider.models().find((m) => m.id === 'claude-sonnet-4-6')
+                ?.max_tokens,
+        ).toBe(128_000);
+    });
+
+    it('drops the deprecated claude-sonnet-4-5 and its aliases', async () => {
+        const { provider } = makeProvider();
+        const ids = modelLookupNames(await provider.models());
+        expect(ids).not.toContain('claude-sonnet-4-5-20250929');
+        expect(ids).not.toContain('claude-sonnet-4-5');
+        expect(ids).not.toContain('claude-sonnet-4.5');
     });
 });
 
@@ -274,6 +318,128 @@ describe('ClaudeProvider.complete request shape', () => {
         content: [{ type: 'text', text: 'hi' }],
         usage: { input_tokens: 1, output_tokens: 1 },
     };
+
+    it.each([false, true])(
+        'passes the upstream signal to the SDK with stream=%s',
+        async (stream) => {
+            const { provider } = makeProvider();
+            const abort = new AbortController();
+            if (stream)
+                messagesStreamMock.mockReturnValueOnce(makeStreamLike([]));
+            else messagesCreateMock.mockResolvedValueOnce(baseResponse);
+            await withTestActor(() => {
+                Context.set('upstreamSignal', abort.signal);
+                return provider.complete({
+                    model: 'claude-sonnet-4-6',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream,
+                });
+            });
+            const sdk = stream ? messagesStreamMock : messagesCreateMock;
+            expect(sdk.mock.calls[0][1]?.signal).toBe(abort.signal);
+        },
+    );
+
+    it.each([
+        [
+            'a Files API image',
+            { type: 'image', source: { type: 'file', file_id: 'file_x' } },
+        ],
+        [
+            'a file nested in a document content source',
+            {
+                type: 'document',
+                source: {
+                    type: 'content',
+                    content: [
+                        {
+                            type: 'image',
+                            source: { type: 'file', file_id: 'file_x' },
+                        },
+                    ],
+                },
+            },
+        ],
+        [
+            'a file inside tool_result content',
+            {
+                type: 'tool_result',
+                tool_use_id: 'toolu_1',
+                content: [
+                    {
+                        type: 'document',
+                        source: { type: 'file', file_id: 'file_x' },
+                    },
+                ],
+            },
+        ],
+        ['a container upload', { type: 'container_upload', file_id: 'file_x' }],
+    ])('rejects %s before calling upstream', async (_label, block) => {
+        const { provider } = makeProvider();
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages: [{ role: 'user', content: [block] }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(messagesCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('never forwards mcp_servers — sdkParams is an explicit field list', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                mcp_servers: [{ type: 'url', url: 'https://evil.example' }],
+            } as never),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect('mcp_servers' in args).toBe(false);
+    });
+
+    it('leaves tool_use arguments that merely look like a file block alone', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    { role: 'user', content: 'go' },
+                    {
+                        role: 'assistant',
+                        content: [
+                            {
+                                type: 'tool_use',
+                                id: 'toolu_1',
+                                name: 'attach',
+                                input: {
+                                    type: 'image',
+                                    source: { type: 'file', file_id: 'x' },
+                                },
+                            },
+                        ],
+                    },
+                    {
+                        role: 'user',
+                        content: [
+                            {
+                                type: 'tool_result',
+                                tool_use_id: 'toolu_1',
+                                content: 'ok',
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+        expect(messagesCreateMock).toHaveBeenCalledTimes(1);
+    });
 
     it('translates canonical image_url parts into url-source image blocks without touching the caller\'s parts', async () => {
         const { provider } = makeProvider();
@@ -355,11 +521,14 @@ describe('ClaudeProvider.complete request shape', () => {
             role: 'user',
             content: [{ type: 'text', text: 'first' }],
         };
+        // An assistant turn in between keeps the two user messages from
+        // merging, so this test stays about media conversion only.
         await withTestActor(() =>
             provider.complete({
                 model: 'claude-haiku-4-5-20251001',
                 messages: [
                     textOnly,
+                    { role: 'assistant', content: 'ok' },
                     {
                         role: 'user',
                         content: [
@@ -375,10 +544,42 @@ describe('ClaudeProvider.complete request shape', () => {
 
         const [args] = messagesCreateMock.mock.calls[0]!;
         expect(args.messages[0]).toBe(textOnly);
-        expect(args.messages[1].content[0].type).toBe('text');
-        expect(args.messages[1].content[0].text).toMatch(
+        expect(args.messages[2].content[0].type).toBe('text');
+        expect(args.messages[2].content[0].text).toMatch(
             /video input is not supported/,
         );
+    });
+
+    it('merges consecutive user turns into one message, in order', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [{ type: 'text', text: 'first' }],
+                    },
+                    {
+                        role: 'user',
+                        content: [{ type: 'text', text: 'second' }],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.messages).toEqual([
+            {
+                role: 'user',
+                content: [
+                    { type: 'text', text: 'first' },
+                    { type: 'text', text: 'second' },
+                ],
+            },
+        ]);
     });
 
     it('tells the driver it resolves puter_path parts itself', () => {
@@ -402,8 +603,132 @@ describe('ClaudeProvider.complete request shape', () => {
         expect(args.model).toBe('claude-haiku-4-5-20251001');
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_tokens).toBe(256);
-        // Anthropic requires explicit tool_choice; provider locks to auto with
-        // disable_parallel_tool_use=true.
+        // No tools means no tool_choice at all — nothing to choose
+        // between.
+        expect('tool_choice' in args).toBe(false);
+    });
+
+    it('locks tool_choice to auto with disable_parallel_tool_use by default once tools are present', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hello' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: { type: 'object' } },
+                    },
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        // Legacy puter.js default: parallel tool use stays off unless the
+        // caller explicitly opts in.
+        expect(args.tool_choice).toEqual({
+            type: 'auto',
+            disable_parallel_tool_use: true,
+        });
+    });
+
+    it('omits tool_choice when parallel calls are explicitly allowed and the choice is the default auto', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hello' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: { type: 'object' } },
+                    },
+                ],
+                parallel_tool_calls: true,
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect('tool_choice' in args).toBe(false);
+    });
+
+    it('forwards a named tool_choice with disable_parallel_tool_use when parallel calls are off', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hello' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: { type: 'object' } },
+                    },
+                ],
+                tool_choice: { type: 'tool', name: 'lookup' },
+                parallel_tool_calls: false,
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.tool_choice).toEqual({
+            type: 'tool',
+            name: 'lookup',
+            disable_parallel_tool_use: true,
+        });
+    });
+
+    it('never sets disable_parallel_tool_use when tool_choice is none', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hello' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: { type: 'object' } },
+                    },
+                ],
+                tool_choice: { type: 'none' },
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.tool_choice).toEqual({ type: 'none' });
+    });
+
+    it('normalizes a raw wire-form tool_choice instead of spreading it verbatim', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hello' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: { type: 'object' } },
+                    },
+                ],
+                // A bare 'auto' string, as a raw `/drivers/call` caller on
+                // the old OpenAI wire form would still send.
+                tool_choice: 'auto' as never,
+                parallel_tool_calls: false,
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        // Spreading the raw string would have produced character-indexed
+        // keys ({0:'a', 1:'u', ...}) instead of a real tool_choice object.
         expect(args.tool_choice).toEqual({
             type: 'auto',
             disable_parallel_tool_use: true,
@@ -639,6 +964,63 @@ describe('ClaudeProvider.complete request shape', () => {
         ).toMatchObject({ type: 'thinking', signature: 'sig_1' });
     });
 
+    it.each([
+        ['string', '{"city":"Paris"}'],
+        ['object', { city: 'Paris' }],
+    ])(
+        'drops a Gemini thought signature from a replayed tool call with %s arguments',
+        async (_form, args) => {
+            // A Gemini turn replayed against Claude on fallback keeps only
+            // Anthropic-compatible metadata, including cache_control.
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+            const messages = normalize_messages([
+                { role: 'user', content: 'Weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: null,
+                    cache_control: { type: 'ephemeral', ttl: '1h' },
+                    tool_calls: [
+                        {
+                            id: 'fc_1',
+                            type: 'function',
+                            function: { name: 'get_weather', arguments: args },
+                            extra_content: {
+                                google: { thought_signature: 'c2lnLTE=' },
+                            },
+                        },
+                    ],
+                },
+                { role: 'tool', tool_call_id: 'fc_1', content: '18C' },
+            ]);
+            const before = JSON.parse(JSON.stringify(messages));
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages,
+                }),
+            );
+
+            const [sent] = messagesCreateMock.mock.calls[0]!;
+            expect(sent.messages[1].content).toEqual([
+                {
+                    type: 'tool_use',
+                    id: 'fc_1',
+                    name: 'get_weather',
+                    input: { city: 'Paris' },
+                    cache_control: { type: 'ephemeral', ttl: '1h' },
+                },
+            ]);
+            // The driver hands these same objects to the next fallback route.
+            expect(messages).toEqual(before);
+            expect(messages[1].content[0].extra_content).toEqual({
+                google: { thought_signature: 'c2lnLTE=' },
+            });
+        },
+    );
+
     it('survives the same messages array being sent twice', async () => {
         // This is the fallback hazard the copy-on-write exists for: the driver
         // reuses one messages array across attempts, so if attempt 1 strips
@@ -792,6 +1174,7 @@ describe('ClaudeProvider.complete request shape', () => {
 
     it.each([
         'claude-fable-5-1',
+        'claude-haiku-5-5',
         'claude-opus-5-5',
         'claude-sonnet-5-5',
         'claude-sonnet-5',
@@ -816,6 +1199,7 @@ describe('ClaudeProvider.complete request shape', () => {
 
     it.each([
         'claude-fable-5-1',
+        'claude-haiku-5-5',
         'claude-opus-5-5',
         'claude-sonnet-5-5',
         'claude-sonnet-5',
@@ -988,6 +1372,10 @@ describe('ClaudeProvider model resolution', () => {
 
 describe('ClaudeProvider.complete non-stream output', () => {
     it.each([
+        ['claude-haiku-5-5', 'claude-haiku-5-5', 10, 12.5, 20, 1, 50],
+        ['anthropic/claude-haiku-5-5', 'claude-haiku-5-5', 10, 12.5, 20, 1, 50],
+        ['claude-haiku-5.5', 'claude-haiku-5-5', 10, 12.5, 20, 1, 50],
+        ['claude-haiku-5-5-latest', 'claude-haiku-5-5', 10, 12.5, 20, 1, 50],
         ['claude-opus-5-5', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
         [
             'anthropic/claude-opus-5-5',
@@ -1001,9 +1389,9 @@ describe('ClaudeProvider.complete non-stream output', () => {
         ['claude-opus', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
         ['claude-opus-latest', 'claude-opus-5-5', 400, 500, 800, 20, 2000],
         ['claude-opus-5-latest', 'claude-opus-5', 500, 625, 1000, 50, 2500],
-        ['claude-sonnet-5-5', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
-        ['claude-sonnet', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
-        ['claude-sonnet-latest', 'claude-sonnet-5-5', 200, 250, 400, 20, 1000],
+        ['claude-sonnet-5-5', 'claude-sonnet-5-5', 200, 250, 400, 10, 1000],
+        ['claude-sonnet', 'claude-sonnet-5-5', 200, 250, 400, 10, 1000],
+        ['claude-sonnet-latest', 'claude-sonnet-5-5', 200, 250, 400, 10, 1000],
         ['claude-sonnet-5', 'claude-sonnet-5', 200, 250, 400, 20, 1000],
     ])(
         'resolves and meters %s at its current rates',
@@ -1028,7 +1416,7 @@ describe('ClaudeProvider.complete non-stream output', () => {
                     messages: [{ role: 'user', content: 'hi' }],
                 }),
             );
-            expect(await provider.list()).toContain(model);
+            expect(modelLookupNames(await provider.models())).toContain(model);
             const [args] = messagesCreateMock.mock.calls[0]!;
             expect(args.model).toBe(canonicalId);
             expect(args.max_tokens).toBe(128_000);
@@ -1088,6 +1476,28 @@ describe('ClaudeProvider.complete non-stream output', () => {
         expect(overrides.cache_read_input_tokens).toBe(
             10 * Number(haiku.costs.cache_read_input_tokens),
         );
+    });
+
+    it('reports finish_reason "stop" on the wire even for a tool_use stop, with the real reason in stopReason', async () => {
+        const { provider } = makeProvider();
+        const msg = {
+            content: [
+                { type: 'tool_use', id: 'tu_1', name: 'lookup', input: {} },
+            ],
+            stop_reason: 'tool_use',
+            usage: { input_tokens: 10, output_tokens: 5 },
+        };
+        messagesCreateMock.mockResolvedValueOnce(msg);
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { finish_reason: string; stopReason: string };
+
+        expect(result.finish_reason).toBe('stop');
+        expect(result.stopReason).toBe('tool_use');
     });
 
     it('meters fable 5.1 cache reads at its reduced rate, not the 0.1x used elsewhere', async () => {
@@ -1162,6 +1572,14 @@ describe('ClaudeProvider.complete non-stream output', () => {
         // Totals are the SUM across iterations, not the top-level fields.
         expect(result.usage.input_tokens).toBe(203000); // 180000 + 23000
         expect(result.usage.output_tokens).toBe(4500); // 3500 + 1000
+        // The reported breakdown mirrors upstream: top-level plus the passes.
+        const details = (
+            result as unknown as {
+                usageDetails: { inputTokens: number; iterations: unknown[] };
+            }
+        ).usageDetails;
+        expect(details.inputTokens).toBe(23000);
+        expect(details.iterations).toHaveLength(2);
 
         const haiku = CLAUDE_MODELS.find(
             (m) => m.id === 'claude-haiku-4-5-20251001',
@@ -1180,6 +1598,76 @@ describe('ClaudeProvider.complete non-stream output', () => {
 // ── Streaming deltas ────────────────────────────────────────────────
 
 describe('ClaudeProvider.complete streaming', () => {
+    it.each([99_999, 100_000, 100_001])(
+        'meters Haiku 5.5 at %s prompt tokens with cached input and a flat search fee',
+        async (promptTokens) => {
+            const { provider } = makeProvider();
+            const usage = {
+                input_tokens: promptTokens - 90_000,
+                output_tokens: 50,
+                cache_creation_input_tokens: 30_000,
+                cache_creation: {
+                    ephemeral_5m_input_tokens: 10_000,
+                    ephemeral_1h_input_tokens: 20_000,
+                },
+                cache_read_input_tokens: 60_000,
+                server_tool_use: { web_search_requests: 1 },
+            };
+            for (const stream of [false, true]) {
+                if (stream) {
+                    messagesStreamMock.mockReturnValueOnce(
+                        makeStreamLike([], usage),
+                    );
+                } else {
+                    messagesCreateMock.mockResolvedValueOnce({
+                        content: [{ type: 'text', text: 'hi' }],
+                        usage,
+                    });
+                }
+                const result = await withTestActor(() =>
+                    provider.complete({
+                        model: 'claude-haiku-5-5',
+                        messages: [{ role: 'user', content: 'hi' }],
+                        stream,
+                    }),
+                );
+                if (stream) {
+                    const { chatStream } = makeCapturingChatStream();
+                    await withTestActor(() =>
+                        (
+                            result as {
+                                init_chat_stream: (params: {
+                                    chatStream: AIChatStream;
+                                }) => Promise<void>;
+                            }
+                        ).init_chat_stream({ chatStream }),
+                    );
+                }
+                const multiplier = promptTokens > 100_000 ? 5 : 1;
+                expect(recordSpy.mock.lastCall).toEqual([
+                    {
+                        input_tokens: promptTokens - 90_000,
+                        output_tokens: 50,
+                        ephemeral_5m_input_tokens: 10_000,
+                        ephemeral_1h_input_tokens: 20_000,
+                        cache_read_input_tokens: 60_000,
+                        web_search_requests: 1,
+                    },
+                    SYSTEM_ACTOR,
+                    'claude:claude-haiku-5-5',
+                    {
+                        input_tokens: (promptTokens - 90_000) * 10 * multiplier,
+                        output_tokens: 50 * 50 * multiplier,
+                        ephemeral_5m_input_tokens: 10_000 * 12.5 * multiplier,
+                        ephemeral_1h_input_tokens: 20_000 * 20 * multiplier,
+                        cache_read_input_tokens: 60_000 * multiplier,
+                        web_search_requests: 1_000_000,
+                    },
+                ]);
+            }
+        },
+    );
+
     it('rejects from complete() when the upstream refuses the stream, so the driver can fall back', async () => {
         const { provider } = makeProvider();
         const refused = Object.assign(new Error('Overloaded'), {
@@ -1235,6 +1723,98 @@ describe('ClaudeProvider.complete streaming', () => {
         // The driver reuses this object on the fallback route, which has no
         // way to resolve a file we just deleted from our own account.
         expect(part).toEqual({ puter_path: path });
+    });
+
+    it('answers without waiting for the uploaded files to be deleted', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_reply_1' });
+        // A delete that never settles must not hold the reply.
+        filesDeleteMock.mockReturnValue(new Promise(() => {}));
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+
+        const result = await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages: [
+                        { role: 'user', content: [{ puter_path: path }] },
+                    ],
+                }),
+            actor,
+        );
+
+        expect(result).toMatchObject({ finish_reason: 'stop' });
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_reply_1', {
+            betas: [FILES_API_BETA],
+        });
+    });
+
+    it('hands a refused stream to the fallback without waiting for the deletes', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_stream_2' });
+        filesDeleteMock.mockReturnValue(new Promise(() => {}));
+        const refused = Object.assign(new Error('Overloaded'), {
+            status: 529,
+        });
+        messagesStreamMock.mockReturnValueOnce({
+            ...makeStreamLike([]),
+            withResponse: () => Promise.reject(refused),
+        });
+
+        const part: Record<string, unknown> = { puter_path: path };
+        await expect(
+            withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'claude-haiku-4-5-20251001',
+                        messages: [{ role: 'user', content: [part] }],
+                        stream: true,
+                    }),
+                actor,
+            ),
+        ).rejects.toBe(refused);
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_stream_2', {
+            betas: [FILES_API_BETA],
+        });
+        expect(part).toEqual({ puter_path: path });
+    });
+
+    it('leaves nothing unhandled when deleting an uploaded file fails', async () => {
+        const { provider } = makeProvider();
+        const { actor, path } = await makeUserWithFile();
+        filesUploadMock.mockResolvedValue({ id: 'file_gone_1' });
+        filesDeleteMock.mockRejectedValue(new Error('already gone'));
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+        });
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            await withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'claude-haiku-4-5-20251001',
+                        messages: [
+                            { role: 'user', content: [{ puter_path: path }] },
+                        ],
+                    }),
+                actor,
+            );
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+        expect(filesDeleteMock).toHaveBeenCalledWith('file_gone_1', {
+            betas: [FILES_API_BETA],
+        });
+        expect(unhandled).toEqual([]);
     });
 
     it('surfaces a failure the event iterator swallowed instead of ending the stream clean', async () => {
@@ -1492,6 +2072,67 @@ describe('ClaudeProvider.complete compaction', () => {
         });
     });
 
+    it('emits a compaction streamed through compaction_delta at its own position, before later text', async () => {
+        const { provider } = makeProvider();
+        messagesStreamMock.mockReturnValueOnce(
+            makeStreamLike([
+                { type: 'message_start' },
+                {
+                    type: 'content_block_start',
+                    index: 0,
+                    content_block: { type: 'compaction', content: null },
+                },
+                {
+                    type: 'content_block_delta',
+                    index: 0,
+                    delta: {
+                        type: 'compaction_delta',
+                        content: 'SUMMARY',
+                        encrypted_content: 'OPAQUE',
+                    },
+                },
+                { type: 'content_block_stop', index: 0 },
+                {
+                    type: 'content_block_start',
+                    index: 1,
+                    content_block: { type: 'text', text: '' },
+                },
+                {
+                    type: 'content_block_delta',
+                    index: 1,
+                    delta: { type: 'text_delta', text: 'after' },
+                },
+                { type: 'content_block_stop', index: 1 },
+                { type: 'message_stop' },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+                compaction: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const types = harness
+            .events()
+            .map((e) => e.type)
+            .filter((t) => t === 'compaction' || t === 'text');
+        expect(types).toEqual(['compaction', 'text']);
+        expect(
+            harness.events().find((e) => e.type === 'compaction')
+                ?.encrypted_content,
+        ).toBe('SUMMARY');
+    });
+
     it('enables the compaction beta when a round-tripped compaction block is resent (no opt-in)', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce({
@@ -1635,4 +2276,708 @@ describe('ClaudeProvider.checkModeration', () => {
             /not provided by claude/i,
         );
     });
+});
+
+// -- Metering ----------------------------------------------------
+
+describe('ClaudeProvider metering', () => {
+    it('does not double-bill thinking tokens: output_tokens already includes them', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: {
+                input_tokens: 100,
+                output_tokens: 233,
+                output_tokens_details: { thinking_tokens: 110 },
+            },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { usage: Record<string, number>; usageDetails: { reasoningTokens?: number } };
+
+        expect('thinking_tokens' in result.usage).toBe(false);
+        expect(result.usage.output_tokens).toBe(233);
+        expect(result.usageDetails.reasoningTokens).toBe(110);
+
+        const haiku = CLAUDE_MODELS.find((m) => m.id === 'claude-haiku-4-5-20251001')!;
+        const [, , , overrides] = recordSpy.mock.calls[0]!;
+        // Billed once, at the plain output rate — not inflated by a second
+        // thinking_tokens line.
+        expect(overrides.output_tokens).toBe(233 * Number(haiku.costs.output_tokens));
+        expect('thinking_tokens' in overrides).toBe(false);
+    });
+
+    it('bills at the fast_* rates when the upstream reports usage.speed:"fast"', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 10, output_tokens: 5, speed: 'fast' },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-opus-5-5',
+                messages: [{ role: 'user', content: 'hi' }],
+                speed: 'fast',
+            }),
+        )) as { usage: Record<string, number>; usageDetails: { speed?: string } };
+
+        expect(result.usage.fast_input_tokens).toBe(10);
+        expect(result.usage.fast_output_tokens).toBe(5);
+        expect('input_tokens' in result.usage).toBe(false);
+        expect(result.usageDetails.speed).toBe('fast');
+
+        const opus = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5-5')!;
+        const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
+        expect(prefix).toBe('claude:claude-opus-5-5');
+        expect(overrides.fast_input_tokens).toBe(10 * Number(opus.costs.fast_input_tokens));
+        expect(overrides.fast_output_tokens).toBe(5 * Number(opus.costs.fast_output_tokens));
+    });
+
+    it('bills at standard rates when fast mode was requested but not granted by the upstream', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 10, output_tokens: 5, speed: 'standard' },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-opus-5-5',
+                messages: [{ role: 'user', content: 'hi' }],
+                speed: 'fast',
+            }),
+        )) as { usage: Record<string, number> };
+
+        expect(result.usage.input_tokens).toBe(10);
+        expect('fast_input_tokens' in result.usage).toBe(false);
+    });
+
+    it('retries at standard speed on Claude when fast mode is rate limited', async () => {
+        const { provider } = makeProvider();
+        const fastLimited = Object.assign(
+            new Error(
+                "This request would exceed your organization's rate limit of 0 fast mode input tokens per minute",
+            ),
+            { status: 429 },
+        );
+        messagesCreateMock.mockRejectedValueOnce(fastLimited).mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: { input_tokens: 10, output_tokens: 5, speed: 'standard' },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-opus-5-5',
+                messages: [{ role: 'user', content: 'hi' }],
+                speed: 'fast',
+            }),
+        )) as { usage: Record<string, number> };
+
+        expect(messagesCreateMock).toHaveBeenCalledTimes(2);
+        expect(messagesCreateMock.mock.calls[0]![0].speed).toBe('fast');
+        expect('speed' in messagesCreateMock.mock.calls[1]![0]).toBe(false);
+        expect(result.usage.input_tokens).toBe(10);
+        expect('fast_input_tokens' in result.usage).toBe(false);
+    });
+
+    it('does not retry an ordinary 429 on a fast-mode request', async () => {
+        const { provider } = makeProvider();
+        const limited = Object.assign(new Error('rate limited'), { status: 429 });
+        messagesCreateMock.mockRejectedValueOnce(limited);
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'claude-opus-5-5',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    speed: 'fast',
+                }),
+            ),
+        ).rejects.toBe(limited);
+        expect(messagesCreateMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('meters web_search_requests at 1,000,000 µ¢ per request', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: {
+                input_tokens: 10,
+                output_tokens: 5,
+                server_tool_use: { web_search_requests: 2 },
+            },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [{ type: 'web_search' }],
+            }),
+        )) as { usage: Record<string, number>; usageDetails: { webSearchRequests?: number } };
+
+        expect(result.usage.web_search_requests).toBe(2);
+        expect(result.usageDetails.webSearchRequests).toBe(2);
+        const [, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(overrides.web_search_requests).toBe(2 * 1_000_000);
+    });
+
+    it('records advisor iterations separately, under the advisor model\'s own rates', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: {
+                input_tokens: 1102,
+                output_tokens: 50,
+                iterations: [
+                    { type: 'message', input_tokens: 1102, output_tokens: 50 },
+                    {
+                        type: 'advisor_message',
+                        model: 'claude-opus-4-8',
+                        input_tokens: 2717,
+                        output_tokens: 202,
+                    },
+                ],
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [{ type: 'advisor_20260301', model: 'claude-opus-4-8' }],
+            }),
+        );
+
+        expect(recordSpy).toHaveBeenCalledTimes(2);
+        const [execUsage, , execPrefix, execOverrides] = recordSpy.mock.calls[0]!;
+        // The lone `message` iteration is already reflected in the top-level
+        // totals — it must not be double-counted into the executor's usage.
+        expect(execUsage.input_tokens).toBe(1102);
+        expect(execUsage.output_tokens).toBe(50);
+        expect(execPrefix).toBe('claude:claude-haiku-4-5-20251001');
+
+        const [advUsage, , advPrefix, advOverrides] = recordSpy.mock.calls[1]!;
+        expect(advPrefix).toBe('claude:claude-opus-4-8');
+        expect(advUsage).toEqual({
+            advisor_input_tokens: 2717,
+            advisor_ephemeral_5m_input_tokens: 0,
+            advisor_ephemeral_1h_input_tokens: 0,
+            advisor_cache_read_input_tokens: 0,
+            advisor_output_tokens: 202,
+        });
+        const opus48 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')!;
+        expect(advOverrides.advisor_input_tokens).toBe(
+            2717 * Number(opus48.costs.input_tokens),
+        );
+        expect(advOverrides.advisor_output_tokens).toBe(
+            202 * Number(opus48.costs.output_tokens),
+        );
+        expect(execOverrides.input_tokens).toBe(
+            1102 * Number(CLAUDE_MODELS.find((m) => m.id === 'claude-haiku-4-5-20251001')!.costs.input_tokens),
+        );
+    });
+
+    it('reports the upstream top-level usage and every raw iteration in usageDetails', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: {
+                input_tokens: 2329,
+                output_tokens: 90,
+                iterations: [
+                    { type: 'message', input_tokens: 1102, output_tokens: 40 },
+                    {
+                        type: 'advisor_message',
+                        model: 'claude-opus-4-8',
+                        input_tokens: 2717,
+                        output_tokens: 202,
+                        cache_read_input_tokens: 5,
+                    },
+                    { type: 'message', input_tokens: 1227, output_tokens: 50 },
+                ],
+            },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [{ type: 'advisor_20260301', model: 'claude-opus-4-8' }],
+            }),
+        )) as { usageDetails: Record<string, unknown> };
+
+        expect(result.usageDetails.inputTokens).toBe(2329);
+        expect(result.usageDetails.outputTokens).toBe(90);
+        expect(result.usageDetails.iterations).toEqual([
+            {
+                type: 'message',
+                inputTokens: 1102,
+                outputTokens: 40,
+                cacheReadTokens: 0,
+                cacheWrite5mTokens: 0,
+                cacheWrite1hTokens: 0,
+            },
+            {
+                type: 'advisor_message',
+                model: 'claude-opus-4-8',
+                inputTokens: 2717,
+                outputTokens: 202,
+                cacheReadTokens: 5,
+                cacheWrite5mTokens: 0,
+                cacheWrite1hTokens: 0,
+            },
+            {
+                type: 'message',
+                inputTokens: 1227,
+                outputTokens: 50,
+                cacheReadTokens: 0,
+                cacheWrite5mTokens: 0,
+                cacheWrite1hTokens: 0,
+            },
+        ]);
+    });
+
+    it('prices an advisor model outside the catalog at the priciest entry\'s rates', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce({
+            content: [{ type: 'text', text: 'hi' }],
+            usage: {
+                input_tokens: 10,
+                output_tokens: 5,
+                iterations: [
+                    {
+                        type: 'advisor_message',
+                        model: 'some-future-advisor-model',
+                        input_tokens: 100,
+                        output_tokens: 50,
+                    },
+                ],
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(recordSpy).toHaveBeenCalledTimes(2);
+        const [, , advPrefix, advOverrides] = recordSpy.mock.calls[1]!;
+        // The priciest catalog entry (by output rate) prices the unknown model.
+        const priciest = CLAUDE_MODELS.reduce((max, m) =>
+            Number(m.costs.output_tokens) > Number(max.costs.output_tokens) ? m : max,
+        );
+        expect(advPrefix).toBe(`claude:${priciest.id}`);
+        expect(advOverrides.advisor_output_tokens).toBe(
+            50 * Number(priciest.costs.output_tokens),
+        );
+    });
+});
+
+// -- requestPricing (credit-hold sizing, §3.4) -----------------------
+
+describe('ClaudeProvider.requestPricing', () => {
+    const haiku = CLAUDE_MODELS.find((m) => m.id === 'claude-haiku-4-5-20251001')!;
+    const opus55 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5-5')!;
+
+    it('returns fast cost keys only when the model has fast rates and fast was requested', () => {
+        const { provider } = makeProvider();
+        expect(
+            provider.requestPricing({ speed: 'fast', tools: [] } as never, opus55, {
+                promptTokenEstimate: 10,
+            }),
+        ).toMatchObject({ inputKey: 'fast_input_tokens', outputKey: 'fast_output_tokens' });
+        expect(
+            provider.requestPricing({ speed: 'fast', tools: [] } as never, haiku, {
+                promptTokenEstimate: 10,
+            }),
+        ).toEqual({});
+    });
+
+    it('prices a web-search tool\'s reservation from the request-fee plus a token margin', () => {
+        const { provider } = makeProvider();
+        const pricing = provider.requestPricing(
+            { tools: [{ type: 'web_search_20250305', max_uses: 2 }] } as never,
+            haiku,
+            { promptTokenEstimate: 10 },
+        );
+        const expected = 2 * (Number(haiku.costs.web_search_requests) + 10_000 * Number(haiku.costs.input_tokens));
+        expect(pricing.extraCost).toBe(expected);
+    });
+
+    it('reserves for a web_search_2026 tool the same as the 2025 tool it is forwarded as', () => {
+        const { provider } = makeProvider();
+        const pricing = provider.requestPricing(
+            { tools: [{ type: 'web_search_20260209', max_uses: 2 }] } as never,
+            haiku,
+            { promptTokenEstimate: 10 },
+        );
+        const expected = 2 * (Number(haiku.costs.web_search_requests) + 10_000 * Number(haiku.costs.input_tokens));
+        expect(pricing.extraCost).toBe(expected);
+    });
+
+    it('prices an advisor tool\'s reservation from the prompt estimate and its max_tokens', () => {
+        const { provider } = makeProvider();
+        const opus48 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-4-8')!;
+        const pricing = provider.requestPricing(
+            {
+                tools: [
+                    { type: 'advisor_20260301', model: 'claude-opus-4-8', max_uses: 2, max_tokens: 1000 },
+                ],
+            } as never,
+            haiku,
+            { promptTokenEstimate: 500 },
+        );
+        const expected =
+            2 * (500 * Number(opus48.costs.input_tokens) + 1000 * Number(opus48.costs.output_tokens));
+        expect(pricing.extraCost).toBe(expected);
+    });
+
+    it('returns {} for a request with no tools and no fast mode', () => {
+        const { provider } = makeProvider();
+        expect(provider.requestPricing({} as never, haiku, { promptTokenEstimate: 10 })).toEqual({});
+    });
+});
+
+// -- Streaming response fidelity ---------------------------------
+
+describe('ClaudeProvider.complete streaming response fidelity', () => {
+    const streamOnce = async (
+        provider: ReturnType<typeof makeProvider>['provider'],
+        events: unknown[],
+        finalUsage?: unknown,
+        opts: { streamToolInput?: boolean } = {},
+    ) => {
+        messagesStreamMock.mockReturnValueOnce(makeStreamLike(events, finalUsage));
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+                streamToolInput: opts.streamToolInput,
+            } as never),
+        );
+        const harness = makeCapturingChatStream(opts);
+        await (
+            result as { init_chat_stream: (p: { chatStream: unknown }) => Promise<void> }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+        return harness.events();
+    };
+
+    it('emits reasoning_start + a signed reasoning_detail for a thinking block', async () => {
+        const { provider } = makeProvider();
+        const events = await streamOnce(provider, [
+            { type: 'message_start' },
+            {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'thinking', signature: '' },
+            },
+            {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'thinking_delta', thinking: 'step one' },
+            },
+            {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'signature_delta', signature: 'sig_abc' },
+            },
+            { type: 'content_block_stop', index: 0 },
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 1, output_tokens: 1 } },
+            { type: 'message_stop' },
+        ]);
+
+        expect(events).toContainEqual({ type: 'reasoning_start', format: 'anthropic' });
+        expect(events).toContainEqual({
+            type: 'reasoning_detail',
+            detail: { type: 'thinking', thinking: 'step one', signature: 'sig_abc' },
+        });
+    });
+
+    it('emits a redacted_thinking reasoning_detail verbatim', async () => {
+        const { provider } = makeProvider();
+        const events = await streamOnce(provider, [
+            { type: 'message_start' },
+            {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'redacted_thinking', data: 'ENC_DATA' },
+            },
+            { type: 'content_block_stop', index: 0 },
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 1, output_tokens: 1 } },
+            { type: 'message_stop' },
+        ]);
+
+        expect(events).toContainEqual({
+            type: 'reasoning_detail',
+            detail: { type: 'redacted_thinking', data: 'ENC_DATA' },
+        });
+    });
+
+    it('emits server_tool chunks for a server_tool_use call and its result block', async () => {
+        const { provider } = makeProvider();
+        const events = await streamOnce(provider, [
+            { type: 'message_start' },
+            {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search' },
+            },
+            {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'input_json_delta', partial_json: '{"query":"puter"}' },
+            },
+            { type: 'content_block_stop', index: 0 },
+            {
+                type: 'content_block_start',
+                index: 1,
+                content_block: {
+                    type: 'web_search_tool_result',
+                    tool_use_id: 'srvtoolu_1',
+                    content: [{ type: 'web_search_result', url: 'https://x' }],
+                },
+            },
+            { type: 'content_block_stop', index: 1 },
+            {
+                type: 'message_delta',
+                delta: { stop_reason: 'end_turn' },
+                usage: { input_tokens: 1, output_tokens: 1, server_tool_use: { web_search_requests: 1 } },
+            },
+            { type: 'message_stop' },
+        ]);
+
+        expect(events).toContainEqual({
+            type: 'server_tool',
+            block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: { query: 'puter' } },
+        });
+        expect(events).toContainEqual({
+            type: 'server_tool',
+            block: {
+                type: 'web_search_tool_result',
+                tool_use_id: 'srvtoolu_1',
+                content: [{ type: 'web_search_result', url: 'https://x' }],
+            },
+        });
+    });
+
+    it('emits a server_tool chunk for an advisor_tool_result block', async () => {
+        const { provider } = makeProvider();
+        const events = await streamOnce(provider, [
+            { type: 'message_start' },
+            {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'advisor_tool_result', tool_use_id: 'adv_1', content: 'ok' },
+            },
+            { type: 'content_block_stop', index: 0 },
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 1, output_tokens: 1 } },
+            { type: 'message_stop' },
+        ]);
+
+        expect(events).toContainEqual({
+            type: 'server_tool',
+            block: { type: 'advisor_tool_result', tool_use_id: 'adv_1', content: 'ok' },
+        });
+    });
+
+    it('never throws on an unknown content block type', async () => {
+        const { provider } = makeProvider();
+        const events = await streamOnce(provider, [
+            { type: 'message_start' },
+            {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'something_brand_new' },
+            },
+            { type: 'content_block_stop', index: 0 },
+            {
+                type: 'content_block_start',
+                index: 1,
+                content_block: { type: 'text' },
+            },
+            {
+                type: 'content_block_delta',
+                index: 1,
+                delta: { type: 'text_delta', text: 'still works' },
+            },
+            { type: 'content_block_stop', index: 1 },
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 1, output_tokens: 1 } },
+            { type: 'message_stop' },
+        ]);
+
+        expect(events.find((e) => e.type === 'text')?.text).toBe('still works');
+    });
+
+    it('emits tool_use_start / tool_input_delta only when streamToolInput is set', async () => {
+        const { provider } = makeProvider();
+        const toolEvents = [
+            { type: 'message_start' },
+            {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'tool_use', id: 'toolu_1', name: 'lookup' },
+            },
+            {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'input_json_delta', partial_json: '{"q":' },
+            },
+            {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'input_json_delta', partial_json: '"x"}' },
+            },
+            { type: 'content_block_stop', index: 0 },
+            { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { input_tokens: 1, output_tokens: 1 } },
+            { type: 'message_stop' },
+        ];
+
+        const withStreaming = await streamOnce(provider, toolEvents, undefined, {
+            streamToolInput: true,
+        });
+        expect(withStreaming).toContainEqual({ type: 'tool_use_start', id: 'toolu_1', name: 'lookup' });
+        expect(withStreaming).toContainEqual({
+            type: 'tool_input_delta',
+            id: 'toolu_1',
+            partialJson: '{"q":',
+        });
+
+        const withoutStreaming = await streamOnce(provider, toolEvents, undefined, {
+            streamToolInput: false,
+        });
+        expect(withoutStreaming.find((e) => e.type === 'tool_use_start')).toBeUndefined();
+        expect(withoutStreaming.find((e) => e.type === 'tool_input_delta')).toBeUndefined();
+        expect(withoutStreaming).toContainEqual(
+            expect.objectContaining({ type: 'tool_use', id: 'toolu_1', name: 'lookup', input: { q: 'x' } }),
+        );
+    });
+
+    it('carries stop_details, safeguard_results, and context_management onto the end-of-stream usage line', async () => {
+        const { provider } = makeProvider();
+        const events = await streamOnce(provider, [
+            { type: 'message_start' },
+            {
+                type: 'message_delta',
+                delta: {
+                    stop_reason: 'refusal',
+                    stop_sequence: null,
+                    stop_details: { type: 'refusal' },
+                    safeguard_results: [{ type: 'dangerous_tool_use', status: { tool_use_id: 'toolu_1' } }],
+                },
+                context_management: { applied_edits: [{ type: 'compact_20260112' }] },
+                usage: { input_tokens: 1, output_tokens: 1 },
+            },
+            { type: 'message_stop' },
+        ]);
+
+        expect(events).toContainEqual({
+            type: 'safeguard_results',
+            results: [{ type: 'dangerous_tool_use', status: { tool_use_id: 'toolu_1' } }],
+        });
+        const usageLine = events.find((e) => e.type === 'usage')!;
+        expect(usageLine.stopReason).toBe('refusal');
+        expect(usageLine.stopDetails).toEqual({ type: 'refusal' });
+        expect(usageLine.contextManagement).toEqual({ applied_edits: [{ type: 'compact_20260112' }] });
+    });
+
+    it('omits the safeguard_results chunk entirely when the upstream never sent the field', async () => {
+        const { provider } = makeProvider();
+        const events = await streamOnce(provider, [
+            { type: 'message_start' },
+            { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 1, output_tokens: 1 } },
+            { type: 'message_stop' },
+        ]);
+
+        expect(events.find((e) => e.type === 'safeguard_results')).toBeUndefined();
+    });
+});
+
+// -- countTokens -----------------------------------
+
+describe('ClaudeProvider.countTokens', () => {
+    it('forwards only the fields count_tokens accepts', async () => {
+        const { provider } = makeProvider();
+        countTokensMock.mockResolvedValueOnce({ input_tokens: 42 });
+
+        const result = await withTestActor(() =>
+            provider.countTokens({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+                max_tokens: 999,
+                temperature: 0.9,
+            } as never),
+        );
+
+        expect(result).toBe(42);
+        const [payload] = countTokensMock.mock.calls[0]!;
+        expect('max_tokens' in payload).toBe(false);
+        expect('temperature' in payload).toBe(false);
+        expect('metadata' in payload).toBe(false);
+        expect('stream' in payload).toBe(false);
+        expect('stop_sequences' in payload).toBe(false);
+        expect(payload.model).toBe('claude-haiku-4-5-20251001');
+        expect(payload.messages).toEqual([{ role: 'user', content: 'hi' }]);
+    });
+
+    it('keeps the SDK retries the completion client turns off', async () => {
+        const { provider } = makeProvider();
+        countTokensMock.mockResolvedValueOnce({ input_tokens: 42 });
+
+        await withTestActor(() =>
+            provider.countTokens({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hi' }],
+            } as never),
+        );
+
+        // No other route serves a token count, so a transient failure gets
+        // the SDK's retries instead of reaching the caller.
+        expect(countTokensMock.mock.calls[0]![1]).toEqual({ maxRetries: 2 });
+    });
+});
+
+// -- Determinism (§8 risk: preserved thinking) ------------------------
+
+describe('ClaudeProvider request determinism', () => {
+    it.each(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-fable-5-1'])(
+        'produces a byte-identical sdkParams for the same args on %s',
+        async (model) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValue({
+                content: [{ type: 'text', text: 'ok' }],
+                usage: { input_tokens: 1, output_tokens: 1 },
+            });
+
+            const args = {
+                model,
+                messages: [
+                    { role: 'system', content: 'be concise' },
+                    { role: 'user', content: 'hello there' },
+                ],
+                reasoning_effort: 'high',
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: { type: 'object' } },
+                    },
+                ],
+            };
+
+            await withTestActor(() => provider.complete(structuredClone(args) as never));
+            await withTestActor(() => provider.complete(structuredClone(args) as never));
+
+            const [first] = messagesCreateMock.mock.calls[0]!;
+            const [second] = messagesCreateMock.mock.calls[1]!;
+            expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+        },
+    );
 });

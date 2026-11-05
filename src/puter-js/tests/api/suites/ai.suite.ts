@@ -29,6 +29,8 @@ const TINY_AUDIO = 'data:audio/mp3;base64,QUJD';
 const TINY_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const TINY_MP4 = 'data:video/mp4;base64,QUJD';
+/** What every video provider returns in test mode. */
+const SAMPLE_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
 
 /** The `{ message, code }` shape both client-side and driver rejections carry. */
 type SdkError = { message?: string; code?: string };
@@ -55,8 +57,8 @@ const oversizedDataUri = (
     return `data:${mime};base64,${payload}`;
 };
 
-/** Token usage the `costly` fake model reports back. */
-type Usage = { input_tokens?: number; output_tokens?: number };
+/** Token usage the `costly` fake model reports back, and what it cost. */
+type Usage = { input_tokens?: number; output_tokens?: number; cost?: number };
 
 /**
  * Flatten a rejection to text. SDK errors arrive in a few shapes (Error,
@@ -105,6 +107,16 @@ export default suite('ai', {
         t.assert.ok(textOf(result).length > 0, 'message should contain text');
     },
 
+    'chat with fallback: false still reaches the only route for a model': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat('Hello there', {
+            model: 'fake',
+            fallback: false,
+        });
+        t.assert.equal(result.message.role, 'assistant');
+        t.assert.ok(textOf(result).length > 0, 'message should contain text');
+    },
+
     'chat testMode returns a sample without using the selected model': async (t) => {
         useApiToken(t);
         const result = await t.puter.ai.chat('Hello there', {
@@ -112,6 +124,7 @@ export default suite('ai', {
         }, true);
         t.assert.equal((result.message as { model?: string }).model, 'fake');
         t.assert.equal((result.usage as Usage).input_tokens, 0);
+        t.assert.equal((result.usage as Usage).cost, 0);
         t.assert.ok(textOf(result).length > 0);
     },
 
@@ -178,6 +191,54 @@ export default suite('ai', {
         );
     },
 
+    'chat accepts an AbortSignal before sending and while waiting for output': async (t) => {
+        useApiToken(t);
+        for (const alreadyAborted of [true, false]) {
+            const controller = new AbortController();
+            if (alreadyAborted) controller.abort();
+            const request = t.puter.ai.chat('Stream this', {
+                model: 'fake', stream: true, signal: controller.signal,
+            });
+            if (!alreadyAborted) controller.abort();
+            const error = await t.assert.rejects(() => request) as { name?: string };
+            t.assert.equal(error.name, 'AbortError');
+        }
+    },
+
+    'chat ReadableStream response preserves structured usage': async (t) => {
+        useApiToken(t);
+        const stream = await t.puter.ai.chat('Stream this', { model: 'fake', stream: true });
+        const body = await new Response(new ReadableStream(stream)).text();
+        t.assert.ok(body.includes('"type":"usage"'));
+        t.assert.ok(!body.includes('[object Object]'));
+    },
+
+    'chat stream supports stopping iteration': async (t) => {
+        useApiToken(t);
+        const stream = await t.puter.ai.chat('Stream this', { model: 'fake', stream: true });
+        const iterator = stream[Symbol.asyncIterator]();
+        t.assert.equal((await iterator.next()).done, false);
+        t.assert.equal((await iterator.return!()).done, true);
+        t.assert.equal((await iterator.next()).done, true);
+    },
+
+    'chat stream adapter supports cancellation': async (t) => {
+        useApiToken(t);
+        const stream = await t.puter.ai.chat('Stream this', { model: 'fake', stream: true });
+        let firstChunk!: () => void;
+        const ready = new Promise<void>((resolve) => { firstChunk = resolve; });
+        const controller = {
+            enqueue: () => firstChunk(),
+            close: () => {},
+            error: () => {},
+        } as unknown as ReadableStreamDefaultController<Uint8Array>;
+        const pumping = stream.start(controller);
+        await ready;
+        await stream.cancel();
+        await pumping;
+        t.assert.equal((await stream.next()).done, true);
+    },
+
     'chat with stream true yields text parts': async (t) => {
         useApiToken(t);
         const stream = await t.puter.ai.chat('Stream this', {
@@ -189,6 +250,40 @@ export default suite('ai', {
             if (part?.text) text += part.text;
         }
         t.assert.ok(text.length > 0, 'streamed parts should contain text');
+    },
+
+    'a streaming chat ends with a usage chunk carrying finish_reason/stopReason; existing text parts are unchanged': async (t) => {
+        useApiToken(t);
+        const stream = await t.puter.ai.chat('Stream this', {
+            model: 'fake',
+            stream: true,
+        });
+        let text = '';
+        let usageChunk:
+            | { type?: string; finish_reason?: string; stopReason?: string }
+            | undefined;
+        for await (const part of stream as AsyncIterable<{
+            type?: string;
+            text?: string;
+            finish_reason?: string;
+            stopReason?: string;
+        }>) {
+            if (part?.text) text += part.text;
+            if (part?.type === 'usage') usageChunk = part;
+        }
+        t.assert.ok(text.length > 0, 'streamed parts should still contain text');
+        t.assert.ok(usageChunk, 'stream should end with a usage chunk');
+        t.assert.equal(usageChunk?.stopReason, 'end_turn');
+        t.assert.equal(usageChunk?.finish_reason, 'stop');
+    },
+
+    'a non-stream chat result carries stopReason': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat('Hello there', { model: 'fake' });
+        t.assert.equal(
+            (result as { stopReason?: string }).stopReason,
+            'end_turn',
+        );
     },
 
     'chat with the costly model reports token usage': async (t) => {
@@ -408,7 +503,7 @@ export default suite('ai', {
             test_mode: true,
         })) as { model?: string };
         // The openai provider's documented transcription default.
-        t.assert.equal(result.model, 'gpt-4o-mini-transcribe');
+        t.assert.equal(result.model, 'gpt-transcribe');
     },
 
     'speech2txt resolves every xai provider alias': async (t) => {
@@ -427,6 +522,95 @@ export default suite('ai', {
         }
     },
 
+    'speech2txt resolves every gemini provider alias': async (t) => {
+        useApiToken(t);
+        for (const provider of ['gemini', 'google', 'gemini-speech2txt']) {
+            const result = (await t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider,
+                test_mode: true,
+            })) as { model?: string };
+            t.assert.equal(
+                result.model,
+                'gemini-3.5-transcribe',
+                `provider "${provider}" should reach the gemini provider`,
+            );
+        }
+    },
+
+    'speech2txt on gemini returns words and speakers when asked': async (t) => {
+        useApiToken(t);
+        const result = (await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            provider: 'gemini',
+            language: 'en',
+            timestamp_granularities: ['word'],
+            diarize: true,
+            test_mode: true,
+        })) as {
+            text?: string;
+            language?: string;
+            duration?: number;
+            words?: { start?: number; end?: number; speaker?: string }[];
+        };
+        t.assert.ok((result.text ?? '').includes('sample transcription'));
+        t.assert.equal(result.language, 'en');
+        t.assert.equal(result.duration, undefined);
+        t.assert.ok(
+            Array.isArray(result.words) && result.words.length > 0,
+            `words should be returned, got ${JSON.stringify(result)}`,
+        );
+        for (const word of result.words!) {
+            t.assert.equal(typeof word.start, 'number');
+            t.assert.equal(typeof word.end, 'number');
+            t.assert.equal(typeof word.speaker, 'string');
+        }
+    },
+
+    'speech2txt on gemini unwraps the bare text for response_format text': async (t) => {
+        useApiToken(t);
+        const text = await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            provider: 'gemini',
+            response_format: 'text',
+            test_mode: true,
+        });
+        t.assert.equal(typeof text, 'string');
+        t.assert.ok((text as string).includes('sample transcription'));
+    },
+
+    'speech2txt translate is rejected on gemini': async (t) => {
+        useApiToken(t);
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider: 'gemini',
+                translate: true,
+                test_mode: true,
+            }),
+        );
+        t.assert.ok(
+            text.includes('Translation is not supported'),
+            `translate should be refused, got ${text}`,
+        );
+    },
+
+    'speech2txt on gemini rejects options it cannot honor': async (t) => {
+        useApiToken(t);
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider: 'gemini',
+                prompt: 'meeting notes',
+                test_mode: true,
+            }),
+        );
+        t.assert.ok(
+            text.includes('prompt is not supported'),
+            `prompt should be refused, got ${text}`,
+        );
+    },
+
     'speech2txt keeps the whisper alias on openai': async (t) => {
         useApiToken(t);
         const result = (await t.puter.ai.speech2txt({
@@ -434,17 +618,23 @@ export default suite('ai', {
             provider: 'whisper',
             test_mode: true,
         })) as { model?: string };
-        t.assert.equal(result.model, 'gpt-4o-mini-transcribe');
+        t.assert.equal(result.model, 'gpt-transcribe');
     },
 
-    'speech2txt translate uses the openai translation default': async (t) => {
+    'speech2txt translate is rejected on openai': async (t) => {
         useApiToken(t);
-        const result = (await t.puter.ai.speech2txt({
-            file: TINY_AUDIO,
-            translate: true,
-            test_mode: true,
-        })) as { model?: string };
-        t.assert.equal(result.model, 'whisper-1');
+        // No current OpenAI model serves `/audio/translations`.
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                translate: true,
+                test_mode: true,
+            }),
+        );
+        t.assert.ok(
+            text.includes('Translation is not supported'),
+            `translate should be refused, got ${text}`,
+        );
     },
 
     'speech2txt rejects an unknown provider': async (t) => {
@@ -473,7 +663,7 @@ export default suite('ai', {
             ),
         ) as string[];
         t.assert.ok(Array.isArray(providers), 'list should return an array');
-        for (const expected of ['openai', 'xai']) {
+        for (const expected of ['openai', 'xai', 'gemini']) {
             t.assert.ok(
                 providers.includes(expected),
                 `provider list should include "${expected}", got ${JSON.stringify(providers)}`,
@@ -496,7 +686,7 @@ export default suite('ai', {
         const defaulted = await callList({});
         const ids = defaulted.map((m) => m.id);
         t.assert.ok(
-            ids.includes('whisper-1'),
+            ids.includes('gpt-transcribe'),
             `default list should be the openai catalogue, got ${JSON.stringify(ids)}`,
         );
         t.assert.ok(
@@ -507,8 +697,14 @@ export default suite('ai', {
         const all = await callList({ provider: 'all' });
         const allIds = all.map((m) => m.id);
         t.assert.ok(
-            allIds.includes('whisper-1') && allIds.includes('xai-stt'),
+            allIds.includes('gpt-transcribe') &&
+                allIds.includes('xai-stt') &&
+                allIds.includes('gemini-3.5-transcribe'),
             `provider "all" should aggregate every catalogue, got ${JSON.stringify(allIds)}`,
+        );
+        t.assert.ok(
+            !ids.includes('gemini-3.5-transcribe'),
+            'default list should not include gemini',
         );
         for (const model of all) {
             t.assert.ok(
@@ -528,8 +724,22 @@ export default suite('ai', {
                 { provider: 'grok' },
             ),
         ) as Array<{ id?: string }>;
-        t.assert.equal(models.length, 1);
-        t.assert.equal(models[0]?.id, 'xai-stt');
+        t.assert.deepEqual(
+            models.map((m) => m.id),
+            ['xai-stt', 'grok-voice-transcribe-2.0'],
+        );
+        const gemini = resultOf(
+            await t.puter.drivers.call(
+                'puter-speech2txt',
+                'ai-speech2txt',
+                'list_models',
+                { provider: 'google' },
+            ),
+        ) as Array<{ id?: string }>;
+        t.assert.deepEqual(
+            gemini.map((m) => m.id),
+            ['gemini-3.5-transcribe'],
+        );
     },
 
     'the legacy per-provider speech2txt driver names still route': async (t) => {
@@ -568,13 +778,13 @@ export default suite('ai', {
         // to the unified driver and fall through to the default.
         t.assert.equal(
             await callDriver('openai-speech2txt'),
-            'gpt-4o-mini-transcribe',
+            'gpt-transcribe',
         );
         t.assert.equal(await callDriver('xai-speech2txt'), 'xai-stt');
         // The canonical name is not a provider alias — it takes the default.
         t.assert.equal(
             await callDriver('ai-speech2txt'),
-            'gpt-4o-mini-transcribe',
+            'gpt-transcribe',
         );
     },
 
@@ -686,7 +896,7 @@ export default suite('ai', {
             'aws-textract',
             'textract',
             'mistral-ocr-latest',
-            'mistral-ocr-4-0',
+            'mistral-ocr-4-1',
             'mistral-ocr-2512',
         ];
         for (const model of models) {
@@ -901,6 +1111,31 @@ export default suite('ai', {
         t.assert.equal(options.providerOptions.outputFormat, 'png');
     },
 
+    'txt2img and txt2vid send Blob inputs through temporary files they delete': async (t) => {
+        useApiToken(t);
+        const bytes = (dataUri: string) =>
+            Uint8Array.from(atob(dataUri.split(',')[1]!), (c) => c.charCodeAt(0));
+        const image = new Blob([bytes(TINY_PNG)], { type: 'image/png' });
+        const clip = new Blob([bytes(TINY_MP4)], { type: 'video/mp4' });
+
+        // Keyless, both fail after the inputs were written, which is enough
+        // to see the temporary files go away whatever the outcome.
+        const imageError = await errorOf(t, () =>
+            t.puter.ai.txt2img('a cat', {
+                model: 'ai-suite-model',
+                input_images: [image],
+                maskImage: image,
+            }),
+        );
+        t.assert.equal(imageError.message, 'Model not found: ai-suite-model');
+        const videoError = await errorOf(t, () =>
+            t.puter.ai.txt2vid('Make this dog a dinosaur.', { inputVideo: clip }),
+        );
+        t.assert.equal(videoError.code, 'internal_error');
+
+        t.assert.deepEqual(await t.puter.fs.readdir('.tmp'), []);
+    },
+
     'txt2img forwards the model from either call form': async (t) => {
         useApiToken(t);
         // Keyless the model can never resolve, and the driver echoes back the
@@ -1028,6 +1263,153 @@ export default suite('ai', {
             }),
         );
         t.assert.equal(foreign.code, 'access_denied');
+    },
+
+    // Gemini Omni registers only with a Gemini key; test mode never calls it.
+
+    'txt2vid on gemini omni returns the sample clip in test mode': {
+        requires: ['ai.gemini'],
+        fn: async (t) => {
+            useApiToken(t);
+            const video = await t.puter.ai.txt2vid(
+                {
+                    prompt: 'A stationary red ball.',
+                    model: 'gemini-omni-1.1-flash',
+                    size: '360x640',
+                    input_reference: TINY_PNG,
+                },
+                true,
+            );
+            t.assert.equal(String(video), SAMPLE_VIDEO_URL);
+            t.assert.equal(video.src, SAMPLE_VIDEO_URL);
+        },
+    },
+
+    'txt2vid takes a source video on gemini omni': {
+        requires: ['ai.gemini'],
+        fn: async (t) => {
+            useApiToken(t);
+            // Test mode checks the input's shape without loading it.
+            const inputVideo = TINY_MP4;
+            const video = await t.puter.ai.txt2vid(
+                'Make this dog a dinosaur.',
+                { model: 'gemini-omni-1.1-flash', inputVideo, test_mode: true },
+            );
+            t.assert.equal(String(video), SAMPLE_VIDEO_URL);
+
+            const combined = await errorOf(t, () =>
+                t.puter.ai.txt2vid('Make this dog a dinosaur.', {
+                    model: 'gemini-omni-1.1-flash',
+                    inputVideo,
+                    input_reference: TINY_PNG,
+                    test_mode: true,
+                }),
+            );
+            t.assert.equal(combined.code, 'bad_request');
+            t.assert.equal(
+                combined.message,
+                'input_reference cannot be combined with input_video',
+            );
+        },
+    },
+
+    'txt2vid reaches gemini omni through its model aliases and driver name': {
+        requires: ['ai.gemini'],
+        fn: async (t) => {
+            useApiToken(t);
+            // Gemini Omni refuses `seconds` even in test mode, which proves
+            // where the call landed.
+            for (const options of [
+                { model: 'google/gemini-omni-1.1-flash' },
+                { model: 'google:google/gemini-omni-1.1-flash' },
+                { driver: 'gemini-video-generation' },
+                { provider: 'gemini-video-generation' },
+            ]) {
+                const error = await errorOf(t, () =>
+                    t.puter.ai.txt2vid({
+                        prompt: 'a cat',
+                        seconds: 4,
+                        test_mode: true,
+                        ...options,
+                    }),
+                );
+                t.assert.equal(error.code, 'bad_request');
+                t.assert.equal(
+                    error.message,
+                    'seconds is not supported by Gemini Omni',
+                    `${JSON.stringify(options)} should reach Gemini Omni`,
+                );
+            }
+            const video = await t.puter.ai.txt2vid({
+                prompt: 'a cat',
+                driver: 'gemini-video-generation',
+                test_mode: true,
+            });
+            t.assert.equal(String(video), SAMPLE_VIDEO_URL);
+        },
+    },
+
+    'txt2vid on gemini omni rejects duration and unsupported sizes': {
+        requires: ['ai.gemini'],
+        fn: async (t) => {
+            useApiToken(t);
+            const duration = await errorOf(t, () =>
+                t.puter.ai.txt2vid({
+                    prompt: 'a cat',
+                    model: 'gemini-omni-1.1-flash',
+                    duration: 4,
+                    test_mode: true,
+                }),
+            );
+            t.assert.equal(
+                duration.message,
+                'seconds is not supported by Gemini Omni',
+            );
+            for (const size of ['480p', '1024x576']) {
+                const error = await errorOf(t, () =>
+                    t.puter.ai.txt2vid({
+                        prompt: 'a cat',
+                        model: 'gemini-omni-1.1-flash',
+                        size,
+                        test_mode: true,
+                    }),
+                );
+                t.assert.equal(error.code, 'bad_request');
+                t.assert.ok(
+                    (error.message ?? '').startsWith('size must be one of'),
+                    `size ${size} should be refused, got ${error.message}`,
+                );
+            }
+        },
+    },
+
+    'the video model catalog lists gemini omni with per-token rates': {
+        requires: ['ai.gemini'],
+        fn: async (t) => {
+            const res = await fetch(
+                `${t.env.apiOrigin}/puterai/video/models/details?provider=gemini-video-generation`,
+            );
+            t.assert.equal(res.status, 200);
+            const { models } = (await res.json()) as {
+                models: Array<{
+                    id?: string;
+                    costs?: Record<string, number>;
+                    output_cost_key?: string;
+                    durationSeconds?: unknown;
+                    dimensions?: unknown;
+                }>;
+            };
+            const omni = models.find((m) => m.id === 'gemini-omni-1.1-flash');
+            t.assert.ok(omni, `catalog should list Gemini Omni, got ${JSON.stringify(models)}`);
+            t.assert.deepEqual(omni!.costs, {
+                input: 0.00015,
+                'output:text': 0.0009,
+                'output:video': 0.00175,
+            });
+            t.assert.equal(omni!.output_cost_key, 'output:video');
+            t.assert.equal(omni!.durationSeconds, undefined);
+            t.assert.equal(omni!.dimensions, undefined);
+        },
     },
 
     // -- txt2speech --------------------------------------------------
@@ -1209,6 +1591,18 @@ export default suite('ai', {
         t.assert.equal(error.message, 'Audio input is required');
     },
 
+    'speech2txt accepts ignored options in test mode': async (t) => {
+        useApiToken(t);
+        const result = (await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            timestamp_granularities: ['word'],
+            chunking_strategy: 'auto',
+            known_speaker_names: ['speaker'],
+            test_mode: true,
+        })) as { text?: string };
+        t.assert.ok((result.text ?? '').includes('sample transcription'));
+    },
+
     'speech2txt honors the positional test-mode flag': async (t) => {
         useApiToken(t);
         const result = (await t.puter.ai.speech2txt(
@@ -1347,5 +1741,72 @@ export default suite('ai', {
         );
         t.assert.equal(error.code, 'input_too_large');
         t.assert.equal(error.message, 'Input size cannot be larger than 25 MB');
+    },
+
+    'convo streams a live text turn': {
+        requires: ['ai.openai'],
+        fn: async (t) => {
+            const conversation = await t.puter.ai.convo({ output: ['text'], instructions: 'Reply with exactly realtime-ok.' });
+            let text = '';
+            conversation.on('text', ({ delta }) => { text += delta; });
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+                await conversation.connect();
+                const completed = new Promise<void>((resolve, reject) => {
+                    timer = setTimeout(() => reject(new Error('Realtime response timed out')), 20_000);
+                    conversation.on('turn.done', () => resolve());
+                    conversation.on('error', (event) => reject(new Error(String((event.error as { code?: string })?.code ?? event.code))));
+                });
+                conversation.sendText('Say realtime-ok');
+                await completed;
+                t.assert.ok(text.toLowerCase().includes('realtime-ok'));
+            } finally {
+                clearTimeout(timer);
+                conversation.close();
+            }
+        },
+    },
+
+    'convo prepares and closes without opening a provider session': async (t) => {
+        const conversation = await t.puter.ai.convo({ output: ['text'] });
+        t.assert.equal(conversation.state, 'prepared');
+        t.assert.equal(conversation.model, 'gpt-realtime-2.1-mini');
+        let closed = 0;
+        conversation.on('close', () => closed++);
+        conversation.close();
+        conversation.close();
+        t.assert.equal(conversation.state, 'closed');
+        t.assert.equal(closed, 1);
+    },
+
+    'convo rejects invalid options and sending before connect': async (t) => {
+        await t.assert.rejects(() => t.puter.ai.convo({ model: 'not-a-realtime-model' }));
+        const conversation = await t.puter.ai.convo({ output: ['text'] });
+        try {
+            await t.assert.rejects(async () => conversation.sendText('Hello'));
+        } finally {
+            conversation.close();
+        }
+    },
+
+    'convo rejects interruption readiness through its Promise': async (t) => {
+        const conversation = await t.puter.ai.convo({ output: ['text'] });
+        try {
+            const prepared = conversation.interrupt();
+            t.assert.equal(typeof prepared.then, 'function');
+            await t.assert.rejects(() => prepared);
+            conversation.close();
+            const closed = conversation.interrupt();
+            t.assert.equal(typeof closed.then, 'function');
+            await t.assert.rejects(() => closed);
+        } finally {
+            conversation.close();
+        }
+    },
+
+    'convo is the realtime SDK entry point': async (t) => {
+        t.assert.equal('assistant' in t.puter.ai, false);
+        t.assert.equal('conversation' in t.puter.ai, false);
+        t.assert.equal(typeof t.puter.ai.convo, 'function');
     },
 });

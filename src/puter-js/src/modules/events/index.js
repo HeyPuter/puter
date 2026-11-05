@@ -6,7 +6,15 @@ import { fetch } from './fetch.js';
 import { list } from './list.js';
 import { onLocal } from './onLocal.js';
 import { onPersistent } from './onPersistent.js';
+import {
+    getSchedule,
+    listSchedules,
+    onSchedule,
+    removeSchedule,
+    updateSchedule,
+} from './schedules.js';
 import { unsubscribe } from './unsubscribe.js';
+import { update } from './update.js';
 
 /** @typedef {import('../../index.js').Puter} Puter */
 
@@ -23,6 +31,8 @@ import { unsubscribe } from './unsubscribe.js';
  * `fetch()` is the other half: what happened while nothing was listening, read
  * from the subject's own store a page at a time.
  *
+ * `onSchedule()` runs a published handler on a timer rather than on a change.
+ *
  * A published handler set stands up an **events worker** per app —
  * `puter.events.workers` is where an owner sees and destroys them.
  *
@@ -34,11 +44,26 @@ export class EventsModule extends PuterModule {
     // The fields hold the unbound functions so they keep their full types
     // (`bind` erases overloads); the constructor rebinds them so destructured
     // calls (`const { onLocal } = puter.events`) work.
+    // A field typed without `this` keeps `puter.events.x()` compiling: its
+    // `this` names this class, which the public type omits members of.
     onLocal = onLocal;
+    /** @type {OmitThisParameter<typeof onPersistent>} */
     onPersistent = onPersistent;
+    /** @type {OmitThisParameter<typeof unsubscribe>} */
     unsubscribe = unsubscribe;
+    update = update;
     list = list;
     fetch = fetch;
+    /** @type {OmitThisParameter<typeof onSchedule>} */
+    onSchedule = onSchedule;
+    /** @type {OmitThisParameter<typeof listSchedules>} */
+    listSchedules = listSchedules;
+    /** @type {OmitThisParameter<typeof getSchedule>} */
+    getSchedule = getSchedule;
+    /** @type {OmitThisParameter<typeof removeSchedule>} */
+    removeSchedule = removeSchedule;
+    /** @type {OmitThisParameter<typeof updateSchedule>} */
+    updateSchedule = updateSchedule;
 
     /** @param {Puter} puter */
     constructor (puter) {
@@ -63,8 +88,14 @@ export class EventsModule extends PuterModule {
             'onLocal',
             'onPersistent',
             'unsubscribe',
+            'update',
             'list',
             'fetch',
+            'onSchedule',
+            'listSchedules',
+            'getSchedule',
+            'removeSchedule',
+            'updateSchedule',
         ] ) {
             methods[name] = methods[name].bind(this);
         }

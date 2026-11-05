@@ -33,8 +33,8 @@ const deployment = await puter.workers.create('notes-api', 'notes-api.js');
 deployment.url;    // 'https://notes-api.puter.work'
 ```
 
-Give it 5 to 30 seconds before the first request, while the worker spreads to
-every edge server. Then call it with
+Give it 5 to 30 seconds before the first request, while the worker deploys.
+Then call it with
 [`puter.workers.exec()`](/Workers/exec/), which sends the signed-in user along
 so the route can use `user.puter`:
 
@@ -46,11 +46,10 @@ await res.json();    // { username: 'grace' }
 [Build an API with a worker](/recipes/build-an-api/) covers what to put
 in the routes.
 
-Worker names are global, like subdomains, and are stored in lowercase. A name
-can use letters, numbers, hyphens and underscores. When another account already
-has the name, `create()` rejects, so pick another one or use
-[`puter.randName()`](/Utils/randName/). The account deploying the worker needs a
-verified email address.
+Worker names are global, like subdomains. When another account already has the
+name, [`create()`](/Workers/create/) rejects, so pick another one or use
+[`puter.randName()`](/Utils/randName/). All the naming rules and requirements
+are on the [`puter.workers.create()`](/Workers/create/) page.
 
 ## Update Its Code
 

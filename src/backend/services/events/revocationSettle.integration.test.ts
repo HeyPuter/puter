@@ -27,7 +27,15 @@
  * out of service so a revoked subscription stops costing anything at all.
  */
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    beforeAll,
+    describe,
+    expect,
+    it,
+    onTestFinished,
+    vi,
+} from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
 import { SUSPENDED_ROW_TTL_DAYS } from '../../controllers/events/limits.js';
@@ -43,6 +51,7 @@ import type { AclMode } from '../acl/ACLService.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import type { DeliveryEnvelope } from './EventsService.js';
 import { fsAnchorToken } from './subjects.js';
+import { appHandlerScope } from '../../stores/events/EventHandlerStore.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 const TABLE = 'event_subscriptions';
@@ -198,13 +207,18 @@ const makeApp = async (path: string): Promise<Actor> => {
         uid,
         `fs:${await uidOf(path)}:list`,
     );
-    // Durable rows target the app's worker by default, which takes its own
+    // A row with a handler runs in the app's worker, which takes its own
     // consent.
     await env.server.services.permission.grantUserAppPermission(
         owner.actor,
         uid,
         EVENTS_BACKGROUND_PERMISSION,
     );
+    await env.server.stores.eventHandler.publish({
+        scope: appHandlerScope(uid),
+        name: 'onChange',
+        source: 'async () => {}',
+    });
     const app = await env.server.stores.app.getByUid(uid);
     return makeActor({
         user: owner.actor.user as never,
@@ -522,11 +536,14 @@ describe('what a revoked grant settles', () => {
         ).sub;
 
         await write(uniquePath(inner));
+        const lease = `ev:ql:{${sub.subId}}`;
         await vi.waitFor(
-            async () =>
+            async () => {
                 expect(
                     await env.server.stores.pendingDelivery.depth(sub.subId),
-                ).toBeGreaterThan(0),
+                ).toBeGreaterThan(0);
+                expect(await env.server.clients.redis.zcard(lease)).toBe(1);
+            },
             { timeout: 5_000, interval: 25 },
         );
 
@@ -534,6 +551,8 @@ describe('what a revoked grant settles', () => {
         await unshare(shared, 'list');
         expect((await rowOf(sub.subId)).suspended_reason).toBeNull();
 
+        // The first hand-over's lease lapses, and the sweep reads the row.
+        await env.server.clients.redis.del(lease);
         delivered.length = 0;
         await events().sweepPending();
 
@@ -698,14 +717,16 @@ describe('what a revoked grant settles', () => {
         const appActor = await makeApp(path);
 
         const background = (
-            await events().subscribeDurable(appActor, { subject: `fs:${path}` })
+            await events().subscribeDurable(appActor, {
+                subject: `fs:${path}`,
+                handlerName: 'onChange',
+            })
         ).sub;
-        // Delivered to a connection and nowhere else, so the consent that just
-        // went was never what allowed it.
+        // No handler, so it only reaches connections and the consent that
+        // just went was never what allowed it.
         const foreground = (
             await events().subscribeDurable(appActor, {
                 subject: `fs:${path}`,
-                targets: ['socket'],
             })
         ).sub;
 
@@ -717,6 +738,38 @@ describe('what a revoked grant settles', () => {
 
         await suspendedRow(background.subId);
         expect((await rowOf(foreground.subId)).suspended_at).toBeFalsy();
+    });
+
+    it('asks an app about its background consent once, not once per row', async () => {
+        await clearRows();
+        const path = await folder(`/${owner.username}/settle-consent-once`);
+        const appActor = await makeApp(path);
+        const subs = [];
+        for (let i = 0; i < 3; i++)
+            subs.push(
+                (
+                    await events().subscribeDurable(appActor, {
+                        subject: `fs:${path}`,
+                        handlerName: 'onChange',
+                    })
+                ).sub,
+            );
+
+        const check = vi.spyOn(env.server.services.permission, 'check');
+        try {
+            await env.server.services.permission.revokeUserAppPermission(
+                owner.actor,
+                appActor.app!.uid,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
+            for (const sub of subs) await suspendedRow(sub.subId);
+            const asked = check.mock.calls.filter(
+                ([, permission]) => permission === EVENTS_BACKGROUND_PERMISSION,
+            );
+            expect(asked).toHaveLength(1);
+        } finally {
+            check.mockRestore();
+        }
     });
 
     it('settles a subscription when one app permission is revoked, not just all of them', async () => {
@@ -904,5 +957,167 @@ describe('what a revoked grant settles', () => {
             boom.mockRestore();
             warn.mockRestore();
         }
+    });
+});
+
+describe('a holder`s user scope when consent is withdrawn', () => {
+    const scopeOf = (appUid: string, holder = owner.id) => ({
+        appUid,
+        holder,
+    });
+    const putUserHandler = async (appUid: string, holder = owner.id) => {
+        await env.server.stores.eventHandler.publish({
+            scope: scopeOf(appUid, holder),
+            name: 'mine',
+            source: 'async () => {}',
+            broadcast: false,
+        });
+    };
+    const held = (appUid: string, holder = owner.id) =>
+        env.server.stores.eventHandler.listForApp(scopeOf(appUid, holder));
+
+    let destroys: Array<{ appUid: string; scope: string; userId: number }>;
+    beforeAll(() => {
+        env.server.clients.event.on('events.worker.destroy', (_key, event) => {
+            destroys?.push({
+                appUid: event.appUid,
+                scope: event.scope,
+                userId: event.actor.user.id,
+            });
+        });
+    });
+
+    it('drops the scope when background consent is revoked, announcing it as the holder', async () => {
+        await clearRows();
+        destroys = [];
+        const path = await folder(`/${owner.username}/scope-consent`);
+        const app = (await makeApp(path)).app!;
+        await putUserHandler(app.uid);
+
+        await env.server.services.permission.revokeUserAppPermission(
+            owner.actor,
+            app.uid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
+
+        await vi.waitFor(async () => expect(await held(app.uid)).toEqual([]), {
+            timeout: 5_000,
+            interval: 25,
+        });
+        expect(destroys.filter((event) => event.scope === 'user')).toEqual([
+            { appUid: app.uid, scope: 'user', userId: owner.id },
+        ]);
+    });
+
+    it('drops the scope when the whole app is revoked', async () => {
+        await clearRows();
+        const path = await folder(`/${owner.username}/scope-whole-app`);
+        const app = (await makeApp(path)).app!;
+        await putUserHandler(app.uid);
+
+        await env.server.services.permission.revokeUserAppAll(
+            owner.actor,
+            app.uid,
+        );
+
+        await vi.waitFor(async () => expect(await held(app.uid)).toEqual([]), {
+            timeout: 5_000,
+            interval: 25,
+        });
+    });
+
+    it('leaves the scope when the consent still stands, as after a revoke then a grant', async () => {
+        await clearRows();
+        const path = await folder(`/${owner.username}/scope-regrant`);
+        const app = (await makeApp(path)).app!;
+        await putUserHandler(app.uid);
+
+        for (const permission of [EVENTS_BACKGROUND_PERMISSION, null])
+            await events().settleRevokedGrant({
+                holderUserId: owner.id,
+                appUid: app.uid,
+                permission,
+            });
+
+        expect(await held(app.uid)).toHaveLength(1);
+    });
+
+    it('leaves the scope when the consent check itself fails', async () => {
+        await clearRows();
+        const path = await folder(`/${owner.username}/scope-check-fails`);
+        const app = (await makeApp(path)).app!;
+        await putUserHandler(app.uid);
+        const check = vi
+            .spyOn(events(), 'hasBackgroundConsent')
+            .mockResolvedValue(null);
+        try {
+            await events().settleRevokedGrant({
+                holderUserId: owner.id,
+                appUid: app.uid,
+                permission: EVENTS_BACKGROUND_PERMISSION,
+            });
+            expect(check).toHaveBeenCalled();
+            expect(await held(app.uid)).toHaveLength(1);
+        } finally {
+            check.mockRestore();
+        }
+    });
+
+    it('leaves the scope for an unrelated grant revoked, and another holder`s scope for any', async () => {
+        await clearRows();
+        const path = await folder(`/${owner.username}/scope-unrelated`);
+        const app = (await makeApp(path)).app!;
+        await putUserHandler(app.uid);
+        await putUserHandler(app.uid, guest.id);
+
+        await env.server.services.permission.revokeUserAppPermission(
+            owner.actor,
+            app.uid,
+            `fs:${await uidOf(path)}:list`,
+        );
+        await env.server.services.permission.revokeUserAppPermission(
+            owner.actor,
+            app.uid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
+
+        await vi.waitFor(async () => expect(await held(app.uid)).toEqual([]), {
+            timeout: 5_000,
+            interval: 25,
+        });
+        expect(await held(app.uid, guest.id)).toHaveLength(1);
+    });
+
+    it('keeps the rows bound to a dropped scope, suspended rather than deleted', async () => {
+        await clearRows();
+        const path = await folder(`/${owner.username}/scope-rows`);
+        const appActor = await makeApp(path);
+        const app = appActor.app!;
+        const config = (events() as unknown as { config: IConfig }).config;
+        config.events!.userHandlers = true;
+        onTestFinished(() => {
+            config.events!.userHandlers = false;
+        });
+        const sub = (
+            await events().subscribeDurable(appActor, {
+                subject: `fs:${path}`,
+                handlerSource: 'async () => {}',
+            })
+        ).sub;
+
+        await env.server.services.permission.revokeUserAppPermission(
+            owner.actor,
+            app.uid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
+
+        await suspendedRow(sub.subId);
+        await vi.waitFor(async () => expect(await held(app.uid)).toEqual([]), {
+            timeout: 5_000,
+            interval: 25,
+        });
+        expect((await rowOf(sub.subId)).suspended_reason).toBe(
+            'permission_revoked',
+        );
     });
 });

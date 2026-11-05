@@ -18,23 +18,13 @@
  */
 
 import {
+    CACHE_TOMBSTONE_SUFFIX,
     CACHE_TOMBSTONE_TTL_SECONDS,
     isCacheTombstoneKey,
 } from '../../stores/types';
 import { PuterService } from '../types';
 
-/**
- * Applies `outer.cacheUpdate` from peer regions.
- *
- * `PuterStore.publishCacheKeys({ broadcast: true })` writes its own cluster's
- * Redis and emits the same mutation for peers; `BroadcastService` ships it over
- * a webhook. Nothing consumed it on the far side, so cross-region cache
- * replication silently no-oped.
- *
- * Deletes rather than re-writing the sender's payload: their value was derived
- * from their own replica, so forcing a re-read here is the conservative move.
- * Tombstones are the exception — they carry no row, only the fact of a delete.
- */
+/** Applies peer invalidations, evicting rows that raced a delayed tombstone. */
 export class CacheReplicationService extends PuterService {
     override onServerStart(): void {
         this.clients.event.on('outer.cacheUpdate', (_key, data, meta) => {
@@ -46,17 +36,18 @@ export class CacheReplicationService extends PuterService {
             );
             if (keys.length === 0) return;
             const hasData = (data as { data?: unknown })?.data !== undefined;
-            void this.#invalidate(keys, hasData);
+            return this.#invalidate(keys, hasData);
         });
     }
 
-    // Pipelined rather than a multi-key DEL, which would CROSSSLOT on Valkey.
+    // Pipelined so keys can live in different cache slots.
     async #invalidate(keys: string[], hasData: boolean): Promise<void> {
         try {
             const pipeline = this.clients.redis.pipeline();
             for (const key of keys) {
                 if (hasData && isCacheTombstoneKey(key)) {
                     pipeline.set(key, '1', 'EX', CACHE_TOMBSTONE_TTL_SECONDS);
+                    pipeline.del(key.slice(0, -CACHE_TOMBSTONE_SUFFIX.length));
                 } else {
                     pipeline.del(key);
                 }

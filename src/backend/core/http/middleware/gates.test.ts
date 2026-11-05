@@ -20,6 +20,7 @@
 import type { Request, Response } from 'express';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { resetCardVerificationStatusCache } from '../../../util/cardFallback';
+import { isReservedUsername } from '../../../util/reservedUsernames';
 import { makeActor, type Actor } from '../../actor';
 import { HttpError, isHttpError } from '../HttpError';
 import {
@@ -27,6 +28,7 @@ import {
     adminOnlyGate,
     allowedAppIdsGate,
     assertNotUserSession,
+    gate,
     noUserSessionGate,
     requireAnyVerifiedGate,
     type AnyVerifiedDeps,
@@ -115,6 +117,59 @@ const expectHttpError = (got: NextArg, status: number, legacyCode?: string) => {
     expect(err.statusCode).toBe(status);
     if (legacyCode) expect(err.legacyCode).toBe(legacyCode);
 };
+
+// ── gate ────────────────────────────────────────────────────────────
+
+describe('gate', () => {
+    const denied = () =>
+        new HttpError(403, 'nope', { legacyCode: 'forbidden' });
+
+    it('calls next() synchronously when a sync check passes', () => {
+        expect(runGate(gate(() => {}), {})).toBeUndefined();
+    });
+
+    it('hands a sync throw to next(err) synchronously', () => {
+        const err = denied();
+        expect(
+            runGate(
+                gate(() => {
+                    throw err;
+                }),
+                {},
+            ),
+        ).toBe(err);
+    });
+
+    it('calls next() once an async check resolves', async () => {
+        const got = await runGateAsync(
+            gate(async () => {}),
+            {},
+        );
+        expect(got).toBeUndefined();
+    });
+
+    it('hands an async rejection to next(err)', async () => {
+        const err = denied();
+        const got = await runGateAsync(
+            gate(async () => {
+                throw err;
+            }),
+            {},
+        );
+        expect(got).toBe(err);
+    });
+
+    it('passes the request to the check', () => {
+        let seen: unknown;
+        runGate(
+            gate((req) => {
+                seen = req.headers;
+            }),
+            { headers: { host: 'x' } },
+        );
+        expect(seen).toEqual({ host: 'x' });
+    });
+});
 
 // ── subdomainGate ───────────────────────────────────────────────────
 
@@ -308,6 +363,20 @@ describe('requireUserActorGate', () => {
         expect(got).toBeUndefined();
     });
 
+    it('still rejects a full-access claim on an app-issued token', () => {
+        const got = runGate(requireUserActorGate({ allowFullAccess: true }), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' }, app: { uid: 'app-1' } },
+                    fullAccess: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
     it('still rejects a SCOPED access token even when allowFullAccess is set', () => {
         const got = runGate(requireUserActorGate({ allowFullAccess: true }), {
             actor: {
@@ -468,9 +537,7 @@ describe('assertNotUserSession', () => {
             expect((err as HttpError).legacyCode).toBe(
                 'app_or_api_token_required',
             );
-            // The user asked for a helpful message: it must point at the
-            // credentials that DO work and where to get one.
-            expect((err as HttpError).message).toMatch(/app or worker token/i);
+            // Must point at the credential that works and where to get one.
             expect((err as HttpError).message).toMatch(/API token/);
             expect((err as HttpError).message).toMatch(/dashboard/i);
         }
@@ -503,6 +570,12 @@ describe('adminOnlyGate', () => {
                 actor: { user: { uuid: 'u-1', username: 'admin' } },
             }),
         ).toBeUndefined();
+    });
+
+    it('reserves every name it admits, so none can be claimed', () => {
+        expect(isReservedUsername('gate_extra')).toBe(false);
+        adminOnlyGate(['Gate_Extra']);
+        expect(isReservedUsername('gate_extra')).toBe(true);
     });
 
     it('rejects unknown usernames with 403 forbidden', () => {
@@ -761,6 +834,34 @@ describe('requireVerifiedAccount', () => {
             },
         });
         expectHttpError(got, 403, 'card_verification_required');
+    });
+
+    it('asks an email-gate-last account for card, then phone, then email', () => {
+        const pending = {
+            uuid: 'u-1',
+            requires_email_confirmation: true,
+            email_confirmed: false,
+            requires_phone_verification: true,
+            requires_card_verification: true,
+            metadata: { emailGateLast: true },
+        };
+        const gateFor = (user: Record<string, unknown>) =>
+            runGate(requireVerifiedAccount(), { actor: { user } });
+        expectHttpError(gateFor(pending), 403, 'card_verification_required');
+        expectHttpError(
+            gateFor({ ...pending, requires_card_verification: false }),
+            403,
+            'phone_verification_required',
+        );
+        expectHttpError(
+            gateFor({
+                ...pending,
+                requires_card_verification: false,
+                requires_phone_verification: false,
+            }),
+            403,
+            'email_confirmation_required',
+        );
     });
 
     it('returns 403 two_factor_required for a seat whose team requires 2FA', async () => {

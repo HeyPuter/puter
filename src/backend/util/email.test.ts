@@ -18,7 +18,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { cleanEmail, isBlockedEmail } from './email.ts';
+import validator from 'validator';
+import {
+    cleanEmail,
+    isBlockedEmail,
+    isSameAddress,
+    isStorableEmail,
+} from './email.ts';
 
 describe('cleanEmail', () => {
     it('lowercases the whole address', () => {
@@ -38,6 +44,20 @@ describe('cleanEmail', () => {
         );
     });
 
+    it('strips subaddressing on regional Microsoft domains', () => {
+        expect(cleanEmail('Foo+x1@outlook.jp')).toBe('foo@outlook.jp');
+        expect(cleanEmail('foo.bar+x@hotmail.co.uk')).toBe(
+            'foo.bar@hotmail.co.uk',
+        );
+        expect(cleanEmail('foo+x@live.jp')).toBe('foo@live.jp');
+    });
+
+    it('strips subaddressing for the other providers that deliver tags', () => {
+        expect(cleanEmail('foo+x@protonmail.ch')).toBe('foo@protonmail.ch');
+        expect(cleanEmail('foo+x@zohomail.eu')).toBe('foo@zohomail.eu');
+        expect(cleanEmail('foo+x@yandex.ru')).toBe('foo@yandex.ru');
+    });
+
     it('drops dots and subaddressing for gmail', () => {
         expect(cleanEmail('foo.bar+tag@gmail.com')).toBe('foobar@gmail.com');
     });
@@ -46,8 +66,21 @@ describe('cleanEmail', () => {
         expect(cleanEmail('foo.bar@googlemail.com')).toBe('foobar@gmail.com');
     });
 
-    it('drops dots for icloud too', () => {
-        expect(cleanEmail('foo.bar@icloud.com')).toBe('foobar@icloud.com');
+    // Apple allocates the exact string: both of these can have owners.
+    it('keeps dots for icloud, which treats them as significant', () => {
+        expect(cleanEmail('foo.bar@icloud.com')).toBe('foo.bar@icloud.com');
+        expect(cleanEmail('foobar@icloud.com')).toBe('foobar@icloud.com');
+        for (const domain of ['icloud.com', 'me.com', 'mac.com']) {
+            expect(cleanEmail(`a.b@${domain}`)).not.toBe(
+                cleanEmail(`ab@${domain}`),
+            );
+        }
+    });
+
+    it('still drops `+` for icloud, which does fold subaddressing', () => {
+        expect(cleanEmail('foo.bar+tag@icloud.com')).toBe(
+            'foo.bar@icloud.com',
+        );
     });
 
     it('keeps `+` for yahoo, which treats it as significant', () => {
@@ -63,6 +96,22 @@ describe('cleanEmail', () => {
 
     it('returns the lowercased input when there is no domain part', () => {
         expect(cleanEmail('NoAtSign')).toBe('noatsign');
+    });
+});
+
+describe('isSameAddress', () => {
+    it('ignores case and surrounding space', () => {
+        expect(isSameAddress('Foo@Example.com ', 'foo@example.COM')).toBe(true);
+    });
+
+    it('tells accent variants apart', () => {
+        expect(isSameAddress('foo@gmáil.com', 'foo@gmail.com')).toBe(false);
+        expect(isSameAddress('fóo@gmail.com', 'foo@gmail.com')).toBe(false);
+    });
+
+    it('never matches a missing address', () => {
+        expect(isSameAddress(null, 'foo@example.com')).toBe(false);
+        expect(isSameAddress(undefined, '')).toBe(false);
     });
 });
 
@@ -92,5 +141,49 @@ describe('isBlockedEmail', () => {
         expect(
             isBlockedEmail('A.B+tag@MAILINATOR.com', ['mailinator.com']),
         ).toBe(true);
+        expect(
+            isBlockedEmail('first.last+tag@googlemail.com', ['@gmail.com']),
+        ).toBe(true);
+    });
+
+    it('ignores case in the configured suffixes too', () => {
+        expect(isBlockedEmail('a@mailinator.com', ['Mailinator.COM'])).toBe(
+            true,
+        );
+        expect(isBlockedEmail('a@Mailinator.com', ['Mailinator.com'])).toBe(
+            true,
+        );
+    });
+});
+
+describe('isStorableEmail', () => {
+    const markup = '"<img/src=x/onerror=alert(1)>"@example.com';
+
+    it('refuses a quoted local part that carries markup', () => {
+        // The reason this gate exists: the library on its own says yes.
+        expect(validator.isEmail(markup)).toBe(true);
+        expect(isStorableEmail(markup)).toBe(false);
+    });
+
+    it('refuses the bare metacharacters too', () => {
+        for (const bad of ['a<b@example.com', 'a>b@example.com', 'a"b@example.com'])
+            expect(isStorableEmail(bad)).toBe(false);
+    });
+
+    it('answers for a non-string instead of throwing', () => {
+        // A throw where a public route reaches this is a 500, not a 400.
+        expect(() => validator.isEmail(1 as unknown as string)).toThrow();
+        for (const bad of [1, null, undefined, {}, []])
+            expect(isStorableEmail(bad)).toBe(false);
+    });
+
+    it('still accepts addresses people actually have', () => {
+        for (const good of [
+            "o'brien@example.com",
+            'a&b@example.com',
+            'foo.bar+tag@gmail.com',
+            'user_name-1@sub.example.co.uk',
+        ])
+            expect(isStorableEmail(good)).toBe(true);
     });
 });

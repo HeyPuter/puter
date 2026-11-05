@@ -16,6 +16,8 @@ import { bucketTag } from '../../stores/metering/MeteringBufferStore.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
+    ORG_SEAT_FREE_SUBSCRIPTION,
+    UNLIMITED_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
     GLOBAL_APP_KEY,
     METRICS_PREFIX,
@@ -25,7 +27,10 @@ import {
     POLICY_PREFIX,
     USAGE_DETAIL_SHARD_COUNT,
     V1_CLAIM_THROUGH_MONTH,
+    isFreeSubscription,
+    subscriptionOverride,
 } from './consts.ts';
+import { subscriptionSatisfies } from './enforcement.ts';
 import type { MeteringService } from './MeteringService.ts';
 import type { UsageInput } from './types.ts';
 import { detailShardOf } from './usageDetail.ts';
@@ -45,9 +50,9 @@ const currentMonthString = (): string => {
 };
 
 /**
- * How many `incr` calls one buffered write of `types` costs against the
- * actor's own usage item(s): one totals write plus one per distinct detail
- * shard the types hash to.
+ * How many `incr` calls one buffered write of `types` costs against the actor's
+ * own usage item(s): one totals write plus one per distinct detail shard the
+ * types hash to.
  */
 const usageWriteCalls = (types: string[]): number =>
     1 + new Set(types.map((t) => detailShardOf(t))).size;
@@ -138,9 +143,11 @@ describe('MeteringService', () => {
     // Each test uses a fresh user so KV state from one test never leaks into
     // the next. Email present → registered-user policy; absent → temp.
     let actor: Actor;
+    let nextUserId = 1;
     const makeUser = (
         overrides: Partial<Actor['user']> = {},
     ): Actor['user'] => ({
+        id: nextUserId++,
         uuid: `meter-user-${Math.random().toString(36).slice(2)}`,
         username: 'meter-user',
         email: 'meter@test.com',
@@ -177,6 +184,185 @@ describe('MeteringService', () => {
             expect(policy.id).toBe(DEFAULT_TEMP_SUBSCRIPTION);
         });
 
+        it('runs the default resolvers in the order they asked for, not the order they arrived', async () => {
+            const seatLike = {
+                id: 'seat-like',
+                monthUsageAllowance: toMicroCents(1),
+                monthlyStorageAllowance: 1024,
+            };
+            const domainLike = {
+                id: 'domain-like',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 2048,
+            };
+            target.registerPolicy(seatLike);
+            target.registerPolicy(domainLike);
+
+            // Registered first, as the extension layer is: it still loses.
+            target.registerDefaultSubscriptionResolver(
+                async () => 'domain-like',
+            );
+            target.registerDefaultSubscriptionResolver(
+                async () => 'seat-like',
+                {
+                    priority: 10,
+                },
+            );
+
+            const policy = await target.getActorSubscription(actor);
+            expect(policy.id).toBe('seat-like');
+        });
+
+        it('calls a plan nobody bought a default, however generous it is', async () => {
+            const generous = {
+                id: 'generous-default',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            };
+            target.registerPolicy(generous);
+            target.registerDefaultSubscriptionResolver(
+                async () => 'generous-default',
+            );
+
+            const defaulted = makeActor();
+            expect(await target.getActorSubscription(defaulted)).toMatchObject({
+                id: 'generous-default',
+            });
+            expect(await target.actorHasPaidSubscription(defaulted)).toBe(
+                false,
+            );
+        });
+
+        it('calls the same plan paid once something subscribed the actor to it', async () => {
+            const generous = {
+                id: 'bought-plan',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            };
+            target.registerPolicy(generous);
+            target.registerSubscriptionResolver(async () => 'bought-plan');
+
+            const subscribed = makeActor();
+            expect(await target.getActorSubscription(subscribed)).toMatchObject(
+                {
+                    id: 'bought-plan',
+                },
+            );
+            expect(await target.actorHasPaidSubscription(subscribed)).toBe(
+                true,
+            );
+        });
+
+        it('counts unlimited as paid, so a deployment that turned it on keeps its caps', async () => {
+            const cfg = (
+                target as unknown as { config: Record<string, unknown> }
+            ).config;
+            const saved = cfg.unlimitedMetering;
+            cfg.unlimitedMetering = true;
+            try {
+                const anyone = makeActor();
+                expect((await target.getActorSubscription(anyone)).id).toBe(
+                    UNLIMITED_SUBSCRIPTION,
+                );
+                expect(await target.actorHasPaidSubscription(anyone)).toBe(
+                    true,
+                );
+            } finally {
+                cfg.unlimitedMetering = saved;
+            }
+        });
+
+        it('calls it a default when the explicit id names no registered policy', async () => {
+            const fallback = {
+                id: 'registered-default',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            };
+            target.registerPolicy(fallback);
+            target.registerDefaultSubscriptionResolver(
+                async () => 'registered-default',
+            );
+            // As an extension that failed to load would name.
+            target.registerSubscriptionResolver(async () => 'ghost-plan');
+
+            const actorOnGhost = makeActor();
+            expect((await target.getActorSubscription(actorOnGhost)).id).toBe(
+                'registered-default',
+            );
+            expect(await target.actorHasPaidSubscription(actorOnGhost)).toBe(
+                false,
+            );
+        });
+
+        it('calls a free plan unpaid even when it was subscribed to', async () => {
+            target.registerSubscriptionResolver(
+                async () => ORG_SEAT_FREE_SUBSCRIPTION,
+            );
+            const seat = makeActor();
+            expect(await target.actorHasPaidSubscription(seat)).toBe(false);
+        });
+
+        it('counts a plan registered as free as free wherever free-ness is asked', async () => {
+            target.registerPolicy({
+                id: 'registered-free',
+                monthUsageAllowance: toMicroCents(1),
+                monthlyStorageAllowance: 1024,
+                free: true,
+            });
+            target.registerSubscriptionResolver(async () => 'registered-free');
+
+            const holder = makeActor();
+            expect((await target.getActorSubscription(holder)).id).toBe(
+                'registered-free',
+            );
+            expect(await target.actorHasPaidSubscription(holder)).toBe(false);
+            expect(isFreeSubscription('registered-free')).toBe(true);
+            expect(subscriptionSatisfies('registered-free', true)).toBe(false);
+            expect(
+                subscriptionOverride(
+                    { [DEFAULT_FREE_SUBSCRIPTION]: 7 },
+                    'registered-free',
+                ),
+            ).toBe(7);
+        });
+
+        it('lets a provisional answer win, but only for the fallback window', async () => {
+            target.registerPolicy({
+                id: 'provisional-plan',
+                monthUsageAllowance: toMicroCents(1),
+                monthlyStorageAllowance: 1024,
+            });
+            target.registerPolicy({
+                id: 'later-default',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            });
+            const first = vi.fn(async () => ({
+                id: 'provisional-plan',
+                provisional: true,
+            }));
+            target.registerDefaultSubscriptionResolver(first, { priority: 10 });
+            target.registerDefaultSubscriptionResolver(
+                async () => 'later-default',
+            );
+
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status.policy.id).toBe('provisional-plan');
+            expect(status.provisional).toBe(true);
+
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            const now = Date.now();
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                dateNow.mockReturnValue(now + fallbackMs + 1);
+                await target.getActorSubscription(actor);
+                expect(first).toHaveBeenCalledTimes(2);
+            } finally {
+                dateNow.mockRestore();
+            }
+        });
+
         it('uses the first non-empty subscription resolver', async () => {
             const customPolicy = {
                 id: 'custom-paid',
@@ -190,6 +376,136 @@ describe('MeteringService', () => {
             const policy = await target.getActorSubscription(actor);
             expect(policy.id).toBe('custom-paid');
             expect(stub).toHaveBeenCalledWith(actor);
+        });
+
+        // Resolvers are asked concurrently, but the answer must be the one
+        // asking them one at a time, in order, would give.
+        describe('concurrent resolvers', () => {
+            const lookupFailedFor = (who: Actor) =>
+                (
+                    target as unknown as {
+                        subscriptionCache: Map<
+                            string,
+                            { lookupFailed: boolean }
+                        >;
+                    }
+                ).subscriptionCache.get(who.user!.uuid as string)?.lookupFailed;
+            const sleep = (ms: number) =>
+                new Promise((resolve) => setTimeout(resolve, ms));
+
+            it('starts every resolver in both lists before any answers', async () => {
+                const started: string[] = [];
+                let release!: () => void;
+                const gate = new Promise<null>((resolve) => {
+                    release = () => resolve(null);
+                });
+                target.registerDefaultSubscriptionResolver(async () => {
+                    started.push('default');
+                    return gate;
+                });
+                target.registerSubscriptionResolver(async () => {
+                    started.push('first');
+                    return gate;
+                });
+                target.registerSubscriptionResolver(async () => {
+                    started.push('second');
+                    return null;
+                });
+
+                const pending = target.getActorSubscription(actor);
+                expect(started).toEqual(['default', 'first', 'second']);
+                release();
+                expect((await pending).id).toBe(DEFAULT_FREE_SUBSCRIPTION);
+            });
+
+            it('keeps the earlier resolver`s answer when a later one settles first', async () => {
+                for (const id of ['slow-plan', 'fast-plan'])
+                    target.registerPolicy({
+                        id,
+                        monthUsageAllowance: toMicroCents(10),
+                        monthlyStorageAllowance: 1024,
+                    });
+                target.registerSubscriptionResolver(async () => {
+                    await sleep(20);
+                    return 'slow-plan';
+                });
+                target.registerSubscriptionResolver(async () => 'fast-plan');
+
+                expect((await target.getActorSubscription(actor)).id).toBe(
+                    'slow-plan',
+                );
+                expect(lookupFailedFor(actor)).toBe(false);
+            });
+
+            it('counts a failure ahead of the winner as a failed lookup', async () => {
+                target.registerPolicy({
+                    id: 'after-failure',
+                    monthUsageAllowance: toMicroCents(10),
+                    monthlyStorageAllowance: 1024,
+                });
+                const warn = vi
+                    .spyOn(console, 'warn')
+                    .mockImplementation(() => {});
+                try {
+                    target.registerSubscriptionResolver(async () => {
+                        await sleep(10);
+                        throw new Error('store down');
+                    });
+                    target.registerSubscriptionResolver(
+                        async () => 'after-failure',
+                    );
+
+                    expect((await target.getActorSubscription(actor)).id).toBe(
+                        'after-failure',
+                    );
+                    expect(lookupFailedFor(actor)).toBe(true);
+                    expect(warn).toHaveBeenCalledWith(
+                        '[metering] subscription resolver failed',
+                        expect.any(Error),
+                    );
+                } finally {
+                    warn.mockRestore();
+                }
+            });
+
+            it('ignores failures after the winner, with no warning or unhandled rejection', async () => {
+                target.registerPolicy({
+                    id: 'early-winner',
+                    monthUsageAllowance: toMicroCents(10),
+                    monthlyStorageAllowance: 1024,
+                });
+                const unhandled = vi.fn();
+                process.on('unhandledRejection', unhandled);
+                const warn = vi
+                    .spyOn(console, 'warn')
+                    .mockImplementation(() => {});
+                try {
+                    target.registerSubscriptionResolver(async () => {
+                        await sleep(10);
+                        return 'early-winner';
+                    });
+                    target.registerSubscriptionResolver(async () => {
+                        throw new Error('later, async');
+                    });
+                    target.registerSubscriptionResolver(() => {
+                        throw new Error('later, sync');
+                    });
+
+                    expect((await target.getActorSubscription(actor)).id).toBe(
+                        'early-winner',
+                    );
+                    expect(lookupFailedFor(actor)).toBe(false);
+                    await sleep(20);
+                    expect(warn).not.toHaveBeenCalledWith(
+                        '[metering] subscription resolver failed',
+                        expect.anything(),
+                    );
+                    expect(unhandled).not.toHaveBeenCalled();
+                } finally {
+                    warn.mockRestore();
+                    process.off('unhandledRejection', unhandled);
+                }
+            });
         });
 
         it('falls through to the default resolver when the primary returns nothing', async () => {
@@ -334,6 +650,154 @@ describe('MeteringService', () => {
             expect(stub).toHaveBeenCalledTimes(2);
         });
 
+        // An actor built from a few row fields can't be resolved by email, so
+        // its answer must not stand in for the account's plan.
+        it('never caches an answer resolved without the email, but serves one from the cache', async () => {
+            target.registerPolicy({
+                id: 'by-email',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi.fn(async (a: Actor) =>
+                a.user.email ? 'by-email' : null,
+            );
+            target.registerDefaultSubscriptionResolver(stub);
+            const { email: _email, ...partialUser } = actor.user;
+            const partial: Actor = { user: partialUser };
+
+            expect((await target.getActorSubscription(partial)).id).toBe(
+                DEFAULT_TEMP_SUBSCRIPTION,
+            );
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                'by-email',
+            );
+            expect((await target.getActorSubscription(partial)).id).toBe(
+                'by-email',
+            );
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
+        // Resolvers key on `id` too.
+        it('never caches an answer resolved without a numeric id, but serves one from the cache', async () => {
+            target.registerPolicy({
+                id: 'by-id',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi.fn(async (a: Actor) =>
+                typeof a.user.id === 'number' ? 'by-id' : null,
+            );
+            target.registerDefaultSubscriptionResolver(stub);
+            const { id: _id, ...partialUser } = actor.user;
+            const partial: Actor = { user: partialUser };
+
+            expect((await target.getActorSubscription(partial)).id).toBe(
+                DEFAULT_FREE_SUBSCRIPTION,
+            );
+            expect((await target.getActorSubscription(actor)).id).toBe('by-id');
+            // From the full actor's cache entry; the partial call wrote none.
+            expect((await target.getActorSubscription(partial)).id).toBe(
+                'by-id',
+            );
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
+        // `email` is checked for presence, not truth: a temp user (`null`)
+        // is a real answer, unlike an actor missing the field entirely.
+        it('caches an email: null actor same as any other', async () => {
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+            const tempActor: Actor = { user: makeUser({ email: null }) };
+
+            await target.getActorSubscription(tempActor);
+            await target.getActorSubscription(tempActor);
+
+            expect(stub).toHaveBeenCalledTimes(1);
+        });
+
+        it('keeps a fresh successful answer over a failure that resolves after it', async () => {
+            target.registerPolicy({
+                id: 'concurrent-paid',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            let releaseFailure!: () => void;
+            let releaseSuccess!: () => void;
+            const failureGate = new Promise<void>((r) => {
+                releaseFailure = r;
+            });
+            const successGate = new Promise<void>((r) => {
+                releaseSuccess = r;
+            });
+            const stub = vi
+                .fn<(a: Actor) => Promise<string | null>>()
+                .mockImplementationOnce(async () => {
+                    await failureGate;
+                    throw new Error('store unavailable');
+                })
+                .mockImplementationOnce(async () => {
+                    await successGate;
+                    return 'concurrent-paid';
+                });
+            target.registerSubscriptionResolver(stub);
+
+            // Two concurrent cache misses for the same actor.
+            const failing = target.getActorSubscription(actor);
+            const succeeding = target.getActorSubscription(actor);
+
+            // The good answer lands and caches first...
+            releaseSuccess();
+            expect((await succeeding).id).toBe('concurrent-paid');
+            // ...then the failed one finishes after it, and must not
+            // replace what already cached.
+            releaseFailure();
+            expect((await failing).id).toBe('concurrent-paid');
+
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                'concurrent-paid',
+            );
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
+        it('caches the fallback from a failed resolver only briefly', async () => {
+            target.registerPolicy({
+                id: 'flaky-paid',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi
+                .fn<() => Promise<string | null>>()
+                .mockRejectedValueOnce(new Error('store unavailable'))
+                .mockResolvedValue('flaky-paid');
+            target.registerSubscriptionResolver(stub);
+
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                DEFAULT_FREE_SUBSCRIPTION,
+            );
+            // Reused for the short window rather than re-asked per request.
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                DEFAULT_FREE_SUBSCRIPTION,
+            );
+            expect(stub).toHaveBeenCalledTimes(1);
+
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            expect(fallbackMs).toBeLessThan(
+                (target.constructor as typeof MeteringService)
+                    .SUBSCRIPTION_CACHE_MS,
+            );
+            const now = Date.now();
+            vi.spyOn(Date, 'now').mockReturnValue(now + fallbackMs + 1);
+            try {
+                expect((await target.getActorSubscription(actor)).id).toBe(
+                    'flaky-paid',
+                );
+            } finally {
+                vi.mocked(Date.now).mockRestore();
+            }
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
         it('rejects an actor with no user uuid', async () => {
             await expect(
                 target.getActorSubscription({
@@ -344,6 +808,129 @@ describe('MeteringService', () => {
     });
 
     // ── Addons ───────────────────────────────────────────────────────
+
+    describe('getActorSubscriptionStatus', () => {
+        it('answers a resolved plan as not provisional', async () => {
+            target.registerPolicy({
+                id: 'status-paid',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            });
+            target.registerSubscriptionResolver(async () => 'status-paid');
+
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status).toMatchObject({
+                policy: { id: 'status-paid' },
+                paid: true,
+                provisional: false,
+            });
+        });
+
+        it('marks the fallback a failed resolver causes as provisional, cached or not', async () => {
+            target.registerSubscriptionResolver(async () => {
+                throw new Error('store down');
+            });
+
+            const first = await target.getActorSubscriptionStatus(actor);
+            expect(first).toMatchObject({
+                policy: { id: DEFAULT_FREE_SUBSCRIPTION },
+                paid: false,
+                provisional: true,
+            });
+            const again = await target.getActorSubscriptionStatus(actor);
+            expect(again.provisional).toBe(true);
+            // The plain read still answers with the fallback.
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                DEFAULT_FREE_SUBSCRIPTION,
+            );
+        });
+
+        const pastFallbackWindow = async (run: () => Promise<void>) => {
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            const now = Date.now();
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                dateNow.mockReturnValue(now + fallbackMs + 1);
+                await run();
+            } finally {
+                dateNow.mockRestore();
+            }
+        };
+
+        for (const [label, defaultAnswer] of [
+            ['throws', () => Promise.reject(new Error('store down'))],
+            [
+                'answers provisionally',
+                async () => ({
+                    id: 'status-default',
+                    provisional: true,
+                }),
+            ],
+        ] as const) {
+            it(`keeps an explicit plan resolved when a default ${label}`, async () => {
+                target.registerPolicy({
+                    id: 'status-default',
+                    monthUsageAllowance: toMicroCents(1),
+                    monthlyStorageAllowance: 1024,
+                });
+                target.registerPolicy({
+                    id: 'status-explicit',
+                    monthUsageAllowance: toMicroCents(5),
+                    monthlyStorageAllowance: 1024,
+                });
+                target.registerDefaultSubscriptionResolver(
+                    defaultAnswer as never,
+                    { priority: 10 },
+                );
+                const explicit = vi.fn(async () => 'status-explicit');
+                target.registerSubscriptionResolver(explicit);
+
+                expect(
+                    await target.getActorSubscriptionStatus(actor),
+                ).toMatchObject({
+                    policy: { id: 'status-explicit' },
+                    paid: true,
+                    provisional: false,
+                });
+                await pastFallbackWindow(async () => {
+                    await target.getActorSubscription(actor);
+                });
+                expect(explicit).toHaveBeenCalledTimes(1);
+            });
+        }
+
+        it('marks a default that wins after another default threw as provisional', async () => {
+            target.registerDefaultSubscriptionResolver(
+                async () => {
+                    throw new Error('store down');
+                },
+                { priority: 10 },
+            );
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status.provisional).toBe(true);
+        });
+
+        it('marks a provisional answer with no plan as provisional', async () => {
+            target.registerSubscriptionResolver(async () => ({
+                id: null,
+                provisional: true,
+            }));
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status).toMatchObject({
+                policy: { id: DEFAULT_FREE_SUBSCRIPTION },
+                provisional: true,
+            });
+        });
+
+        it('marks an answer for an actor missing a keyed field as provisional', async () => {
+            const { id: _id, ...partialUser } = actor.user;
+            const status = await target.getActorSubscriptionStatus({
+                user: partialUser,
+            });
+            expect(status.provisional).toBe(true);
+        });
+    });
 
     describe('getActorAddons / updateAddonCredit', () => {
         it('returns an empty addon map for a fresh user', async () => {
@@ -363,6 +950,29 @@ describe('MeteringService', () => {
 
         it('updateAddonCredit throws without a userId', async () => {
             await expect(target.updateAddonCredit('', 100)).rejects.toThrow();
+        });
+
+        it('reads both addon records consistently when asked', async () => {
+            await target.updateAddonCredit(actor.user.uuid!, 1000);
+            await server.stores.kv.incr({
+                key: `${POLICY_PREFIX}:actor:${actor.user.uuid}:addonsConsumed`,
+                pathAndAmountMap: { consumedPurchaseCredits: 400 },
+            });
+            const getSpy = vi.spyOn(server.stores.kv, 'get');
+
+            const addons = await target.getActorAddons(actor, {
+                consistentRead: true,
+            });
+
+            expect(addons).toMatchObject({
+                purchasedCredits: 1000,
+                consumedPurchaseCredits: 400,
+            });
+            expect(getSpy).toHaveBeenCalledTimes(2);
+            for (const [args] of getSpy.mock.calls) {
+                expect(args).toMatchObject({ consistentRead: true });
+            }
+            getSpy.mockRestore();
         });
 
         it('rejects getActorAddons for an actor with no user uuid', async () => {
@@ -440,6 +1050,19 @@ describe('MeteringService', () => {
                 10,
             );
             expect(result['kv:read']).toMatchObject({ units: 1 });
+        });
+
+        it.each([
+            ['infinite', Number.POSITIVE_INFINITY],
+            ['NaN', Number.NaN],
+        ])('counts an %s usageAmount as one unit', async (_label, amount) => {
+            const result = await target.incrementUsage(
+                actor,
+                'kv:read',
+                amount,
+                10,
+            );
+            expect(result['kv:read']).toMatchObject({ units: 1, cost: 10 });
         });
 
         it('normalizes a negative costOverride to 1 and raises an alarm', async () => {
@@ -526,6 +1149,113 @@ describe('MeteringService', () => {
                 expect(addons.consumedPurchaseCredits).toBe(1_000_000);
             });
         });
+
+        it('reads addons once while no purchased credit is left, again after a grant', async () => {
+            const spender: Actor = { user: makeUser() };
+            const sub = await target.getActorSubscription(spender);
+            const addonsSpy = vi.spyOn(target, 'getActorAddons');
+            try {
+                await target.incrementUsage(spender, 'kv:read', 1, 10);
+                await target.incrementUsage(spender, 'kv:read', 1, 10);
+                expect(addonsSpy).toHaveBeenCalledTimes(1);
+
+                // A grant drops it, and the next overage draws on the grant.
+                await target.updateAddonCredit(spender.user.uuid!, 5_000_000);
+                await target.incrementUsage(
+                    spender,
+                    'kv:read',
+                    1,
+                    sub.monthUsageAllowance,
+                );
+                expect(addonsSpy).toHaveBeenCalledTimes(2);
+                await waitFor(async () => {
+                    const addons = await target.getActorAddons(spender);
+                    expect(addons.consumedPurchaseCredits).toBe(20);
+                });
+            } finally {
+                addonsSpy.mockRestore();
+            }
+        });
+
+        it('reads addons on every increment while purchased credit is left', async () => {
+            const holder: Actor = { user: makeUser() };
+            await target.updateAddonCredit(holder.user.uuid!, 5_000_000);
+            const addonsSpy = vi.spyOn(target, 'getActorAddons');
+            try {
+                await target.incrementUsage(holder, 'kv:read', 1, 10);
+                await target.incrementUsage(holder, 'kv:read', 1, 10);
+                expect(addonsSpy).toHaveBeenCalledTimes(2);
+            } finally {
+                addonsSpy.mockRestore();
+            }
+        });
+
+        it.each([
+            [
+                'on this node',
+                (uuid: string) => target.updateAddonCredit(uuid, 5_000_000),
+            ],
+            [
+                'by another node',
+                async (uuid: string) => {
+                    await server.stores.kv.incr({
+                        key: `${POLICY_PREFIX}:actor:${uuid}:addons`,
+                        pathAndAmountMap: { purchasedCredits: 5_000_000 },
+                    });
+                    server.clients.event.emit(
+                        'outer.pubsub.metering.credits-changed',
+                        { userUuid: uuid },
+                        {},
+                    );
+                },
+            ],
+        ])(
+            'draws overage from a top-up made %s once a stale first read after it catches up',
+            async (_label, grant) => {
+                const buyer: Actor = { user: makeUser() };
+                const uuid = buyer.user.uuid!;
+                const sub = await target.getActorSubscription(buyer);
+                // Allowance spent with no purchased credit left.
+                await target.incrementUsage(
+                    buyer,
+                    'kv:read',
+                    1,
+                    sub.monthUsageAllowance,
+                );
+
+                await grant(uuid);
+
+                // The first addons read after the grant comes from a replica
+                // that hasn't seen it yet, so the record isn't there.
+                const addonsKey = `${POLICY_PREFIX}:actor:${uuid}:addons`;
+                const realGet = server.clients.dynamo.get.bind(
+                    server.clients.dynamo,
+                );
+                let lagging = true;
+                const replicaLag = vi
+                    .spyOn(server.clients.dynamo, 'get')
+                    .mockImplementation(async (...args) => {
+                        const response = await realGet(...args);
+                        if (!lagging || args[1].key !== addonsKey)
+                            return response;
+                        lagging = false;
+                        return { ...response, Item: undefined };
+                    });
+                try {
+                    await target.incrementUsage(buyer, 'kv:read', 1, 1_000_000);
+                    await target.incrementUsage(buyer, 'kv:read', 1, 1_000_000);
+                } finally {
+                    replicaLag.mockRestore();
+                }
+                expect(lagging).toBe(false);
+
+                await waitFor(async () => {
+                    const addons = await target.getActorAddons(buyer);
+                    expect(addons.consumedPurchaseCredits).toBe(1_000_000);
+                });
+                expect(await target.hasAnyUsageCached(buyer)).toBe(true);
+            },
+        );
     });
 
     // ── overuse alarm ────────────────────────────────────────────────
@@ -602,10 +1332,10 @@ describe('MeteringService', () => {
                 // The account is named by email — what someone reading the
                 // alert needs to look it up.
                 expect.stringContaining(overActor.user!.email!),
-                expect.stringContaining('exceeded their usage allowance'),
+                expect.stringContaining('exceeded their credits'),
                 expect.objectContaining({ totalUsage: expect.any(Number) }),
-                // Chat-only severity — records and de-dupes but doesn't page.
-                'info',
+                // Low-urgency page, not a chat-only record.
+                'warning',
             );
             alarmSpy.mockRestore();
         });
@@ -725,9 +1455,9 @@ describe('MeteringService', () => {
 
             expect(alarmSpy).toHaveBeenCalledWith(
                 expect.stringContaining('usage exceeded'),
-                expect.stringContaining('exceeded their usage allowance'),
+                expect.stringContaining('exceeded their credits'),
                 expect.objectContaining({ purchasedCredits: credit }),
-                'info',
+                'warning',
             );
             alarmSpy.mockRestore();
         });
@@ -1192,8 +1922,8 @@ describe('MeteringService', () => {
             expect(result.appTotals.B?.total).toBe(50);
         });
 
-        it('filters appTotals by actor.app.uid and rolls others into "others"', async () => {
-            const userId = actor.user.uuid;
+        it('scopes usage and appTotals to the calling app', async () => {
+            const userId = makeUser().uuid;
             const appA: Actor = resolveActor({
                 user: { uuid: userId },
                 app: { uid: 'A', id: 1 },
@@ -1203,13 +1933,59 @@ describe('MeteringService', () => {
                 app: { uid: 'B', id: 2 },
             });
             await target.incrementUsage(appA, 'kv:read', 1, 100);
-            await target.incrementUsage(appB, 'kv:read', 1, 50);
+            await target.incrementUsage(appB, 'kv:write', 1, 50);
+            await target.incrementUsage(
+                { user: { uuid: userId } },
+                'kv:list',
+                1,
+                25,
+            );
             await server.stores.meteringBuffer.flushCycle();
 
             const r = await target.getActorCurrentMonthUsageDetails(appA);
-            expect(r.appTotals.A?.total).toBe(100);
-            expect(r.appTotals.others?.total).toBe(50);
-            expect(r.appTotals).not.toHaveProperty('B');
+            expect(r.usage.total).toBe(100);
+            expect(r.usage['kv:read']).toMatchObject({ cost: 100 });
+            expect(r.usage).not.toHaveProperty('kv:write');
+            expect(r.usage).not.toHaveProperty('kv:list');
+            expect(r.appTotals).toEqual({ A: { total: 100, count: 1 } });
+
+            // The account's own view is unchanged.
+            const own = await target.getActorCurrentMonthUsageDetails({
+                user: { uuid: userId },
+            });
+            expect(own.usage.total).toBe(175);
+            expect(own.usage).toHaveProperty('kv:write');
+            expect(own.appTotals.A?.total).toBe(100);
+            expect(own.appTotals.B?.total).toBe(50);
+        });
+
+        it('scopes an app reached through an access token it issued', async () => {
+            const user = makeUser();
+            const app = resolveActor({ user, app: { uid: 'issuer-app' } });
+            await target.incrementUsage(app, 'kv:read', 1, 30);
+            await target.incrementUsage({ user }, 'kv:write', 1, 70);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const token = resolveActor({
+                user,
+                accessToken: { uid: 'tok', issuer: app },
+            });
+            const r = await target.getActorCurrentMonthUsageDetails(token);
+            expect(r.usage.total).toBe(30);
+            expect(r.appTotals).toEqual({
+                'issuer-app': { total: 30, count: 1 },
+            });
+        });
+
+        it('gives an app with no usage an empty view', async () => {
+            const user = makeUser();
+            await target.incrementUsage({ user }, 'kv:write', 1, 70);
+            await server.stores.meteringBuffer.flushCycle();
+
+            const r = await target.getActorCurrentMonthUsageDetails(
+                resolveActor({ user, app: { uid: 'idle-app' } }),
+            );
+            expect(r).toEqual({ usage: { total: 0 }, appTotals: {} });
         });
 
         it('rejects an actor with no user uuid', async () => {
@@ -1252,20 +2028,17 @@ describe('MeteringService', () => {
             });
         });
 
-        it('allows an app actor to query the global namespace', async () => {
-            const userOnly: Actor = { user: makeUser() };
-            await target.incrementUsage(userOnly, 'kv:read', 1, 60);
+        it('forbids an app actor from querying the global namespace', async () => {
             const appActor: Actor = resolveActor({
-                user: userOnly.user,
+                user: makeUser(),
                 app: { uid: 'my-app', id: 1 },
             });
-            await waitFor(async () => {
-                const r = await target.getActorCurrentMonthAppUsageDetails(
+            await expect(
+                target.getActorCurrentMonthAppUsageDetails(
                     appActor,
                     GLOBAL_APP_KEY,
-                );
-                expect(r.total).toBe(60);
-            });
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
         });
 
         it('forbids an app actor from querying another app', async () => {
@@ -1301,8 +2074,7 @@ describe('MeteringService', () => {
             expect(result.total).toBe(500);
             const adj = (result as Record<string, unknown>)
                 .manual_adjustment as
-                | { cost: number; units: number; count: number }
-                | undefined;
+                { cost: number; units: number; count: number } | undefined;
             expect(adj).toMatchObject({ cost: 500, units: 500, count: 1 });
         });
 
@@ -1457,11 +2229,10 @@ describe('MeteringService', () => {
                 expect(typeof value).toBe('object');
             }
 
-            const detailed =
-                await target.getActorCurrentMonthAppUsageDetails(
-                    appActor,
-                    'count-app',
-                );
+            const detailed = await target.getActorCurrentMonthAppUsageDetails(
+                appActor,
+                'count-app',
+            );
             expect(detailed.count).toBeUndefined();
 
             // appTotals reads the same item separately and still has count.
@@ -1491,6 +2262,28 @@ describe('MeteringService', () => {
             await target.updateAddonCredit(actor.user.uuid!, 5_000);
             const allowed = await target.getAllowedUsage(actor);
             expect(allowed.remaining).toBe(allowed.monthUsageAllowance + 5_000);
+        });
+
+        it('reads a spent addons record once across gate checks', async () => {
+            const addonsKey = `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`;
+            const getSpy = vi.spyOn(server.stores.kv, 'get');
+            try {
+                for (let i = 0; i < 3; i++) await target.getAllowedUsage(actor);
+                const addonReads = getSpy.mock.calls.filter(
+                    ([{ key }]) => key === addonsKey,
+                );
+                expect(addonReads).toHaveLength(1);
+            } finally {
+                getSpy.mockRestore();
+            }
+        });
+
+        it('sees credit granted after a gate check memoized the spent record', async () => {
+            const before = await target.getAllowedUsage(actor);
+            expect(before.addons).toEqual({});
+            await target.updateAddonCredit(actor.user.uuid!, 5_000);
+            const after = await target.getAllowedUsage(actor);
+            expect(after.remaining).toBe(after.monthUsageAllowance + 5_000);
         });
 
         it('clamps remaining at zero when over allowance with no credits', async () => {
@@ -1694,6 +2487,268 @@ describe('MeteringService', () => {
         });
     });
 
+    describe('setMonthAllowance / getMonthAllowance', () => {
+        const paidPolicy = (id: string, dollars: number) => {
+            const policy = {
+                id,
+                monthUsageAllowance: toMicroCents(dollars),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            };
+            target.registerPolicy(policy);
+            return policy;
+        };
+
+        it('replaces the allowance for the rest of the month on that policy', async () => {
+            const paid = paidPolicy('month-paid', 10);
+            target.registerSubscriptionResolver(async () => 'month-paid');
+            await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+            // Cached before the override lands, so this also covers the drop.
+            expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                paid.monthUsageAllowance - 1_000,
+            );
+
+            await target.setMonthAllowance(
+                actor.user.uuid!,
+                'month-paid',
+                toMicroCents(4),
+            );
+
+            const allowed = await target.getAllowedUsage(actor);
+            expect(allowed.monthUsageAllowance).toBe(toMicroCents(4));
+            expect(allowed.remaining).toBe(toMicroCents(4) - 1_000);
+            expect(
+                await target.getMonthAllowance(actor.user.uuid!, 'month-paid'),
+            ).toBe(toMicroCents(4));
+        });
+
+        it('settles spend past the override against purchased credits', async () => {
+            paidPolicy('month-paid', 10);
+            target.registerSubscriptionResolver(async () => 'month-paid');
+            await target.updateAddonCredit(actor.user.uuid!, 5_000_000);
+            await target.setMonthAllowance(
+                actor.user.uuid!,
+                'month-paid',
+                3_000_000,
+            );
+
+            await target.incrementUsage(actor, 'kv:read', 1, 4_000_000);
+
+            await waitFor(async () => {
+                const addons = await target.getActorAddons(actor);
+                expect(addons.consumedPurchaseCredits).toBe(1_000_000);
+            });
+            expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                4_000_000,
+            );
+        });
+
+        it('never applies on another policy', async () => {
+            const basic = paidPolicy('month-basic', 5);
+            paidPolicy('month-pro', 50);
+            let tier = 'month-pro';
+            target.registerSubscriptionResolver(async () => tier);
+            await target.setMonthAllowance(
+                actor.user.uuid!,
+                'month-pro',
+                toMicroCents(20),
+            );
+
+            // Leaving the plan drops the override with it.
+            tier = 'month-basic';
+            target.invalidateActorSubscription(actor.user.uuid!);
+            expect(
+                (await target.getActorSubscription(actor)).monthUsageAllowance,
+            ).toBe(basic.monthUsageAllowance);
+            expect(
+                await target.getMonthAllowance(actor.user.uuid!, 'month-basic'),
+            ).toBe(basic.monthUsageAllowance);
+        });
+
+        it('lapses when the month ends', async () => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            try {
+                const paid = paidPolicy('month-paid', 10);
+                target.registerSubscriptionResolver(async () => 'month-paid');
+                vi.setSystemTime(SEPTEMBER_MONTH_ISO);
+                await target.setMonthAllowance(
+                    actor.user.uuid!,
+                    'month-paid',
+                    toMicroCents(4),
+                );
+
+                vi.setSystemTime(OCTOBER_MONTH_ISO);
+                target.invalidateActorSubscription(actor.user.uuid!);
+                expect(
+                    (await target.getActorSubscription(actor))
+                        .monthUsageAllowance,
+                ).toBe(paid.monthUsageAllowance);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('holds an override for a later month until it is due to end', async () => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            try {
+                const paid = paidPolicy('month-paid', 10);
+                target.registerSubscriptionResolver(async () => 'month-paid');
+                vi.setSystemTime(SEPTEMBER_MONTH_ISO);
+                await target.setMonthAllowance(
+                    actor.user.uuid!,
+                    'month-paid',
+                    toMicroCents(4),
+                    { month: '2026-10', until: Date.UTC(2026, 9, 5) / 1000 },
+                );
+                const allowanceNow = async () => {
+                    target.invalidateActorSubscription(actor.user.uuid!);
+                    return (await target.getActorSubscription(actor))
+                        .monthUsageAllowance;
+                };
+
+                expect(await allowanceNow()).toBe(paid.monthUsageAllowance);
+                vi.setSystemTime('2026-10-02T12:00:00Z');
+                expect(await allowanceNow()).toBe(toMicroCents(4));
+                expect(
+                    await target.getMonthAllowance(
+                        actor.user.uuid!,
+                        'month-paid',
+                        '2026-10',
+                    ),
+                ).toBe(toMicroCents(4));
+                vi.setSystemTime('2026-10-06T12:00:00Z');
+                expect(await allowanceNow()).toBe(paid.monthUsageAllowance);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('leaves free policies alone without reading for an override', async () => {
+            // Written directly: `setMonthAllowance` refuses a free plan.
+            await server.stores.kv.set({
+                key: `${POLICY_PREFIX}:actor:${actor.user.uuid}:allowance:${DEFAULT_FREE_SUBSCRIPTION}:${currentMonthString()}`,
+                value: 1,
+            });
+            const getSpy = vi.spyOn(server.stores.kv, 'get');
+
+            const policy = await target.getActorSubscription(actor);
+
+            expect(policy.id).toBe(DEFAULT_FREE_SUBSCRIPTION);
+            expect(policy.monthUsageAllowance).toBeGreaterThan(1);
+            const allowanceReads = getSpy.mock.calls.filter(([{ key }]) =>
+                String(key).includes(':allowance:'),
+            );
+            expect(allowanceReads).toHaveLength(0);
+            getSpy.mockRestore();
+        });
+
+        it('falls back to the policy allowance when the override cannot be read', async () => {
+            const paid = paidPolicy('month-paid', 10);
+            target.registerSubscriptionResolver(async () => 'month-paid');
+            const getSpy = vi
+                .spyOn(server.stores.kv, 'get')
+                .mockRejectedValueOnce(new Error('kv down'));
+
+            const policy = await target.getActorSubscription(actor);
+
+            expect(policy.monthUsageAllowance).toBe(paid.monthUsageAllowance);
+            getSpy.mockRestore();
+        });
+
+        it('caches the allowance from a failed override read only briefly', async () => {
+            const paid = paidPolicy('month-paid', 10);
+            target.registerSubscriptionResolver(async () => 'month-paid');
+            await target.setMonthAllowance(
+                actor.user.uuid!,
+                'month-paid',
+                toMicroCents(4),
+            );
+            const getSpy = vi
+                .spyOn(server.stores.kv, 'get')
+                .mockRejectedValueOnce(new Error('kv down'));
+            // Falls back to the policy's own allowance, proving the rejection
+            // above was actually hit rather than reading the override.
+            const duringFailure = await target.getActorSubscription(actor);
+            getSpy.mockRestore();
+            expect(duringFailure.monthUsageAllowance).toBe(
+                paid.monthUsageAllowance,
+            );
+
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            expect(fallbackMs).toBeLessThan(
+                (target.constructor as typeof MeteringService)
+                    .SUBSCRIPTION_CACHE_MS,
+            );
+            const now = Date.now();
+            vi.spyOn(Date, 'now').mockReturnValue(now + fallbackMs + 1);
+            try {
+                expect(
+                    (await target.getActorSubscription(actor))
+                        .monthUsageAllowance,
+                ).toBe(toMicroCents(4));
+            } finally {
+                vi.mocked(Date.now).mockRestore();
+            }
+        });
+
+        it('refuses an allowance that would read as unmetered', async () => {
+            await expect(
+                target.setMonthAllowance(actor.user.uuid!, 'month-paid', 0),
+            ).rejects.toThrow();
+            await expect(
+                target.setMonthAllowance(actor.user.uuid!, 'month-paid', 1, {
+                    month: 'October',
+                }),
+            ).rejects.toThrow();
+            // 0 would read as "never expires" to the store.
+            await expect(
+                target.setMonthAllowance(actor.user.uuid!, 'month-paid', 1, {
+                    until: 0,
+                }),
+            ).rejects.toThrow();
+            for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, 0.4]) {
+                await expect(
+                    target.setMonthAllowance(
+                        actor.user.uuid!,
+                        'month-paid',
+                        bad,
+                    ),
+                ).rejects.toThrow();
+            }
+        });
+
+        it('refuses an allowance for a plan that never takes one', async () => {
+            target.registerPolicy({
+                id: 'month-free',
+                monthUsageAllowance: toMicroCents(1),
+                monthlyStorageAllowance: 0,
+                free: true,
+            });
+            target.registerPolicy({
+                id: 'month-none',
+                monthUsageAllowance: 0,
+                monthlyStorageAllowance: 0,
+                noAllowance: true,
+            });
+            for (const id of [
+                'month-free',
+                'month-none',
+                DEFAULT_FREE_SUBSCRIPTION,
+                UNLIMITED_SUBSCRIPTION,
+            ]) {
+                await expect(
+                    target.setMonthAllowance(actor.user.uuid!, id, 1_000),
+                ).rejects.toThrow();
+            }
+        });
+
+        it('has no month allowance for a policy nobody registered', async () => {
+            expect(
+                await target.getMonthAllowance(actor.user.uuid!, 'ghost-plan'),
+            ).toBeNull();
+        });
+    });
+
     // ── hasAnyUsageCached ────────────────────────────────────────────
 
     describe('hasAnyUsageCached', () => {
@@ -1805,6 +2860,288 @@ describe('MeteringService', () => {
             expect(creditCache().has(actor.user.uuid!)).toBe(false);
         });
 
+        // A failed lookup's fallback must not keep a paid user looking broke
+        // for the full credit-cache window — only for its own short one.
+        it('stops looking broke once the subscription fallback window passes and the lookup recovers', async () => {
+            target.registerPolicy({
+                id: 'fallback-paid',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi
+                .fn<() => Promise<string | null>>()
+                .mockResolvedValueOnce('fallback-paid')
+                .mockRejectedValueOnce(new Error('store down'))
+                .mockResolvedValue('fallback-paid');
+            target.registerSubscriptionResolver(stub);
+
+            // Spends past what the free-tier fallback would allow, but well
+            // under the real paid allowance.
+            await target.incrementUsage(actor, 'kv:read', 1, toMicroCents(2));
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+
+            const {
+                SUBSCRIPTION_CACHE_MS: subMs,
+                SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs,
+            } = target.constructor as typeof MeteringService;
+            const t0 = Date.now();
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                // The subscription cache expires and the resolver fails this
+                // time, so the actor falls back to a free-tier allowance it
+                // has already spent past.
+                dateNow.mockReturnValue(t0 + subMs + 1);
+                expect(await target.hasAnyUsageCached(actor)).toBe(true); // stale, refreshing behind it
+                await creditRefreshes().get(actor.user.uuid!);
+                expect(await target.hasAnyUsageCached(actor)).toBe(false);
+
+                // Once the short fallback window passes, the store has
+                // recovered — the real, paid answer should apply well
+                // before the normal credit-cache window would have.
+                dateNow.mockReturnValue(t0 + subMs + 1 + fallbackMs + 1);
+                expect(await target.hasAnyUsageCached(actor)).toBe(false); // stale, refreshing behind it
+                await creditRefreshes().get(actor.user.uuid!);
+                expect(await target.hasAnyUsageCached(actor)).toBe(true);
+            } finally {
+                dateNow.mockRestore();
+            }
+            expect(stub).toHaveBeenCalledTimes(3);
+        });
+
+        // The credit entry a provisional (failed-lookup) answer writes must
+        // not outlive the subscription answer it was computed from, and
+        // repeated writes during that same window — through either write
+        // path — must not push it out further: the cap is the subscription
+        // answer's own fixed expiry, not a per-write TTL.
+        it('caps the credit entry at the subscription fallback expiry and never extends it on repeated writes', async () => {
+            target.registerPolicy({
+                id: 'fallback-paid-incr',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi
+                .fn<() => Promise<string | null>>()
+                .mockResolvedValueOnce('fallback-paid-incr')
+                .mockRejectedValue(new Error('store down'));
+            target.registerSubscriptionResolver(stub);
+
+            await target.getActorSubscription(actor);
+
+            const {
+                SUBSCRIPTION_CACHE_MS: subMs,
+                SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs,
+            } = target.constructor as typeof MeteringService;
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                const t1 = Date.now() + subMs + 1;
+                dateNow.mockReturnValue(t1);
+                // The subscription lookup fails during this call and falls
+                // back to the free tier.
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    toMicroCents(2),
+                );
+                const firstExpiry = creditCache().get(
+                    actor.user.uuid!,
+                )!.expiresAt;
+                expect(firstExpiry).toBeLessThanOrEqual(t1 + fallbackMs);
+
+                // A second write via batchIncrementUsages, still inside the
+                // same fallback window, must not push it out.
+                dateNow.mockReturnValue(t1 + 1_000);
+                await target.batchIncrementUsages(actor, [
+                    { usageType: 'kv:read', usageAmount: 1, costOverride: 0 },
+                ]);
+                expect(creditCache().get(actor.user.uuid!)!.expiresAt).toBe(
+                    firstExpiry,
+                );
+            } finally {
+                dateNow.mockRestore();
+            }
+        });
+
+        // Only a provisional answer needs the short cap: a plan change drops
+        // both caches outright (see `onServerStart`), so a clean cached
+        // answer's credit entry can safely run the full window even right
+        // before the subscription entry backing it expires.
+        it('gives a clean cached answer the full credit-cache window, even just before the subscription cache expires', async () => {
+            target.registerPolicy({
+                id: 'clean-paid',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const { SUBSCRIPTION_CACHE_MS: subMs, CREDIT_CACHE_MS: creditMs } =
+                target.constructor as typeof MeteringService;
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                // Fix the clock for priming too, so the subscription entry's
+                // expiry is a known value rather than whatever real time
+                // happened to elapse by the next line.
+                const t0 = Date.now();
+                dateNow.mockReturnValue(t0);
+                await target.getActorSubscription(actor);
+
+                // One millisecond before that (clean) subscription entry
+                // expires — still a cache hit, not a re-resolve.
+                const t1 = t0 + subMs - 1;
+                dateNow.mockReturnValue(t1);
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    toMicroCents(1),
+                );
+                expect(creditCache().get(actor.user.uuid!)!.expiresAt).toBe(
+                    t1 + creditMs,
+                );
+            } finally {
+                dateNow.mockRestore();
+            }
+        });
+
+        // An actor too partial to cache is just as provisional as a failed
+        // lookup: its credit entry gets the short cap, and an overspend off
+        // of it must not raise an alert either.
+        it('caps a partial actor credit entry at the fallback window and emits no credit-state event', async () => {
+            target.registerPolicy({
+                id: 'partial-paid',
+                monthUsageAllowance: toMicroCents(0.1),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            target.registerDefaultSubscriptionResolver(
+                async () => 'partial-paid',
+            );
+            const { id: _id, ...partialUser } = actor.user;
+            const partial: Actor = { user: partialUser };
+
+            const seen = vi.fn();
+            server.clients.event.on('metering.credit-state', seen);
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                const t0 = Date.now();
+                dateNow.mockReturnValue(t0);
+                // Exceeds the tiny allowance, which would normally alert.
+                await target.incrementUsage(
+                    partial,
+                    'kv:read',
+                    1,
+                    toMicroCents(1),
+                );
+                expect(creditCache().get(actor.user.uuid!)!.expiresAt).toBe(
+                    t0 + fallbackMs,
+                );
+                expect(seen).not.toHaveBeenCalled();
+            } finally {
+                dateNow.mockRestore();
+                server.clients.event.off('metering.credit-state', seen);
+            }
+        });
+
+        // A plan guessed from a failed lookup isn't known to be real, so it
+        // must not drive a credit-state alert — a paid user must not see a
+        // false "exhausted" notice from one bad store read.
+        it('does not alert on the exhausted state from a failed lookup, but does on a real one', async () => {
+            target.registerPolicy({
+                id: 'fallback-paid-alert',
+                monthUsageAllowance: toMicroCents(10),
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            });
+            const stub = vi
+                .fn<() => Promise<string | null>>()
+                .mockResolvedValueOnce('fallback-paid-alert')
+                .mockRejectedValueOnce(new Error('store down'));
+            target.registerSubscriptionResolver(stub);
+
+            const seen = vi.fn();
+            server.clients.event.on('metering.credit-state', seen);
+            try {
+                await target.getActorSubscription(actor);
+
+                const { SUBSCRIPTION_CACHE_MS: subMs } =
+                    target.constructor as typeof MeteringService;
+                const dateNow = vi.spyOn(Date, 'now');
+                try {
+                    dateNow.mockReturnValue(Date.now() + subMs + 1);
+                    // Spends past the free-tier fallback, but the lookup
+                    // behind that fallback failed.
+                    await target.incrementUsage(
+                        actor,
+                        'kv:read',
+                        1,
+                        toMicroCents(2),
+                    );
+                } finally {
+                    dateNow.mockRestore();
+                }
+                expect(seen).not.toHaveBeenCalled();
+
+                // A genuinely exhausted actor still alerts, proving the hook
+                // above would have caught the emit were the guard not there.
+                target.invalidateActorSubscription(actor.user.uuid!);
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    toMicroCents(20),
+                );
+                expect(seen).toHaveBeenCalledWith(
+                    'metering.credit-state',
+                    expect.objectContaining({ state: 'exhausted' }),
+                    expect.anything(),
+                );
+            } finally {
+                server.clients.event.off('metering.credit-state', seen);
+            }
+        });
+
+        // Otherwise every later call waits on the failing store.
+        it('fails open with a short fallback answer when refreshing a stale entry errors', async () => {
+            const sub = await target.getActorSubscription(actor);
+            await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance,
+            );
+            const entry = creditCache().get(actor.user.uuid!)!;
+            expect(entry.hasCredits).toBe(false);
+            entry.expiresAt = Date.now() - 1;
+
+            // The month record too: the spent addons are memoized, so the
+            // refresh no longer reads them.
+            const failing = [
+                vi
+                    .spyOn(server.stores.kv, 'get')
+                    .mockRejectedValue(new Error('store down')),
+                vi
+                    .spyOn(server.stores.meteringBuffer, 'get')
+                    .mockRejectedValue(new Error('store down')),
+            ];
+            try {
+                // Stale: answers with the old (broke) value while the
+                // refresh behind it fails.
+                expect(await target.hasAnyUsageCached(actor)).toBe(false);
+                await creditRefreshes().get(actor.user.uuid!);
+            } finally {
+                for (const spy of failing) spy.mockRestore();
+            }
+
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            const replaced = creditCache().get(actor.user.uuid!)!;
+            expect(replaced.hasCredits).toBe(true);
+            expect(replaced.expiresAt).toBeGreaterThan(Date.now());
+            expect(replaced.expiresAt).toBeLessThanOrEqual(
+                Date.now() + fallbackMs,
+            );
+            // Answers immediately now, without waiting on the store again.
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+        });
+
         it('treats a policy with no metered allowance as never out of budget', async () => {
             target.registerPolicy({
                 id: 'test-unmetered',
@@ -1820,6 +3157,132 @@ describe('MeteringService', () => {
             // would answer the question are never made.
             expect(addonsSpy).not.toHaveBeenCalled();
             addonsSpy.mockRestore();
+        });
+
+        describe('a plan that grants no allowance', () => {
+            const onNoAllowancePlan = () => {
+                target.registerPolicy({
+                    id: 'test-no-allowance',
+                    monthUsageAllowance: toMicroCents(1),
+                    monthlyStorageAllowance: 0,
+                    noAllowance: true,
+                });
+                target.registerSubscriptionResolver(() => 'test-no-allowance');
+            };
+
+            it('has no allowance, whatever the policy states', async () => {
+                onNoAllowancePlan();
+                const sub = await target.getActorSubscription(actor);
+                expect(sub.monthUsageAllowance).toBe(0);
+            });
+
+            it('is out of budget without purchased credit', async () => {
+                onNoAllowancePlan();
+                expect(await target.hasAnyUsageCached(actor)).toBe(false);
+                expect(await target.hasEnoughCredits(actor, 1)).toBe(false);
+            });
+
+            it('spends purchased credit, and only that', async () => {
+                onNoAllowancePlan();
+                expect(await target.hasAnyUsageCached(actor)).toBe(false);
+                await target.updateAddonCredit(actor.user.uuid!, 5_000);
+                expect(await target.hasAnyUsageCached(actor)).toBe(true);
+
+                await target.incrementUsage(actor, 'kv:read', 1, 2_000);
+                const addons = await target.getActorAddons(actor);
+                expect(addons.consumedPurchaseCredits).toBe(2_000);
+            });
+
+            const creditStates = () => {
+                const states: string[] = [];
+                const seen = (_key: string, event: { state: string }) => {
+                    states.push(event.state);
+                };
+                server.clients.event.on('metering.credit-state', seen as never);
+                return {
+                    states,
+                    stop: () =>
+                        server.clients.event.off(
+                            'metering.credit-state',
+                            seen as never,
+                        ),
+                };
+            };
+
+            it('announces nothing for an actor that never had budget', async () => {
+                onNoAllowancePlan();
+                const { states, stop } = creditStates();
+                try {
+                    expect(await target.hasAnyUsageCached(actor)).toBe(false);
+                    await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+                    await new Promise((r) => setTimeout(r, 20));
+                    expect(states).toEqual([]);
+                } finally {
+                    stop();
+                }
+            });
+
+            it('announces exhaustion when an actor moves onto it from a plan with budget', async () => {
+                await target.incrementUsage(actor, 'kv:read', 1, 1);
+                const { states, stop } = creditStates();
+                try {
+                    onNoAllowancePlan();
+                    target.invalidateActorSubscription(actor.user.uuid!);
+                    await target.incrementUsage(actor, 'kv:read', 1, 1);
+                    await waitFor(() => expect(states).toEqual(['exhausted']));
+                } finally {
+                    stop();
+                }
+            });
+
+            it('announces exhaustion once when purchased credit runs out', async () => {
+                onNoAllowancePlan();
+                await target.updateAddonCredit(actor.user.uuid!, 1_000);
+                const { states, stop } = creditStates();
+                try {
+                    for (let i = 0; i < 3; i++) {
+                        await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+                    }
+                    await waitFor(() =>
+                        expect(states.filter((s) => s === 'exhausted')).toEqual(
+                            ['exhausted'],
+                        ),
+                    );
+                } finally {
+                    stop();
+                }
+            });
+
+            it('leaves the whole allowance to a plan switched to later in the month', async () => {
+                onNoAllowancePlan();
+                await target.updateAddonCredit(actor.user.uuid!, 5_000);
+                await target.incrementUsage(actor, 'kv:read', 1, 3_000);
+
+                const later = {
+                    id: 'test-later-allowance',
+                    monthUsageAllowance: 10_000,
+                    monthlyStorageAllowance: 0,
+                };
+                target.registerPolicy(later);
+                internals.subscriptionResolvers.length = 0;
+                target.registerSubscriptionResolver(
+                    () => 'test-later-allowance',
+                );
+                target.invalidateActorSubscription(actor.user.uuid!);
+
+                // Credit already paid for the earlier spend.
+                expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                    10_000 + 2_000,
+                );
+                await target.incrementUsage(actor, 'kv:read', 1, 4_000);
+                expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                    6_000 + 2_000,
+                );
+                expect(
+                    (await target.getActorAddons(actor))
+                        .consumedPurchaseCredits,
+                ).toBe(3_000);
+            });
         });
 
         it('does not block when the balance cannot be read', async () => {
@@ -1898,6 +3361,41 @@ describe('MeteringService', () => {
             const key = `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`;
             const { res } = await server.stores.kv.get({ key });
             expect(res).toMatchObject({ purchasedCredits: 250 });
+        });
+
+        it('keeps consumption off the purchase record and sums it with legacy consumption', async () => {
+            const uuid = actor.user.uuid!;
+            const purchaseKey = `${POLICY_PREFIX}:actor:${uuid}:addons`;
+            await target.updateAddonCredit(uuid, 5_000_000);
+            await server.stores.kv.incr({
+                key: purchaseKey,
+                pathAndAmountMap: { consumedPurchaseCredits: 1_000_000 },
+            });
+            const sub = await target.getActorSubscription(actor);
+            await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance + 2_000_000,
+            );
+
+            await waitFor(async () => {
+                const addons = await target.getActorAddons(actor);
+                expect(addons.consumedPurchaseCredits).toBe(3_000_000);
+            });
+            const { res: purchase } = await server.stores.kv.get({
+                key: purchaseKey,
+            });
+            expect(purchase).toMatchObject({
+                purchasedCredits: 5_000_000,
+                consumedPurchaseCredits: 1_000_000,
+            });
+            const { res: consumed } = await server.stores.kv.get({
+                key: `${POLICY_PREFIX}:actor:${uuid}:addonsConsumed`,
+            });
+            expect(consumed).toMatchObject({
+                consumedPurchaseCredits: 2_000_000,
+            });
         });
     });
 
@@ -2089,9 +3587,8 @@ describe('MeteringService', () => {
             ctor.EXACT_READ_MIN_INTERVAL_MS = 60_000;
             try {
                 const bufActor: Actor = { user: makeUser() };
-                const allowance = (
-                    await target.getActorSubscription(bufActor)
-                ).monthUsageAllowance;
+                const allowance = (await target.getActorSubscription(bufActor))
+                    .monthUsageAllowance;
 
                 // Already near the allowance — every further call re-triggers
                 // the near-allowance check, and the first one already read
@@ -2144,6 +3641,9 @@ describe('MeteringService', () => {
                     : METRICS_V2_PREFIX;
             return `${prefix}:actor:${chargeActor.user!.uuid}:${month}`;
         };
+
+        // A claim taken by this code holds a random token at least this big.
+        const CLAIM_TOKEN_MIN = 2 ** 32;
 
         const claimOf = async (chargeActor: Actor) => {
             const { res } = await server.stores.kv.get({
@@ -2235,7 +3735,9 @@ describe('MeteringService', () => {
             );
 
             expect(listener).toHaveBeenCalledTimes(1);
-            expect(await claimOf(actor)).toBe(1);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(
+                CLAIM_TOKEN_MIN,
+            );
         });
 
         it('does not charge again for a month another deployment already claimed', async () => {
@@ -2253,8 +3755,8 @@ describe('MeteringService', () => {
 
             expect(listener).not.toHaveBeenCalled();
             expect(usage.total).toBe(60);
-            // The claim counts every attempt, so the loser is visible as 2.
-            expect(await claimOf(actor)).toBe(2);
+            // The other deployment's claim is left as it was.
+            expect(await claimOf(actor)).toBe(1);
         });
 
         it('skips the claim entirely when nothing is listening', async () => {
@@ -2281,15 +3783,15 @@ describe('MeteringService', () => {
 
         it('retries on the next call when the claim write fails', async () => {
             const listener = chargeOnce(600);
-            const incr = vi
-                .spyOn(server.stores.kv, 'incr')
+            const update = vi
+                .spyOn(server.stores.kv, 'update')
                 .mockRejectedValueOnce(new Error('kv unavailable'));
 
             const first = await target.incrementUsage(actor, 'kv:read', 1, 100);
             expect(listener).not.toHaveBeenCalled();
             expect(first.total).toBe(100);
 
-            incr.mockRestore();
+            update.mockRestore();
             const second = await target.incrementUsage(
                 actor,
                 'kv:read',
@@ -2299,6 +3801,62 @@ describe('MeteringService', () => {
 
             expect(listener).toHaveBeenCalledTimes(1);
             expect(second.total).toBe(800);
+        });
+
+        it('charges once when a claim write lands but its answer is lost', async () => {
+            const listener = chargeOnce(600);
+            const kv = server.stores.kv;
+            const realUpdate = kv.update.bind(kv);
+            const update = vi
+                .spyOn(kv, 'update')
+                .mockImplementationOnce(async (...args) => {
+                    await realUpdate(...args);
+                    throw new Error('request timed out');
+                });
+
+            const first = await target.incrementUsage(actor, 'kv:read', 1, 100);
+            expect(listener).not.toHaveBeenCalled();
+            expect(first.total).toBe(100);
+            const landed = await claimOf(actor);
+            expect(landed).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
+
+            // The buffered view now carries the claim this node took.
+            update.mockRestore();
+            await server.stores.meteringBuffer.flushCycle();
+            const second = await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                100,
+            );
+
+            expect(listener).toHaveBeenCalledTimes(1);
+            expect(second.total).toBe(800);
+            expect(await claimOf(actor)).toBe(landed);
+        });
+
+        it('does not charge for a claim another attempt took after this one failed', async () => {
+            const listener = chargeOnce(600);
+            const update = vi
+                .spyOn(server.stores.kv, 'update')
+                .mockRejectedValueOnce(new Error('kv unavailable'));
+
+            await target.incrementUsage(actor, 'kv:read', 1, 100);
+            update.mockRestore();
+            await server.stores.kv.update({
+                key: monthKey(actor),
+                pathAndValueMap: { monthlyChargesApplied: CLAIM_TOKEN_MIN },
+            });
+
+            const second = await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                100,
+            );
+
+            expect(listener).not.toHaveBeenCalled();
+            expect(second.total).toBe(200);
         });
 
         // An actor with usage earlier in the month has a buffered view already
@@ -2326,7 +3884,9 @@ describe('MeteringService', () => {
             const usage = await target.incrementUsage(actor, 'kv:read', 1, 100);
 
             expect(listener).toHaveBeenCalledTimes(1);
-            expect(await claimOf(actor)).toBe(1);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(
+                CLAIM_TOKEN_MIN,
+            );
             // Metering itself rather than pushing onto `charges` means the
             // cost lands on the record but misses the total this call already
             // computed — visible from the next read on.
@@ -2355,7 +3915,9 @@ describe('MeteringService', () => {
 
             expect(listener).toHaveBeenCalledTimes(1);
             expect(usage.total).toBe(315);
-            expect(await claimOf(actor)).toBe(1);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(
+                CLAIM_TOKEN_MIN,
+            );
         });
 
         it('merges every listener into one amount map and one increment', async () => {
@@ -2456,7 +4018,9 @@ describe('MeteringService', () => {
             );
 
             expect(listener).toHaveBeenCalledTimes(1);
-            expect(await claimOf(actor)).toBe(1);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(
+                CLAIM_TOKEN_MIN,
+            );
         });
 
         it('hands listeners a user-scoped actor', async () => {
@@ -2492,7 +4056,9 @@ describe('MeteringService', () => {
             const usage = await target.incrementUsage(actor, 'kv:read', 1, 50);
 
             expect(usage.total).toBe(50);
-            expect(await claimOf(actor)).toBe(1);
+            expect(await claimOf(actor)).toBeGreaterThanOrEqual(
+                CLAIM_TOKEN_MIN,
+            );
         });
 
         // The v1 → v2 claim shim: September's claim stays on the v1 key so a
@@ -2525,9 +4091,7 @@ describe('MeteringService', () => {
 
                 expect(listener).not.toHaveBeenCalled();
                 expect(usage.total).toBe(10);
-                // The claim counts every attempt, so a pre-existing claim of
-                // 1 reads back as 2 once this call's own attempt lands.
-                expect(await claimOf(septActor)).toBe(2);
+                expect(await claimOf(septActor)).toBe(1);
             });
 
             it('charges a user with no v1 September claim exactly once', async () => {
@@ -2556,9 +4120,9 @@ describe('MeteringService', () => {
                 );
                 expect(listener).toHaveBeenCalledTimes(1);
                 expect(second.total).toBe(520);
-                // Every attempt bumps the v1 counter, win or lose, so the
-                // second (losing) attempt reads back as 2.
-                expect(await claimOf(septActor)).toBe(2);
+                expect(await claimOf(septActor)).toBeGreaterThanOrEqual(
+                    CLAIM_TOKEN_MIN,
+                );
             });
 
             it('claims on the v2 key in October and charges exactly once', async () => {
@@ -2591,7 +4155,7 @@ describe('MeteringService', () => {
                 expect(
                     (v2Record as { monthlyChargesApplied?: number } | null)
                         ?.monthlyChargesApplied,
-                ).toBe(1);
+                ).toBeGreaterThanOrEqual(CLAIM_TOKEN_MIN);
 
                 // Nothing this month ever touches the v1 key.
                 const v1Key = `${METRICS_PREFIX}:actor:${octActor.user!.uuid}:2026-10`;
@@ -2631,7 +4195,9 @@ describe('MeteringService', () => {
 
                 expect([first, second].filter(Boolean)).toHaveLength(1);
                 expect(listener).toHaveBeenCalledTimes(1);
-                expect(await claimOf(raceActor)).toBe(2);
+                expect(await claimOf(raceActor)).toBeGreaterThanOrEqual(
+                    CLAIM_TOKEN_MIN,
+                );
             });
         });
     });
@@ -2721,6 +4287,295 @@ describe('MeteringService', () => {
             await hold.extend?.();
 
             expect(await target.getRemainingUsage(actor)).toBe(before);
+        });
+    });
+
+    describe('reserveCreditsIfAffordable', () => {
+        const BUDGET = 20_000_000;
+        const HOLD = 16_200_000;
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        /** Spends the fresh actor's allowance down to exactly `balance`. */
+        const withBalance = async (balance: number) => {
+            const { remaining } = await target.getAllowedUsage(actor);
+            if (remaining > balance) {
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    remaining - balance,
+                );
+            }
+            expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                balance,
+            );
+        };
+
+        it('admits exactly one of two concurrent holds that only fit alone', async () => {
+            await withBalance(BUDGET);
+            const holds = await Promise.all([
+                target.reserveCreditsIfAffordable(actor, HOLD),
+                target.reserveCreditsIfAffordable(actor, HOLD),
+            ]);
+
+            expect(holds.filter((h) => h !== null)).toHaveLength(1);
+            expect(await target.getOutstandingHolds(actor)).toBe(HOLD);
+            await Promise.all(holds.map((h) => h?.release()));
+        });
+
+        it('compares against the gross balance, counting live holds once', async () => {
+            await withBalance(BUDGET);
+            const other = await target.reserveCredits(actor, 5_000_000);
+
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 15_000_001),
+            ).toBeNull();
+            const fits = await target.reserveCreditsIfAffordable(
+                actor,
+                15_000_000,
+            );
+            expect(fits).not.toBeNull();
+            expect(await target.getOutstandingHolds(actor)).toBe(BUDGET);
+
+            // A release gives the headroom back for a retry.
+            await other.release();
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 5_000_000),
+            ).not.toBeNull();
+        });
+
+        it('counts allowance and purchased credit together', async () => {
+            await withBalance(1_000_000);
+            await target.updateAddonCredit(actor.user.uuid!, 2_000_000);
+
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 3_000_001),
+            ).toBeNull();
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 3_000_000),
+            ).not.toBeNull();
+        });
+
+        it('reads the balance again when usage lands and a hold is released after the read', async () => {
+            await withBalance(BUDGET);
+            // A request still running, about to record its usage and release.
+            const running = await target.reserveCredits(actor, HOLD);
+            const settle = async () => {
+                await target.incrementUsage(actor, 'kv:read', 1, HOLD);
+                await running.release();
+            };
+            // The admission's balance read finishes first, then the
+            // settlement lands before its reservation runs.
+            const read = target.getAllowedUsage.bind(target);
+            let settled = false;
+            vi.spyOn(target, 'getAllowedUsage').mockImplementation(
+                async (...args) => {
+                    const balance = await read(...args);
+                    if (!settled) {
+                        settled = true;
+                        await settle();
+                    }
+                    return balance;
+                },
+            );
+
+            expect(await target.reserveCreditsIfAffordable(actor, HOLD)).toBe(
+                null,
+            );
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+
+        it('would over-admit that interleaving without the version check', async () => {
+            await withBalance(BUDGET);
+            const running = await target.reserveCredits(actor, HOLD);
+            const read = target.getAllowedUsage.bind(target);
+            let settled = false;
+            vi.spyOn(target, 'getAllowedUsage').mockImplementation(
+                async (...args) => {
+                    const balance = await read(...args);
+                    if (!settled) {
+                        settled = true;
+                        await target.incrementUsage(actor, 'kv:read', 1, HOLD);
+                        await running.release();
+                    }
+                    return balance;
+                },
+            );
+            vi.spyOn(server.stores.creditHold, 'version').mockResolvedValue('');
+
+            const hold = await target.reserveCreditsIfAffordable(actor, HOLD);
+            expect(hold).not.toBeNull();
+            await hold?.release();
+        });
+
+        it('marks the balance changed once a usage write lands', async () => {
+            const before = await server.stores.creditHold.version(
+                actor.user.uuid!,
+            );
+            await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+            expect(
+                await server.stores.creditHold.version(actor.user.uuid!),
+            ).not.toBe(before);
+        });
+
+        it('lets the balance decide, holding nothing, when the cache is unavailable', async () => {
+            await withBalance(BUDGET);
+            vi.spyOn(server.stores.creditHold, 'reserve').mockResolvedValue({
+                outcome: 'unavailable',
+            });
+
+            const hold = await target.reserveCreditsIfAffordable(actor, HOLD);
+            expect(hold).not.toBeNull();
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+            expect(
+                await target.reserveCreditsIfAffordable(actor, BUDGET + 1),
+            ).toBeNull();
+        });
+
+        it('reads the balance again while it keeps changing, then refuses', async () => {
+            await withBalance(BUDGET);
+            const reserve = vi
+                .spyOn(server.stores.creditHold, 'reserve')
+                .mockResolvedValue({ outcome: 'stale' });
+
+            expect(await target.reserveCreditsIfAffordable(actor, HOLD)).toBe(
+                null,
+            );
+            expect(reserve).toHaveBeenCalledTimes(5);
+            // Every attempt checks the version; none falls back to skipping it.
+            expect(reserve.mock.calls.every(([, , , v]) => v !== '')).toBe(
+                true,
+            );
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+
+        it('admits once the balance holds still', async () => {
+            await withBalance(BUDGET);
+            const reserve = vi.spyOn(server.stores.creditHold, 'reserve');
+            reserve
+                .mockResolvedValueOnce({ outcome: 'stale' })
+                .mockResolvedValueOnce({ outcome: 'stale' });
+
+            const hold = await target.reserveCreditsIfAffordable(actor, HOLD);
+            expect(hold).not.toBeNull();
+            expect(reserve).toHaveBeenCalledTimes(3);
+            await hold?.release();
+        });
+
+        it('reads purchased credit consistently only while some is left', async () => {
+            await withBalance(BUDGET);
+            const get = vi.spyOn(server.stores.kv, 'get');
+            const consistentAddonReads = () =>
+                get.mock.calls.filter(
+                    ([args]) =>
+                        args.consistentRead &&
+                        String(args.key).endsWith(':addons'),
+                ).length;
+            // With none, the cached record that says so answers.
+            await target.getAllowedUsage(actor);
+            get.mockClear();
+            await (
+                await target.reserveCreditsIfAffordable(actor, 1000)
+            )?.release();
+            expect(consistentAddonReads()).toBe(0);
+
+            await target.updateAddonCredit(actor.user.uuid!, 5_000);
+            get.mockClear();
+            await (
+                await target.reserveCreditsIfAffordable(actor, 1000)
+            )?.release();
+            expect(consistentAddonReads()).toBe(1);
+        });
+
+        it('marks the balance changed on credit, allowance and manual usage changes', async () => {
+            const uuid = actor.user.uuid!;
+            const versions = [await server.stores.creditHold.version(uuid)];
+            await target.updateAddonCredit(uuid, 1_000);
+            versions.push(await server.stores.creditHold.version(uuid));
+            await target.setActorCurrentMonthUsageTotal(actor, 5_000);
+            versions.push(await server.stores.creditHold.version(uuid));
+            expect(new Set(versions).size).toBe(3);
+        });
+
+        it('treats the system actor, a userless actor and amounts it can’t hold as the plain check does', async () => {
+            for (const [who, amount] of [
+                [SYSTEM_ACTOR, HOLD],
+                [actor, 0],
+                [actor, -5],
+            ] as const) {
+                const hold = await target.reserveCreditsIfAffordable(
+                    who,
+                    amount,
+                );
+                expect(hold).not.toBeNull();
+            }
+            for (const amount of [Number.NaN, Number.POSITIVE_INFINITY]) {
+                expect(
+                    await target.reserveCreditsIfAffordable(actor, amount),
+                ).toBeNull();
+            }
+            await expect(
+                target.reserveCreditsIfAffordable({ user: {} } as Actor, HOLD),
+            ).rejects.toThrow();
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+
+        it('passes the hold lifetime through and renews it', async () => {
+            await withBalance(BUDGET);
+            const hold = await target.reserveCreditsIfAffordable(actor, 750, {
+                ttlMs: 500,
+            });
+            await new Promise((r) => setTimeout(r, 620));
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+            await hold?.extend?.();
+            expect(await target.getOutstandingHolds(actor)).toBe(750);
+            await hold?.release();
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+    });
+
+    describe('settling a charge while a flush is out', () => {
+        it('splits a charge over the allowance using usage a flush has claimed', async () => {
+            const uuid = actor.user.uuid!;
+            const { monthUsageAllowance: allowance } =
+                await target.getActorSubscription(actor);
+            await target.updateAddonCredit(uuid, 1_000_000);
+            const Service = target.constructor as typeof MeteringService;
+            const threshold = Service.PRECISION_THRESHOLD;
+            // Keeps the first charge buffered instead of read exactly.
+            Service.PRECISION_THRESHOLD = 2;
+            await target.incrementUsage(actor, 'kv:read', 1, allowance - 5);
+            Service.PRECISION_THRESHOLD = threshold;
+
+            // A flush claims it and stalls before writing it onward.
+            const kv = server.stores.kv;
+            const realIncr = kv.incr.bind(kv);
+            let release: () => void = () => {};
+            const gate = new Promise<void>((r) => (release = r));
+            const write = vi
+                .spyOn(kv, 'incr')
+                .mockImplementation(async (...args) => {
+                    await gate;
+                    return realIncr(...args);
+                });
+            const flushing = server.stores.meteringBuffer.flushCycle();
+            await vi.waitFor(() => expect(write).toHaveBeenCalled());
+            write.mockImplementation(realIncr);
+
+            // 5 µ¢ of this is left in the allowance; the rest is credit.
+            await target.incrementUsage(actor, 'kv:read', 1, 10);
+            release();
+            await flushing;
+            write.mockRestore();
+            await waitFor(async () => {
+                const addons = await target.getActorAddons(actor, {
+                    consistentRead: true,
+                });
+                expect(addons.consumedPurchaseCredits).toBe(5);
+            });
         });
     });
 
@@ -3006,8 +4861,7 @@ describe('MeteringService', () => {
                 const admitted = usages.filter((u) => usage[u.usageType]);
                 expect(admitted.length).toBeLessThanOrEqual(5);
                 const other = usage[OTHER_USAGE_TYPE] as
-                    | { cost: number }
-                    | undefined;
+                    { cost: number } | undefined;
                 expect(other).toBeDefined();
 
                 // Nothing was lost, only regrouped: every admitted type's
@@ -3286,7 +5140,7 @@ describe('MeteringService', () => {
             expect(appTotals['app-new']).toEqual({ total: 10, count: 1 });
         });
 
-        it('an app actor sees only its own total, with everyone else folded into others', async () => {
+        it('an app actor sees only its own total', async () => {
             const bufActor: Actor = { user: makeUser() };
             await target.incrementUsage(
                 resolveActor({ ...bufActor, app: { uid: 'app-mine' } }),
@@ -3309,9 +5163,7 @@ describe('MeteringService', () => {
             const { appTotals } =
                 await target.getActorCurrentMonthUsageDetails(appActor);
 
-            expect(appTotals['app-mine']).toEqual({ total: 10, count: 1 });
-            expect(appTotals['app-theirs']).toBeUndefined();
-            expect(appTotals.others).toEqual({ total: 20, count: 1 });
+            expect(appTotals).toEqual({ 'app-mine': { total: 10, count: 1 } });
         });
 
         it('caches the app-totals listing and invalidates it on a correction', async () => {

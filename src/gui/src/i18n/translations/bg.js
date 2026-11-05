@@ -26,7 +26,7 @@ const bg = {
         account: 'Акаунт',
         account_password: 'Потвърдете паролата на акаунта',
         access_granted_to: 'Достъпът е предоставен на',
-        add_existing_account: 'Добавяне на съществуващ акаунт',
+        add_another_account: 'Добавяне на друг акаунт',
         all_fields_required: 'Всички полета са задължителни.',
         allow: 'Разреши',
         apply: 'Приложи',

@@ -109,13 +109,27 @@ describe('UIPermissionDialog key-value delegation rendering', () => {
 
     // The region is a key prefix an app names in its own `grant-user-app`
     // request — attacker-controlled the same way an app title is.
-    it('escapes a hostile region exactly once', async () => {
+    it('refuses a hostile region outright', async () => {
+        stubApp({ uid: CONTACTS, title: 'Contacts' });
+        expect(
+            await get_kv_share_description(
+                `manage:kv-share:${OWNER}:${CONTACTS}:<img src=x onerror=alert(1)>`.split(':'),
+                { app_uid: CONTACTS },
+            ),
+        ).toBeNull();
+    });
+
+    it('renders an allowed region verbatim, encoded exactly once', async () => {
         stubApp({ uid: CONTACTS, title: 'Contacts' });
         const html = await renderShare(
-            `manage:kv-share:${OWNER}:${CONTACTS}:<img src=x onerror=alert(1)>`,
+            `manage:kv-share-write:${OWNER}:${CONTACTS}:room_1.a-b:x9`,
         );
-        expect(html).not.toContain('<img');
-        expect(decode(html)).toContain('<img');
+        // The copy's own apostrophe is encoded once, not twice.
+        expect(html).toContain('Contacts&apos;s');
+        expect(html).not.toContain('&amp;');
+        expect(decode(html)).toContain(
+            "the room_1.a-b:x9: section of Contacts's data",
+        );
     });
 
     it('escapes a hostile app title exactly once', async () => {

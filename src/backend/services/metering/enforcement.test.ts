@@ -22,6 +22,11 @@ import { SYSTEM_ACTOR, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types';
 import {
+    FREE_SUBSCRIPTION_IDS,
+    isFreeSubscription,
+    subscriptionOverride,
+} from './consts.js';
+import {
     actorHasSubscription,
     actorOnPaidPlan,
     assertActorHasCredits,
@@ -257,6 +262,49 @@ describe('subscriptionSatisfies', () => {
         expect(subscriptionSatisfies('user_free', false)).toBe(true);
         expect(subscriptionSatisfies('business', false)).toBe(true);
         expect(subscriptionSatisfies('user_free', [])).toBe(true);
+    });
+});
+
+describe('isFreeSubscription', () => {
+    it('is true for exactly the free policies', () => {
+        // Literal ids: a loop over the set would pass if one were dropped.
+        expect(isFreeSubscription('user_free')).toBe(true);
+        expect(isFreeSubscription('temp_free')).toBe(true);
+        expect(isFreeSubscription('org_seat_free')).toBe(true);
+        for (const id of ['professional', 'unlimited', 'some-paid-tier', '']) {
+            expect(isFreeSubscription(id)).toBe(false);
+        }
+        // Untyped callers can pass an id that never resolved.
+        expect(isFreeSubscription(undefined as never)).toBe(false);
+        expect(isFreeSubscription(null as never)).toBe(false);
+    });
+
+    it('is the complement of a `true` requirement', () => {
+        for (const id of [...FREE_SUBSCRIPTION_IDS, 'professional', '']) {
+            expect(subscriptionSatisfies(id, true)).toBe(
+                !isFreeSubscription(id),
+            );
+        }
+    });
+});
+
+describe('subscriptionOverride', () => {
+    const map = { user_free: 5, temp_free: 2, professional: 0 };
+
+    it('returns a listed plan its own entry, zero included', () => {
+        expect(subscriptionOverride(map, 'temp_free')).toBe(2);
+        expect(subscriptionOverride(map, 'professional')).toBe(0);
+    });
+
+    it('gives an unlisted free plan the default free entry', () => {
+        expect(subscriptionOverride(map, 'org_seat_free')).toBe(5);
+    });
+
+    it('leaves the rest to the caller', () => {
+        expect(subscriptionOverride(map, 'business')).toBeUndefined();
+        expect(
+            subscriptionOverride({ temp_free: 2 }, 'org_seat_free'),
+        ).toBeUndefined();
     });
 });
 

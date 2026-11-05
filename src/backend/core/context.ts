@@ -63,11 +63,51 @@ export interface KnownContextFields {
     driverName: string;
     /**
      * Aborts when the client disconnects before the response has finished (set
-     * by DriverController). Long-running drivers poll it so work nobody will
-     * receive stops early and is never metered.
+     * by DriverController). Some drivers (Gemini, Replicate) stop early on it.
+     * Async video and image jobs keep polling and are metered after a
+     * disconnect, since the provider bills them either way.
      */
     abortSignal: AbortSignal;
+    /**
+     * Keeps the call's concurrency slot until `work` settles (set by
+     * DriverController when the method is capped), for work that outlives the
+     * response.
+     */
+    keepDriverSlot: (work: Promise<unknown>) => void;
+    /**
+     * Aborts the chat driver's upstream request. A client disconnect doesn't
+     * fire it: the upstream bills a request it has accepted either way, so the
+     * driver lets it finish and meters what it reports.
+     */
+    upstreamSignal: AbortSignal;
+    /**
+     * When true, `ChatCompletionDriver.complete` treats a request-level
+     * upstream 4xx as final instead of falling back to another provider — set
+     * by the Anthropic route, which needs the vendor's own error rather than a
+     * different provider's translation of it.
+     */
+    strictUpstreamErrors: boolean;
+    /**
+     * Set while Puter files something into an account for it (mail delivery),
+     * so filesystem events never report that write as the request actor's own.
+     */
+    platformWrite: boolean;
 }
+
+// Every key of `KnownContextFields`, checked both ways by the compiler, so
+// `get` and `set` can never disagree about where a known key lives.
+const KNOWN_KEY_FLAGS: Record<keyof KnownContextFields, true> = {
+    actor: true,
+    req: true,
+    requestId: true,
+    driverName: true,
+    abortSignal: true,
+    keepDriverSlot: true,
+    upstreamSignal: true,
+    strictUpstreamErrors: true,
+    platformWrite: true,
+};
+const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_KEY_FLAGS));
 
 // -- Context store ---------------------------------------------------
 
@@ -78,13 +118,21 @@ interface ContextStore {
 
 const als = new AsyncLocalStorage<ContextStore>();
 
+const storeValue = (store: ContextStore, key: string, value: unknown) => {
+    if (KNOWN_KEYS.has(key)) {
+        (store.known as Record<string, unknown>)[key] = value;
+    } else {
+        store.extra.set(key, value);
+    }
+};
+
 // -- Public API ------------------------------------------------------
 
 /**
  * Static-style context accessor.
  *
- * Well-known keys (`actor`, `req`, `requestId`) return typed values. Any other
- * string key hits the generic map and returns `unknown`.
+ * Well-known keys (`KnownContextFields`) return typed values. Any other string
+ * key hits the generic map and returns `unknown`.
  */
 export class Context {
     /**
@@ -104,7 +152,7 @@ export class Context {
         if (key === undefined) return als.getStore();
         const store = als.getStore();
         if (!store) return undefined;
-        if (key in store.known) {
+        if (KNOWN_KEYS.has(key)) {
             return (store.known as Record<string, unknown>)[key];
         }
         return store.extra.get(key);
@@ -127,11 +175,7 @@ export class Context {
                 `Context.set('${key}', ...) called outside a request scope`,
             );
         }
-        if (key === 'actor' || key === 'req' || key === 'requestId') {
-            (store.known as Record<string, unknown>)[key] = value;
-        } else {
-            store.extra.set(key, value);
-        }
+        storeValue(store, key, value);
     }
 
     /**
@@ -146,6 +190,20 @@ export class Context {
 // -- Internal: used by the request-context middleware -----------------
 
 /**
+ * Run `fn` in a scope that starts as a copy of the current one, so what it
+ * writes is invisible both to the caller and to anything running beside it.
+ * Cuts both ways: nothing the callee stores survives the scope.
+ */
+export const runInDerivedContext = <T>(fn: () => T): T => {
+    const parent = als.getStore();
+    const store: ContextStore = {
+        known: { ...(parent?.known ?? {}) },
+        extra: new Map(parent?.extra ?? []),
+    };
+    return als.run(store, fn);
+};
+
+/**
  * Run `fn` inside a new context scope. Used by the request-context middleware
  * to wrap the remainder of the middleware/handler chain.
  */
@@ -153,9 +211,10 @@ export const runWithContext = <T>(
     initial: Partial<KnownContextFields>,
     fn: () => T,
 ): T => {
-    const store: ContextStore = {
-        known: { ...initial },
-        extra: new Map(),
-    };
+    const store: ContextStore = { known: {}, extra: new Map() };
+    // Routed like `set`, so an untyped caller's extra key stays readable.
+    for (const [key, value] of Object.entries(initial)) {
+        storeValue(store, key, value);
+    }
     return als.run(store, fn);
 };

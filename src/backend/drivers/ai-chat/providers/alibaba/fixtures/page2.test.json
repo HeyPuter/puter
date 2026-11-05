@@ -1,0 +1,95 @@
+{
+  "success": true,
+  "output": {
+    "total": 4,
+    "page_no": 2,
+    "page_size": 2,
+    "models": [
+      {
+        "model": "qwen-catalog-fixture",
+        "name": "Qwen Catalog Fixture",
+        "capabilities": [
+          "TG",
+          "Reasoning",
+          "VU"
+        ],
+        "features": [
+          "function-calling",
+          "cache",
+          "structured-outputs"
+        ],
+        "published_time": "2026-08-01 12:00:00",
+        "model_info": {
+          "context_window": 131072,
+          "max_input_tokens": 130048,
+          "max_output_tokens": 16384,
+          "max_reasoning_tokens": 8192,
+          "reasoning_max_input_tokens": 64000,
+          "reasoning_max_output_tokens": 8192
+        },
+        "inference_metadata": {
+          "request_modality": [
+            "Text",
+            "Image"
+          ],
+          "response_modality": [
+            "Text"
+          ]
+        },
+        "equivalent_snapshot": "qwen-catalog-fixture-0801",
+        "inference_offline_info": {
+          "international": {
+            "offline_time": "2027-01-01 00:00:00"
+          }
+        },
+        "prices": [
+          {
+            "range_name": "0<Input<=32768",
+            "prices": [
+              {
+                "type": "input_token",
+                "price": "0.002",
+                "price_unit": "per thousand tokens",
+                "price_name": "Input"
+              },
+              {
+                "type": "output_token",
+                "price": "8",
+                "price_unit": "per million tokens",
+                "price_name": "Output"
+              },
+              {
+                "type": "input_token_cached",
+                "price": null,
+                "price_unit": "per million tokens"
+              }
+            ]
+          },
+          {
+            "range_name": "32k<Input<=128k",
+            "prices": [
+              {
+                "type": "input_token",
+                "price": "4",
+                "price_unit": "per million tokens"
+              },
+              {
+                "type": "output_token",
+                "price": "16",
+                "price_unit": "per million tokens"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "model": "qwen-image-fixture",
+        "inference_metadata": {
+          "response_modality": [
+            "Image"
+          ]
+        }
+      }
+    ]
+  }
+}

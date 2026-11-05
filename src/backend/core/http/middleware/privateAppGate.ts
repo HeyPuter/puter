@@ -18,11 +18,14 @@
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
-import type { AbstractDatabaseClient } from '@heyputer/backend/src/clients/database/DatabaseClient';
 import type { Request } from 'express';
-import type { AuthService } from '../../../services/auth/AuthService';
+import {
+    HOSTED_ASSET_COOKIES,
+    type AuthService,
+} from '../../../services/auth/AuthService';
+import type { AppStore } from '../../../stores/app/AppStore.js';
 import type { IConfig } from '../../../types';
-import type { Actor } from '../../actor';
+import { isAccessTokenActor, isAccountContext, type Actor } from '../../actor';
 
 /**
  * Support helpers for the private-app access gate — ported from v1's
@@ -48,8 +51,7 @@ import type { Actor } from '../../actor';
  * Sticky cookies (`puter.private.asset.token` for private apps,
  * `puter.public.hosted.actor.token` for public-hosted actors) are set after a
  * visitor passes the gate, and honored on subsequent requests to skip the full
- * entitlement lookup. See AuthService `createPrivateAssetToken` /
- * `createPublicHostedActorToken`.
+ * entitlement lookup. See AuthService `createHostedAssetToken`.
  */
 
 export interface PrivateHostingConfig {
@@ -191,13 +193,15 @@ export function subdomainFromHost(
 export async function resolveOwnedAppForHostedSite(opts: {
     req: Request;
     site: SubdomainLike;
-    db: AbstractDatabaseClient;
+    appStore: Pick<AppStore, 'listOwnedByIndexUrlCandidates'>;
     config: PrivateHostingConfig;
     requirePrivate?: boolean;
+    /** Match against this hosting-domain host instead of the request's. */
+    host?: string;
 }): Promise<AppLike | null> {
     if (!opts.site?.user_id) return null;
 
-    const host = normalizeHost(opts.req.hostname);
+    const host = normalizeHost(opts.host ?? opts.req.hostname);
     if (!host) return null;
 
     const hostedSubdomain = subdomainFromHost(host, [
@@ -213,7 +217,7 @@ export async function resolveOwnedAppForHostedSite(opts: {
     const hostCandidates = new Set<string>();
     hostCandidates.add(host);
     const headerHost =
-        typeof opts.req.headers?.host === 'string'
+        !opts.host && typeof opts.req.headers?.host === 'string'
             ? opts.req.headers.host.trim().toLowerCase()
             : '';
     if (headerHost) hostCandidates.add(headerHost);
@@ -245,15 +249,11 @@ export async function resolveOwnedAppForHostedSite(opts: {
     const uniqueCandidates = [...new Set(urlCandidates)];
     if (uniqueCandidates.length === 0) return null;
 
-    const privateFilter = opts.requirePrivate
-        ? `AND \`is_private\` = ${opts.db.booleanLiteral(true)} `
-        : '';
-    const placeholders = uniqueCandidates.map(() => '?').join(', ');
     // Ambiguity fails closed: a private row wins; `id` keeps it deterministic.
-    const orderClause = `ORDER BY CASE WHEN \`is_private\` = ${opts.db.booleanLiteral(true)} THEN 0 ELSE 1 END, \`id\``;
-    const rows = await opts.db.read(
-        `SELECT * FROM apps WHERE owner_user_id = ? ${privateFilter}AND index_url IN (${placeholders}) ${orderClause} LIMIT 2`,
-        [opts.site.user_id, ...uniqueCandidates],
+    const rows = await opts.appStore.listOwnedByIndexUrlCandidates(
+        opts.site.user_id,
+        uniqueCandidates,
+        { requirePrivate: opts.requirePrivate },
     );
     if (rows.length === 0) return null;
     if (rows.length > 1) {
@@ -356,8 +356,8 @@ export async function resolvePrivateIdentity(opts: {
     // back to the legacy dot-style name while the deprecation window
     // is open. A v1-signed token no longer verifies at all, so it lands
     // in the catch below and the chain re-mints under v2 on this response.
-    const v2CookieName = authService.getPrivateAssetCookieNameV2();
-    const legacyCookieName = authService.getPrivateAssetCookieName();
+    const { name: v2CookieName, legacyName: legacyCookieName } =
+        HOSTED_ASSET_COOKIES.private;
     const privateCookieToken =
         (typeof cookies?.[v2CookieName] === 'string'
             ? cookies[v2CookieName]
@@ -367,12 +367,13 @@ export async function resolvePrivateIdentity(opts: {
             : null);
     if (privateCookieToken) {
         try {
-            const claims = await authService.verifyPrivateAssetToken(
+            const claims = await authService.verifyHostedAssetToken(
+                'private',
                 privateCookieToken,
                 {
-                    expectedAppUid,
-                    expectedSubdomain,
-                    expectedPrivateHost,
+                    appUid: expectedAppUid,
+                    subdomain: expectedSubdomain,
+                    host: expectedPrivateHost,
                 },
             );
             return {
@@ -459,11 +460,15 @@ export async function resolvePrivateIdentity(opts: {
  * "No app anywhere in the chain" is the portable case, so read `effectiveApp` —
  * an app-issued access token has no `app` of its own and would otherwise pass
  * as a plain session on any private host.
+ *
+ * A scoped access token (a read URL, whoever issued it) is never the account
+ * here: the hosted cookie minted from it would outlive the token's revocation.
  */
 function actorMatchesExpectedApp(
     actor: Actor,
     expectedAppUid: string | undefined,
 ): boolean {
+    if (isAccessTokenActor(actor) && !isAccountContext(actor)) return false;
     if (!expectedAppUid) return true;
     const app = actor.effectiveApp;
     if (!app) return true;
@@ -471,9 +476,8 @@ function actorMatchesExpectedApp(
 }
 
 /**
- * Mirror of `resolvePrivateIdentity` for public hosted apps. Reads the sticky
- * `puter.public.hosted.actor.token` cookie first, then the same
- * session/bootstrap fallbacks.
+ * Fresh authenticated identities replace the sticky public billing cookie when
+ * the visitor switches accounts.
  */
 export async function resolvePublicHostedIdentity(opts: {
     req: Request;
@@ -494,36 +498,6 @@ export async function resolvePublicHostedIdentity(opts: {
 
     const cookies = (req as Request & { cookies?: Record<string, string> })
         .cookies;
-
-    const publicCookieNameV2 = authService.getPublicHostedActorCookieNameV2();
-    const publicCookieNameLegacy = authService.getPublicHostedActorCookieName();
-    const publicCookieToken =
-        (typeof cookies?.[publicCookieNameV2] === 'string'
-            ? cookies[publicCookieNameV2]
-            : null) ??
-        (typeof cookies?.[publicCookieNameLegacy] === 'string'
-            ? cookies[publicCookieNameLegacy]
-            : null);
-    if (publicCookieToken) {
-        try {
-            const claims = await authService.verifyPublicHostedActorToken(
-                publicCookieToken,
-                {
-                    expectedAppUid,
-                    expectedSubdomain,
-                    expectedHost,
-                },
-            );
-            return {
-                source: 'public-cookie',
-                userUid: claims.userUid,
-                sessionUuid: claims.sessionUuid,
-                hasValidPublicCookie: true,
-            };
-        } catch {
-            /* fall through — v1-signed cookies land here and get re-minted */
-        }
-    }
 
     const existingActor = req.actor;
     if (
@@ -580,6 +554,37 @@ export async function resolvePublicHostedIdentity(opts: {
         }
     }
 
+    const { name: publicCookieNameV2, legacyName: publicCookieNameLegacy } =
+        HOSTED_ASSET_COOKIES.public;
+    const publicCookieToken =
+        (typeof cookies?.[publicCookieNameV2] === 'string'
+            ? cookies[publicCookieNameV2]
+            : null) ??
+        (typeof cookies?.[publicCookieNameLegacy] === 'string'
+            ? cookies[publicCookieNameLegacy]
+            : null);
+    if (publicCookieToken) {
+        try {
+            const claims = await authService.verifyHostedAssetToken(
+                'public',
+                publicCookieToken,
+                {
+                    appUid: expectedAppUid,
+                    subdomain: expectedSubdomain,
+                    host: expectedHost,
+                },
+            );
+            return {
+                source: 'public-cookie',
+                userUid: claims.userUid,
+                sessionUuid: claims.sessionUuid,
+                hasValidPublicCookie: true,
+            };
+        } catch {
+            /* fall through — v1-signed cookies land here and get re-minted */
+        }
+    }
+
     return { source: 'none' };
 }
 
@@ -594,6 +599,43 @@ export async function resolvePublicHostedIdentity(opts: {
  */
 function normalizeRedirectPath(originalUrl: string | undefined): string {
     return '/' + (originalUrl || '/').replace(/^[/\\]+/, '');
+}
+
+/** A GET for a top-level page, as opposed to a frame, subresource or fetch. */
+export function isTopLevelNavigation(req: Request): boolean {
+    return (
+        req.method === 'GET' && req.headers?.['sec-fetch-dest'] === 'document'
+    );
+}
+
+/**
+ * Same-host path of this request with every `name` query parameter removed, or
+ * null when it has none. The parameters that stay keep their exact encoding.
+ */
+export function pathWithoutQueryParam(
+    originalUrl: string | undefined,
+    name: string,
+): string | null {
+    const base = 'http://gate.invalid';
+    let url: URL;
+    try {
+        url = new URL(normalizeRedirectPath(originalUrl), base);
+    } catch {
+        return null;
+    }
+    if (url.origin !== base) return null;
+    const isTarget = (part: string) => {
+        const rawKey = part.split('=', 1)[0].replace(/\+/g, ' ');
+        try {
+            return decodeURIComponent(rawKey) === name;
+        } catch {
+            return rawKey === name;
+        }
+    };
+    const parts = url.search.slice(1).split('&');
+    if (!parts.some(isTarget)) return null;
+    const kept = parts.filter((part) => part && !isTarget(part));
+    return url.pathname + (kept.length ? `?${kept.join('&')}` : '');
 }
 
 /** Build the URL to redirect a private-app request to its private host. */

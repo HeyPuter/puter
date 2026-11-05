@@ -3,22 +3,25 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+    awaitLater,
+    settleWithin,
     runWithConcurrencyLimit,
     runWithConcurrencyLimitSettled,
 } from './concurrency.ts';
@@ -193,4 +196,81 @@ describe('runWithConcurrencyLimitSettled', () => {
             ),
         ).rejects.toThrow('Missing value at index 0');
     });
+});
+
+describe('awaitLater', () => {
+    it('leaves no unhandled rejection when the promise is never awaited', async () => {
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            awaitLater(Promise.reject(new Error('never awaited')));
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(unhandled).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+    });
+
+    it('still rejects where it is awaited', async () => {
+        const failure = new Error('surfaced');
+        const started = awaitLater(Promise.reject(failure));
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await expect(started).rejects.toBe(failure);
+    });
+
+    it('resolves to the same value', async () => {
+        expect(await awaitLater(Promise.resolve(42))).toBe(42);
+    });
+});
+
+describe('settleWithin', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('returns true and clears the timer when work settles in time', async () => {
+        vi.useFakeTimers();
+        const work = Promise.withResolvers<void>();
+        const waiting = settleWithin(work.promise, 5000);
+        expect(vi.getTimerCount()).toBe(1);
+        work.resolve();
+        await expect(waiting).resolves.toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('returns false and clears the timer when time runs out', async () => {
+        vi.useFakeTimers();
+        const cleared = vi.spyOn(globalThis, 'clearTimeout');
+        try {
+            const waiting = settleWithin(new Promise(() => {}), 5000);
+            await vi.advanceTimersByTimeAsync(5000);
+            await expect(waiting).resolves.toBe(false);
+            expect(cleared).toHaveBeenCalledTimes(1);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            cleared.mockRestore();
+        }
+    });
+
+    it.each([false, true])(
+        'handles a rejection after timeout %s',
+        async (afterTimeout) => {
+            const unhandled: unknown[] = [];
+            const onUnhandled = (reason: unknown) => unhandled.push(reason);
+            process.on('unhandledRejection', onUnhandled);
+            try {
+                const work = Promise.withResolvers<void>();
+                const waiting = settleWithin(
+                    work.promise,
+                    afterTimeout ? 0 : 5000,
+                );
+                if (afterTimeout) await expect(waiting).resolves.toBe(false);
+                work.reject(new Error('work failed'));
+                await expect(waiting).resolves.toBe(!afterTimeout);
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                expect(unhandled).toEqual([]);
+            } finally {
+                process.off('unhandledRejection', onUnhandled);
+            }
+        },
+    );
 });

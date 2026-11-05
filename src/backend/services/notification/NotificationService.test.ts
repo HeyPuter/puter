@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -160,12 +161,34 @@ describe('NotificationService.notify', () => {
         server.clients.event.off?.('outer.gui.notif.message', handler);
     });
 
+    it('does not read the row back after writing it', async () => {
+        const user = await makeUser();
+        const db = server.clients.db;
+        const read = vi.spyOn(db, 'read');
+        const pread = vi.spyOn(db, 'pread');
+        try {
+            const uid = await notifications.notify(
+                [user.id],
+                { title: 'no read-back' },
+                { type: 'share.received' },
+            );
+            expect(uid).toEqual(expect.any(String));
+            const readsOfRow = [...read.mock.calls, ...pread.mock.calls].filter(
+                ([sql]) => /FROM `notification`/u.test(String(sql)),
+            );
+            expect(readsOfRow).toEqual([]);
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    });
+
     it('pushes nothing for a recipient whose insert failed', async () => {
         const good = await makeUser();
         const pushed = collect('outer.gui.notif.message');
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-        // userId 0 is falsy — NotificationStore.create rejects it. The
+        // userId 0 is falsy — the store's insert rejects it. The
         // remaining user must still be written and still be pushed to.
         await notifications.notify(
             [0, good.id],
@@ -303,6 +326,106 @@ describe('NotificationService.notifyUpdate', () => {
         pushed.stop();
     });
 
+    it("replaces an app's unseen message in place, off the desktop wire", async () => {
+        const user = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one message', group: 'chat-1' },
+            { type: 'app.message', appUid, group: 'chat-1' },
+        );
+
+        const desktop = collect('outer.gui.notif.message');
+        const written = collect('notif.written');
+        expect(
+            await notifications.notifyUpdate(
+                uid!,
+                user.id,
+                { title: 'two messages', group: 'chat-1' },
+                { type: 'app.message', replace: true },
+            ),
+        ).toBe(true);
+        await waitFor(() => written.seen.length === 1);
+
+        expect(written.seen[0]).toMatchObject({
+            uid,
+            type: 'app.message',
+            audience: 'app-user',
+            appUid,
+            value: { title: 'two messages', type: 'app.message' },
+            updated: true,
+            replaced: true,
+        });
+        expect(desktop.seen).toEqual([]);
+        expect(
+            await server.stores.notification.listByUserId(user.id, {}),
+        ).toEqual([
+            expect.objectContaining({
+                uid,
+                value: {
+                    title: 'two messages',
+                    group: 'chat-1',
+                    type: 'app.message',
+                },
+            }),
+        ]);
+        desktop.stop();
+        written.stop();
+    });
+
+    it('leaves a shown message alone when replacing', async () => {
+        const user = await makeUser();
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one message' },
+            { type: 'app.message', appUid: `app-${uuidv4()}`, group: 'g' },
+        );
+        await server.stores.notification.markShown(uid!, user.id);
+        const written = collect('notif.written');
+
+        expect(
+            await notifications.notifyUpdate(
+                uid!,
+                user.id,
+                { title: 'two messages' },
+                { type: 'app.message', replace: true },
+            ),
+        ).toBe(false);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(written.seen).toEqual([]);
+        written.stop();
+    });
+
+    it('sends the desktop rewrite before reading the row back, so a failed read still updates it', async () => {
+        const user = await makeUser();
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one share' },
+            { type: 'share.received' },
+        );
+        const pushed = collect('outer.gui.notif.message');
+        const read = vi
+            .spyOn(server.stores.notification, 'getByUid')
+            .mockRejectedValueOnce(new Error('replica down'));
+        try {
+            await expect(
+                notifications.notifyUpdate(
+                    uid,
+                    user.id,
+                    { title: 'two shares' },
+                    { type: 'share.received' },
+                ),
+            ).rejects.toThrow('replica down');
+            expect(pushed.seen).toHaveLength(1);
+            expect((pushed.seen[0] as NotifPush).response.notification).toEqual(
+                { title: 'two shares', type: 'share.received' },
+            );
+        } finally {
+            read.mockRestore();
+            pushed.stop();
+        }
+    });
+
     it('refuses to fold a type that does not group', async () => {
         const user = await makeUser();
         await expect(
@@ -313,6 +436,153 @@ describe('NotificationService.notifyUpdate', () => {
                 { type: 'share.claimed' },
             ),
         ).rejects.toThrow('not groupable');
+    });
+});
+
+describe("NotificationService — 'notif.written'", () => {
+    it('fires once per recipient whose row was written', async () => {
+        const a = await makeUser();
+        const b = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const written = collect('notif.written');
+
+        await notifications.notify(
+            [a.id, b.id],
+            { title: 'ended' },
+            { type: 'app.events.ended', appUid },
+        );
+        await waitFor(() => written.seen.length === 2);
+
+        const rows = await Promise.all(
+            [a, b].map((u) =>
+                server.stores.notification.listByUserId(u.id, {}),
+            ),
+        );
+        const expected = [a, b].map((u, i) => ({
+            userId: u.id,
+            uid: rows[i][0].uid,
+            type: 'app.events.ended',
+            audience: 'app-user',
+            appUid,
+            value: { title: 'ended', type: 'app.events.ended' },
+            sendId: expect.any(String),
+        }));
+        expect(written.seen).toEqual(expect.arrayContaining(expected));
+        written.stop();
+    });
+
+    it('stays quiet for a silent write', async () => {
+        const user = await makeUser();
+        const written = collect('notif.written');
+
+        await notifications.notify(
+            [user.id],
+            { title: 'quiet' },
+            { type: 'share.received', silent: true },
+        );
+        await new Promise((r) => setTimeout(r, 50));
+
+        expect(written.seen).toEqual([]);
+        written.stop();
+    });
+
+    it('marks a rewrite in place as updated', async () => {
+        const user = await makeUser();
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one share' },
+            { type: 'share.received' },
+        );
+        const written = collect('notif.written');
+
+        await notifications.notifyUpdate(
+            uid!,
+            user.id,
+            { title: 'two shares' },
+            { type: 'share.received' },
+        );
+        await waitFor(() => written.seen.length === 1);
+
+        expect(written.seen[0]).toEqual({
+            userId: user.id,
+            uid,
+            type: 'share.received',
+            audience: 'account',
+            appUid: null,
+            value: { title: 'two shares', type: 'share.received' },
+            updated: true,
+            sendId: expect.any(String),
+        });
+        written.stop();
+    });
+
+    it("names the row's app on a rewrite", async () => {
+        const user = await makeUser();
+        const uid = uuidv4();
+        const appUid = `app-${uuidv4()}`;
+        await server.stores.notification.insert({
+            userId: user.id,
+            value: { title: 'one', type: 'share.received' },
+            uid,
+            type: 'share.received',
+            audience: 'account',
+            appUid,
+        });
+        const written = collect('notif.written');
+
+        await notifications.notifyUpdate(
+            uid,
+            user.id,
+            { title: 'two' },
+            { type: 'share.received' },
+        );
+        await waitFor(() => written.seen.length === 1);
+
+        expect(written.seen[0]).toMatchObject({ uid, appUid, updated: true });
+        written.stop();
+    });
+
+    it('hands each listener its own copy of the value', async () => {
+        const user = await makeUser();
+        const handler = (_k: string, data: unknown) => {
+            const value = (data as { value: Record<string, unknown> }).value;
+            value.title = 'changed by a listener';
+            (value.fields as Record<string, unknown>).path = '/elsewhere';
+        };
+        server.clients.event.on('notif.written', handler);
+        const pushed = collect('outer.gui.notif.message');
+        try {
+            const uid = await notifications.notify(
+                [user.id],
+                { title: 'one share', fields: { path: '/a' } },
+                { type: 'share.received' },
+            );
+            await notifications.notifyUpdate(
+                uid!,
+                user.id,
+                { title: 'two shares', fields: { path: '/b' } },
+                { type: 'share.received' },
+            );
+            await waitFor(() => pushed.seen.length === 2);
+        } finally {
+            server.clients.event.off?.('notif.written', handler);
+            pushed.stop();
+        }
+
+        expect(
+            pushed.seen.map((p) => (p as NotifPush).response.notification),
+        ).toEqual([
+            {
+                title: 'one share',
+                fields: { path: '/a' },
+                type: 'share.received',
+            },
+            {
+                title: 'two shares',
+                fields: { path: '/b' },
+                type: 'share.received',
+            },
+        ]);
     });
 });
 
@@ -372,6 +642,49 @@ describe('NotificationService.markAcknowledged', () => {
         expect(acknowledged).toBe(false);
         expect(acks.seen).toEqual([]);
         acks.stop();
+    });
+});
+
+describe('NotificationService.remove', () => {
+    it("deletes the row and tells the user's other tabs", async () => {
+        const user = await makeUser();
+        const row = await server.stores.notification.create({
+            userId: user.id,
+            value: { source: 'test', title: 'remove me' },
+        });
+        const removals = collect('outer.gui.notif.removed');
+
+        const removed = await notifications.remove(row.uid, user.id);
+
+        expect(removed).toBe(true);
+        expect(removals.seen).toEqual([
+            { user_id_list: [user.id], response: { uid: row.uid } },
+        ]);
+        const fresh = await server.stores.notification.getByUid(row.uid, {
+            userId: user.id,
+        });
+        expect(fresh).toBeNull();
+        removals.stop();
+    });
+
+    it("leaves another user's row alone and sends nothing", async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const row = await server.stores.notification.create({
+            userId: owner.id,
+            value: { source: 'test', title: 'not yours' },
+        });
+        const removals = collect('outer.gui.notif.removed');
+
+        const removed = await notifications.remove(row.uid, other.id);
+
+        expect(removed).toBe(false);
+        expect(removals.seen).toEqual([]);
+        const fresh = await server.stores.notification.getByUid(row.uid, {
+            userId: owner.id,
+        });
+        expect(fresh?.uid).toBe(row.uid);
+        removals.stop();
     });
 });
 
@@ -513,7 +826,10 @@ describe('NotificationService — shown on delivery', () => {
             { type: 'share.received' },
         );
 
-        const [row] = await server.stores.notification.listByUserId(user.id, {});
+        const [row] = await server.stores.notification.listByUserId(
+            user.id,
+            {},
+        );
         expect(row.uid).toBe(uid);
         expect(row.shown).toBeTruthy();
 
@@ -597,17 +913,42 @@ describe('NotificationService.sweepExpired', () => {
     });
 
     it('stops at the pass cap and leaves the rest for the next sweep', async () => {
+        // A backlog that always fills the batch: the cap, not a short batch,
+        // is what ends the call. Seeding 500k rows would take minutes.
+        const deletes = vi
+            .spyOn(server.stores.notification, 'deleteCreatedBefore')
+            .mockResolvedValue(500);
+        try {
+            expect(await notifications.sweepExpired()).toBe(500_000);
+            expect(deletes).toHaveBeenCalledTimes(1000);
+        } finally {
+            deletes.mockRestore();
+        }
+    });
+
+    it('stops between batches once its signal aborts', async () => {
         await notifications.sweepExpired();
         const user = await makeUser();
-        // 50 passes * 500/batch = 25,000 — a backlog past that so the cap,
-        // not a short batch, is what ends the first call.
-        await seedExpired(user.id, 25_050);
-
-        expect(await notifications.sweepExpired()).toBe(25_000);
-        expect(
-            await server.stores.notification.listByUserId(user.id),
-        ).toHaveLength(50);
-        expect(await notifications.sweepExpired()).toBe(50);
+        await seedExpired(user.id, 1200);
+        const controller = new AbortController();
+        const deleteBatch = server.stores.notification.deleteCreatedBefore.bind(
+            server.stores.notification,
+        );
+        const spy = vi
+            .spyOn(server.stores.notification, 'deleteCreatedBefore')
+            .mockImplementation(async (days: number, limit: number) => {
+                const removed = await deleteBatch(days, limit);
+                controller.abort();
+                return removed;
+            });
+        try {
+            expect(await notifications.sweepExpired(controller.signal)).toBe(
+                500,
+            );
+        } finally {
+            spy.mockRestore();
+        }
+        expect(await notifications.sweepExpired()).toBe(700);
     });
 
     it('sweeps nothing when no retention is configured', async () => {

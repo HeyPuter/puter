@@ -18,40 +18,34 @@
  */
 
 import bcrypt from 'bcrypt';
-import type { Request, RequestHandler, Response } from 'express';
+import type { Request, Response } from 'express';
 import crypto from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import { v4 as uuidv4, validate as validateUuid } from 'uuid';
-import validator from 'validator';
-import { Controller, Get, Post } from '../../core/http/decorators.js';
+import { Controller, Get, Patch, Post } from '../../core/http/decorators.js';
 import type { HttpErrorOptions } from '../../core/http/HttpError.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import {
+    DEFAULT_ADMIN_USERNAMES,
     hasVerifiedCard,
     hasVerifiedPhone,
 } from '../../core/http/middleware/gates.js';
 import type { Actor } from '../../core/actor.js';
-import { isPlainUserActor, makeActor } from '../../core/actor.js';
-import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import { isAppActor, isPlainUserActor, makeActor } from '../../core/actor.js';
+import {
+    checkRateLimit,
+    consumeRouteRateLimit,
+    peekRateLimit,
+    peekRouteRateLimit,
+} from '../../core/http/middleware/rateLimit.js';
 import {
     signStepUpToken,
     STEP_UP_COOKIE_NAME,
     stepUpCookieOptions,
 } from '../../core/http/middleware/stepUpSession.js';
-import {
-    createUserProtectedGate,
-    createWebSessionActorGate,
-} from '../../core/http/middleware/userProtected.js';
-import type { PuterRouter } from '../../core/http/PuterRouter.js';
-import {
-    ROUTES_METADATA_KEY,
-    type CollectedRoute,
-    type RouteMethod,
-    type RouteOptions,
-    type RoutePath,
-} from '../../core/http/types.js';
+import { createWebSessionActorGate } from '../../core/http/middleware/userProtected.js';
 import {
     createRecoveryCode,
     hashRecoveryCode,
@@ -72,50 +66,77 @@ import {
     isCardFallbackEnabled,
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
+import { isEmailGateLast } from '../../util/verificationOrder.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
-import { cleanEmail, isBlockedEmail } from '../../util/email.js';
-import { generate_identifier } from '../../util/identifier.js';
+import { cleanEmail, isStorableEmail } from '../../util/email.js';
+import { isGodmodeApp } from '../../util/godmodeApps.js';
 import { parsePhone } from '../../util/phone.js';
 import {
     bonusCodeInvalidError,
     checkSignupBonus,
     isAbsentBonusCode,
     normalizeBonusCode,
-    validateSignupBonus,
 } from '../../util/signupBonus.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
-import { getTaskbarItems } from '../../util/taskbarItems.js';
+import { buildUserDetails, scrubSensitive } from '../../util/userDetails.js';
 import {
-    generateDefaultFsentries,
-    promoteToVerifiedGroup,
-} from '../../util/userProvisioning.js';
+    assertValidUsername,
+    generateUsername,
+    isUsernameTaken,
+    usernameConflict,
+    usernameRejection,
+} from '../../util/username.js';
+import { promoteToVerifiedGroup } from '../../util/userProvisioning.js';
 import {
     assertBoundedManageGrant,
+    assertNewShareSegments,
+    assertPrefixFitsAccess,
     isKvSharePermission,
-} from '../../services/events/kvShares.js';
+} from '../../services/kvShare/kvShares.js';
 import {
     APP_DATA_PERMISSION_PREFIX,
     appDataSharingAllowed,
     parseAppDataPermission,
 } from '../../services/permission/appDataScopes.js';
+import { parseAppGrantablePermission } from '../../services/permission/appGrantable.js';
 import {
     assertCreatablePath,
+    isOwnHomePath,
     fsCreateKindFor,
     MAX_CREATED_ENTRIES_PER_GRANT,
     parseCreateFlag,
     parseFsPathPermission,
+    parseFsUidPermission,
     type FsCreateKind,
 } from '../../services/permission/fsPathPermission.js';
+import type { AclMode } from '../../services/acl/ACLService';
+import type { ReauthReason } from '../../services/auth/AuthService';
 import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
+import { startWebSession } from './webSession.js';
+import { completeOidcLoginReturn } from './oidcLoginReturn.js';
 
-export const USERNAME_REGEX = /^\w{1,}$/;
-export const USERNAME_MAX_LENGTH = 45;
 const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
 // crafted request from turning a single grant call into a bulk write.
 const MAX_PERMISSIONS_PER_REQUEST = 16;
+/** The `fs:` scopes ACL answers; anything else keeps the scan. */
+const ACL_ANSWERABLE_MODES = new Set(['see', 'list', 'read', 'write']);
+/** Both spellings, so the same file cannot answer two ways. */
+const aclAnswerableFsPermission = (
+    permission: string,
+): { uid?: string; path?: string; mode: string } | null => {
+    const byUid = parseFsUidPermission(permission);
+    if (byUid) {
+        return ACL_ANSWERABLE_MODES.has(byUid.mode) ? byUid : null;
+    }
+    const byPath = parseFsPathPermission(permission);
+    if (!byPath || byPath.hasManage || byPath.rest.length !== 1) return null;
+    const mode = byPath.rest[0]!;
+    return ACL_ANSWERABLE_MODES.has(mode) ? { path: byPath.path, mode } : null;
+};
+
 // Rides every row a request writes, and the per-(user, app) cache after that.
 const GRANT_EXTRA_MAX_BYTES = 4096;
 const DISPATCH_ID_MAX_LENGTH = 128;
@@ -217,44 +238,67 @@ const SESSION_LIMIT = {
     window: 60_000,
     key: 'user',
 } as const;
+
+/**
+ * Completed renames. Charged by the handler after the rename lands, so a wrong
+ * password or a taken name doesn't spend it.
+ */
+const CHANGE_USERNAME_LIMIT = {
+    scope: 'change-username-done',
+    limit: 2,
+    window: 30 * 24 * 60 * 60_000,
+    key: 'user',
+} as const;
+
+/** Rename attempts, success or not. Bounds password guessing through the gate. */
+const CHANGE_USERNAME_ATTEMPT_LIMIT = {
+    scope: 'change-username-attempt',
+    limit: 10,
+    window: 60 * 60_000,
+    key: 'user',
+} as const;
+
+/**
+ * Wrong second-factor codes per account, shared by `/login/otp` and
+ * `/login/recovery-code`. Charged only on a wrong code.
+ */
+const SECOND_FACTOR_FAILURE_LIMIT = {
+    scope: 'login-2fa-failure',
+    limit: 10,
+    window: 30 * 60_000,
+} as const;
+
+/** Recovery mails per account per hour, across every requester. */
+const PASS_RECOVERY_EMAIL_TARGET_LIMIT = {
+    scope: 'send-pass-recovery-email-target',
+    limit: 5,
+    window: 60 * 60_000,
+} as const;
+
+/** Session-management writes accept web-session actors only. */
+const WEB_SESSION_GATE = createWebSessionActorGate();
+
+const BUILT_IN_ADMIN_USERNAMES: ReadonlySet<string> = new Set(
+    DEFAULT_ADMIN_USERNAMES,
+);
+
+/** Built-in admin accounts have no email password recovery. */
+const isBuiltInAdmin = (username: unknown): boolean =>
+    typeof username === 'string' &&
+    BUILT_IN_ADMIN_USERNAMES.has(username.toLowerCase());
+
+/** Lifetime of the `otp-login` JWT `/login` hands back. */
+const OTP_LOGIN_TOKEN_TTL = '5m';
+// Covers the token's lifetime plus verify's clock tolerance.
+const OTP_LOGIN_TOKEN_USED_WINDOW_MS = 10 * 60_000;
+
 // How long a failed-SMS-send record stays readable by its error_id — long
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-export const RESERVED_USERNAMES = new Set([
-    'admin',
-    'administrator',
-    'root',
-    'system',
-    'puter',
-    'www',
-    'api',
-    'support',
-    'help',
-    'info',
-    'contact',
-    'mail',
-    'email',
-    'null',
-    'undefined',
-    'test',
-    'guest',
-    'anonymous',
-    'user',
-    'users',
-]);
-
 /**
  * Auth controller — login/logout, permission grants/revokes, session
  * management, OTP, and permission checks.
- *
- * Routes are declared via decorators (@Get/@Post on each handler). The five
- * `/user-protected/*` and `/user-protected/delete-own-user` routes also need a
- * per-instance `createUserProtectedGate(...)` middleware built from
- * `this.config / this.stores / this.services`, which can't live in a static
- * decorator literal — those are wired imperatively in the `registerRoutes`
- * override below. The override also re-runs the default decorator-walker logic
- * so the rest of the routes register normally.
  */
 @Controller('')
 export class AuthController extends PuterController {
@@ -491,9 +535,9 @@ export class AuthController extends PuterController {
             );
         }
 
-        const reauthAuthId = this.#extractAuthIdFromReauthToken(
-            req.body.reauth_token,
-        );
+        const reauthAuthId =
+            this.#verifySuppliedReauthToken(req.body.reauth_token)?.authId ??
+            null;
         await this.#enforceAuthIdMatch(req, user, reauthAuthId);
 
         // OTP branching — if 2FA enabled, return a short-lived OTP JWT.
@@ -504,10 +548,12 @@ export class AuthController extends PuterController {
             const otpClaims: Record<string, unknown> = {
                 user_uid: user.uuid,
                 purpose: 'otp-login',
+                // Keeps each token distinct for the single-use check.
+                jti: uuidv4(),
             };
             if (reauthAuthId) otpClaims.auth_id = reauthAuthId;
             const otp_jwt_token = this.services.token.sign('otp', otpClaims, {
-                expiresIn: '5m',
+                expiresIn: OTP_LOGIN_TOKEN_TTL,
             });
 
             res.status(202).json({
@@ -554,6 +600,7 @@ export class AuthController extends PuterController {
                 user_uid: string;
                 purpose: string;
                 auth_id?: string;
+                oidcContinuation?: unknown;
             }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
@@ -577,14 +624,17 @@ export class AuthController extends PuterController {
             });
         }
 
+        await this.#assertSecondFactorAttemptsRemain(user.uuid);
         if (!verifyOtp(user.username, user.otp_secret, code)) {
+            await this.#recordSecondFactorFailure(user.uuid);
             res.json({ proceed: false });
             return;
         }
+        await this.#consumeOtpLoginToken(token);
 
         await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
-        await this.#completeLogin(req, res, user);
+        await this.#completeLogin(req, res, user, decoded.oidcContinuation);
     }
 
     // -- Login: recovery code ----------------------------------------
@@ -620,6 +670,7 @@ export class AuthController extends PuterController {
                 user_uid: string;
                 purpose: string;
                 auth_id?: string;
+                oidcContinuation?: unknown;
             }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
@@ -643,27 +694,33 @@ export class AuthController extends PuterController {
             });
         }
 
+        await this.#assertSecondFactorAttemptsRemain(user.uuid);
+        if (typeof code !== 'string') {
+            throw new HttpError(400, 'code must be a string.', {
+                legacyCode: 'bad_request',
+            });
+        }
         const hashed = hashRecoveryCode(code);
         const codes = ((user.otp_recovery_codes as string) || '')
             .split(',')
             .filter(Boolean);
         const idx = codes.indexOf(hashed);
         if (idx === -1) {
+            await this.#recordSecondFactorFailure(user.uuid);
+            res.json({ proceed: false });
+            return;
+        }
+        await this.#consumeOtpLoginToken(token);
+
+        if (!(await this.stores.user.consumeOtpRecoveryCode(user.id, hashed))) {
+            await this.#recordSecondFactorFailure(user.uuid);
             res.json({ proceed: false });
             return;
         }
 
-        // Consume the recovery code
-        codes.splice(idx, 1);
-        await this.clients.db.write(
-            'UPDATE `user` SET `otp_recovery_codes` = ? WHERE `uuid` = ?',
-            [codes.join(','), user.uuid],
-        );
-        await this.stores.user.invalidateById(user.id);
-
         await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
-        await this.#completeLogin(req, res, user);
+        await this.#completeLogin(req, res, user, decoded.oidcContinuation);
     }
 
     // -- Signup ------------------------------------------------------
@@ -716,7 +773,8 @@ export class AuthController extends PuterController {
         // forced through the reauth flow, the GUI re-submits /signup with
         // is_temp=true plus the server-signed reauth_token from the 401.
         // Verifying the token (not a raw auth_id) means a leaked uuid alone
-        // can't re-attach a session to someone else's temp account.
+        // can't re-attach a session to someone else's temp account. Only a
+        // session that expired can be re-attached; a revoked one stays ended.
         // Permanent users must go through /login (they have credentials),
         // so we reject that path here.
         if (
@@ -724,13 +782,19 @@ export class AuthController extends PuterController {
             body.reauth_token !== undefined &&
             body.reauth_token !== null
         ) {
-            const reauthAuthId = this.#extractAuthIdFromReauthToken(
-                body.reauth_token,
-            );
-            if (!reauthAuthId) {
+            const claims = this.#verifySuppliedReauthToken(body.reauth_token);
+            if (!claims) {
                 throw new HttpError(400, 'Invalid `reauth_token`.', {
                     legacyCode: 'bad_request',
                 });
+            }
+            const { authId: reauthAuthId, reason } = claims;
+            if (reason !== 'session_expired') {
+                throw new HttpError(
+                    401,
+                    'This session was signed out and cannot be restored.',
+                    { legacyCode: 'session_revoked' },
+                );
             }
             await this.#checkAuthIdRateLimit(req);
             const existing = await this.stores.user.getByUuid(reauthAuthId);
@@ -757,7 +821,7 @@ export class AuthController extends PuterController {
 
         // Fill in temp user defaults
         if (is_temp) {
-            body.username ??= await this.#generateRandomUsername();
+            body.username ??= await this.#generateTempUsername();
             body.email ??= `${body.username}@gmail.com`;
             body.password ??= uuidv4();
         }
@@ -771,25 +835,7 @@ export class AuthController extends PuterController {
             throw new HttpError(400, 'username must be a string.', {
                 legacyCode: 'bad_request',
             });
-        if (!USERNAME_REGEX.test(body.username)) {
-            throw new HttpError(
-                400,
-                'Username can only contain letters, numbers and underscore (_).',
-                { legacyCode: 'bad_request' },
-            );
-        }
-        if (body.username.length > USERNAME_MAX_LENGTH) {
-            throw new HttpError(
-                400,
-                `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`,
-                { legacyCode: 'bad_request' },
-            );
-        }
-        if (RESERVED_USERNAMES.has(body.username.toLowerCase())) {
-            throw new HttpError(400, 'This username is not available.', {
-                legacyCode: 'username_already_in_use',
-            });
-        }
+        assertValidUsername(body.username);
         if (!is_temp) {
             if (!body.email)
                 throw new HttpError(400, 'Email is required', {
@@ -799,13 +845,13 @@ export class AuthController extends PuterController {
                 throw new HttpError(400, 'email must be a string.', {
                     legacyCode: 'bad_request',
                 });
-            if (!validator.isEmail(body.email))
+            if (!isStorableEmail(body.email))
                 throw new HttpError(
                     400,
                     'Please enter a valid email address.',
                     { legacyCode: 'bad_request' },
                 );
-            await this.#validateEmail(body.email);
+            await this.services.signup.validateEmail(body.email);
             if (!body.password)
                 throw new HttpError(400, 'Password is required', {
                     legacyCode: 'bad_request',
@@ -836,457 +882,14 @@ export class AuthController extends PuterController {
             if (!bonusCode) throw bonusCodeInvalidError();
         }
 
-        // Signup-disabled gate. Runs before the duplicate checks so a
-        // disabled endpoint doesn't reveal which usernames or emails
-        // exist. Claiming a pre-existing placeholder row is still
-        // allowed, so permanent signups look the email up first.
-        if (this.config.disable_user_signup) {
-            let claimable = false;
-            if (!is_temp) {
-                const existing = await this.stores.user.findEmailOwner(
-                    body.email,
-                );
-                claimable = Boolean(
-                    existing &&
-                    !existing.email_confirmed &&
-                    existing.password === null,
-                );
-            }
-            if (!claimable) {
-                throw new HttpError(403, 'User registration is disabled.', {
-                    legacyCode: 'signup_disabled',
-                });
-            }
-        }
-
-        // Duplicate username check
-        if (await this.stores.user.getByUsername(body.username)) {
-            throw new HttpError(
-                400,
-                'This username already exists in our database. Please use another one.',
-                { legacyCode: 'bad_request' },
-            );
-        }
-
-        // ...and the same against the filesystem: a free username whose home
-        // path is occupied (exactly or by leftover rows underneath it) would
-        // provision a second root there, and the two trees then resolve
-        // interchangeably.
-        if (
-            await this.stores.fsEntry.findHomePathConflict(
-                body.username,
-                undefined,
-                { includeDescendants: true },
-            )
-        ) {
-            throw new HttpError(400, 'This username is not available.', {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        // Duplicate confirmed-email check. A confirmed account (any
-        // credential type — password OR OIDC) on this email → reject.
-        //
-        // A pseudo-user is an UNCONFIRMED placeholder row: email
-        // present, password null, email_confirmed = 0. Those rows
-        // (e.g. admin-created pre-provisioning) are NOT a block —
-        // signup claims them: the INSERT becomes an UPDATE on the
-        // pseudo row.
-        //
-        // OIDC-created accounts have password null but email_confirmed
-        // = 1, so they fall in the reject branch — signup can't hijack
-        // someone's OIDC account by knowing their email. To add a
-        // password to an OIDC account, the owner logs in via OIDC and
-        // uses the authenticated change-password flow.
-        //
-        // Matching runs against both raw `email` and canonical `clean_email` so
-        // gmail-style aliases (`foo.bar+tag@gmail.com` vs
-        // `foobar@gmail.com`) collapse to the same account.
-        //
-        // This is the cheap early check: it keeps an obvious duplicate from
-        // paying for the validate hook and a bcrypt round. It is NOT the
-        // guarantee — everything between here and the insert widens the window,
-        // so the check runs again against the primary immediately before the
-        // write, and the unique index catches whatever still slips through.
-        const clientIp: string | null =
-            req.ip || req.socket?.remoteAddress || null;
-        const proxyIpChain = req.headers['x-forwarded-for'];
-
-        let pseudo_user = is_temp
-            ? null
-            : await this.#resolveSignupEmailClaim(body.email);
-
-        // A dead code fails here rather than after the gate below, which records
-        // an allowed attempt against the address as if an account followed.
-        if (
-            bonusCode &&
-            !(
-                await checkSignupBonus(this.clients.event, bonusCode, {
-                    ip: clientIp,
-                    fingerprint,
-                })
-            ).valid
-        ) {
-            throw bonusCodeInvalidError();
-        }
-
-        // Extension-level validation gate. Abuse-prevention extensions
-        // inspect the incoming signup and can:
-        //   - block it outright via `event.allow = false`
-        //   - force email confirmation via `event.requires_email_confirmation = true`
-        //   - skip temp-user creation via `event.no_temp_user = true`
-        // Listeners run sequentially so multi-signal checks (rate limit +
-        // IP reputation + domain reputation) can short-circuit cleanly.
-        const validateEvent = {
+        const user = await this.services.signup.signup({
             req,
-            data: body,
-            // `req.ip` honors `trust proxy`; reading x-forwarded-for directly
-            // would let a client pick its own per-IP abuse bucket.
-            ip: clientIp,
-            email: body.email,
-            // The same canonical form `email.validate` was given, so a check
-            // in the abuse harness can look up the verdict that hook cached
-            // for this address. Without it an alias (`a+tag@outlook.com`,
-            // `a.b@icloud.com`) reaches the two hooks under two different keys.
-            clean_email: cleanEmail(body.email),
-            // Temp signups carry a synthetic `<username>@gmail.com` and skip
-            // #validateEmail entirely, so an email check must know not to
-            // reason about the address at all.
-            is_temp,
-            allow: true,
-            no_temp_user: false,
-            requires_email_confirmation: false,
-            // Set by the abuse harness for low-reputation signups: the account is
-            // created + logged in but gated behind SMS phone verification (in
-            // addition to email confirmation) instead of being blocked.
-            requires_phone_verification: false,
-            // Same idea, one rung up the ladder: gate the account behind
-            // credit-card verification (a $0 auth handled by an extension).
-            requires_card_verification: false,
-            message: null,
-            code: null,
-            user_agent: req?.headers?.['user-agent'] ?? null,
+            body,
+            isTemp: is_temp,
             fingerprint,
-            // Populated by the abuse extension's v2 harness; persisted to the
-            // user row below so the signup-time reputation is referable later.
-            reputation: null as number | null,
-            // Stamped by the abuse harness for flagged signups — the id keying
-            // the `abuse:trail:<id>` decision trail (carrying both the live and
-            // shadow trails). Surfaced to a blocked user as the Request Code so
-            // the code they quote support leads straight to their trail.
-            trail_id: undefined as string | undefined,
-        };
-        try {
-            await this.clients.event?.emitAndWait(
-                'puter.signup.validate',
-                validateEvent,
-                {},
-            );
-        } catch (e) {
-            console.warn('[signup] validate hook failed:', e);
-        }
-        if (!validateEvent.allow) {
-            // Pass the trail id back to a blocked user as the Request Code (when
-            // the harness stamped one), embedded in the message so the existing
-            // signup-block UI surfaces it without a GUI change.
-            const requestCode = validateEvent.trail_id;
-            throw new HttpError(
-                403,
-                (validateEvent.message ?? 'Signup blocked') +
-                    (requestCode ? ` Request Code: ${requestCode}` : ''),
-                {
-                    ...(validateEvent.code
-                        ? { legacyCode: validateEvent.code as never }
-                        : {}),
-                },
-            );
-        }
-        if (is_temp && validateEvent.no_temp_user) {
-            throw new HttpError(
-                403,
-                validateEvent.message ?? 'Temporary accounts are disabled',
-                {
-                    legacyCode: 'must_login_or_signup',
-                    ...(validateEvent.code
-                        ? { legacyCode: validateEvent.code as never }
-                        : {}),
-                },
-            );
-        }
-        const force_email_confirmation = Boolean(
-            validateEvent.requires_email_confirmation,
-        );
-        let force_phone_verification =
-            Boolean(validateEvent.requires_phone_verification) ||
-            // Test/QA switch: force the SMS gate on every signup regardless of
-            // reputation (see config.always_require_phone_verification).
-            Boolean(this.config.always_require_phone_verification);
-        let force_card_verification = Boolean(
-            validateEvent.requires_card_verification ||
-            // Test/QA switch: force the card gate on every signup regardless of
-            // reputation (see config.always_require_card_verification).
-            this.config.always_require_card_verification,
-        );
-
-        if (bonusCode) {
-            const verdict = await validateSignupBonus(
-                this.clients.event,
-                bonusCode,
-                {
-                    email: body.email,
-                    clean_email: cleanEmail(body.email),
-                    ip: clientIp,
-                    fingerprint,
-                    reputation: validateEvent.reputation,
-                    requires_phone_verification: force_phone_verification,
-                    requires_card_verification: force_card_verification,
-                },
-            );
-            if (!verdict.accepted) throw bonusCodeInvalidError();
-            force_phone_verification = verdict.requiresPhoneVerification;
-            force_card_verification = verdict.requiresCardVerification;
-        }
-
-        // Prepare shared fields
-        const user_uuid = uuidv4();
-        const email_confirm_code = String(crypto.randomInt(100000, 1000000));
-        const email_confirm_token = uuidv4();
-        const password_hash = is_temp
-            ? null
-            : await bcrypt.hash(body.password, 8);
-
-        const signupSqlTs = new Date()
-            .toISOString()
-            .slice(0, 19)
-            .replace('T', ' ');
-
-        // Re-run the claim against the primary now that the slow work is done.
-        // The check above ran before the validate hook (network round-trips to
-        // the abuse listeners) and before bcrypt — hundreds of milliseconds in
-        // which a concurrent signup can take the address, or claim the very
-        // placeholder row we were about to convert.
-        if (!is_temp) {
-            pseudo_user = await this.#resolveSignupEmailClaim(body.email, {
-                force: true,
-            });
-        }
-
-        let user;
-        if (pseudo_user) {
-            // -- Pseudo-user claim (convert the placeholder row) --
-            //
-            // Guarded, not a plain update: the address never changes hands here
-            // (the row already holds it), so the unique index has nothing to
-            // catch. Two signups that both read this row as claimable would
-            // otherwise both "succeed", the second overwriting the first's
-            // username and password on a row the first was already given a
-            // session for.
-            const claimed = await this.stores.user.claimPlaceholder(
-                pseudo_user.id,
-                {
-                    username: body.username,
-                    password: password_hash,
-                    uuid: user_uuid,
-                    email_confirm_code,
-                    email_confirm_token,
-                    email_confirmed: 0,
-                    requires_email_confirmation: 1,
-                    last_activity_ts: signupSqlTs,
-                    ...(validateEvent.reputation != null
-                        ? { reputation: validateEvent.reputation }
-                        : {}),
-                    requires_phone_verification: force_phone_verification
-                        ? 1
-                        : 0,
-                    requires_card_verification: force_card_verification ? 1 : 0,
-                },
-            );
-            if (!claimed) {
-                throw new HttpError(
-                    400,
-                    'This email already exists in our database. Please use another one.',
-                    { legacyCode: 'bad_request' },
-                );
-            }
-
-            // Move from temp group to regular user group
-            if (this.config.default_temp_group) {
-                try {
-                    await this.stores.group.removeUsers(
-                        this.config.default_temp_group,
-                        [body.username],
-                    );
-                } catch {
-                    // Best-effort — missing membership shouldn't block signup
-                }
-            }
-            if (this.config.default_user_group) {
-                try {
-                    await this.stores.group.addUsers(
-                        this.config.default_user_group,
-                        [body.username],
-                    );
-                } catch (e) {
-                    console.warn('[signup] group assignment failed:', e);
-                }
-            }
-
-            user = await this.stores.user.getById(pseudo_user.id, {
-                force: true,
-            });
-        } else {
-            // -- New user ----------------------------------------
-            try {
-                user = await this.stores.user.create({
-                    username: body.username,
-                    uuid: user_uuid,
-                    password: password_hash,
-                    email: is_temp ? null : body.email,
-                    clean_email: is_temp ? null : cleanEmail(body.email),
-                    free_storage: this.config.storage_capacity ?? null,
-                    requires_email_confirmation:
-                        !is_temp || force_email_confirmation,
-                    email_confirm_code,
-                    email_confirm_token,
-                    audit_metadata: {
-                        ip: clientIp,
-                        ip_fwd: proxyIpChain,
-                        user_agent: req.headers?.['user-agent'],
-                        origin: req.headers?.origin,
-                        fingerprint,
-                    },
-                    signup_ip: clientIp,
-                    // The abuse harness and the admin IP lookup both key on
-                    // this column, so it holds the trusted client address; the
-                    // raw forwarded chain stays in `audit_metadata.ip_fwd`.
-                    signup_ip_forwarded: clientIp,
-                    signup_user_agent: req.headers?.['user-agent'] ?? null,
-                    signup_origin:
-                        (req.headers?.origin as string | null) ?? null,
-                    signup_server: (this.config as { serverId?: string })
-                        .serverId,
-                    referrer: body.referrer ?? null,
-                    last_activity_ts: signupSqlTs,
-                    reputation: validateEvent.reputation,
-                    // Phone collected later in the verification dialog (null now).
-                    phone: null,
-                    requires_phone_verification: force_phone_verification,
-                    requires_card_verification: force_card_verification,
-                } as never);
-            } catch (e) {
-                // Lost the race to another signup between the re-check above and
-                // this insert. The index is the only thing that can see that, so
-                // translate it into the answer the pre-check would have given.
-                if (!isOwnedEmailConflict(e)) throw e;
-                throw new HttpError(
-                    400,
-                    'This email already exists in our database. Please use another one.',
-                    { legacyCode: 'bad_request' },
-                );
-            }
-
-            // Add to default group
-            const defaultGroup = is_temp
-                ? this.config.default_temp_group
-                : this.config.default_user_group;
-            if (defaultGroup) {
-                try {
-                    await this.stores.group.addUsers(defaultGroup, [
-                        user.username,
-                    ]);
-                } catch (e) {
-                    console.warn('[signup] group assignment failed:', e);
-                }
-            }
-        }
-
-        // -- Provision FS home + default folders -----------------
-        // Idempotent — skips if `user.trash_uuid` is already set (pseudo
-        // users who went through a prior signup won't double-create).
-        try {
-            await generateDefaultFsentries(
-                this.clients.db,
-                this.stores.user,
-                user!,
-            );
-        } catch (e) {
-            console.warn('[signup] generateDefaultFsentries failed:', e);
-        }
-
-        // -- Send email confirmation -----------------------------
-        if (
-            !is_temp &&
-            user!.requires_email_confirmation &&
-            this.clients.email
-        ) {
-            const sendCode = body.send_confirmation_code ?? true;
-            try {
-                let sent;
-                if (sendCode) {
-                    sent = await this.clients.email.send(
-                        user!.email!,
-                        'email_verification_code',
-                        {
-                            code: email_confirm_code,
-                        },
-                    );
-                } else {
-                    const link = `${this.config.origin ?? ''}/confirm-email-by-token?token=${email_confirm_token}&user_uuid=${user!.uuid}`;
-                    sent = await this.clients.email.send(
-                        user!.email!,
-                        'email_verification_link',
-                        { link },
-                    );
-                }
-                // `null` = dropped for want of a transport; silent otherwise.
-                if (sent === null) {
-                    this.#confirmationEmailFailed('signup', user!, null);
-                }
-            } catch (e) {
-                this.#confirmationEmailFailed('signup', user!, e);
-            }
-        }
-
-        // Fire signup events (best-effort). `user.save_account` is fired
-        // for every non-temp signup (fresh or pseudo-claim) — downstream
-        // consumers (mailchimp sync, welcome email, etc.) key off it.
-        try {
-            this.clients.event?.emit(
-                'puter.signup.success' as never,
-                {
-                    user_id: user!.id,
-                    user_uuid: user!.uuid,
-                    email: user!.email,
-                    username: user!.username,
-                    fingerprint,
-                    // Reflects the row that was actually created/claimed —
-                    // a pseudo-user claim ends up with credentials, so it
-                    // reports false here. Same signal completeLogin uses.
-                    is_temp: user!.password === null && user!.email === null,
-                    // Same derivation as the validate event above — the two
-                    // have to agree or per-IP counters are written under one
-                    // key and read under another.
-                    ip: clientIp,
-                    ...(bonusCode ? { bonus_code: bonusCode } : {}),
-                } as never,
-                {},
-            );
-        } catch {
-            // ignore — event emission shouldn't block signup
-        }
-        if (!is_temp) {
-            try {
-                this.clients.event?.emit(
-                    'user.save_account' as never,
-                    { user_id: user!.id } as never,
-                    {},
-                );
-            } catch {
-                // ignore
-            }
-        }
-
-        await this.#completeLogin(req, res, user!);
+            bonusCode,
+        });
+        await this.#completeLogin(req, res, user);
     }
 
     /**
@@ -1425,20 +1028,9 @@ export class AuthController extends PuterController {
             email_confirm_code: code,
         });
 
-        if (this.clients.email) {
-            try {
-                const sent = await this.clients.email.send(
-                    user.email,
-                    'email_verification_code',
-                    { code },
-                );
-                if (sent === null) {
-                    this.#confirmationEmailFailed('resend', user, null);
-                }
-            } catch (e) {
-                this.#confirmationEmailFailed('resend', user, e);
-            }
-        }
+        await this.services.signup.sendConfirmationEmail(user, 'resend', {
+            code,
+        });
         res.json({});
     }
 
@@ -1488,121 +1080,11 @@ export class AuthController extends PuterController {
             return;
         }
 
-        // Re-validate the email at confirmation time — the address may
-        // have been added to the blocklist (or flagged by an extension)
-        // after signup but before confirmation.
-        await this.#validateEmail(user.email!);
-
-        // An account that already confirmed this address proved access to the
-        // inbox, and revoking it below would hand the address to whoever
-        // confirmed second. Refuse instead — a duplicate this old is data to
-        // repair, not a race to resolve.
-        const canonical = cleanEmail(user.email!);
-        const confirmedRival = await this.stores.user.findConfirmedOtherByEmail(
-            user.id,
-            user.email!,
-            canonical,
-        );
-        if (confirmedRival) {
-            throw new HttpError(
-                400,
-                'This email was confirmed on a different account.',
-                { legacyCode: 'email_already_in_use' as never },
-            );
-        }
-
-        // Revoke the address from every remaining (unconfirmed) account holding
-        // it, THEN confirm this one. Only one row may own an address, so
-        // confirming first would momentarily create a second owner — which the
-        // unique index rejects, turning a legitimate confirmation into a 500.
-        await this.stores.user.unconfirmOthersByEmail(
-            user.id,
-            user.email!,
-            canonical,
-        );
-
-        await this.stores.user.update(user.id, {
-            email_confirmed: 1,
-            requires_email_confirmation: 0,
-            email_confirm_code: null,
-            email_confirm_token: null,
+        await this.services.signup.confirmEmail(user, {
+            originalClientSocketId: original_client_socket_id,
         });
 
-        await promoteToVerifiedGroup(this.stores.group, this.config, user);
-
-        try {
-            this.clients.event?.emit(
-                'user.email-confirmed' as never,
-                {
-                    user_id: user.id,
-                    user_uid: user.uuid,
-                    email: user.email,
-                } as never,
-                {},
-            );
-        } catch {
-            // ignore — event is a side-channel signal, not load-bearing
-        }
-
         res.json({ email_confirmed: true, original_client_socket_id });
-    }
-
-    /**
-     * Alarm on a confirmation email that did not reach the recipient. A
-     * `requires_email_confirmation` account is refused by
-     * `requireVerifiedAccount` everywhere, so a lost code leaves an account
-     * that cannot be used. `cause === null` is the silent case: `sendRaw` drops
-     * the message rather than throwing when no transport is configured.
-     *
-     * `sole_gate` reports that no phone/card gate is outstanding either, so
-     * this user is stuck on the email alone. `dedup` because one broken mail
-     * path fails once per signup and is still one thing to fix.
-     */
-    #confirmationEmailFailed(
-        stage: 'signup' | 'resend',
-        user: {
-            uuid?: string | null;
-            username?: string | null;
-            email?: string | null;
-            requires_phone_verification?: unknown;
-            requires_card_verification?: unknown;
-        },
-        cause: unknown,
-    ): void {
-        const email = user.email ?? null;
-        const detail =
-            cause instanceof Error
-                ? cause.message
-                : cause === null
-                  ? 'no transport configured (message dropped)'
-                  : String(cause);
-        console.warn(
-            `[${stage === 'signup' ? 'signup' : 'send-confirm-email'}] ` +
-                `confirmation email not delivered: ${detail}`,
-        );
-        // Best-effort: failing to alarm must not fail the signup.
-        try {
-            this.clients.alarm?.create(
-                `auth:confirmation-email-send-failed:${stage}`,
-                'Confirmation email could not be sent — gated accounts cannot be used until it arrives',
-                {
-                    stage,
-                    user_uid: user.uuid ?? null,
-                    username: user.username ?? null,
-                    email,
-                    email_domain: email?.split('@')[1] ?? null,
-                    sole_gate:
-                        !user.requires_phone_verification &&
-                        !user.requires_card_verification,
-                    detail,
-                    ...(cause instanceof Error ? { error: cause } : {}),
-                },
-                'warning',
-                { dedup: true },
-            );
-        } catch (e) {
-            console.warn(`[${stage}] confirmation-email alarm failed:`, e);
-        }
     }
 
     // -- Phone verification (SMS via Prelude) ------------------------
@@ -1708,29 +1190,47 @@ export class AuthController extends PuterController {
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
         const attempts = await this.bumpPhoneAttempts(user.id);
-        const open =
-            Boolean(user.requires_phone_verification) &&
-            attempts >= cardFallbackAfterAttempts(this.config) &&
-            (await isCardFallbackEnabled(this.config, this.cardFallbackDeps()));
-        if (open) {
-            try {
-                // Plain set, so each eligible attempt refreshes the window.
-                await this.stores.kv.set({
-                    key: cardFallbackFlagKey(user.id),
-                    value: true,
-                    expireAt:
-                        Math.floor(Date.now() / 1000) +
-                        CARD_FALLBACK_OPEN_TTL_SECONDS,
-                });
-            } catch (e) {
-                console.warn(
-                    '[send-confirm-phone] fallback flag stamp failed:',
-                    e,
-                );
-                return false;
-            }
+        if (attempts < cardFallbackAfterAttempts(this.config)) return false;
+        return this.openCardFallback(user);
+    }
+
+    /**
+     * Stamp the eligibility flag the card endpoints check, when the user is
+     * phone-gated and the fallback is on. Returns whether it is now open.
+     */
+    private async openCardFallback(user: {
+        id: number;
+        requires_phone_verification?: boolean | number | null;
+    }): Promise<boolean> {
+        if (!user.requires_phone_verification) return false;
+        const deps = this.cardFallbackDeps();
+        if (!(await isCardFallbackEnabled(this.config, deps))) return false;
+        try {
+            // Plain set, so each eligible attempt refreshes the window.
+            await this.stores.kv.set({
+                key: cardFallbackFlagKey(user.id),
+                value: true,
+                expireAt:
+                    Math.floor(Date.now() / 1000) +
+                    CARD_FALLBACK_OPEN_TTL_SECONDS,
+            });
+            return true;
+        } catch (e) {
+            console.warn('[send-confirm-phone] fallback flag stamp failed:', e);
+            return false;
         }
-        return open;
+    }
+
+    /** The email-gate-last confirmation email; a failure never fails the gate. */
+    private async sendDeferredConfirmation(userId: number): Promise<void> {
+        try {
+            await this.services.signup.sendDeferredConfirmationEmail(userId);
+        } catch (e) {
+            console.warn(
+                '[verification] deferred confirmation email failed:',
+                e,
+            );
+        }
     }
 
     private async isCardFallbackEligible(user: {
@@ -1778,6 +1278,12 @@ export class AuthController extends PuterController {
             throw new HttpError(403, 'Account suspended.', {
                 legacyCode: 'account_suspended',
             });
+        if (isEmailGateLast(user) && user.requires_card_verification)
+            throw new HttpError(
+                409,
+                'Card verification must be completed first.',
+                { legacyCode: 'conflict' },
+            );
         if (!this.clients.prelude?.isConfigured())
             throw await this.smsSendError(
                 503,
@@ -1848,8 +1354,10 @@ export class AuthController extends PuterController {
             user_uid: user.uuid,
             phone: parsed.e164,
             device_fingerprint: req.deviceFingerprint ?? null,
+            dispatch_id: dispatchId ?? null,
             allowed: true,
             reason: null as string | null,
+            card_fallback_instead: false,
         };
         try {
             await this.clients.event?.emitAndWait(
@@ -1859,6 +1367,14 @@ export class AuthController extends PuterController {
             );
         } catch (e) {
             console.warn('[send-confirm-phone] abuse-check hook failed:', e);
+        }
+        // A veto that routes to the card fallback needs the fallback to exist;
+        // without it there is nothing to offer, so the send goes ahead.
+        let vetoFallbackFields = fallbackFields;
+        if (abuseCheck.allowed === false && abuseCheck.card_fallback_instead) {
+            if (await this.openCardFallback(user))
+                vetoFallbackFields = { card_fallback_available: true };
+            else abuseCheck.allowed = true;
         }
         // Forward the verdict verbatim: a generic 429 plus the opaque reason for
         // the client to message on. The backend never interprets the reason —
@@ -1877,7 +1393,7 @@ export class AuthController extends PuterController {
                 {
                     legacyCode: 'phone_verification_unavailable' as never,
                     fields: {
-                        ...fallbackFields,
+                        ...vetoFallbackFields,
                         ...(abuseCheck.reason
                             ? { reason: abuseCheck.reason }
                             : {}),
@@ -1981,6 +1497,7 @@ export class AuthController extends PuterController {
                     user_uid: user.uuid,
                     phone: parsed.e164,
                     device_fingerprint: req.deviceFingerprint ?? null,
+                    dispatch_id: dispatchId ?? null,
                 } as never,
                 {},
             );
@@ -2076,6 +1593,7 @@ export class AuthController extends PuterController {
             requires_phone_verification: 0,
             phone: pendingPhone,
         });
+        await this.sendDeferredConfirmation(user.id);
 
         // Run the verified-event listeners synchronously (emitAndWait, not
         // fire-and-forget emit) so a carrier-based card-verification waiver in
@@ -2149,11 +1667,18 @@ export class AuthController extends PuterController {
         // Phone normally comes first, but the fallback lets a phone-gated user
         // in once they've exhausted SMS attempts.
         const fallbackEligible = await this.isCardFallbackEligible(user);
-        if (hasVerifiedCard(user) && !fallbackEligible) {
+        // A free trial may ask for a card of its own even when one is already
+        // verified, so it doesn't stop here.
+        const purpose = req.body?.purpose === 'trial' ? 'trial' : null;
+        if (hasVerifiedCard(user) && !fallbackEligible && purpose !== 'trial') {
             res.json({ card_verified: true });
             return;
         }
-        if (user.requires_phone_verification && !fallbackEligible)
+        if (
+            user.requires_phone_verification &&
+            !fallbackEligible &&
+            !isEmailGateLast(user)
+        )
             throw new HttpError(
                 409,
                 'Phone verification must be completed first.',
@@ -2168,6 +1693,7 @@ export class AuthController extends PuterController {
             user_uid: user.uuid,
             ip: (req.ip || req.socket?.remoteAddress || null) as string | null,
             device_fingerprint: req.deviceFingerprint ?? null,
+            purpose,
             enabled: null as boolean | null,
             allowed: true,
             reason: null as string | null,
@@ -2215,6 +1741,7 @@ export class AuthController extends PuterController {
             await this.stores.user.update(user.id, {
                 requires_card_verification: 0,
             });
+            await this.sendDeferredConfirmation(user.id);
             res.json({ card_verified: true, disabled: true });
             return;
         }
@@ -2274,7 +1801,11 @@ export class AuthController extends PuterController {
             res.json({ card_verified: true });
             return;
         }
-        if (user.requires_phone_verification && !fallbackEligible)
+        if (
+            user.requires_phone_verification &&
+            !fallbackEligible &&
+            !isEmailGateLast(user)
+        )
             throw new HttpError(
                 409,
                 'Phone verification must be completed first.',
@@ -2315,6 +1846,7 @@ export class AuthController extends PuterController {
             await this.stores.user.update(user.id, {
                 requires_card_verification: 0,
             });
+            await this.sendDeferredConfirmation(user.id);
             res.json({ card_verified: true, disabled: true });
             return;
         }
@@ -2339,6 +1871,7 @@ export class AuthController extends PuterController {
             requires_card_verification: 0,
             ...(clearedPhoneGate ? { requires_phone_verification: 0 } : {}),
         });
+        await this.sendDeferredConfirmation(user.id);
 
         // Awaited like `user.phone-verified`, so whatever a listener grants on
         // verification is in place before the client refreshes. emitAndWait
@@ -2387,11 +1920,20 @@ export class AuthController extends PuterController {
 
     @Post('/send-pass-recovery-email', {
         subdomain: ['api', ''],
-        rateLimit: {
-            scope: 'send-pass-recovery-email',
-            limit: 10,
-            window: 60 * 60_000,
-        },
+        captcha: true,
+        rateLimit: [
+            {
+                scope: 'send-pass-recovery-email',
+                limit: 10,
+                window: 60 * 60_000,
+            },
+            {
+                scope: 'send-pass-recovery-email-ip',
+                limit: 30,
+                window: 60 * 60_000,
+                key: 'ip',
+            },
+        ],
     })
     async handleSendPassRecoveryEmail(
         req: Request,
@@ -2411,11 +1953,18 @@ export class AuthController extends PuterController {
         if (username) {
             user = await this.stores.user.getByUsername(username);
         } else {
-            if (!validator.isEmail(email))
+            if (!isStorableEmail(email))
                 throw new HttpError(400, 'Invalid email.', {
                     legacyCode: 'bad_request',
                 });
             user = await this.stores.user.getByEmail(email);
+        }
+
+        // Same answer as any account, nothing sent, and the attempt alarms.
+        if (user && isBuiltInAdmin(user.username)) {
+            this.#adminRecoveryAttempted(req, user.username as string);
+            res.json({ message: genericMessage });
+            return;
         }
 
         if (!user || user.suspended || !user.email) {
@@ -2426,13 +1975,29 @@ export class AuthController extends PuterController {
         // A seat's address is admin-supplied and never verified, so whoever
         // holds that inbox could take the seat over. Its recovery channel is
         // the team admin's password reset, not this one.
-        if (await this.stores.team.getOrgSeat(user.id)) {
+        if (await this.stores.team?.getOrgSeat(user.id)) {
             res.json({ message: genericMessage });
             return;
         }
 
-        const pass_recovery_token = uuidv4();
-        await this.stores.user.update(user.id, { pass_recovery_token });
+        // Per account, whoever asks. Over it, answer the same way and send
+        // nothing, so the limit doesn't reveal which accounts exist.
+        const { scope, limit, window } = PASS_RECOVERY_EMAIL_TARGET_LIMIT;
+        if (!(await checkRateLimit(`${scope}:${user.id}`, limit, window))) {
+            res.json({ message: genericMessage });
+            return;
+        }
+
+        // Reuse an outstanding token so a new send doesn't void a link already
+        // in the inbox. Each link still expires on its own.
+        let pass_recovery_token =
+            typeof user.pass_recovery_token === 'string'
+                ? user.pass_recovery_token
+                : null;
+        if (!pass_recovery_token) {
+            pass_recovery_token = uuidv4();
+            await this.stores.user.update(user.id, { pass_recovery_token });
+        }
 
         const jwt = this.services.token.sign(
             'otp',
@@ -2461,6 +2026,31 @@ export class AuthController extends PuterController {
         }
 
         res.json({ message: genericMessage });
+    }
+
+    /**
+     * Pages on a recovery request for a built-in admin account. `dedup` per IP,
+     * so one source retrying is one incident.
+     */
+    #adminRecoveryAttempted(req: Request, target: string): void {
+        const ip = req.ip || req.socket?.remoteAddress || null;
+        try {
+            this.clients.alarm?.create(
+                `auth:admin-pass-recovery-attempt:${ip ?? 'unknown'}`,
+                'Password recovery requested for a built-in admin account',
+                {
+                    target,
+                    ip,
+                    user_agent: req.headers?.['user-agent'] ?? null,
+                    requester_uid: req.actor?.user?.uuid ?? null,
+                    requester_username: req.actor?.user?.username ?? null,
+                },
+                'critical',
+                { dedup: true },
+            );
+        } catch (e) {
+            console.warn('[send-pass-recovery-email] admin alarm failed:', e);
+        }
     }
 
     @Post('/verify-pass-recovery-token', {
@@ -2501,7 +2091,11 @@ export class AuthController extends PuterController {
         }
 
         const user = await this.stores.user.getByUuid(decoded?.user_uid);
-        if (!user || user.email !== decoded.email) {
+        if (
+            !user ||
+            user.email !== decoded.email ||
+            isBuiltInAdmin(user.username)
+        ) {
             throw new HttpError(400, 'Token is no longer valid.', {
                 legacyCode: 'bad_request',
             });
@@ -2563,7 +2157,11 @@ export class AuthController extends PuterController {
         }
 
         const user = await this.stores.user.getByUuid(decoded.user_uid);
-        if (!user || user.email !== decoded.email) {
+        if (
+            !user ||
+            user.email !== decoded.email ||
+            isBuiltInAdmin(user.username)
+        ) {
             throw new HttpError(400, 'Token is no longer valid.', {
                 legacyCode: 'bad_request',
             });
@@ -2578,10 +2176,16 @@ export class AuthController extends PuterController {
         const password_hash = await bcrypt.hash(password, 8);
         let result;
         try {
-            result = await this.clients.db.write(
-                'UPDATE `user` SET `password` = ?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL, ' +
-                    '`requires_password_change` = 0, `temp_password_expires_at` = NULL WHERE `id` = ? AND `pass_recovery_token` = ?',
-                [password_hash, user.id, decoded.token],
+            result = await this.stores.user.update(
+                user.id,
+                {
+                    password: password_hash,
+                    pass_recovery_token: null,
+                    change_email_confirm_token: null,
+                    requires_password_change: false,
+                    temp_password_expires_at: null,
+                },
+                { expectedRecoveryToken: decoded.token },
             );
         } catch (e) {
             if (!isOwnedEmailConflict(e)) throw e;
@@ -2597,22 +2201,16 @@ export class AuthController extends PuterController {
                 { legacyCode: 'email_already_in_use' as never },
             );
         }
-        const affected =
-            (result as { affectedRows?: number; changes?: number })
-                ?.affectedRows ??
-            (result as { affectedRows?: number; changes?: number })?.changes ??
-            0;
-        if (affected === 0) {
+        if (!result) {
             throw new HttpError(400, 'Token has already been used.', {
                 legacyCode: 'bad_request',
             });
         }
-        await this.stores.user.invalidateById(user.id);
         // Best effort: the password is already committed, and an audit write
         // must not skip the eviction below.
         await this.services.team
-            .recordPasswordSelfChange(user.id as number)
-            .catch((err: unknown) => {
+            ?.recordPasswordSelfChange(user.id as number)
+            ?.catch((err: unknown) => {
                 console.warn('[team] password self-change audit failed:', err);
             });
 
@@ -2626,14 +2224,19 @@ export class AuthController extends PuterController {
     }
 
     // -- User-protected mutations ------------------------------------
-    //
-    // The five `/user-protected/*` and `/user-protected/delete-own-user`
-    // routes are wired in the `registerRoutes` override below because
-    // their `middleware: createUserProtectedGate(...)` argument depends
-    // on `this.config / this.stores / this.services` and so can't live
-    // in a static decorator literal. The handler bodies stay here as
-    // ordinary methods so tests can call them directly.
 
+    @Post('/user-protected/change-password', {
+        userProtected: true,
+        // The forced-change gate refuses everything else, so this is the one
+        // route an account owing a password change may reach.
+        allowUnconfirmed: true,
+        rateLimit: {
+            scope: 'passwd',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+    })
     async handleChangePassword(req: Request, res: Response): Promise<void> {
         const { new_pass } = req.body ?? {};
         if (!new_pass)
@@ -2662,8 +2265,8 @@ export class AuthController extends PuterController {
             temp_password_expires_at: null,
         });
         await this.services.team
-            .recordPasswordSelfChange(user.id)
-            .catch((err: unknown) => {
+            ?.recordPasswordSelfChange(user.id)
+            ?.catch((err: unknown) => {
                 console.warn('[team] password self-change audit failed:', err);
             });
 
@@ -2688,11 +2291,16 @@ export class AuthController extends PuterController {
         res.send('Password successfully updated.');
     }
 
+    @Post('/user-protected/change-username', {
+        userProtected: true,
+        requireVerified: true,
+        rateLimit: CHANGE_USERNAME_ATTEMPT_LIMIT,
+    })
     async handleChangeUsername(req: Request, res: Response): Promise<void> {
         // A provisioned account's name belongs to the team that made it: the
         // console lists its members by username and the audit log records them
         // by username, so a self-service rename would desync both.
-        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+        if (await this.stores.team?.getOrgSeat(req.actor!.user.id!)) {
             throw new HttpError(
                 403,
                 'Your team set this username. Ask a team admin to change it.',
@@ -2706,25 +2314,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
-        if (!USERNAME_REGEX.test(new_username)) {
-            throw new HttpError(
-                400,
-                'Username can only contain letters, numbers and underscore (_).',
-                { legacyCode: 'bad_request' },
-            );
-        }
-        if (new_username.length > USERNAME_MAX_LENGTH) {
-            throw new HttpError(
-                400,
-                `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`,
-                { legacyCode: 'bad_request' },
-            );
-        }
-        if (RESERVED_USERNAMES.has(new_username.toLowerCase())) {
-            throw new HttpError(400, 'This username is not available.', {
-                legacyCode: 'username_already_in_use',
-            });
-        }
+        assertValidUsername(new_username);
         if (await this.stores.user.getByUsername(new_username)) {
             throw new HttpError(400, 'This username is already taken.', {
                 legacyCode: 'username_already_in_use',
@@ -2745,9 +2335,34 @@ export class AuthController extends PuterController {
             });
         }
 
-        await this.stores.user.update(req.actor!.user.id!, {
-            username: new_username,
-        });
+        if (!(await peekRouteRateLimit(req, CHANGE_USERNAME_LIMIT))) {
+            throw new HttpError(
+                429,
+                'You can only change your username twice every 30 days.',
+                { legacyCode: 'too_many_requests' },
+            );
+        }
+
+        try {
+            await this.stores.user.update(req.actor!.user.id!, {
+                username: new_username,
+            });
+        } catch (e) {
+            if (
+                await isUsernameTaken(
+                    this.stores.user,
+                    e,
+                    new_username,
+                    req.actor!.user.id!,
+                )
+            ) {
+                throw new HttpError(400, 'This username is already taken.', {
+                    legacyCode: 'username_already_in_use',
+                });
+            }
+            throw e;
+        }
+        await consumeRouteRateLimit(req, CHANGE_USERNAME_LIMIT);
 
         // Rename the user's FS home from `/<old>` to `/<new>` and
         // cascade the prefix to all descendants. Without this, any
@@ -2779,10 +2394,47 @@ export class AuthController extends PuterController {
         res.json({ username: new_username });
     }
 
+    #requireAccountTwoFactor(user: UserRow, code: unknown): void {
+        if (user.otp_enabled) {
+            if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+                throw new HttpError(
+                    400,
+                    'Enter the 6-digit code from your authenticator app.',
+                    {
+                        legacyCode: 'bad_request',
+                        fields: { factor: 'otp' },
+                    },
+                );
+            }
+            let verified = false;
+            try {
+                verified =
+                    typeof user.otp_secret === 'string' &&
+                    verifyOtp(user.username, user.otp_secret, code);
+            } catch {
+                // Invalid or unavailable secrets cannot authorize a change.
+            }
+            if (!verified)
+                throw new HttpError(401, 'Incorrect code.', {
+                    legacyCode: 'code_mismatch',
+                    fields: { factor: 'otp' },
+                });
+        }
+    }
+
+    @Post('/user-protected/change-email', {
+        userProtected: true,
+        rateLimit: {
+            scope: 'change-email-start',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+    })
     async handleChangeEmail(req: Request, res: Response): Promise<void> {
         // The address is where admin-issued credentials and team notices go;
         // same reasoning as the username and deletion guards above.
-        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+        if (await this.stores.team?.getOrgSeat(req.actor!.user.id!)) {
             throw new HttpError(
                 403,
                 'Your team set this address. Ask a team admin to change it.',
@@ -2790,18 +2442,29 @@ export class AuthController extends PuterController {
             );
         }
 
+        const user =
+            req.userProtected?.user ??
+            (await this.stores.user.getById(req.actor!.user.id!, {
+                force: true,
+            }));
+        if (!user)
+            throw new HttpError(404, 'User not found', {
+                legacyCode: 'not_found',
+            });
+        this.#requireAccountTwoFactor(user, req.body?.code);
+
         const { new_email } = req.body ?? {};
         if (!new_email || typeof new_email !== 'string') {
             throw new HttpError(400, '`new_email` is required', {
                 legacyCode: 'bad_request',
             });
         }
-        if (!validator.isEmail(new_email)) {
+        if (!isStorableEmail(new_email)) {
             throw new HttpError(400, 'Please enter a valid email address.', {
                 legacyCode: 'bad_request',
             });
         }
-        await this.#validateEmail(new_email);
+        await this.services.signup.validateEmail(new_email);
 
         // Block if any OTHER confirmed account (password or OIDC) already
         // owns that email. Match raw + canonical to collapse gmail
@@ -2831,6 +2494,7 @@ export class AuthController extends PuterController {
                 token: confirm_token,
                 user_id: req.actor!.user.id,
                 purpose: 'change-email',
+                twoFactorVerified: Boolean(user.otp_enabled),
             },
             { expiresIn: '1h' },
         );
@@ -2848,10 +2512,7 @@ export class AuthController extends PuterController {
                 console.warn('[change-email] new-address email failed:', e);
             }
             // Notify the old address too
-            const user = await this.stores.user.getById(req.actor!.user.id!, {
-                force: true,
-            });
-            if (user?.email) {
+            if (user.email) {
                 try {
                     await (
                         this.clients.email as unknown as {
@@ -2908,25 +2569,33 @@ export class AuthController extends PuterController {
             });
         }
 
-        const rows = (await this.clients.db.read(
-            'SELECT * FROM `user` WHERE `change_email_confirm_token` = ? ORDER BY `id` ASC LIMIT 1',
-            [decoded.token],
-        )) as Array<Record<string, unknown>>;
-        const user = rows[0] as
-            | {
-                  id: number;
-                  email_confirmed?: number | boolean;
-                  password?: string | null;
-                  unconfirmed_change_email?: string;
-              }
-            | undefined;
-        if (!user || !user.unconfirmed_change_email) {
+        const user =
+            typeof decoded.user_id === 'number' &&
+            Number.isInteger(decoded.user_id) &&
+            decoded.user_id > 0
+                ? await this.stores.user.getById(decoded.user_id, {
+                      force: true,
+                  })
+                : null;
+        if (
+            !user ||
+            user.change_email_confirm_token !== decoded.token ||
+            typeof user.unconfirmed_change_email !== 'string' ||
+            !user.unconfirmed_change_email ||
+            (user.otp_enabled && decoded.twoFactorVerified !== true)
+        ) {
             throw new HttpError(400, 'Invalid or expired token.', {
                 legacyCode: 'token_expired' as never,
             });
         }
 
         const newEmail = user.unconfirmed_change_email;
+        // Staged by an earlier request, so gated by whatever ran back then.
+        if (!isStorableEmail(newEmail)) {
+            throw new HttpError(400, 'Please enter a valid email address.', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         // Re-check nobody claimed the new email meanwhile. Match raw +
         // canonical; block if any real account (confirmed OR
@@ -3023,30 +2692,19 @@ export class AuthController extends PuterController {
         if (
             !username ||
             typeof username !== 'string' ||
-            !USERNAME_REGEX.test(username)
+            usernameRejection(username) === 'format'
         ) {
             throw new HttpError(400, 'Invalid username.', {
                 legacyCode: 'bad_request',
             });
         }
-        if (username.length > USERNAME_MAX_LENGTH) {
-            throw new HttpError(
-                400,
-                `Username cannot be longer than ${USERNAME_MAX_LENGTH} characters.`,
-                { legacyCode: 'bad_request' },
-            );
-        }
-        if (RESERVED_USERNAMES.has(username.toLowerCase())) {
-            throw new HttpError(400, 'This username is not available.', {
-                legacyCode: 'username_already_in_use',
-            });
-        }
-        if (!email || !validator.isEmail(email)) {
+        assertValidUsername(username);
+        if (!email || !isStorableEmail(email)) {
             throw new HttpError(400, 'Please enter a valid email address.', {
                 legacyCode: 'bad_request',
             });
         }
-        await this.#validateEmail(email);
+        await this.services.signup.validateEmail(email);
         if (!password || typeof password !== 'string') {
             throw new HttpError(400, 'Password is required.', {
                 legacyCode: 'password_required',
@@ -3062,17 +2720,13 @@ export class AuthController extends PuterController {
         }
 
         // Duplicate checks
-        const existingUsername = await this.stores.user.getByUsername(username);
-        if (existingUsername && existingUsername.id !== user.id) {
+        const conflict = await usernameConflict(this.stores, username, user.id);
+        if (conflict === 'account') {
             throw new HttpError(400, 'This username is already taken.', {
                 legacyCode: 'username_already_in_use',
             });
         }
-        if (
-            await this.stores.fsEntry.findHomePathConflict(username, user.id, {
-                includeDescendants: true,
-            })
-        ) {
+        if (conflict === 'home') {
             throw new HttpError(400, 'This username is not available.', {
                 legacyCode: 'username_already_in_use',
             });
@@ -3081,7 +2735,8 @@ export class AuthController extends PuterController {
         // reject on ANY confirmed account (OIDC accounts have
         // password=null but are real) — not just password-holders.
         const canonical = cleanEmail(email);
-        const existingEmail = await this.stores.user.findEmailOwner(email);
+        const existingEmail =
+            await this.services.signup.signupEmailHolder(email);
         if (
             existingEmail &&
             existingEmail.id !== user.id &&
@@ -3099,8 +2754,9 @@ export class AuthController extends PuterController {
 
         // bcrypt above is slow enough for someone else to take the address in
         // the meantime, so re-check against the primary before the write.
-        const raced = await this.stores.user.findEmailOwner(email, {
+        const raced = await this.services.signup.signupEmailHolder(email, {
             force: true,
+            releaseSeat: true,
         });
         if (
             raced &&
@@ -3124,10 +2780,17 @@ export class AuthController extends PuterController {
                 requires_email_confirmation: 1,
             });
         } catch (e) {
-            if (!isOwnedEmailConflict(e)) throw e;
-            throw new HttpError(400, 'This email is already in use.', {
-                legacyCode: 'email_already_in_use' as never,
-            });
+            if (isOwnedEmailConflict(e)) {
+                throw new HttpError(400, 'This email is already in use.', {
+                    legacyCode: 'email_already_in_use' as never,
+                });
+            }
+            if (await isUsernameTaken(this.stores.user, e, username, user.id)) {
+                throw new HttpError(400, 'This username is already taken.', {
+                    legacyCode: 'username_already_in_use',
+                });
+            }
+            throw e;
         }
 
         // Rename the user's FS home so `/<temp>/Desktop` etc.
@@ -3142,27 +2805,10 @@ export class AuthController extends PuterController {
             }
         }
 
-        // Move from temp group to user group
-        if (this.config.default_temp_group) {
-            try {
-                await this.stores.group.removeUsers(
-                    this.config.default_temp_group,
-                    [username],
-                );
-            } catch {
-                // Best-effort
-            }
-        }
-        if (this.config.default_user_group) {
-            try {
-                await this.stores.group.addUsers(
-                    this.config.default_user_group,
-                    [username],
-                );
-            } catch (e) {
-                console.warn('[save-account] group add failed:', e);
-            }
-        }
+        await promoteToVerifiedGroup(this.stores.group, this.config, {
+            ...user,
+            username,
+        });
 
         // Send confirmation email
         if (this.clients.email) {
@@ -3387,6 +3033,45 @@ export class AuthController extends PuterController {
     }
 
     /**
+     * Refuses any entry outside the families an app can be granted. Anything
+     * else is a row the backend never checks for an app, or one wider than the
+     * consent prompt can describe.
+     */
+    async #assertAppGrantable(
+        actor: Actor,
+        appIdentifier: string,
+        list: string[],
+    ): Promise<void> {
+        const refuse = (entry: string) =>
+            new HttpError(
+                400,
+                `Permission cannot be granted to an app: ${entry}`,
+                { legacyCode: 'permission_not_grantable' },
+            );
+        let appUid: string | undefined;
+        for (const entry of list) {
+            // A delegation over a whole key-value namespace has no bounded
+            // description; refused with its own code.
+            assertBoundedManageGrant(entry);
+            const parsed = parseAppGrantablePermission(entry, actor.user!.uuid);
+            if (!parsed) throw refuse(entry);
+            if (parsed.family !== 'kvShare') continue;
+            // Held to what a new share's prefix may be, so a consent never
+            // covers shares that could not be made.
+            assertNewShareSegments(parsed.segments);
+            assertPrefixFitsAccess(
+                parsed.ownerUuid,
+                parsed.appUid,
+                parsed.segments.join(':'),
+                parsed.level,
+            );
+            // An app shares regions of its own namespace only.
+            appUid ??= (await this.stores.app.resolveApp(appIdentifier))?.uid;
+            if (parsed.appUid !== appUid) throw refuse(entry);
+        }
+    }
+
+    /**
      * Gate a cross-app data grant: the target must exist, must not have opted
      * out of sharing, and must be named. Also creates the target's AppData
      * directory for an `fs` scope, since it is only created lazily when the app
@@ -3479,8 +3164,12 @@ export class AuthController extends PuterController {
             return null;
         }
 
-        // Checked only once the path is confirmed missing, so an existing
-        // shared path outside the caller's home is not a new rejection.
+        // Word for word what an existing foreign path answers.
+        if (!isOwnHomePath(path, actor.user!.username!)) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
         assertCreatablePath(path, actor.user!.username!);
 
         const kind =
@@ -3560,6 +3249,7 @@ export class AuthController extends PuterController {
         }
         // 400 on a bad value, before anything else runs. Absent means create.
         const create = parseCreateFlag(req.body?.create);
+        await this.#assertAppGrantable(req.actor!, app_uid, list);
 
         // Validate every entry before writing or creating anything, so a bad
         // one in the list cannot leave a partially-granted set behind: the
@@ -3572,10 +3262,6 @@ export class AuthController extends PuterController {
             kind: FsCreateKind;
         }> = [];
         for (const entry of list) {
-            // A delegation over a whole key-value namespace has no bounded
-            // description, so it is refused where it is asked for rather than
-            // prompted for and then refused at use.
-            assertBoundedManageGrant(entry);
             await this.#prepareAppDataGrant(req.actor!, entry);
             const plan = await this.#planFsPathCreate(
                 req.actor!,
@@ -3597,6 +3283,7 @@ export class AuthController extends PuterController {
                 // resolves to. Once a path is created, `grantUserAppPermission`
                 // re-runs the identical rewrite and check itself.
                 await this.services.permission.assertUserAppPermissionWritable(
+                    req.actor!,
                     entry,
                 );
             }
@@ -3649,6 +3336,14 @@ export class AuthController extends PuterController {
                 { legacyCode: 'bad_request' },
             );
         }
+        // Only unsharing retires the handle along with its grant; withdrawing
+        // the grant alone would leave the share listed and dead.
+        if (typeof permission === 'string' && isKvSharePermission(permission))
+            throw new HttpError(
+                400,
+                'Stop a key-value share with `puter.kv.unshare()` (`DELETE /kv/shares/:handle`)',
+                { legacyCode: 'bad_request' },
+            );
         await this.services.permission.revokeUserUserPermission(
             req.actor!,
             target_username,
@@ -3672,7 +3367,8 @@ export class AuthController extends PuterController {
     })
     async handleRevokeUserApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body ?? {};
-        const { origin, permission, permissions, meta } = req.body ?? {};
+        const { origin, permission, permissions, meta, deleteData } =
+            req.body ?? {};
         this.#validateAppPermissionParams({
             app_uid,
             origin,
@@ -3688,14 +3384,25 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+        if (deleteData !== undefined && typeof deleteData !== 'boolean') {
+            throw new HttpError(400, '`deleteData` must be a boolean', {
+                legacyCode: 'bad_request',
+            });
+        }
+        if (deleteData && permission !== '*') {
+            throw new HttpError(
+                400,
+                '`deleteData` only applies when `permission` is "*"',
+                { legacyCode: 'bad_request' },
+            );
+        }
         // Deliberately not gated by the target's sharing flag: a user must
         // always be able to withdraw a grant, whatever the target now says.
         if (permission === '*') {
-            await this.services.permission.revokeUserAppAll(
-                req.actor!,
-                app_uid,
-                meta ?? undefined,
-            );
+            await this.services.auth.uninstallApp(req.actor!, app_uid, {
+                deleteData: deleteData === true,
+                meta: meta ?? undefined,
+            });
         } else {
             for (const entry of list) {
                 await this.services.permission.revokeUserAppPermission(
@@ -3750,6 +3457,12 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+        // As grant and revoke; `puter.perms.check` splits a longer list.
+        if (permissions.length > MAX_PERMISSIONS_PER_REQUEST) {
+            throw new HttpError(400, 'Too many `permissions`', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         // Present but empty must not fall through to checking the user: on their own file every `fs:` scope answers `true`.
         if (
@@ -3768,16 +3481,67 @@ export class AuthController extends PuterController {
 
         const unique = [...new Set(permissions)] as string[];
         const result: Record<string, boolean> = {};
+
+        // A share grant names its owner and prefix, which its holder is never
+        // told, so asking about one would confirm a guess. `manage:` arms are
+        // the app's own consent and stay answerable.
+        const answerable: string[] = [];
+        for (const permission of unique) {
+            if (
+                typeof permission === 'string' &&
+                isKvSharePermission(permission)
+            )
+                result[permission] = false;
+            else answerable.push(permission);
+        }
+
+        // `fs:` reaches down a tree, and only ACL walks that. An app asking
+        // about itself gets the same answer, so a grant on a parent folder
+        // doesn't read as missing and prompt again.
+        const viaAcl = new Set(
+            app_uid || isAppActor(actor)
+                ? answerable.filter((p) => aclAnswerableFsPermission(p))
+                : [],
+        );
+        const viaScan = answerable.filter((p) => !viaAcl.has(p));
+
         let granted: Map<string, boolean>;
         try {
-            granted = await this.services.permission.checkMany(actor, unique);
+            granted = await this.services.permission.checkMany(actor, viaScan);
         } catch {
             granted = new Map<string, boolean>();
         }
-        for (const perm of unique) {
+        for (const perm of viaScan) {
             result[perm] = granted.get(perm) ?? false;
         }
+        // Together: the GUI gives up on this after five seconds and prompts.
+        const reached = await Promise.all(
+            [...viaAcl].map((perm) => this.#appReachesFsEntry(actor, perm)),
+        );
+        [...viaAcl].forEach((perm, i) => {
+            result[perm] = reached[i]!;
+        });
         res.json({ permissions: result });
+    }
+
+    /** Asked of ACL, so this cannot answer kinder than the operation will. */
+    async #appReachesFsEntry(actor: Actor, permission: string) {
+        const target = aclAnswerableFsPermission(permission);
+        if (!target) return false;
+        try {
+            const entry = target.uid
+                ? await this.stores.fsEntry.getEntryByUuid(target.uid)
+                : await this.stores.fsEntry.getEntryByPath(target.path!);
+            if (!entry) return false;
+            return await this.services.acl.check(
+                actor,
+                this.services.acl.fsDescriptor(entry.path),
+                target.mode as AclMode,
+            );
+        } catch {
+            // Unreadable means unknown, and an extra prompt is the safe miss.
+            return false;
+        }
     }
 
     // -- Session management ------------------------------------------
@@ -3792,10 +3556,15 @@ export class AuthController extends PuterController {
         res.json(sessions);
     }
 
-    // Wired imperatively in `registerRoutes` so the cookie-only gate
-    // (built from `this.config`) can be composed in. Cookie-only is
-    // mandatory: an access token must not be able to revoke its own
+    // Web sessions only: an access token must not be able to revoke its own
     // issuing web session.
+    @Post('/auth/revoke-session', {
+        subdomain: 'api',
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        antiCsrf: true,
+        middleware: [WEB_SESSION_GATE],
+    })
     async handleRevokeSession(req: Request, res: Response): Promise<void> {
         const { uuid } = req.body ?? {};
         if (!uuid || typeof uuid !== 'string') {
@@ -3835,6 +3604,19 @@ export class AuthController extends PuterController {
         res.json({ sessions });
     }
 
+    @Post('/auth/revoke-all-sessions', {
+        subdomain: 'api',
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        antiCsrf: true,
+        rateLimit: {
+            scope: 'revoke-all-sessions',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+        middleware: [WEB_SESSION_GATE],
+    })
     async handleRevokeAllSessions(req: Request, res: Response): Promise<void> {
         const { include_current, include_apps } = req.body ?? {};
         await this.services.auth.revokeAllSessions(req.actor!, {
@@ -3845,6 +3627,13 @@ export class AuthController extends PuterController {
         res.json({ sessions });
     }
 
+    @Patch('/auth/sessions/:uuid/label', {
+        subdomain: 'api',
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        antiCsrf: true,
+        middleware: [WEB_SESSION_GATE],
+    })
     async handleRenameSession(req: Request, res: Response): Promise<void> {
         const uuid = req.params.uuid;
         const { label } = (req.body ?? {}) as { label?: unknown };
@@ -3945,9 +3734,11 @@ export class AuthController extends PuterController {
 
     // -- Permission listing ------------------------------------------
 
+    // A read of what was granted, not a grant; the mutations stay session-only.
     @Get('/auth/list-permissions', {
         subdomain: 'api',
         requireUserActor: true,
+        allowFullAccessToken: true,
         rateLimit: AUTH_LIST_LIMIT,
     })
     async handleListPermissions(req: Request, res: Response): Promise<void> {
@@ -4059,8 +3850,9 @@ export class AuthController extends PuterController {
 
         let app = await this.stores.app.getByUid(app_uid);
         if (!app && resolvedFromOrigin) {
-            // Hosted-subdomain origins get the site owner stamped as the
-            // app's creator at bootstrap; external origins stay unowned.
+            // Hosted-subdomain and custom-domain origins get the site owner
+            // stamped as the app's creator at bootstrap; external origins
+            // stay unowned.
             // Canonical origin only, so alternate hosts share one row.
             const canonicalOrigin =
                 this.services.auth.canonicalizeOrigin(origin);
@@ -4076,9 +3868,10 @@ export class AuthController extends PuterController {
             // An origin's uid is a deterministic uuidv5, so a deleted app
             // reappears here under the identical uid. Withdraw any cross-app
             // data grants left pointing at it before this new row can inherit
-            // consent the user gave its predecessor. Only *this* path can reuse
-            // a uid: `AppStore.create` mints a random uuid4, which no deleted
-            // app can ever hold again.
+            // consent the user gave its predecessor. Only `createFromOrigin`
+            // reuses a uid, here or wherever else an origin app is bootstrapped:
+            // `AppStore.create` mints a random uuid4, which no deleted app can
+            // ever hold again.
             //
             // Called directly rather than through `app.changed`: the token is
             // issued below, so this has to be able to stop that, and
@@ -4089,12 +3882,20 @@ export class AuthController extends PuterController {
                 app_uid,
                 'uid reused by a new app',
             );
+            // Key-value shares the predecessor left read as gone already,
+            // being older than this row; this only cleans them up.
+            this.services.kvShare.retireSharesOlderThanApp(app);
         }
         if (!app) {
             throw new HttpError(404, `App ${app_uid} does not exist`, {
                 legacyCode: 'not_found',
             });
         }
+
+        // A desktop launch of a godmode app gets a full-access token tied to
+        // this session. Origin lookups (sign-in popups for pages outside the
+        // desktop) keep getting an ordinary app token.
+        const godmode = !resolvedFromOrigin && isGodmodeApp(app);
 
         const userPermGrantPromise =
             this.services.permission.grantUserAppPermission(
@@ -4103,12 +3904,19 @@ export class AuthController extends PuterController {
                 APP_AUTHENTICATED_FLAG,
                 {},
                 {},
+                app,
             );
 
-        const tokenPromise = this.services.auth.getUserAppToken(
-            req.actor!,
-            app_uid,
-        );
+        const tokenPromise: Promise<{ token: string; expiresAt?: number }> =
+            godmode
+                ? this.services.auth.getGodmodeAppToken(req.actor!, app)
+                : (async () => ({
+                      token: await this.services.auth.getUserAppToken(
+                          req.actor!,
+                          app_uid,
+                          app,
+                      ),
+                  }))();
 
         const missingFSPathPromise = (async () => {
             // Ensure the app's per-user AppData directory exists.
@@ -4132,7 +3940,7 @@ export class AuthController extends PuterController {
             }
         })();
 
-        const [, token] = await Promise.all([
+        const [, { token, expiresAt }] = await Promise.all([
             userPermGrantPromise,
             tokenPromise,
             missingFSPathPromise,
@@ -4156,6 +3964,7 @@ export class AuthController extends PuterController {
                         index_url: a.index_url ?? null,
                         owner_user_id: a.owner_user_id ?? null,
                         name: a.name ?? null,
+                        godmode: isGodmodeApp(app),
                     },
                     user_id: req.actor!.user?.id ?? null,
                 } as never,
@@ -4165,7 +3974,11 @@ export class AuthController extends PuterController {
             // Fine if failed
         }
 
-        res.json({ token, app_uid });
+        res.json(
+            godmode
+                ? { token, app_uid, godmode: true, expires_at: expiresAt }
+                : { token, app_uid },
+        );
     }
 
     @Post('/auth/check-app', {
@@ -4204,6 +4017,7 @@ export class AuthController extends PuterController {
             result.token = await this.services.auth.getUserAppToken(
                 req.actor!,
                 app!.uid,
+                app!,
             );
         }
         res.json(result);
@@ -4317,12 +4131,16 @@ export class AuthController extends PuterController {
         res.json({ ok: true });
     }
 
-    // Wired imperatively in `registerRoutes` so the cookie-only gate
-    // (built from `this.config`) can be composed in. Cookie-only is
-    // mandatory: a leaked access token must not be able to revoke a
-    // personal API token, or revoke by raw uuid — those stay web-session-only
-    // here; `/auth/revoke-own-access-token` covers revoking scoped tokens by
-    // JWT and already refuses PATs itself.
+    // Web sessions only: a leaked access token must not be able to revoke a
+    // personal API token, or revoke by raw uuid;
+    // `/auth/revoke-own-access-token` covers revoking scoped tokens by JWT and
+    // already refuses PATs itself.
+    @Post('/auth/revoke-access-token', {
+        subdomain: 'api',
+        requireUserActor: true,
+        antiCsrf: true,
+        middleware: [WEB_SESSION_GATE],
+    })
     async handleRevokeAccessToken(req: Request, res: Response): Promise<void> {
         let { tokenOrUuid } = req.body ?? {};
         if (!tokenOrUuid || typeof tokenOrUuid !== 'string') {
@@ -4337,6 +4155,54 @@ export class AuthController extends PuterController {
         }
         await this.services.auth.revokeAccessToken(req.actor!, tokenOrUuid);
         res.json({ ok: true });
+    }
+
+    // -- 2FA: setup ---------------------------------------------------
+
+    @Post('/user-protected/setup-2fa', {
+        userProtected: true,
+        // A member owing their team's 2FA reaches nothing else until this.
+        allowUnconfirmed: true,
+        rateLimit: {
+            scope: 'setup-2fa',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+    })
+    async handleSetup2fa(req: Request, res: Response): Promise<void> {
+        const user = await this.stores.user.getById(req.actor!.user.id!, {
+            force: true,
+        });
+        if (!user)
+            throw new HttpError(404, 'User not found', {
+                legacyCode: 'not_found',
+            });
+        if (user.otp_enabled) {
+            throw new HttpError(409, '2FA is already enabled.', {
+                legacyCode: 'conflict',
+            });
+        }
+
+        const result = otpCreateSecret(user.username);
+
+        // Generate 10 recovery codes
+        const codes: string[] = [];
+        for (let i = 0; i < 10; i++) {
+            codes.push(createRecoveryCode());
+        }
+        const hashedCodes = codes.map((c) => hashRecoveryCode(c));
+
+        await this.stores.user.update(user.id, {
+            otp_secret: result.secret,
+            otp_recovery_codes: hashedCodes.join(','),
+        });
+
+        res.json({
+            url: result.url,
+            secret: result.secret,
+            codes,
+        });
     }
 
     // -- 2FA: configure ----------------------------------------------
@@ -4358,36 +4224,6 @@ export class AuthController extends PuterController {
                 legacyCode: 'not_found',
             });
 
-        if (action === 'setup') {
-            if (user.otp_enabled) {
-                throw new HttpError(409, '2FA is already enabled.', {
-                    legacyCode: 'conflict',
-                });
-            }
-
-            const result = otpCreateSecret(user.username);
-
-            // Generate 10 recovery codes
-            const codes: string[] = [];
-            for (let i = 0; i < 10; i++) {
-                codes.push(createRecoveryCode());
-            }
-            const hashedCodes = codes.map((c) => hashRecoveryCode(c));
-
-            await this.clients.db.write(
-                'UPDATE `user` SET `otp_secret` = ?, `otp_recovery_codes` = ? WHERE `uuid` = ?',
-                [result.secret, hashedCodes.join(','), user.uuid],
-            );
-            await this.stores.user.invalidateById(user.id);
-
-            res.json({
-                url: result.url,
-                secret: result.secret,
-                codes,
-            });
-            return;
-        }
-
         if (action === 'test') {
             const { code } = req.body ?? {};
             if (!code)
@@ -4401,7 +4237,7 @@ export class AuthController extends PuterController {
 
         if (action === 'enable') {
             // A seat has no email by design, so this would bar it forever.
-            const seat = await this.stores.team.getOrgSeat(user.id);
+            const seat = await this.stores.team?.getOrgSeat(user.id);
             if (!user.email_confirmed && !seat) {
                 throw new HttpError(
                     403,
@@ -4421,12 +4257,20 @@ export class AuthController extends PuterController {
                     { legacyCode: 'conflict' },
                 );
             }
+            // Proves the caller holds the secret setup issued; a session alone
+            // can't turn 2FA on.
+            const { code } = req.body ?? {};
+            if (typeof code !== 'string' || !code)
+                throw new HttpError(400, 'Missing `code`', {
+                    legacyCode: 'bad_request',
+                });
+            if (!verifyOtp(user.username, user.otp_secret, code)) {
+                throw new HttpError(400, 'Incorrect code.', {
+                    legacyCode: 'code_mismatch',
+                });
+            }
 
-            await this.clients.db.write(
-                'UPDATE `user` SET `otp_enabled` = ? WHERE `uuid` = ?',
-                [this.clients.db.booleanValue(true), user.uuid],
-            );
-            await this.stores.user.invalidateById(user.id);
+            await this.stores.user.update(user.id, { otp_enabled: true });
 
             if (this.clients.email && user.email) {
                 try {
@@ -4447,8 +4291,17 @@ export class AuthController extends PuterController {
         });
     }
 
-    // -- 2FA: disable (user-protected, wired in registerRoutes below) -
+    // -- 2FA: disable -------------------------------------------------
 
+    @Post('/user-protected/disable-2fa', {
+        userProtected: true,
+        rateLimit: {
+            scope: 'disable-2fa',
+            limit: 10,
+            window: 60 * 60_000,
+            key: 'user',
+        },
+    })
     async handleDisable2fa(req: Request, res: Response): Promise<void> {
         const user = await this.stores.user.getById(req.actor!.user.id!, {
             force: true,
@@ -4458,7 +4311,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'not_found',
             });
 
-        const seat = await this.stores.team.getOrgSeat(user.id);
+        const seat = await this.stores.team?.getOrgSeat(user.id);
         if (seat && Number(seat.require_2fa) === 1) {
             throw new HttpError(
                 409,
@@ -4467,11 +4320,33 @@ export class AuthController extends PuterController {
             );
         }
 
-        await this.clients.db.write(
-            'UPDATE `user` SET `otp_enabled` = ?, `otp_recovery_codes` = NULL, `otp_secret` = NULL WHERE `uuid` = ?',
-            [this.clients.db.booleanValue(false), user.uuid],
-        );
-        await this.stores.user.invalidateById(user.id);
+        const code = req.body?.code;
+        if (
+            user.otp_enabled &&
+            typeof code === 'string' &&
+            /^[A-Z0-9]{8}$/.test(code)
+        ) {
+            await this.#assertSecondFactorAttemptsRemain(user.uuid);
+            const consumed = await this.stores.user.consumeOtpRecoveryCode(
+                user.id,
+                hashRecoveryCode(code),
+            );
+            if (!consumed) {
+                await this.#recordSecondFactorFailure(user.uuid);
+                throw new HttpError(401, 'Incorrect code.', {
+                    legacyCode: 'code_mismatch',
+                    fields: { factor: 'otp' },
+                });
+            }
+        } else {
+            this.#requireAccountTwoFactor(user, code);
+        }
+
+        await this.stores.user.update(user.id, {
+            otp_enabled: false,
+            otp_recovery_codes: null,
+            otp_secret: null,
+        });
 
         if (this.clients.email && user.email) {
             try {
@@ -4491,6 +4366,7 @@ export class AuthController extends PuterController {
     @Get('/get-dev-profile', {
         subdomain: 'api',
         requireUserActor: true,
+        allowFullAccessToken: true,
         rateLimit: AUTH_LIST_LIMIT,
     })
     async handleGetDevProfile(req: Request, res: Response): Promise<void> {
@@ -4502,21 +4378,32 @@ export class AuthController extends PuterController {
                 legacyCode: 'not_found',
             });
 
+        // The columns are `dev_`-prefixed; unprefixed is the fallback.
         const u = user as unknown as {
+            dev_first_name?: string | null;
+            dev_last_name?: string | null;
+            dev_approved_for_incentive_program?: number | boolean;
+            dev_joined_incentive_program?: number | boolean;
+            dev_paypal?: string | null;
             first_name?: string | null;
             last_name?: string | null;
             approved_for_incentive_program?: number | boolean;
             joined_incentive_program?: number | boolean;
             paypal?: string | null;
         };
+        const paypal = u.dev_paypal ?? u.paypal ?? null;
         res.json({
-            first_name: u.first_name ?? null,
-            last_name: u.last_name ?? null,
+            first_name: u.dev_first_name ?? u.first_name ?? null,
+            last_name: u.dev_last_name ?? u.last_name ?? null,
             approved_for_incentive_program: Boolean(
+                u.dev_approved_for_incentive_program ??
                 u.approved_for_incentive_program,
             ),
-            joined_incentive_program: Boolean(u.joined_incentive_program),
-            paypal: u.paypal ?? null,
+            joined_incentive_program: Boolean(
+                u.dev_joined_incentive_program ?? u.joined_incentive_program,
+            ),
+            // The payout address stays behind a session.
+            paypal: isPlainUserActor(req.actor) ? paypal : null,
         });
     }
 
@@ -4532,13 +4419,10 @@ export class AuthController extends PuterController {
             throw new HttpError(400, 'No session bound to this actor', {
                 legacyCode: 'session_required' as never,
             });
-        const user = await this.stores.user.getById(req.actor.user.id!);
-        if (!user)
-            throw new HttpError(404, 'User not found', {
-                legacyCode: 'not_found',
-            });
+        // Token auth built this actor from the user's row in this request, and
+        // a deleted user fails it.
         const guiToken = this.services.auth.createGuiToken(
-            user,
+            req.actor.user as UserRow,
             req.actor.session.uid,
         );
         res.json({ token: guiToken });
@@ -4568,13 +4452,9 @@ export class AuthController extends PuterController {
             res.status(400).end();
             return;
         }
-        const user = await this.stores.user.getById(req.actor.user.id!);
-        if (!user) {
-            res.status(404).end();
-            return;
-        }
+        // As in `/get-gui-token`: the actor is the user's row as auth read it.
         const sessionToken = this.services.auth.createSessionTokenForSession(
-            user,
+            req.actor.user as UserRow,
             req.actor.session.uid,
         );
         res.cookie(this.config.cookie_name ?? 'puter_token', sessionToken, {
@@ -4584,14 +4464,34 @@ export class AuthController extends PuterController {
         res.status(204).end();
     }
 
-    // -- Step-up ("elevation"), wired below --------------------------
+    // -- Step-up ("elevation") ---------------------------------------
     //
     // Mints the second-factor cookie for a session that re-proves identity: a
     // fresh TOTP code when 2FA is enabled, otherwise the account password.
     // Privileged endpoints require it on top of the session, so a leaked session
     // alone can't exercise them. Accounts with neither credential (no password
     // and 2FA disabled) can't elevate.
+    //
+    // Served on the root origin (browser form posts) and on `api` (SDK/script
+    // clients with no cookie jar). Not cookie-gated: the password/TOTP in the
+    // body is the control, which also makes CSRF a non-issue.
+    // `requireUserActor` keeps app and access-token actors out, so an access
+    // token can never mint an elevation for its issuer.
 
+    @Post('/auth/elevate', {
+        subdomain: ['api', ''],
+        requireUserActor: true,
+        allowUnconfirmed: true,
+        rateLimit: [
+            { scope: 'elevate', limit: 10, window: 15 * 60_000, key: 'user' },
+            {
+                scope: 'elevate-ip',
+                limit: 40,
+                window: 15 * 60_000,
+                key: 'ip',
+            },
+        ],
+    })
     async handleElevate(req: Request, res: Response): Promise<void> {
         const user = await this.stores.user.getById(req.actor!.user.id!, {
             force: true,
@@ -4650,11 +4550,14 @@ export class AuthController extends PuterController {
         }
 
         const token = signStepUpToken(this.services.token, user as never);
-        res.cookie(
-            STEP_UP_COOKIE_NAME,
-            token,
-            stepUpCookieOptions(this.config),
-        );
+        const isApiHost = req.subdomains?.at(-1) === 'api';
+        if (!isApiHost) {
+            res.cookie(
+                STEP_UP_COOKIE_NAME,
+                token,
+                stepUpCookieOptions(this.config),
+            );
+        }
 
         // A browser reads its elevation back from the httpOnly cookie and never
         // needs the raw value; handing it to page JS would put the second factor
@@ -4663,24 +4566,30 @@ export class AuthController extends PuterController {
         // password/TOTP — this only avoids needless exposure, it isn't a gate.
         const cookieName = this.config.cookie_name ?? 'puter_token';
         const usedSessionCookie =
-            !!req.token && req.token === req.cookies?.[cookieName];
+            !isApiHost &&
+            !!req.token &&
+            req.token === req.cookies?.[cookieName];
         res.json(
             usedSessionCookie ? { elevated: true } : { elevated: true, token },
         );
     }
 
-    // -- Delete own account (user-protected, wired below) ------------
+    // -- Delete own account ------------------------------------------
     //
     // Purge S3 objects + fsentries first, then the user row. FK
     // cascades on most related tables are `ON DELETE SET NULL` (not
     // CASCADE), so anything holding tightly to user_id (sessions) we
     // clear explicitly to avoid orphan rows.
 
+    @Post('/user-protected/delete-own-user', {
+        userProtected: { allowTempUsers: true },
+        allowUnconfirmed: true,
+    })
     async handleDeleteOwnUser(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
         // The team owns the account and is billed for it; only they may close
         // it, through the console that keeps the audit trail.
-        if (await this.stores.team.getOrgSeat(userId)) {
+        if (await this.stores.team?.getOrgSeat(userId)) {
             throw new HttpError(
                 403,
                 'Your team owns this account. Ask a team admin to remove it.',
@@ -4690,7 +4599,7 @@ export class AuthController extends PuterController {
         // The other direction: deleting an owner sets `owner_user_id` NULL and
         // cascades their membership, leaving a team no one can administer —
         // not even an admin, since every team route resolves by membership.
-        if (await this.stores.team.countOwned(userId)) {
+        if (await this.stores.team?.countOwned(userId)) {
             throw new HttpError(
                 403,
                 'Delete the teams you own before closing this account.',
@@ -4699,7 +4608,7 @@ export class AuthController extends PuterController {
         }
         // A deleted team's seats are suspended, not gone, and only its owner
         // can retire them.
-        if (await this.stores.team.countOwnedTeamsWithAccounts(userId)) {
+        if (await this.stores.team?.countOwnedTeamsWithAccounts(userId)) {
             throw new HttpError(
                 403,
                 'Close the accounts your teams created before closing this one.',
@@ -4716,341 +4625,22 @@ export class AuthController extends PuterController {
         res.json({ success: true });
     }
 
-    // -- registerRoutes override -------------------------------------
-    //
-    // The `@Controller('')` decorator would normally install a default
-    // `registerRoutes` walker that iterates `prototype[__puterRoutes]`.
-    // We override it here so we can ALSO wire the five
-    // `/user-protected/*` (and `/user-protected/delete-own-user`) routes
-    // whose `middleware: createUserProtectedGate(...)` argument is
-    // built from instance state — not expressible inside a static
-    // decorator literal.
-    //
-    // The first half of this method is a transcription of the default
-    // walker (see core/http/decorators.ts → Controller). The second
-    // half adds the imperative routes that need the per-instance gate.
-    override registerRoutes(router: PuterRouter): void {
-        const proto = Object.getPrototypeOf(this) as {
-            [ROUTES_METADATA_KEY]?: CollectedRoute[];
-        };
-        const routes = (proto[ROUTES_METADATA_KEY] ?? []) as CollectedRoute[];
-        for (const r of routes) {
-            const bound = r.handler.bind(this) as RequestHandler;
-            if (r.method === 'use') {
-                if (r.path !== undefined) {
-                    router.use(r.path, r.options, bound);
-                } else {
-                    router.use(r.options, bound);
-                }
-                continue;
-            }
-            if (r.path === undefined) {
-                throw new Error(
-                    `@${r.method.toUpperCase()} decorator missing path`,
-                );
-            }
-            const routerMethod = router[
-                r.method as Exclude<RouteMethod, 'use'>
-            ] as (
-                path: RoutePath,
-                options: RouteOptions,
-                handler: RequestHandler,
-            ) => PuterRouter;
-            routerMethod.call(router, r.path, r.options, bound);
-        }
-
-        // -- User-protected routes (per-instance middleware) ----------
-        const userProtectedDeps = {
-            config: this.config,
-            userStore: this.stores.user,
-            oidcService: this.services.oidc,
-            tokenService: this.services.token,
-        };
-
-        router.post(
-            '/user-protected/change-password',
-            {
-                requireUserActor: true,
-                // The forced-change gate refuses everything else, so this is
-                // the one route an account owing a password change may reach.
-                allowUnconfirmed: true,
-                rateLimit: {
-                    scope: 'passwd',
-                    limit: 10,
-                    window: 60 * 60_000,
-                    key: 'user',
-                },
-                middleware: [
-                    createUserProtectedGate(
-                        userProtectedDeps as never,
-                    ) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleChangePassword(req, res),
-        );
-
-        router.post(
-            '/user-protected/change-username',
-            {
-                requireUserActor: true,
-                requireVerified: true,
-                rateLimit: {
-                    scope: 'change-username',
-                    limit: 2,
-                    window: 30 * 24 * 60 * 60_000,
-                    key: 'user',
-                },
-                middleware: [
-                    createUserProtectedGate(
-                        userProtectedDeps as never,
-                    ) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleChangeUsername(req, res),
-        );
-
-        router.post(
-            '/user-protected/change-email',
-            {
-                requireUserActor: true,
-                rateLimit: {
-                    scope: 'change-email-start',
-                    limit: 10,
-                    window: 60 * 60_000,
-                    key: 'user',
-                },
-                middleware: [
-                    createUserProtectedGate(
-                        userProtectedDeps as never,
-                    ) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleChangeEmail(req, res),
-        );
-
-        router.post(
-            '/user-protected/disable-2fa',
-            {
-                requireUserActor: true,
-                rateLimit: {
-                    scope: 'disable-2fa',
-                    limit: 10,
-                    window: 60 * 60_000,
-                    key: 'user',
-                },
-                middleware: [
-                    createUserProtectedGate(
-                        userProtectedDeps as never,
-                    ) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleDisable2fa(req, res),
-        );
-
-        router.post(
-            '/user-protected/delete-own-user',
-            {
-                requireUserActor: true,
-                allowUnconfirmed: true,
-                middleware: [
-                    createUserProtectedGate(userProtectedDeps as never, {
-                        allowTempUsers: true,
-                    }) as unknown as RequestHandler,
-                ],
-            },
-            (req, res) => this.handleDeleteOwnUser(req, res),
-        );
-
-        // Step-up. Served on the root origin (browser form posts same-origin)
-        // and on `api` (SDK/script clients, which have no cookie jar and send a
-        // bearer). Deliberately NOT cookie-gated: the password/TOTP in the body
-        // is the control — a stolen token alone can't satisfy it, and it's also
-        // what makes CSRF a non-issue. `requireUserActor` still keeps app and
-        // access-token actors out, so an access token can never mint an
-        // elevation for its issuer.
-        router.post(
-            '/auth/elevate',
-            {
-                subdomain: ['api', ''],
-                requireUserActor: true,
-                allowUnconfirmed: true,
-                rateLimit: [
-                    {
-                        scope: 'elevate',
-                        limit: 10,
-                        window: 15 * 60_000,
-                        key: 'user',
-                    },
-                    {
-                        scope: 'elevate-ip',
-                        limit: 40,
-                        window: 15 * 60_000,
-                        key: 'ip',
-                    },
-                ],
-            },
-            (req, res) => this.handleElevate(req, res),
-        );
-
-        const webSessionGate = createWebSessionActorGate();
-
-        router.post(
-            '/auth/revoke-session',
-            {
-                subdomain: 'api',
-                requireUserActor: true,
-                allowUnconfirmed: true,
-                antiCsrf: true,
-                middleware: [webSessionGate],
-            },
-            (req, res) => this.handleRevokeSession(req, res),
-        );
-
-        router.post(
-            '/auth/revoke-all-sessions',
-            {
-                subdomain: 'api',
-                requireUserActor: true,
-                allowUnconfirmed: true,
-                antiCsrf: true,
-                rateLimit: {
-                    scope: 'revoke-all-sessions',
-                    limit: 10,
-                    window: 60 * 60_000,
-                    key: 'user',
-                },
-                middleware: [webSessionGate],
-            },
-            (req, res) => this.handleRevokeAllSessions(req, res),
-        );
-
-        router.post(
-            '/auth/revoke-access-token',
-            {
-                subdomain: 'api',
-                requireUserActor: true,
-                antiCsrf: true,
-                middleware: [webSessionGate],
-            },
-            (req, res) => this.handleRevokeAccessToken(req, res),
-        );
-
-        router.patch(
-            '/auth/sessions/:uuid/label',
-            {
-                subdomain: 'api',
-                requireUserActor: true,
-                allowUnconfirmed: true,
-                antiCsrf: true,
-                middleware: [webSessionGate],
-            },
-            (req, res) => this.handleRenameSession(req, res),
-        );
-    }
-
     // -- Private helpers ----------------------------------------------
 
     async #cascadeDeleteUser(userId: number): Promise<void> {
         await this.services.userAccount.cascadeDelete(userId);
     }
 
-    async #generateRandomUsername(): Promise<string> {
-        let username: string;
-        let attempts = 0;
-        do {
-            username = generate_identifier();
-            attempts++;
-            if (attempts > 20)
-                throw new HttpError(
-                    409,
-                    'Failed to generate unique username. Try again later.',
-                    { legacyCode: 'conflict' },
-                );
-        } while (await this.stores.user.getByUsername(username));
+    async #generateTempUsername(): Promise<string> {
+        const username = await generateUsername(this.stores);
+        if (!username) {
+            throw new HttpError(
+                409,
+                'Failed to generate unique username. Try again later.',
+                { legacyCode: 'conflict' },
+            );
+        }
         return username;
-    }
-
-    /**
-     * Decide whether a signup may take `email`, and hand back the placeholder
-     * row it should convert instead of inserting a new one.
-     *
-     * Throws when a live account already owns the address. Returns the
-     * unconfirmed, password-less pseudo row when one exists (admin
-     * pre-provisioning — signup claims it), or null when the address is free.
-     *
-     * Called twice per signup: once early, to fail fast before the validate
-     * hook and bcrypt, and once against the primary immediately before the
-     * write.
-     */
-    async #resolveSignupEmailClaim(
-        email: string,
-        opts: { force?: boolean } = {},
-    ): Promise<UserRow | null> {
-        const existing = await this.stores.user.findEmailOwner(email, opts);
-        if (!existing) return null;
-        // A provisioned account looks exactly like a claimable placeholder --
-        // no password, unconfirmed -- but claiming it hands a stranger that
-        // team's membership.
-        const orgSeat = await this.stores.team.getOrgSeat(existing.id);
-        if (
-            existing.email_confirmed ||
-            existing.password !== null ||
-            orgSeat !== null
-        ) {
-            throw new HttpError(
-                400,
-                'This email already exists in our database. Please use another one.',
-                { legacyCode: 'bad_request' },
-            );
-        }
-        return existing;
-    }
-
-    /**
-     * Config-blocklist + extension-driven email validation. Config blocklist
-     * (suffix match on cleaned email) blocks first; then the `email.validate`
-     * event lets extensions (abuse) reject. Throws HttpError(400) on
-     * rejection.
-     */
-    async #validateEmail(email: string): Promise<void> {
-        if (
-            isBlockedEmail(
-                email,
-                (this.config as { blockedEmailDomains?: string[] })
-                    .blockedEmailDomains,
-            )
-        ) {
-            throw new HttpError(400, 'This email is not allowed.', {
-                legacyCode: 'email_not_allowed' as never,
-            });
-        }
-
-        const validateEvent: {
-            email: string;
-            allow: boolean;
-            message: string | null;
-        } = {
-            email: cleanEmail(email),
-            allow: true,
-            message: null,
-        };
-        try {
-            await this.clients.event?.emitAndWait(
-                'email.validate',
-                validateEvent,
-                {},
-            );
-        } catch (e) {
-            console.warn('[email-validate] hook failed:', e);
-        }
-        if (!validateEvent.allow) {
-            throw new HttpError(
-                400,
-                validateEvent.message ??
-                    'This email cannot be used. Please try a different email address.',
-                { legacyCode: 'bad_request' },
-            );
-        }
     }
 
     /**
@@ -5075,21 +4665,60 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Extract the `auth_id` claim from a client-supplied reauth_token. Returns
-     * null when no token was supplied. Throws on invalid/expired tokens. The
+     * Refuse once an account's wrong-code budget is spent, before checking the
+     * code.
+     */
+    async #assertSecondFactorAttemptsRemain(userUid: string): Promise<void> {
+        const { scope, limit, window } = SECOND_FACTOR_FAILURE_LIMIT;
+        if (await peekRateLimit(`${scope}:${userUid}`, limit, window)) return;
+        throw new HttpError(429, 'Too many incorrect codes. Try again later.', {
+            legacyCode: 'too_many_requests',
+        });
+    }
+
+    async #recordSecondFactorFailure(userUid: string): Promise<void> {
+        const { scope, limit, window } = SECOND_FACTOR_FAILURE_LIMIT;
+        await checkRateLimit(`${scope}:${userUid}`, limit, window);
+    }
+
+    /**
+     * An `otp-login` JWT completes one sign-in; a second redemption is refused.
+     * Fails closed: while the store can't say whether the token was used, the
+     * sign-in is refused rather than letting a captured token replay.
+     */
+    async #consumeOtpLoginToken(token: string): Promise<void> {
+        const digest = crypto.createHash('sha256').update(token).digest('hex');
+        const firstUse = await checkRateLimit(
+            `login-otp-token-used:${digest}`,
+            1,
+            OTP_LOGIN_TOKEN_USED_WINDOW_MS,
+            undefined,
+            { failOpen: false },
+        );
+        if (!firstUse) {
+            throw new HttpError(400, 'Invalid token.', {
+                legacyCode: 'bad_request',
+            });
+        }
+    }
+
+    /**
+     * Verify a client-supplied reauth_token and return its claims. Returns null
+     * when no token was supplied. Throws on invalid/expired tokens. The
      * reauth_token is a server-signed JWT minted by the authProbe at 401 time —
      * accepting only the signed envelope (vs. a raw UUID) means a leaked
      * auth_id alone can't attach a session to an existing account.
      */
-    #extractAuthIdFromReauthToken(suppliedToken: unknown): string | null {
+    #verifySuppliedReauthToken(
+        suppliedToken: unknown,
+    ): { authId: string; reason: ReauthReason | undefined } | null {
         if (suppliedToken === undefined || suppliedToken === null) return null;
         if (typeof suppliedToken !== 'string' || !suppliedToken) {
             throw new HttpError(400, 'Invalid `reauth_token`.', {
                 legacyCode: 'bad_request',
             });
         }
-        const { authId } = this.services.auth.verifyReauthToken(suppliedToken);
-        return authId;
+        return this.services.auth.verifyReauthToken(suppliedToken);
     }
 
     /**
@@ -5137,89 +4766,42 @@ export class AuthController extends PuterController {
     async #completeLogin(
         req: Request,
         res: Response,
-        user: {
-            id: number;
-            uuid: string;
-            username: string;
-            email?: string | null;
-            password?: string | null;
-            email_confirmed?: number | boolean;
-            requires_email_confirmation?: number | boolean;
-            phone?: string | null;
-            requires_phone_verification?: number | boolean;
-            requires_card_verification?: number | boolean;
-            requires_password_change?: number | boolean;
-        },
+        user: UserRow,
+        oidcContinuation?: unknown,
     ): Promise<void> {
-        const meta = {
-            ip: req.ip || req.socket?.remoteAddress,
-            user_agent: req.headers?.['user-agent'],
-            origin: req.headers?.origin,
-            host: req.headers?.host,
-        };
-
-        const { token: sessionToken, gui_token } =
-            await this.services.auth.createSessionToken(user as never, meta);
-
-        // HTTP-only cookie gets the session token
-        res.cookie(this.config.cookie_name ?? 'puter_token', sessionToken, {
-            ...sessionCookieFlags(this.config),
-            httpOnly: true,
+        const redirectUrl =
+            oidcContinuation === undefined
+                ? undefined
+                : completeOidcLoginReturn(res, user, oidcContinuation, {
+                      config: this.config,
+                      oidc: this.services.oidc,
+                  });
+        const gui_token = await startWebSession(req, res, user, {
+            config: this.config,
+            auth: this.services.auth,
         });
 
-        // Resolve taskbar items up-front so the GUI doesn't need a second
-        // round-trip on first paint. Best-effort: a failure here shouldn't
-        // block login (the client can still fetch them via /whoami later).
-        let taskbar_items: unknown[] = [];
-        try {
-            taskbar_items = await getTaskbarItems(
-                user as never,
-                {
-                    clients: this.clients,
-                    stores: this.stores,
-                    services: this.services,
-                    apiBaseUrl: (this.config as { api_base_url?: string })
-                        .api_base_url,
-                    config: this.config,
-                } as never,
-            );
-        } catch (e) {
-            console.warn('[auth] taskbar_items resolution failed:', e);
-        }
-
-        // Same shape as whoami: no-reload logins store this payload as
-        // window.user verbatim, and every seat restriction keys on `team`.
-        let team: { uid: string; name: string | null } | undefined;
-        if (this.config.teams_enabled === true) {
-            try {
-                const seat = await this.stores.team.getOrgSeat(user.id);
-                if (seat) {
-                    team = { uid: seat.team_uid, name: seat.team_name ?? null };
-                }
-            } catch (e) {
-                console.warn('[auth] team lookup failed:', e);
-            }
-        }
+        // The whoami payload, so a no-reload login can store it as
+        // window.user verbatim and skip a round-trip on first paint.
+        const details = await buildUserDetails(
+            user,
+            {
+                config: this.config,
+                clients: this.clients,
+                stores: this.stores,
+                services: this.services,
+            },
+            { isUser: true },
+        );
+        scrubSensitive(details);
 
         // Response body gets the GUI token (client never sees session token)
         res.json({
             proceed: true,
             next_step: 'complete',
             token: gui_token,
-            user: {
-                username: user.username,
-                uuid: user.uuid,
-                email: user.email,
-                email_confirmed: user.email_confirmed,
-                requires_email_confirmation: user.requires_email_confirmation,
-                phone: user.phone,
-                requires_phone_verification: user.requires_phone_verification,
-                requires_card_verification: user.requires_card_verification,
-                requires_password_change: user.requires_password_change,
-                is_temp: user.password === null && user.email === null,
-                ...(team ? { team } : {}),
-                taskbar_items,
-            },
+            user: details,
+            ...(redirectUrl ? { redirectUrl } : {}),
         });
     }
 }

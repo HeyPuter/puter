@@ -2,6 +2,7 @@ import { PuterJSError } from '../../lib/PuterJSError.js';
 import { request } from './lib/api.js';
 import { prepareHandler, serializeContext } from './lib/handlerSource.js';
 import { assertSubject } from './lib/validate.js';
+import { resolveSubject } from './lib/resolveSubject.js';
 
 /** @typedef {import('./types.js').OnPersistentOptions} OnPersistentOptions */
 /** @typedef {import('./types.js').PersistentSubscription} PersistentSubscription */
@@ -11,12 +12,17 @@ import { assertSubject } from './lib/validate.js';
  *
  * Unlike `onLocal()`, the subscription is stored against the account, keeps
  * matching while the app is closed, and is ended by
- * `puter.events.unsubscribe()` rather than by navigating away. What runs it
- * while nothing is open is the app's published handler, named by `handlerName`.
+ * `puter.events.unsubscribe()` rather than by navigating away. Each event runs
+ * the app's published handler, named by `handlerName`, in its events worker,
+ * and is also sent to every connected client. With `queue`, each event goes
+ * to exactly one consumer instead.
  *
- * While this client *is* open it runs the handler itself, if one was passed as
- * a function: the same body, the same `{ event, ctx }`, plus `user`, `fetch`
- * and — for a subscription owed to one consumer — `ack`.
+ * With a `handler` and no `handlerName`, the source is sent and stored in the
+ * signed-in user's own scope, and runs for this user's events only.
+ *
+ * Passing a function as `handler` also runs it in this client for each
+ * delivery it receives: the same body, the same `{ event, ctx }`, plus `user`,
+ * `fetch` and — for a `queue` subscription — `ack`.
  *
  * `context` is evaluated **here, now** — serialized once and delivered to every
  * invocation as a frozen `ctx`. It never re-evaluates, so a value read from the
@@ -32,36 +38,30 @@ import { assertSubject } from './lib/validate.js';
 export async function onPersistent (options = {}) {
     const { puter } = this;
     assertSubject(options?.subject);
-
+    const subject = resolveSubject(options.subject, puter);
     const { handler, handlerName } = options;
-    // An inline handler is source the server has to match against something it
-    // already has, and a name is the only thing it can match against.
-    if ( handler !== undefined && handler !== null && ! handlerName ) {
+    const hasHandler = handler !== undefined && handler !== null;
+    // A queued delivery is owed to exactly one consumer, and the handler is
+    // the only one always there to take it.
+    if ( (options.queue === true || options.delivery === 'single') && ! handlerName && ! hasHandler ) {
         throw new PuterJSError(
-            'An inline `handler` needs a `handlerName` to publish it under',
-            'events_handler_name_required',
-        );
-    }
-    // A `single` delivery is owed to exactly one consumer, and the handler is
-    // the only one always there to take it — checked here rather than only
-    // discovered on the round trip.
-    if ( options.delivery === 'single' && ! handlerName ) {
-        throw new PuterJSError(
-            'A `single` subscription needs a `handlerName`',
+            'A `queue` subscription needs a `handlerName` or an inline `handler`',
             'events_handler_required',
         );
     }
 
-    const inline = handler === undefined || handler === null
-        ? null
-        : await prepareHandler(puter, handler);
+    const inline = hasHandler ? await prepareHandler(puter, handler) : null;
 
     const body = {
-        subject: options.subject,
+        subject,
+        ...(typeof options.queue === 'boolean' ? { queue: options.queue } : {}),
         ...(options.delivery ? { delivery: options.delivery } : {}),
-        ...(options.targets ? { targets: options.targets } : {}),
         ...(handlerName ? { handlerName } : {}),
-        ...(inline ? { handlerHash: inline.hash } : {}),
+        ...(options.handlerScope ? { handlerScope: options.handlerScope } : {}),
+        // Named: the hash checks it against what is published. Unnamed: the
+        // source itself, which the server stores under its own hash.
+        ...(inline && handlerName ? { handlerHash: inline.hash } : {}),
+        ...(inline && ! handlerName ? { handlerSource: inline.source } : {}),
         ...(options.expiresAt !== undefined && options.expiresAt !== null
             ? { expiresAt: options.expiresAt }
             : {}),

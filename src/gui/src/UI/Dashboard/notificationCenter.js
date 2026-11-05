@@ -29,7 +29,7 @@
  * @property {string} [source] - Legacy sender marker: `sharing`, `worker`, …
  * @property {string} [title]
  * @property {string} [text]
- * @property {string} [icon] - A `window.icons` key
+ * @property {string} [icon] - A `window.icons` key, or an https URL on an app message
  * @property {string} [template] - Legacy marker, superseded by `type`
  * @property {Object} [fields]
  */
@@ -38,6 +38,7 @@
  * @typedef {Object} NotificationEntry
  * @property {string} uid
  * @property {NotificationPayload} notification
+ * @property {string} [appUid] - The app the row is about, when it names one
  * @property {number|null} createdAt - Epoch milliseconds, `null` when unknown
  * @property {number|null} readAt - When the user acknowledged it (epoch ms); `null` while unread
  * @property {number} receivedAt - When this client first saw it (epoch ms)
@@ -59,6 +60,14 @@ const LEGACY_HIDDEN_SOURCES = new Set(['worker']);
  * confirmations are noise next to things that need the user.
  */
 const HIDDEN_TYPES = new Set(['app.worker.deployed', 'app.worker.deployFailed']);
+
+/**
+ * Whether a notification belongs to the app that sent it, not the desktop.
+ *
+ * @param {NotificationPayload} notification
+ * @returns {boolean}
+ */
+export const isAppOnlyNotification = (notification) => notification?.type === 'app.message';
 
 /**
  * Whether a notification announces a share, by either the server's `type` or
@@ -122,12 +131,14 @@ export const toEntry = (raw, now) => {
     if ( typeof uid !== 'string' || uid === '' ) return null;
     const payload = raw.notification ?? raw.value;
     const notification = payload && typeof payload === 'object' ? payload : {};
-    if ( HIDDEN_TYPES.has(notification.type) ) return null;
+    if ( HIDDEN_TYPES.has(notification.type) || isAppOnlyNotification(notification) ) return null;
     if ( LEGACY_HIDDEN_SOURCES.has(notification.source) ) return null;
     const createdAt = parseCreatedAt(raw.created_at);
+    const appUid = raw.app_uid ?? raw.appUid;
     return {
         uid,
         notification,
+        ...(typeof appUid === 'string' && appUid ? { appUid } : {}),
         // A push arrives before its row is written, so "now" is accurate for
         // it; a listed row always carries its own time.
         createdAt: createdAt ?? (raw.created_at === undefined ? now : null),
@@ -135,6 +146,22 @@ export const toEntry = (raw, now) => {
         receivedAt: now,
     };
 };
+
+/**
+ * The entries a listing contributes: its newest `limit` the center shows,
+ * and every unread one past them, so the badge and "Mark all as read" cover
+ * them all. Hidden rows are dropped before counting, so a run of them (a
+ * developer's deploy results) can't take the places of the rest.
+ *
+ * @param {Object[]} rows - Driver rows, newest first
+ * @param {number} now - Epoch ms
+ * @param {number} limit
+ * @returns {NotificationEntry[]}
+ */
+export const listedEntries = (rows, now, limit) => rows
+    .map((row) => toEntry(row, now))
+    .filter(Boolean)
+    .filter((entry, i) => i < limit || isUnread(entry));
 
 /**
  * Newest first; entries without a time sort as newest (they are the ones
@@ -212,6 +239,25 @@ export const reconcileWithServer = (local, server, now, graceMs = 15_000, readSi
 };
 
 /**
+ * The uids changed after a listing was requested — its snapshot predates
+ * them — from a map of uid to when the change finished (`Infinity` while it
+ * is still out). Entries that finished before are settled in any listing
+ * from now on, so they are dropped from the map.
+ *
+ * @param {Map<string, number>} marks
+ * @param {number} requestedAt - Epoch ms
+ * @returns {Set<string>}
+ */
+export const takeMarksSince = (marks, requestedAt) => {
+    const since = new Set();
+    for ( const [uid, at] of marks ) {
+        if ( at >= requestedAt ) since.add(uid);
+        else marks.delete(uid);
+    }
+    return since;
+};
+
+/**
  * The list with one entry's read state changed; `null` makes it unread
  * again, for rolling back an acknowledgement the server refused.
  *
@@ -243,6 +289,35 @@ export const unreadCount = (entries) => entries.filter(isUnread).length;
 export const glyphKey = (notification) => (
     isShareNotification(notification) ? 'sharing' : 'default'
 );
+
+/**
+ * The sending app's name for an app message, shown above its title.
+ *
+ * @param {NotificationPayload} notification
+ * @returns {string|null}
+ */
+export const senderNameFor = (notification) => {
+    if ( notification?.type !== 'app.message' ) return null;
+    const name = notification.app?.name;
+    return typeof name === 'string' && name.trim() ? name : null;
+};
+
+/**
+ * @param {NotificationPayload} notification
+ * @returns {string|null} Its own or its app's icon, when that is an https URL
+ */
+export const httpsIconFor = (notification) => {
+    for ( const candidate of [notification?.icon, notification?.app?.icon] ) {
+        if ( typeof candidate !== 'string' ) continue;
+        try {
+            const url = new URL(candidate);
+            if ( url.protocol === 'https:' ) return url.href;
+        } catch {
+            // a `window.icons` key or not a URL at all
+        }
+    }
+    return null;
+};
 
 /**
  * @typedef {{ kind: 'shared-item', path: string } | { kind: 'shared' } | null} NotificationTarget
@@ -285,80 +360,6 @@ export const titleWithBadge = (title, count) => {
     const base = String(title ?? '').replace(TITLE_BADGE, '');
     const label = badgeLabel(count);
     return label ? `(${label}) ${base}` : base;
-};
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-/**
- * How long ago `at` was, in the reader's language: "now", "5 minutes ago",
- * "yesterday", then a short date once it's more than a week old. Uses the
- * platform's formatters so nothing here needs translating; falls back to a
- * plain date where they're missing.
- *
- * @param {number} at - Epoch ms
- * @param {number} now - Epoch ms
- * @param {string} [locale]
- * @returns {string}
- */
-export const formatRelativeTime = (at, now, locale = 'en') => {
-    const diff = Math.max(0, now - at);
-    const rtf = relativeFormatter(locale);
-    if ( diff < 45_000 ) return rtf ? rtf.format(0, 'second') : 'now';
-    if ( diff < 45 * MINUTE ) {
-        const minutes = Math.max(1, Math.round(diff / MINUTE));
-        return rtf ? rtf.format(-minutes, 'minute') : `${minutes}m`;
-    }
-    if ( diff < 22 * HOUR ) {
-        const hours = Math.max(1, Math.round(diff / HOUR));
-        return rtf ? rtf.format(-hours, 'hour') : `${hours}h`;
-    }
-    if ( diff < 7 * DAY ) {
-        const days = Math.max(1, Math.round(diff / DAY));
-        return rtf ? rtf.format(-days, 'day') : `${days}d`;
-    }
-    const then = new Date(at);
-    const sameYear = then.getFullYear() === new Date(now).getFullYear();
-    const dtf = dateFormatter(locale, {
-        month: 'short',
-        day: 'numeric',
-        ...(sameYear ? {} : { year: 'numeric' }),
-    });
-    return dtf ? dtf.format(then) : then.toLocaleDateString();
-};
-
-/**
- * The full moment, for a tooltip behind the relative form.
- *
- * @param {number} at - Epoch ms
- * @param {string} [locale]
- * @returns {string}
- */
-export const formatAbsoluteTime = (at, locale = 'en') => {
-    const dtf = dateFormatter(locale, { dateStyle: 'medium', timeStyle: 'short' });
-    return dtf ? dtf.format(new Date(at)) : new Date(at).toLocaleString();
-};
-
-const tryMake = (make) => {
-    try {
-        return make();
-    } catch {
-        return null;
-    }
-};
-
-// An unknown locale tag throws; the English formatter beats none at all.
-const relativeFormatter = (locale) => {
-    if ( typeof Intl === 'undefined' || ! Intl.RelativeTimeFormat ) return null;
-    return tryMake(() => new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }))
-        ?? tryMake(() => new Intl.RelativeTimeFormat('en', { numeric: 'auto' }));
-};
-
-const dateFormatter = (locale, options) => {
-    if ( typeof Intl === 'undefined' || ! Intl.DateTimeFormat ) return null;
-    return tryMake(() => new Intl.DateTimeFormat(locale, options))
-        ?? tryMake(() => new Intl.DateTimeFormat('en', options));
 };
 
 /**

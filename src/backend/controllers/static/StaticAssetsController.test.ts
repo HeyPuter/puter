@@ -19,8 +19,9 @@
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import type { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { RouteDescriptor } from '../../core/http/types.js';
@@ -111,6 +112,7 @@ const callGetHandler = async (
     let captured: { filename?: string; root?: string } = {};
     const req = {} as Request;
     const res = {
+        setHeader: vi.fn(),
         sendFile: vi.fn((filename: string, opts: { root: string }) => {
             captured = { filename, root: opts.root };
         }),
@@ -151,6 +153,12 @@ describe('StaticAssetsController client_libs_root', () => {
 
         const sentPutility = await callGetHandler(router, '/putility/v1');
         expect(sentPutility).toEqual({ filename: 'putility.js/v1.js', root });
+
+        for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
+            expect(findRoute(router, 'get', route)?.options.subdomain).toBe('js');
+            const sentWorker = await callGetHandler(router, route);
+            expect(sentWorker).toEqual({ filename: 'puter.js/push-sw.js', root });
+        }
     });
 
     it('does not register the client_libs routes when the root is unset', () => {
@@ -186,6 +194,11 @@ describe('StaticAssetsController puterjs_root', () => {
         expect(v1.root).toBe(root);
         const bareV1 = await callGetHandler(router, '/v1');
         expect(bareV1.filename).toBe('puter.js');
+
+        for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
+            const worker = await callGetHandler(router, route);
+            expect(worker).toEqual({ filename: 'push-sw.js', root });
+        }
     });
 
     it('serves puter.dev.js when present (dev webpack build)', async () => {
@@ -225,6 +238,48 @@ describe('StaticAssetsController puterjs_root', () => {
         const router = buildController({});
         expect(findUseRoute(router, '/sdk')).toBeUndefined();
     });
+});
+
+// ── push-sw.js caching ──────────────────────────────────────────────
+
+/** Serves the route's handler over real HTTP and returns the response. */
+const fetchThroughExpress = async (router: PuterRouter, routePath: string) => {
+    const route = findRoute(router, 'get', routePath);
+    if (!route) throw new Error(`No GET ${routePath} registered`);
+    const app = express();
+    app.get(routePath, (req, res, next) => route.handler(req, res, next));
+    const listener = app.listen(0);
+    await new Promise((resolve) => listener.once('listening', resolve));
+    try {
+        const { port } = listener.address() as AddressInfo;
+        return await fetch(`http://127.0.0.1:${port}${routePath}`);
+    } finally {
+        listener.close();
+    }
+};
+
+describe('StaticAssetsController push-sw.js', () => {
+    it.each([
+        ['client_libs_root', 'puter.js/push-sw.js'],
+        ['puterjs_root', 'push-sw.js'],
+    ] as const)(
+        'lets the CDN keep it for five minutes from %s',
+        async (configKey, file) => {
+            const root = makeTempDir();
+            mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+            writeFileSync(path.join(root, file), '/* worker */');
+            const router = buildController({ [configKey]: root });
+
+            for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
+                const response = await fetchThroughExpress(router, route);
+                expect(response.status).toBe(200);
+                expect(response.headers.get('cache-control')).toBe(
+                    'public, max-age=0, s-maxage=300',
+                );
+                expect(await response.text()).toBe('/* worker */');
+            }
+        },
+    );
 });
 
 // ── gui_assets_root ─────────────────────────────────────────────────

@@ -39,12 +39,16 @@ import { v4 as uuidv4 } from 'uuid';
 import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_HANDLER_PUBLISH_BATCH,
+    EVENTS_HANDLER_PUBLISH_LIMIT,
     EVENTS_HANDLER_SOURCE_MAX_BYTES,
     EVENTS_SUSPENDED_PENDING_CAP,
     EVENTS_WORKER_SOURCE_MAX_BYTES,
 } from '../../controllers/events/limits.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
-import { hashContent } from '../../stores/events/EventHandlerStore.js';
+import {
+    appHandlerScope,
+    hashContent,
+} from '../../stores/events/EventHandlerStore.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import type { DurableSubscriptionView } from './EventsService.js';
@@ -219,7 +223,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
     await env.server.clients.db.write('DELETE FROM `event_handlers`', []);
-    for (const row of await durable().listActiveForHolder(userId, null))
+    for (const row of (await durable().listActiveForHolderPage(userId, null, 0))
+        .rows)
         await durable().remove(row);
     await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
     await env.server.stores.eventSubscription.rebuildDurable(userId, []);
@@ -341,6 +346,61 @@ describe('who may publish a handler', () => {
     });
 });
 
+describe('what a handler may refer to', () => {
+    // The file publishes close to the per-minute budget without these.
+    beforeEach(async () => {
+        await env.server.clients.redis.del(
+            `rate:${EVENTS_HANDLER_PUBLISH_LIMIT.scope}:${userId}`,
+        );
+    });
+
+    it('refuses a handler that names a variable it does not bind', async () => {
+        const refused = await publish(appToken, {
+            name: 'ingestUpload',
+            source: 'async ({ event }) => { await send(endpoint, event.path); }',
+        });
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('events_handler_free_variable');
+        expect(refused.body.message).toContain('`send`');
+        const listed = await call('GET', '/events/handlers/list', appToken);
+        expect(listed.body.handlers).toEqual([]);
+    });
+
+    it('refuses the ambient SDK, which a handler never has', async () => {
+        const refused = await publish(appToken, {
+            name: 'ingestUpload',
+            source: 'async ({ event }) => { await puter.fs.stat(event.path); }',
+        });
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('events_handler_free_variable');
+    });
+
+    it('stops a set at the item that does', async () => {
+        const refused = await call(
+            'POST',
+            '/events/handlers/publishAll',
+            appToken,
+            {
+                handlers: [
+                    { name: 'indexDocument', source: NEXT_SOURCE },
+                    { name: 'ingestUpload', source: 'async () => leak()' },
+                ],
+            },
+        );
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('events_handler_free_variable');
+        const listed = await call('GET', '/events/handlers/list', appToken);
+        expect(
+            (listed.body.handlers as Array<{ name: string }>).map(
+                (h) => h.name,
+            ),
+        ).toEqual(['indexDocument']);
+    });
+});
+
 describe('publishing a set', () => {
     it('takes a build step`s handlers in one call', async () => {
         const published = await call(
@@ -391,14 +451,247 @@ describe('publishing a set', () => {
     });
 });
 
+describe('what a publish reads', () => {
+    const COUNT_SQL = 'SELECT COUNT(*) AS `total` FROM `event_handlers`';
+    const BYTES_SQL = 'SUM(OCTET_LENGTH(`source`))';
+    const BY_NAME_SQL =
+        'FROM `event_handlers` WHERE `app_uid` = ? AND `name` = ?';
+    const THIRD_SOURCE = 'async ({ event }) => { console.log(event.op); }';
+
+    const sleep = (ms: number) =>
+        new Promise((resolve) => setTimeout(resolve, ms));
+
+    /** Every primary read goes through `on`, which decides when it runs. */
+    const watchReads = (
+        on: (sql: string, run: () => Promise<unknown>) => Promise<unknown>,
+    ) => {
+        const db = env.server.clients.db;
+        const realPread = db.pread.bind(db);
+        return vi
+            .spyOn(db, 'pread')
+            .mockImplementation(
+                async (sql, ...rest) =>
+                    (await on(String(sql), () =>
+                        realPread(sql, ...rest),
+                    )) as never,
+            );
+    };
+
+    it('counts alongside the size check', async () => {
+        await seedHandler();
+        const seen: string[] = [];
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        let gated = false;
+        const pread = watchReads(async (sql, run) => {
+            if (sql.includes(BY_NAME_SQL)) seen.push('byName');
+            if (sql.includes(BYTES_SQL)) seen.push('bytes');
+            if (sql.startsWith(COUNT_SQL) && !gated) {
+                gated = true;
+                seen.push('count');
+                await gate;
+            }
+            return run();
+        });
+        try {
+            const pending = publish(appToken, {
+                name: 'ingestUpload',
+                source: NEXT_SOURCE,
+                ifHash: hashContent(SOURCE),
+            });
+            await vi.waitFor(() =>
+                expect(seen).toEqual(
+                    expect.arrayContaining(['count', 'bytes', 'byName']),
+                ),
+            );
+            release();
+            const updated = await pending;
+            expect(updated.status).toBe(200);
+            expect(updated.body).toMatchObject({
+                name: 'ingestUpload',
+                hash: hashContent(NEXT_SOURCE),
+                outcome: 'updated',
+            });
+        } finally {
+            release();
+            pread.mockRestore();
+        }
+    });
+
+    // A concurrent publish of the same source is the idempotent republish two
+    // build steps make, and it reads as unchanged, not as a conflict.
+    it.each([
+        { what: 'create', seeded: false, ifHash: undefined },
+        { what: 'update', seeded: true, ifHash: hashContent(SOURCE) },
+    ])(
+        'reads an identical $what that lands after the size check as unchanged',
+        async ({ seeded, ifHash }) => {
+            if (seeded) await seedHandler();
+            let landed = false;
+            const pread = watchReads(async (sql, run) => {
+                const rows = await run();
+                if (sql.includes(BY_NAME_SQL) && !landed) {
+                    landed = true;
+                    await env.server.stores.eventHandler.publish({
+                        scope: appHandlerScope(appUid),
+                        name: 'ingestUpload',
+                        source: NEXT_SOURCE,
+                        replace: true,
+                    });
+                }
+                return rows;
+            });
+            try {
+                const republished = await publish(appToken, {
+                    name: 'ingestUpload',
+                    source: NEXT_SOURCE,
+                    ...(ifHash ? { ifHash } : {}),
+                });
+                expect(republished.status).toBe(200);
+                expect(republished.body).toMatchObject({
+                    hash: hashContent(NEXT_SOURCE),
+                    outcome: 'unchanged',
+                });
+            } finally {
+                pread.mockRestore();
+            }
+        },
+    );
+
+    it('refuses an update whose base moved after it was read', async () => {
+        await seedHandler();
+        let moved = false;
+        const pread = watchReads(async (sql, run) => {
+            const rows = await run();
+            if (sql.includes(BY_NAME_SQL) && !moved) {
+                moved = true;
+                // Another build step lands between this read and the write.
+                await env.server.clients.db.write(
+                    'UPDATE `event_handlers` SET `source` = ?, `source_hash` = ? ' +
+                        'WHERE `app_uid` = ? AND `name` = ?',
+                    [
+                        THIRD_SOURCE,
+                        hashContent(THIRD_SOURCE),
+                        appUid,
+                        'ingestUpload',
+                    ],
+                );
+            }
+            return rows;
+        });
+        try {
+            const refused = await publish(appToken, {
+                name: 'ingestUpload',
+                source: NEXT_SOURCE,
+                ifHash: hashContent(SOURCE),
+            });
+            expect(refused.status).toBe(409);
+            expect(refused.body.code).toBe('events_handler_conflict');
+        } finally {
+            pread.mockRestore();
+        }
+        const standing = await env.server.stores.eventHandler.getByName(
+            appHandlerScope(appUid),
+            'ingestUpload',
+        );
+        expect(standing?.sourceHash).toBe(hashContent(THIRD_SOURCE));
+    });
+
+    it('refuses a create another publish beat to the name', async () => {
+        let beaten = false;
+        const pread = watchReads(async (sql, run) => {
+            const rows = await run();
+            if (sql.includes(BY_NAME_SQL) && !beaten) {
+                beaten = true;
+                await env.server.stores.eventHandler.publish({
+                    scope: appHandlerScope(appUid),
+                    name: 'ingestUpload',
+                    source: THIRD_SOURCE,
+                });
+            }
+            return rows;
+        });
+        try {
+            const refused = await publish(appToken, {
+                name: 'ingestUpload',
+                source: NEXT_SOURCE,
+            });
+            expect(refused.status).toBe(409);
+            expect(refused.body.code).toBe('events_handler_conflict');
+        } finally {
+            pread.mockRestore();
+        }
+    });
+
+    it('surfaces a failed count over a failed size check, with no unhandled rejection', async () => {
+        const { actor } = await env.server.services.auth.authenticate(appToken);
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+        const pread = watchReads(async (sql, run) => {
+            if (sql.startsWith(COUNT_SQL)) {
+                await sleep(10);
+                throw new Error('count failed');
+            }
+            if (sql.includes(BYTES_SQL) || sql.includes(BY_NAME_SQL))
+                throw new Error('size check failed');
+            return run();
+        });
+        try {
+            await expect(
+                events().publishHandler(actor!, {
+                    name: 'ingestUpload',
+                    source: SOURCE,
+                }),
+            ).rejects.toThrow('count failed');
+            await expect(
+                events().publishHandlers(actor!, {
+                    handlers: [{ name: 'ingestUpload', source: SOURCE }],
+                }),
+            ).rejects.toThrow('count failed');
+            await expect(
+                events().publishHandlers(actor!, {
+                    handlers: ['not an object' as never],
+                }),
+            ).rejects.toThrow('count failed');
+            await sleep(20);
+            expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+            process.off('unhandledRejection', unhandled);
+            pread.mockRestore();
+        }
+        await expect(
+            env.server.stores.eventHandler.countForApp(appHandlerScope(appUid)),
+        ).resolves.toBe(0);
+    });
+
+    it('still refuses a malformed item once the count has been read', async () => {
+        const refused = await call(
+            'POST',
+            '/events/handlers/publishAll',
+            appToken,
+            { handlers: ['not an object'] },
+        );
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('bad_request');
+    });
+});
+
 describe('the total-source cap', () => {
     it(
         'refuses a publish that would push the app past the size cap',
         { timeout: 30_000 },
         async () => {
             // Every handler at the per-handler max: the fewest handlers that
-            // can reach the total cap.
-            const bigSource = 'x'.repeat(EVENTS_HANDLER_SOURCE_MAX_BYTES);
+            // can reach the total cap. Padded in a comment so it still passes
+            // the free-variable scan.
+            const prefix = 'async () => {} /*';
+            const padded = (fill: string) =>
+                `${prefix}${fill.repeat(
+                    EVENTS_HANDLER_SOURCE_MAX_BYTES - prefix.length - 2,
+                )}*/`;
+            const bigSource = padded('x');
             const names = Array.from(
                 {
                     length:
@@ -439,7 +732,7 @@ describe('the total-source cap', () => {
             // same size, different content, so it must not double-count.
             const replace = await publish(appToken, {
                 name: 'big0',
-                source: 'y'.repeat(EVENTS_HANDLER_SOURCE_MAX_BYTES),
+                source: padded('y'),
                 replace: true,
             });
             expect(replace.status).toBe(200);
@@ -473,7 +766,6 @@ describe('binding a subscription to a handler', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
         });
 
         expect(created.status).toBe(200);
@@ -485,12 +777,13 @@ describe('binding a subscription to a handler', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
         });
 
         expect(refused.status).toBe(404);
         expect(refused.body.code).toBe('events_handler_not_found');
-        expect(await durable().listActiveForHolder(userId, appUid)).toEqual([]);
+        expect(
+            (await durable().listActiveForHolderPage(userId, appUid, 0)).rows,
+        ).toEqual([]);
     });
 
     it('binds an inline body whose hash is what is published', async () => {
@@ -501,7 +794,6 @@ describe('binding a subscription to a handler', () => {
             delivery: 'single',
             handlerName: 'ingestUpload',
             handlerHash: hash,
-            targets: ['worker'],
         });
 
         expect(created.status).toBe(200);
@@ -515,19 +807,19 @@ describe('binding a subscription to a handler', () => {
             delivery: 'single',
             handlerName: 'ingestUpload',
             handlerHash: hashContent(NEXT_SOURCE),
-            targets: ['worker'],
         });
 
         expect(refused.status).toBe(409);
         expect(refused.body.code).toBe('events_handler_hash_mismatch');
-        expect(await durable().listActiveForHolder(userId, appUid)).toEqual([]);
+        expect(
+            (await durable().listActiveForHolderPage(userId, appUid, 0)).rows,
+        ).toEqual([]);
     });
 
     it('still needs a name for a subscription owed to one consumer', async () => {
         const refused = await subscribe(appToken, {
             subject: `fs:${anchor}`,
             delivery: 'single',
-            targets: ['worker'],
         });
 
         expect(refused.status).toBe(400);
@@ -542,7 +834,6 @@ describe('the handler lifecycle', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
         });
         expect(created.status).toBe(200);
         return String(created.body.subId);
@@ -843,7 +1134,6 @@ describe('the context a subscription carries', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
             context: { url: 'https://ingest.example/secret-token', retries: 3 },
         });
         expect(created.status).toBe(200);
@@ -860,7 +1150,6 @@ describe('the context a subscription carries', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
         });
 
         const [listed] = await listSubscriptions(appToken);
@@ -874,7 +1163,6 @@ describe('the context a subscription carries', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
             context: { blob: 'x'.repeat(5000) },
         });
 
@@ -889,14 +1177,12 @@ describe('the context a subscription carries', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
             context: { url: 'https://mine.example' },
         });
         const theirs = await subscribe(otherAppToken, {
             subject: `fs:${otherAnchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
             context: { url: 'https://theirs.example' },
         });
         expect(mine.status).toBe(200);

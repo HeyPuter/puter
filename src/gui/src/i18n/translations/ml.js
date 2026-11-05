@@ -26,7 +26,7 @@ const ml = {
         account: 'അക്കൗണ്ട്',
         account_password: 'അക്കൗണ്ട് പാസ്‌വേഡ് പരിശോധിക്കുക',
         access_granted_to: 'പ്രവേശനം അനുവദിച്ചിരിക്കുന്നത്',
-        add_existing_account: 'നിലവിലുള്ള അക്കൗണ്ട് ചേർക്കുക',
+        add_another_account: 'മറ്റൊരു അക്കൗണ്ട് ചേർക്കുക',
         all_fields_required: 'എല്ലാ ഫീൽഡുകളും ആവശ്യമാണ്.',
         allow: 'അനുവദിക്കുക',
         apply: 'പ്രയോഗിക്കുക',

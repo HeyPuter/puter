@@ -36,6 +36,7 @@ import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { MINIMAX_MODELS } from './models.js';
 import { MiniMaxProvider } from './MiniMaxProvider.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 const { createMock, openAICtor } = vi.hoisted(() => {
     const createMock = vi.fn();
@@ -98,6 +99,8 @@ describe('MiniMaxProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://api.minimax.io/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -112,6 +115,8 @@ describe('MiniMaxProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://example.test/v1',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -129,7 +134,7 @@ describe('MiniMaxProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
-        const ids = provider.list();
+        const ids = modelLookupNames(provider.models());
         for (const model of MINIMAX_MODELS) {
             expect(ids).toContain(model.id);
             for (const alias of model.aliases ?? []) {
@@ -222,19 +227,52 @@ describe('MiniMaxProvider.complete request shape', () => {
                 model: 'minimax-m2.7',
                 messages: [{ role: 'user', content: 'hi' }],
                 tools,
-                tool_choice: 'auto',
+                tool_choice: { type: 'auto' },
                 max_tokens: 256,
                 temperature: 0.4,
                 top_p: 0.9,
-            }),
+            } as never),
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.tools).toBe(tools);
+        expect(args.tools).toEqual(tools);
         expect(args.tool_choice).toBe('auto');
         expect(args.max_tokens).toBe(256);
         expect(args.temperature).toBe(0.4);
         expect(args.top_p).toBe(0.9);
+    });
+
+    it('forwards only tool_choice out of the compat mapper', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'minimax-m2.7',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                tool_choice: { type: 'any' },
+                parallel_tool_calls: true,
+                stopSequences: ['STOP'],
+                outputFormat: {
+                    type: 'json_schema',
+                    schema: { type: 'object' },
+                },
+                reasoning_effort: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.tool_choice).toBe('required');
+        expect('parallel_tool_calls' in args).toBe(false);
+        expect('stop' in args).toBe(false);
+        expect('response_format' in args).toBe(false);
+        expect('reasoning_effort' in args).toBe(false);
     });
 
     it('clamps oversized max_tokens to the MiniMax completion limit', async () => {
@@ -312,7 +350,7 @@ describe('MiniMaxProvider.complete output and metering', () => {
             finish_reason: 'stop',
         });
         expect((result as { usage: unknown }).usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
@@ -320,14 +358,14 @@ describe('MiniMaxProvider.complete output and metering', () => {
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
         expect(prefix).toBe('minimax:minimax-m2.7');
         expect(overrides).toEqual({
-            prompt_tokens: 100 * 30,
+            prompt_tokens: 90 * 30,
             completion_tokens: 50 * 120,
             cached_tokens: 10 * 6,
         });

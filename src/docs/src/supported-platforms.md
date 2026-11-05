@@ -51,13 +51,22 @@ const puter = require("@heyputer/puter.js");
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
-        puter.ai.chat(`What is life?`, { model: "gpt-5.6-luna" }).then(puter.print);
+        puter.ai.chat(`What is life?`, { model: "gpt-6-luna" }).then(puter.print);
     </script>
 </body>
 </html>
 ```
 
 </div>
+
+### Unsupported contexts
+
+Puter identifies your app by its origin, so a page the browser gives no origin to cannot be signed in:
+
+- **Pages opened straight from disk** (`file:///...`). Serve the file instead — `python3 -m http.server` or `npx http-server` is enough, and `http://localhost` works like any other origin.
+- **Iframes sandboxed without `allow-same-origin`.** Add `allow-same-origin` to the `sandbox` attribute, or load Puter.js from the parent page.
+
+In both cases Puter.js shows an "Unsupported Origin" dialog on load, and `puter.auth.signIn()` rejects with [`unsupported_origin`](/Auth/signIn/).
 
 ### Starter templates for web
 

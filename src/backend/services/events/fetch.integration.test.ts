@@ -28,6 +28,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { NotificationFeed } from '../../../puter-js/src/modules/notifications/lib/feed.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 
@@ -39,6 +40,8 @@ let userUuid: string;
 let otherId: number;
 let appUid: string;
 let appToken: string;
+let readUrlToken: string;
+let appReadUrlToken: string;
 let otherAppUid: string;
 
 interface ApiResponse {
@@ -124,6 +127,31 @@ beforeAll(async () => {
         actor.actor!,
         appUid,
     );
+
+    // What a `getReadURL()` URL carries when the account itself mints one.
+    const file = `/${env.users.user.username}/fetch-read-url`;
+    await env.server.services.fs.mkdir(userId, {
+        path: file,
+        createMissingParents: true,
+    });
+    const entry = await env.server.stores.fsEntry.getEntryByPath(file);
+    readUrlToken = await env.server.services.auth.createAccessToken(
+        actor.actor!,
+        [[`fs:${entry!.uid}:read`]],
+        { label: 'fetch-read-url' },
+    );
+    // The same, minted inside the app: its effectiveApp is the app.
+    await env.server.services.permission.grantUserAppPermission(
+        actor.actor!,
+        appUid,
+        `fs:${entry!.uid}:read`,
+    );
+    const appActor = await env.server.services.auth.authenticate(appToken);
+    appReadUrlToken = await env.server.services.auth.createAccessToken(
+        appActor.actor!,
+        [[`fs:${entry!.uid}:read`]],
+        { label: 'fetch-app-read-url' },
+    );
 }, BOOT_TIMEOUT_MS);
 
 afterAll(async () => {
@@ -195,6 +223,81 @@ describe('fetching a mailbox slice', () => {
         expect(uidsOf(after)).toEqual([uids[4], late]);
     });
 
+    it('pages on `cursor`, the name every other list takes it under', async () => {
+        await clearMailboxes();
+        const uids: string[] = [];
+        for (let i = 0; i < 3; i++) uids.push(await seed(userId, { i }));
+
+        const first = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            limit: 2,
+        });
+        const second = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            limit: 2,
+            cursor: first.body.cursor,
+        });
+
+        expect(second.status).toBe(200);
+        expect(uidsOf(second)).toEqual(uids.slice(2));
+        expect(second.body.cursor).toBeUndefined();
+    });
+
+    it('hands out a cursor that says nothing about where the row sits', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 2; i++) await seed(userId, { i });
+
+        const page = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            limit: 1,
+        });
+
+        const decoded = Buffer.from(
+            String(page.body.cursor),
+            'base64',
+        ).toString('utf8');
+        expect(decoded).not.toContain('"id"');
+    });
+
+    it('still reads a cursor issued before cursors were sealed', async () => {
+        await clearMailboxes();
+        const uids: string[] = [];
+        for (let i = 0; i < 3; i++) uids.push(await seed(userId, { i }));
+        const [row] = await env.server.clients.db.read(
+            'SELECT `id` FROM `notification` WHERE `uid` = ?',
+            [uids[0]],
+        );
+        const plain = Buffer.from(
+            JSON.stringify({ id: Number(row.id) }),
+        ).toString('base64');
+
+        const page = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            after: plain,
+        });
+
+        expect(uidsOf(page)).toEqual(uids.slice(1));
+    });
+
+    it('refuses a cursor that was altered', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 2; i++) await seed(userId, { i });
+        const page = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            limit: 1,
+        });
+        const raw = Buffer.from(String(page.body.cursor), 'base64url');
+        raw[raw.length - 1] ^= 1;
+
+        const altered = await fetchPage(env.users.user.token, {
+            subject: 'notif:account',
+            cursor: raw.toString('base64url'),
+        });
+
+        expect(altered.status).toBe(400);
+        expect(altered.body.code).toBe('bad_request');
+    });
+
     it('writes nothing — a fetch is a read, twice over', async () => {
         await clearMailboxes();
         await seed(userId, { title: 'unread' });
@@ -259,6 +362,59 @@ describe('who a fetch may see', () => {
         });
     });
 
+    it('hands a scoped token with no app nothing of the mailbox', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 2; i++) {
+            await seed(userId, { title: 'account only' });
+            await seed(userId, { title: 'app row' }, {
+                audience: 'app-user',
+                appUid,
+            });
+        }
+
+        // Two rows per slice and a page of one, so a cursor would show.
+        for (const subject of [
+            'notif:account',
+            'notif:app-user',
+            `notif:${appUid}:app-user`,
+        ]) {
+            const page = await fetchPage(readUrlToken, { subject, limit: 1 });
+            expect(page.status).toBe(200);
+            expect(page.body.items).toEqual([]);
+            expect(page.body.cursor).toBeUndefined();
+        }
+    });
+
+    it('hands a scoped token an app issued nothing of that app`s slice', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 2; i++) {
+            await seed(
+                userId,
+                { title: 'app row' },
+                { audience: 'app-user', appUid },
+            );
+            await seed(
+                userId,
+                { title: 'deploy failed' },
+                { audience: 'developer', appUid },
+            );
+        }
+
+        for (const subject of [
+            'notif:app-user',
+            `notif:${appUid}:app-user`,
+            'notif:developer',
+        ]) {
+            const page = await fetchPage(appReadUrlToken, {
+                subject,
+                limit: 1,
+            });
+            expect(page.status).toBe(200);
+            expect(page.body.items).toEqual([]);
+            expect(page.body.cursor).toBeUndefined();
+        }
+    });
+
     it('answers empty for another app\'s rows rather than saying they exist', async () => {
         await clearMailboxes();
         await seed(userId, { title: 'other app' }, {
@@ -291,6 +447,376 @@ describe('who a fetch may see', () => {
             subject: 'notif:developer',
         });
         expect(uidsOf(asApp)).toEqual([uid]);
+    });
+});
+
+describe('reading again from a saved cursor', () => {
+    const SUBJECT = 'notif:app-user';
+
+    /** One of the app's own messages, in a group of its own. */
+    const message = async (title: string, inApp = appUid): Promise<string> =>
+        (
+            await env.server.stores.notification.create({
+                userId,
+                value: { type: 'app.message', title },
+                type: 'app.message',
+                audience: 'app-user',
+                appUid: inApp,
+                group: `group-${uuidv4()}`,
+            })
+        ).uid as string;
+
+    /** A replacement pinned to `replacedAt`, as a group replace writes it. */
+    const replaceAt = (uid: string, title: string, replacedAt: number) =>
+        env.server.stores.notification.updateValue(
+            uid,
+            userId,
+            { type: 'app.message', title },
+            { onlyUnseen: true, replacedAt },
+        );
+
+    it('returns a notification replaced since, from an earlier page', async () => {
+        await clearMailboxes();
+        const uids: string[] = [];
+        for (let i = 0; i < 3; i++) uids.push(await message(`m${i}`));
+
+        const first = await fetchPage(appToken, { subject: SUBJECT, limit: 2 });
+        const last = await fetchPage(appToken, {
+            subject: SUBJECT,
+            limit: 2,
+            cursor: first.body.cursor,
+        });
+        expect(uidsOf(last)).toEqual([uids[2]]);
+        expect(last.body.cursor).toBeUndefined();
+
+        await env.server.services.notification.notifyUpdate(
+            uids[0],
+            userId,
+            { title: 'replaced' },
+            { type: 'app.message', replace: true },
+        );
+
+        const again = await fetchPage(appToken, {
+            subject: SUBJECT,
+            limit: 2,
+            cursor: first.body.cursor,
+        });
+        expect(uidsOf(again)).toEqual([uids[2], uids[0]]);
+        expect(again.body.items![1]).toMatchObject({
+            replaced: true,
+            notification: { title: 'replaced' },
+        });
+    });
+
+    it('pages through replacements without repeating or skipping one', async () => {
+        await clearMailboxes();
+        const uids: string[] = [];
+        for (let i = 0; i < 6; i++) uids.push(await message(`m${i}`));
+        const first = await fetchPage(appToken, { subject: SUBJECT, limit: 5 });
+        expect(first.body.cursor).toBeTruthy();
+
+        // One moment for all four, so only the row id orders them.
+        const at = Date.now();
+        for (const uid of uids.slice(0, 4)) await replaceAt(uid, 'again', at);
+
+        const seen: string[] = [];
+        let cursor = first.body.cursor;
+        do {
+            const page = await fetchPage(appToken, {
+                subject: SUBJECT,
+                limit: 2,
+                cursor,
+            });
+            seen.push(...uidsOf(page));
+            cursor = page.body.cursor;
+        } while (cursor);
+
+        expect(seen).toEqual([uids[5], ...uids.slice(0, 4)]);
+    });
+
+    it('leaves out a replacement in another app`s slice', async () => {
+        await clearMailboxes();
+        const other = await message('other app', otherAppUid);
+        const own = [await message('own 0'), await message('own 1')];
+        const first = await fetchPage(appToken, { subject: SUBJECT, limit: 1 });
+        expect(uidsOf(first)).toEqual([own[0]]);
+
+        await replaceAt(other, 'other app again', Date.now());
+
+        const again = await fetchPage(appToken, {
+            subject: SUBJECT,
+            cursor: first.body.cursor,
+        });
+        expect(uidsOf(again)).toEqual([own[1]]);
+    });
+
+    it('hands the SDK feed a replacement made while it was disconnected, once', async () => {
+        await clearMailboxes();
+        // One more than a page, so the feed holds a cursor.
+        const uids: string[] = [];
+        for (let i = 0; i < 201; i++) uids.push(await message(`message ${i}`));
+
+        const appActor = (await env.server.services.auth.authenticate(appToken))
+            .actor!;
+        let reads = 0;
+        let receive: (delivery: { event: unknown }) => void = () => {};
+        const titles: string[] = [];
+        const feed = new NotificationFeed(
+            {
+                authToken: appToken,
+                events: {
+                    onLocal: async (
+                        _subject: string,
+                        handler: typeof receive,
+                    ) => {
+                        receive = handler;
+                        return { off: async () => {} };
+                    },
+                    fetch: async (options: Record<string, unknown>) => {
+                        const page =
+                            await env.server.services.events.fetchMissed(
+                                appActor,
+                                options,
+                            );
+                        reads++;
+                        return page;
+                    },
+                },
+            } as never,
+            (notification: { title: string | null }) => {
+                titles.push(String(notification.title));
+            },
+            {},
+        );
+        const gapRead = async () => {
+            const before = reads;
+            receive({ event: { op: 'gap', reason: 'reconnect' } });
+            await vi.waitFor(() => expect(reads).toBe(before + 1));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        };
+
+        try {
+            await feed.start();
+            expect(titles).toHaveLength(201);
+
+            await env.server.services.notification.notifyUpdate(
+                uids[0],
+                userId,
+                { title: 'replaced while away' },
+                { type: 'app.message', replace: true },
+            );
+            await gapRead();
+            await gapRead();
+        } finally {
+            await feed.off();
+        }
+
+        expect(titles).toHaveLength(202);
+        expect(titles.at(-1)).toBe('replaced while away');
+    });
+});
+
+describe('starting from the end', () => {
+    const SUBJECT = 'notif:app-user';
+
+    const message = async (title: string, inApp = appUid): Promise<string> =>
+        (
+            await env.server.stores.notification.create({
+                userId,
+                value: { type: 'app.message', title },
+                type: 'app.message',
+                audience: 'app-user',
+                appUid: inApp,
+                group: `group-${uuidv4()}`,
+            })
+        ).uid as string;
+
+    const fromEnd = async (token = appToken): Promise<string> => {
+        const end = await fetchPage(token, { subject: SUBJECT, from: 'end' });
+        expect(end.status).toBe(200);
+        expect(end.body.items).toEqual([]);
+        expect(end.body.cursor).toBeTruthy();
+        return end.body.cursor!;
+    };
+
+    it('answers a cursor on an empty slice that returns what comes after', async () => {
+        await clearMailboxes();
+        const cursor = await fromEnd();
+
+        const later = await message('later');
+        const next = await fetchPage(appToken, { subject: SUBJECT, cursor });
+        expect(uidsOf(next)).toEqual([later]);
+    });
+
+    it('skips what is there and returns only newer rows', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 3; i++) await message(`before ${i}`);
+        const cursor = await fromEnd();
+
+        const quiet = await fetchPage(appToken, { subject: SUBJECT, cursor });
+        expect(quiet.body.items).toEqual([]);
+        expect(quiet.body.cursor).toBeUndefined();
+
+        const later = [await message('after 0'), await message('after 1')];
+        const next = await fetchPage(appToken, { subject: SUBJECT, cursor });
+        expect(uidsOf(next)).toEqual(later);
+    });
+
+    it('returns a row replaced after the cursor was taken', async () => {
+        await clearMailboxes();
+        const old = await message('old');
+        await message('older still unchanged');
+        const cursor = await fromEnd();
+
+        await env.server.services.notification.notifyUpdate(
+            old,
+            userId,
+            { title: 'replaced' },
+            { type: 'app.message', replace: true },
+        );
+
+        const next = await fetchPage(appToken, { subject: SUBJECT, cursor });
+        expect(uidsOf(next)).toEqual([old]);
+        expect(next.body.items![0]).toMatchObject({
+            replaced: true,
+            notification: { title: 'replaced' },
+        });
+    });
+
+    it('returns a replacement stamped by a clock behind the server`s', async () => {
+        await clearMailboxes();
+        const behind = Date.now() - 60_000;
+        const [early, late] = [await message('early'), await message('late')];
+        const replace = (uid: string, title: string, replacedAt: number) =>
+            env.server.stores.notification.updateValue(
+                uid,
+                userId,
+                { type: 'app.message', title },
+                { onlyUnseen: true, replacedAt },
+            );
+        await replace(early, 'replaced before', behind - 1_000);
+        const cursor = await fromEnd();
+
+        await replace(late, 'replaced after', behind);
+
+        const next = await fetchPage(appToken, { subject: SUBJECT, cursor });
+        expect(uidsOf(next)).toEqual([late]);
+        expect(next.body.items![0]).toMatchObject({
+            notification: { title: 'replaced after' },
+        });
+    });
+
+    it('keeps to the slice the subject names', async () => {
+        await clearMailboxes();
+        await message('own before');
+        const cursor = await fromEnd();
+
+        await message('other app', otherAppUid);
+        await seed(userId, { title: 'account row' });
+        const own = await message('own after');
+
+        const next = await fetchPage(appToken, { subject: SUBJECT, cursor });
+        expect(uidsOf(next)).toEqual([own]);
+    });
+
+    it('answers no cursor for a slice the caller cannot see', async () => {
+        await clearMailboxes();
+        await message('other app', otherAppUid);
+
+        for (const [token, subject] of [
+            [appToken, `notif:${otherAppUid}:app-user`],
+            [appToken, `notif:${userUuid}:account`],
+            [appReadUrlToken, SUBJECT],
+        ] as const) {
+            const page = await fetchPage(token, { subject, from: 'end' });
+            expect(page.status).toBe(200);
+            expect(page.body.items).toEqual([]);
+            expect(page.body.cursor).toBeUndefined();
+        }
+    });
+
+    it('reads from the cursor when one is given', async () => {
+        await clearMailboxes();
+        const uids = [await message('m0'), await message('m1')];
+        const first = await fetchPage(appToken, { subject: SUBJECT, limit: 1 });
+
+        const page = await fetchPage(appToken, {
+            subject: SUBJECT,
+            cursor: first.body.cursor,
+            from: 'end',
+        });
+        expect(uidsOf(page)).toEqual([uids[1]]);
+    });
+
+    it('rejects a `from` that is neither start nor end', async () => {
+        const page = await fetchPage(appToken, {
+            subject: SUBJECT,
+            from: 'middle',
+        });
+        expect(page.status).toBe(400);
+
+        const start = await fetchPage(appToken, {
+            subject: SUBJECT,
+            from: 'start',
+        });
+        expect(start.status).toBe(200);
+    });
+
+    it('starts the SDK feed without catch-up in one read', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 3; i++) await message(`before ${i}`);
+
+        const appActor = (await env.server.services.auth.authenticate(appToken))
+            .actor!;
+        const reads: Array<Record<string, unknown>> = [];
+        let receive: (delivery: { event: unknown }) => void = () => {};
+        const titles: string[] = [];
+        const feed = new NotificationFeed(
+            {
+                authToken: appToken,
+                events: {
+                    onLocal: async (
+                        _subject: string,
+                        handler: typeof receive,
+                    ) => {
+                        receive = handler;
+                        return { off: async () => {} };
+                    },
+                    fetch: async (options: Record<string, unknown>) => {
+                        reads.push(options);
+                        return env.server.services.events.fetchMissed(
+                            appActor,
+                            options,
+                        );
+                    },
+                },
+            } as never,
+            (notification: { title: string | null }) => {
+                titles.push(String(notification.title));
+            },
+            { catchUp: false },
+        );
+
+        try {
+            await feed.start();
+            expect(reads).toEqual([
+                { subject: SUBJECT, limit: 200, from: 'end' },
+            ]);
+
+            await message('after start');
+            receive({ event: { op: 'gap', reason: 'reconnect' } });
+            await vi.waitFor(() => expect(reads).toHaveLength(2));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        } finally {
+            await feed.off();
+        }
+
+        expect(reads[1]).toEqual({
+            subject: SUBJECT,
+            limit: 200,
+            cursor: expect.any(String),
+        });
+        expect(titles).toEqual(['after start']);
     });
 });
 

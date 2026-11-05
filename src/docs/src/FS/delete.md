@@ -18,8 +18,8 @@ puter.fs.delete(options)
 
 #### `paths` (String | String[]) (required)
 
-A single path or array of paths of the file(s) or directory(ies) to delete.
-If a path is not absolute, it will be resolved relative to the app's root directory.
+A single path or array of paths of the file(s) or directory(ies) to delete. A UID can be given in place of a path.
+If a path is not absolute, it will be resolved relative to the app's root directory. A relative name that looks like a UID is read as one; prefix it with `./` to address a file by that name.
 
 #### `options` (Object) (optional)
 

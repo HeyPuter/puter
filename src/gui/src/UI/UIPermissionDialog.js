@@ -18,6 +18,16 @@
  */
 
 import { fsCreateKindFor } from '../helpers/fsCreateKind.js';
+import { get_app_by_uid } from '../helpers/getAppByUid.js';
+import {
+    browserPushOptedOut,
+    browserPushState,
+    enableBrowserPush,
+    getPushClient,
+    PUSH_PERMISSION,
+    pushClientWithin,
+    setBrowserPushOptOut,
+} from '../helpers/pushClient.js';
 
 // Keeps a second request for the same (entity, permission) from stacking a
 // duplicate dialog; both callers await the same user decision.
@@ -29,9 +39,10 @@ const pending_dialogs = new Map();
 // including the app that asked. One at a time, in arrival order.
 let dialog_queue = Promise.resolve();
 
-// Buttons stay disabled briefly after the dialog opens so a click aimed at
-// the page underneath (or a clickjacking attempt) can't land on "Allow".
-const INPUT_PROTECTION_MS = 350;
+// Buttons stay disabled until the dialog has been visible and focused this long
+// without a break, so a click aimed at whatever covered it can't land on
+// "Allow". See `guard_input`.
+export const INPUT_PROTECTION_MS = 350;
 
 // How long the grant request may take before it is aborted and the dialog
 // re-enables its buttons for a retry.
@@ -60,6 +71,7 @@ const LOOKUP_TIMEOUT_MS = 10000;
  * @param {boolean|'dir'|'file'} [options.create] - Create the fs path if it
  *   does not exist, after the user approves. Defaults to `true`; `false` opts
  *   out. Forwarded to the grant only.
+ * @param {(enabling: Promise<boolean>) => void} [options.on_push_enable] - Called from Allow with the browser registration that click began, when the request includes `notifications:push` and push is off here; it never affects the decision.
  * @returns {Promise<boolean>} `true` only if the permission was granted.
  */
 async function UIPermissionDialog (options) {
@@ -140,38 +152,56 @@ async function UIPermissionDialog (options) {
     }
 }
 
+/**
+ * One description per requested permission, in order, or null when the request
+ * can't be put to the user. Unsupported permission strings are denied silently
+ * (existing contract), and a lookup that timed out lands here too.
+ *
+ * One undescribable scope denies the whole prompt rather than being dropped
+ * from it: a scope the user was never shown must not ride along on an Allow
+ * that described the others.
+ *
+ * @param {{ permissions: string[] }} options - The dialog options.
+ * @returns {Promise<Array<{html: string, icon: string}> | null>}
+ */
+export async function describe_permissions (options) {
+    const descriptions = await with_timeout(
+        Promise.all(options.permissions.map(
+            permission => get_permission_description(permission, options),
+        )),
+        LOOKUP_TIMEOUT_MS,
+        null,
+    );
+    if ( ! descriptions || descriptions.some(d => ! d) ) return null;
+    // The grant route refuses a request that would create more entries.
+    const creating = new Set(options.permissions.filter((_, i) => descriptions[i].creates));
+    if ( creating.size > MAX_CREATED_ENTRIES_PER_GRANT ) return null;
+    return descriptions;
+}
+
 async function show_permission_dialog (options) {
     let descriptions;
     try {
-        descriptions = await with_timeout(
-            Promise.all(options.permissions.map(
-                permission => get_permission_description(permission, options),
-            )),
-            LOOKUP_TIMEOUT_MS,
-            null,
-        );
+        descriptions = await describe_permissions(options);
     } catch (e) {
         // Description lookup needs auth/whoami; treat failures as unsupported.
         console.error('Failed to describe permission', options.permissions, e);
         return false;
     }
+    if ( ! descriptions ) return false;
 
-    // Unsupported permission strings are denied silently (existing contract).
-    // A lookup that timed out lands here too: nothing to describe, so nothing
-    // to prompt about.
-    //
-    // One undescribable scope denies the whole prompt rather than being dropped
-    // from it: a scope the user was never shown must not ride along on an Allow
-    // that described the others.
-    if ( ! descriptions || descriptions.some(d => ! d) ) {
-        return false;
-    }
-
-    const entity = await resolve_requesting_entity(options);
+    const [entity, push_state] = await Promise.all([
+        resolve_requesting_entity(options),
+        resolve_browser_push_state(options),
+    ]);
 
     return new Promise((resolve) => {
-        const el_dialog = create_dialog_element(entity, descriptions);
+        const el_dialog = create_dialog_element(entity, descriptions, push_state);
         document.body.appendChild(el_dialog);
+        // The registration Allow began, kept so a second Allow doesn't start another.
+        let push_enable = null;
+        const user_uid = window.user?.uuid;
+        const opted_out_before = browserPushOptedOut(user_uid);
 
         // Set once a grant request has been sent without the server definitively
         // refusing it. A client-side timeout or a dropped response says nothing
@@ -181,13 +211,18 @@ async function show_permission_dialog (options) {
         let grant_may_have_committed = false;
 
         let settled = false;
+        let input_guard = null;
         const settle = (granted) => {
             if ( settled ) return;
             settled = true;
+            input_guard?.stop();
             if ( ! granted && grant_may_have_committed ) {
                 // Not awaited: the requester gets its answer now, and the
                 // account is reconciled in the background.
                 undo_uncertain_grant(options);
+            }
+            if ( ! granted && push_enable ) {
+                undo_browser_push(push_enable, user_uid, opted_out_before);
             }
             // `close()` fires the 'close' event; the handler below resolves
             // false, so resolve first.
@@ -200,21 +235,20 @@ async function show_permission_dialog (options) {
         const $deny = $(el_dialog).find('.perm-dialog-deny');
         const $error = $(el_dialog).find('.perm-dialog-error');
 
-        // Input protection: ignore clicks for a moment after opening.
-        $allow.prop('disabled', true);
-        $deny.prop('disabled', true);
-        setTimeout(() => {
-            if ( settled ) return;
-            $allow.prop('disabled', false);
-            $deny.prop('disabled', false);
-            $deny.get(0)?.focus();
-        }, INPUT_PROTECTION_MS);
-
         // True while the grant POST is outstanding. Dismissing the dialog then
         // would answer "denied" for a permission the server may be in the
         // middle of committing, leaving the user believing they cancelled
         // something that is now granted.
         let granting = false;
+
+        // Buttons take clicks only once the input guard is ready and no grant
+        // is in flight.
+        const sync_buttons = () => {
+            const enabled = !!input_guard?.ready && ! granting;
+            $allow.prop('disabled', ! enabled);
+            $deny.prop('disabled', ! enabled);
+        };
+        sync_buttons();
 
         // Hands the dialog back to the user after a failed attempt: re-enables
         // the buttons, restores dismissability, and shows a retryable error.
@@ -234,16 +268,21 @@ async function show_permission_dialog (options) {
             // the default encoding would surface entities like `&#39;`
             // verbatim in translations that contain an apostrophe.
             $error.text(i18n('perm_dialog_error', [], false)).show();
-            $allow.prop('disabled', false).removeClass('perm-dialog-busy');
-            $deny.prop('disabled', false);
+            $allow.removeClass('perm-dialog-busy');
+            sync_buttons();
         };
 
         $allow.on('click', async () => {
             if ( granting ) return;
             granting = true;
-            $allow.prop('disabled', true).addClass('perm-dialog-busy');
-            $deny.prop('disabled', true);
+            $allow.addClass('perm-dialog-busy');
+            sync_buttons();
             $error.hide();
+
+            if ( push_state === 'off' && ! push_enable ) {
+                push_enable = enableBrowserPush(getPushClient());
+                options.on_push_enable?.(push_enable);
+            }
 
             // Time-box the request: while it is outstanding the dialog can't
             // be dismissed, so a hung network must not strand the user in
@@ -338,8 +377,93 @@ async function show_permission_dialog (options) {
             settle(false);
             return;
         }
-        // Focus the safe action by default; Enter must not grant by accident.
-        $deny.get(0)?.focus();
+        input_guard = guard_input({
+            win: window,
+            doc: document,
+            ms: INPUT_PROTECTION_MS,
+            on_change: (ready) => {
+                sync_buttons();
+                // Focus the safe action by default; Enter must not grant by
+                // accident. A disabled button can't take focus, so this waits
+                // for the guard.
+                if ( ready && ! granting ) $deny.get(0)?.focus();
+            },
+        });
+    });
+}
+
+/**
+ * Reports `ready` only once the page has been visible and focused for `ms`
+ * without a break. Losing visibility or focus resets it, and the wait starts
+ * over when both come back or anything enters or leaves fullscreen. A delay
+ * counted from opening alone can run out while the dialog is covered by a
+ * popup, another tab or a fullscreen element, leaving it live for a click the
+ * user aimed at whatever covered it.
+ *
+ * @param {Object} opts
+ * @param {Window} opts.win
+ * @param {Document} opts.doc
+ * @param {number} opts.ms
+ * @param {(ready: boolean) => void} opts.on_change - Called when `ready` flips.
+ * @returns {{ readonly ready: boolean, stop: () => void }}
+ */
+export function guard_input ({ win, doc, ms, on_change }) {
+    let ready = false;
+    let timer = null;
+    let seen = false;
+    const set_ready = (value) => {
+        if ( ready === value ) return;
+        ready = value;
+        on_change(value);
+    };
+    const restart = () => {
+        clearTimeout(timer);
+        timer = null;
+        set_ready(false);
+        seen = doc.visibilityState === 'visible' && doc.hasFocus();
+        if ( ! seen ) return;
+        timer = setTimeout(() => {
+            timer = null;
+            set_ready(true);
+        }, ms);
+    };
+    // Window `blur`/`focus` also fire when focus moves into or out of an app's
+    // iframe, while the page stays focused throughout. Only a real change counts,
+    // or the click that pulls focus out of an iframe would reset the wait and be
+    // swallowed.
+    const on_focus_change = () => {
+        if ( seen !== (doc.visibilityState === 'visible' && doc.hasFocus()) ) {
+            restart();
+        }
+    };
+    const listeners = [
+        [win, 'focus', on_focus_change],
+        [win, 'blur', on_focus_change],
+        [doc, 'visibilitychange', on_focus_change],
+        [doc, 'fullscreenchange', restart],
+    ];
+    for ( const [target, name, fn] of listeners ) target.addEventListener(name, fn);
+    restart();
+    return {
+        get ready () {
+            return ready;
+        },
+        stop () {
+            clearTimeout(timer);
+            timer = null;
+            for ( const [target, name, fn] of listeners ) target.removeEventListener(name, fn);
+        },
+    };
+}
+
+/** Turns push back off in this browser when Allow began a registration and the dialog still ended in a denial. @param {Promise<boolean>} push_enable @param {string|undefined} user_uid @param {boolean} opted_out_before */
+function undo_browser_push (push_enable, user_uid, opted_out_before) {
+    push_enable.then((ok) => {
+        if ( ! ok ) return;
+        getPushClient()?.disable().then(
+            () => setBrowserPushOptOut(user_uid, opted_out_before),
+            (e) => console.debug('[push] disable failed', e),
+        );
     });
 }
 
@@ -388,6 +512,16 @@ function is_web_origin (origin) {
     }
 }
 
+/** Null for a request without `notifications:push`; otherwise this browser's push state, where `'off'` means Allow also turns it on. @param {{ permissions: string[] }} options @returns {Promise<import('../helpers/pushClient.js').BrowserPushState | null>} */
+async function resolve_browser_push_state (options) {
+    if ( ! options.permissions.includes(PUSH_PERMISSION) ) return null;
+    return with_timeout(
+        pushClientWithin().then(browserPushState),
+        LOOKUP_TIMEOUT_MS,
+        'unavailable',
+    );
+}
+
 /**
  * Resolves `promise`, or `fallback` if it hasn't settled within `ms`.
  *
@@ -396,7 +530,7 @@ function is_web_origin (origin) {
  * timeout of its own. One stalled request would hold the slot forever and every
  * later permission request in the page would wait behind it.
  */
-function with_timeout (promise, ms, fallback) {
+export function with_timeout (promise, ms, fallback) {
     let timer;
     return Promise.race([
         promise,
@@ -410,24 +544,12 @@ function with_timeout (promise, ms, fallback) {
  * Builds the dialog DOM from the requesting entity and the permission
  * description. Returns a detached <dialog> element.
  */
-function create_dialog_element (entity, descriptions) {
+function create_dialog_element (entity, descriptions, push_state) {
     let h = '';
     h += '<div class="perm-dialog-body">';
 
     // requesting entity identity
-    h += '<div class="perm-dialog-identity">';
-    h += entity.icon_html;
-    // A host is elided from the left, keeping the registrable domain visible —
-    // the part that says who is actually asking. Truncating the other end would
-    // let `accounts.google.com.attacker.example` read as `accounts.google.com…`.
-    const name_class = entity.is_host
-        ? 'perm-dialog-entity-name perm-dialog-entity-host'
-        : 'perm-dialog-entity-name';
-    h += `<h1 class="${name_class}">${html_encode(entity.display_name)}</h1>`;
-    if ( entity.subtitle ) {
-        h += `<span class="perm-dialog-entity-origin">${html_encode(entity.subtitle)}</span>`;
-    }
-    h += '</div>';
+    h += identity_html(entity);
 
     // what is being requested
     h += `<p class="perm-dialog-lead">${i18n('perm_dialog_wants_to')}</p>`;
@@ -436,6 +558,9 @@ function create_dialog_element (entity, descriptions) {
         h += `<div class="perm-dialog-perm-icon">${permission_icon_svg(description.icon)}</div>`;
         h += `<div class="perm-dialog-perm-text">${description.html}</div>`;
         h += '</div>';
+    }
+    if ( push_state === 'off' ) {
+        h += `<p class="perm-dialog-push-note">${i18n('perm_dialog_push_note')}</p>`;
     }
 
     // error message (hidden until a grant attempt fails)
@@ -459,12 +584,28 @@ function create_dialog_element (entity, descriptions) {
     return el_dialog;
 }
 
+/** The block naming who is asking: icon, display name and the subtitle carrying the unique identity. @param {{ display_name: string, subtitle: string|null, icon_html: string, is_host: boolean }} entity @returns {string} */
+export function identity_html (entity) {
+    let h = '<div class="perm-dialog-identity">';
+    h += entity.icon_html;
+    // A host is elided from the left, so its registrable domain stays visible.
+    const name_class = entity.is_host
+        ? 'perm-dialog-entity-name perm-dialog-entity-host'
+        : 'perm-dialog-entity-name';
+    h += `<h1 class="${name_class}">${html_encode(entity.display_name)}</h1>`;
+    if ( entity.subtitle ) {
+        h += `<span class="perm-dialog-entity-origin">${html_encode(entity.subtitle)}</span>`;
+    }
+    h += '</div>';
+    return h;
+}
+
 /**
  * Resolves how the requesting app or site is presented: display name, a
  * subtitle carrying the identity that is actually unique (the app's registered
  * name, or the site's host), and an icon (app icon or letter avatar).
  */
-async function resolve_requesting_entity (options) {
+export async function resolve_requesting_entity (options) {
     let display_name = options.app_name ?? options.origin ?? '';
     let subtitle = null;
     let icon_url = null;
@@ -552,6 +693,7 @@ function permission_icon_svg (icon) {
         apps: `<svg ${attrs}><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>`,
         globe: `<svg ${attrs}><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>`,
         zap: `<svg ${attrs}><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+        bell: `<svg ${attrs}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>`,
         chat: `<svg ${attrs}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
         shield: `<svg ${attrs}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>`,
     };
@@ -561,8 +703,57 @@ function permission_icon_svg (icon) {
 /** Access modes an `fs:` permission can ask for; anything else is not shown. */
 const FS_ACCESS_MODES = ['see', 'list', 'read', 'write'];
 
+/** The uuids (v1-8, nil, max) the grant route accepts as an `fs:` uid. */
+const FS_UID_SHAPE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/i;
+
+/** The shape the grant route requires of an app uid a permission names. */
+const APP_UID_SHAPE = /^app-[A-Za-z0-9_-]{1,64}$/;
+
+// Limits the grant route enforces, so the dialog never offers what it refuses.
+/** Most path components a created path may have below the home folder. */
+const MAX_CREATE_DEPTH = 16;
+/** Most entries one grant may create. */
+const MAX_CREATED_ENTRIES_PER_GRANT = 4;
+/** Home folders a grant never creates inside. Compared lowercased. */
+const NON_CREATABLE_HOME_FOLDERS = ['appdata', 'trash'];
+/** Width of the column a granted permission is stored in. */
+const PERMISSION_MAX_LEN = 255;
+
+/** The special folders described by name rather than by path. */
+const STANDARD_FOLDER_KEYS = {
+    Desktop: 'perm_folder_desktop',
+    Documents: 'perm_folder_documents',
+    Pictures: 'perm_folder_pictures',
+    Videos: 'perm_folder_videos',
+};
+
+/**
+ * Share-delegation roots (`manage:<root>:…`) → the line for each. One per level
+ * of share the app may create for the user.
+ */
+const KV_SHARE_ROOT_KEYS = {
+    'kv-share': 'perm_kv_share_manage',
+    'kv-share-read': 'perm_kv_share_manage_read',
+    'kv-share-write': 'perm_kv_share_manage_write',
+};
+
+/** What each key segment of a share consent's region may contain. */
+const KV_SHARE_SEGMENT = /^[a-z0-9_.-]+$/;
+
+/** `apps-of-user` / `subdomains-of-user` → the lines for read and write. */
+const ACCOUNT_LIST_KEYS = {
+    'apps-of-user': { read: 'perm_apps_read', write: 'perm_apps_write' },
+    'subdomains-of-user': { read: 'perm_subdomains_read', write: 'perm_subdomains_write' },
+};
+
+const own = (map, key) => Object.hasOwn(map, key) ? map[key] : undefined;
+
 /**
  * Generates a user-friendly description of a permission string.
+ *
+ * Only the families an app can be granted have a description, each in its
+ * exact shape; the grant route refuses the same set. Anything else returns
+ * null, which denies the request without a prompt.
  *
  * @param {string} permission - The permission string to describe
  * @param {Object} [options] - The dialog options, for checks that depend on who
@@ -570,139 +761,151 @@ const FS_ACCESS_MODES = ['see', 'list', 'read', 'write'];
  * @returns {Promise<{html: string, icon: string} | null>} Description (HTML)
  * and icon key, or null if the permission cannot be requested interactively.
  */
-async function get_permission_description (permission, options = {}) {
-    const parts = split_permission(permission);
-
-    if ( ['fs', 'thread', 'service', 'driver'].includes(parts[0]) ) {
-        const [resource_type, resource_id, action, interface_name = null] = parts;
-
-        if ( resource_type === 'fs' ) {
-            // No mode means no verb to put in front of the user, and a
-            // modeless `fs:` grant is one the backend refuses anyway.
-            if ( ! FS_ACCESS_MODES.includes(action) ) {
-                return null;
-            }
-            // Check for standard folders using whoami().directories
-            const standard_folder_description = await get_standard_folder_description(resource_id, action);
-            if ( standard_folder_description ) {
-                return { html: standard_folder_description, icon: 'folder' };
-            }
-            // Try to stat by path or UUID
-            try {
-                let fsentry;
-                if ( resource_id.startsWith('/') ) {
-                    fsentry = await puter.fs.stat({ path: resource_id, consistency: 'eventual' });
-                } else {
-                    fsentry = await puter.fs.stat({ uid: resource_id, consistency: 'eventual' });
-                }
-                return {
-                    html: i18n('perm_fs_file_access', {
-                        name: fsentry.name,
-                        path: fsentry.dirpath,
-                        access: action,
-                    }),
-                    icon: fsentry.is_dir ? 'folder' : 'file',
-                };
-            } catch (e) {
-                // The path doesn't exist, but `create` will make it on Allow.
-                // Named from the permission string itself, since there is
-                // nothing to stat yet.
-                if ( options.create ) {
-                    const slash = resource_id.lastIndexOf('/');
-                    const name = slash >= 0 ? resource_id.slice(slash + 1) : resource_id;
-                    const dirpath = slash > 0 ? resource_id.slice(0, slash) : '/';
-                    // An explicit `'dir'`/`'file'` wins; `create: true` falls
-                    // back to the same basename heuristic the backend uses.
-                    const kind = options.create === 'dir' || options.create === 'file'
-                        ? options.create
-                        : fsCreateKindFor(name);
-                    return {
-                        html: i18n(kind === 'dir' ? 'perm_fs_create_dir' : 'perm_fs_create_file', { name, path: dirpath, access: action }),
-                        icon: kind === 'dir' ? 'folder' : 'file',
-                    };
-                }
-                // Can't stat, use resource_id directly
-                return {
-                    html: i18n('perm_fs_resource_access', {
-                        resource_id: resource_id,
-                        access: action,
-                    }),
-                    icon: 'file',
-                };
-            }
-        }
-
-        if ( resource_type === 'thread' && action === 'post' ) {
-            return { html: i18n('perm_thread_post', { thread: resource_id }), icon: 'chat' };
-        }
-        if ( resource_type === 'service' && action === 'ii' ) {
-            return { html: i18n('perm_service_invoke', { service: resource_id, interface: interface_name }), icon: 'zap' };
-        }
-        if ( resource_type === 'driver' ) {
-            return { html: i18n('perm_driver_use', { driver: resource_id, action: action }), icon: 'zap' };
-        }
-        return null;
-    }
-
-    if ( parts[0] === 'user' ) {
-        const whoami = await puter.auth.whoami();
-        // An app can't ask to see other users' information
-        if ( whoami.uuid !== parts[1] ) return null;
-
-        if ( parts[2] === 'email' && parts[3] === 'read' ) {
-            return { html: i18n('perm_email_read'), icon: 'mail' };
-        }
-    }
-
-    if ( parts[0] === 'apps-of-user' ) {
-        const whoami = await puter.auth.whoami();
-        // An app can't ask to see other users' apps
-        if ( whoami.uuid !== parts[1] ) return null;
-
-        if ( parts[2] === 'read' ) {
-            return { html: i18n('perm_apps_read'), icon: 'apps' };
-        }
-        if ( parts[2] === 'write' ) {
-            return { html: i18n('perm_apps_write'), icon: 'apps' };
-        }
-    }
-
-    if ( parts[0] === 'subdomains-of-user' ) {
-        const whoami = await puter.auth.whoami();
-        // An app can't ask to see other users' subdomains
-        if ( whoami.uuid !== parts[1] ) return null;
-
-        if ( parts[2] === 'read' ) {
-            return { html: i18n('perm_subdomains_read'), icon: 'globe' };
-        }
-        if ( parts[2] === 'write' ) {
-            return { html: i18n('perm_subdomains_write'), icon: 'globe' };
-        }
-    }
-
-    if ( parts[0] === 'app-data' ) {
-        return await get_app_data_description(parts, options);
-    }
-
-    if ( parts[0] === 'manage' && parts[1] === 'kv-share' ) {
-        return await get_kv_share_description(parts, options);
-    }
-
-    if ( parts[0] === 'events' && parts[1] === 'background' ) {
+export async function get_permission_description (permission, options = {}) {
+    if ( permission === 'events:background' ) {
         return { html: i18n('perm_events_background'), icon: 'zap' };
     }
 
-    if ( parts[0] === 'app-root-dir' ) {
-        // Format: app-root-dir:<app_uid>:<read|write>
-        if ( parts[2] === 'read' ) {
-            return { html: i18n('perm_app_root_dir_read'), icon: 'folder' };
+    if ( permission === 'notifications:push' ) {
+        return { html: i18n('perm_notifications_push'), icon: 'bell' };
+    }
+
+    if ( permission === 'custom-domains:manage' ) {
+        return { html: i18n('perm_custom_domains_manage'), icon: 'globe' };
+    }
+
+    const parts = split_permission(permission);
+    // The grant route refuses any other spelling of the same parts.
+    if ( parts.map(escape_permission_component).join(':') !== permission ) return null;
+    const [head] = parts;
+
+    if ( head === 'fs' ) {
+        const [, resource_id, mode] = parts;
+        if ( parts.length !== 3 || ! resource_id || ! FS_ACCESS_MODES.includes(mode) ) {
+            return null;
         }
-        if ( parts[2] === 'write' ) {
-            return { html: i18n('perm_app_root_dir_write'), icon: 'folder' };
-        }
+        if ( ! resource_id.startsWith('/') && ! FS_UID_SHAPE.test(resource_id) ) return null;
+        return await get_fs_description(resource_id, mode, options);
+    }
+
+    if ( head === 'user' ) {
+        if ( parts.length !== 4 || parts[2] !== 'email' || parts[3] !== 'read' ) return null;
+        // An app can't ask to see other users' information
+        const whoami = await puter.auth.whoami();
+        if ( whoami.uuid !== parts[1] ) return null;
+        return { html: i18n('perm_email_read'), icon: 'mail' };
+    }
+
+    const account_list_keys = own(ACCOUNT_LIST_KEYS, head);
+    if ( account_list_keys ) {
+        const key = parts.length === 3 ? own(account_list_keys, parts[2]) : undefined;
+        if ( ! key ) return null;
+        // An app can't ask about other users' apps or subdomains
+        const whoami = await puter.auth.whoami();
+        if ( whoami.uuid !== parts[1] ) return null;
+        return { html: i18n(key), icon: head === 'apps-of-user' ? 'apps' : 'globe' };
+    }
+
+    if ( head === 'app-data' ) {
+        return await get_app_data_description(parts, options);
+    }
+
+    if ( head === 'manage' && own(KV_SHARE_ROOT_KEYS, parts[1]) ) {
+        return await get_kv_share_description(parts, options);
+    }
+
+    if ( head === 'app-root-dir' ) {
+        const [, app_uid, mode] = parts;
+        if ( parts.length !== 3 || (mode !== 'read' && mode !== 'write') ) return null;
+        if ( ! APP_UID_SHAPE.test(app_uid) ) return null;
+        const app = await get_app_exact(app_uid);
+        if ( ! app ) return null;
+        return {
+            html: i18n(`perm_app_root_dir_${mode}`, { app: app.title || app.name }),
+            icon: 'folder',
+        };
     }
 
     return null;
+}
+
+/**
+ * Describes `fs:<path|uid>:<mode>`: a special folder by name, an existing entry
+ * by name and location, or a missing path `create` will make on Allow. Null for
+ * an entry the user can't see and nothing will create, since the grant would
+ * fail anyway.
+ *
+ * A description of a path to create carries `creates`, so the dialog can hold
+ * the request to the grant route's per-request count.
+ */
+async function get_fs_description (resource_id, mode, options) {
+    // A path that exists as the other kind than a forced `create` is a
+    // conflict the grant route refuses. A uid is never created.
+    const conflicts = (kind) => resource_id.startsWith('/')
+        && (options.create === 'dir' || options.create === 'file')
+        && options.create !== kind;
+
+    const folder = await get_standard_folder_description(resource_id, mode);
+    if ( folder ) return conflicts('dir') ? null : { html: folder, icon: 'folder' };
+
+    let fsentry;
+    try {
+        fsentry = resource_id.startsWith('/')
+            ? await puter.fs.stat({ path: resource_id, consistency: 'eventual' })
+            : await puter.fs.stat({ uid: resource_id, consistency: 'eventual' });
+    } catch (e) {
+        // Only a missing entry can be created; any other failure says nothing
+        // about what is there.
+        if ( ! is_not_found(e) ) return null;
+        fsentry = null;
+    }
+
+    if ( fsentry ) {
+        const kind = fsentry.is_dir ? 'dir' : 'file';
+        if ( conflicts(kind) ) return null;
+        return {
+            html: i18n(fs_access_key(kind, mode), { name: fsentry.name, path: fsentry.dirpath }),
+            icon: fsentry.is_dir ? 'folder' : 'file',
+        };
+    }
+
+    // Only a path in the user's own home can be created, and only when the
+    // request allows it.
+    if ( ! options.create ) return null;
+    const { username } = await puter.auth.whoami();
+    const home = `/${username}`;
+    if ( ! resource_id.startsWith(`${home}/`) ) return null;
+    const segments = resource_id.slice(home.length + 1).split('/');
+    if ( segments.some(segment => segment === '' || segment === '.' || segment === '..') ) return null;
+    if ( NON_CREATABLE_HOME_FOLDERS.includes(segments[0].toLowerCase()) ) return null;
+    if ( segments.length > MAX_CREATE_DEPTH ) return null;
+    const name = segments[segments.length - 1];
+    const dirpath = resource_id.slice(0, resource_id.lastIndexOf('/'));
+    // An explicit `'dir'`/`'file'` wins; `create: true` falls back to the same
+    // basename heuristic the backend uses.
+    const kind = options.create === 'dir' || options.create === 'file'
+        ? options.create
+        : fsCreateKindFor(name);
+    const tier = mode === 'write' ? 'write' : 'read';
+    return {
+        html: i18n(`perm_fs_create_${kind}_${tier}`, { name, path: dirpath }),
+        icon: kind === 'dir' ? 'folder' : 'file',
+        creates: true,
+    };
+}
+
+/** Whether a failed `puter.fs.stat` means the entry does not exist. */
+function is_not_found (e) {
+    return e?.code === 'subject_does_not_exist' || e?.status === 404;
+}
+
+/**
+ * The line for an existing entry. On a file, `list` shows no more than `see`;
+ * on a folder, both reach every subfolder.
+ */
+function fs_access_key (kind, mode) {
+    if ( kind === 'file' && (mode === 'see' || mode === 'list') ) return 'perm_fs_see';
+    return `perm_fs_${kind}_${mode}`;
 }
 
 /**
@@ -710,43 +913,17 @@ async function get_permission_description (permission, options = {}) {
  * explicitly: a scope that can remove another app's entries must not read as
  * "change".
  */
-// `write` satisfies a read check via the exploder, so its wording names
-// reading too — "change" alone would understate the grant.
+// Classes imply the ones below them (delete > write > read), so their wording
+// names those too: "change" or "delete" alone would understate the grant.
 const APP_DATA_VERBS = {
     read: 'read', get: 'read', list: 'read',
     write: 'change', set: 'change', add: 'change',
     incr: 'change', decr: 'change', update: 'change',
-    delete: 'delete', del: 'delete', remove: 'delete',
+    delete: 'store_all', del: 'delete', remove: 'delete',
     expire: 'delete', expireAt: 'delete',
 };
 
-/**
- * Look up the app a cross-app request names. Returns null when it does not
- * exist, so an unresolvable target never reaches the prompt.
- */
-async function get_app_by_uid (uid) {
-    try {
-        const res = await fetch(`${window.api_origin}/drivers/call`, {
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${window.auth_token}`,
-            },
-            body: JSON.stringify({
-                interface: 'puter-apps',
-                driver: 'es:app',
-                method: 'read',
-                args: { uid },
-            }),
-            method: 'POST',
-        });
-        if ( ! res.ok ) return null;
-        const body = await res.json();
-        return body?.result ?? null;
-    } catch (e) {
-        console.error('Failed to look up app', uid, e);
-        return null;
-    }
-}
+const APP_DATA_CLASSES = ['read', 'write', 'delete'];
 
 /**
  * The uid of the app making the request, for the describers that compare it
@@ -788,7 +965,11 @@ async function resolve_requesting_app_uid (options) {
  */
 export async function get_app_data_description (parts, options) {
     const [, target_uid, store, op] = parts;
-    if ( ! target_uid ) return null;
+    if ( parts.length > 4 || ! APP_UID_SHAPE.test(target_uid ?? '') ) return null;
+    // `app-data:<uid>:` and `app-data:<uid>:kv:` name no store or no op.
+    if ( parts.some(part => part === '') ) return null;
+    // Files take an access class only; KV also takes a single operation.
+    if ( store === 'fs' && op && ! APP_DATA_CLASSES.includes(op) ) return null;
 
     // An app already reaches its own data; approving that would mean nothing.
     // A requester that will not resolve is not fatal here, unlike in the
@@ -798,7 +979,7 @@ export async function get_app_data_description (parts, options) {
     const requester_app_uid = await resolve_requesting_app_uid(options);
     if ( requester_app_uid && target_uid === requester_app_uid ) return null;
 
-    const app = await get_app_by_uid(target_uid);
+    const app = await get_app_exact(target_uid);
     if ( ! app ) return null;
     if ( app.metadata?.share_app_data === false ) return null;
 
@@ -806,7 +987,7 @@ export async function get_app_data_description (parts, options) {
 
     // No op named means every op under it, by prefix implication — so the copy
     // has to cover deletion too, not just reading and changing.
-    const verb = op ? APP_DATA_VERBS[op] : null;
+    const verb = op ? own(APP_DATA_VERBS, op) : null;
     if ( op && ! verb ) return null;
 
     if ( ! store ) {
@@ -836,8 +1017,8 @@ export async function get_app_data_description (parts, options) {
 }
 
 /**
- * Describes `manage:kv-share:<owner>:<app>:<key segments>` — the app handing a
- * region of the data it keeps for this user to other people it picks.
+ * Describes `manage:<kv-share root>:<owner>:<app>:<key segments>` — the app
+ * handing a region of the data it keeps for this user to other people it picks.
  *
  * Returns null (which denies without prompting) for anything this copy cannot
  * honestly bound: another user's data, a requester this copy cannot name, a
@@ -846,8 +1027,16 @@ export async function get_app_data_description (parts, options) {
  * and not one a prompt can put in a line.
  */
 export async function get_kv_share_description (parts, options) {
-    const [, , owner_uuid, namespace_app_uid, ...segments] = parts;
-    if ( ! owner_uuid || ! namespace_app_uid || segments.length === 0 ) return null;
+    const [, root, owner_uuid, namespace_app_uid, ...segments] = parts;
+    const key = own(KV_SHARE_ROOT_KEYS, root);
+    if ( ! key || ! owner_uuid || segments.length === 0 ) return null;
+    if ( ! APP_UID_SHAPE.test(namespace_app_uid ?? '') ) return null;
+    // The segments the grant route accepts for a new consent.
+    if ( segments.some(segment => ! KV_SHARE_SEGMENT.test(segment)) ) return null;
+    // Also refuses every region over the `read`/`write` share prefix limit,
+    // which is longer than the column leaves room for.
+    if ( parts.join(':').length > PERMISSION_MAX_LEN ) return null;
+    const region = `${segments.join(':')}:`;
 
     // An app reaches its own namespace and no other, so a request naming
     // another one describes access it could not use. Checking that at all
@@ -859,56 +1048,52 @@ export async function get_kv_share_description (parts, options) {
     const whoami = await puter.auth.whoami();
     if ( whoami.uuid !== owner_uuid ) return null;
 
-    const app = await get_app_by_uid(namespace_app_uid);
+    const app = await get_app_exact(namespace_app_uid);
     if ( ! app ) return null;
 
     return {
-        html: i18n('perm_kv_share_manage', {
+        html: i18n(key, {
             app: app.title || app.name || options.app_name,
-            region: `${segments.join(':')}:`,
+            region,
         }),
         icon: 'shield',
     };
 }
 
 /**
- * Returns a user-friendly description for standard folder permissions.
- * Uses whoami().directories to verify the path/UUID belongs to the current user.
- * @param {string} resource_id - The filesystem path or UUID
- * @param {string} action - The access level (read, write, list, see)
- * @returns {Promise<string|null>} A friendly HTML description or null if not a standard folder belonging to current user
+ * The app with exactly this uid, or null. `get_app_by_uid` also follows the
+ * alias a merged app leaves behind, and the grant route does not.
  */
-async function get_standard_folder_description (resource_id, action) {
+async function get_app_exact (uid) {
+    const app = await get_app_by_uid(uid);
+    return app?.uid === uid ? app : null;
+}
+
+/**
+ * The line for one of the user's own special folders (Desktop, Documents,
+ * Pictures, Videos), matched by path or uid through `whoami().directories`, or
+ * null for anything else.
+ *
+ * @param {string} resource_id - The filesystem path or UUID
+ * @param {string} mode - see, list, read, or write
+ * @returns {Promise<string|null>}
+ */
+async function get_standard_folder_description (resource_id, mode) {
     const whoami = await puter.auth.whoami();
     const directories = whoami.directories || {};
 
-    // Standard folder names we recognize - maps to i18n keys
-    const folder_i18n_keys = {
-        'Desktop': 'perm_folder_desktop',
-        'Documents': 'perm_folder_documents',
-        'Pictures': 'perm_folder_pictures',
-        'Videos': 'perm_folder_videos',
-    };
-
-    // Check if resource_id matches any of the user's standard directories
     // directories is an object like { "/username/Desktop": "uuid-here", ... }
     for ( const [path, uuid] of Object.entries(directories) ) {
-        // Check if resource_id matches either the path or the UUID
         if ( resource_id !== path && resource_id !== uuid ) continue;
 
-        // Extract folder name from path (e.g., "/username/Desktop" -> "Desktop")
         const path_parts = path.split('/').filter(Boolean);
         if ( path_parts.length !== 2 ) continue;
 
-        const folder_name = path_parts[1];
-        const folder_i18n_key = folder_i18n_keys[folder_name];
-        if ( ! folder_i18n_key ) continue;
+        const folder_key = own(STANDARD_FOLDER_KEYS, path_parts[1]);
+        if ( ! folder_key ) continue;
 
-        const folder_desc = i18n(folder_i18n_key);
-        return i18n('perm_folder_access', {
-            access: `<strong>${html_encode(action)}</strong>`,
-            folder: folder_desc,
-        }, false);
+        // `false` so only the outer `i18n` encodes.
+        return i18n(`perm_folder_${mode}`, { folder: i18n(folder_key, [], false) });
     }
 
     return null;
@@ -918,6 +1103,11 @@ function split_permission (permission) {
     return permission
         .split(':')
         .map(unescape_permission_component);
+}
+
+/** One component as it is written canonically: `\` as `\\`, `:` as `\C`. */
+function escape_permission_component (component) {
+    return component.replace(/\\/g, '\\\\').replace(/:/g, '\\C');
 }
 
 function unescape_permission_component (component) {

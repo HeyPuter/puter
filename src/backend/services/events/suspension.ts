@@ -25,6 +25,7 @@ import {
 import type { DurableSubscription } from '../../stores/events/types.js';
 import {
     SUSPENDED_REASONS,
+    TERMINAL_SUSPENDED_REASONS,
     type SuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
 
@@ -50,14 +51,11 @@ export interface BacklogPolicy {
     cap: number;
     /** How long the kept ones survive, or `0` to drop them now. */
     ttlMs: number;
-    /** Whether the reason can be lifted at all. */
-    resumable: boolean;
 }
 
 const HELD: BacklogPolicy = {
     cap: EVENTS_SUSPENDED_PENDING_CAP,
     ttlMs: EVENTS_SUSPENDED_BACKLOG_TTL_MS,
-    resumable: true,
 };
 
 export const BACKLOG_POLICY: Record<SuspendedReason, BacklogPolicy> = {
@@ -67,9 +65,8 @@ export const BACKLOG_POLICY: Record<SuspendedReason, BacklogPolicy> = {
     no_credit: {
         cap: EVENTS_SUSPENDED_PENDING_CAP,
         ttlMs: EVENTS_NO_CREDIT_BACKLOG_TTL_MS,
-        resumable: true,
     },
-    permission_revoked: { cap: 0, ttlMs: 0, resumable: false },
+    permission_revoked: { cap: 0, ttlMs: 0 },
 };
 
 export const backlogPolicyFor = (reason: SuspendedReason): BacklogPolicy =>
@@ -77,7 +74,7 @@ export const backlogPolicyFor = (reason: SuspendedReason): BacklogPolicy =>
 
 /** Whether a reason ever lifts. `permission_revoked` never does. */
 export const isResumable = (reason: SuspendedReason): boolean =>
-    BACKLOG_POLICY[reason].resumable;
+    !TERMINAL_SUSPENDED_REASONS.includes(reason);
 
 /**
  * The reasons that lift, and therefore the ones a revocation has to re-stamp: a

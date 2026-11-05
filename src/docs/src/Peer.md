@@ -10,11 +10,9 @@ Use the Peer API to build peer-to-peer applications without the need for a serve
 
 <div class="info">
 
-Hosting a session requires authentication — on websites, Puter.js will prompt the user if needed. Guests can join without an account: pass `anonToken`, plus a `turnGrant` from the host so the connection can still use Puter's relays — or let the host serve with a `guestGrant`, which reaches guests on its own. See [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/).
+Hosting a session requires authentication — on websites, Puter.js will prompt the user if needed. Guests can join without an account: pass `anonToken`, plus a `turnGrant` from the host so the connection can still use Puter's relays. See [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/).
 
 </div>
-
-A server is reached either by the invite code it was handed — good for as long as it serves — or by a **room name** of your choosing (`puter.peer.serve({ name: 'friday-standup' })`), which anyone can dial with `puter.peer.connect('friday-standup')` for as long as someone serves it. Room names are how you make a link that can be shared ahead of time and reused; see [`puter.peer.serve()`](/Peer/serve/#room-names).
 
 ## Features
 
@@ -133,6 +131,7 @@ These peer features are supported out of the box when using Puter.js:
 - **[`puter.peer.serve()`](/Peer/serve/)** - Create a peer server and generate an invite code
 - **[`puter.peer.connect()`](/Peer/connect/)** - Connect to a peer server using an invite code
 - **[`puter.peer.ensureTurnRelays()`](/Peer/ensureTurnRelays/)** - Preload TURN relays for faster connections
+- **[`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/)** - Create a grant that lets a guest without a Puter account use Puter's relays
 
 ## Examples
 

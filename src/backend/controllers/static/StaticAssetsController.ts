@@ -23,12 +23,15 @@ import path from 'node:path';
 import { PuterController } from '../types.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
 
+// Sites import push-sw.js by URL, so the CDN refetches it within five minutes.
+const PUSH_WORKER_CACHE_CONTROL = 'public, max-age=0, s-maxage=300';
+
 /**
  * Static asset routes.
  *
- * /puter.js/v1, /puter.js/v2 → any subdomain /v1, /v2, /putility/v1 → js
- * subdomain /sdk/* → root subdomain — puter-js bundle /dist/_, /src/_,
- * /assets/* → root subdomain
+ * /puter.js/v1, /puter.js/v2 → any subdomain /v1, /v2, /push-sw.js,
+ * /putility/v1 → js subdomain /sdk/* → root subdomain — puter-js bundle
+ * /dist/_, /src/_, /assets/* → root subdomain
  *
  * Each block depends on its config root (`client_libs_root`, `gui_assets_root`,
  * `puterjs_root`). When unset, that block is skipped — deployments that don't
@@ -55,6 +58,13 @@ export class StaticAssetsController extends PuterController {
             router.get('/putility/v1', { subdomain: 'js' }, (_req, res) => {
                 res.sendFile('putility.js/v1.js', { root });
             });
+            // `/v2/push-sw.js` is the path older docs gave.
+            for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
+                router.get(route, { subdomain: 'js' }, (_req, res) => {
+                    res.setHeader('Cache-Control', PUSH_WORKER_CACHE_CONTROL);
+                    res.sendFile('puter.js/push-sw.js', { root });
+                });
+            }
         }
 
         // puter-js SDK mount. GUI loads it at `/sdk/puter.dev.js`; the
@@ -100,6 +110,15 @@ export class StaticAssetsController extends PuterController {
                 router.get('/v2', { subdomain: 'js' }, (_req, res) => {
                     res.sendFile(puterJsFile, { root: puterjsRoot });
                 });
+                for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
+                    router.get(route, { subdomain: 'js' }, (_req, res) => {
+                        res.setHeader(
+                            'Cache-Control',
+                            PUSH_WORKER_CACHE_CONTROL,
+                        );
+                        res.sendFile('push-sw.js', { root: puterjsRoot });
+                    });
+                }
             }
         }
 

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import parse_shared_path, {
+    clear_query_param,
     clear_share_recipient_param,
     shared_link_account_step,
     shared_link_recipient_uuid,
@@ -166,5 +167,12 @@ describe('clear_share_recipient_param', () => {
         at('?shared=x');
         clear_share_recipient_param();
         expect(replaced).toEqual([]);
+    });
+
+    it('clears any one parameter the same way', () => {
+        at('?puter.notification=abc&x=1', '#h');
+        clear_query_param('puter.notification');
+        expect(replaced).toEqual(['/?x=1#h']);
+        expect(window.url_query_params.has('puter.notification')).toBe(false);
     });
 });

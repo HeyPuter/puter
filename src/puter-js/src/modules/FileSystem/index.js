@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import { PuterModule } from '../../lib/PuterModule.js';
 import { socketAutoUnref } from '../../lib/socketOptions.js';
 import * as utils from '../../lib/utils.js';
+import { RECEIPT_EVENT } from '../notifications/lib/receipts.js';
 
 // Constants
 //
@@ -103,9 +104,14 @@ export class PuterJSFileSystemModule extends PuterModule {
             this.socket.disconnect();
         }
 
+        this.socket = null;
+        if (!this.authToken) return;
+        this.socketToken_ = this.authToken;
+        this.socketOrigin_ = this.APIOrigin;
         this.socket = io(this.APIOrigin, {
             auth: {
                 auth_token: this.authToken,
+                acks: [RECEIPT_EVENT],
             },
             // socket.io's autoUnref path expects ws._socket.unref() to exist.
             // Enable it only for Node runtimes that expose a ws-like WebSocket.
@@ -122,6 +128,10 @@ export class PuterJSFileSystemModule extends PuterModule {
     }
 
     bindSocketEvents () {
+        this.socket.on(RECEIPT_EVENT, (data, ack) => {
+            this.puter.notifications?._answerReceipt(data, ack);
+        });
+
         this.socket.on('item.renamed', (item) => {
             puter._cache.flushall();
         });
@@ -133,9 +143,9 @@ export class PuterJSFileSystemModule extends PuterModule {
 
         this.socket.on('item.added', (item) => {
             // remove readdir cache for parent
-            puter._cache.del(`readdir:${ path.dirname(item.path)}`);
+            puter._cache.del(puter.fsCacheKey('readdir', path.dirname(item.path)));
             // remove item cache for parent directory
-            puter._cache.del(`item:${ path.dirname(item.path)}`);
+            puter._cache.del(puter.fsCacheKey('item', path.dirname(item.path)));
         });
 
         this.socket.on('item.updated', (item) => {
@@ -212,6 +222,9 @@ export class PuterJSFileSystemModule extends PuterModule {
         }
 
         if ( this.puter.socketEnabled ) {
+            if (this.socket?.active &&
+                this.socketToken_ === this.authToken &&
+                this.socketOrigin_ === this.APIOrigin) return;
             this.initializeSocket();
         }
     }

@@ -56,6 +56,8 @@ export interface SignedWriteResponse {
     sessionId: string;
     uploadMode: UploadMode;
     objectKey: string;
+    /** The uid the entry will carry, which an overwrite already has. */
+    entryUid: string;
     bucket: string;
     bucketRegion: string;
     contentType: string;

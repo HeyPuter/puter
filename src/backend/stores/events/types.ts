@@ -29,43 +29,34 @@ import type { FsOp } from '../../services/events/subjects.js';
  * is declared once here rather than per store.
  */
 
-/** Transports a delivery may take. */
-export const SUBSCRIPTION_TARGETS = ['socket', 'worker', 'push'] as const;
-
-export type SubscriptionTarget = (typeof SUBSCRIPTION_TARGETS)[number];
-
-export const isSubscriptionTarget = (
-    value: unknown,
-): value is SubscriptionTarget =>
-    SUBSCRIPTION_TARGETS.includes(value as SubscriptionTarget);
-
-/** Transports a session row may take: it has one connection and no handler. */
-export const SESSION_TARGETS: SubscriptionTarget[] = ['socket'];
-
-/** Transports a durable row takes unless the caller says otherwise. */
-export const DEFAULT_DURABLE_TARGETS: SubscriptionTarget[] = [
-    'socket',
-    'worker',
-];
+/**
+ * Which handler set a subscription's `handlerName` refers to: the app's own
+ * (`'app'`) or the holder's scope of that app (`'user'`). Stored as 0 and 1.
+ */
+export type HandlerScopeKind = 'app' | 'user';
 
 /**
- * Whether a delivery class may carry these transports. `single` and `push` are
- * incompatible by construction — a lease can only be settled by a consumer that
- * reports back, and a device notification never does. An app's `single` row
- * also needs a `worker` to fall back to once the connected clients have had
- * their turns, or an unacknowledged delivery sits at the head of its queue for
- * good. An account's own row has no app to run a worker for, so it is held on
- * the socket alone and the pending hold is its backstop. Both are invariants
- * every writer is held to, not defaults.
+ * Whether a row's events also run the app's published handler in its events
+ * worker. Only an app has a worker, and only a named handler can be run.
  */
-export const targetsAllowedForDelivery = (
-    delivery: DeliveryClass,
-    targets: readonly SubscriptionTarget[],
-    appUid: string | null,
-): boolean =>
-    delivery !== 'single' ||
-    (!targets.includes('push') &&
-        (appUid === null || targets.includes('worker')));
+export const runsInWorker = (row: {
+    appUid: string | null;
+    handlerName?: string | null;
+}): boolean => row.appUid !== null && !!row.handlerName;
+
+/**
+ * Token, and subject, of the subscription row a recurring or `once` schedule
+ * owns. Those rows carry the schedule's lifecycle (suspend, resume, reap) and
+ * are kept out of dispatch, the durable quotas and the durable listing. Called
+ * by extensions.
+ */
+export const SCHEDULE_TOKEN_PREFIX = 'schedule:';
+
+export const scheduleToken = (scheduleUid: string): string =>
+    `${SCHEDULE_TOKEN_PREFIX}${scheduleUid}`;
+
+export const isScheduleRow = (row: { token: string }): boolean =>
+    row.token.startsWith(SCHEDULE_TOKEN_PREFIX);
 
 /**
  * What a row's delivery re-check runs against. An access mode for a filesystem
@@ -104,8 +95,6 @@ export interface DispatchSubscription {
     appUid: string | null;
     /** What the subscribe check passed under; re-checked per delivery. */
     permission: SubscriptionPermission;
-    /** Transports this row's deliveries may take. */
-    targets?: SubscriptionTarget[];
     /** KV rows only: deliveries carry the key's new value where they can. */
     includeValue?: true;
     /** Session rows only: the connection a delivery is addressed at. */
@@ -114,6 +103,8 @@ export interface DispatchSubscription {
     durable?: true;
     delivery?: DeliveryClass;
     handlerName?: string | null;
+    /** Durable rows only: absent means `'app'`. */
+    handlerScope?: HandlerScopeKind;
     /** Durable rows only: handed to the handler, and read nowhere else. */
     context?: string | null;
 }
@@ -126,7 +117,6 @@ export interface SessionSubscription extends DispatchSubscription {
 export interface DurableSubscription extends DispatchSubscription {
     durable: true;
     delivery: DeliveryClass;
-    targets: SubscriptionTarget[];
     handlerName: string | null;
     /** Plaintext JSON, capped at 4 KB. Never returned by `list`. */
     context: string | null;

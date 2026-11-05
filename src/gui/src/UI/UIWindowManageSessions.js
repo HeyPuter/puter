@@ -23,38 +23,8 @@
 // window system and there is no cross-window z-index juggling.
 
 import { fetchAllEventsWorkers, eventsWorkerLabel } from '../helpers/eventsWorkers.js';
-
-// Hand-rolled UA → {browser, os} extractor. Covers Chrome/Edge/Firefox/
-// Safari/Opera + Windows/macOS/iOS/Android/Linux. The backend already
-// has `ua-parser-js`; pulling it into the GUI bundle just for this
-// label wasn't worth the bytes.
-const parseUserAgent = (ua) => {
-    if ( ! ua || typeof ua !== 'string' ) return { browser: null, os: null };
-    let browser = null;
-    if ( /Edg\//i.test(ua) ) browser = 'Edge';
-    else if ( /OPR\/|Opera/i.test(ua) ) browser = 'Opera';
-    else if ( /Chrome\//i.test(ua) && !/Chromium/i.test(ua) ) browser = 'Chrome';
-    else if ( /Firefox\//i.test(ua) ) browser = 'Firefox';
-    else if ( /Safari\//i.test(ua) && !/Chrome\//i.test(ua) ) browser = 'Safari';
-
-    let os = null;
-    if ( /Windows NT/i.test(ua) ) os = 'Windows';
-    // iOS Safari/Chrome UAs include "like Mac OS X", so the iOS device
-    // check has to win against the macOS regex — otherwise iPhones get
-    // mislabeled as macOS. Android similarly fakes a "Linux" token, so
-    // it has to precede the Linux check below.
-    else if ( /iPhone|iPad|iPod/i.test(ua) ) os = 'iOS';
-    else if ( /Android/i.test(ua) ) os = 'Android';
-    else if ( /Mac OS X|Macintosh/i.test(ua) ) os = 'macOS';
-    else if ( /Linux/i.test(ua) ) os = 'Linux';
-
-    return { browser, os };
-};
-
-const formatBrowserOs = ({ browser, os }) => {
-    if ( browser && os ) return `${browser} on ${os}`;
-    return browser || os || null;
-};
+import { forgetGodmodeTokens } from '../helpers/godmodeTokens.js';
+import { formatBrowserOs, parseUserAgent } from '../helpers/userAgent.js';
 
 // Inline line-icons (stroke, currentColor) so the list is scannable at a
 // glance without pulling an icon font into the bundle.
@@ -90,6 +60,17 @@ const kindBadgeLabel = (kind) => {
         case 'app': return i18n('ui_session_kind_app') || 'App';
         case 'access_token': return i18n('ui_session_kind_access_token') || 'API token';
         default: return kind;
+    }
+};
+
+
+/** A refused request's message: the body is JSON `{ message, code }`. */
+const responseMessage = async (resp) => {
+    const text = await resp.text();
+    try {
+        return JSON.parse(text)?.message || text;
+    } catch {
+        return text;
     }
 };
 
@@ -130,9 +111,12 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     w_body.className = 'session-manager-list';
     modal.appendChild(w_body);
 
+    // The modal takes keyboard focus while it's up, and gives it back after.
+    const el_previous_focus = document.activeElement;
     document.body.appendChild(backdrop);
     // Next frame so the open transition runs.
     requestAnimationFrame(() => backdrop.classList.add('open'));
+    el_close.focus({ preventScroll: true });
 
     // Refresh handles — assigned once the list wiring below is in place,
     // referenced by close(). Declared here so close() can see them.
@@ -149,6 +133,9 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         backdrop.classList.remove('open');
         // Remove after the fade-out; guard against a missing transitionend.
         setTimeout(() => backdrop.remove(), 200);
+        if ( modal.contains(document.activeElement) || document.activeElement === document.body ) {
+            el_previous_focus?.focus?.({ preventScroll: true });
+        }
     };
 
     // Escape: cancel an open confirm sheet if there is one, otherwise close
@@ -163,6 +150,23 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         close();
     };
     document.addEventListener('keydown', onKeydown);
+
+    // Tab cycles inside the modal rather than reaching the page behind it.
+    modal.addEventListener('keydown', (e) => {
+        if ( e.key !== 'Tab' ) return;
+        const focusables = [...modal.querySelectorAll('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])')]
+            .filter(el => ! el.disabled && el.offsetParent !== null);
+        if ( ! focusables.length ) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if ( e.shiftKey && document.activeElement === first ) {
+            e.preventDefault();
+            last.focus();
+        } else if ( ! e.shiftKey && document.activeElement === last ) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
 
     el_close.addEventListener('click', close);
     backdrop.addEventListener('mousedown', (e) => {
@@ -295,7 +299,8 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             return session.app?.title || session.app?.name || i18n('ui_session_kind_app') || 'App session';
         }
         if ( session.kind === 'access_token' ) {
-            return session.label || i18n('ui_session_kind_access_token') || 'Access token';
+            return session.label || session.app?.title || session.app?.name
+                || i18n('ui_session_kind_access_token') || 'Access token';
         }
         if ( session.kind === 'web' ) {
             return session.label || i18n('ui_session_kind_web') || 'Browser session';
@@ -381,7 +386,8 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         // Icon tile — app icon when available, otherwise a device/kind glyph.
         const el_icon = document.createElement('div');
         el_icon.classList.add('session-widget-icon');
-        if ( session.kind === 'app' && session.app?.icon ) {
+        // A godmode app's token row carries its app too.
+        if ( (session.kind === 'app' || session.kind === 'access_token') && session.app?.icon ) {
             el_icon.classList.add('session-widget-icon-img');
             const img = document.createElement('img');
             img.src = session.app.icon;
@@ -467,19 +473,23 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                             }),
                         },
                     );
-                    if ( !resp.ok ) throw new Error(await resp.text());
+                    if ( !resp.ok ) throw new Error(await responseMessage(resp));
                 } catch ( e ) {
                     // Roll back optimistic update
                     session.label = original || null;
                     el_title.textContent = sessionTitle(session);
-                    alertDialog({ message: e?.toString?.() ?? String(e) });
+                    alertDialog({ message: e?.message ?? String(e) });
                 }
             };
 
             const onBlur = () => finish(true);
             el_input.addEventListener('keydown', (ev) => {
                 if ( ev.key === 'Enter' ) finish(true);
-                else if ( ev.key === 'Escape' ) finish(false);
+                else if ( ev.key === 'Escape' ) {
+                    // Cancels the rename only, not the whole modal.
+                    ev.stopPropagation();
+                    finish(false);
+                }
             });
             el_input.addEventListener('blur', onBlur);
         };
@@ -576,13 +586,16 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                         },
                         body: JSON.stringify({ uuid: session.uuid, anti_csrf }),
                     });
+                    forgetGodmodeTokens();
                     if ( resp.ok ) {
                         // Full reload — cascade may have killed children
                         // we'd otherwise have to detach by hand.
                         reload_sessions();
                         return;
                     }
-                    alertDialog({ message: await resp.text() });
+                    // Revoked meanwhile (another tab): the list is what's stale.
+                    if ( resp.status === 404 ) reload_sessions();
+                    alertDialog({ message: await responseMessage(resp) });
                 } catch ( e ) {
                     alertDialog({ message: e.toString() });
                 }
@@ -704,6 +717,14 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     el_search.type = 'search';
     el_search.placeholder = i18n('ui_search') || 'Search sessions…';
     el_search.classList.add('session-manager-search');
+    // Escape empties a search first; the next one closes the modal.
+    el_search.addEventListener('keydown', (ev) => {
+        if ( ev.key !== 'Escape' || el_search.value === '' ) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        el_search.value = '';
+        el_search.dispatchEvent(new Event('input'));
+    });
     el_search.addEventListener('input', () => {
         searchQuery = el_search.value.trim();
         // Pure client-side filter — re-render from the cached list
@@ -747,7 +768,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                 reload_sessions();
                 return;
             }
-            alertDialog({ message: await resp.text() });
+            alertDialog({ message: await responseMessage(resp) });
         } catch ( e ) {
             alertDialog({ message: e.toString() });
         }

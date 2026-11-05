@@ -233,7 +233,7 @@ const PROVIDERS: ProviderCase[] = [
     {
         name: 'gemini',
         dialect: 'chat',
-        make: () => new GeminiChatProvider(metering(), { apiKey: 'k' }),
+        make: () => new GeminiChatProvider({ apiKey: 'k' }, metering()),
     },
     {
         name: 'groq',
@@ -259,9 +259,7 @@ const PROVIDERS: ProviderCase[] = [
         name: 'meta',
         dialect: 'chat',
         make: () =>
-            new MetaProvider(metering(), stores, fsService, {
-                apiKey: 'k',
-            } as never),
+            new MetaProvider({ apiKey: 'k' }, metering()),
     },
     {
         name: 'minimax',
@@ -301,17 +299,13 @@ const PROVIDERS: ProviderCase[] = [
         name: 'openai-chat',
         dialect: 'chat',
         make: () =>
-            new OpenAiChatProvider(metering(), stores, fsService, {
-                apiKey: 'k',
-            }),
+            new OpenAiChatProvider({ apiKey: 'k' }, metering()),
     },
     {
         name: 'openai-responses',
         dialect: 'responses',
         make: () =>
-            new OpenAiResponsesChatProvider(metering(), stores, fsService, {
-                apiKey: 'k',
-            }),
+            new OpenAiResponsesChatProvider({ apiKey: 'k' }, metering()),
     },
     {
         name: 'openrouter',
@@ -606,6 +600,15 @@ const expectEqualized = (res: IChatMessageResult) => {
     expect(['stop', 'length', 'tool_calls', 'content_filter']).toContain(
         res.finish_reason,
     );
+
+    // Not every provider fills `stopReason` itself (the driver derives it
+    // generically from `finish_reason` for the ones that don't, which this
+    // direct `provider.complete()` matrix bypasses) — but whichever ones do
+    // (Claude) must report a real, non-empty value, never a dialect leftover.
+    if (res.stopReason !== undefined) {
+        expect(typeof res.stopReason).toBe('string');
+        expect((res.stopReason as string).length).toBeGreaterThan(0);
+    }
 
     if (message.reasoning !== undefined) {
         expect(typeof message.reasoning).toBe('string');

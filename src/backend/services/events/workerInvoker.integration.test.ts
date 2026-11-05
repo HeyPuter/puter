@@ -34,6 +34,7 @@ import type { AddressInfo } from 'node:net';
 import { v4 as uuidv4 } from 'uuid';
 import {
     afterAll,
+    afterEach,
     beforeAll,
     beforeEach,
     describe,
@@ -52,13 +53,20 @@ import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
+import { ConsentSettles } from './consentSettles.js';
 import {
     EVENTS_HANDLER_TOKEN_TTL_SECONDS,
     EVENTS_WORKER_SESSION_NAME,
     eventsInvokeKey,
     eventsWorkerScript,
+    userHandlerScript,
 } from './workerRuntime.js';
 import { handlerSetHash } from './workerSource.js';
+import {
+    appHandlerScope,
+    hashContent,
+} from '../../stores/events/EventHandlerStore.js';
+import type { WorkerInvocation } from './workerSeam.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 /** Short enough that a hung handler is a test case rather than a stall. */
@@ -92,11 +100,18 @@ let calls: StubCall[];
 let answer: number | 'hang' = 200;
 /** Whether the stub's answer carries the handled header, as a real one would. */
 let answerHandled = true;
+/** Further headers on the stub's answer, such as the runtime's error code. */
+let answerHeaders: Record<string, string> = {};
 /**
  * Whether the stub reports the script missing until it sees the deployed
  * header.
  */
 let dispatchMissing = false;
+/**
+ * Whether the stub answers as a script still bound to a rotated key until it
+ * sees the deployed header.
+ */
+let staleKey = false;
 
 const events = () => env.server.services.events;
 const pending = () => env.server.stores.pendingDelivery;
@@ -121,6 +136,7 @@ const startStub = async (): Promise<string> => {
                     script: req.headers['x-puter-events-script'] as string,
                     app: req.headers['x-puter-events-app'] as string,
                     key: req.headers['x-puter-events-key'] as string,
+                    holder: req.headers['x-puter-events-holder'] as string,
                     deployed,
                 },
                 body: JSON.parse(raw || '{}') as StubCall['body'],
@@ -134,13 +150,20 @@ const startStub = async (): Promise<string> => {
                 }).end();
                 return;
             }
+            if (staleKey && deployed !== '1') {
+                res.writeHead(500, {
+                    'x-puter-events-handled': '1',
+                    'x-puter-events-error': 'bad-key',
+                }).end();
+                return;
+            }
             // Stands in for the dispatcher forwarding a genuine answer from
             // the script, so it carries the marker a real one would — unless
             // a test is specifically simulating something that never reached one.
-            res.writeHead(
-                answer,
-                answerHandled ? { 'x-puter-events-handled': '1' } : {},
-            ).end();
+            res.writeHead(answer, {
+                ...(answerHandled ? { 'x-puter-events-handled': '1' } : {}),
+                ...answerHeaders,
+            }).end();
         });
     });
     await new Promise<void>((resolve) =>
@@ -160,8 +183,28 @@ const subscribe = async (token: string = appToken): Promise<string> => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: HANDLER,
-            targets: ['worker'],
             context: { label: 'ingest' },
+        }),
+    });
+    const body = (await response.json()) as { subId: string };
+    expect(response.status).toBe(200);
+    return body.subId;
+};
+
+/** A `broadcast` subscription with a handler. */
+const subscribeBroadcast = async (
+    token: string = appToken,
+): Promise<string> => {
+    const response = await fetch(new URL('/events/subscribe', env.apiOrigin), {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+            subject: `fs:${anchor}`,
+            delivery: 'broadcast',
+            handlerName: HANDLER,
         }),
     });
     const body = (await response.json()) as { subId: string };
@@ -198,7 +241,7 @@ const makeWorkerApp = async (): Promise<{
     );
     const token = await env.server.services.auth.getUserAppToken(actor!, uid);
     await env.server.stores.eventHandler.publish({
-        appUid: uid,
+        scope: appHandlerScope(uid),
         name: HANDLER,
         source: SOURCE,
     });
@@ -237,7 +280,6 @@ const subscribeKv = async (
             subject: `kv:${key}`,
             delivery: 'single',
             handlerName: HANDLER,
-            targets: ['worker'],
         }),
     });
     const body = (await response.json()) as { subId: string };
@@ -294,6 +336,27 @@ const heldForMs = async (subId: string): Promise<number> => {
     return Number(score) - Date.now();
 };
 
+/**
+ * Wait until the delivery is held past its claim's own lease, which only a
+ * failed attempt's backoff does. Needs the clock frozen with `jump`.
+ */
+const heldForBackoff = (subId: string): Promise<void> =>
+    waitUntil(async () =>
+        expect(await heldForMs(subId)).toBeGreaterThan(2 * INVOKE_TIMEOUT_MS),
+    );
+
+/**
+ * Wait until this subscription has `count` failed attempts on record. The
+ * counter moves only after the attempt's hold or gap marker is written, so it
+ * can't be the in-flight claim's lease or another test's late attempt.
+ */
+const failuresRecorded = (subId: string, count: number): Promise<void> =>
+    waitUntil(async () =>
+        expect(await env.server.clients.redis.get(`ev:qf:{${subId}}`)).toBe(
+            String(count),
+        ),
+    );
+
 beforeAll(async () => {
     // Started first: the dispatcher's address is config, so it has to be known
     // before the server boots.
@@ -348,7 +411,7 @@ beforeAll(async () => {
     );
     appToken = await env.server.services.auth.getUserAppToken(actor!, appUid);
     await env.server.stores.eventHandler.publish({
-        appUid,
+        scope: appHandlerScope(appUid),
         name: HANDLER,
         source: SOURCE,
     });
@@ -364,7 +427,9 @@ beforeEach(async () => {
     calls = [];
     answer = 200;
     answerHandled = true;
+    answerHeaders = {};
     dispatchMissing = false;
+    staleKey = false;
     await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
     events().invalidateUser(userId);
     await env.server.stores.eventSubscription.markRegionCold(userId);
@@ -392,6 +457,7 @@ describe('the call an owed delivery makes', () => {
             'subject',
             'ts',
             'uid',
+            'viaWorker',
         ]);
         expect(call.body.event).toMatchObject({
             path: `${anchor}/note.txt`,
@@ -413,7 +479,9 @@ describe('the call an owed delivery makes', () => {
 
         const script = eventsWorkerScript(
             handlerSetHash(
-                await env.server.stores.eventHandler.setForApp(appUid),
+                await env.server.stores.eventHandler.setForApp(
+                    appHandlerScope(appUid),
+                ),
             ),
             // No `workers.internetExposedUrl` in this test's config.
             '',
@@ -495,7 +563,7 @@ describe('the call an owed delivery makes', () => {
         ).resolves.toBe(true);
     });
 
-    it('mints nothing once the background consent is gone', async () => {
+    it('mints nothing once the background consent is gone, and finishes the settle', async () => {
         const subId = await subscribe();
         const { actor } = await env.server.services.auth.authenticate(
             env.users.user.token,
@@ -525,16 +593,170 @@ describe('the call an owed delivery makes', () => {
             await durable().warmRegion(userId);
 
             await touch('revoked.txt');
-            await waitUntil(async () =>
-                expect(await pending().depth(subId)).toBe(1),
-            );
-            await events().sweepPending();
 
-            // Deferred rather than run: nothing was invoked, and the delivery
-            // is still owed rather than dropped.
+            // Nothing was invoked, and the delivery ended the row the way the
+            // revocation settle would have, backlog included.
+            await waitUntil(async () =>
+                expect(
+                    (await durable().getBySubId(subId))?.suspendedReason,
+                ).toBe('permission_revoked'),
+            );
+            await waitUntil(async () =>
+                expect(await pending().depth(subId)).toBe(0),
+            );
             expect(calls).toEqual([]);
-            expect(await pending().depth(subId)).toBe(1);
         } finally {
+            await env.server.services.permission.grantUserAppPermission(
+                actor!,
+                appUid,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
+        }
+    });
+
+    it('keeps the row when the consent check fails rather than answers', async () => {
+        const subId = await subscribe();
+        const permission = env.server.services.permission;
+        const check = permission.check.bind(permission);
+        const failing = vi
+            .spyOn(permission, 'check')
+            .mockImplementation(async (actor, asked) => {
+                if (asked === EVENTS_BACKGROUND_PERMISSION)
+                    throw new Error('permission lookup unavailable');
+                return check(actor, asked);
+            });
+        try {
+            await touch('unchecked.txt');
+            // The delivery reached the check that failed.
+            await waitUntil(() =>
+                expect(
+                    failing.mock.calls.some(
+                        ([, asked]) => asked === EVENTS_BACKGROUND_PERMISSION,
+                    ),
+                ).toBe(true),
+            );
+            // Long enough for a settle to have run, had one started.
+            await new Promise((resolve) => setTimeout(resolve, 200));
+        } finally {
+            failing.mockRestore();
+        }
+
+        expect(calls).toEqual([]);
+        expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+        expect(await pending().depth(subId)).toBe(1);
+    });
+
+    it('keeps the row when only a stale cached answer says the consent is gone', async () => {
+        const subId = await subscribe();
+        const redis = env.server.clients.redis;
+        const app = await env.server.stores.app.getByUid(appUid);
+        // What a node that cached this app's grants before the consent was
+        // given still holds: every grant but that one.
+        const grants = `perms:u2a:${userId}:${app!.id}`;
+        const beforeConsent = (
+            await env.server.stores.permission.listUserAppPermsFromPrimary(
+                userId,
+                app!.id,
+            )
+        ).filter((row) => row.permission !== EVENTS_BACKGROUND_PERMISSION);
+        const forgetScans = async () => {
+            for (const key of await redis.keys('permission-scan:*'))
+                await redis.del(key);
+        };
+        const permission = env.server.services.permission;
+        const check = vi.spyOn(permission, 'check');
+        const primaryRead = vi.spyOn(
+            env.server.stores.permission,
+            'listUserAppPermsFromPrimary',
+        );
+        try {
+            await redis.del(`${grants}:deleted`);
+            await redis.set(grants, JSON.stringify(beforeConsent), 'EX', 300);
+            await forgetScans();
+
+            await touch('stale-consent.txt');
+            // The delivery asked for the consent and was told no.
+            await waitUntil(async () => {
+                const asked = check.mock.calls.findIndex(
+                    ([, perm]) => perm === EVENTS_BACKGROUND_PERMISSION,
+                );
+                expect(asked).toBeGreaterThanOrEqual(0);
+                expect(await check.mock.results[asked].value).toBe(false);
+            });
+            // Long enough for a settle to have run, had one started.
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            expect(calls).toEqual([]);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(await pending().depth(subId)).toBe(1);
+            // Kept because the no was asked again past the caches.
+            expect(primaryRead).toHaveBeenCalled();
+        } finally {
+            check.mockRestore();
+            primaryRead.mockRestore();
+            await redis.del(grants);
+            await forgetScans();
+        }
+    });
+
+    it('defers instead of ending the row once the settle budget is spent', async () => {
+        const subId = await subscribe();
+        const { actor } = await env.server.services.auth.authenticate(
+            env.users.user.token,
+        );
+        const spent = vi
+            .spyOn(ConsentSettles.prototype, 'begin')
+            .mockReturnValue('spent');
+        const alarm = vi.spyOn(env.server.clients.alarm, 'create');
+        const primaryRead = vi.spyOn(
+            env.server.stores.permission,
+            'listUserAppPermsFromPrimary',
+        );
+
+        try {
+            await env.server.services.permission.revokeUserAppPermission(
+                actor!,
+                appUid,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
+            // As in the test above: undo the listener's settle so the
+            // delivery path is what meets the withdrawn consent.
+            await waitUntil(async () =>
+                expect(
+                    (await durable().getBySubId(subId))?.suspendedAt,
+                ).not.toBeNull(),
+            );
+            await env.server.clients.db.write(
+                'UPDATE `event_subscriptions` SET `suspended_at` = NULL, ' +
+                    '`suspended_reason` = NULL WHERE `sub_id` = ?',
+                [subId],
+            );
+            events().invalidateUser(userId);
+            await env.server.stores.eventSubscription.markRegionCold(userId);
+            await durable().warmRegion(userId);
+            primaryRead.mockClear();
+
+            await touch('over-budget.txt');
+
+            await waitUntil(() =>
+                expect(
+                    alarm.mock.calls.some(
+                        ([id]) => id === 'events_consent_settle_budget',
+                    ),
+                ).toBe(true),
+            );
+            // Long enough for a settle to have run, had one started.
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            expect(calls).toEqual([]);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(await pending().depth(subId)).toBe(1);
+            // Spent: not even the fresh read.
+            expect(primaryRead).not.toHaveBeenCalled();
+        } finally {
+            spent.mockRestore();
+            alarm.mockRestore();
+            primaryRead.mockRestore();
             await env.server.services.permission.grantUserAppPermission(
                 actor!,
                 appUid,
@@ -566,11 +788,7 @@ describe('what each answer does to the delivery', () => {
         // It counted: a refusal is still a handler that did not work. Counted
         // only once the marker is in, so it is also what says the answer was
         // handled — the depth alone reads 1 while the event is still leased.
-        await waitUntil(async () =>
-            expect(await env.server.clients.redis.get(`ev:qf:{${subId}}`)).toBe(
-                '1',
-            ),
-        );
+        await failuresRecorded(subId, 1);
 
         // The event is gone and a marker stands in its place, so the
         // subscription learns there was one rather than reading silence.
@@ -583,20 +801,67 @@ describe('what each answer does to the delivery', () => {
         });
     });
 
-    it('holds a 4xx with no handled marker for retry rather than dropping it', async () => {
+    it('holds a 4xx with no handled marker for retry, without counting it', async () => {
         // Nothing said this reached the script — an edge 404, a WAF — so it
-        // must not read as the handler's own refusal.
+        // is neither the handler's refusal nor its failure.
         answer = 404;
         answerHandled = false;
         const subId = await subscribe();
+        jump(0);
 
         await touch('unmarked.txt');
         await invoked(1);
 
-        await waitUntil(async () =>
-            expect(await heldForMs(subId)).toBeGreaterThan(0),
-        );
+        await heldForBackoff(subId);
         expect(await pending().depth(subId)).toBe(1);
+        expect(
+            await env.server.clients.redis.get(`ev:qf:{${subId}}`),
+        ).toBeNull();
+    });
+
+    it('does not count a run a Puter API failure ended, and waits as long as it asked', async () => {
+        answer = 500;
+        answerHeaders = {
+            'x-puter-events-error': 'platform-error',
+            'retry-after': '30',
+        };
+        const subId = await subscribe();
+        jump(0);
+
+        await touch('platform.txt');
+        await invoked(1);
+
+        await waitUntil(async () =>
+            expect(await heldForMs(subId)).toBe(30_000),
+        );
+        expect(
+            await env.server.clients.redis.get(`ev:qf:{${subId}}`),
+        ).toBeNull();
+    });
+
+    it('never suspends a subscription for Puter`s own failures', async () => {
+        answer = 502;
+        answerHandled = false;
+        const subId = await subscribe();
+        jump(0);
+
+        await touch('outage.txt');
+        for (
+            let attempt = 1;
+            attempt <= EVENTS_CONSECUTIVE_FAILURES + 1;
+            attempt++
+        ) {
+            await invoked(attempt);
+            await heldForBackoff(subId);
+            jump(deliveryBackoffMs(attempt) + 50);
+            await events().sweepPending();
+        }
+
+        await invoked(EVENTS_CONSECUTIVE_FAILURES + 2);
+        expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+        expect(
+            await env.server.clients.redis.get(`ev:qf:{${subId}}`),
+        ).toBeNull();
     });
 
     it('holds one it could not answer, for longer each time', async () => {
@@ -615,9 +880,7 @@ describe('what each answer does to the delivery', () => {
             attempt < EVENTS_CONSECUTIVE_FAILURES;
             attempt++
         ) {
-            await waitUntil(async () =>
-                expect(await heldForMs(subId)).toBeGreaterThan(0),
-            );
+            await failuresRecorded(subId, attempt);
             waits.push(await heldForMs(subId));
 
             // Nothing may take it while it is held.
@@ -653,7 +916,7 @@ describe('what each answer does to the delivery', () => {
             attempt < EVENTS_CONSECUTIVE_FAILURES;
             attempt++
         ) {
-            await invoked(attempt);
+            await failuresRecorded(subId, attempt);
             jump(deliveryBackoffMs(attempt) + 50);
             await events().sweepPending();
         }
@@ -677,9 +940,8 @@ describe('what each answer does to the delivery', () => {
         await invoked(1);
 
         // Still owed, and held rather than dropped: nobody said no.
-        await waitUntil(async () =>
-            expect(await heldForMs(subId)).toBeGreaterThan(0),
-        );
+        await failuresRecorded(subId, 1);
+        expect(await heldForMs(subId)).toBeGreaterThan(0);
         expect(await pending().depth(subId)).toBe(1);
         answer = 200;
     });
@@ -691,10 +953,69 @@ describe('what each answer does to the delivery', () => {
         await touch('busy.txt');
         await invoked(1);
 
-        await waitUntil(async () =>
-            expect(await heldForMs(subId)).toBeGreaterThan(0),
-        );
+        await failuresRecorded(subId, 1);
+        expect(await heldForMs(subId)).toBeGreaterThan(0);
         expect(await pending().depth(subId)).toBe(1);
+    });
+});
+
+describe('a broadcast delivery with a handler', () => {
+    it('runs the worker and sends the clients an unmarked copy', async () => {
+        const send = vi.spyOn(env.server.services.socket, 'send');
+        try {
+            await subscribeBroadcast();
+
+            await touch('broadcast.txt');
+            await invoked(1);
+
+            expect(calls).toHaveLength(1);
+            const copies = send.mock.calls.filter(
+                ([, channel]) => channel === 'events.delivery',
+            );
+            expect(copies.length).toBeGreaterThan(0);
+            for (const [, , envelope] of copies)
+                expect(
+                    (envelope as { skipHandler?: true }).skipHandler,
+                ).toBeUndefined();
+        } finally {
+            send.mockRestore();
+        }
+    });
+
+    it('marks the copy and calls no worker for an event as deep as the plan lets a chain go', async () => {
+        const send = vi.spyOn(env.server.services.socket, 'send');
+        try {
+            // Created before the subscription exists, so this write itself
+            // does not also dispatch at depth 0.
+            const path = `${anchor}/deep-broadcast.txt`;
+            await touch('deep-broadcast.txt');
+            await subscribeBroadcast();
+
+            const { actor } = await env.server.services.auth.authenticate(
+                env.users.user.token,
+            );
+            const plan =
+                await env.server.services.metering.getActorSubscription(actor!);
+            const maxDepth = limitFor(EVENTS_HANDLER_DEPTH, plan.id);
+            const entry =
+                (await env.server.stores.fsEntry.getEntryByPath(path))!;
+
+            await events().dispatchFs('fs.write.file', entry, {
+                handlerDepth: maxDepth,
+                ancestors: () => env.server.services.fs.getAncestorChain(path),
+            });
+
+            await waitUntil(() =>
+                expect(send).toHaveBeenCalledWith(
+                    expect.anything(),
+                    'events.delivery',
+                    expect.objectContaining({ skipHandler: true }),
+                ),
+            );
+            expect(calls).toEqual([]);
+        } finally {
+            send.mockRestore();
+        }
     });
 });
 
@@ -703,7 +1024,10 @@ describe('with no events worker to address', () => {
         const subId = await subscribe();
         // Unpublished after the fact: the app's set now hashes to nothing, so
         // there is no script to name and nowhere to send the delivery.
-        await env.server.stores.eventHandler.remove(appUid, HANDLER);
+        await env.server.stores.eventHandler.remove(
+            appHandlerScope(appUid),
+            HANDLER,
+        );
 
         try {
             await touch('unresolved.txt');
@@ -712,9 +1036,7 @@ describe('with no events worker to address', () => {
                 attempt < EVENTS_CONSECUTIVE_FAILURES;
                 attempt++
             ) {
-                await waitUntil(async () =>
-                    expect(await heldForMs(subId)).toBeGreaterThan(0),
-                );
+                await failuresRecorded(subId, attempt);
                 jump(deliveryBackoffMs(attempt) + 50);
                 await events().sweepPending();
             }
@@ -728,7 +1050,7 @@ describe('with no events worker to address', () => {
             expect(calls).toEqual([]);
         } finally {
             await env.server.stores.eventHandler.publish({
-                appUid,
+                scope: appHandlerScope(appUid),
                 name: HANDLER,
                 source: SOURCE,
             });
@@ -745,9 +1067,10 @@ describe('with no events worker to address', () => {
 
         try {
             await touch('suspended-owner.txt');
-            await waitUntil(async () =>
-                expect(await heldForMs(subId)).toBeGreaterThan(0),
-            );
+            // Not just the claim's lease: un-suspending the owner while the
+            // attempt is still in flight would let it address and call out.
+            await failuresRecorded(subId, 1);
+            expect(await heldForMs(subId)).toBeGreaterThan(0);
             expect(await pending().depth(subId)).toBe(1);
             // A suspended owner is nobody to address: nothing was called.
             expect(calls).toEqual([]);
@@ -905,6 +1228,32 @@ describe('deploying on a dispatcher miss', () => {
     });
 });
 
+describe('redeploying a script whose key rotated', () => {
+    it('redeploys it, settles on the retry, and counts nothing against the handler', async () => {
+        staleKey = true;
+        const createSpy = vi
+            .spyOn(env.server.drivers.workers, 'create')
+            .mockResolvedValue({ success: true, errors: [] });
+
+        try {
+            const subId = await subscribe();
+            await touch('rotated-key.txt');
+            await invoked(2);
+
+            expect(createSpy).toHaveBeenCalledTimes(1);
+            expect(calls[1].headers.deployed).toBe('1');
+            await waitUntil(async () =>
+                expect(await pending().depth(subId)).toBe(0),
+            );
+            expect(
+                await env.server.clients.redis.get(`ev:qf:{${subId}}`),
+            ).toBeNull();
+        } finally {
+            createSpy.mockRestore();
+        }
+    });
+});
+
 describe('handlers whose writes run handlers', () => {
     const callsFor = (forAppUid: string): StubCall[] =>
         calls.filter((call) => call.headers.app === forAppUid);
@@ -963,6 +1312,89 @@ describe('handlers whose writes run handlers', () => {
         expect(depthOf(second.body.token!)).toBe(2);
     });
 
+    describe('a token the handler mints with its own', () => {
+        const lifetimeOf = (token: string) =>
+            env.server.services.token.verify('auth', token) as {
+                iat: number;
+                exp?: number;
+            };
+
+        const mint = async (
+            token: string,
+            path: string,
+            body: Record<string, unknown>,
+        ): Promise<string> => {
+            const response = await fetch(new URL(path, env.apiOrigin), {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify(body),
+            });
+            expect(response.status).toBe(200);
+            const { token: minted } = (await response.json()) as {
+                token?: string;
+            };
+            expect(typeof minted).toBe('string');
+            return minted!;
+        };
+
+        it('keeps an app token for its own app as deep, and expiring with it', async () => {
+            const worker = await makeWorkerApp();
+            await subscribe(worker.appToken);
+
+            await touch('sign-first.txt');
+            const first = await nextCall(worker.appUid, 0);
+            const handlerToken = first.body.token!;
+            const minted = await mint(handlerToken, '/sign', {
+                app_uid: worker.appUid,
+                items: [{ path: `${anchor}/sign-first.txt` }],
+            });
+            expect(depthOf(minted)).toBe(1);
+            expect(lifetimeOf(minted).exp).toBe(lifetimeOf(handlerToken).exp);
+
+            await runWithContext({ actor: await actorOf(minted) }, () =>
+                touch('sign-second.txt'),
+            );
+            const second = await nextCall(worker.appUid, 1);
+            expect(depthOf(second.body.token!)).toBe(2);
+        });
+
+        it('keeps an access token as deep, at the lifetime asked for', async () => {
+            const worker = await makeWorkerApp();
+            await subscribe(worker.appToken);
+
+            await touch('access-first.txt');
+            const first = await nextCall(worker.appUid, 0);
+            const minted = await mint(
+                first.body.token!,
+                '/auth/create-access-token',
+                { permissions: [`fs:${anchorUid}:list`], expiresIn: '24h' },
+            );
+            expect(depthOf(minted)).toBe(1);
+            const { iat, exp } = lifetimeOf(minted);
+            expect(exp! - iat).toBe(24 * 60 * 60);
+
+            await runWithContext({ actor: await actorOf(minted) }, () =>
+                touch('access-second.txt'),
+            );
+            const second = await nextCall(worker.appUid, 1);
+            expect(depthOf(second.body.token!)).toBe(2);
+        });
+
+        it('leaves one minted outside a handler without a depth or an expiry', async () => {
+            const worker = await makeWorkerApp();
+            const minted = await mint(worker.appToken, '/sign', {
+                app_uid: worker.appUid,
+                items: [{ path: `${anchor}/outside.txt` }],
+            });
+            expect(depthOf(minted)).toBeUndefined();
+            expect(lifetimeOf(minted).exp).toBeUndefined();
+            expect((await actorOf(minted)).handlerDepth).toBeUndefined();
+        });
+    });
+
     it('runs no handler for an event as deep as the plan lets a chain go', async () => {
         const worker = await makeWorkerApp();
         const path = `${anchor}/deep.txt`;
@@ -974,8 +1406,7 @@ describe('handlers whose writes run handlers', () => {
         );
         const maxDepth = limitFor(EVENTS_HANDLER_DEPTH, plan.id);
         const entry = (await env.server.stores.fsEntry.getEntryByPath(path))!;
-        // Awaited end to end, queue and drain included, unlike a write's own
-        // fire-and-forget dispatch.
+        // Awaited until the event is queued; the drain runs on its own.
         const dispatchAt = (handlerDepth: number) =>
             events().dispatchFs('fs.write.file', entry, {
                 handlerDepth,
@@ -989,10 +1420,358 @@ describe('handlers whose writes run handlers', () => {
         await dispatchAt(maxDepth);
         // Dropped, not held for a retry that could never run, and not counted
         // as the handler failing.
+        await waitUntil(async () =>
+            expect(await pending().depth(subId)).toBe(0),
+        );
         expect(callsFor(worker.appUid)).toHaveLength(1);
-        expect(await pending().depth(subId)).toBe(0);
         await expect(
             env.server.clients.redis.get(`ev:qf:{${subId}}`),
         ).resolves.toBeNull();
+    });
+});
+
+describe('a handler in a user scope', () => {
+    const USER_SOURCE =
+        'async ({ event, ctx }) => { console.log("user", event.path, ctx.label); }';
+    const userName = `@${hashContent(USER_SOURCE)}`;
+    let holderUuid: string;
+    let createSpy: ReturnType<typeof vi.spyOn>;
+    let meterSpy: ReturnType<typeof vi.spyOn>;
+
+    const setFlag = (on: boolean): void => {
+        (
+            events() as unknown as { config: IConfig }
+        ).config.events!.userHandlers = on;
+    };
+    const userScope = () => ({ appUid, holder: userId });
+    const userScript = () =>
+        userHandlerScript(
+            { name: userName, sourceHash: hashContent(USER_SOURCE) },
+            '',
+        );
+
+    const post = async (path: string, body: object) => {
+        const response = await fetch(new URL(path, env.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${appToken}`,
+            },
+            body: JSON.stringify(body),
+        });
+        return {
+            status: response.status,
+            body: (await response.json()) as Record<string, unknown>,
+        };
+    };
+    /** A single-delivery row bound to a handler published by its own source. */
+    const inlineRow = async (source = USER_SOURCE): Promise<string> => {
+        const created = await post('/events/subscribe', {
+            subject: `fs:${anchor}`,
+            delivery: 'single',
+            handlerSource: source,
+            context: { label: 'user' },
+        });
+        expect(created.status).toBe(200);
+        return String(created.body.subId);
+    };
+    const invocationFor = (subId: string): WorkerInvocation => ({
+        subId,
+        holderUserId: userId,
+        appUid,
+        handlerName: userName,
+        handlerScope: 'user',
+        event: {
+            subject: 'schedule:s1',
+            op: 'tick',
+            id: 's1:1',
+            scheduleId: 's1',
+            scheduledFor: 1,
+            missed: 0,
+            attempt: 1,
+        },
+        context: null,
+        handlerDepth: 0,
+    });
+
+    beforeAll(async () => {
+        holderUuid = (await env.server.stores.user.getById(userId))!.uuid;
+    });
+    beforeEach(async () => {
+        setFlag(true);
+        await env.server.stores.eventHandler.deleteUserScope(appUid, userId);
+        // Eager and on-miss deploys have no deploy target in this suite.
+        createSpy = vi
+            .spyOn(env.server.drivers.workers, 'create')
+            .mockResolvedValue({ success: true, errors: [] });
+        meterSpy = vi.spyOn(
+            env.server.services.metering,
+            'bufferIncrementUsages',
+        );
+    });
+    afterEach(async () => {
+        createSpy.mockRestore();
+        meterSpy.mockRestore();
+        setFlag(false);
+        await env.server.stores.eventHandler.deleteUserScope(appUid, userId);
+    });
+
+    it('addresses the handler`s own script and names its holder', async () => {
+        const subId = await inlineRow();
+        await touch('user-scope.txt');
+        await invoked(1);
+
+        const call = calls[0];
+        expect(call.headers.script).toBe(userScript());
+        expect(call.headers.holder).toBe(holderUuid);
+        expect(call.headers.key).toBe(
+            eventsInvokeKey(INTERNAL_SECRET, userScript()),
+        );
+        expect(call.body.handler).toBe(userName);
+        await waitUntil(async () =>
+            expect(await pending().depth(subId)).toBe(0),
+        );
+    });
+
+    it('sends no holder for an app-scope row', async () => {
+        await subscribe();
+        await touch('app-scope.txt');
+        await invoked(1);
+        expect(calls[0].headers.holder).toBeUndefined();
+    });
+
+    it('keeps a user row and an app row of the same name on their own scope`s handler', async () => {
+        await env.server.stores.eventHandler.publish({
+            scope: userScope(),
+            name: HANDLER,
+            source: USER_SOURCE,
+        });
+        const created = await post('/events/subscribe', {
+            subject: `fs:${anchor}`,
+            delivery: 'single',
+            handlerName: HANDLER,
+            handlerScope: 'user',
+        });
+        expect(created.status).toBe(200);
+        await touch('same-name-user.txt');
+        await invoked(1);
+        // One at a time: a second row firing alongside would go as a batch.
+        expect(
+            (
+                await post('/events/unsubscribe', {
+                    subId: String(created.body.subId),
+                })
+            ).status,
+        ).toBe(200);
+        await subscribe();
+        await touch('same-name-app.txt');
+        await invoked(2);
+
+        const appScript = eventsWorkerScript(
+            handlerSetHash(
+                await env.server.stores.eventHandler.setForApp(
+                    appHandlerScope(appUid),
+                ),
+            ),
+            '',
+        );
+        const mine = userHandlerScript(
+            { name: HANDLER, sourceHash: hashContent(USER_SOURCE) },
+            '',
+        );
+        expect(mine).not.toBe(appScript);
+        expect(calls[0].headers).toMatchObject({
+            script: mine,
+            holder: holderUuid,
+        });
+        expect(calls[1].headers.script).toBe(appScript);
+        expect(calls[1].headers.holder).toBeUndefined();
+    });
+
+    it('suspends a row whose handler left its holder`s set, and tells the holder only', async () => {
+        const notify = vi.spyOn(env.server.services.notification, 'notify');
+        const subId = await inlineRow();
+        // Gone without the removal path that would suspend its rows.
+        await env.server.stores.eventHandler.deleteUserScope(appUid, userId);
+
+        await touch('missing.txt');
+        await waitUntil(async () =>
+            expect((await durable().getBySubId(subId))?.suspendedReason).toBe(
+                'handler_not_found',
+            ),
+        );
+        expect(calls).toEqual([]);
+        expect(notify).toHaveBeenCalledWith(
+            [userId],
+            expect.objectContaining({ handler: userName }),
+            expect.objectContaining({
+                type: 'app.events.handler_suspended',
+                appUid,
+            }),
+        );
+        expect(notify).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ type: 'app.events.suspended' }),
+        );
+        notify.mockRestore();
+    });
+
+    it('does not suspend a schedule run whose replica read lags the publish', async () => {
+        const subId = await inlineRow();
+        const store = env.server.stores.eventHandler;
+        const real = store.setForApp.bind(store);
+        // The replica has not seen the insert; the primary has.
+        const lagging = vi
+            .spyOn(store, 'setForApp')
+            .mockImplementation(async (scope, options) =>
+                options?.replica
+                    ? [{ name: 'other', sourceHash: 'a'.repeat(64) }]
+                    : real(scope, options),
+            );
+        try {
+            const result = await events().invokeForSchedule(
+                invocationFor(subId),
+            );
+            expect(result).toMatchObject({ outcome: 'settled' });
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(calls[0].headers.script).toBe(userScript());
+        } finally {
+            lagging.mockRestore();
+        }
+    });
+
+    it('reads a cold user scope from the replica only, once, for a delivery', async () => {
+        await inlineRow();
+        // Eager deploy at publish has finished with the primary by now.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const redis = env.server.clients.redis;
+        const key = `eventHandlers:uset:${appUid}:${userId}`;
+        await redis.del(key, `${key}:r`);
+        const db = env.server.clients.db;
+        const primary = vi.spyOn(db, 'pread');
+        const replica = vi.spyOn(db, 'read');
+        const handlerReads = (spy: typeof primary) =>
+            spy.mock.calls.filter(([sql]) =>
+                String(sql).includes('event_user_handlers'),
+            ).length;
+
+        await touch('cold-user-scope.txt');
+        await invoked(1);
+
+        expect(handlerReads(primary)).toBe(0);
+        expect(handlerReads(replica)).toBe(1);
+        primary.mockRestore();
+        replica.mockRestore();
+    });
+
+    it('resumes a suspended row when the name is published again', async () => {
+        const subId = await inlineRow();
+        await env.server.stores.eventHandler.deleteUserScope(appUid, userId);
+        await touch('gone.txt');
+        await waitUntil(async () =>
+            expect((await durable().getBySubId(subId))?.suspendedReason).toBe(
+                'handler_not_found',
+            ),
+        );
+
+        expect(
+            (
+                await post('/events/handlers/publish', {
+                    scope: 'user',
+                    name: userName,
+                    source: USER_SOURCE,
+                })
+            ).status,
+        ).toBe(200);
+        expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+    });
+
+    it('does not address a holder that is suspended, and leaves the row owed', async () => {
+        const subId = await inlineRow();
+        await env.server.clients.db.write(
+            'UPDATE user SET suspended = 1 WHERE id = ?',
+            [userId],
+        );
+        await env.server.stores.user.invalidateById(userId);
+        try {
+            await touch('suspended-holder.txt');
+            await failuresRecorded(subId, 1);
+            expect(calls).toEqual([]);
+            expect(await pending().depth(subId)).toBe(1);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+        } finally {
+            await env.server.clients.db.write(
+                'UPDATE user SET suspended = 0 WHERE id = ?',
+                [userId],
+            );
+            await env.server.stores.user.invalidateById(userId);
+        }
+    });
+
+    it('deploys the holder`s script on a dispatcher miss, as that holder', async () => {
+        dispatchMissing = true;
+        await inlineRow();
+        await touch('miss.txt');
+        await invoked(2);
+
+        expect(calls[0].headers.deployed).toBeUndefined();
+        expect(calls[1].headers.deployed).toBe('1');
+        // Once for the eager deploy at publish, once for the miss.
+        const deployed = createSpy.mock.calls.filter(
+            ([args]) =>
+                (args as { workerName: string }).workerName === userScript(),
+        );
+        expect(deployed.length).toBeGreaterThanOrEqual(1);
+    });
+
+    describe('with the flag off', () => {
+        it('leaves the delivery owed: nothing is called, suspended or billed', async () => {
+            const subId = await inlineRow();
+            setFlag(false);
+            meterSpy.mockClear();
+
+            await touch('flag-off.txt');
+            await new Promise((resolve) => setTimeout(resolve, 400));
+
+            expect(calls).toEqual([]);
+            expect(await pending().depth(subId)).toBe(1);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(meterSpy).not.toHaveBeenCalled();
+        });
+
+        it('answers unavailable from the invoker and for a schedule run', async () => {
+            const subId = await inlineRow();
+            setFlag(false);
+            const invocation = invocationFor(subId);
+
+            const worker = events().worker as unknown as {
+                run: (i: WorkerInvocation) => Promise<unknown>;
+            };
+            expect(await worker.run(invocation)).toEqual({
+                outcome: 'unavailable',
+            });
+            expect(await events().invokeForSchedule(invocation)).toEqual({
+                outcome: 'unavailable',
+            });
+            expect(calls).toEqual([]);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+        });
+
+        it('leaves an app-scope row alone', async () => {
+            setFlag(false);
+            await subscribe();
+            await touch('app-row-flag-off.txt');
+            await invoked(1);
+            expect(calls[0].headers.script).toMatch(/^evw-/);
+        });
+    });
+
+    it('runs a schedule invocation of a user scope with its holder', async () => {
+        const subId = await inlineRow();
+        const result = await events().invokeForSchedule(invocationFor(subId));
+        expect(result).toMatchObject({ outcome: 'settled' });
+        expect(calls[0].headers.script).toBe(userScript());
+        expect(calls[0].headers.holder).toBe(holderUuid);
     });
 });

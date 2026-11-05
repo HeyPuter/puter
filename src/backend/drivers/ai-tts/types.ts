@@ -68,4 +68,7 @@ export interface ITTSProvider {
 
     /** Synthesize speech from text. Returns a DriverStreamResult. */
     synthesize(args: ISynthesizeArgs): Promise<unknown>;
+
+    /** Per-unit metering costs, aggregated by the driver. */
+    getReportedCosts(): Record<string, unknown>[];
 }

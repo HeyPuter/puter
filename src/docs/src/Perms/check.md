@@ -20,13 +20,15 @@ puter.perms.check(requests)
 
 ## Parameters
 
-The same as [`puter.perms.request()`](/Perms/request/) — see the resource table there for what each one accepts. `create` is accepted and validated for signature symmetry, but `check()` never creates anything — it only ever reports whether access is already held. An invalid `create` value rejects with `{ message, code: 'invalid_argument' }`, the same as `request()`.
+The same as [`puter.perms.request()`](/Perms/request/). The resource table there lists what each one accepts, and the same `puter.perms.Resource` and `puter.perms.Access` constants work here. The `create` field is validated the same way, but `check()` never creates anything. It only reports whether access is already held. Invalid details reject with `{ message, code: 'invalid_argument' }`, the same as `request()`.
+
+For `'fs'`, access to a folder counts for everything inside it, so a check for a file inside a folder the app can already read answers `true`.
 
 ## Return value
 
 A `Promise` that resolves to `true` if the access is already granted, or `false` otherwise. The array form resolves to an array of booleans, in the order asked.
 
-Where a resource needs more than one permission — `'appData'` with several scopes, or `'permission'` with a list — the answer is `true` only when the whole set is granted. A partly-granted set answers `false`, since a prompt is still needed.
+Where a resource needs more than one permission, such as `'appData'` with several scopes, the answer is `true` only when the whole set is granted. A partly-granted set answers `false`, since a prompt is still needed.
 
 The promise rejects if the check itself cannot be made (for example when the caller isn't signed in). A failure is not reported as `false`: an app that couldn't tell the two apart would prompt someone who had already granted it.
 

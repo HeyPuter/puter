@@ -17,6 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { ScheduleServiceContract } from '../core/schedules.js';
+import type { TeamServiceContract } from '../core/teams.js';
+
 import type { puterClients } from '../clients';
 import type { IExtensionClientInstances } from '../clients/types';
 import type {
@@ -34,6 +37,10 @@ export interface IPuterServiceInstances {}
 
 /** Extension-augmentable service registry; see `IExtensionClientInstances`. */
 export interface IExtensionServiceInstances {
+    /** Teams ships separately; boot guarantees it when `teams_enabled` is on. */
+    team?: TeamServiceContract;
+    /** Schedules ship separately; without them their routes answer 503. */
+    schedules?: ScheduleServiceContract;
     [key: string]: unknown;
 }
 
@@ -62,7 +69,10 @@ export const PuterService = class PuterService implements WithLifecycle {
     public onServerStart() {
         return;
     }
-    public onServerPrepareShutdown() {
+    public onServerDrainStart(): Promise<void> | void {
+        return;
+    }
+    public onServerPrepareShutdown(): Promise<void> | void {
         return;
     }
     public onServerShutdown() {

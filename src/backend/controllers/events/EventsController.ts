@@ -17,14 +17,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Actor } from '../../core/actor.js';
 import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { bodyRecord } from '../../core/http/requestBody.js';
 import { DURABLE_LIST_LIMIT_CAP } from '../../stores/events/DurableSubscriptionStore.js';
 import { EVENTS_WORKERS_LIST_LIMIT_CAP } from '../../stores/events/EventHandlerStore.js';
 import { KV_HANDLE_LIST_LIMIT_CAP } from '../../stores/events/KvShareHandleStore.js';
+import {
+    SCHEDULE_LIST_LIMIT_CAP,
+    schedulesUnavailable,
+    type ScheduleServiceContract,
+} from '../../core/schedules.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
 import { EVENTS_WORKER_PREFIX } from '../../services/events/workerRuntime.js';
@@ -59,6 +64,8 @@ const EVENTS_SCRIPT_REGEX = new RegExp(`^${EVENTS_WORKER_PREFIX}[a-f0-9]{32}$`);
 
 /** Matches the edge dispatcher's own validation of the app uid it forwards. */
 const APP_UID_REGEX = /^app-[A-Za-z0-9_-]{1,64}$/;
+/** A user uuid. */
+const HOLDER_REGEX = /^[A-Za-z0-9-]{1,64}$/;
 
 @Controller('/events')
 export class EventsController extends PuterController {
@@ -75,7 +82,7 @@ export class EventsController extends PuterController {
         const actor = this.#requireActor(req);
         const { sub } = await this.services.events.subscribeDurable(
             actor,
-            this.#body(req),
+            bodyRecord(req),
         );
         res.json(sub);
     }
@@ -105,10 +112,30 @@ export class EventsController extends PuterController {
     }
 
     /**
+     * POST /events/subscriptions/update — replace one subscription's `context`
+     * in place. An id the caller does not hold reads as absent.
+     */
+    @Post('/subscriptions/update', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async update(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const { sub } = await this.services.events.updateDurable(
+            actor,
+            bodyRecord(req),
+        );
+        res.json(sub);
+    }
+
+    /**
      * GET /events/fetch — what the caller missed, one page at a time.
      *
      * Stateless: no subscription, no stored position, nothing written. The
-     * cursor comes back to the caller and goes out again as `after`.
+     * cursor comes back to the caller and goes out again as `cursor` (or
+     * `after`, the name it first shipped under). `from=end` with no cursor
+     * starts at the newest row instead of the oldest.
      */
     @Get('/fetch', {
         subdomain: 'api',
@@ -119,9 +146,17 @@ export class EventsController extends PuterController {
     async fetch(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         const query = (req.query ?? {}) as Record<string, unknown>;
+        const from = query.from as 'start' | 'end' | undefined;
+        if (from !== undefined && from !== 'start' && from !== 'end') {
+            throw new HttpError(400, '`from` must be `start` or `end`', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         const page = await this.services.events.fetchMissed(actor, {
             subject: typeof query.subject === 'string' ? query.subject : '',
+            from,
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
             after: typeof query.after === 'string' ? query.after : undefined,
             limit: normalizeLimit(query.limit, {
                 cap: EVENTS_FETCH_LIMIT_CAP,
@@ -145,15 +180,109 @@ export class EventsController extends PuterController {
     })
     async unsubscribe(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        await this.services.events.unsubscribeDurable(actor, this.#body(req));
+        await this.services.events.unsubscribeDurable(actor, bodyRecord(req));
         res.json({});
+    }
+
+    // -- Schedules ---------------------------------------------------
+    //
+    // An app's handler run on a timer, served by `services.schedules` when a
+    // server has it and answered `events_disabled` when it doesn't. Creating
+    // one needs an app context; listing, reading and removing are scoped the
+    // way the durable verbs are. The create and remove verbs spend the
+    // subscribe and unsubscribe budgets in the service, shared with those
+    // verbs.
+
+    #schedules(): ScheduleServiceContract {
+        const schedules = this.services.schedules;
+        if (!schedules) throw schedulesUnavailable();
+        return schedules;
+    }
+
+    /** POST /events/schedules — create a schedule for the calling app. */
+    @Post('/schedules', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async createSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(await this.#schedules().createFor(actor, bodyRecord(req)));
+    }
+
+    /** GET /events/schedules — the caller's schedules, one page at a time. */
+    @Get('/schedules', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_LIST_LIMIT,
+    })
+    async listSchedules(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = (req.query ?? {}) as Record<string, unknown>;
+
+        const page = await this.#schedules().list(actor, {
+            limit: normalizeLimit(query.limit, {
+                cap: SCHEDULE_LIST_LIMIT_CAP,
+            }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
+
+        res.json({
+            items: page.items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
+
+    @Post('/schedules/update', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async updateSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const { scheduleId, changes } = bodyRecord(req);
+        res.json(await this.#schedules().update(actor, scheduleId, changes));
+    }
+
+    /**
+     * POST /events/schedules/remove — end one schedule. An id the caller does
+     * not hold reads as absent.
+     */
+    @Post('/schedules/remove', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async removeSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        await this.#schedules().remove(actor, bodyRecord(req).scheduleId);
+        res.json({});
+    }
+
+    /**
+     * GET /events/schedules/:scheduleId — one schedule, ended or not. An id the
+     * caller does not hold reads as absent.
+     */
+    @Get('/schedules/:scheduleId', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_LIST_LIMIT,
+    })
+    async getSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(await this.#schedules().get(actor, req.params.scheduleId));
     }
 
     // -- Cross-user key-value handles --------------------------------
 
     /**
-     * POST /events/kv-handles — hand another user a watchable region of this
-     * account's key-value data.
+     * POST /events/kv-handles — hand another user a region of this account's
+     * key-value data, `watch` unless the body asks for more. The older name for
+     * `POST /kv/shares`, keeping its own body and response shapes.
      *
      * An account session, or an app session holding a `manage:` delegation on
      * the region — the service tells those apart and gates each rather than the
@@ -165,12 +294,32 @@ export class EventsController extends PuterController {
         subdomain: 'api',
         requireAuth: true,
         allowAccessToken: true,
+        requireVerified: true,
     })
     async mintKvHandle(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        res.json(
-            await this.services.events.mintKvHandle(actor, this.#body(req)),
+        const body = bodyRecord(req);
+        const share = await this.services.kvShare.mintKvHandle(
+            actor,
+            {
+                prefix: body.prefix,
+                recipient: {
+                    username:
+                        typeof body.granteeUsername === 'string'
+                            ? body.granteeUsername
+                            : undefined,
+                    uid:
+                        typeof body.granteeUid === 'string'
+                            ? body.granteeUid
+                            : undefined,
+                },
+                access: body.access,
+                appUid: body.appUid,
+            },
+            // Callers of this route mint again to get the same handle back.
+            { defaultAccess: 'watch', keepLevelUnlessNamed: true },
         );
+        res.json({ handle: share.handle, prefix: share.prefix });
     }
 
     /**
@@ -187,7 +336,7 @@ export class EventsController extends PuterController {
         const actor = this.#requireActor(req);
         const query = (req.query ?? {}) as Record<string, unknown>;
 
-        const page = await this.services.events.listKvHandles(actor, {
+        const page = await this.services.kvShare.listKvHandles(actor, {
             limit: normalizeLimit(query.limit, {
                 cap: KV_HANDLE_LIST_LIMIT_CAP,
             }),
@@ -196,7 +345,10 @@ export class EventsController extends PuterController {
         });
 
         res.json({
-            items: page.items,
+            items: page.items.map(({ holderUsername, ...row }) => ({
+                ...row,
+                granteeUsername: holderUsername,
+            })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
             ...(page.total !== undefined ? { total: page.total } : {}),
         });
@@ -215,7 +367,10 @@ export class EventsController extends PuterController {
     async revokeKvHandle(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         res.json(
-            await this.services.events.revokeKvHandle(actor, req.params.handle),
+            await this.services.kvShare.revokeKvHandle(
+                actor,
+                req.params.handle,
+            ),
         );
     }
 
@@ -234,7 +389,7 @@ export class EventsController extends PuterController {
     async publishHandler(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         res.json(
-            await this.services.events.publishHandler(actor, this.#body(req)),
+            await this.services.events.publishHandler(actor, bodyRecord(req)),
         );
     }
 
@@ -249,7 +404,7 @@ export class EventsController extends PuterController {
         res.json({
             handlers: await this.services.events.publishHandlers(
                 actor,
-                this.#body(req),
+                bodyRecord(req),
             ),
         });
     }
@@ -268,6 +423,7 @@ export class EventsController extends PuterController {
             handlers: await this.services.events.listHandlers(actor, {
                 appUid:
                     typeof query.appUid === 'string' ? query.appUid : undefined,
+                scope: query.scope,
             }),
         });
     }
@@ -281,7 +437,7 @@ export class EventsController extends PuterController {
     async removeHandler(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         res.json(
-            await this.services.events.removeHandler(actor, this.#body(req)),
+            await this.services.events.removeHandler(actor, bodyRecord(req)),
         );
     }
 
@@ -333,7 +489,7 @@ export class EventsController extends PuterController {
         res.json(
             await this.services.events.destroyEventsWorker(
                 actor,
-                this.#body(req),
+                bodyRecord(req),
             ),
         );
     }
@@ -346,6 +502,7 @@ export class EventsController extends PuterController {
      */
     @Post('/worker/rehydrate', {
         subdomain: 'api',
+        internalAuth: (config) => config.events?.internalSecret,
         // The shared secret is what gates this route, so the limit is only a
         // guessing-rate bound — hence per-IP and deliberately high. The caller
         // fans in from every edge location behind a small set of egress
@@ -358,12 +515,20 @@ export class EventsController extends PuterController {
         },
     })
     async rehydrateWorker(req: Request, res: Response): Promise<void> {
-        this.#requireInternalAuth(req);
-        const body = this.#body(req);
+        const body = bodyRecord(req);
         const script = String(body.script ?? '');
         const appUid = String(body.appUid ?? '');
         if (!EVENTS_SCRIPT_REGEX.test(script) || !APP_UID_REGEX.test(appUid))
             throw new HttpError(400, 'Missing or invalid `script`/`appUid`', {
+                legacyCode: 'bad_request',
+            });
+        // Absent or empty is the app's own scope.
+        const holder = body.holder === undefined ? '' : body.holder;
+        if (
+            typeof holder !== 'string' ||
+            !(holder === '' || HOLDER_REGEX.test(holder))
+        )
+            throw new HttpError(400, 'Invalid `holder`', {
                 legacyCode: 'bad_request',
             });
 
@@ -373,15 +538,25 @@ export class EventsController extends PuterController {
             return;
         }
 
-        const outcome = await deployer.ensure(appUid, script);
+        const scope = await deployer.scopeFor(appUid, holder);
+        if (!scope) {
+            res.status(404).json({ deployed: false, reason: 'no-holder' });
+            return;
+        }
+
+        const outcome = await deployer.ensure(scope, script);
         if (outcome === 'deployed') {
             res.json({ deployed: true });
             return;
         }
-        // `failed` and `throttled` are worth another attempt: the rest say
-        // this script is not what the app's handlers currently are.
+        // `failed`, `throttled` and `busy` are worth another attempt: the rest
+        // say this script is not what the app's handlers currently are.
         res.status(
-            outcome === 'failed' || outcome === 'throttled' ? 502 : 404,
+            outcome === 'failed' ||
+                outcome === 'throttled' ||
+                outcome === 'busy'
+                ? 502
+                : 404,
         ).json({
             deployed: false,
             reason: outcome,
@@ -402,14 +577,22 @@ export class EventsController extends PuterController {
     override onServerStart(): void {
         const deployer = this.#eventsWorkerDeployer();
         if (!deployer.enabled) return;
+        this.services.events.useEagerDeploy((scope, script) =>
+            deployer.deployEagerly(scope, script),
+        );
         if (this.config.workers?.localServer) {
             this.services.events.useWorkerTransport(
                 new LocalEventsInvokeTransport(this.services, deployer),
             );
             return;
         }
-        this.services.events.useWorkerMissHandler((appUid, script) =>
-            deployer.ensure(appUid, script),
+        this.services.events.useWorkerMissHandler(
+            async (appUid, script, options) => {
+                const scope = await deployer.scopeFor(appUid, options.holder);
+                return scope
+                    ? deployer.ensure(scope, script, options)
+                    : 'no-holder';
+            },
         );
     }
 
@@ -426,25 +609,6 @@ export class EventsController extends PuterController {
         return this.#deployer;
     }
 
-    /**
-     * Constant-time, so the secret cannot be recovered a byte at a time.
-     * Compares Buffer byte lengths, not string lengths — a string length
-     * compares UTF-16 code units, which can differ from the byte length
-     * `timingSafeEqual` actually requires to match.
-     */
-    #requireInternalAuth(req: Request): void {
-        const expected = Buffer.from(this.config.events?.internalSecret ?? '');
-        const offered = Buffer.from(
-            String(req.headers['x-puter-internal-auth'] ?? ''),
-        );
-        const ok =
-            expected.length > 0 &&
-            expected.length === offered.length &&
-            timingSafeEqual(expected, offered);
-        if (!ok)
-            throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
-    }
-
     #requireActor(req: Request): Actor {
         const actor = req.actor;
         if (!actor?.user)
@@ -452,14 +616,5 @@ export class EventsController extends PuterController {
                 legacyCode: 'unauthorized',
             });
         return actor;
-    }
-
-    #body(req: Request): Record<string, unknown> {
-        const body = req.body;
-        if (!body || typeof body !== 'object' || Array.isArray(body))
-            throw new HttpError(400, 'body must be an object', {
-                legacyCode: 'bad_request',
-            });
-        return body as Record<string, unknown>;
     }
 }

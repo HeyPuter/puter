@@ -30,7 +30,8 @@
  */
 
 import crypto from 'node:crypto';
-import { Readable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
+import { finished } from 'node:stream/promises';
 import type { Request, Response } from 'express';
 import {
     afterAll,
@@ -45,7 +46,7 @@ import {
 import type { Actor } from '../../core/actor.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import { PuterServer } from '../../server.js';
-import { setupTestServer } from '../../testUtil.js';
+import { inRequestScope, setupTestServer } from '../../testUtil.js';
 import { PuterAIController } from './PuterAIController.js';
 
 let server: PuterServer;
@@ -53,7 +54,9 @@ let controller: PuterAIController;
 
 beforeAll(async () => {
     server = await setupTestServer();
-    controller = server.controllers.puterAi as unknown as PuterAIController;
+    controller = inRequestScope(
+        server.controllers.puterAi as unknown as PuterAIController,
+    );
 });
 
 afterAll(async () => {
@@ -195,15 +198,12 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
                     text: { verbosity: 'low' },
                     include: ['file_search_call.results'],
                     metadata: { trace: 'abc' },
-                    conversation: 'conv_1',
                     context_management: [{ type: 'compaction' }],
-                    previous_response_id: 'resp_prev',
-                    prompt: { id: 'p_1' },
                     prompt_cache_key: 'ck',
                     prompt_cache_retention: '24h',
+                    prompt_cache_options: { ttl: '12h', prewarm: true },
                     store: true,
                     truncation: 'auto',
-                    background: false,
                     service_tier: 'default',
                 },
             }),
@@ -213,7 +213,9 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
         const args = completeSpy.mock.calls[0]![0] as Record<string, unknown>;
         expect(args).toMatchObject({
             model: 'gpt-test',
-            tool_choice: 'auto',
+            // Normalized by toolChoiceFromBody (the wire-shape mapper), not
+            // forwarded raw.
+            tool_choice: { type: 'auto' },
             parallel_tool_calls: true,
             temperature: 0.2,
             max_tokens: 512,
@@ -222,15 +224,15 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
             text: { verbosity: 'low' },
             include: ['file_search_call.results'],
             metadata: { trace: 'abc' },
-            conversation: 'conv_1',
             context_management: [{ type: 'compaction' }],
-            previous_response_id: 'resp_prev',
-            prompt: { id: 'p_1' },
             prompt_cache_key: 'ck',
             prompt_cache_retention: '24h',
-            store: true,
+            // Forwarded as sent; the provider keeps only the fields it
+            // accepts.
+            prompt_cache_options: { ttl: '12h', prewarm: true },
+            // forced false regardless of the client's request.
+            store: false,
             truncation: 'auto',
-            background: false,
             service_tier: 'default',
             provider: 'openai-responses',
         });
@@ -258,7 +260,6 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
                     tool_choice: 'required',
                     parallel_tool_calls: true,
                     max_output_tokens: 512,
-                    previous_response_id: 'resp_prev',
                     store: false,
                     text: { verbosity: 'low' },
                     truncation: 'disabled',
@@ -285,7 +286,6 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
             tool_choice: 'required',
             parallel_tool_calls: true,
             max_output_tokens: 512,
-            previous_response_id: 'resp_prev',
             store: false,
             text: { verbosity: 'low' },
             truncation: 'disabled',
@@ -313,10 +313,12 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
         expect(body.temperature).toBeNull();
         expect(body.top_p).toBeNull();
         expect(body.tool_choice).toBe('auto');
-        expect(body.parallel_tool_calls).toBe(false);
+        // The OpenAI routes default parallel tool use on.
+        expect(body.parallel_tool_calls).toBe(true);
         expect(body.tools).toEqual([]);
         expect('max_output_tokens' in body).toBe(false);
-        expect('store' in body).toBe(false);
+        // always present and false, regardless of the request.
+        expect(body.store).toBe(false);
         expect(body.output).toEqual([]);
         expect(body.output_text).toBe('');
     });
@@ -361,13 +363,18 @@ describe('PuterAIController.openaiResponses input normalization', () => {
                 role: 'user',
                 content: [
                     'a bare string part',
-                    { type: 'input_text', text: 'typed text' },
+                    {
+                        type: 'input_text',
+                        text: 'typed text',
+                        prompt_cache_breakpoint: { mode: 'explicit', ttl: '12h' },
+                    },
                     { type: 'output_text', text: 'echoed text' },
                     {
                         type: 'input_image',
                         detail: 'high',
                         image_url: 'https://img.test/a.png',
                         file_id: 'file_img',
+                        prompt_cache_breakpoint: { mode: 'explicit' },
                     },
                     { type: 'input_audio', input_audio: { data: 'AAA' } },
                     {
@@ -388,13 +395,18 @@ describe('PuterAIController.openaiResponses input normalization', () => {
                 role: 'user',
                 content: [
                     { type: 'text', text: 'a bare string part' },
-                    { type: 'text', text: 'typed text' },
+                    {
+                        type: 'text',
+                        text: 'typed text',
+                        prompt_cache_breakpoint: { mode: 'explicit', ttl: '12h' },
+                    },
                     { type: 'text', text: 'echoed text' },
                     {
                         type: 'image_url',
                         detail: 'high',
                         image_url: { url: 'https://img.test/a.png' },
                         file_id: 'file_img',
+                        prompt_cache_breakpoint: { mode: 'explicit' },
                     },
                     { type: 'input_audio', input_audio: { data: 'AAA' } },
                     {
@@ -529,6 +541,16 @@ describe('PuterAIController.openaiResponses output items', () => {
                 cached_tokens: 3,
                 output_tokens_details: { reasoning_tokens: 2 },
             },
+            // `UsageDetails.inputTokens` excludes cache reads (Anthropic
+            // convention); `responsesUsage` adds them back for OpenAI's
+            // `input_tokens`, which includes the cached slice — so this
+            // nets out to the expected input_tokens: 10 below.
+            usageDetails: {
+                inputTokens: 7,
+                outputTokens: 4,
+                cacheReadTokens: 3,
+                reasoningTokens: 2,
+            },
         });
 
         const { res, captured } = makeRes();
@@ -583,6 +605,12 @@ describe('PuterAIController.openaiResponses output items', () => {
                 output_tokens: 2,
                 input_tokens_details: { cached_tokens: 5 },
             },
+            // See the `inputTokens` note in the test above.
+            usageDetails: {
+                inputTokens: 3,
+                outputTokens: 2,
+                cacheReadTokens: 5,
+            },
         });
 
         const { res, captured } = makeRes();
@@ -625,6 +653,33 @@ describe('PuterAIController.openaiResponses output items', () => {
 // -- /openai/v1/chat/completions edges -------------------------------
 
 describe('PuterAIController.openaiChatCompletions translation edges', () => {
+    it('forwards the prompt-cache fields to the driver', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'ok' },
+        });
+
+        const { res } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    prompt_cache_key: 'ck',
+                    prompt_cache_retention: 'in_memory',
+                    prompt_cache_options: { ttl: '30m' },
+                },
+            }),
+            res,
+        );
+
+        const args = completeSpy.mock.calls[0]![0] as Record<string, unknown>;
+        expect(args).toMatchObject({
+            prompt_cache_key: 'ck',
+            prompt_cache_retention: 'in_memory',
+            prompt_cache_options: { ttl: '30m' },
+        });
+    });
+
     it('derives tool_calls from tool_use content blocks when the message has none', async () => {
         stubChatComplete({
             message: {
@@ -681,6 +736,37 @@ describe('PuterAIController.openaiChatCompletions translation edges', () => {
         });
     });
 
+    it('maps a native tool_use stop to finish_reason=tool_calls, not the wire-level stop', async () => {
+        stubChatComplete({
+            message: {
+                role: 'assistant',
+                content: [
+                    { type: 'tool_use', id: 'tu_1', name: 'lookup', input: {} },
+                ],
+                stop_reason: 'tool_use',
+            },
+            // A native Claude result always reports `stop` here — the real
+            // reason is read off `message.stop_reason` instead.
+            finish_reason: 'stop',
+        });
+
+        const { res, captured } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+            }),
+            res,
+        );
+
+        const choice = (
+            captured.body as { choices: Array<Record<string, unknown>> }
+        ).choices[0]!;
+        expect(choice.finish_reason).toBe('tool_calls');
+    });
+
     it('omits tool_calls entirely when no content part is a tool_use', async () => {
         stubChatComplete({
             message: {
@@ -710,6 +796,7 @@ describe('PuterAIController.openaiChatCompletions translation edges', () => {
         stubChatComplete({
             message: { content: { text: 'object content' } },
             usage: { input_tokens: 11, output_tokens: 5 },
+            usageDetails: { inputTokens: 11, outputTokens: 5 },
         });
 
         const { res, captured } = makeRes();
@@ -729,6 +816,7 @@ describe('PuterAIController.openaiChatCompletions translation edges', () => {
             prompt_tokens: 11,
             completion_tokens: 5,
             total_tokens: 16,
+            prompt_tokens_details: { cached_tokens: 0 },
         });
         const choice = (body.choices as Array<Record<string, unknown>>)[0]!;
         // A missing role defaults to assistant; `{ text }` content is read.
@@ -842,6 +930,7 @@ describe('PuterAIController.openaiChatCompletions translation edges', () => {
                 {
                     type: 'usage',
                     usage: { prompt_tokens: 3, completion_tokens: 1 },
+                    usageDetails: { inputTokens: 3, outputTokens: 1 },
                 },
             ]),
         );
@@ -891,8 +980,48 @@ describe('PuterAIController.openaiChatCompletions translation edges', () => {
             prompt_tokens: 3,
             completion_tokens: 1,
             total_tokens: 4,
+            prompt_tokens_details: { cached_tokens: 0 },
         });
         expect(captured.ended).toBe(true);
+    });
+
+    it('promotes an explicit finish_reason=stop to tool_calls when the run emitted tool calls', async () => {
+        stubChatComplete(
+            streamResult([
+                {
+                    type: 'tool_use',
+                    id: 'tu_1',
+                    name: 'lookup',
+                    input: { q: 1 },
+                },
+                {
+                    type: 'usage',
+                    usage: { prompt_tokens: 3, completion_tokens: 1 },
+                    finish_reason: 'stop',
+                },
+            ]),
+        );
+
+        const { res, captured } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    stream: true,
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+            }),
+            res,
+        );
+        await settleStream();
+
+        const frames = captured.written
+            .join('')
+            .split('\n\n')
+            .filter((f) => f.startsWith('data: ') && !f.includes('[DONE]'))
+            .map((f) => JSON.parse(f.slice(6)));
+        const last = frames[frames.length - 1]!;
+        expect(last.choices[0].finish_reason).toBe('tool_calls');
     });
 
     it('emits a stream_error frame then [DONE] when the source stream fails', async () => {
@@ -1028,6 +1157,28 @@ describe('PuterAIController.openaiCompletions translation edges', () => {
                 .choices[0],
         ).toMatchObject({ text: 'trimmed', finish_reason: 'length' });
     });
+
+    it('maps a native max_tokens stop to finish_reason=length', async () => {
+        stubChatComplete({
+            message: {
+                role: 'assistant',
+                content: 'trimmed',
+                stop_reason: 'max_tokens',
+            },
+            finish_reason: 'stop',
+        });
+
+        const { res, captured } = makeRes();
+        await controller.openaiCompletions(
+            makeReq({ body: { model: 'gpt-test', prompt: 'hi' } }),
+            res,
+        );
+
+        expect(
+            (captured.body as { choices: Array<Record<string, unknown>> })
+                .choices[0],
+        ).toMatchObject({ finish_reason: 'length' });
+    });
 });
 
 // -- /anthropic/v1/messages edges ------------------------------------
@@ -1074,32 +1225,23 @@ describe('PuterAIController.anthropicMessages translation edges', () => {
             compaction: true,
             provider: 'claude-alt',
         });
+        // Shape only at the controller — tools pass through exactly as given;
+        // wrapping/policy is ClaudeProvider's job (`normalize_tools_object`).
         expect(args.tools).toEqual([
             {
                 type: 'function',
                 function: { name: 'already', parameters: {} },
             },
             {
-                type: 'function',
-                function: {
-                    name: 'shorthand',
-                    description: '',
-                    parameters: { type: 'object' },
-                },
+                name: 'shorthand',
+                input_schema: { type: 'object' },
             },
-            {
-                type: 'function',
-                function: {
-                    name: 'bare',
-                    description: '',
-                    parameters: { type: 'object', properties: {} },
-                },
-            },
+            { name: 'bare' },
             null,
         ]);
     });
 
-    it('omits tools entirely for an empty tools array', async () => {
+    it('forwards an empty tools array unchanged', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'ok' },
         });
@@ -1116,10 +1258,29 @@ describe('PuterAIController.anthropicMessages translation edges', () => {
             res,
         );
 
-        expect('tools' in completeSpy.mock.calls[0]![0]).toBe(false);
+        expect(completeSpy.mock.calls[0]![0].tools).toEqual([]);
     });
 
-    it('drops a system array that yields no text and skips non-object messages', async () => {
+    it('rejects a system block with no recognized shape (400)', async () => {
+        const { res } = makeRes();
+        await expect(
+            controller.anthropicMessages(
+                makeReq({
+                    body: {
+                        model: 'claude-test',
+                        system: [{ notText: true }],
+                        messages: [{ role: 'user', content: 'hi' }],
+                    },
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'system.0: unsupported block type',
+        });
+    });
+
+    it('skips non-object top-level messages', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'ok' },
         });
@@ -1129,7 +1290,6 @@ describe('PuterAIController.anthropicMessages translation edges', () => {
             makeReq({
                 body: {
                     model: 'claude-test',
-                    system: [{ notText: true }],
                     messages: [null, 'nope', { role: 'user', content: 'hi' }],
                 },
             }),
@@ -1163,38 +1323,36 @@ describe('PuterAIController.anthropicMessages translation edges', () => {
         ).toEqual([{ role: 'user', content: 'hi' }]);
     });
 
-    it('keeps non-tool_result parts alongside hoisted tool results', async () => {
+    it('passes a user message mixing text and tool_result parts through unchanged', async () => {
         const completeSpy = stubChatComplete({
             message: { role: 'assistant', content: 'ok' },
         });
+        const userMessage = {
+            role: 'user',
+            content: [
+                { type: 'text', text: 'and also' },
+                {
+                    type: 'tool_result',
+                    tool_use_id: 'tu_1',
+                    content: [
+                        { type: 'text', text: 'part-a' },
+                        'part-b',
+                    ],
+                },
+                {
+                    type: 'tool_result',
+                    tool_use_id: 'tu_2',
+                    content: 42,
+                },
+            ],
+        };
 
         const { res } = makeRes();
         await controller.anthropicMessages(
             makeReq({
                 body: {
                     model: 'claude-test',
-                    messages: [
-                        {
-                            role: 'user',
-                            content: [
-                                { type: 'text', text: 'and also' },
-                                {
-                                    type: 'tool_result',
-                                    tool_use_id: 'tu_1',
-                                    content: [
-                                        { type: 'text', text: 'part-a' },
-                                        'part-b',
-                                        { notText: true },
-                                    ],
-                                },
-                                {
-                                    type: 'tool_result',
-                                    tool_use_id: 'tu_2',
-                                    content: 42,
-                                },
-                            ],
-                        },
-                    ],
+                    messages: [userMessage],
                 },
             }),
             res,
@@ -1202,11 +1360,33 @@ describe('PuterAIController.anthropicMessages translation edges', () => {
 
         expect(
             (completeSpy.mock.calls[0]![0] as { messages: unknown[] }).messages,
-        ).toEqual([
-            { role: 'user', content: [{ type: 'text', text: 'and also' }] },
-            { role: 'tool', tool_call_id: 'tu_1', content: 'part-apart-b' },
-            { role: 'tool', tool_call_id: 'tu_2', content: '' },
-        ]);
+        ).toEqual([userMessage]);
+    });
+
+    it('rejects an unrecognized block nested in a tool_result content array', async () => {
+        const { res } = makeRes();
+        await expect(
+            controller.anthropicMessages(
+                makeReq({
+                    body: {
+                        model: 'claude-test',
+                        messages: [
+                            {
+                                role: 'user',
+                                content: [
+                                    {
+                                        type: 'tool_result',
+                                        tool_use_id: 'tu_1',
+                                        content: [{ notText: true }],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                }),
+                res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('leaves an assistant array message untouched', async () => {
@@ -1268,7 +1448,7 @@ describe('PuterAIController.anthropicMessages translation edges', () => {
             { type: 'tool_use', id: 'c4', name: '', input: {} },
         ]);
         expect(body.stop_reason).toBe('tool_use');
-        expect(body.usage).toEqual({ input_tokens: 3, output_tokens: 1 });
+        expect(body.usage).toMatchObject({ input_tokens: 3, output_tokens: 1 });
     });
 
     it('parses a string `input` on a tool_use content block', async () => {
@@ -1299,8 +1479,9 @@ describe('PuterAIController.anthropicMessages translation edges', () => {
             res,
         );
 
+        // Native block-array content preserves original order — unlike the
+        // old OpenAI-shaped reordering, text does not move to the front.
         expect((captured.body as { content: unknown[] }).content).toEqual([
-            { type: 'text', text: 'trailing' },
             {
                 type: 'tool_use',
                 id: 'tu_1',
@@ -1308,6 +1489,7 @@ describe('PuterAIController.anthropicMessages translation edges', () => {
                 input: { q: 'puter' },
             },
             { type: 'tool_use', id: 'tu_2', name: 'bad', input: {} },
+            { type: 'text', text: 'trailing' },
         ]);
     });
 
@@ -1328,7 +1510,7 @@ describe('PuterAIController.anthropicMessages translation edges', () => {
             res,
         );
 
-        expect((captured.body as { usage: unknown }).usage).toEqual({
+        expect((captured.body as { usage: unknown }).usage).toMatchObject({
             input_tokens: 9,
             output_tokens: 4,
         });
@@ -1390,25 +1572,34 @@ describe('PuterAIController videoProxy upstream handling', () => {
             } as unknown as Response);
 
             const handler = captureGet('/puterai/video/proxy');
-            const { res, captured } = makeRes();
+            // The body is piped, so the response has to be a real stream.
             const sink: Buffer[] = [];
-            (res as unknown as Record<string, unknown>).write = (
-                chunk: Buffer,
-            ) => {
-                sink.push(Buffer.from(chunk));
-                return true;
-            };
-            (res as unknown as Record<string, unknown>).emit = () => true;
+            const headers: Record<string, string> = {};
+            const res = Object.assign(
+                new Writable({
+                    write(chunk: Buffer, _enc, cb) {
+                        sink.push(Buffer.from(chunk));
+                        cb();
+                    },
+                }),
+                {
+                    setHeader: (k: string, v: string) => {
+                        headers[k] = v;
+                    },
+                },
+            ) as unknown as Response;
 
             await handler(makeReq({ query: signedQuery('vid1') }), res);
-            await settleStream();
+            await finished(res as unknown as Writable);
 
             expect(fetchSpy).toHaveBeenCalledWith(
                 expect.stringContaining(
                     'vid1:download?alt=media&key=gemini-test-key',
                 ),
+                { signal: expect.any(AbortSignal) },
             );
-            expect(captured.headers['Content-Type']).toBe('video/mp4');
+            expect(headers['Content-Type']).toBe('video/mp4');
+            expect(Buffer.concat(sink).toString('utf8')).toBe('video-bytes');
         });
     });
 

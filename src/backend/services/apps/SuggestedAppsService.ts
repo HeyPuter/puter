@@ -18,8 +18,7 @@
  */
 
 import { posix as pathPosix } from 'node:path';
-import type { AppIconHostConfig } from '../../util/appIcon.js';
-import { getAppIconCdnUrl, getAppIconUrl } from '../../util/appIcon.js';
+import { toAppSummary } from '../../util/appView.js';
 import { hostedIndexUrlBackingIsUnavailable } from '../../util/hostedAppBacking.js';
 import { PuterService } from '../types.js';
 
@@ -320,29 +319,8 @@ export class SuggestedAppsService extends PuterService {
 
         return candidates
             .filter((_app, index) => !availability[index])
-            .map((app) => toAppSummary(app, apiBaseUrl, this.config));
+            .map((app) =>
+                toAppSummary(app, { apiBaseUrl, config: this.config }),
+            );
     }
-}
-
-function toAppSummary(
-    app: Record<string, unknown>,
-    apiBaseUrl: string | undefined,
-    config: AppIconHostConfig,
-): Record<string, unknown> {
-    return {
-        uuid: app.uid,
-        name: app.name,
-        title: app.title,
-        icon: getAppIconUrl(app, { apiBaseUrl }) ?? app.icon ?? null,
-        // Direct subdomain URL for the client to try before `icon`.
-        iconCdnUrl: getAppIconCdnUrl(app, config),
-        godmode: Boolean(app.godmode),
-        maximize_on_start: Boolean(app.maximize_on_start),
-        index_url: app.index_url,
-        // The GUI launches straight from this summary as `app_obj` (no
-        // re-read through AppDriver), so any launch-relevant flag omitted
-        // here silently disappears on those paths — e.g. the dashboard
-        // drawer's feedback control renders off this.
-        feedback_enabled: Boolean(app.feedback_enabled),
-    };
 }

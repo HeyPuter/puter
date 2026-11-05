@@ -182,7 +182,12 @@ export async function fsRequest (spec) {
             }
         }, rejectWithPrompt);
 
-        xhr.send(body === undefined ? undefined : JSON.stringify(body));
+        const buildBody = () => body === undefined ? undefined : JSON.stringify({
+            ...body,
+            ...(Object.hasOwn(body, 'auth_token') ? { auth_token: this.authToken } : {}),
+        });
+        if (xhr._puterReq) xhr._puterReq.buildBody = buildBody;
+        xhr.send(buildBody());
     });
 }
 

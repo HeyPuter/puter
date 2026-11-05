@@ -64,6 +64,9 @@ export interface FSEntry {
 export const hasNoBackingS3Object = (entry: FSEntry): boolean =>
     (entry.size ?? 0) === 0 && entry.bucket === null;
 
+/** A node and the directories above it that exist, deepest first. */
+export type AncestorChain = Array<{ uid: string; path: string }>;
+
 export interface FSEntrySubdomain {
     uuid: string;
     address: string; // `${config.protocol}://${subdomain}.${'puter.site'|'puter.work'}` depending on wether dir or file

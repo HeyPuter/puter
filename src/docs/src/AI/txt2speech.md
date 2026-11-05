@@ -20,7 +20,7 @@ puter.ai.txt2speech(text, language, voice, engine, testMode = false)
 
 #### `text` (String) (required)
 
-A string containing the text you want to convert to speech. The text must be less than 3000 characters long. Defaults to AWS Polly provider when no options are provided.
+A string containing the text you want to convert to speech. The text can be up to 3,000 characters long. Longer text is rejected with an `input_too_large` error. Defaults to AWS Polly provider when no options are provided.
 
 #### `testMode` (Boolean) (optional)
 
@@ -32,12 +32,20 @@ Additional settings for the generation request. Available options depend on the 
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `provider` | `String` | TTS provider to use. `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, `'speechify'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`, `'simba'`, …) are also accepted; anything else is rejected with a `bad_request` error |
-| `model` | `String` | Model identifier (provider-specific) |
+| `provider` | `String` | TTS provider to use. One of `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, `'speechify'`, or `'kling'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`, `'simba'`, …) are also accepted; anything else is rejected with a `bad_request` error |
 | `voice` | `String` | Voice ID used for synthesis (provider-specific) |
+| `model` | `String` | Model identifier (provider-specific) |
 | `test_mode` | `Boolean` | When `true`, returns a sample audio without using credits |
 
-#### AWS Polly Options
+Some models accept additional options or handle these options differently. See [Model-specific features](#model-specific-features).
+
+## Return value
+
+A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points at a blob or remote URL containing the synthesized audio.
+
+## Model-specific features
+
+### AWS Polly models
 
 Available when `provider: 'aws-polly'` (default):
 
@@ -48,45 +56,53 @@ Available when `provider: 'aws-polly'` (default):
 | `language` | `String` | Language code. Defaults to `'en-US'`. See [supported languages](https://docs.aws.amazon.com/polly/latest/dg/supported-languages.html) |
 | `ssml` | `Boolean` | When `true`, text is treated as SSML markup |
 
-#### OpenAI Options
+AWS Polly ignores `model`. Use `engine` to choose the synthesis engine.
+
+### OpenAI models
 
 Available when `provider: 'openai'`:
 
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | TTS model. Available: `'gpt-4o-mini-tts'` (default), `'tts-1'`, `'tts-1-hd'` |
-| `voice` | `String` | Voice ID. Available: `'alloy'` (default), `'ash'`, `'ballad'`, `'coral'`, `'echo'`, `'fable'`, `'nova'`, `'onyx'`, `'sage'`, `'shimmer'` |
+| `voice` | `String` | Voice ID. Available: `'alloy'` (default), `'ash'`, `'coral'`, `'echo'`, `'fable'`, `'nova'`, `'onyx'`, `'sage'`, `'shimmer'`; `gpt-4o-mini-tts` also offers `'ballad'`, `'verse'`, `'marin'`, and `'cedar'` (other models reject them with `bad_request`) |
 | `response_format` | `String` | Output format. Available: `'mp3'` (default), `'wav'`, `'opus'`, `'aac'`, `'flac'`, `'pcm'` |
 | `instructions` | `String` | Additional guidance for voice style (tone, speed, mood, etc.) |
 
 For more details about each option, see the [OpenAI TTS API reference](https://platform.openai.com/docs/api-reference/audio/createSpeech).
 
-#### ElevenLabs Options
+### ElevenLabs models
 
 Available when `provider: 'elevenlabs'`:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | TTS model. Available: `'eleven_multilingual_v2'` (default), `'eleven_flash_v2_5'`, `'eleven_turbo_v2_5'`, `'eleven_v3'` |
-| `voice` | `String` | Voice ID. Defaults to `'21m00Tcm4TlvDq8ikWAM'` (Rachel sample voice) |
-| `output_format` | `String` | Output format. Defaults to `'mp3_44100_128'` |
+| `model` | `String` | TTS model. Available: `'eleven_multilingual_v2'` (default), `'eleven_v4'`, `'eleven_v4_turbo'`, `'eleven_v3'`, `'eleven_v3_conversational'`, `'eleven_flash_v2_5'`, `'eleven_flash_v2'` |
+| `voice` | `String` | Voice ID, or a case-sensitive voice name from `listVoices({ provider: 'elevenlabs' })`. Premade voices also match their short name, so `'Bella'` selects `'Bella - Professional, Bright, Warm'`. Defaults to `'21m00Tcm4TlvDq8ikWAM'` |
+| `output_format` | `String` | Output format as `codec_samplerate[_bitrate]`: `'mp3_22050_32'`, `'mp3_24000_48'`, `'mp3_44100_32'`, `'mp3_44100_64'`, `'mp3_44100_96'`, `'mp3_44100_128'` (default), `'mp3_44100_192'`, `'opus_48000_32'` through `'opus_48000_192'`, `'pcm_8000'` through `'pcm_48000'`, `'wav_8000'` through `'wav_48000'`, `'ulaw_8000'`, or `'alaw_8000'`. The `response_format` option is accepted as a fallback; the short names `'mp3'`, `'opus'`, `'pcm'`, and `'wav'` map to `'mp3_44100_128'`, `'opus_48000_128'`, `'pcm_24000'`, and `'wav_24000'`. See [ElevenLabs output formats](https://elevenlabs.io/docs/api-reference/text-to-speech/convert). |
 | `voice_settings` | `Object` | Voice tuning options (stability, similarity boost, speed) |
+
+Unknown voices and names matching multiple voices are rejected with HTTP 400 (`field_invalid`). Use a voice ID when names are ambiguous. An unsupported `output_format` is also rejected with HTTP 400 (`field_invalid`) before any credits are reserved.
 
 For more details about each option, see the [ElevenLabs API reference](https://elevenlabs.io/docs/api-reference/text-to-speech).
 
-#### Gemini Options
+### Gemini models
 
 Available when `provider: 'gemini'`:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | TTS model. Available: `'gemini-2.5-flash-preview-tts'` (default), `'gemini-2.5-pro-preview-tts'`, `'gemini-3.1-flash-tts-preview'` |
+| `model` | `String` | TTS model. Available: `'gemini-3.8-flash-tts'` (default), `'gemini-3.8-flash-lite-tts'` |
 | `voice` | `String` | Voice name. Defaults to `'Kore'`. Available: `'Zephyr'`, `'Puck'`, `'Charon'`, `'Kore'`, `'Fenrir'`, `'Leda'`, `'Orus'`, `'Aoede'`, `'Callirrhoe'`, `'Autonoe'`, `'Enceladus'`, `'Iapetus'`, `'Umbriel'`, `'Algieba'`, `'Despina'`, `'Erinome'`, `'Algenib'`, `'Rasalgethi'`, `'Laomedeia'`, `'Achernar'`, `'Alnilam'`, `'Schedar'`, `'Gacrux'`, `'Pulcherrima'`, `'Achird'`, `'Zubenelgenubi'`, `'Vindemiatrix'`, `'Sadachbia'`, `'Sadaltager'`, `'Sulafat'` |
-| `instructions` | `String` | Natural language instructions to control speaking style (tone, speed, mood, etc.) |
+| `instructions` | `String` | Natural language instructions to control speaking style (tone, speed, mood, etc.), up to 3,000 characters |
 
-For more details about Gemini TTS, see the [Google Gemini TTS documentation](https://ai.google.dev/gemini-api/docs/text-to-speech).
+Gemini generates speech from the `text` field. The `instructions` string isn't included in the generated audio. It guides delivery (tone, pacing, accent, emotion). Instructions count toward input tokens. Longer instructions are rejected with an `input_too_large` error. Audio is returned as WAV.
 
-#### xAI (Grok) Options
+A Gemini request is charged for the tokens Gemini reports, even when it fails or returns no audio. If Gemini returns audio without reporting its token usage, the request fails with an `upstream_failed` error.
+
+For more details about Gemini TTS, see the [Google Gemini speech generation documentation](https://ai.google.dev/gemini-api/docs/speech-generation).
+
+### xAI (Grok) models
 
 Available when `provider: 'xai'`:
 
@@ -100,25 +116,34 @@ Text supports inline speech tags like `[pause]`, `[laugh]` and wrapping tags lik
 
 For more details, see the [xAI TTS documentation](https://x.ai/news/grok-stt-and-tts-apis).
 
-#### Speechify Options
+### Speechify models
 
 Available when `provider: 'speechify'`:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | `String` | TTS model. Available: `'simba-3.2'` (default), `'simba-english'`, `'simba-multilingual'` |
+| `model` | `String` | TTS model. Available: `'simba-3.2'` (default) |
 | `voice` | `String` | Voice ID. Available: `'geffen_32'` (default), `'dominic_32'`, `'harper_32'`, `'hugh_32'`, `'imogen_32'` |
 | `output_format` | `String` | Output format. Available: `'mp3'` (default), `'wav'`, `'ogg'`, `'aac'` |
 
 For more details, see the [Speechify API documentation](https://docs.speechify.ai/).
 
-## Return value
+### Kling models
 
-A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points at a blob or remote URL containing the synthesized audio.
+Available when `provider: 'kling'`. Kling speaks English and Chinese, and each voice speaks one or both. The text can be up to 1,000 characters. Each request costs $0.007, whatever its length, and returns MP3 audio.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | TTS model. Available: `'kling-tts'` (default) |
+| `voice` | `String` | Voice ID. Defaults to `'oversea_male1'`. [`txt2speech.listVoices({ provider: 'kling' })`](/AI/txt2speech.listVoices/) lists every voice, with its first language as `language` and all of its languages in `labels.languages` |
+| `language` | `String` | Either `'en'` or `'zh'`. A region suffix such as `'en-US'` is ignored. Defaults to the voice's first language. A language the voice doesn't speak is rejected with `field_invalid` |
+| `voice_settings` | `Object` | Only `speed` is read: a number from `0.8` to `2.0`. Defaults to `1.0` |
+
+For more details, see the [Kling TTS API reference](https://kling.ai/document-api/api/video/avatar/text-to-speech).
 
 ## Examples
 
-<strong class="example-title">Convert text to speech (Shorthand)</strong>
+### Convert text to speech (Shorthand)
 
 ```html;ai-txt2speech
 <html>
@@ -136,7 +161,7 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
 </html>
 ```
 
-<strong class="example-title">Convert text to speech using options</strong>
+### Convert text to speech using options
 
 ```html;ai-txt2speech-options
 <html>
@@ -158,7 +183,7 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
 </html>
 ```
 
-<strong class="example-title">Use OpenAI voices</strong>
+### Use OpenAI voices
 
 ```html;ai-txt2speech-openai
 <html>
@@ -184,7 +209,7 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
 </html>
 ```
 
-<strong class="example-title">Use ElevenLabs voices</strong>
+### Use ElevenLabs voices
 
 ```html;ai-txt2speech-elevenlabs
 <html>
@@ -209,7 +234,7 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
 </html>
 ```
 
-<strong class="example-title">Use Gemini voices</strong>
+### Use Gemini voices
 
 ```html;ai-txt2speech-gemini
 <html>
@@ -222,7 +247,7 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
                 "Hello! This sample uses the Gemini Puck voice.",
                 {
                     provider: "gemini",
-                    model: "gemini-2.5-flash-preview-tts",
+                    model: "gemini-3.8-flash-tts",
                     voice: "Puck",
                     instructions: "Speak in a friendly, upbeat tone."
                 }
@@ -234,7 +259,7 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
 </html>
 ```
 
-<strong class="example-title">Use xAI (Grok) voices</strong>
+### Use xAI (Grok) voices
 
 ```html;ai-txt2speech-xai
 <html>
@@ -258,7 +283,7 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
 </html>
 ```
 
-<strong class="example-title">Use Speechify voices</strong>
+### Use Speechify voices
 
 ```html;ai-txt2speech-speechify
 <html>
@@ -282,7 +307,7 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
 </html>
 ```
 
-<strong class="example-title">Compare different engines</strong>
+### Compare different engines
 
 ```html;ai-txt2speech-engines
 <html>

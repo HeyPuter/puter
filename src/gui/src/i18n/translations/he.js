@@ -26,7 +26,7 @@ const he = {
         account: 'חשבון',
         account_password: 'אמת את סיסמת החשבון',
         access_granted_to: 'ניתנת גישה ל',
-        add_existing_account: 'הוספת חשבון קיים',
+        add_another_account: 'הוספת חשבון נוסף',
         all_fields_required: 'כל השדות הם שדות חובה.',
         allow: 'להרשות',
         apply: 'ביצוע',

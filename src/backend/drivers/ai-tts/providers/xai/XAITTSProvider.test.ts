@@ -41,9 +41,14 @@ import {
 } from 'vitest';
 
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    callerError,
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { XAITTSProvider } from './XAITTSProvider.js';
 import { XAI_TTS_COSTS } from './costs.js';
 
@@ -51,7 +56,7 @@ import { XAI_TTS_COSTS } from './costs.js';
 
 let server: PuterServer;
 let fetchSpy: MockInstance<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -62,15 +67,19 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as `TTSDriver` hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(server.services.metering, server.clients.event, 'ai-tts');
+
 const makeProvider = () =>
-    new XAITTSProvider(server.services.metering, { apiKey: 'test-key' });
+    new XAITTSProvider(aiMetering(), { apiKey: 'test-key' });
 
 const audioResponse = (body = 'audio-bytes', contentType = 'audio/mpeg') =>
     new Response(body, { status: 200, headers: { 'content-type': contentType } });
 
 beforeEach(() => {
     fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -84,7 +93,7 @@ describe('XAITTSProvider construction', () => {
     it('throws when no apiKey is supplied', () => {
         expect(
             () =>
-                new XAITTSProvider(server.services.metering, {
+                new XAITTSProvider(aiMetering(), {
                     apiKey: '',
                 }),
         ).toThrow(/API key/i);
@@ -106,15 +115,18 @@ describe('XAITTSProvider catalog', () => {
         }
     });
 
-    it('listEngines reports a single xai-tts engine with pricing_per_million_chars', async () => {
+    it('listEngines reports a single xai-tts engine priced in dollars per 1M chars', async () => {
         const provider = makeProvider();
         const engines = await provider.listEngines();
         expect(engines).toHaveLength(1);
         expect(engines[0]).toMatchObject({
             id: 'xai-tts',
             provider: 'xai',
-            pricing_per_million_chars: 1500,
+            pricing_per_million_chars: 15,
         });
+        expect(engines[0].pricing_per_million_chars).toBe(
+            XAI_TTS_COSTS['xai-tts'] / 100,
+        );
     });
 });
 
@@ -148,7 +160,7 @@ describe('XAITTSProvider.synthesize test_mode', () => {
             url: 'https://puter-sample-data.puter.site/tts_example.mp3',
             content_type: 'audio',
         });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 });
@@ -183,7 +195,7 @@ describe('XAITTSProvider.synthesize argument validation', () => {
 describe('XAITTSProvider.synthesize credit gate', () => {
     it('throws 402 BEFORE hitting xAI when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withTestActor(() => provider.synthesize({ text: 'hi' })),
@@ -205,6 +217,7 @@ describe('XAITTSProvider.synthesize request shape', () => {
         expect(String(url)).toBe('https://api.x.ai/v1/tts');
         const initObj = init as RequestInit;
         expect(initObj.method).toBe('POST');
+        expect(initObj.signal).toBeInstanceOf(AbortSignal);
         expect((initObj.headers as Record<string, string>).Authorization).toBe(
             'Bearer test-key',
         );
@@ -302,7 +315,9 @@ describe('XAITTSProvider.synthesize metering', () => {
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
         const text = 'hello world';
-        await withTestActor(() => provider.synthesize({ text }));
+        await readStreamResult(
+            await withTestActor(() => provider.synthesize({ text })),
+        );
 
         const expectedCost = XAI_TTS_COSTS['xai-tts'] * text.length;
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
@@ -312,7 +327,7 @@ describe('XAITTSProvider.synthesize metering', () => {
         expect(cost).toBe(expectedCost);
     });
 
-    it('asks for hasEnoughCredits with the same total it later meters', async () => {
+    it('reserves the same total it later meters', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
@@ -320,7 +335,7 @@ describe('XAITTSProvider.synthesize metering', () => {
         await withTestActor(() => provider.synthesize({ text }));
 
         const expectedCost = XAI_TTS_COSTS['xai-tts'] * text.length;
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(expectedCost);
+        expect(admitSpy.mock.calls[0]![1]).toBe(expectedCost);
     });
 });
 
@@ -333,9 +348,9 @@ describe('XAITTSProvider.synthesize error paths', () => {
             new Response('bad request', { status: 400 }),
         );
 
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_bad_request',
         });
@@ -348,13 +363,29 @@ describe('XAITTSProvider.synthesize error paths', () => {
             new Response('oops', { status: 503 }),
         );
 
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
             statusCode: 400,
             legacyCode: 'upstream_provider_unavailable',
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('names xAI in the fields of an upstream auth failure', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(
+            new Response('{"error":"Invalid API key"}', { status: 401 }),
+        );
+
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+            message: 'Invalid API key',
+            fields: { provider: 'xai', upstreamStatus: 401 },
+        });
     });
 
     it('maps upstream 429 to HttpError 429 upstream_rate_limited', async () => {
@@ -363,9 +394,9 @@ describe('XAITTSProvider.synthesize error paths', () => {
             new Response('slow down', { status: 429 }),
         );
 
-        await expect(
-            withTestActor(() => provider.synthesize({ text: 'hi' })),
-        ).rejects.toMatchObject({
+        expect(
+            await callerError(() => provider.synthesize({ text: 'hi' })),
+        ).toMatchObject({
             statusCode: 429,
             legacyCode: 'upstream_rate_limited',
         });

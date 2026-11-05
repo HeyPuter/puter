@@ -27,7 +27,6 @@
     "test": "vitest run --config vitest.config.js",
     "start:gui": "nodemon --exec \"node dev-server.js\" ",
     "build": "node ./build.js",
-    "check-translations": "node tools/check-translations.js",
     "start-webpack": "webpack --watch --devtool source-map --stats=errors-only"
   },
   "workspaces": [

@@ -33,7 +33,7 @@ const es = {
         account: 'Cuenta',
         account_password: 'Verifica Contraseña De La Cuenta',
         access_granted_to: 'Acceso Permitido A',
-        add_existing_account: 'Añadir una cuenta existente',
+        add_another_account: 'Añadir otra cuenta',
         all_fields_required: 'Todos los campos son obligatorios.',
         allow: 'Permitir',
         apply: 'Aplicar',

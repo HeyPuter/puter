@@ -62,7 +62,7 @@ beforeEach(() => {
     let n = 0;
     window.uuidv4 = () => `uuid-${++n}`;
     window.get_apps = async (name) => apps.get(name) ?? [];
-    globalThis.puter = { logger: { fields: () => ({ warn () {} }) } };
+    globalThis.puter = { apps: { get: async (name) => apps.get(name.toLowerCase() === 'old-privileged' ? 'privileged' : name.toLowerCase()) }, logger: { fields: () => ({ warn () {} }) } };
 });
 
 afterEach(() => {
@@ -81,6 +81,15 @@ describe('ExecService.launchApp godmode gate', () => {
                 { ipc_context: { caller: { app: {}, process: callerProcess('ordinary') } } },
             ),
         ).rejects.toThrow(/not allowed/);
+        expect(launchSpy).not.toHaveBeenCalled();
+    });
+
+    it.each(['PRIVILEGED', 'old-privileged'])('refuses a privileged target resolved from %s', async (name) => {
+        const svc = await makeService();
+        apps.set('privileged', { name: 'privileged', uid: 'app-privileged', godmode: true });
+        await expect(svc.launchApp({ app_name: name }, {
+            ipc_context: { caller: { app: {}, process: callerProcess('ordinary') } },
+        })).rejects.toThrow(/not allowed/);
         expect(launchSpy).not.toHaveBeenCalled();
     });
 

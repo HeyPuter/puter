@@ -1,0 +1,29 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="go">Share a draft with my team</button>
+    <script>
+        document.getElementById('go').addEventListener('click', async () => {
+            const [team] = await puter.teams.list();
+            if (!team) {
+                puter.print('You are not on a team.');
+                return;
+            }
+
+            await puter.fs.write('drafts/proposal.md', '# Proposal', {
+                createMissingParents: true,
+            });
+
+            try {
+                // Anyone added to the team later gets access too.
+                const [share] = await puter.fs.share(
+                    'drafts/proposal.md', { team: team.uid }, 'write',
+                );
+                puter.print(`Shared with ${team.name ?? team.handle} as ${share.mode}`);
+            } catch (e) {
+                puter.print(`Could not share: ${e.code ?? e.message}`);
+            }
+        });
+    </script>
+</body>
+</html>

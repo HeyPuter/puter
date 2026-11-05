@@ -23,12 +23,15 @@ import {
     afterAll,
     afterEach,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
+import { runWithContext } from '../../core/context.js';
+import { FULL_API_ACCESS } from '../permission/consts.js';
 import type { PuterServer } from '../../server.js';
 import {
     allocateEphemeralPort,
@@ -36,13 +39,18 @@ import {
     setupTestServer,
     type TestUserCredentials,
 } from '../../testUtil.js';
+import { ORG_SEAT_FREE } from '../../data/subPolicies/orgSeatFreePolicy.js';
 import type { AuthResult } from '../auth/AuthService.js';
 import type { UploadProgressTrackerLike } from '../fs/types.js';
 import {
     accountSocketRoom,
     buildSocketReauthError,
     decideSocketAuth,
+    ackRoom,
+    COUNT_OTHERS_EVENT,
+    handshakeAcks,
     socketRoomsFor,
+    steadyServerCount,
     SocketService,
     type SocketReauthError,
 } from './SocketService.js';
@@ -133,6 +141,36 @@ describe('decideSocketAuth', () => {
         expect(decision.reject.message).toMatch(/only user tokens/);
     });
 
+    it('accepts a full-access token — the account acting as itself', () => {
+        const pat = makeActor({
+            user: { id: 1, uuid: 'u-1', username: 'u' },
+            accessToken: {
+                uid: 'tok-full',
+                issuer: { user: { id: 1, uuid: 'u-1', username: 'u' } },
+                authorized: null,
+                fullAccess: true,
+            },
+        });
+        expect(decideSocketAuth({ actor: pat } as AuthResult)).toEqual({
+            accept: pat,
+        });
+    });
+
+    it('rejects a full-access claim on a token with an app in its chain', () => {
+        const issuedByApp = makeActor({
+            user: { id: 1, uuid: 'u-1', username: 'u' },
+            accessToken: {
+                uid: 'tok-full-app',
+                issuer: appActor,
+                authorized: null,
+                fullAccess: true,
+            },
+        });
+        const decision = decideSocketAuth({ actor: issuedByApp } as AuthResult);
+        if (!('reject' in decision)) throw new Error('expected reject');
+        expect(decision.reject.message).toMatch(/only user tokens/);
+    });
+
     it('keeps rejecting an access-token actor where app sockets are allowed', () => {
         // Including one an app issued: the allowance is for app-under-user
         // credentials, not for anything that resolves to an app.
@@ -157,7 +195,10 @@ describe('decideSocketAuth', () => {
     it('applies the account gates to an admitted app actor', () => {
         const decision = decideSocketAuth(
             {
-                actor: { ...appActor, user: { ...appActor.user, suspended: 1 } },
+                actor: {
+                    ...appActor,
+                    user: { ...appActor.user, suspended: 1 },
+                },
             } as unknown as AuthResult,
             { allowAppActors: true },
         );
@@ -221,6 +262,20 @@ describe('socketRoomsFor', () => {
         ).toEqual(['7', accountSocketRoom(7)]);
     });
 
+    it('gives an access token a room of its own to be revoked by', () => {
+        const rooms = socketRoomsFor(
+            makeActor({
+                user: { id: 7, uuid: 'u-7', username: 'u' },
+                accessToken: {
+                    uid: 'tok-9',
+                    issuer: { user: { id: 7, uuid: 'u-7', username: 'u' } },
+                    fullAccess: true,
+                },
+            }),
+        );
+        expect(rooms).toEqual(['7', accountSocketRoom(7), 'tok:tok-9']);
+    });
+
     it('keeps an app out of the user room and in its own', () => {
         const rooms = socketRoomsFor(
             makeActor({
@@ -234,6 +289,32 @@ describe('socketRoomsFor', () => {
 });
 
 // -- Live socket.io integration --------------------------------------
+
+describe('handshakeAcks', () => {
+    it('keeps the event names a client lists', () => {
+        expect(handshakeAcks(['notif.message', 'other'])).toEqual([
+            'notif.message',
+            'other',
+        ]);
+    });
+
+    it('drops anything that is not a short non-empty string', () => {
+        expect(
+            handshakeAcks(['ok', '', 7, null, { a: 1 }, 'x'.repeat(65)]),
+        ).toEqual(['ok']);
+    });
+
+    it('reads nothing from a value that is not a list', () => {
+        expect(handshakeAcks(undefined)).toEqual([]);
+        expect(handshakeAcks('notif.message')).toEqual([]);
+        expect(handshakeAcks({ 0: 'notif.message' })).toEqual([]);
+    });
+
+    it('takes at most 16 names', () => {
+        const many = Array.from({ length: 20 }, (_, i) => `e${i}`);
+        expect(handshakeAcks(many)).toEqual(many.slice(0, 16));
+    });
+});
 
 describe('SocketService (live socket.io)', () => {
     let server: PuterServer;
@@ -298,12 +379,53 @@ describe('SocketService (live socket.io)', () => {
         await expect(connect({ auth_token: 'not-a-token' })).rejects.toThrow();
     });
 
-    it('rejects an app-scoped credential — sockets take user tokens only', async () => {
-        // A full-access API token is an access-token actor, which the socket
-        // handshake refuses even though it authenticates fine over HTTP.
-        await expect(connect({ auth_token: user.apiToken })).rejects.toThrow(
+    it('rejects a scoped access token — sockets take user tokens only', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row as never });
+        const scoped = await runWithContext({ actor }, () =>
+            server.services.auth.createAccessToken(actor, [
+                ['service:foo:ii:read'],
+            ]),
+        );
+
+        await expect(connect({ auth_token: scoped })).rejects.toThrow(
             /only user tokens/,
         );
+    });
+
+    it('accepts a full-access token into the user room', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const userId = row!.id;
+
+        const socket = await connect({ auth_token: user.apiToken });
+        expect(socket.connected).toBe(true);
+        expect(socketService.has({ room: String(userId) })).toBe(true);
+        socket.disconnect();
+    });
+
+    it('drops a revoked token`s socket and leaves the session`s alone', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row as never });
+        const doomed = await runWithContext({ actor }, () =>
+            server.services.auth.createAccessToken(actor, [[FULL_API_ACCESS]], {
+                label: 'revoke-probe',
+            }),
+        );
+
+        const tokenSocket = await connect({ auth_token: doomed });
+        const sessionSocket = await connect({ auth_token: user.token });
+        expect(tokenSocket.connected).toBe(true);
+        expect(sessionSocket.connected).toBe(true);
+
+        await runWithContext({ actor }, () =>
+            server.services.auth.revokeAccessToken(actor, doomed),
+        );
+
+        await vi.waitFor(() => expect(tokenSocket.connected).toBe(false), {
+            timeout: 5000,
+        });
+        expect(sessionSocket.connected).toBe(true);
+        sessionSocket.disconnect();
     });
 
     it('rejects an app-under-user token while events are off', async () => {
@@ -401,6 +523,145 @@ describe('SocketService (live socket.io)', () => {
 
         tabA.disconnect();
         tabB.disconnect();
+    });
+
+    describe('askWithAck where the adapter cannot count servers', () => {
+        const userIdOf = async () =>
+            (await server.stores.user.getByUsername(user.username))!.id;
+
+        const closeAll = async (userId: number, sockets: ClientSocket[]) => {
+            for (const socket of sockets) socket.disconnect();
+            await vi.waitFor(() =>
+                expect(socketService.has({ room: userId })).toBe(false),
+            );
+        };
+
+        it('asks each socket that declared it, and says another is there', async () => {
+            const userId = await userIdOf();
+            const acking = await connect({
+                auth_token: user.token,
+                acks: ['demo.ack'],
+            });
+            const plain = await connect({ auth_token: user.token });
+            acking.on('demo.ack', (data: unknown, ack: (r: unknown) => void) =>
+                ack({ got: data }),
+            );
+            const plainGot = vi.fn();
+            plain.on('demo.ack', plainGot);
+
+            const asked = await socketService.askWithAck(
+                { room: userId },
+                'demo.ack',
+                { n: 1 },
+                { timeoutMs: 2_000 },
+            );
+
+            expect(asked).toEqual({
+                responses: [{ got: { n: 1 } }],
+                timedOut: false,
+                others: true,
+                complete: false,
+            });
+            expect(plainGot).not.toHaveBeenCalled();
+            await closeAll(userId, [acking, plain]);
+        });
+
+        it('times out with the acknowledgements that did arrive', async () => {
+            const userId = await userIdOf();
+            const answers = await connect({
+                auth_token: user.token,
+                acks: ['demo.ack'],
+            });
+            const silent = await connect({
+                auth_token: user.token,
+                acks: ['demo.ack'],
+            });
+            answers.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                ack('here'),
+            );
+            const silentGot = new Promise<unknown>((resolve) =>
+                silent.once('demo.ack', resolve),
+            );
+
+            const started = Date.now();
+            const asked = await socketService.askWithAck(
+                { room: userId },
+                'demo.ack',
+                { n: 2 },
+                { timeoutMs: 300 },
+            );
+
+            expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+            expect(asked).toEqual({
+                responses: ['here'],
+                timedOut: true,
+                others: false,
+                complete: false,
+            });
+            expect(await silentGot).toEqual({ n: 2 });
+            await closeAll(userId, [answers, silent]);
+        });
+
+        it('returns at once when no socket acknowledges the event', async () => {
+            const userId = await userIdOf();
+            const other = await connect({
+                auth_token: user.token,
+                acks: ['some.other.event'],
+            });
+
+            const started = Date.now();
+            const asked = await socketService.askWithAck(
+                { room: userId },
+                'demo.ack',
+                { n: 3 },
+                { timeoutMs: 10_000 },
+            );
+
+            expect(Date.now() - started).toBeLessThan(2_000);
+            expect(asked).toEqual({
+                responses: [],
+                timedOut: false,
+                others: true,
+                complete: false,
+            });
+            await closeAll(userId, [other]);
+        });
+
+        it('joins only the ack room of the room it is asked in', async () => {
+            const userId = await userIdOf();
+            const socket = await connect({
+                auth_token: user.token,
+                acks: ['demo.ack'],
+            });
+
+            expect(
+                socketService.has({
+                    room: ackRoom(String(userId), 'demo.ack'),
+                }),
+            ).toBe(true);
+            for (const room of [accountSocketRoom(userId), socket.id!]) {
+                expect(
+                    socketService.has({ room: ackRoom(room, 'demo.ack') }),
+                ).toBe(false);
+            }
+            await closeAll(userId, [socket]);
+        });
+
+        it('hears nothing from a room nobody is in', async () => {
+            await expect(
+                socketService.askWithAck(
+                    { room: 'nobody-here' },
+                    'demo.ack',
+                    {},
+                    { timeoutMs: 10_000 },
+                ),
+            ).resolves.toEqual({
+                responses: [],
+                timedOut: false,
+                others: false,
+                complete: false,
+            });
+        });
     });
 
     it('emits web.socket.user-connected when the GUI signals it is really open', async () => {
@@ -525,6 +786,27 @@ describe('SocketService (live socket.io)', () => {
         });
     });
 
+    it('holds an org_seat_free actor to the free cap, not the paid base', async () => {
+        // org_seat_free is unlisted; it takes the user_free entry.
+        await withLimits({ perOrigin: 100, perUser: 100 }, async () => {
+            SocketService.MAX_SOCKETS_BY_SUBSCRIPTION = { user_free: 1 };
+            const spy = vi
+                .spyOn(server.services.metering, 'getActorSubscription')
+                .mockResolvedValue(ORG_SEAT_FREE);
+            try {
+                const first = await connectFrom('https://org-seat.example');
+                expect(await wasDropped(first)).toBe(false);
+
+                const second = await connectFrom('https://org-seat.example');
+                expect(await wasDropped(second)).toBe(true);
+
+                first.disconnect();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+    });
+
     // -- Evicting a connection whose credential is gone ---------------
     //
     // The handshake is the only place the credential was checked, so nothing
@@ -544,6 +826,28 @@ describe('SocketService (live socket.io)', () => {
             revokeAllSessionsForUserId: (id: number) => Promise<void>;
         };
         await authService.revokeAllSessionsForUserId(row!.id);
+
+        await vi.waitFor(() => expect(socket.connected).toBe(false), {
+            timeout: 5_000,
+        });
+    });
+
+    it('drops the connection on a revocation that reached it from elsewhere', async () => {
+        const evicted = await createTestUser(server, {
+            username: 'sock-fanout',
+            password: 'sock-fanout-password',
+        });
+        const row = await server.stores.user.getByUsername(evicted.username);
+        const socket = await connect({ auth_token: `Bearer ${evicted.token}` });
+        expect(socket.connected).toBe(true);
+
+        // As a peer cluster delivers it: the node holding this socket is not
+        // the one that revoked the session.
+        server.clients.event.emit(
+            'outer.auth.sessions.revoked',
+            { user_id: row!.id, session_uids: ['whatever'] },
+            {},
+        );
 
         await vi.waitFor(() => expect(socket.connected).toBe(false), {
             timeout: 5_000,
@@ -620,6 +924,50 @@ describe('SocketService (live socket.io)', () => {
 
         expect(socket.connected).toBe(true);
         socket.disconnect();
+    });
+
+    it('re-checks without recording session activity', async () => {
+        const idle = await createTestUser(server, {
+            username: 'sock-idle',
+            password: 'sock-idle-password',
+        });
+        const socket = await connect({ auth_token: `Bearer ${idle.token}` });
+        const touch = vi.spyOn(server.stores.session, 'touch');
+        try {
+            await socketService.reauthenticateSockets();
+            expect(touch).not.toHaveBeenCalled();
+            expect(socket.connected).toBe(true);
+        } finally {
+            touch.mockRestore();
+            socket.disconnect();
+        }
+    });
+
+    it('checks each credential once, and joins a sweep already running', async () => {
+        const shared = await createTestUser(server, {
+            username: 'sock-shared',
+            password: 'sock-shared-password',
+        });
+        const tabs = await Promise.all([
+            connect({ auth_token: `Bearer ${shared.token}` }),
+            connect({ auth_token: `Bearer ${shared.token}` }),
+        ]);
+        const authenticate = vi.spyOn(server.services.auth, 'authenticate');
+        try {
+            await Promise.all([
+                socketService.reauthenticateSockets(),
+                socketService.reauthenticateSockets(),
+            ]);
+            const checks = authenticate.mock.calls.filter(
+                ([token]) => token === shared.token,
+            );
+            expect(checks).toHaveLength(1);
+            expect(checks[0]?.[1]).toEqual({ touch: false });
+            expect(tabs.every((tab) => tab.connected)).toBe(true);
+        } finally {
+            authenticate.mockRestore();
+            for (const tab of tabs) tab.disconnect();
+        }
     });
 
     it('gives a slot back when the connection closes', async () => {
@@ -961,5 +1309,655 @@ describe('SocketService — before attachHttpServer', () => {
         ] as unknown as ConstructorParameters<typeof SocketService>;
         const service = new SocketService(...args);
         expect(await service.getLastChangeTimestamp(1)).toBe(0);
+    });
+});
+
+/** Ask until a server count has succeeded and the cluster path is in use. */
+const waitForClusterCounts = (socketService: SocketService) =>
+    vi.waitFor(async () =>
+        expect(
+            (
+                await socketService.askWithAck(
+                    { room: 'nobody-here' },
+                    'demo.ack',
+                    {},
+                    { timeoutMs: 100 },
+                )
+            ).complete,
+        ).toBe(true),
+    );
+
+describe('steadyServerCount', () => {
+    class FakeAdapter {
+        calls = 0;
+        results: Array<number | Error> = [];
+        serverCount(): Promise<number> {
+            const next = this.results[this.calls++];
+            return next instanceof Error
+                ? Promise.reject(next)
+                : Promise.resolve(next);
+        }
+    }
+
+    it('reports the last good count when a later one fails', async () => {
+        const adapter = new FakeAdapter();
+        adapter.results = [3, new Error('down')];
+        const seen: unknown[] = [];
+        steadyServerCount(adapter, (err) => seen.push(err));
+
+        await expect(adapter.serverCount()).resolves.toBe(3);
+        await expect(adapter.serverCount()).resolves.toBe(3);
+        expect(seen).toEqual([undefined, expect.any(Error)]);
+    });
+
+    it('reports one server when no count has succeeded yet', async () => {
+        const adapter = new FakeAdapter();
+        adapter.results = [new Error('down')];
+        steadyServerCount(adapter, () => {});
+
+        await expect(adapter.serverCount()).resolves.toBe(1);
+    });
+});
+
+describe('SocketService.askWithAck through the cluster adapter', () => {
+    let server: PuterServer;
+    let socketService: SocketService;
+    let origin: string;
+    let user: TestUserCredentials;
+    let userId: number;
+    let countSpy: ReturnType<typeof vi.spyOn>;
+    let retryMs: number;
+    let adapter: {
+        serverCount: () => Promise<number>;
+        doPublish: (message: unknown) => Promise<string>;
+        doPublishResponse: (uid: string, response: unknown) => Promise<void>;
+        onMessage: (message: unknown) => void;
+        onResponse: (response: unknown) => void;
+        nsp: {
+            _onServerSideEmit: (args: unknown[]) => void;
+            sockets: Map<string, { acks: { size: number } }>;
+        };
+    };
+    const openSockets: ClientSocket[] = [];
+
+    const connect = (acks?: string[]): Promise<ClientSocket> =>
+        new Promise((resolve, reject) => {
+            const socket = ioClient(origin, {
+                auth: { auth_token: user.token, ...(acks ? { acks } : {}) },
+                transports: ['websocket'],
+                reconnection: false,
+            });
+            openSockets.push(socket);
+            socket.on('connect', () => resolve(socket));
+            socket.on('connect_error', reject);
+        });
+
+    beforeAll(async () => {
+        const port = await allocateEphemeralPort();
+        server = await setupTestServer({ port } as never, { listen: true });
+        socketService = server.services.socket as unknown as SocketService;
+        origin = `http://puter.localhost:${port}`;
+        user = await createTestUser(server, {
+            username: 'sock-cluster',
+            password: 'sock-cluster-password',
+        });
+        userId = (await server.stores.user.getByUsername(user.username))!.id;
+
+        // A one-node count stands in for a real cluster's, which the mock lacks.
+        const seen = new Promise<typeof adapter>((resolve) => {
+            server.clients.event.on('web.socket.connected', (_k, data) => {
+                const socket = (data as { socket: { nsp: { adapter: never } } })
+                    .socket;
+                resolve(socket.nsp.adapter);
+            });
+        });
+        const first = await connect();
+        adapter = await seen;
+        countSpy = vi
+            .spyOn(Object.getPrototypeOf(adapter), 'serverCount')
+            .mockResolvedValue(1);
+        // Other test servers share the mock's channels and would answer too.
+        vi.spyOn(adapter, 'doPublish').mockResolvedValue('');
+        first.disconnect();
+        await vi.waitFor(() =>
+            expect(socketService.has({ room: userId })).toBe(false),
+        );
+        retryMs = SocketService.COUNT_RETRY_MS;
+        SocketService.COUNT_RETRY_MS = 0;
+        await waitForClusterCounts(socketService);
+    }, 60_000);
+
+    afterEach(async () => {
+        for (const socket of openSockets.splice(0)) socket.disconnect();
+        await vi.waitFor(() =>
+            expect(socketService.has({ room: userId })).toBe(false),
+        );
+    });
+
+    afterAll(async () => {
+        SocketService.COUNT_RETRY_MS = retryMs;
+        countSpy.mockRestore();
+        await server?.shutdown();
+    }, 60_000);
+
+    it('keeps asking when a later server count fails', async () => {
+        const tab = await connect(['demo.ack']);
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        countSpy.mockRejectedValue(new Error('cluster node down'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const asked = await socketService.askWithAck(
+                { room: userId },
+                'demo.ack',
+                {},
+                { timeoutMs: 2_000 },
+            );
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            expect(asked).toMatchObject({ responses: ['seen'] });
+            expect(unhandled).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+            countSpy.mockResolvedValue(1);
+            warn.mockRestore();
+        }
+    });
+
+    it('returns as soon as each acking socket answered, with no other socket there', async () => {
+        const tab = await connect(['demo.ack']);
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+
+        const started = Date.now();
+        const asked = await socketService.askWithAck(
+            { room: userId },
+            'demo.ack',
+            { n: 1 },
+            { timeoutMs: 5_000 },
+        );
+
+        expect(Date.now() - started).toBeLessThan(2_000);
+        expect(asked).toEqual({
+            responses: ['seen'],
+            timedOut: false,
+            others: false,
+            complete: true,
+        });
+    });
+
+    it('says a socket that never acks is there without asking it', async () => {
+        const tab = await connect(['demo.ack']);
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+        const old = await connect();
+        const oldGot = vi.fn();
+        old.on('demo.ack', oldGot);
+
+        const started = Date.now();
+        const asked = await socketService.askWithAck(
+            { room: userId },
+            'demo.ack',
+            { n: 3 },
+            { timeoutMs: 5_000 },
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        expect(Date.now() - started).toBeLessThan(2_000);
+        expect(asked).toEqual({
+            responses: ['seen'],
+            timedOut: false,
+            others: true,
+            complete: true,
+        });
+        expect(oldGot).not.toHaveBeenCalled();
+    });
+
+    it('emits only to the ack room', async () => {
+        await connect(['demo.split']);
+        const published = vi.mocked(adapter.doPublish);
+        published.mockClear();
+
+        await socketService.askWithAck(
+            { room: userId },
+            'demo.split',
+            {},
+            { timeoutMs: 300 },
+        );
+
+        type Published = {
+            data?: {
+                packet?: { data?: unknown[] };
+                opts?: { rooms?: string[]; except?: string[] };
+            };
+        };
+        const ours = published.mock.calls
+            .map(([message]) => message as Published)
+            .filter((m) => m.data?.packet?.data?.[0] === 'demo.split');
+        expect(ours.map((m) => m.data?.opts?.rooms)).toEqual([
+            [ackRoom(String(userId), 'demo.split')],
+        ]);
+    });
+
+    describe('with another node in the cluster', () => {
+        type Published = {
+            type: number;
+            data: { requestId?: string; packet?: unknown[] };
+        };
+        // socket.io-adapter's cluster message types.
+        const BROADCAST = 3;
+        const SERVER_SIDE_EMIT = 9;
+        const SERVER_SIDE_EMIT_RESPONSE = 10;
+        const BROADCAST_CLIENT_COUNT = 11;
+
+        /**
+         * The other node: no acking socket, and `others` sockets outside the
+         * ack room, or silent.
+         */
+        const peer = (others: number | null) => {
+            countSpy.mockResolvedValue(2);
+            vi.mocked(adapter.doPublish).mockImplementation(async (raw) => {
+                const message = raw as Published;
+                const { requestId } = message.data ?? {};
+                if (!requestId) return '';
+                setTimeout(() => {
+                    if (message.type === BROADCAST) {
+                        adapter.onResponse({
+                            type: BROADCAST_CLIENT_COUNT,
+                            data: { requestId, clientCount: 0 },
+                        });
+                    } else if (
+                        message.type === SERVER_SIDE_EMIT &&
+                        message.data.packet?.[0] === COUNT_OTHERS_EVENT &&
+                        others !== null
+                    ) {
+                        adapter.onResponse({
+                            type: SERVER_SIDE_EMIT_RESPONSE,
+                            data: { requestId, packet: others },
+                        });
+                    }
+                }, 0);
+                return '';
+            });
+        };
+
+        afterEach(() => {
+            countSpy.mockResolvedValue(1);
+            vi.mocked(adapter.doPublish).mockReset();
+            vi.mocked(adapter.doPublish).mockResolvedValue('');
+        });
+
+        it.each([
+            [1, true],
+            [0, false],
+        ])(
+            'counts its sockets that never ack (%i) instead of asking them',
+            async (count, others) => {
+                const tab = await connect(['demo.ack']);
+                tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                    ack('seen'),
+                );
+                peer(count);
+
+                const asked = await socketService.askWithAck(
+                    { room: userId },
+                    'demo.ack',
+                    {},
+                    { timeoutMs: 2_000 },
+                );
+
+                expect(asked).toEqual({
+                    responses: ['seen'],
+                    timedOut: false,
+                    others,
+                    complete: true,
+                });
+            },
+        );
+
+        it('reads a node that does not answer the count as holding one', async () => {
+            const tab = await connect(['demo.ack']);
+            tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                ack('seen'),
+            );
+            peer(null);
+
+            const asked = await socketService.askWithAck(
+                { room: userId },
+                'demo.ack',
+                {},
+                { timeoutMs: 300 },
+            );
+
+            expect(asked).toMatchObject({ responses: ['seen'], others: true });
+        });
+    });
+
+    describe('asked by another node', () => {
+        // socket.io-adapter's cluster message types and socket.io's EVENT packet.
+        const BROADCAST = 3;
+        const BROADCAST_ACK = 12;
+        const EVENT = 2;
+        let asks = 0;
+
+        const askFromPeer = () =>
+            adapter.onMessage({
+                uid: 'peer-node',
+                nsp: '/',
+                type: BROADCAST,
+                data: {
+                    requestId: `peer-ask-${++asks}`,
+                    packet: { type: EVENT, data: ['demo.ack', {}] },
+                    opts: {
+                        rooms: [ackRoom(String(userId), 'demo.ack')],
+                        except: [],
+                        flags: { timeout: 5_000 },
+                    },
+                },
+            });
+
+        /** Answers this node relayed back to the asking node. */
+        const relayed = () =>
+            vi
+                .mocked(adapter.doPublishResponse)
+                .mock.calls.flatMap(([, response]) => {
+                    const r = response as {
+                        type: number;
+                        data: { packet: unknown };
+                    };
+                    return r.type === BROADCAST_ACK ? [r.data.packet] : [];
+                });
+
+        const pendingOn = (tab: ClientSocket) =>
+            adapter.nsp.sockets.get(tab.id!)!.acks.size;
+
+        beforeEach(() => {
+            vi.spyOn(adapter, 'doPublishResponse').mockResolvedValue();
+        });
+
+        afterEach(() => {
+            vi.mocked(adapter.doPublishResponse).mockRestore();
+        });
+
+        it('keeps a bounded number of asks a socket never answers', async () => {
+            const silent = await connect(['demo.ack']);
+            const answering = await connect(['demo.ack']);
+            answering.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                ack('seen'),
+            );
+
+            // Rounds under the cap, so the answering socket never holds a full one.
+            const round = SocketService.MAX_PENDING_ACKS / 2;
+            for (let asked = round; asked <= round * 3; asked += round) {
+                for (let i = 0; i < round; i++) askFromPeer();
+                await vi.waitFor(() => expect(relayed()).toHaveLength(asked));
+            }
+
+            expect(relayed()).toEqual(Array(round * 3).fill('seen'));
+            expect(pendingOn(answering)).toBe(0);
+            expect(pendingOn(silent)).toBe(SocketService.MAX_PENDING_ACKS);
+        });
+
+        it('stops waiting on an ask past its age, and ignores its late answer', async () => {
+            const answers: Array<(r: unknown) => void> = [];
+            const tab = await connect(['demo.ack']);
+            tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                answers.push(ack),
+            );
+
+            askFromPeer();
+            askFromPeer();
+            await vi.waitFor(() => expect(answers).toHaveLength(2));
+            answers[0]('in time');
+            await vi.waitFor(() => expect(relayed()).toEqual(['in time']));
+            expect(pendingOn(tab)).toBe(1);
+
+            const later = Date.now() + SocketService.PENDING_ACK_TTL_MS;
+            const clock = vi.spyOn(Date, 'now').mockReturnValue(later);
+            try {
+                askFromPeer();
+                await vi.waitFor(() => expect(answers).toHaveLength(3));
+                expect(pendingOn(tab)).toBe(1);
+
+                answers[1]('late');
+                answers[2]('after');
+                await vi.waitFor(() =>
+                    expect(relayed()).toEqual(['in time', 'after']),
+                );
+                expect(pendingOn(tab)).toBe(0);
+            } finally {
+                clock.mockRestore();
+            }
+        });
+    });
+
+    it('answers another node`s count with its own sockets outside the ack room', async () => {
+        await connect(['demo.ack']);
+        await connect();
+        await connect();
+        const room = String(userId);
+        const reply = vi.fn();
+
+        adapter.nsp._onServerSideEmit([
+            COUNT_OTHERS_EVENT,
+            [room],
+            [ackRoom(room, 'demo.ack')],
+            reply,
+        ]);
+        adapter.nsp._onServerSideEmit([
+            COUNT_OTHERS_EVENT,
+            'not rooms',
+            null,
+            reply,
+        ]);
+
+        expect(reply.mock.calls).toEqual([[2], [0]]);
+    });
+
+    it('marks counts taken while a server count failed as incomplete, and warns', async () => {
+        const tab = await connect(['demo.ack']);
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+        countSpy.mockRejectedValue(new Error('cluster node down'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const later = Date.now() + 61_000;
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(later);
+        try {
+            const asked = await socketService.askWithAck(
+                { room: userId },
+                'demo.ack',
+                {},
+                { timeoutMs: 2_000 },
+            );
+
+            expect(asked).toMatchObject({
+                responses: ['seen'],
+                complete: false,
+            });
+            expect(
+                warn.mock.calls.filter((c) =>
+                    String(c[0]).includes('server count failed'),
+                ),
+            ).toHaveLength(1);
+        } finally {
+            countSpy.mockResolvedValue(1);
+            warn.mockRestore();
+            clock.mockRestore();
+        }
+    });
+
+    it('reports an empty room as complete', async () => {
+        expect(
+            await socketService.askWithAck(
+                { room: 'nobody-here' },
+                'demo.ack',
+                {},
+                { timeoutMs: 1_000 },
+            ),
+        ).toEqual({
+            responses: [],
+            timedOut: false,
+            others: false,
+            complete: true,
+        });
+    });
+});
+
+describe('SocketService.askWithAck while the server count is unsettled', () => {
+    let server: PuterServer;
+    let socketService: SocketService;
+    let origin: string;
+    let user: TestUserCredentials;
+    let userId: number;
+    let proto: { serverCount: () => Promise<number> };
+    let retryMs: number;
+    const openSockets: ClientSocket[] = [];
+
+    const connect = (): Promise<ClientSocket> =>
+        new Promise((resolve, reject) => {
+            const socket = ioClient(origin, {
+                auth: { auth_token: user.token, acks: ['demo.ack'] },
+                transports: ['websocket'],
+                reconnection: false,
+            });
+            openSockets.push(socket);
+            socket.on('connect', () => resolve(socket));
+            socket.on('connect_error', reject);
+        });
+
+    beforeAll(async () => {
+        retryMs = SocketService.COUNT_RETRY_MS;
+        SocketService.COUNT_RETRY_MS = 0;
+        const port = await allocateEphemeralPort();
+        server = await setupTestServer({ port } as never, { listen: true });
+        socketService = server.services.socket as unknown as SocketService;
+        origin = `http://puter.localhost:${port}`;
+        user = await createTestUser(server, {
+            username: 'sock-unsettled',
+            password: 'sock-unsettled-password',
+        });
+        userId = (await server.stores.user.getByUsername(user.username))!.id;
+        const seen = new Promise<object>((resolve) => {
+            server.clients.event.on('web.socket.connected', (_k, data) => {
+                resolve(
+                    (data as { socket: { nsp: { adapter: object } } }).socket
+                        .nsp.adapter,
+                );
+            });
+        });
+        await connect();
+        const adapter = await seen;
+        proto = Object.getPrototypeOf(adapter);
+        vi.spyOn(adapter as never, 'doPublish').mockResolvedValue('' as never);
+    }, 60_000);
+
+    afterEach(() => {
+        vi.mocked(proto.serverCount).mockRestore?.();
+    });
+
+    afterAll(async () => {
+        SocketService.COUNT_RETRY_MS = retryMs;
+        for (const socket of openSockets.splice(0)) socket.disconnect();
+        await server?.shutdown();
+    }, 60_000);
+
+    it('asks this node at once while a server count hangs', async () => {
+        let fail: (err: Error) => void = () => {};
+        vi.spyOn(proto, 'serverCount').mockImplementation(
+            () =>
+                new Promise((_resolve, reject) => {
+                    fail = reject;
+                }),
+        );
+        const tab = openSockets[0];
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const started = Date.now();
+        const asked = await socketService.askWithAck(
+            { room: userId },
+            'demo.ack',
+            {},
+            { timeoutMs: 5_000 },
+        );
+
+        expect(Date.now() - started).toBeLessThan(1_000);
+        expect(asked).toMatchObject({ responses: ['seen'], complete: false });
+        fail(new Error('gave up'));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        warn.mockRestore();
+    });
+
+    it('takes up cluster counts once a later server count succeeds', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const count = vi
+            .spyOn(proto, 'serverCount')
+            .mockRejectedValue(new Error('not ready'));
+        const once = () =>
+            socketService.askWithAck(
+                { room: userId },
+                'demo.ack',
+                {},
+                { timeoutMs: 1_000 },
+            );
+
+        expect((await once()).complete).toBe(false);
+        expect((await once()).complete).toBe(false);
+
+        count.mockResolvedValue(1);
+        await waitForClusterCounts(socketService);
+        expect((await once()).complete).toBe(true);
+        warn.mockRestore();
+    });
+});
+
+describe('SocketService server count warnings before any count succeeded', () => {
+    let server: PuterServer;
+    let retryMs: number;
+
+    beforeAll(async () => {
+        retryMs = SocketService.COUNT_RETRY_MS;
+        SocketService.COUNT_RETRY_MS = 0;
+        const port = await allocateEphemeralPort();
+        server = await setupTestServer({ port } as never, { listen: true });
+    }, 60_000);
+
+    afterAll(async () => {
+        SocketService.COUNT_RETRY_MS = retryMs;
+        vi.restoreAllMocks();
+        await server?.shutdown();
+    }, 60_000);
+
+    it('warns once, not every minute, while no server count has ever succeeded', async () => {
+        const socketService = server.services
+            .socket as unknown as SocketService;
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        let now = Date.now();
+        vi.spyOn(Date, 'now').mockImplementation(() => (now += 120_000));
+
+        for (let i = 0; i < 3; i++) {
+            await socketService.askWithAck(
+                { room: 'nobody-here' },
+                'demo.ack',
+                {},
+                { timeoutMs: 1_000 },
+            );
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+
+        expect(
+            warn.mock.calls.filter((c) =>
+                String(c[0]).includes('server count failed'),
+            ),
+        ).toEqual([]);
     });
 });

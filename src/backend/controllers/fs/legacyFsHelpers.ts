@@ -17,14 +17,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { AsyncResource } from 'node:async_hooks';
 import { posix as pathPosix } from 'node:path';
+import { Readable } from 'node:stream';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { FSService } from '../../services/fs/FSService.js';
 import type { NodeRef } from '../../services/fs/resolveNode.js';
-import type { ACLService, AclMode } from '../../services/acl/ACLService.js';
-import { isAppActor, type Actor } from '../../core/actor.js';
+import {
+    FS_ROUTE_REFUSAL,
+    type ACLService,
+    type AclMode,
+    type AclRefusalOptions,
+    type ResourceDescriptor,
+} from '../../services/acl/ACLService.js';
+import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import type { EventClient } from '../../clients/event/EventClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -93,6 +101,80 @@ export function getBoolean(
     return undefined;
 }
 
+// Non-negative safe integer from a number or a plain digit string; anything
+// else (exponents, hex, whitespace) is rejected.
+function parseByteParam(raw: unknown, name: string, min: number): number {
+    const value =
+        typeof raw === 'number'
+            ? raw
+            : typeof raw === 'string' && /^\d+$/.test(raw)
+              ? Number(raw)
+              : NaN;
+    if (!Number.isSafeInteger(value) || value < min) {
+        throw new HttpError(400, `Invalid ${name}`, {
+            legacyCode: 'bad_request',
+        });
+    }
+    return value;
+}
+
+/**
+ * Resolves an HTTP Range header string from explicit `headersRange` or fallback
+ * `offset` / `byte_count` query parameters.
+ */
+export function resolveReadRange(
+    headersRange: unknown,
+    query: Record<string, unknown>,
+): string | undefined {
+    if (typeof headersRange === 'string' && headersRange.length > 0) {
+        return headersRange;
+    }
+    const isSet = (v: unknown) => v !== undefined && v !== null && v !== '';
+    const offset = isSet(query.offset)
+        ? parseByteParam(query.offset, 'offset', 0)
+        : undefined;
+    const byteCount = isSet(query.byte_count)
+        ? parseByteParam(query.byte_count, 'byte_count', 1)
+        : undefined;
+
+    if (byteCount !== undefined) {
+        const last = (offset ?? 0) + byteCount - 1;
+        if (!Number.isSafeInteger(last)) {
+            throw new HttpError(400, 'Invalid byte_count', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return `bytes=${offset ?? 0}-${last}`;
+    }
+    if (offset !== undefined) {
+        return `bytes=${offset}-`;
+    }
+    return undefined;
+}
+
+/**
+ * A response body read from `chunks` for `pipeToResponse`. Each chunk is pulled
+ * in the caller's async context, which share masking reads, not in whichever
+ * socket event asked for more.
+ */
+export function contextBoundStream(
+    chunks: AsyncGenerator<string, void, undefined>,
+): Readable {
+    const next = AsyncResource.bind(() => chunks.next());
+    const stop = AsyncResource.bind(() => chunks.return(undefined));
+    return Readable.from({
+        [Symbol.asyncIterator]: () => ({ next, return: stop }),
+    });
+}
+
+/** No range is satisfiable on an empty file, so it reads whole: empty, 200. */
+export function rangeForEntry(
+    entry: FSEntry,
+    range: string | undefined,
+): string | undefined {
+    return entry.size === 0 ? undefined : range;
+}
+
 // Accepts either `{ path }` or `{ uid }` or `{ id }` or `{ parent, name }`
 // from a legacy body field. Returns a resolved entry (throwing 404 if not
 // found or 400 if no usable ref is present).
@@ -124,7 +206,7 @@ const MAX_SELECTOR_DEPTH = 4;
  * Resolve `ref`, reporting any miss as the same 404 an unreadable entry gets,
  * so a lookup never echoes a resolved path or tells missing from hidden.
  */
-async function resolveOrNotFound(
+export async function resolveOrNotFound(
     fsEntryStore: FSEntryStore,
     ref: NodeRef,
 ): Promise<FSEntry> {
@@ -209,103 +291,35 @@ export async function resolveV1Selector(
 
 // -- ACL --------------------------------------------------------------
 
+/**
+ * The filesystem refusal, except that an app is told a path it can't reach
+ * doesn't exist, so a sibling user's or another app's files don't show up as
+ * merely forbidden.
+ */
+const LEGACY_REFUSAL: AclRefusalOptions = {
+    ...FS_ROUTE_REFUSAL,
+    hideFromApps: true,
+};
+
+/** `_fsService` is unused; the call sites still pass it. */
 export async function assertAccess(
     aclService: ACLService,
-    fsService: FSService,
+    _fsService: FSService,
     actor: Actor,
-    path: string,
+    path: string | ResourceDescriptor,
     mode: AclMode,
 ): Promise<void> {
-    let ancestors: Promise<Array<{ uid: string; path: string }>> | null = null;
-    const descriptor = {
-        path,
-        resolveAncestors() {
-            if (!ancestors) {
-                ancestors = fsService.getAncestorChain(path);
-            }
-            return ancestors;
-        },
-    };
-    const allowed = await aclService.check(actor, descriptor, mode);
-    if (allowed) return;
-    const safe = (await aclService.getSafeAclError(
-        actor,
-        descriptor,
-        mode,
-    )) as {
-        status?: unknown;
-        message?: unknown;
-        fields?: { code?: unknown };
-    };
-    const status = Number(safe?.status);
-    const message =
-        typeof safe?.message === 'string' && safe.message.length > 0
-            ? safe.message
-            : 'Access denied';
-    const code =
-        typeof safe?.fields?.code === 'string' ? safe.fields.code : undefined;
-    const legacyCode = code === 'forbidden' ? 'access_denied' : code;
-
-    // App-under-user actors see denials as 404 "subject_does_not_exist"
-    // so existence of a sibling user's / other-app's files isn't leaked
-    // through the error code. User-actor denials keep the real 403.
-
-    if (isAppActor(actor)) {
-        throw new HttpError(404, 'Subject does not exist', {
-            legacyCode: 'subject_does_not_exist',
-        });
-    }
-
-    if (status === 404) {
-        throw new HttpError(404, message, {
-            ...(legacyCode ? { legacyCode } : {}),
-        });
-    }
-    throw new HttpError(403, message, {
-        legacyCode: legacyCode ?? 'access_denied',
-    });
+    await aclService.assertFsAccess(actor, path, mode, LEGACY_REFUSAL);
 }
 
-/**
- * Authorize creation of a new entry at `targetPath`. The standard rule is write
- * on the parent, but we also allow it when the actor has explicit write on the
- * target itself — this covers an app creating its own
- * `/<user>/AppData/<app_uid>` folder (parent `AppData` is off-limits, but the
- * target is the app's own subtree per ACLService's short-circuit) and shares
- * granted directly on a not-yet-created path.
- *
- * On failure, delegates to `assertAccess` on the parent so the error shape
- * stays identical to the previous parent-only check.
- */
+/** `ACLService.assertFsCreate`, refused the legacy way. */
 export async function assertCanCreate(
     aclService: ACLService,
-    fsService: FSService,
+    _fsService: FSService,
     actor: Actor,
     targetPath: string,
 ): Promise<void> {
-    const parent = pathPosix.dirname(targetPath);
-    const parentForCheck = parent === '/' ? targetPath : parent;
-
-    const makeDescriptor = (path: string) => {
-        let cache: Promise<Array<{ uid: string; path: string }>> | null = null;
-        return {
-            path,
-            resolveAncestors() {
-                if (!cache) cache = fsService.getAncestorChain(path);
-                return cache;
-            },
-        };
-    };
-
-    if (
-        await aclService.check(actor, makeDescriptor(parentForCheck), 'write')
-    ) {
-        return;
-    }
-    if (await aclService.check(actor, makeDescriptor(targetPath), 'write')) {
-        return;
-    }
-    await assertAccess(aclService, fsService, actor, parentForCheck, 'write');
+    await aclService.assertFsCreate(actor, targetPath, LEGACY_REFUSAL);
 }
 
 /** `write` on the destination parent, unless it is the entry's own Trash. */
@@ -464,7 +478,9 @@ export async function signEntryThumbnail(
  * URL for a signed one. Pass `fsEntryStore`/`userStore` to hydrate `is_empty`
  * (directories) and `owner` — both are required fields per the legacy stat
  * contract but need extra DB lookups. Pass `appsById` (built via
- * `loadLegacyAssociatedApps`) to populate `associated_app`.
+ * `loadLegacyAssociatedApps`) to populate `associated_app`. Pass `parentUid`
+ * (even as `null`, via `clientParentUid`) to override `parent_id`/`parent_uid`
+ * — callers reading a scoped access token's home use it to hide the uuid.
  */
 export async function toLegacyEntry(
     eventClient: EventClient | undefined,
@@ -479,6 +495,7 @@ export async function toLegacyEntry(
         isShared?: boolean | null;
         /** Skip the mask: the mask is the actor's, and only they can read it. */
         forOwner?: boolean;
+        parentUid?: string | null;
     } = {},
 ): Promise<Record<string, unknown>> {
     // Someone else's entry is published under its masked path; the owner's
@@ -491,12 +508,17 @@ export async function toLegacyEntry(
     const appdata_app =
         pathComponents[2] === 'AppData' ? pathComponents[3] : undefined;
 
+    const parentUid =
+        opts.parentUid !== undefined
+            ? opts.parentUid
+            : (entry.parentUid ?? null);
+
     const response: Record<string, unknown> = {
         id: entry.uuid,
         uid: entry.uuid,
         uuid: entry.uuid,
-        parent_id: entry.parentUid,
-        parent_uid: entry.parentUid,
+        parent_id: parentUid,
+        parent_uid: parentUid,
         path: publishedPath,
         dirname,
         dirpath: dirname,
@@ -529,41 +551,113 @@ export async function toLegacyEntry(
         ...(opts.isShared === undefined ? {} : { is_shared: opts.isShared }),
     };
 
-    // `is_empty` — only meaningful for directories. Single-row probe so we
-    // don't pay for listing every child.
-    if (entry.isDir && opts.fsEntryStore) {
-        try {
-            const children = await opts.fsEntryStore.listChildren(entry.uuid, {
-                limit: 1,
-            });
-            response.is_empty = children.length === 0;
-        } catch {
-            response.is_empty = false;
-        }
-    } else if (!entry.isDir) {
-        response.is_empty = false;
-    }
+    const { fsEntryStore, userStore } = opts;
+    const [isEmpty, ownerUsername, thumbnail] = await Promise.all([
+        // `is_empty` — only meaningful for directories.
+        entry.isDir && fsEntryStore
+            ? (async () => {
+                  try {
+                      return !(await fsEntryStore.hasChildrenByParentUid(
+                          entry.uuid,
+                      ));
+                  } catch {
+                      return false;
+                  }
+              })()
+            : undefined,
+        // `owner` — username-only. Matches the legacy safe-entry contract.
+        userStore
+            ? (async () => {
+                  try {
+                      const owner = await userStore.getById(entry.userId);
+                      return owner && typeof owner.username === 'string'
+                          ? owner.username
+                          : undefined;
+                  } catch {
+                      return undefined; // best-effort
+                  }
+              })()
+            : undefined,
+        // Let the thumbnail extension swap an s3:// key for a signed URL.
+        signEntryThumbnail(
+            eventClient,
+            entry.uuid,
+            response.thumbnail as string | null,
+        ),
+    ]);
 
-    // `owner` — username-only. Matches the legacy safe-entry contract.
-    if (opts.userStore) {
-        try {
-            const owner = await opts.userStore.getById(entry.userId);
-            if (owner && typeof owner.username === 'string') {
-                response.owner = { username: owner.username };
-            }
-        } catch {
-            /* best-effort */
-        }
-    }
-
-    // Let the thumbnail extension swap an s3:// key for a signed URL.
-    response.thumbnail = await signEntryThumbnail(
-        eventClient,
-        entry.uuid,
-        response.thumbnail as string | null,
-    );
+    if (isEmpty !== undefined) response.is_empty = isEmpty;
+    else if (!entry.isDir) response.is_empty = false;
+    if (ownerUsername !== undefined)
+        response.owner = { username: ownerUsername };
+    response.thumbnail = thumbnail;
 
     return response;
+}
+
+// -- GUI item events --------------------------------------------------
+
+export type GuiItemEventName =
+    | 'outer.gui.item.added'
+    | 'outer.gui.item.updated'
+    | 'outer.gui.item.moved'
+    | 'outer.gui.item.removed';
+
+/**
+ * Tell the entry's owner's open clients about a change. The desktop reads the
+ * legacy entry shape plus per-event `extra` fields: `old_path` on moves,
+ * `descendants_only` on removes.
+ *
+ * `replaced` is what an overwriting copy or move took the place of. Its
+ * `removed` goes out first: the desktop hides rows by path, so arriving second
+ * it would hide the new row too.
+ */
+export async function emitGuiItemEvent(
+    eventClient: EventClient,
+    eventName: GuiItemEventName,
+    entry: FSEntry,
+    extra?: Record<string, unknown>,
+    replaced?: FSEntry | null,
+): Promise<void> {
+    // Moving an entry onto its own path replaces nothing.
+    if (replaced && replaced.uuid !== entry.uuid) {
+        await emitGuiItemEvent(eventClient, 'outer.gui.item.removed', replaced);
+    }
+    // `forOwner`: the audience is the owner, who can't read the actor's mask.
+    const response = {
+        ...(await toLegacyEntry(eventClient, entry, { forOwner: true })),
+        ...extra,
+        from_new_service: true,
+    };
+    eventClient.emit(eventName, { user_id_list: [entry.userId], response }, {});
+}
+
+/**
+ * The entry at `name` under `destinationParent`. An overwriting copy or move
+ * deletes it, so callers look it up first to announce its removal.
+ */
+export async function findOverwriteTarget(
+    fsEntryStore: FSEntryStore,
+    destinationParent: FSEntry,
+    name: string,
+): Promise<FSEntry | null> {
+    return fsEntryStore.getEntryByPath(
+        destinationParent.path === '/'
+            ? `/${name}`
+            : `${destinationParent.path}/${name}`,
+    );
+}
+
+/**
+ * `target` if the overwriting move kept the name it was looked up by, so took
+ * its place. A move into someone else's Trash renames instead and leaves it.
+ */
+export function replacedByMove(
+    target: FSEntry | null,
+    moved: FSEntry,
+    name: string,
+): FSEntry | null {
+    return target && moved.name === name ? target : null;
 }
 
 export { normalizeAbsolutePath };
@@ -591,7 +685,11 @@ export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
             { legacyCode: 'internal_error' },
         );
     }
-    return { secret, apiBaseUrl };
+    return {
+        secret,
+        apiBaseUrl,
+        allowLegacySignatures: config.legacy_file_signatures !== false,
+    };
 }
 
 /**
@@ -599,7 +697,7 @@ export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
  *
  * Pass `actorUserId` so a signature over someone else's entry — a shared file —
  * expires rather than outliving the share (see
- * NON_OWNER_SIGNATURE_TTL_SECONDS).
+ * NON_OWNER_SIGNATURE_TTL_SECONDS). The signature is bound to `entry.userId`.
  */
 export function signEntry(
     entry: {
@@ -610,7 +708,7 @@ export function signEntry(
         accessed: number | null;
         modified: number;
         created: number | null;
-        userId?: number;
+        userId: number;
     },
     config: SigningConfig,
     opts: { actorUserId?: number; ttlSeconds?: number } = {},

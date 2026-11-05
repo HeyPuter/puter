@@ -30,16 +30,19 @@
  */
 
 import { Readable } from 'node:stream';
+import { OpenAI } from 'openai';
 import {
     afterAll,
     afterEach,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 
+import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -52,6 +55,10 @@ import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
+import { XAI_CHAT_MODELS } from './providers/xai/catalog.js';
+import { XAIProvider } from './providers/xai/XAIProvider.js';
+import { handle_completion_output } from './utils/OpenAIUtil.js';
+import { clearUnhealthyRoutes, isRouteUnhealthy } from './utils/providerHealth.js';
 
 let server: PuterServer;
 
@@ -89,14 +96,8 @@ const makeDriver = async (config: Record<string, unknown>) => {
         server.stores,
         server.services,
     );
-    d.onServerStart();
-    // `onServerStart` kicks off the model map without awaiting it.
-    for (let i = 0; i < 200; i++) {
-        const models = await d.models();
-        if (models.length > 1) return d;
-        await new Promise((r) => setTimeout(r, 5));
-    }
-    throw new Error('model map never populated');
+    await d.onServerStart();
+    return d;
 };
 
 let fullDriver: ChatCompletionDriver;
@@ -127,6 +128,10 @@ beforeAll(async () => {
     );
     vi.spyOn(NeuralwattProvider.prototype, 'models').mockResolvedValue(
         aggregatorCatalog('neuralwatt-only-model') as never,
+    );
+    // xAI reprices its curated catalog over HTTP; serve the curated one.
+    vi.spyOn(XAIProvider.prototype, 'models').mockResolvedValue(
+        XAI_CHAT_MODELS,
     );
     fullDriver = await makeDriver(FULL_PROVIDER_CONFIG);
     fakeOnlyDriver = await makeDriver({
@@ -253,7 +258,9 @@ describe('ChatCompletionDriver provider registration', () => {
         expect((await driver.models()).length).toBeGreaterThan(0);
     });
 
-    it('reports per-model cost lines for every registered provider', () => {
+    it('reports per-model cost lines for every registered provider', async () => {
+        // The catalog loads in the background; this waits for it.
+        await fullDriver.models();
         const rows = fullDriver.getReportedCosts() as Array<{
             usageType: string;
             ucentsPerUnit: number;
@@ -262,7 +269,11 @@ describe('ChatCompletionDriver provider registration', () => {
         }>;
         expect(rows.length).toBeGreaterThan(0);
         for (const row of rows) {
-            expect(row.unit).toBe('token');
+            // A per-call count (Claude's `web_search_requests`, Gemini's
+            // `grounding_requests`) is billed per request, not per token;
+            // every other row still is.
+            const costKey = row.usageType.split(':').pop()!;
+            expect(row.unit).toBe(costKey.endsWith('_requests') ? 'request' : 'token');
             expect(row.source.startsWith('driver:aiChat/')).toBe(true);
             expect(Number.isFinite(row.ucentsPerUnit)).toBe(true);
             // `tokens` is a scale descriptor, never a billable line.
@@ -493,6 +504,117 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
         });
     });
 
+    it('maps an upstream 529 (overloaded) to 400 upstream_provider_unavailable, carrying upstreamStatus 529', async () => {
+        const err = await errorFor(
+            Object.assign(new Error('overloaded'), { status: 529 }),
+        );
+        expect(err.statusCode).toBe(400);
+        expect(err).toMatchObject({
+            legacyCode: 'upstream_provider_unavailable',
+            fields: expect.objectContaining({ upstreamStatus: 529 }),
+        });
+    });
+
+    it('maps an Anthropic-shaped overloaded_error the same way regardless of the HTTP status carried', async () => {
+        const err = await errorFor({
+            status: 529,
+            message: 'Overloaded',
+            error: { error: { type: 'overloaded_error', message: 'Overloaded' } },
+        });
+        expect(err.statusCode).toBe(400);
+        expect(err).toMatchObject({
+            legacyCode: 'upstream_provider_unavailable',
+            fields: expect.objectContaining({ upstreamStatus: 529 }),
+        });
+    });
+
+    it('maps an upstream 404 (model not served on this route) to 400 upstream_bad_request, carrying upstreamStatus 404', async () => {
+        const err = await errorFor(
+            Object.assign(new Error('model not found'), { status: 404 }),
+        );
+        expect(err.statusCode).toBe(400);
+        expect(err).toMatchObject({
+            legacyCode: 'upstream_bad_request',
+            fields: expect.objectContaining({ upstreamStatus: 404 }),
+        });
+        expect(err.alarmSeverity).toBeUndefined();
+    });
+
+    it('maps an upstream 403 model_not_found to the model-unavailable 400, not an auth failure, and redacts its URL', async () => {
+        const err = await errorFor({
+            status: 403,
+            message:
+                'The model `fake` is not available to your account. See https://vendor.test/models (request id: req-secret)',
+            error: {
+                code: 'model_not_found',
+                message: 'The model `fake` is not available to your account.',
+            },
+        });
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+            fields: expect.objectContaining({ upstreamStatus: 404 }),
+        });
+        expect(err.noAlarm).toBeFalsy();
+        expect(err.alarmSeverity).toBe('info');
+        expect(err.message).toBe('Model not available: fake');
+        expect(JSON.stringify(attemptsFrom(err))).not.toMatch(
+            /http|request id/i,
+        );
+    });
+
+    it.each([
+        ['no code', {}],
+        ['another code', { error: { code: 'access_denied' } }],
+    ])(
+        'keeps a 403 with %s as 500 upstream_auth_failed',
+        async (_label, extra) => {
+            const err = await errorFor({
+                status: 403,
+                message: 'Forbidden',
+                ...extra,
+            });
+            expect(err).toMatchObject({
+                statusCode: 500,
+                legacyCode: 'upstream_auth_failed',
+            });
+        },
+    );
+
+    it('keeps a 404 whose message reads like a credential failure an auth failure', async () => {
+        const err = await errorFor(
+            Object.assign(new Error('Unauthorized'), { status: 404 }),
+        );
+        expect(err).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+        });
+    });
+
+    it('keeps a 401 model_not_found an auth failure', async () => {
+        const err = await errorFor({
+            status: 401,
+            message: 'invalid api key',
+            error: { code: 'model_not_found' },
+        });
+        expect(err).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+        });
+    });
+
+    it('classifies a 403 insufficient_user_quota as credit exhaustion', async () => {
+        const err = await errorFor({
+            status: 403,
+            message: 'user quota is not enough',
+            error: { code: 'insufficient_user_quota' },
+        });
+        expect(err).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'upstream_credits_exhausted',
+        });
+    });
+
     it('sniffs a status out of the message when the provider throws a bare Error', async () => {
         const err = await errorFor(new Error('provider blew up with 503'));
         expect(err).toMatchObject({
@@ -509,6 +631,87 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
         expect(err.statusCode).toBe(400);
         expect(err).toMatchObject({ legacyCode: 'upstream_bad_request' });
         expect(err.message).toBe('unsupported parameter: top_k');
+    });
+
+    it('maps a gateway 4xx with no upstream error body to 400 upstream_provider_unavailable', async () => {
+        const err = await errorFor({
+            status: 400,
+            message: '400 bad response status code 400',
+            error: {
+                type: 'upstream_error',
+                message: 'bad response status code 400',
+                code: 400,
+            },
+        });
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_provider_unavailable',
+        });
+        expect(err.message).toBe('AI provider unavailable');
+    });
+
+    it('keeps a gateway 4xx that carries the vendor message as the caller’s upstream_bad_request', async () => {
+        const err = await errorFor({
+            status: 400,
+            message:
+                '400 bad response status code 400, message: max_tokens too large, body: {}',
+            error: {
+                type: 'upstream_error',
+                message:
+                    'bad response status code 400, message: max_tokens too large, body: {}',
+            },
+        });
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
+    });
+
+    it('maps a completion with no choices to a 400, not an internal 500', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockImplementation(
+            () =>
+                handle_completion_output({
+                    deviations: undefined,
+                    stream: false,
+                    completion: {},
+                }) as never,
+        );
+        let err: HttpError | undefined;
+        try {
+            await completeFake({});
+        } catch (e) {
+            err = e as HttpError;
+        }
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
+    });
+
+    it('rethrows our own HttpError below 500 verbatim — no attempt recorded, no fallback', async () => {
+        const ownError = new HttpError(400, 'tools.0: unknown field', {
+            legacyCode: 'bad_request',
+        });
+        const err = await errorFor(ownError);
+        expect(err).toBe(ownError);
+        expect(err.fields).toBeUndefined();
+    });
+
+    it('surfaces the upstream error type as `code` on a request-level 4xx', async () => {
+        const err = await errorFor({
+            status: 400,
+            message: 'wrapper message',
+            error: {
+                error: {
+                    type: 'invalid_request_error',
+                    message: 'tools.0.name: too long',
+                },
+            },
+        });
+        expect(err.statusCode).toBe(400);
+        expect(err.code).toBe('invalid_request_error');
+        // The vendor's own message surfaces, not our wrapper's.
+        expect(err.message).toBe('tools.0.name: too long');
     });
 
     it('records the structured provider code in the attempt history', async () => {
@@ -548,7 +751,11 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
 
 describe('ChatCompletionDriver cross-provider fallback', () => {
     // gpt-4o is served by both the Azure and OpenAI providers, so the
-    // fallback loop has somewhere to go.
+    // fallback loop has somewhere to go. Route-health marks persist across
+    // tests (a short-lived but real TTL in a shared store), so each test
+    // starts with a clean slate instead of inheriting a mark that would
+    // silently swap which provider goes first.
+    beforeEach(() => clearUnhealthyRoutes());
     const SHARED_MODEL = 'gpt-4o';
 
     const completeShared = () =>
@@ -559,7 +766,21 @@ describe('ChatCompletionDriver cross-provider fallback', () => {
             }),
         );
 
-    it('falls through to the second provider and returns its result', async () => {
+    // The Anthropic route sets this flag so its own tests exercise the
+    // strict behavior without affecting every other caller in this suite.
+    const completeSharedStrict = () =>
+        withTestActor(() => {
+            Context.set('strictUpstreamErrors', true);
+            return fullDriver.complete({
+                model: SHARED_MODEL,
+                messages: [{ role: 'user', content: 'hi' }],
+            });
+        });
+
+    it('falls through to the second provider, returns its result, and logs that a fallback served', async () => {
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
         vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
             Object.assign(new Error('azure down'), { status: 503 }),
         );
@@ -575,24 +796,90 @@ describe('ChatCompletionDriver cross-provider fallback', () => {
 
         expect(result.message.content).toBe('from the fallback');
         expect(result.via_ai_chat_service).toBe(true);
+        const line = warn.mock.calls
+            .map((c) => String(c[0]))
+            .find((l) => l.startsWith('[ai-chat] fallback served'));
+        expect(line).toContain('azure-openai:gpt-4o -> openai-completion:gpt-4o');
+        expect(line).toContain('503');
     });
 
-    it('classifies a chain of only 4xx failures as upstream_bad_request', async () => {
+    it('stops without trying a fallback when the first failure is request-level, under the Anthropic route', async () => {
         vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
-            Object.assign(new Error('azure rate limited'), { status: 429 }),
-        );
-        vi.spyOn(OpenAiChatProvider.prototype, 'complete').mockRejectedValue(
-            Object.assign(new Error('openai rejected the request'), {
+            Object.assign(new Error('unsupported parameter: frobnicate'), {
                 status: 422,
             }),
+        );
+        const openai = vi.spyOn(OpenAiChatProvider.prototype, 'complete');
+
+        const err = (await completeSharedStrict().catch((e) => e)) as HttpError;
+        expect(err.statusCode).toBe(400);
+        expect(err).toMatchObject({ legacyCode: 'upstream_bad_request' });
+        expect(err.message).toBe('unsupported parameter: frobnicate');
+        expect(openai).not.toHaveBeenCalled();
+    });
+
+    it('falls back past a request-level 4xx outside the Anthropic route, and the route is not marked unhealthy', async () => {
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+        vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('unsupported parameter: frobnicate'), {
+                status: 422,
+            }),
+        );
+        vi.spyOn(OpenAiChatProvider.prototype, 'complete').mockResolvedValue({
+            message: { role: 'assistant', content: 'from the fallback' },
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        } as never);
+
+        const result = (await completeShared()) as {
+            message: { content: string };
+        };
+        expect(result.message.content).toBe('from the fallback');
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(false);
+        const line = warn.mock.calls
+            .map((c) => String(c[0]))
+            .find((l) => l.startsWith('[ai-chat] fallback served'));
+        expect(line).toContain('first 422');
+    });
+
+    it('falls back past a gateway 4xx with no upstream error body and marks the route unhealthy', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('400 bad response status code 400'), {
+                status: 400,
+                error: { type: 'upstream_error' },
+            }),
+        );
+        vi.spyOn(OpenAiChatProvider.prototype, 'complete').mockResolvedValue({
+            message: { role: 'assistant', content: 'from the fallback' },
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        } as never);
+
+        const result = (await completeShared()) as {
+            message: { content: string };
+        };
+        expect(result.message.content).toBe('from the fallback');
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(true);
+    });
+
+    it('surfaces the primary route-level 4xx after a non-strict fallback also fails', async () => {
+        vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('unsupported parameter: frobnicate'), {
+                status: 422,
+            }),
+        );
+        vi.spyOn(OpenAiChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('fallback unreachable'), { status: 503 }),
         );
 
         const err = (await completeShared().catch((e) => e)) as HttpError;
         expect(err.statusCode).toBe(400);
         expect(err).toMatchObject({ legacyCode: 'upstream_bad_request' });
+        expect(err.message).toBe('unsupported parameter: frobnicate');
     });
 
-    it('reports every attempt when the whole chain fails, and classifies a mixed chain as upstream_failed', async () => {
+    it('reports every attempt when the whole chain fails, and classifies a mixed route-level chain as 400 upstream_failed', async () => {
         vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
             Object.assign(new Error('azure is unreachable'), { status: 503 }),
         );
@@ -618,14 +905,78 @@ describe('ChatCompletionDriver cross-provider fallback', () => {
         );
     });
 
+    it('classifies an all-529 chain as 400 upstream_provider_unavailable, carrying upstreamStatus 529', async () => {
+        vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('overloaded'), { status: 529 }),
+        );
+        vi.spyOn(OpenAiChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('overloaded too'), { status: 529 }),
+        );
+
+        const err = (await completeShared().catch((e) => e)) as HttpError;
+        expect(err.statusCode).toBe(400);
+        expect(err).toMatchObject({
+            legacyCode: 'upstream_provider_unavailable',
+            fields: expect.objectContaining({ upstreamStatus: 529 }),
+        });
+    });
+
+    it('stops the chain and warns when a fallback 4xx follows a route-level primary failure, under the Anthropic route', async () => {
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+        vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('overloaded'), { status: 529 }),
+        );
+        vi.spyOn(OpenAiChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('rejected by the fallback'), {
+                status: 422,
+            }),
+        );
+
+        const err = (await completeSharedStrict().catch((e) => e)) as HttpError;
+        // The fallback's own 4xx is a translation gap, not evidence the
+        // request itself was bad — the primary's 529 still decides this.
+        expect(err.statusCode).toBe(400);
+        expect(err).toMatchObject({
+            legacyCode: 'upstream_provider_unavailable',
+            fields: expect.objectContaining({ upstreamStatus: 529 }),
+        });
+        const line = warn.mock.calls
+            .map((c) => String(c[0]))
+            .find((l) => l.startsWith('[ai-chat] fallback rejected request'));
+        expect(line).toContain('openai-completion');
+        expect(line).toContain('422');
+    });
+
+    it('keeps climbing past a fallback 4xx outside the Anthropic route, and classifies the exhausted route-level chain', async () => {
+        vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('overloaded'), { status: 529 }),
+        );
+        vi.spyOn(OpenAiChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('rejected by the fallback'), {
+                status: 422,
+            }),
+        );
+
+        const err = (await completeShared().catch((e) => e)) as HttpError;
+        // With nowhere else to fall back to, the chain is exhausted and
+        // classified on its route-level attempts (the 422 is filtered out).
+        expect(err.statusCode).toBe(400);
+        expect(err).toMatchObject({
+            legacyCode: 'upstream_provider_unavailable',
+            fields: expect.objectContaining({ upstreamStatus: 529 }),
+        });
+    });
+
     it('aborts the chain with 402 when credits run out mid-fallback', async () => {
         vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
             Object.assign(new Error('azure down'), { status: 503 }),
         );
         const openai = vi.spyOn(OpenAiChatProvider.prototype, 'complete');
-        vi.spyOn(server.services.metering, 'getRemainingUsage')
-            .mockResolvedValueOnce(1_000_000) // pre-flight
-            .mockResolvedValue(0); // drained by a parallel request
+        vi.spyOn(server.services.metering, 'getUsageHeadroom')
+            .mockResolvedValueOnce({ balance: 1_000_000, held: 0 }) // pre-flight
+            .mockResolvedValue({ balance: 0, held: 0 }); // drained by a parallel request
 
         await expect(completeShared()).rejects.toMatchObject({
             statusCode: 402,
@@ -633,6 +984,146 @@ describe('ChatCompletionDriver cross-provider fallback', () => {
         });
         // The wallet check runs *before* the second upstream hit.
         expect(openai).not.toHaveBeenCalled();
+    });
+});
+
+// -- Upstream request shape ------------------------------------------
+// The OpenAI SDK is stubbed at its resource classes, the network boundary
+// every OpenAI-compatible provider shares, so the providers run for real.
+
+const chatCompletion = (content: string) => ({
+    choices: [
+        { message: { role: 'assistant', content }, finish_reason: 'stop' },
+    ],
+    usage: { prompt_tokens: 5, completion_tokens: 3 },
+});
+
+const moderationScores = (score: number) => ({
+    results: [{ category_scores: { violence: score, hate: 0 } }],
+});
+
+describe('ChatCompletionDriver moderation on the Azure route', () => {
+    beforeEach(() => clearUnhealthyRoutes());
+    const SHARED_MODEL = 'gpt-4o';
+
+    const completeModerated = (args: Record<string, unknown> = {}) =>
+        withTestActor(() =>
+            fullDriver.complete({
+                model: SHARED_MODEL,
+                messages: [{ role: 'user', content: 'hi' }],
+                moderation: true,
+                ...args,
+            }),
+        );
+
+    it('serves a clean completion from Azure, checked by the OpenAI moderation call', async () => {
+        const create = vi
+            .spyOn(OpenAI.Chat.Completions.prototype, 'create')
+            .mockResolvedValue(chatCompletion('from azure') as never);
+        vi.spyOn(OpenAI.Moderations.prototype, 'create').mockResolvedValue(
+            moderationScores(0.1) as never,
+        );
+        const moderation = vi.spyOn(
+            OpenAiChatProvider.prototype,
+            'checkModeration',
+        );
+
+        const result = (await completeModerated()) as {
+            message: { content: string };
+        };
+
+        expect(result.message.content).toBe('from azure');
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(moderation).toHaveBeenCalledWith('from azure');
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(false);
+    });
+
+    it('refuses flagged output with moderation_flagged and no fallback attempt', async () => {
+        const create = vi
+            .spyOn(OpenAI.Chat.Completions.prototype, 'create')
+            .mockResolvedValue(chatCompletion('something awful') as never);
+        vi.spyOn(OpenAI.Moderations.prototype, 'create').mockResolvedValue(
+            moderationScores(0.95) as never,
+        );
+
+        await expect(completeModerated()).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'moderation_flagged',
+        });
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(false);
+    });
+
+    it('withholds the completion without a fallback when the moderation check fails', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const create = vi
+            .spyOn(OpenAI.Chat.Completions.prototype, 'create')
+            .mockResolvedValue(chatCompletion('from azure') as never);
+        vi.spyOn(OpenAI.Moderations.prototype, 'create').mockRejectedValue(
+            Object.assign(new Error('moderation down'), { status: 503 }),
+        );
+
+        await expect(completeModerated()).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'moderation_unavailable',
+        });
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(false);
+    });
+
+    it('streams from Azure with moderation requested, without a fallback', async () => {
+        const create = vi
+            .spyOn(OpenAI.Chat.Completions.prototype, 'create')
+            .mockResolvedValue(
+                (async function* () {
+                    yield { choices: [{ delta: { content: 'streamed' } }] };
+                    yield {
+                        choices: [],
+                        usage: { prompt_tokens: 5, completion_tokens: 1 },
+                    };
+                })() as never,
+            );
+
+        const result = (await completeModerated({
+            stream: true,
+        })) as unknown as { stream: Readable };
+        let body = '';
+        for await (const chunk of result.stream as AsyncIterable<Buffer>) {
+            body += chunk.toString('utf8');
+        }
+
+        expect(body).toContain('streamed');
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(false);
+    });
+});
+
+describe('ChatCompletionDriver output cap on xAI', () => {
+    it('sends xAI the cap the credit gate set from the balance', async () => {
+        // Enough for ~600 output tokens of grok-4.5 at 600 µ¢ per token.
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance: 360_000, held: 0 });
+        vi.spyOn(XAIProvider.prototype, 'models').mockResolvedValue(
+            XAI_CHAT_MODELS,
+        );
+        const create = vi
+            .spyOn(OpenAI.Chat.Completions.prototype, 'create')
+            .mockResolvedValue(chatCompletion('hi') as never);
+
+        await withTestActor(() =>
+            fullDriver.complete({
+                model: 'grok-4.5',
+                provider: 'xai',
+                messages: [{ role: 'user', content: 'write a long story' }],
+            }),
+        );
+
+        expect(create).toHaveBeenCalledTimes(1);
+        const sent = create.mock.calls[0]![0] as { max_tokens?: number };
+        expect(sent.max_tokens).toBeGreaterThan(0);
+        expect(sent.max_tokens).toBeLessThanOrEqual(600);
     });
 });
 
@@ -672,11 +1163,44 @@ describe('ChatCompletionDriver streaming failure handling', () => {
         expect(result.chunked).toBe(true);
 
         const events = await collect(result.stream);
+        // the in-band error chunk carries a status (and `code` when the
+        // upstream named its own error type) so the Anthropic/OpenAI route
+        // writers can classify it without re-deriving anything.
         expect(events).toEqual([
-            { type: 'error', message: 'populator exploded; see' },
+            { type: 'error', message: 'populator exploded; see', status: 500 },
         ]);
         // The provider's cleanup hook still runs on the failure path.
         expect(cleanup).toHaveBeenCalledTimes(1);
+    });
+
+    it('carries the upstream error type and a mapped status on a mid-stream failure', async () => {
+        const cleanup = vi.fn();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValue({
+            stream: true,
+            init_chat_stream: async () => {
+                const err = new Error('overloaded') as Error & {
+                    status: number;
+                    error: { type: string; message: string };
+                };
+                err.status = 529;
+                err.error = { type: 'overloaded_error', message: 'overloaded' };
+                throw err;
+            },
+            finally_fn: cleanup,
+        } as never);
+
+        const result = (await completeFake({ stream: true })) as unknown as {
+            stream: Readable;
+        };
+        const events = await collect(result.stream);
+        expect(events).toEqual([
+            {
+                type: 'error',
+                message: 'overloaded',
+                code: 'overloaded_error',
+                status: 529,
+            },
+        ]);
     });
 
     it('runs the provider cleanup hook after a successful stream', async () => {

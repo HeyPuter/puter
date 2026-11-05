@@ -79,6 +79,13 @@ describe('cursors', () => {
         expect(decodeCursor(encodeCursor({ folder: 'sent', day: '2024-03-15' }), 'sent')).toEqual({ folder: 'sent', day: '2024-03-15' });
     });
 
+    it('carries the day-listing cursor, and reads one issued without it', () => {
+        const position = { folder: 'inbox', day: '2024-03-15', fsCursor: 'abc', daysCursor: 'dc1' };
+        expect(decodeCursor(encodeCursor(position), 'inbox')).toEqual(position);
+        const legacy = btoa(JSON.stringify({ v: 1, f: 'inbox', d: '2024-03-15', c: 'abc' }));
+        expect(decodeCursor(legacy, 'inbox')).toEqual({ folder: 'inbox', day: '2024-03-15', fsCursor: 'abc' });
+    });
+
     it('treats null and undefined as the first page', () => {
         expect(decodeCursor(null, 'inbox')).toBeUndefined();
         expect(decodeCursor(undefined, 'inbox')).toBeUndefined();
@@ -206,6 +213,61 @@ describe('list()', () => {
         expect(page.items).toHaveLength(1);
         expect(page.items[0].folder).toBe('sent');
         expect(calls.every(c => c.path.startsWith('~/.mail/sent'))).toBe(true);
+    });
+
+    it('resumes the day walk where the cursor left it instead of re-listing from the top', async () => {
+        // 100 days, one message each: far more day folders than one page of them.
+        const tree = { '~/.mail/objects': [] };
+        const dayIds = [];
+        for ( let i = 0; i < 100; i++ ) {
+            const ms = Date.UTC(2024, 0, 1) + i * 24 * 60 * 60 * 1000;
+            const day = new Date(ms).toISOString().slice(0, 10);
+            const id = uuidAt(ms + 1000);
+            tree['~/.mail/objects'].push(day);
+            tree[`~/.mail/objects/${ day }`] = [`${ id }--${ toB64Url(day) }`];
+            dayIds.unshift(id);
+        }
+        const { fs, calls } = fakeFs(tree);
+        const email = moduleOver(fs);
+
+        const seen = [];
+        let cursor = null;
+        do {
+            const before = calls.length;
+            const page = await email.list.call(email, { limit: 7, cursor });
+            seen.push(...page.items.map(m => m.id));
+            const dayListings = calls.slice(before).filter(c => c.path === '~/.mail/objects');
+            // Never more than the page holding the cursor's day plus the one
+            // after it, however deep into the mailbox the cursor points.
+            expect(dayListings.length).toBeLessThanOrEqual(2);
+            if ( cursor ) {
+                const resumedFrom = decodeCursor(cursor, 'inbox').daysCursor ?? null;
+                expect(dayListings[0].cursor).toBe(resumedFrom);
+            }
+            cursor = page.cursor;
+        } while ( cursor );
+        expect(seen).toEqual(dayIds);
+        // Only pages whose day sits in the first page of day folders start
+        // there; the deeper ones resumed mid-folder.
+        const fromTop = calls.filter(c => c.path === '~/.mail/objects' && ! c.cursor);
+        expect(fromTop.length).toBeLessThanOrEqual(Math.ceil(30 / 7) + 1);
+        expect(calls.some(c => c.path === '~/.mail/objects' && c.cursor)).toBe(true);
+    });
+
+    it('resumes from a cursor issued before day-listing cursors existed', async () => {
+        const { fs } = fakeFs(inboxTree);
+        const email = moduleOver(fs);
+        const legacy = btoa(JSON.stringify({ v: 1, f: 'inbox', d: '2024-03-15' }));
+        const page = await email.list.call(email, { limit: 10, cursor: legacy });
+        expect(page.items.map(m => m.id)).toEqual([ids.d15a, ids.d14b, ids.d14a]);
+    });
+
+    it('continues from the next older day when the cursor day was deleted', async () => {
+        const { fs } = fakeFs({ ...inboxTree, '~/.mail/objects': ['2024-03-14', '2024-03-16'] });
+        const email = moduleOver(fs);
+        const gone = encodeCursor({ folder: 'inbox', day: '2024-03-15', fsCursor: '5' });
+        const page = await email.list.call(email, { limit: 10, cursor: gone });
+        expect(page.items.map(m => m.id)).toEqual([ids.d14b, ids.d14a]);
     });
 
     it('rejects offset, includeTotal, and a foreign cursor before any request', async () => {

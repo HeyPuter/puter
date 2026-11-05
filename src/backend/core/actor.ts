@@ -18,6 +18,9 @@
  */
 
 import { UserRow } from '../stores/user/UserStore';
+import { Context } from './context';
+import { HttpError } from './http/HttpError';
+import { assertVerifiedEmail } from './http/verifiedEmail';
 
 export interface ActorApp {
     uid: string;
@@ -38,6 +41,12 @@ export interface ActorAccessToken {
      * still rejected by `requireUserActor`, so never account management.
      */
     fullAccess?: boolean;
+    /**
+     * The privileged app a full-access token was launched for. Attribution
+     * only: it never sets `effectiveApp`, so the token keeps the account's
+     * reach while revokes, audits and gate hooks can still name the app.
+     */
+    godmodeApp?: ActorApp | null;
 }
 
 export interface Actor {
@@ -66,9 +75,15 @@ export interface Actor {
     session?: { uid: string; kind?: string | null } | null;
     /**
      * Events handler runs behind this actor's writes; set only from an events
-     * handler token. Provenance, not authority, so derived actors keep it.
+     * handler token or a token one minted. Provenance, not authority, so
+     * derived actors keep it.
      */
     handlerDepth?: number;
+    /**
+     * When the token behind `handlerDepth` expires, in unix seconds. An app
+     * token minted from this actor expires no later.
+     */
+    handlerExpiresAt?: number;
 }
 
 /** UUID of the baked-in system user (see 0025 seed migration). */
@@ -102,6 +117,60 @@ export const assertResolvedActor = (actor: Actor): Actor => {
         );
     }
     return actor;
+};
+
+/** An actor acting for a user, as most driver methods require. */
+export type UserActor = Actor & {
+    user: { id: number; uuid: string; username: string };
+};
+
+const authenticationRequired = () =>
+    new HttpError(401, 'Authentication required', {
+        legacyCode: 'unauthorized',
+    });
+
+/** The request's actor; 401 when the request carries none. */
+export const requireContextActor = (): Actor => {
+    const actor = Context.get('actor');
+    if (!actor) throw authenticationRequired();
+    return actor;
+};
+
+/** The request's actor, which must act for a user; 401 otherwise. */
+export const requireContextUserActor = (): UserActor => {
+    const actor = Context.get('actor');
+    if (!actor?.user?.id) throw authenticationRequired();
+    return actor as UserActor;
+};
+
+/**
+ * The driver-level twin of the HTTP `requireVerified` gate, so `/drivers/call`
+ * can't bypass it. Inert unless `strict_email_verification_required` is set:
+ * installs without SMTP must not be bricked.
+ */
+export const assertActorEmailVerified = (
+    actor: Actor,
+    config: { strict_email_verification_required?: unknown },
+): void => {
+    assertVerifiedEmail(
+        Boolean(config.strict_email_verification_required),
+        actor.user,
+        400,
+    );
+};
+
+/**
+ * Whether `actor` owns a row: its user is the row's owner, and an app actor is
+ * also the app that created it. Both halves matter, since `app_owner` alone is
+ * shared by every user of that app.
+ */
+export const actorOwnsRow = (
+    actor: Actor,
+    row: { ownerUserId: unknown; appOwnerId: unknown },
+): boolean => {
+    const app = actor.effectiveApp;
+    if (app?.id && app.id !== row.appOwnerId) return false;
+    return actor.user?.id === row.ownerUserId;
 };
 
 export const isSystemActor = (actor: Actor | undefined | null): boolean => {
@@ -170,3 +239,10 @@ export const userRelatedActor = (actor: Actor): Actor => {
 /** How many events handler runs led to a write by this actor. */
 export const handlerDepthOf = (actor: Actor | undefined | null): number =>
     actor?.handlerDepth ?? 0;
+
+/**
+ * Whether a write by this actor was made by server-side code running as the
+ * account: a worker session, or an events handler.
+ */
+export const viaWorkerOf = (actor: Actor | undefined | null): boolean =>
+    actor?.session?.kind === 'worker' || handlerDepthOf(actor) > 0;

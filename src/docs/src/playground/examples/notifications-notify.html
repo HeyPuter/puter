@@ -1,0 +1,23 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Listen for this app's notifications while it's open
+            const listener = await puter.notifications.onNotification((n) => {
+                puter.print(`Received: ${n.title}<br>`);
+            }, { catchUp: false });
+
+            // (2) Send one. This page is open, so it arrives here live.
+            await puter.notifications.notify({
+                title: 'Your export is ready',
+                text: 'report.pdf finished exporting.',
+                target: '/exports/report',
+                data: { exportId: 'exp_123' },
+            });
+
+            setTimeout(() => listener.off(), 5000);
+        })();
+    </script>
+</body>
+</html>

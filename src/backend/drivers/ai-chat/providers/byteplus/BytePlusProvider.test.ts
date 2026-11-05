@@ -51,6 +51,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
 import { BytePlusProvider } from './BytePlusProvider.js';
 import { BYTEPLUS_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // -- OpenAI SDK mock -------------------------------------------------
 //
@@ -157,6 +158,8 @@ describe('BytePlusProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://ark.ap-southeast.bytepluses.com/api/v3',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 
@@ -167,6 +170,8 @@ describe('BytePlusProvider construction', () => {
         expect(openAICtor).toHaveBeenCalledWith({
             apiKey: 'test-key',
             baseURL: 'https://ark.eu-west.bytepluses.com/api/v3',
+            maxRetries: 0,
+            timeout: 10 * 60 * 1000,
         });
     });
 });
@@ -186,7 +191,7 @@ describe('BytePlusProvider model catalog', () => {
 
     it('list() flattens canonical ids and aliases', () => {
         const { provider } = makeProvider();
-        const names = provider.list();
+        const names = modelLookupNames(provider.models());
         for (const m of BYTEPLUS_MODELS) {
             expect(names).toContain(m.id);
             for (const a of m.aliases ?? []) {
@@ -194,14 +199,42 @@ describe('BytePlusProvider model catalog', () => {
             }
         }
         // Sanity: undated series aliases resolve alongside canonical ids.
-        expect(names).toContain('seed-1-6');
-        expect(names).toContain('byteplus/seed-1-6');
-        expect(names).toContain('byteplus/seed-1-6-250915');
+        expect(names).toContain('seed-2-0-mini');
+        expect(names).toContain('byteplus/seed-2-0-mini');
+        expect(names).toContain('byteplus/seed-2-0-mini-260428');
+    });
+
+    it.each([
+        ['deepseek-v4-1-flash-260910', 30, 120, 0.6],
+        ['deepseek-v4-pro-ga-260813', 132, 396, 4.4],
+        ['deepseek-v4-flash-ga-260731', 44, 132, 1.4],
+        ['deepseek-v4-pro-260425', 132, 396, 4.4],
+        ['deepseek-v4-flash-260425', 44, 132, 1.4],
+        ['glm-5-3-flash-260828', 15, 50, 3],
+    ])('prices %s at its ModelArk list rate', (id, input, output, cached) => {
+        const model = BYTEPLUS_MODELS.find((m) => m.id === id);
+        expect(model?.costs.prompt_tokens).toBeCloseTo(input);
+        expect(model?.costs.completion_tokens).toBeCloseTo(output);
+        expect(model?.costs.cached_tokens).toBeCloseTo(cached);
+    });
+
+    it.each([
+        'seed-1-6-250915',
+        'seed-1-6-flash-250715',
+        'seed-1-8-251228',
+        'seed-2-0-lite-260228',
+        'seed-2-0-mini-260215',
+        'glm-4-7-251222',
+        'deepseek-v3-2-251201',
+        'gpt-oss-120b-250805',
+    ])('drops %s, which ModelArk has deprecated', (id) => {
+        const { provider } = makeProvider();
+        expect(modelLookupNames(provider.models())).not.toContain(id);
     });
 
     it('never claims the bare deepseek-v4 names owned by the DeepSeek provider', () => {
         const { provider } = makeProvider();
-        const names = provider.list();
+        const names = modelLookupNames(provider.models());
         expect(names).not.toContain('deepseek-v4-pro');
         expect(names).not.toContain('deepseek-v4-flash');
         expect(names).toContain('byteplus/deepseek-v4-pro');
@@ -228,13 +261,13 @@ describe('BytePlusProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'hello' }],
             }),
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.model).toBe('seed-1-6-250915');
+        expect(args.model).toBe('seed-2-0-mini-260428');
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         // Optional generation knobs should be absent unless supplied.
         expect('max_tokens' in args).toBe(false);
@@ -266,22 +299,55 @@ describe('BytePlusProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'hi' }],
                 max_tokens: 256,
                 temperature: 0.4,
                 top_p: 0.9,
                 tools,
-                tool_choice: 'auto',
-            }),
+                tool_choice: { type: 'auto' },
+            } as never),
         );
 
         const [args] = createMock.mock.calls[0]!;
         expect(args.max_tokens).toBe(256);
         expect(args.temperature).toBe(0.4);
         expect(args.top_p).toBe(0.9);
-        expect(args.tools).toBe(tools);
+        expect(args.tools).toEqual(tools);
         expect(args.tool_choice).toBe('auto');
+    });
+
+    it('forwards parallel_tool_calls, stop, response_format and reasoning_effort unrestricted', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'seed-2-0-mini-260428',
+                messages: [{ role: 'user', content: 'hi' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                tool_choice: { type: 'any' },
+                parallel_tool_calls: true,
+                stopSequences: ['STOP'],
+                outputFormat: {
+                    type: 'json_schema',
+                    schema: { type: 'object' },
+                },
+                reasoning_effort: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.tool_choice).toBe('required');
+        expect(args.parallel_tool_calls).toBe(true);
+        expect(args.stop).toEqual(['STOP']);
+        expect(args.response_format).toBeDefined();
+        expect(args.reasoning_effort).toBe('high');
     });
 
     it('forwards Ark-specific custom params (thinking, stop, response_format)', async () => {
@@ -290,7 +356,7 @@ describe('BytePlusProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'hi' }],
                 custom: {
                     thinking: { type: 'disabled' },
@@ -312,7 +378,7 @@ describe('BytePlusProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [
                     {
                         role: 'user',
@@ -333,7 +399,7 @@ describe('BytePlusProvider.complete request shape', () => {
         createMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: false,
             }),
@@ -346,7 +412,7 @@ describe('BytePlusProvider.complete request shape', () => {
         createMock.mockReturnValueOnce(asAsyncIterable([]));
         await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),
@@ -376,16 +442,16 @@ describe('BytePlusProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'glm-4-7-251222',
+                model: 'glm-5-2-260617',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('glm-4-7-251222');
+        expect(createMock.mock.calls[0]![0].model).toBe('glm-5-2-260617');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'byteplus:glm-4-7-251222',
+            'byteplus:glm-5-2-260617',
             expect.any(Object),
         );
     });
@@ -396,35 +462,33 @@ describe('BytePlusProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6',
+                model: 'seed-2-0-mini',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
         // The wire model should be the canonical dated id, not the alias.
-        expect(createMock.mock.calls[0]![0].model).toBe('seed-1-6-250915');
+        expect(createMock.mock.calls[0]![0].model).toBe('seed-2-0-mini-260428');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'byteplus:seed-1-6-250915',
+            'byteplus:seed-2-0-mini-260428',
             expect.any(Object),
         );
     });
 
-    it('falls back to the default model when given an unknown id', async () => {
+    it('rejects an unknown id instead of substituting the default', async () => {
         const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(baseCompletion);
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'totally-not-a-real-model',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-
-        expect(createMock.mock.calls[0]![0].model).toBe(
-            'seed-2-0-lite-260428',
-        );
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'totally-not-a-real-model',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
     });
 });
 
@@ -449,7 +513,7 @@ describe('BytePlusProvider.complete non-stream output', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -459,7 +523,7 @@ describe('BytePlusProvider.complete non-stream output', () => {
             finish_reason: 'stop',
         });
         expect((result as { usage: unknown }).usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
@@ -467,28 +531,28 @@ describe('BytePlusProvider.complete non-stream output', () => {
         // Cost overrides scale per-token usage by the per-token cents from
         // the model's costs table, so derive expectations from
         // BYTEPLUS_MODELS directly to avoid hardcoded float-precision drift.
-        const seed16 = BYTEPLUS_MODELS.find(
-            (m) => m.id === 'seed-1-6-250915',
+        const seed20Mini = BYTEPLUS_MODELS.find(
+            (m) => m.id === 'seed-2-0-mini-260428',
         )!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
-            prompt_tokens: 100,
+            prompt_tokens: 90,
             completion_tokens: 50,
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
-        expect(prefix).toBe('byteplus:seed-1-6-250915');
+        expect(prefix).toBe('byteplus:seed-2-0-mini-260428');
         expect(overrides.prompt_tokens).toBeCloseTo(
-            100 * Number(seed16.costs.prompt_tokens),
+            90 * Number(seed20Mini.costs.prompt_tokens),
             5,
         );
         expect(overrides.completion_tokens).toBeCloseTo(
-            50 * Number(seed16.costs.completion_tokens),
+            50 * Number(seed20Mini.costs.completion_tokens),
             5,
         );
         expect(overrides.cached_tokens).toBeCloseTo(
-            10 * Number(seed16.costs.cached_tokens ?? 0),
+            10 * Number(seed20Mini.costs.cached_tokens ?? 0),
             5,
         );
     });
@@ -520,7 +584,7 @@ describe('BytePlusProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'do a tool call' }],
                 tools: [
                     {
@@ -562,7 +626,7 @@ describe('BytePlusProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         )) as { message: Record<string, unknown> };
@@ -590,7 +654,7 @@ describe('BytePlusProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         )) as { message: Record<string, unknown> };
@@ -622,7 +686,7 @@ describe('BytePlusProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'say hi' }],
                 stream: true,
             }),
@@ -642,27 +706,27 @@ describe('BytePlusProvider.complete streaming', () => {
 
         const usageEvent = events.find((e) => e.type === 'usage');
         expect(usageEvent?.usage).toEqual({
-            prompt_tokens: 4,
+            prompt_tokens: 3,
             completion_tokens: 2,
             cached_tokens: 1,
         });
 
-        const seed16 = BYTEPLUS_MODELS.find(
-            (m) => m.id === 'seed-1-6-250915',
+        const seed20Mini = BYTEPLUS_MODELS.find(
+            (m) => m.id === 'seed-2-0-mini-260428',
         )!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('byteplus:seed-1-6-250915');
+        expect(prefix).toBe('byteplus:seed-2-0-mini-260428');
         expect(overrides.prompt_tokens).toBeCloseTo(
-            4 * Number(seed16.costs.prompt_tokens),
+            3 * Number(seed20Mini.costs.prompt_tokens),
             5,
         );
         expect(overrides.completion_tokens).toBeCloseTo(
-            2 * Number(seed16.costs.completion_tokens),
+            2 * Number(seed20Mini.costs.completion_tokens),
             5,
         );
         expect(overrides.cached_tokens).toBeCloseTo(
-            1 * Number(seed16.costs.cached_tokens ?? 0),
+            1 * Number(seed20Mini.costs.cached_tokens ?? 0),
             5,
         );
     });
@@ -686,7 +750,7 @@ describe('BytePlusProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'think hard' }],
                 stream: true,
             }),
@@ -753,7 +817,7 @@ describe('BytePlusProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'seed-1-6-250915',
+                model: 'seed-2-0-mini-260428',
                 messages: [{ role: 'user', content: 'do tool call' }],
                 tools: [
                     {
@@ -792,7 +856,7 @@ describe('BytePlusProvider.complete error mapping', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'seed-1-6-250915',
+                    model: 'seed-2-0-mini-260428',
                     messages: [{ role: 'user', content: 'boom' }],
                 }),
             ),

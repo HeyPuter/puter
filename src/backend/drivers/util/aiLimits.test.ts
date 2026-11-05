@@ -22,12 +22,7 @@ import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
-import {
-    resolveDriverMethodConcurrent,
-    resolveDriverMethodRateLimit,
-    validateDriverConcurrent,
-    validateDriverRateLimit,
-} from '../meta.js';
+import { resolvePerMethod, validatePerMethod } from '../meta.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from './aiLimits.js';
 
 // The shared AI policy is consumed verbatim by 8 drivers — these tests
@@ -46,16 +41,16 @@ describe('AI_RATE_LIMIT', () => {
         });
     });
 
-    it('passes the same validator the @Driver decorator runs at boot', () => {
+    it('passes the validator drivers run at boot', () => {
         // If validation ever tightens, the AI policy must keep up.
         expect(() =>
-            validateDriverRateLimit(AI_RATE_LIMIT, 'AI_RATE_LIMIT'),
+            validatePerMethod(AI_RATE_LIMIT, 'AI_RATE_LIMIT', 'rateLimit'),
         ).not.toThrow();
     });
 
     it('resolves the same spec for any method since only `default` is set', () => {
-        const a = resolveDriverMethodRateLimit(AI_RATE_LIMIT, 'complete');
-        const b = resolveDriverMethodRateLimit(AI_RATE_LIMIT, 'generate');
+        const a = resolvePerMethod(AI_RATE_LIMIT, 'complete');
+        const b = resolvePerMethod(AI_RATE_LIMIT, 'generate');
         expect(a).toEqual(b);
         expect(a).toBe(AI_RATE_LIMIT.default);
     });
@@ -83,17 +78,17 @@ describe('AI_CONCURRENT', () => {
         });
     });
 
-    it('passes the same validator the @Driver decorator runs at boot', () => {
+    it('passes the validator drivers run at boot', () => {
         expect(() =>
-            validateDriverConcurrent(AI_CONCURRENT, 'AI_CONCURRENT'),
+            validatePerMethod(AI_CONCURRENT, 'AI_CONCURRENT', 'concurrent'),
         ).not.toThrow();
     });
 
     it('resolves the same spec for any method since only `default` is set', () => {
-        expect(resolveDriverMethodConcurrent(AI_CONCURRENT, 'complete')).toBe(
+        expect(resolvePerMethod(AI_CONCURRENT, 'complete')).toBe(
             AI_CONCURRENT.default,
         );
-        expect(resolveDriverMethodConcurrent(AI_CONCURRENT, 'generate')).toBe(
+        expect(resolvePerMethod(AI_CONCURRENT, 'generate')).toBe(
             AI_CONCURRENT.default,
         );
     });

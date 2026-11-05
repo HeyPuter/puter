@@ -19,19 +19,33 @@
 
 import UINotification from '../UINotification.js';
 import { reveal_dashboard } from '../UIWindow.js';
-import { listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
-import { applyToastMark, createNotificationFeed } from '../../helpers/notificationFeed.js';
+import { deleteNotification, getNotification, listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
+import { applyToastMark, createNotificationFeed, createReplayLog, missedAfterReconnect } from '../../helpers/notificationFeed.js';
+import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
+import {
+    handleNotificationTap,
+    openAppForTap,
+    setPushTapHandler,
+    storedTapHandler,
+    tapRoute,
+} from '../../helpers/notificationTap.js';
+import { startPushWorker } from '../../helpers/pushWorker.js';
+import { syncBrowserPush } from '../../helpers/pushSync.js';
+import { get_app_by_uid } from '../../helpers/getAppByUid.js';
+import launch_app from '../../helpers/launchApp.js';
 import {
     badgeLabel,
-    formatAbsoluteTime,
-    formatRelativeTime,
     glyphKey,
+    httpsIconFor,
     isUnread,
+    listedEntries,
     mergeEntries,
     notificationTarget,
     planBurstToasts,
     reconcileWithServer,
+    senderNameFor,
     setReadAt,
+    takeMarksSince,
     titleWithBadge,
     toEntry,
     unreadCount,
@@ -53,6 +67,12 @@ const ACK_CONCURRENCY = 6;
 
 /** How many of the most recent notifications the panel lists, read or not. */
 const HISTORY_LIMIT = 30;
+
+/**
+ * Rows a listing asks for: past HISTORY_LIMIT for the ones the panel hides
+ * and for older unread ones, which it lists too. The driver's maximum.
+ */
+const LISTING_LIMIT = 200;
 
 /** Matches the panel's CSS transition; `hidden` is set once it has run. */
 const CLOSE_ANIMATION_MS = 180;
@@ -76,6 +96,12 @@ const GLYPHS = {
 
 const glyphFor = (notification) => GLYPHS[glyphKey(notification)];
 
+/** An app message's own image where it has an https one, else the glyph. */
+const iconHtmlFor = (notification) => {
+    const url = httpsIconFor(notification);
+    return url ? `<img src="${html_encode(url)}" alt="">` : glyphFor(notification);
+};
+
 /** The same glyph as an image source, for toasts. */
 const toastIconFor = (notification) => {
     const iconName = notification?.icon;
@@ -83,6 +109,8 @@ const toastIconFor = (notification) => {
         ? window.icons[iconName]
         : null;
     if ( named ) return named;
+    const remote = httpsIconFor(notification);
+    if ( remote ) return remote;
     const color = glyphKey(notification) === 'sharing' ? '#2563eb' : '#64748b';
     // Loaded as an image rather than inlined, the SVG needs its namespace.
     const svg = glyphFor(notification)
@@ -147,7 +175,7 @@ const runLimited = async (items, limit, task) => {
  * Reading one (its check, or acting on it) acknowledges it on the server,
  * which also marks it read in every other open tab; it stays listed, just
  * quieter. A toast timing out does not, so nothing is lost while someone is
- * looking away.
+ * looking away. Removing one (its ✕) deletes it, from every open tab too.
  *
  * @param {{ $el_window: JQuery, socket: import('socket.io-client').Socket }} opts
  * @returns {{ open: () => void, close: (opts?: { restoreFocus?: boolean }) => void, refresh: () => Promise<void>, isOpen: () => boolean }}
@@ -177,7 +205,13 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
      * ack finished, `Infinity` while it is still out.
      */
     const acked = new Map();
+    /** Deletions a listing in flight can't know about; same shape as `acked`. */
+    const removed = new Map();
     let listingRequestedAt = 0;
+    /** Uids of the first listing, which a reconnect's catch-up never raises. */
+    let knownAtLoad = null;
+    /** When a reconnect asked for a catch-up a later listing still owes. */
+    let catchUpFrom = null;
 
     const sheetMedia = window.matchMedia(SHEET_BREAKPOINT);
     const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -259,10 +293,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             <time class="dashboard-notification-time" datetime="${new Date(entry.createdAt).toISOString()}"
                 title="${html_encode(formatAbsoluteTime(entry.createdAt, window.locale))}">${html_encode(formatRelativeTime(entry.createdAt, Date.now(), window.locale))}</time>`;
         const title = titleFor(notification);
+        const sender = senderNameFor(notification);
         const unread = isUnread(entry);
         // Only an entry with somewhere to go is a control; the rest is text,
         // with the check to mark it read as its one action while unread.
-        const actionable = notificationTarget(notification) !== null;
+        const actionable = notificationTarget(notification) !== null
+            || tapRoute({ uid: entry.uid, notification, appUid: entry.appUid }).kind === 'app';
         const mainTag = actionable ? 'button type="button"' : 'div';
         const classes = [
             'dashboard-notification',
@@ -272,24 +308,32 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         return `
             <li class="${classes}" data-uid="${html_encode(entry.uid)}">
                 <${mainTag} class="dashboard-notification-main${actionable ? ' is-actionable' : ''}">
-                    <span class="dashboard-notification-icon dashboard-notification-icon-${glyph}">${glyphFor(notification)}<span class="dashboard-notification-unread-dot" aria-hidden="true"></span></span>
+                    <span class="dashboard-notification-icon dashboard-notification-icon-${glyph}">${iconHtmlFor(notification)}<span class="dashboard-notification-unread-dot" aria-hidden="true"></span></span>
                     <span class="dashboard-notification-content">
+                        ${sender ? `<span class="dashboard-notification-sender">${html_encode(sender)}</span>` : ''}
                         <span class="dashboard-notification-title">${unread ? `<span class="dashboard-notification-sr">${i18n('notification_unread')}: </span>` : ''}${html_encode(title)}</span>
                         ${text ? `<span class="dashboard-notification-text">${html_encode(text)}</span>` : ''}
                         ${time}
                     </span>
                 </${actionable ? 'button' : 'div'}>
-                ${unread ? `<button type="button" class="dashboard-notification-read"
-                    aria-label="${i18n('notification_mark_read_named', { title })}" title="${i18n('notification_mark_read')}">${checkIcon}</button>` : ''}
+                <span class="dashboard-notification-actions">
+                    ${unread ? `<button type="button" class="dashboard-notification-read"
+                        aria-label="${i18n('notification_mark_read_named', { title })}" title="${i18n('notification_mark_read')}">${checkIcon}</button>` : ''}
+                    <button type="button" class="dashboard-notification-remove"
+                        aria-label="${i18n('notification_remove_named', { title })}" title="${i18n('notification_remove')}">${closeIcon}</button>
+                </span>
             </li>`;
     };
 
+    /** A row's secondary controls, by the class each one carries. */
+    const ROW_CONTROLS = ['dashboard-notification-read', 'dashboard-notification-remove'];
+
     /**
      * Where the keyboard is in the list, so a re-render — which rebuilds
-     * every row — can put it back: on the same entry, or if that one is
-     * gone, on the entry that took its place. A check that was just pressed
-     * is gone with the unread state; the row's own control, or the panel,
-     * takes the focus instead.
+     * every row — can put it back: on the same control of the same entry, or
+     * if that entry is gone, of the one that took its place. A check that was
+     * just pressed is gone with the unread state; the row's own control, or
+     * the panel, takes the focus instead.
      */
     const focusedRow = () => {
         const active = document.activeElement;
@@ -298,12 +342,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         return {
             uid: row.getAttribute('data-uid'),
             index: $list.children().index(row),
-            read: active.classList.contains('dashboard-notification-read'),
+            control: ROW_CONTROLS.find((name) => active.classList.contains(name)) ?? null,
         };
     };
 
-    const rowControl = (row, read) => (
-        (read ? row.querySelector('.dashboard-notification-read') : null)
+    const rowControl = (row, control) => (
+        (control ? row.querySelector(`.${control}`) : null)
         ?? row.querySelector('button')
     );
 
@@ -312,11 +356,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const rows = $list.children().get();
         const same = rows.find((row) => row.getAttribute('data-uid') === was.uid);
         const row = same ?? rows[Math.min(was.index, rows.length - 1)];
-        const target = (row && rowControl(row, was.read)) ?? $panel[0];
+        const target = (row && rowControl(row, was.control)) ?? $panel[0];
         target.focus({ preventScroll: true });
     };
 
     const render = () => {
+        const hadFocus = $panel[0].contains(document.activeElement);
         const count = unreadCount(entries);
         const label = badgeLabel(count);
 
@@ -340,6 +385,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const was = isOpen ? focusedRow() : null;
         $list.html(entries.map(rowHtml).join(''));
         restoreFocus(was);
+        // A control this render hid (Mark all read, Retry) took focus with
+        // it; keep it in the panel rather than on the page behind.
+        if ( isOpen && hadFocus && ! $panel[0].contains(document.activeElement) ) {
+            $panel[0].focus({ preventScroll: true });
+        }
         justAdded.clear();
         if ( isOpen ) for ( const entry of entries ) surfaced.add(entry.uid);
     };
@@ -360,19 +410,26 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         loadFailed = false;
         if ( ! loaded ) render();
         listingRequestedAt = Date.now();
-        loading = listNotifications({ predicate: 'all', limit: HISTORY_LIMIT })
+        const requestedAt = listingRequestedAt;
+        loading = listNotifications({ predicate: 'all', limit: LISTING_LIMIT })
             .then((rows) => {
-                const now = Date.now();
-                const server = rows.map((row) => toEntry(row, now)).filter(Boolean);
-                // Acked since this listing was requested: unread in its snapshot.
-                // Anything acked before it is settled and can be forgotten.
-                const readSince = new Set();
-                for ( const [uid, at] of acked ) {
-                    if ( at >= listingRequestedAt ) readSince.add(uid);
-                    else acked.delete(uid);
+                let missed = [];
+                if ( knownAtLoad === null ) {
+                    knownAtLoad = new Set(rows.map((row) => row.uid));
+                } else if ( catchUpFrom !== null && requestedAt >= catchUpFrom ) {
+                    catchUpFrom = null;
+                    missed = missedAfterReconnect(rows, { known: knownAtLoad, log: replayLog });
                 }
+                const now = Date.now();
+                // Acked or removed since this listing was requested: its
+                // snapshot still has them unread, or at all.
+                const readSince = takeMarksSince(acked, listingRequestedAt);
+                const removedSince = takeMarksSince(removed, listingRequestedAt);
+                const server = listedEntries(rows, now, HISTORY_LIMIT)
+                    .filter((entry) => ! removedSince.has(entry.uid));
                 entries = reconcileWithServer(entries, server, now, undefined, readSince);
                 loaded = true;
+                if ( missed.length ) receive(missed, { replay: true });
             })
             .catch((err) => {
                 console.warn('Could not load notifications:', err);
@@ -427,6 +484,31 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         }
     };
 
+    /** Take an entry, and any toast for it, off screen. */
+    const dropEntry = (uid) => {
+        $(`.notification[data-uid="${html_encode(uid)}"]`).closest('.notification-wrapper').remove();
+        entries = entries.filter((e) => e.uid !== uid);
+    };
+
+    /** Take an entry off the list now and delete it on the server; put it back if that fails. */
+    const remove = async (uid) => {
+        const entry = entries.find((e) => e.uid === uid);
+        if ( ! entry ) return;
+        removed.set(uid, Infinity);
+        dropEntry(uid);
+        render();
+        try {
+            await deleteNotification(uid);
+            removed.set(uid, Date.now());
+        } catch (err) {
+            console.warn('Could not remove notification:', err);
+            removed.delete(uid);
+            entries = mergeEntries(entries, [entry]).entries;
+            render();
+            setStatus(i18n('notifications_remove_failed', [], false));
+        }
+    };
+
     // -- Acting on an entry -------------------------------------------------
 
     /** Show the Files tab on Shared, picking out `paths` if they are there. */
@@ -440,17 +522,47 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         if ( paths?.length ) filesTab.selectSharedRows?.(paths);
     };
 
-    const actOn = (entry) => {
-        const target = notificationTarget(entry.notification);
-        close({ restoreFocus: false });
-        // Acknowledged first: what the click leads to may take a moment, and
-        // the entry should read as seen by the time it lands.
-        void markRead(entry.uid);
+    const openShare = (notification) => {
+        const target = notificationTarget(notification);
         if ( target?.kind === 'shared-item' ) {
             void goToShared([target.path]);
         } else if ( target?.kind === 'shared' ) {
             void goToShared([]);
         }
+    };
+
+    const tapSurface = {
+        share: openShare,
+        panel: () => open(),
+        openApp: (route) => openAppForTap(route, { getApp: get_app_by_uid, launch: launch_app }),
+    };
+
+    const actOn = (entry) => {
+        close({ restoreFocus: false });
+        // Acknowledged first: what the click leads to may take a moment, and
+        // the entry should read as seen by the time it lands.
+        void markRead(entry.uid);
+        void handleNotificationTap({ uid: entry.uid, notification: entry.notification, appUid: entry.appUid }, tapSurface);
+    };
+
+    const actOnStored = storedTapHandler({
+        fetchRow: getNotification,
+        surface: tapSurface,
+        found: (uid) => void acknowledge(uid).catch((err) => {
+            console.warn('Could not acknowledge notification:', err);
+        }),
+        missing: () => open(),
+    });
+
+    const actOnPush = async (push) => {
+        await reveal_dashboard();
+        if ( ! loaded ) await refresh();
+        const entry = entries.find((e) => e.uid === push.uid);
+        if ( entry ) {
+            actOn(entry);
+            return;
+        }
+        await actOnStored(push);
     };
 
     // -- Toasts -------------------------------------------------------------
@@ -462,12 +574,18 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const { notification } = entry;
         UINotification({
             uid: entry.uid,
+            sender: senderNameFor(notification),
             title: titleFor(notification),
             text: textFor(notification),
             icon: toastIconFor(notification),
             value: notification,
             timeout: TOAST_TIMEOUT_MS,
-            click: () => void reveal_dashboard().then(() => actOn(entry)),
+            // With nothing to open on the dashboard, a click only dismisses;
+            // it mustn't send the apps the user is working in away.
+            click: () => {
+                if ( notificationTarget(notification) === null ) void markRead(entry.uid);
+                else void reveal_dashboard().then(() => actOn(entry));
+            },
             // The ✕ is a dismissal; timing out is not, so `close` alone acks.
             close: () => void markRead(entry.uid),
         });
@@ -504,7 +622,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
      */
     const receive = (rawItems, { replay = false } = {}) => {
         const now = Date.now();
-        const incoming = rawItems.map((raw) => toEntry(raw, now)).filter(Boolean);
+        const incoming = rawItems.map((raw) => toEntry(raw, now))
+            .filter((entry) => entry && ! removed.has(entry.uid));
         const result = mergeEntries(entries, incoming);
         entries = result.entries;
 
@@ -586,7 +705,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
 
         $(window).on('resize.dashboard-notifications', position);
         $(document).on('pointerdown.dashboard-notifications', (e) => {
-            if ( $(e.target).closest('.dashboard-notifications-panel, .dashboard-notifications-btn').length ) return;
+            // The sheet's scrim closes on click, so the tap can't fall through.
+            if ( $(e.target).closest('.dashboard-notifications-panel, .dashboard-notifications-btn, .dashboard-notifications-scrim').length ) return;
             close({ restoreFocus: false });
         });
         $(document).on('keydown.dashboard-notifications', (e) => {
@@ -631,6 +751,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             const target = previousFocus && document.contains(previousFocus) ? previousFocus : $trigger[0];
             try {
                 target.focus({ preventScroll: true });
+                // The bell is in the mobile drawer, closed under the sheet;
+                // the drawer's toggle stands in for it.
+                if ( document.activeElement !== target ) {
+                    $('.dashboard-sidebar-toggle:visible')[0]?.focus({ preventScroll: true });
+                }
             } catch { /* best effort */ }
         }
         previousFocus = null;
@@ -646,6 +771,10 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     $panel.on('click', '.dashboard-notification-read', function (e) {
         e.stopPropagation();
         void markRead($(this).closest('.dashboard-notification').attr('data-uid'));
+    });
+    $panel.on('click', '.dashboard-notification-remove', function (e) {
+        e.stopPropagation();
+        void remove($(this).closest('.dashboard-notification').attr('data-uid'));
     });
     $panel.on('click', '.dashboard-notification-main.is-actionable', function () {
         const uid = $(this).closest('.dashboard-notification').attr('data-uid');
@@ -683,18 +812,19 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
      * stand down only while it is up, so a lapse is a fallback rather than
      * silence.
      */
+    const replayLog = createReplayLog();
     const feed = createNotificationFeed({
-        deliver: (items, { replay }) => receive(items, { replay }),
+        deliver: (items, { replay }) => receive(replayLog.admit(items, { replay }), { replay }),
     });
     void feed.start();
 
     socket.on('notif.message', ({ uid, notification }) => {
         if ( feed.isActive() ) return;
-        receive([{ uid, notification }]);
+        receive(replayLog.admit([{ uid, notification }]));
     });
+    // Not gated: one arrives per reconnect, and its rows are marked shown.
     socket.on('notif.unreads', ({ unreads }) => {
-        if ( feed.isActive() ) return;
-        receive(Array.isArray(unreads) ? unreads : []);
+        receive(replayLog.admit(Array.isArray(unreads) ? unreads : [], { replay: true }), { replay: true });
     });
     // Not gated: an ack marks an entry read rather than adding one, so it
     // can't duplicate anything — and the events surface carries only
@@ -702,21 +832,39 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     // between open tabs.
     socket.on('notif.ack', ({ uid }) => {
         if ( ! uid ) return;
+        replayLog.dismissed(uid);
         $(`.notification[data-uid="${html_encode(uid)}"]`).closest('.notification-wrapper').remove();
-        if ( ! entries.some((e) => e.uid === uid && isUnread(e)) ) return;
-        // Read in another tab: a listing already in flight predates it too.
+        // Read in another tab: a listing already in flight predates it too,
+        // even one bringing an entry this tab hasn't seen yet.
         const now = Date.now();
         acked.set(uid, now);
+        if ( ! entries.some((e) => e.uid === uid && isUnread(e)) ) return;
         entries = setReadAt(entries, uid, now);
         render();
+    });
+    // Removed in another tab. Not gated, for the same reason as the ack.
+    socket.on('notif.removed', ({ uid }) => {
+        if ( ! uid ) return;
+        removed.set(uid, Date.now());
+        const listed = entries.some((e) => e.uid === uid);
+        dropEntry(uid);
+        if ( listed ) render();
     });
     // Every (re)connection: anything read elsewhere while this tab was
     // offline is marked so in the server's list, and anything new is in it.
     socket.on('connect', () => void refresh());
+    // After a reconnect, the next listing raises what this page missed.
+    socket.io?.on('reconnect', () => {
+        catchUpFrom = Date.now();
+        void Promise.resolve(loading).finally(() => refresh());
+    });
     // Coming back to the tab: same reasoning, cheaper than waiting to be told.
     document.addEventListener('visibilitychange', () => {
         if ( document.visibilityState === 'visible' && loaded ) void refresh();
     });
+
+    setPushTapHandler(actOnPush);
+    startPushWorker().then(() => syncBrowserPush());
 
     render();
     void refresh();

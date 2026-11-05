@@ -35,6 +35,8 @@ interface TokenPayloadBase {
     session_uid?: string;
     /** Stable per-user identity that survives re-login. */
     auth_id?: string;
+    /** Unix seconds; absent on a token that doesn't expire. */
+    exp?: number;
 }
 
 export type TokenType = 'session' | 'gui' | 'app-under-user' | 'access-token';
@@ -49,6 +51,15 @@ export interface SessionTokenPayload extends TokenPayloadBase {
     uuid: string;
     /** User uuid (plain). */
     user_uid: string;
+    /** Set on a worker credential riding this token type; not a browser session. */
+    worker?: boolean;
+    worker_name?: string;
+    /** Uuid of the worker's subdomain row; the token dies with that row. */
+    worker_uid?: string;
+    /** Site row that owns a dynamically deployed worker. */
+    workerSiteUid?: string;
+    /** That site's subdomain name, for the cached lookup. */
+    workerSite?: string;
 }
 
 /**
@@ -63,6 +74,14 @@ export interface AppUnderUserTokenPayload extends TokenPayloadBase {
     session?: string;
     /** Events handler runs behind this token's writes; see `Actor.handlerDepth`. */
     handler_depth?: number;
+    worker?: boolean;
+    worker_name?: string;
+    /** Uuid of the worker's subdomain row; the token dies with that row. */
+    worker_uid?: string;
+    /** Site row that owns a dynamically deployed worker. */
+    workerSiteUid?: string;
+    /** That site's subdomain name, for the cached lookup. */
+    workerSite?: string;
 }
 
 /**
@@ -79,10 +98,20 @@ export interface AccessTokenPayload extends TokenPayloadBase {
      * `ActorAccessToken.fullAccess`.
      */
     full_access?: boolean;
+    /**
+     * Set on a full-access token minted for a godmode app launch; drives
+     * `ActorAccessToken.godmodeApp`. Never `app_uid`, which would make the app
+     * the acting identity.
+     */
+    godmode_app_uid?: string;
+    /** Minted by an events handler; see `Actor.handlerDepth`. */
+    handler_depth?: number;
 }
 
 export type AnyTokenPayload =
-    SessionTokenPayload | AppUnderUserTokenPayload | AccessTokenPayload;
+    | SessionTokenPayload
+    | AppUnderUserTokenPayload
+    | AccessTokenPayload;
 
 // -- Session row (from `sessions` table) ----------------------------
 

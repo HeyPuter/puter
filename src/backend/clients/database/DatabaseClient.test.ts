@@ -45,8 +45,13 @@ class FixtureDatabaseClient extends AbstractDatabaseClient {
     constructor(
         private readonly replicaRows: Record<string, unknown>[] | Error,
         private readonly primaryRows: Record<string, unknown>[] = [],
+        private readonly replica = true,
     ) {
         super(config('fixture'));
+    }
+
+    protected override hasReadReplica(): boolean {
+        return this.replica;
     }
 
     override async read(query: string): Promise<Record<string, unknown>[]> {
@@ -103,6 +108,25 @@ describe('AbstractDatabaseClient — unimplemented surface', () => {
 });
 
 describe('AbstractDatabaseClient — replica-aware reads', () => {
+    it('avoids a primary read when the replica has rows in sequential mode', async () => {
+        const client = new FixtureDatabaseClient([{ id: 1 }], [{ id: 2 }]);
+        expect(
+            await client.tryHardRead('SELECT 1', [], { race: false }),
+        ).toEqual([{ id: 1 }]);
+        expect(client.preads).toEqual([]);
+    });
+
+    it.each([[], new Error('replica unavailable')])(
+        'falls back once in sequential mode',
+        async (replica) => {
+            const client = new FixtureDatabaseClient(replica, [{ id: 2 }]);
+            expect(
+                await client.tryHardRead('SELECT 1', [], { race: false }),
+            ).toEqual([{ id: 2 }]);
+            expect(client.preads).toEqual(['SELECT 1']);
+        },
+    );
+
     it('returns replica rows without waiting on the primary', async () => {
         const client = new FixtureDatabaseClient([{ id: 1 }], [{ id: 2 }]);
         await expect(client.tryHardRead('SELECT 1')).resolves.toEqual([
@@ -127,13 +151,21 @@ describe('AbstractDatabaseClient — replica-aware reads', () => {
         ]);
     });
 
-    it('names the failing query when a required read finds nothing', async () => {
-        const client = new FixtureDatabaseClient([], []);
-        await expect(
-            client.requireRead('SELECT * FROM `user` WHERE `id` = ?'),
-        ).rejects.toThrow(
-            'required read returned no rows: SELECT * FROM `user` WHERE `id` = ?',
+    it('surfaces the primary error when both reads fail', async () => {
+        const client = new FixtureDatabaseClient(new Error('replica down'));
+        client.pread = async () => {
+            throw new Error('primary down');
+        };
+        await expect(client.tryHardRead('SELECT 1')).rejects.toThrow(
+            'primary down',
         );
+    });
+
+    it('issues a single read when there is no replica', async () => {
+        const client = new FixtureDatabaseClient([], [{ id: 2 }], false);
+        await expect(client.tryHardRead('SELECT 1')).resolves.toEqual([]);
+        expect(client.reads).toEqual(['SELECT 1']);
+        expect(client.preads).toEqual([]);
     });
 });
 
@@ -235,6 +267,47 @@ describe('AbstractDatabaseClient — SQL generation', () => {
         expect(mysql().returningIdClause()).toBe('');
     });
 
+    it('stamps a timestamp from unix seconds in each dialect', () => {
+        expect(sqlite().timestampFromUnixSql()).toBe(
+            "datetime(?, 'unixepoch')",
+        );
+        expect(mysql().timestampFromUnixSql()).toBe('FROM_UNIXTIME(?)');
+        expect(postgres().timestampFromUnixSql()).toBe('to_timestamp(?)');
+    });
+
+    it('reads a timestamp column back as unix seconds in each engine', () => {
+        expect(sqlite().unixSecondsSql('`t`')).toBe(
+            "CAST(strftime('%s', `t`) AS INTEGER)",
+        );
+        expect(mysql().unixSecondsSql('`t`')).toBe('UNIX_TIMESTAMP(`t`)');
+        expect(postgres().unixSecondsSql('`t`')).toBe(
+            'EXTRACT(EPOCH FROM `t`)::bigint',
+        );
+    });
+
+    it('reads the database clock as epoch milliseconds in each dialect', () => {
+        expect(sqlite().nowMsExpr()).toBe(
+            "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)",
+        );
+        expect(mysql().nowMsExpr()).toBe(
+            "(TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(6)) DIV 1000)",
+        );
+        expect(postgres().nowMsExpr()).toBe(
+            'CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS BIGINT)',
+        );
+    });
+
+    it('describes a stored timestamp the way each driver reads it back', () => {
+        const seconds = Date.UTC(2026, 9, 11, 8, 5, 9) / 1000;
+        expect(sqlite().timestampValue(seconds)).toBe('2026-10-11 08:05:09');
+        expect(mysql().timestampValue(seconds)).toEqual(
+            new Date(seconds * 1000),
+        );
+        expect(postgres().timestampValue(seconds)).toEqual(
+            new Date(seconds * 1000),
+        );
+    });
+
     it('falls back to `otherwise` for an engine with no explicit choice', () => {
         const client = new FixtureDatabaseClient([]);
         expect(
@@ -244,4 +317,14 @@ describe('AbstractDatabaseClient — SQL generation', () => {
             'exact',
         );
     });
+});
+
+
+it('builds an insert for batchWrite and shares it with insert', async () => {
+    const client = new FixtureDatabaseClient([]);
+    const entry = client.insertEntry('widget', { name: "reader's", enabled: true });
+    expect(entry.values).toEqual(["reader's", true]);
+    expect(entry.statement).toContain('VALUES (?, ?)');
+    await client.insert('widget', { name: "reader's", enabled: true });
+    expect(client.writes).toEqual([{ query: entry.statement, params: entry.values }]);
 });

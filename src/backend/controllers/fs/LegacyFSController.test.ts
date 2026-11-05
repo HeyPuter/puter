@@ -28,12 +28,17 @@ import { consumeRouteRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../../services/metering/consts.js';
+import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
 import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { SHARE_LIST_LIMIT } from '../share/limits.js';
 import type { LegacyFSController } from './LegacyFSController.js';
-import { FS_MUTATE_LIMIT } from './limits.js';
+import {
+    FS_BATCH_WRITE_MAX_ITEMS,
+    FS_MUTATE_LIMIT,
+    FS_SIGN_MAX_ITEMS,
+} from './limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -75,7 +80,7 @@ const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
     const refreshed = (await server.stores.user.getById(created.id))!;
     return {
         userId: refreshed.id,
-        actor: {
+        actor: makeActor({
             user: {
                 id: refreshed.id,
                 uuid: refreshed.uuid,
@@ -83,7 +88,7 @@ const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
                 email: refreshed.email ?? null,
                 email_confirmed: true,
             } as Actor['user'],
-        },
+        }),
     };
 };
 
@@ -462,6 +467,88 @@ describe('LegacyFSController.stat', () => {
         expect(body.size).toBe(0);
     });
 
+    it('reports is_empty from the same children a listing returns', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const emptyPath = `/${username}/Documents/probe-empty`;
+        const fullPath = `/${username}/Documents/probe-full`;
+        for (const path of [emptyPath, fullPath]) {
+            await withActor(actor, () =>
+                controller.mkdir(
+                    makeReq({ body: { path }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: `${fullPath}/inner.txt`,
+                size: 5,
+                contentType: 'text/plain',
+            },
+            fileContent: 'hello',
+        } as never);
+
+        for (const path of [emptyPath, fullPath]) {
+            const entry = (await server.stores.fsEntry.getEntryByPath(path))!;
+            const listed = await server.stores.fsEntry.listChildren(
+                entry.uuid,
+                { limit: 1 },
+            );
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.stat(
+                    makeReq({ body: { path, return_size: true }, actor }),
+                    res,
+                ),
+            );
+            const body = captured.body as Record<string, unknown>;
+            expect(body.is_empty).toBe(listed.length === 0);
+            expect(body.size).toBe(path === fullPath ? 5 : 0);
+            expect(body.owner).toEqual({ username });
+        }
+    });
+
+    it('surfaces an earlier failure ahead of a failed subtree size, with nothing left unhandled', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const path = `/${username}/Documents/size-order`;
+        await withActor(actor, () =>
+            controller.mkdir(makeReq({ body: { path }, actor }), makeRes().res),
+        );
+        const flagsFailure = new Error('share flags failed');
+        const sizeFailure = new Error('subtree size failed');
+        const flags = vi
+            .spyOn(server.services.share, 'shareFlags')
+            .mockRejectedValueOnce(flagsFailure);
+        const size = vi
+            .spyOn(server.services.fs, 'getSubtreeSize')
+            .mockRejectedValue(sizeFailure);
+        try {
+            await expect(
+                withActor(actor, () =>
+                    controller.stat(
+                        makeReq({ body: { path, return_size: true }, actor }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toBe(flagsFailure);
+
+            // On its own, the size failure is what the caller sees.
+            await expect(
+                withActor(actor, () =>
+                    controller.stat(
+                        makeReq({ body: { path, return_size: true }, actor }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toBe(sizeFailure);
+        } finally {
+            flags.mockRestore();
+            size.mockRestore();
+        }
+    });
+
     it('reports the share flag, and the recipients when asked', async () => {
         const { actor } = await makeUser();
         const recipient = await makeUser();
@@ -549,6 +636,88 @@ describe('LegacyFSController.stat', () => {
         );
         expect(plain.captured.body).toMatchObject({ name: 'share-budget' });
     });
+
+    describe('parent_uid of a home child', () => {
+        const tokenActorFor = async (userId: number, permission: string) => {
+            const user = (await server.stores.user.getById(userId))!;
+            const token = await server.services.auth.createAccessToken(
+                makeActor({ user }),
+                [[permission]],
+            );
+            return (await server.services.auth.authenticateFromToken(token))!;
+        };
+
+        it('nulls it for a token scoped below the home', async () => {
+            const { userId } = await makeUser();
+            const user = (await server.stores.user.getById(userId))!;
+            const username = user.username!;
+            const documents = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents`,
+            ))!;
+            const scoped = await tokenActorFor(
+                userId,
+                `fs:${documents.uuid}:read`,
+            );
+
+            const { res, captured } = makeRes();
+            await withActor(scoped, () =>
+                controller.stat(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor: scoped,
+                    }),
+                    res,
+                ),
+            );
+            const body = captured.body as Record<string, unknown>;
+            expect(body.parent_uid).toBeNull();
+            expect(body.parent_id).toBeNull();
+        });
+
+        it('keeps it for a token that can list the home', async () => {
+            const { userId } = await makeUser();
+            const user = (await server.stores.user.getById(userId))!;
+            const username = user.username!;
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}`,
+            ))!;
+            const scoped = await tokenActorFor(userId, `fs:${home.uuid}:list`);
+
+            const { res, captured } = makeRes();
+            await withActor(scoped, () =>
+                controller.stat(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor: scoped,
+                    }),
+                    res,
+                ),
+            );
+            const body = captured.body as Record<string, unknown>;
+            expect(body.parent_uid).toBe(home.uuid);
+        });
+
+        it('keeps it for a session actor', async () => {
+            const { actor } = await makeUser();
+            const username = actor.user!.username!;
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}`,
+            ))!;
+
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.stat(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            const body = captured.body as Record<string, unknown>;
+            expect(body.parent_uid).toBe(home.uuid);
+        });
+    });
 });
 
 describe('LegacyFSController.delete', () => {
@@ -609,6 +778,36 @@ describe('LegacyFSController.delete', () => {
         expect(responseBody[1]?.path).toBe(b);
         expect(await server.stores.fsEntry.getEntryByPath(a)).toBeNull();
         expect(await server.stores.fsEntry.getEntryByPath(b)).toBeNull();
+    });
+
+    it('refuses more `paths` than one batch may hold, before deleting any', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const keep = `/${username}/Documents/keep`;
+        await withActor(actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: keep }, actor }),
+                makeRes().res,
+            ),
+        );
+
+        await expect(
+            withActor(actor, () =>
+                controller.delete(
+                    makeReq({
+                        body: {
+                            paths: [
+                                keep,
+                                ...Array(FS_BATCH_WRITE_MAX_ITEMS).fill(keep),
+                            ],
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(await server.stores.fsEntry.getEntryByPath(keep)).not.toBeNull();
     });
 });
 
@@ -974,8 +1173,7 @@ describe('LegacyFSController.batch (per-op mutation budget)', () => {
         const freeLimit =
             (
                 FS_MUTATE_LIMIT[0]!.bySubscription as
-                    | Record<string, number>
-                    | undefined
+                    Record<string, number> | undefined
             )?.[DEFAULT_FREE_SUBSCRIPTION] ?? FS_MUTATE_LIMIT[0]!.limit;
         const chargeReq = makeReq({ body: {}, actor });
         for (let i = 0; i < freeLimit; i++) {
@@ -1136,6 +1334,71 @@ describe('LegacyFSController.readdir', () => {
         );
         // Root listing returns an array (the actor's home entries).
         expect(Array.isArray(captured.body)).toBe(true);
+    });
+
+    describe('at the root, per credential', () => {
+        const listRoot = async (actor: Actor) => {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.readdir(
+                    makeReq({ body: { path: '/' }, actor }),
+                    res,
+                ),
+            );
+            return captured.body as Array<{ path: string }>;
+        };
+
+        const tokenActorFor = async (userId: number, permission: string) => {
+            const user = (await server.stores.user.getById(userId))!;
+            const token = await server.services.auth.createAccessToken(
+                makeActor({ user }),
+                [[permission]],
+            );
+            return (await server.services.auth.authenticateFromToken(token))!;
+        };
+
+        it('lists the home for a session and a full-access token', async () => {
+            const { actor, userId } = await makeUser();
+            const username = actor.user!.username!;
+            const user = (await server.stores.user.getById(userId))!;
+            const fullAccess = await tokenActorFor(userId, FULL_API_ACCESS);
+
+            for (const credential of [makeActor({ user }), fullAccess]) {
+                const entries = await listRoot(credential);
+                expect(entries.map((entry) => entry.path)).toEqual([
+                    `/${username}`,
+                ]);
+            }
+        });
+
+        it('leaves the home out for a token scoped below it', async () => {
+            const { actor, userId } = await makeUser();
+            const username = actor.user!.username!;
+            const documents = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}/Documents`,
+            ))!;
+            const scoped = await tokenActorFor(
+                userId,
+                `fs:${documents.uuid}:read`,
+            );
+
+            expect(await listRoot(scoped)).toEqual([]);
+        });
+
+        it('lists the home for a token that can list it', async () => {
+            const { actor, userId } = await makeUser();
+            const username = actor.user!.username!;
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${username}`,
+            ))!;
+            const scoped = await tokenActorFor(userId, `fs:${home.uuid}:list`);
+
+            const entries = await listRoot(scoped);
+
+            expect(entries.map((entry) => entry.path)).toEqual([
+                `/${username}`,
+            ]);
+        });
     });
 
     it('rejects readdir on a non-directory with 400', async () => {
@@ -1660,7 +1923,8 @@ describe('LegacyFSController.move', () => {
                 makeRes().res,
             ),
         );
-        const shared = (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
+        const shared =
+            (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
         await server.services.acl.setUserUser(
             owner.actor,
             holder.actor,
@@ -1689,13 +1953,82 @@ describe('LegacyFSController.move', () => {
         // The move landed in the owner's trash, but the recipient is told so
         // in masked form — the owner's real layout stays theirs.
         const body = captured.body as { moved: { uid: string; path: string } };
+        const suffix = ` (${body.moved.uid.slice(0, 8)})`;
+        // Always renamed in, so the name cannot report on the Trash.
         expect(body.moved.path).toBe(
-            `/${ownerName}/${body.moved.uid}/note.txt`,
+            `/${ownerName}/${body.moved.uid}/note${suffix}.txt`,
         );
         const moved = await server.stores.fsEntry.getEntryByUuid(
             body.moved.uid,
         );
-        expect(moved!.path).toBe(`/${ownerName}/Trash/note.txt`);
+        expect(moved!.path).toBe(`/${ownerName}/Trash/note${suffix}.txt`);
+    });
+
+    it("neither reports nor announces replacing an owner's Trash entry an overwriting move renamed around", async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const ownerName = owner.actor.user!.username!;
+        const sharedPath = `/${ownerName}/Documents/Overwrites`;
+        const occupantPath = `/${ownerName}/Trash/note.txt`;
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: sharedPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        for (const path of [`${sharedPath}/note.txt`, occupantPath]) {
+            await withActor(owner.actor, () =>
+                controller.touch(
+                    makeReq({ body: { path }, actor: owner.actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+        const occupant =
+            (await server.stores.fsEntry.getEntryByPath(occupantPath))!;
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: sharedPath,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(sharedPath),
+            },
+            'write',
+        );
+
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        const { res, captured } = makeRes();
+        let removedOccupant: boolean;
+        try {
+            await withActor(holder.actor, () =>
+                controller.move(
+                    makeReq({
+                        body: {
+                            source: `${sharedPath}/note.txt`,
+                            destination: `/${ownerName}/Trash`,
+                            overwrite: true,
+                        },
+                        actor: holder.actor,
+                    }),
+                    res,
+                ),
+            );
+            removedOccupant = emitSpy.mock.calls.some(
+                ([eventName, data]) =>
+                    eventName === 'outer.gui.item.removed' &&
+                    (data as { response: { uuid?: string } }).response.uuid ===
+                        occupant.uuid,
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+
+        expect(removedOccupant).toBe(false);
+        expect(captured.body).not.toHaveProperty('overwritten');
+        expect(
+            await server.stores.fsEntry.getEntryByUuid(occupant.uuid),
+        ).not.toBeNull();
     });
 
     it('refuses a share recipient moving an item into their own trash', async () => {
@@ -1720,7 +2053,8 @@ describe('LegacyFSController.move', () => {
                 makeRes().res,
             ),
         );
-        const shared = (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
+        const shared =
+            (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
         await server.services.acl.setUserUser(
             owner.actor,
             holder.actor,
@@ -1917,6 +2251,53 @@ describe('LegacyFSController.sign', () => {
                 controller.sign(makeReq({ body: { items: [] }, actor }), res),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    // The missing app would 404 if any item or the grant were looked at first.
+    it('rejects items over the cap before resolving anything', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                controller.sign(
+                    makeReq({
+                        body: {
+                            items: Array(FS_SIGN_MAX_ITEMS + 1).fill({
+                                path: '/x',
+                                action: 'read',
+                            }),
+                            app_uid: `does-not-exist-${uuidv4()}`,
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: `Too many items in one request (max ${FS_SIGN_MAX_ITEMS})`,
+        });
+    });
+
+    it('accepts exactly the cap', async () => {
+        const { actor } = await makeUser();
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.sign(
+                makeReq({
+                    body: {
+                        items: Array(FS_SIGN_MAX_ITEMS).fill({
+                            action: 'read',
+                        }),
+                    },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as { signatures: Array<unknown> };
+        expect(body.signatures).toHaveLength(FS_SIGN_MAX_ITEMS);
     });
 
     it('signs a valid entry by path and returns a signature', async () => {
@@ -2349,10 +2730,58 @@ describe('LegacyFSController.openItem (grant scope)', () => {
         const route = router.routes.find(
             (r) => r.method === 'post' && r.path === '/open_item',
         );
-        expect(route?.options).toMatchObject({
-            requireUserActor: true,
-            allowFullAccessToken: true,
+        expect(route?.options).toMatchObject({ requireUserActor: true });
+        expect(route?.options).not.toHaveProperty('allowFullAccessToken');
+    });
+
+    it('rejects a full-access token, leaving no grant behind', async () => {
+        const { actor: userActor, userId } = await makeUser();
+        const target = `/${userActor.user!.username}/Documents/token-opened.txt`;
+        await withActor(userActor, () =>
+            controller.touch(
+                makeReq({ body: { path: target }, actor: userActor }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+        const app = await makeApp(userId);
+        const tokenActor = makeActor({
+            user: userActor.user,
+            accessToken: {
+                uid: `tok-${uuidv4()}`,
+                issuer: userActor,
+                fullAccess: true,
+            },
         });
+
+        const spy = vi
+            .spyOn(server.services.suggestedApps, 'getSuggestedApps')
+            .mockResolvedValue([{ uuid: app.uid }] as never);
+        try {
+            await expect(
+                withActor(tokenActor, () =>
+                    controller.openItem(
+                        makeReq({
+                            body: { uid: entry!.uuid },
+                            actor: tokenActor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        } finally {
+            spy.mockRestore();
+        }
+
+        for (const mode of ['read', 'write']) {
+            expect(
+                await server.stores.permission.hasUserAppPerm(
+                    userId,
+                    app.id,
+                    `fs:${entry!.uuid}:${mode}`,
+                ),
+            ).toBe(false);
+        }
     });
 
     it('rejects an app actor, leaving no grant behind', async () => {
@@ -3302,6 +3731,63 @@ describe('LegacyFSController.read file streaming', () => {
             ),
         );
         expect(captured.headers['Content-Type']).toMatch(/text\/html/);
+    });
+
+    it('honors offset and byte_count query params on /read', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const body = Buffer.from('0123456789abcdef');
+        const target = `/${username}/Documents/range-test.txt`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: target,
+                size: body.byteLength,
+                contentType: 'text/plain',
+            },
+            fileContent: body,
+        });
+
+        const { res, captured } = makeStreamingRes();
+        await withActor(actor, () =>
+            controller.read(
+                makeReq({
+                    query: { file: target, offset: '4', byte_count: '6' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(captured.statusCode).toBe(206);
+        expect(Buffer.concat(captured.bodyChunks).toString()).toBe('456789');
+    });
+
+    it('rejects invalid offset query param with 400', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const body = Buffer.from('test');
+        const target = `/${username}/Documents/invalid-offset.txt`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path: target,
+                size: body.byteLength,
+                contentType: 'text/plain',
+            },
+            fileContent: body,
+        });
+
+        const { res } = makeStreamingRes();
+        await expect(
+            withActor(actor, () =>
+                controller.read(
+                    makeReq({
+                        query: { file: target, offset: '-1' },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
     });
 });
 
@@ -4471,6 +4957,33 @@ describe('LegacyFSController.readdirSubdomains', () => {
         const rows = captured.body as Array<{ subdomain: string }>;
         expect(rows.some((r) => r.subdomain === sd)).toBe(true);
     });
+
+    it('returns every site past one store page, with only the listing columns', async () => {
+        const { actor, userId } = await makeUser();
+        const names = Array.from(
+            { length: 501 },
+            (_, i) => `sdp-${i}-${uuidv4().slice(0, 8)}`,
+        );
+        for (const name of names) {
+            await server.clients.db.write(
+                'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`) VALUES (?, ?, ?)',
+                [uuidv4(), name, userId],
+            );
+        }
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdirSubdomains(makeReq({ body: {}, actor }), res),
+        );
+        const rows = captured.body as Array<Record<string, unknown>>;
+        expect(rows.map((r) => r.subdomain)).toEqual(names);
+        expect(Object.keys(rows[0]!).sort()).toEqual([
+            'root_dir_id',
+            'subdomain',
+            'ts',
+            'uuid',
+        ]);
+    });
 });
 
 // ── updateFsentryThumbnail ──────────────────────────────────────────
@@ -4729,7 +5242,7 @@ describe('LegacyFSController GET /get-launch-apps', () => {
         await recordOpen(userId, app.uid);
 
         const spy = vi
-            .spyOn(server.stores.subdomain, 'getBySubdomain')
+            .spyOn(server.stores.subdomain, 'getBySubdomains')
             .mockRejectedValue(new Error('db down'));
         try {
             const entry = (await fetchRecent(actor)).find(
@@ -4779,5 +5292,40 @@ describe('LegacyFSController GET /get-launch-apps', () => {
         const returned = (await fetchRecent(actor)).map((a) => a.uuid);
 
         expect(returned).toEqual(recentUids);
+    });
+
+    it('skips the recent opens for recent=0 and keeps recommended', async () => {
+        const { actor, userId } = await makeUser();
+        const app = await makeHostedApp(userId, 'unregistered-skip');
+        await recordOpen(userId, app.uid);
+
+        const call = async (query: Record<string, unknown>) => {
+            const { res, captured } = makeRes();
+            await withActor(actor, async () => {
+                await getLaunchAppsHandler()(
+                    makeReq({ actor, query }),
+                    res,
+                    () => {
+                        throw new Error('handler called next() unexpectedly');
+                    },
+                );
+            });
+            return captured.body as {
+                recommended: unknown[];
+                recent: unknown[];
+            };
+        };
+        const full = await call({});
+        expect(full.recent.length).toBeGreaterThan(0);
+
+        const opens = vi.spyOn(server.stores.app, 'getRecentAppOpens');
+        try {
+            const skipped = await call({ recent: '0' });
+            expect(skipped.recent).toEqual([]);
+            expect(skipped.recommended).toEqual(full.recommended);
+            expect(opens).not.toHaveBeenCalled();
+        } finally {
+            opens.mockRestore();
+        }
     });
 });

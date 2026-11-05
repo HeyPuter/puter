@@ -20,8 +20,6 @@
 // Identify uploaded media by its bytes. A caller-supplied MIME type or file
 // extension is never trusted.
 
-const BASE64_CHARS_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
-
 /**
  * How far into a payload to look for an `<svg` root; SVG has no fixed magic
  * number.
@@ -54,21 +52,21 @@ const MP4_BRANDS = new Set([
 ]);
 
 /**
- * Decode base64 that round-trips byte for byte. `Buffer.from(s, 'base64')`
- * silently skips characters outside the alphabet; the round-trip rejects them.
+ * Decode padded, standard-alphabet base64 (the form data URLs accept), or null.
+ * `Buffer.from` skips characters outside the alphabet, so any of them leaves
+ * the output shorter than the length predicts. Avoids regexps, which cost a
+ * full extra pass over multi-MB payloads.
  */
 export function decodeStrictBase64(value: string): Buffer | null {
-    if (!BASE64_CHARS_REGEX.test(value)) return null;
     if (value.length === 0 || value.length % 4 !== 0) return null;
-    try {
-        const decoded = Buffer.from(value, 'base64');
-        if (decoded.length === 0) return null;
-        const stripped = value.replace(/=+$/, '');
-        const reencoded = decoded.toString('base64').replace(/=+$/, '');
-        return stripped === reencoded ? decoded : null;
-    } catch {
-        return null;
-    }
+    // Node decodes a code unit above 0xFF by its low byte (`ī` as `+`), so
+    // only ASCII is decoded.
+    if (Buffer.byteLength(value, 'utf8') !== value.length) return null;
+    // Node also decodes the URL-safe alphabet.
+    if (value.includes('-') || value.includes('_')) return null;
+    const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+    const bytes = Buffer.from(value, 'base64');
+    return bytes.length === (value.length / 4) * 3 - padding ? bytes : null;
 }
 
 function looksLikeSvg(bytes: Buffer): boolean {

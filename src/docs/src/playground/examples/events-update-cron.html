@@ -1,0 +1,36 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            if (!await puter.perms.request('backgroundEvents')) {
+                puter.print('background events were not allowed<br>');
+                return;
+            }
+
+            // (1) Weekdays at 09:00 in this browser's time zone
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            const schedule = await puter.events.onSchedule({
+                cron: '0 9 * * 1-5',
+                tz,
+                handler: async ({ user }) => {
+                    await user.notifications.notify({ title: 'Check your tasks' });
+                },
+            });
+            puter.print(`next run: ${new Date(schedule.nextRunAt).toLocaleString()}<br>`);
+
+            // (2) Move it to 10:00, keeping the same id and handler
+            const updated = await puter.events.updateSchedule(schedule.scheduleId, {
+                cron: '0 10 * * 1-5',
+                tz,
+            });
+            puter.print(`next run: ${new Date(updated.nextRunAt).toLocaleString()}<br>`);
+
+            // (3) Cleanup: end the schedule, then remove the handler it created
+            await schedule.off();
+            await puter.events.handlers.remove(schedule.handlerName, { scope: 'user' });
+            puter.print('removed<br>');
+        })();
+    </script>
+</body>
+</html>

@@ -25,18 +25,33 @@ import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { FSEntryStore } from '../../../../stores/fs/FSEntryStore.js';
 import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
-import type { IChatProvider, ICompleteArguments } from '../../types.js';
+import type {
+    IChatModel,
+    IChatProvider,
+    ICompleteArguments,
+} from '../../types.js';
 import {
     messagesHaveCompaction,
     wantsCompaction,
 } from '../../utils/compaction.js';
+import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
+import {
+    clampReasoningEffort,
+    openAICompatParams,
+} from '../../utils/openaiParams.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { inlineHttpImageUrls } from '../../utils/inlineImages.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
+
+const isWebSearchTool = (tool: Record<string, unknown>): boolean =>
+    tool.type === 'web_search' ||
+    tool.type === 'web_search_preview' ||
+    tool.type === 'web_search_20250305' ||
+    (typeof tool.type === 'string' && /^web_search_2026/.test(tool.type));
 
 /**
  * AzureChatProvider exposes the models we serve through Azure AI Foundry.
@@ -66,8 +81,7 @@ export class AzureChatProvider implements IChatProvider {
     #fsService: FSService;
 
     // Sibling Responses-API provider (Azure or OpenAI) used to handle
-    // Responses-only features like web_search. Typed loosely since we only
-    // ever forward `complete()` to it.
+    // Responses-only features like web_search, and moderation.
     #responsesProvider: IChatProvider | null = null;
 
     constructor(
@@ -84,8 +98,13 @@ export class AzureChatProvider implements IChatProvider {
             baseURL: config.apiURL,
         });
     }
-    checkModeration(_text: string) {
-        throw new Error('Method not implemented.');
+    checkModeration(
+        text: string,
+    ): ReturnType<IChatProvider['checkModeration']> {
+        if (!this.#responsesProvider) {
+            throw new Error('moderation requires the Responses provider');
+        }
+        return this.#responsesProvider.checkModeration(text);
     }
 
     // Wired up by the driver after the OpenAI providers are built, so the
@@ -112,6 +131,26 @@ export class AzureChatProvider implements IChatProvider {
         return this.#defaultModel;
     }
 
+    /** The model key this provider records usage under. */
+    meteringModelKey(modelId: string | undefined): string {
+        return `azure-openai:${modelId}`;
+    }
+
+    /**
+     * A `web_search` call delegates to the sibling Responses provider (see
+     * `setResponsesProvider`), so its credit hold has to come from there too —
+     * this provider has no web-search pricing of its own.
+     */
+    requestPricing(
+        args: ICompleteArguments,
+        model: IChatModel,
+        est: { promptTokenEstimate: number },
+    ): { inputKey?: string; outputKey?: string; extraCost?: number } {
+        return (
+            this.#responsesProvider?.requestPricing?.(args, model, est) ?? {}
+        );
+    }
+
     async complete(
         params: ICompleteArguments,
     ): ReturnType<IChatProvider['complete']> {
@@ -128,8 +167,10 @@ export class AzureChatProvider implements IChatProvider {
             prompt_cache_key,
         } = params;
         let { messages, model } = params;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if (tools?.filter((e: any) => e.type === 'web_search').length) {
+        if (
+            tools?.filter((e) => isWebSearchTool(e as Record<string, unknown>))
+                .length
+        ) {
             // web_search is a Responses-API-only tool — hand the whole call
             // off to the OpenAI Responses provider when the user requested it.
             if (!this.#responsesProvider) {
@@ -196,15 +237,31 @@ export class AzureChatProvider implements IChatProvider {
             await inlineHttpImageUrls(messages);
         }
 
+        // Strip Anthropic-only shape a fallback-replayed message can carry
+        // before the existing in-place coercion mutates only this pass's copy.
+        messages = OpenAiUtil.toOpenAIChatMessages(messages);
         // Here's something fun; the documentation shows `type: 'image_url'` in
         // objects that contain an image url, but everything still works if
         // that's missing. We normalise it here so the token count code works.
         messages = await OpenAiUtil.process_input_messages(messages);
 
+        const mappedTools = tools
+            ? make_openai_tools(tools, { dialect: 'chat' })
+            : undefined;
+
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;
-        const supportsReasoningControls =
-            typeof model === 'string' && model.startsWith('gpt-5');
+        const clampedEffort = clampReasoningEffort(
+            modelUsed.id,
+            requestedReasoningEffort,
+        );
+        // gpt-5/gpt-6 are the reasoning-capable families; every other model
+        // (gpt-4o, Grok, …) 400s on an unsupported `verbosity` param (the
+        // effort param is handled by the clamp above).
+        const supportsReasoningFamily = /^gpt-(5|6)([.-]|$)/.test(modelUsed.id);
+        const isCodexModel = /^gpt-5(\.\d+)?-codex/.test(modelUsed.id);
+        const dropsSamplingParams =
+            clampedEffort !== undefined && clampedEffort !== 'none';
 
         // `safety_identifier`/`prompt_cache_key` are OpenAI-specific params.
         // The Grok deployments behind Azure reject unknown args with a 400,
@@ -222,31 +279,40 @@ export class AzureChatProvider implements IChatProvider {
                   }),
             messages: messages,
             model: modelUsed.id,
-            ...(tools ? { tools } : {}),
+            ...(mappedTools?.length ? { tools: mappedTools } : {}),
             ...(max_tokens !== undefined
                 ? { max_completion_tokens: max_tokens }
                 : {}),
-            ...(temperature !== undefined ? { temperature } : {}),
+            ...(temperature !== undefined && !dropsSamplingParams
+                ? { temperature }
+                : {}),
             stream: !!stream,
             ...(stream
                 ? {
                       stream_options: { include_usage: true },
                   }
                 : {}),
-            ...(supportsReasoningControls
-                ? {}
-                : {
-                      ...(requestedReasoningEffort
-                          ? { reasoning_effort: requestedReasoningEffort }
-                          : {}),
-                      ...(requestedVerbosity
-                          ? { verbosity: requestedVerbosity }
-                          : {}),
-                  }),
+            ...openAICompatParams(
+                {
+                    ...params,
+                    tools: mappedTools,
+                    reasoning_effort: undefined,
+                    ...(dropsSamplingParams ? { top_p: undefined } : {}),
+                },
+                'chat',
+            ),
+            ...(clampedEffort !== undefined
+                ? { reasoning_effort: clampedEffort }
+                : {}),
+            ...(requestedVerbosity && supportsReasoningFamily && !isCodexModel
+                ? { verbosity: requestedVerbosity }
+                : {}),
         } as unknown as ChatCompletionCreateParams;
 
-        const completion =
-            await this.#openAi.chat.completions.create(completionParams);
+        const completion = await this.#openAi.chat.completions.create(
+            completionParams,
+            { signal: Context.get('upstreamSignal') },
+        );
 
         return OpenAiUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {
@@ -275,7 +341,7 @@ export class AzureChatProvider implements IChatProvider {
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor!,
-                    `azure-openai:${modelUsed?.id}`,
+                    this.meteringModelKey(modelUsed?.id),
                     costsOverrideFromModel,
                 );
                 return trackedUsage;

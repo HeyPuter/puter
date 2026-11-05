@@ -26,7 +26,7 @@ const da = {
         account: 'Konto',
         account_password: 'Bekræft kontoens adgangskode',
         access_granted_to: 'Adgang givet til',
-        add_existing_account: 'Tilføj eksisterende konto',
+        add_another_account: 'Tilføj en anden konto',
         all_fields_required: 'Alle felter er påkrævede.',
         allow: 'Tillad',
         apply: 'Anvend',

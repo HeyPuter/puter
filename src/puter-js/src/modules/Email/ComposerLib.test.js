@@ -502,8 +502,63 @@ describe('compose', () => {
         await expect(compose({ ...baseOptions, attachments: [] })).rejects.toThrow(/text, html, or an attachment/);
     });
 
-    it('rejects a non-ASCII subject', async () => {
-        await expect(compose({ ...baseOptions, subject: 'héllo', text: 'hi' })).rejects.toThrow(/not valid ASCII/);
+    it('encodes a non-ASCII subject as RFC 2047 words instead of refusing it', async () => {
+        const eml = await compose({ ...baseOptions, subject: 'héllo', text: 'hi' });
+        expect(eml).toContain('Subject: =?UTF-8?B?aMOpbGxv?=\r\n');
+        expect(isASCII(eml.split('\r\n\r\n')[0].replace(/\r\n/g, ''))).toBe(true);
+    });
+
+    it('folds a long non-ASCII subject into words of at most 75 characters', async () => {
+        const subject = 'Réunion — 東京 🎉 '.repeat(12);
+        const eml = await compose({ ...baseOptions, subject, text: 'hi' });
+        const head = eml.split('\r\n\r\n')[0];
+        const subjectLines = head.slice(head.indexOf('Subject: ')).split('\r\n');
+        const words = [subjectLines[0].slice('Subject: '.length)];
+        for ( const line of subjectLines.slice(1) ) {
+            if ( ! line.startsWith(' ') ) break;
+            words.push(line.slice(1));
+        }
+        expect(words.length).toBeGreaterThan(1);
+        for ( const word of words ) {
+            expect(word).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
+            expect(word.length).toBeLessThanOrEqual(75);
+        }
+    });
+
+    it('refuses control characters in a subject, encoded or not', async () => {
+        await expect(compose({ ...baseOptions, subject: 'hi\r\nBcc: x@y.z', text: 'hi' }))
+            .rejects.toMatchObject({ code: 'invalid_request' });
+        await expect(compose({ ...baseOptions, subject: 'héllo\r\nBcc: x@y.z', text: 'hi' }))
+            .rejects.toMatchObject({ code: 'invalid_request' });
+    });
+
+    it('refuses a non-ASCII address while allowing a non-ASCII display name', async () => {
+        await expect(compose({ ...baseOptions, to: 'ü@example.com', text: 'hi' }))
+            .rejects.toMatchObject({ code: 'invalid_request' });
+        await expect(compose({ ...baseOptions, to: 'Jürgen <ü@example.com>', text: 'hi' }))
+            .rejects.toMatchObject({ code: 'invalid_request' });
+        await expect(compose({ ...baseOptions, to: 'Jürgen <j@example.com>', text: 'hi' })).resolves.toBeTypeOf('string');
+    });
+
+    it('rejects with a coded PuterJSError, per the SDK error contract', async () => {
+        await expect(compose({ subject: 'hi', text: 'hi' }))
+            .rejects.toMatchObject({ name: 'PuterJSError', code: 'invalid_request' });
+        await expect(composeAttachment({ uid: 'uid-1' }))
+            .rejects.toMatchObject({ code: 'invalid_request' });
+        expect(() => emlHeader('Subject', 'héllo')).toThrow(expect.objectContaining({ code: 'invalid_request' }));
+    });
+
+    it('uses the instance it is given rather than the global one', async () => {
+        const own = {
+            fs: { read: vi.fn(async () => new Blob([PNG_BYTES], { type: 'image/png' })) },
+            getUser: vi.fn(async () => ({ username: 'carol' })),
+        };
+        const eml = await compose({ to: 'bob@example.com', subject: 'hi', html: '<p/>', attachments: [{ path: '~/x.png', cid: 'c' }] }, own);
+        expect(eml).toContain('From: carol@puter.email\r\n');
+        expect(own.fs.read).toHaveBeenCalledWith('~/x.png');
+        expect(own.getUser).toHaveBeenCalled();
+        expect(fsRead).not.toHaveBeenCalled();
+        expect(getUser).not.toHaveBeenCalled();
     });
 });
 
@@ -512,6 +567,24 @@ describe('compose round-trips through a MIME parser', () => {
     const bytesOf = (attachment) => Array.from(new Uint8Array(attachment.content));
     // The parser terminates every text body with a newline of its own.
     const bodyOf = (str) => str?.replace(/\n$/, '');
+
+    it('recovers a UTF-8 subject and display names', async () => {
+        const subject = 'Grüße ✓ — 東京 🎉 '.repeat(6).trim();
+        const parsed = await parse({
+            subject,
+            to: ['"José Pérez" <jose@example.com>', 'plain@example.com'],
+            cc: 'Zoë <zoe@example.com>',
+            from: 'Ålice <alice@puter.email>',
+            text: 'hi',
+        });
+        expect(parsed.subject).toBe(subject);
+        expect(parsed.to).toEqual([
+            { address: 'jose@example.com', name: 'José Pérez' },
+            { address: 'plain@example.com', name: '' },
+        ]);
+        expect(parsed.cc).toEqual([{ address: 'zoe@example.com', name: 'Zoë' }]);
+        expect(parsed.from).toEqual({ address: 'alice@puter.email', name: 'Ålice' });
+    });
 
     it('recovers a plain text body', async () => {
         const parsed = await parse({ text: 'hello there' });

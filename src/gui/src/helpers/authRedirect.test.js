@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { get_oidc_return_to } from './authRedirect.js';
+import { get_oidc_return_to, takeOidcLoginChallenge } from './authRedirect.js';
 
 const at = (pathname, search = '') => {
     globalThis.window = { location: { pathname, search } };
@@ -37,6 +37,7 @@ const share_search = (...paths) => {
 
 afterEach(() => {
     delete globalThis.window;
+    delete globalThis.document;
 });
 
 describe('get_oidc_return_to', () => {
@@ -95,5 +96,50 @@ describe('get_oidc_return_to', () => {
         expect(at('/app/editor/extra')).toBe(null);
         expect(at('/desktop/app/editor/extra')).toBe(null);
         expect(at('/dashboard/app/editor')).toBe(null);
+    });
+});
+
+
+describe('provider second-factor return context', () => {
+    const bootAt = (href) => {
+        globalThis.document = { title: 'Puter' };
+        const location = { href };
+        let replaced = false;
+        globalThis.window = { location, history: { replaceState: (_state, _title, target) => {
+            location.href = new URL(target, location.href).href;
+            replaced = true;
+        } } };
+        const result = takeOidcLoginChallenge();
+        return { result, location, replaced };
+    };
+
+    it.each(['/action/oidc-2fa', '/desktop/action/oidc-2fa', '/?action=oidc-2fa'])(
+        'scrubs the first-factor token before boot can retain %s', path => {
+            const retry = 'https://puter.test/?action=login&embedded_in_popup=true&msg_id=123&opener_state=retry-proof';
+            const { result, location, replaced } = bootAt(`https://puter.test${path}#${new URLSearchParams({ token: 'first-factor-proof', retryUrl: retry })}`);
+            expect(result).toEqual({ token: 'first-factor-proof', retryUrl: retry });
+            expect(replaced).toBe(true);
+            expect(location.href).not.toContain('first-factor-proof');
+            expect(location.href).not.toContain('retry-proof');
+            window.url = location.href;
+            expect(window.url).not.toContain('#');
+        },
+    );
+
+    it.each(['https://other.test/?action=login', 'javascript:alert(1)', 'https://puter.test/?action=authme', '%'])('refuses an unsafe cancellation target %s', retryUrl => {
+        const { result } = bootAt(`https://puter.test/action/oidc-2fa#${new URLSearchParams({ token: 'challenge', retryUrl })}`);
+        expect(result.retryUrl).toBe('/action/login');
+    });
+
+    it('keeps ordinary app URL fragments intact', () => {
+        const { result, location, replaced } = bootAt('https://puter.test/app/editor#document=123');
+        expect(result).toBeNull();
+        expect(replaced).toBe(false);
+        expect(location.href).toContain('#document=123');
+    });
+
+    it('returns to ordinary login when a challenge link has no retry context', () => {
+        const { result } = bootAt('https://puter.test/action/oidc-2fa#token=challenge');
+        expect(result).toEqual({ token: 'challenge', retryUrl: '/action/login' });
     });
 });

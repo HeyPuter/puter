@@ -21,14 +21,16 @@
  * `assertCrossAppKvAuthorized` against fake deps — no server needed, since
  * `CrossAppKvDeps` is already the injection seam. Pins that the
  * three-segment-subject hint shows up only when the second segment does not
- * look like an app uid, and that error codes never move.
+ * look like an app uid, and that error codes never move. Also `rowInActorScope`
+ * over each actor shape.
  */
 
 import { describe, expect, it } from 'vitest';
-import { makeActor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import {
     assertCrossAppKvAuthorized,
+    rowInActorScope,
     type CrossAppKvDeps,
 } from './authorization.js';
 
@@ -89,5 +91,52 @@ describe('assertCrossAppKvAuthorized hint', () => {
         );
         expect(legacyCode).toBe('subject_does_not_exist');
         expect(message).not.toContain('three-segment');
+    });
+});
+
+describe('rowInActorScope', () => {
+    const user = { id: 1, uuid: 'u-1', username: 'alice' };
+    const OWN_APP = 'app-own';
+    const appRow = { appUid: OWN_APP };
+    const accountRow = { appUid: null };
+
+    const session = makeActor({ user });
+    const appToken = makeActor({ user, app: { uid: OWN_APP, id: 1 } });
+    const fullAccessToken = makeActor({
+        user,
+        accessToken: { uid: 'tok-full', issuer: session, fullAccess: true },
+    });
+    const userIssuedToken = makeActor({
+        user,
+        accessToken: { uid: 'tok-user', issuer: session },
+    });
+    const appIssuedToken = makeActor({
+        user,
+        accessToken: { uid: 'tok-app', issuer: appToken },
+    });
+
+    it('lets the account see every row', () => {
+        for (const actor of [session, fullAccessToken]) {
+            expect(rowInActorScope(actor, appRow)).toBe(true);
+            expect(rowInActorScope(actor, accountRow)).toBe(true);
+        }
+    });
+
+    it('confines an app token to its own app`s rows', () => {
+        expect(rowInActorScope(appToken, appRow)).toBe(true);
+        expect(rowInActorScope(appToken, { appUid: 'app-other' })).toBe(false);
+        expect(rowInActorScope(appToken, accountRow)).toBe(false);
+    });
+
+    it('gives a scoped access token nothing, whoever issued it', () => {
+        expect(appIssuedToken.effectiveApp?.uid).toBe(OWN_APP);
+        for (const actor of [userIssuedToken, appIssuedToken]) {
+            expect(rowInActorScope(actor, appRow)).toBe(false);
+            expect(rowInActorScope(actor, accountRow)).toBe(false);
+        }
+    });
+
+    it('denies an actor that skipped makeActor', () => {
+        expect(rowInActorScope({ user } as Actor, accountRow)).toBe(false);
     });
 });

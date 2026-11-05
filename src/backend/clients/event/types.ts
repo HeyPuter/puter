@@ -75,6 +75,15 @@ export type EventMap = {
     serverStart: Record<string, never>;
     serverPrepareShutdown: Record<string, never>;
     serverShutdown: Record<string, never>;
+    /**
+     * Emitted by a host extension that knows this server will restart soon.
+     * Long-lived connections ask their clients to reconnect; nothing is refused
+     * or closed, so a false alarm is harmless.
+     */
+    serverRestartAnnounced: {
+        /** How long until the server stops, when known. */
+        closeInMs?: number;
+    };
 
     // ---- AI ----
     'ai.prompt.validate': {
@@ -137,6 +146,17 @@ export type EventMap = {
     };
     'app.new-icon': { app_uid: string; data_url: string };
     'app.opened': { app_uid: string; user_id: number; ts: number };
+    /**
+     * A user removed an app: its grants and worker sessions are gone. With
+     * `deleteData`, the user asked for the app's data in their account to go
+     * too. Awaited by the emitter.
+     */
+    'app.uninstalled': {
+        userId: number;
+        userUuid: string;
+        appUid: string;
+        deleteData: boolean;
+    };
     'app.rename': {
         app_uid: string;
         old_name: string;
@@ -175,10 +195,21 @@ export type EventMap = {
             index_url?: string | null;
             owner_user_id?: number | null;
             name?: string | null;
+            godmode?: boolean;
         };
     };
 
     // ---- Auth / signup ----
+    /**
+     * Which signup methods are open, emitted via `emitAndWait` before every
+     * signup and whenever the GUI reads the provider list. A listener sets
+     * `oidcOnly` to refuse form and temp signups, leaving OIDC and team
+     * provisioning open; `message` is what a refused form signup is told.
+     */
+    'puter.signup.policy': {
+        oidcOnly: boolean;
+        message: string | null;
+    };
     'puter.signup.validate': {
         allow: boolean;
         email?: string;
@@ -196,7 +227,7 @@ export type EventMap = {
          */
         is_temp?: boolean;
         ip?: string | null;
-        source?: 'oidc';
+        source?: 'oidc' | 'team_provision';
         req?: unknown;
         data?: unknown;
         abuse?: unknown;
@@ -256,7 +287,7 @@ export type EventMap = {
         ip?: string | null;
         fingerprint?: string | null;
         reputation?: number | null;
-        source?: 'oidc';
+        source?: 'oidc' | 'team_provision';
         requires_phone_verification: boolean;
         requires_card_verification: boolean;
         accepted: boolean;
@@ -266,6 +297,17 @@ export type EventMap = {
         allow: boolean;
         message: string | null;
         [key: string]: unknown;
+    };
+    // Inbound mail to a feedback address (`abuse@`, `fbl@`, ...), emitted via
+    // `emitAndWait`. A listener that takes it sets `handled` and it reaches no
+    // mailbox; otherwise it is routed like any other message.
+    'email.ingress.feedback': {
+        /** The envelope recipient, as the relay presented it. */
+        to: string;
+        from: string | null;
+        /** The whole message, exactly as received. */
+        raw: Buffer;
+        handled: boolean;
     };
     'user.save_account': {
         user_id: number;
@@ -291,8 +333,13 @@ export type EventMap = {
         // the abuse extension cap sends per device (across accounts) so a
         // device farm can't dodge the per-account cap with fresh signups.
         device_fingerprint: string | null;
+        // Browser-signals dispatch id the client sent, or null.
+        dispatch_id: string | null;
         allowed: boolean;
         reason: string | null;
+        // With `allowed` false, offer the card fallback in place of SMS. Only
+        // honored while the fallback is on; otherwise the send proceeds.
+        card_fallback_instead?: boolean;
         [key: string]: unknown;
     };
     // Fire-and-forget signal that a code was actually sent — the abuse
@@ -303,6 +350,9 @@ export type EventMap = {
         user_uid: string;
         phone: string;
         device_fingerprint: string | null;
+        // Browser-signals dispatch id the client sent with this request, or
+        // null when it sent none.
+        dispatch_id: string | null;
     };
     'user.phone-verified': {
         user_id: number;
@@ -322,6 +372,9 @@ export type EventMap = {
         // the abuse extension cap card-verification setups per device (across
         // accounts) before any Stripe SetupIntent is created.
         device_fingerprint: string | null;
+        // 'trial' when the card is being added for a free trial; null for the
+        // verification gates.
+        purpose?: string | null;
         enabled: boolean | null;
         // Set false by the extension to refuse this setup (e.g. the per-device
         // setup-velocity cap); `reason` carries the opaque code. Stays true
@@ -368,6 +421,9 @@ export type EventMap = {
         new_username: string;
     };
     'user.email-changed': { user_id: number; new_email: string };
+    /** An account was suspended, or its suspension lifted. Local events. */
+    'user.suspended': { userId: number };
+    'user.unsuspended': { userId: number };
     // Fired after an account is torn down (self-serve, admin, or temp-user
     // logout cleanup). Listeners purge external state tied to the account —
     // e.g. the marketplace extension cancels the user's Stripe subscriptions.
@@ -376,6 +432,8 @@ export type EventMap = {
         user_id: number;
         user_uuid?: string;
         stripe_customer_id?: string | null;
+        /** Apps the account owned, which cascaded away with it. */
+        appUids?: string[];
     };
 
     // ---- Team billing ---- the trigger, never the charge ----
@@ -438,7 +496,11 @@ export type EventMap = {
             [key: string]: unknown;
         };
     };
-    'storage.quota.bonus': { userId: number; extra: number };
+    /**
+     * Bytes to add to a user's storage allowance. Listeners run concurrently:
+     * add to `extra` after your own awaits, never `extra += await x`.
+     */
+    'storage.quota.bonus': { userId: number; userUuid?: string; extra: number };
 
     // ---- Key-value ----
     /**
@@ -465,15 +527,43 @@ export type EventMap = {
         noShareKeys?: string[];
         /** Events handler runs behind the write; see `Actor.handlerDepth`. */
         handlerDepth?: number;
+        /**
+         * The user who made the change. Differs from `userId` when a share
+         * holder wrote into the owner's namespace.
+         */
+        actingUserId?: number;
+        /** Made by a worker session or an events handler; see `viaWorkerOf`. */
+        viaWorker?: true;
     };
     /**
      * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own
      * key enumeration is truncated for a large namespace, so the keys it saw
      * are not the keys it removed.
      */
-    'kv.flushed': { namespace: string; userId: number };
+    'kv.flushed': {
+        namespace: string;
+        userId: number;
+        actingUserId?: number;
+        viaWorker?: true;
+    };
+    /**
+     * Share handles stopped being addresses, whoever retired them. `userId` is
+     * one user who could have subscribed through them, their owner or their
+     * holder. Listeners end what was made through them even where another grant
+     * still covers the region. Local, like `permission.revoked`: one region
+     * settling covers every other.
+     */
+    'kv.share.retired': { handles: string[]; userId: number };
 
     // ---- Notifications ----
+    /** An app message was acknowledged after its state committed. */
+    'notif.acknowledged': {
+        userId: number;
+        uid: string;
+        type: string;
+        audience: string;
+        appUid: string;
+    };
     /**
      * A notification row exists. Emitted after the insert commits — nothing
      * pushes a uid before there is a row to name — and carries the scope tuple
@@ -488,8 +578,31 @@ export type EventMap = {
         appUid: string | null;
         value: Record<string, unknown>;
         createdAt: number;
+        /** An earlier notification replaced in place; `createdAt` is when. */
+        replaced?: true;
         /** Events handler runs behind whatever created it. */
         handlerDepth?: number;
+    };
+    /**
+     * Every non-silent write or update, only on the node that wrote it. The
+     * value is the listener's own copy of what the socket carries.
+     */
+    'notif.written': {
+        userId: number;
+        uid: string;
+        type: string;
+        audience: string;
+        /** The row's app; null when it names none or an update could not tell. */
+        appUid: string | null;
+        value: Record<string, unknown>;
+        /** An earlier notification rewritten in place. */
+        updated?: true;
+        /** Replaced an earlier notification in its group. */
+        replaced?: true;
+        /** Names this one send, for a receipt asked about it. */
+        sendId: string;
+        /** The same `sendId` may be emitted again, as a delayed send is. */
+        replayable?: true;
     };
     /**
      * One notification, addressed at whatever sockets each region holds for the
@@ -499,8 +612,42 @@ export type EventMap = {
      */
     'outer.notif.delivery': {
         userId: number;
-        wire: 'notif.message' | 'notif.unreads' | 'notif.ack';
+        wire: 'notif.message' | 'notif.unreads' | 'notif.ack' | 'notif.removed';
         response: unknown;
+    };
+    /**
+     * How one live notification went, on the node that asked for its receipt:
+     * from the desktop's sockets, or with `appUid` the app's own.
+     */
+    'notif.delivery.settled': {
+        sendId?: string;
+        uid: string;
+        userId: number;
+        type: string;
+        /** The app whose own sockets were asked; absent for the desktop's. */
+        appUid?: string;
+        outcome: NotifDeliveryOutcome;
+        /** A socket in this region acknowledges the receipt. */
+        ackCapable: boolean;
+        /** No socket here is an older client that acknowledges nothing. */
+        everySocketAcks: boolean;
+        /** Every node here answered the ask, not just this one. */
+        complete: boolean;
+        /** A peer region holds a socket for the user. */
+        peerRegions: boolean;
+        responders: NotifDeliveryResponder[];
+        /** A page here got it live while visible and focused. */
+        handled: boolean;
+    };
+    /**
+     * A page reported that it got a notification live while visible and
+     * focused. Node-local; `appUid` is the reporting socket's app, absent for
+     * the desktop.
+     */
+    'notif.handled': {
+        userId: number;
+        appUid?: string;
+        uid: string;
     };
 
     // ---- Metering ----
@@ -551,9 +698,18 @@ export type EventMap = {
     // and going away (1→0, whether by removing the last handler or by the
     // destroy route). `actor.user` is the app's owner, not the caller — a
     // developer session publishing for an app it owns is the common case, but
-    // billing follows ownership.
-    'events.worker.create': { actor: Actor; appUid: string };
-    'events.worker.destroy': { actor: Actor; appUid: string };
+    // billing follows ownership. For `scope: 'user'` the unit is one user's
+    // handlers in one app instead, and `actor.user` is that user.
+    'events.worker.create': {
+        actor: Actor;
+        appUid: string;
+        scope: 'app' | 'user';
+    };
+    'events.worker.destroy': {
+        actor: Actor;
+        appUid: string;
+        scope: 'app' | 'user';
+    };
 
     // ---- Outer / GUI broadcast ----
     'outer.cacheUpdate': {
@@ -612,6 +768,19 @@ export type EventMap = {
         userId: number;
         generation: number;
     };
+    /**
+     * Someone's entry was just shared, so every process must drop its cached
+     * "this owner has nothing shared" answer. `outer.pubsub.*` for the same
+     * reason as the events generation bump: a per-process cache.
+     */
+    'outer.pubsub.share.ownerShared': { ownerUserId: number };
+    /**
+     * Share handles were retired or changed, so every process must drop its
+     * cached copy. `outer.pubsub.*` because the cache is a per-process map.
+     */
+    'outer.pubsub.kv.share.forget': { handles: string[] };
+    /** The same, for every cached handle one owner holds out. */
+    'outer.pubsub.kv.share.forgetOwner': { ownerUserId: number };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**
      * Cache keys the KV read cache must stop serving, because the entries
@@ -630,6 +799,7 @@ export type EventMap = {
     'outer.gui.item.renamed': GuiEvent;
     'outer.gui.notif.ack': GuiEvent<{ uid: string }>;
     'outer.gui.notif.message': GuiEvent<{ uid: string; notification: unknown }>;
+    'outer.gui.notif.removed': GuiEvent<{ uid: string }>;
     'outer.gui.notif.unreads': GuiEvent<{
         unreads: { uid: string; notification: unknown }[];
     }>;
@@ -637,7 +807,7 @@ export type EventMap = {
     // ---- Subdomains ----
     // `uid` is the row uuid — for `delete` it is the only surviving handle a
     // listener can use to find state keyed to the row after it is gone.
-    'subdomain.delete': { subdomain: string; uid?: string };
+    'subdomain.delete': { subdomain: string; uid?: string; userId: number };
     'subdomain.update': { subdomain: string; uid?: string };
     'site.htmlServed': {
         subdomain: string;
@@ -648,6 +818,10 @@ export type EventMap = {
         requestHash?: string;
         mime: string;
     };
+    // Asked for a request whose host is outside every configured domain. A
+    // listener that recognises the host sets `result.subdomain` to the site
+    // it serves; an unclaimed host is answered with a 404.
+    'site.resolveHost': { host: string; result: { subdomain: string | null } };
     // Asked before a hosted file is streamed. A listener that owns the site
     // sets `result.allowed = false` to withhold the entry; the visitor then
     // sees the same 404 as for a missing file.
@@ -669,7 +843,8 @@ export type EventMap = {
         uid?: string;
         thumbnail?: string | null;
     };
-    'thumbnail.created': { url: string };
+    /** `uuid` is the entry the thumbnail belongs to. */
+    'thumbnail.created': { url: string; uuid: string };
     'thumbnail.upload.prepare': {
         items: { index: number; item_uid: string }[];
         uploadUrl?: string;
@@ -684,8 +859,25 @@ export type EventMap = {
      * Sessions were revoked for a user. Anything holding one of them open — a
      * live socket, say — should drop it: `revoked_at` is otherwise only read on
      * the next handshake.
+     *
+     * `outer.*` rather than `outer.pubsub.*` on purpose: the eviction runs
+     * through the socket.io Redis adapter a cluster shares, so one node
+     * disconnecting covers every node in it — fanning out to siblings would
+     * just have each of them repeat the same cluster-wide disconnect.
      */
-    'auth.sessions.revoked': { user_id: number; session_uids: string[] };
+    'outer.auth.sessions.revoked': {
+        user_id: number;
+        session_uids: string[];
+    };
+
+    /** One access token was revoked; only its own connections should drop. */
+    'auth.access-token.revoked': { token_uid: string };
+
+    /** Same-cluster eviction for raw realtime WebSockets. */
+    'pubsub.realtime.auth-revoked': {
+        sessionUids?: string[];
+        tokenUid?: string;
+    };
 
     /**
      * A grant was withdrawn, so whatever was standing on it has to be settled
@@ -717,6 +909,7 @@ export type EventMap = {
             email?: string;
             app_name?: string;
         };
+        /** False for an app actor: add only `subscribed` / `paid_storage` then. */
         isUser: boolean;
     };
     'wisp.get-policy': {
@@ -752,6 +945,12 @@ export type EventMap = {
     // per batch; the last listener to set `factor` wins.
     [K in `ai.cost.factor.${string}`]: AiCostFactorEvent;
 } & {
+    // A plan gate is about to refuse a caller. Keyed per surface the way the
+    // lifecycles above are: `subscription.gate.route.<method>.<path>`,
+    // `subscription.gate.driver.<iface>.<method>`. Emitted via `emitAndWait`;
+    // a listener that sets `allow` waives the plan requirement for that call.
+    [K in `subscription.gate.${string}`]: SubscriptionGateEvent;
+} & {
     [K in `pubsub.login.${string}`]: { authtoken: string };
 } & {
     /**
@@ -771,6 +970,18 @@ export type EventMap = {
     'outer.pubsub.metering.credits-changed': { userUuid: string };
 } & IExtensionEventMap;
 
+/** Payload for `subscription.gate.<surface>` events. */
+export type SubscriptionGateEvent = {
+    actor: Actor;
+    /** The key after `subscription.gate.`, e.g. `driver.puter-kvstore.get`. */
+    surface: string;
+    /** What the gate asked for: any paid plan (`true`) or these policy ids. */
+    requirement: boolean | readonly string[];
+    /** The request being gated, when there is one. */
+    req?: ExpressRequest;
+    allow: boolean;
+};
+
 /** Payload for `ai.cost.factor.<driver>.<model>` events. */
 export type AiCostFactorEvent = {
     /** Driver doing the pricing, e.g. `ai-chat`. */
@@ -789,6 +1000,9 @@ export type AiCostFactorEvent = {
  * `after`/`error` follows.
  */
 export type LifecyclePhase = 'before' | 'after' | 'error' | 'reject';
+
+/** Status a vetoing `before` listener may answer with. */
+export type LifecycleRejectStatus = 403 | 429;
 
 /**
  * Payload for `driver.<iface>.<method>.<phase>` events.
@@ -819,6 +1033,8 @@ export type DriverMethodLifecycleEvent = {
     allow?: boolean;
     /** Optional human-readable reason surfaced to the caller when vetoed. */
     rejectReason?: string;
+    /** Status for a veto: 403 (default) or 429 for a throttle. */
+    rejectStatus?: LifecycleRejectStatus;
 };
 
 /**
@@ -853,6 +1069,8 @@ export type RouteLifecycleEvent = {
     allow?: boolean;
     /** Optional human-readable reason surfaced to the caller when vetoed. */
     rejectReason?: string;
+    /** Status for a veto: 403 (default) or 429 for a throttle. */
+    rejectStatus?: LifecycleRejectStatus;
 };
 
 export type EventKey = keyof EventMap & string;
@@ -861,10 +1079,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -873,7 +1092,25 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
     ? Extract<EventKey, `${Prefix}.${string}`>
     : P & EventKey;
 
-export type EventMetadata = { from_outside?: boolean };
+/** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
+export type NotifDeliveryOutcome =
+    | 'received'
+    | 'unreceived'
+    | 'no-socket'
+    | 'remote-only';
+
+/** One socket's receipt for a live notification. */
+export interface NotifDeliveryResponder {
+    visibilityState: 'visible' | 'hidden' | 'unknown';
+    /** The page's window has focus. Absent from older clients. */
+    focused?: boolean;
+}
+
+export type EventMetadata = {
+    from_outside?: boolean;
+    /** Set by `emitAndWait` when a listener threw, so a verdict hook can refuse. */
+    listener_failed?: boolean;
+};
 export type EventListener<K extends EventKey = EventKey> = (
     key: K,
     data: EventMap[K],

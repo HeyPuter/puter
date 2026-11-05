@@ -26,7 +26,7 @@ const nl = {
         account: 'Account',
         account_password: 'Verifieer Account Wachtwoord',
         access_granted_to: 'Toegang gegeven aan',
-        add_existing_account: 'Bestaand Account Toevoegen',
+        add_another_account: 'Ander Account Toevoegen',
         all_fields_required: 'Alle velden zijn vereist.',
         allow: 'Toestaan',
         apply: 'Toepassen',

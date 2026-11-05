@@ -1,5 +1,4 @@
 import EventListener from '../lib/EventListener.js';
-import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 import { PuterJSError } from '../lib/PuterJSError.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
@@ -262,8 +261,16 @@ const createDeferred = () => {
     return { promise, resolve, reject };
 };
 
-const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
-const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
+const PICKER_CANCELLED = Symbol('PICKER_CANCELLED');
+// The popup pickers in older GUI builds spell these with one `l`.
+const PICKER_CANCEL_MSGS = new Set([
+    'fileOpenCancelled',
+    'fileOpenCanceled',
+    'fileSaveCancelled',
+    'fileSaveCanceled',
+    'directoryOpenCancelled',
+    'directoryOpenCanceled',
+]);
 
 // A consent prompt covers a handful of scopes at most, and the popup carries
 // them in its URL.
@@ -276,6 +283,14 @@ const pipError = (name, message) => {
     const err = new Error(message);
     err.name = name;
     return err;
+};
+
+const getGUIOrigin = (origin) => {
+    try {
+        return new URL(origin).origin;
+    } catch {
+        return null;
+    }
 };
 
 const MAX_REQUESTED_PERMISSIONS = 16;
@@ -347,12 +362,13 @@ export class AppConnection extends EventListener {
             target,
         }).info(`AppConnection created to ${target}`, this);
 
-        // TODO: Set this.#puterOrigin to the puter origin
+        this.#puterOrigin = getGUIOrigin(puter.defaultGUIOrigin);
 
-        (globalThis.document) && window.addEventListener('message', event => {
+        const onMessage = event => {
             // Relayed by the host environment; a window that guessed an
             // appInstanceID must not be able to forge one directly.
-            if ( event.source !== this.messageTarget ) return;
+            if ( event.source !== this.messageTarget ||
+                ! this.#puterOrigin || event.origin !== this.#puterOrigin ) return;
             if ( ! event.data ) return;
 
             if ( event.data.msg === 'messageToApp' ) {
@@ -376,12 +392,15 @@ export class AppConnection extends EventListener {
                 }
 
                 this.#isOpen = false;
+                // Nothing arrives for a closed app; don't hold the window.
+                window.removeEventListener('message', onMessage);
                 this.emit('close', {
                     appInstanceID: this.targetAppInstanceID,
                     statusCode: event.data.statusCode,
                 });
             }
-        });
+        };
+        (globalThis.document) && window.addEventListener('message', onMessage);
     }
 
     /**
@@ -491,12 +510,17 @@ export class AppConnection extends EventListener {
  *     localeChanged: { language: string },
  *     themeChanged: ThemeData,
  *     connection: ConnectionEvent,
+ *     notificationClick: unknown,
  * }>}
  */
 export class UIModule extends EventListener {
     // Used to generate a unique message id for each message sent to the host environment
     // we start from 1 because 0 is falsy and we want to avoid that for the message id
     #messageID = 1;
+
+    // Read once at load: an app's router may rewrite the URL afterwards.
+    #guiFeatures = new URLSearchParams(globalThis.location?.search ?? '')
+        .get('puter.gui_features')?.split(',') ?? [];
 
     // Holds the callback functions for the various events
     // that are triggered when a watched item has changed.
@@ -541,31 +565,19 @@ export class UIModule extends EventListener {
     // these windows, so a repeated picker reuses one entry.
     #pickerPopups = new Set();
 
-    // Canonical origin of the GUI we open popups on. The popup's messages
-    // arrive tagged with the browser's serialization of its origin, while
-    // `defaultGUIOrigin` is configuration-supplied text that may carry a
-    // trailing slash, an explicit default port or a stray path. Null when it
-    // can't be parsed, which no popup reply can then match.
-    #guiOrigin () {
-        try {
-            return new URL(puter.defaultGUIOrigin).origin;
-        } catch (e) {
-            return null;
-        }
-    }
-
     #trackPickerPopup (popup) {
+        // Also shared with the SDK, whose token handler pins on the same set.
+        puter.trackOpenedWindow_?.(popup);
         // Null when the browser blocked the popup.
         if ( popup ) this.#pickerPopups.add(popup);
     }
 
     // Whether a message on the window may drive this module.
     #isTrustedMessageSource (e) {
-        // `app` env: the host frame relays everything. Its origin is whatever
-        // the deployment is served from, so pin the window instead — that
-        // keeps locally-hosted and self-hosted GUIs working while still
-        // rejecting a sibling app iframe or a third-party page that framed us.
-        if ( this.messageTarget ) return e.source === this.messageTarget;
+        if ( this.messageTarget ) {
+            return e.source === this.messageTarget &&
+                e.origin === getGUIOrigin(puter.defaultGUIOrigin);
+        }
 
         // `web` env (a third-party site): there is no host frame to pin. The
         // picker popups we opened post back directly, and always from the GUI
@@ -573,7 +585,7 @@ export class UIModule extends EventListener {
         // window too when we can still see it: the picker calls
         // window.close() right after posting, and a discarded browsing
         // context can leave `event.source` null.
-        const guiOrigin = this.#guiOrigin();
+        const guiOrigin = getGUIOrigin(puter.defaultGUIOrigin);
         if ( ! guiOrigin || e.origin !== guiOrigin ) return false;
         if ( ! e.source ) return this.#pickerPopups.size > 0;
         return this.#pickerPopups.has(e.source);
@@ -595,6 +607,27 @@ export class UIModule extends EventListener {
         };
     }
 
+    // Runs and drops the callback waiting on reply `msgId`, if any.
+    #settleCallback (msgId, value) {
+        const callback = msgId ? this.#callbackFunctions[msgId] : undefined;
+        if ( ! callback ) return;
+        delete this.#callbackFunctions[msgId];
+        callback(value);
+    }
+
+    // A cancelled picker leaves its promise pending and settles only
+    // `undefinedOnCancel`, with `undefined`.
+    #registerPickerCallback (msgId, resolve, undefinedOnCancel) {
+        this.#callbackFunctions[msgId] = (result) => {
+            if ( result === PICKER_CANCELLED ) {
+                undefinedOnCancel.resolve(undefined);
+                return;
+            }
+            undefinedOnCancel.resolve(result);
+            resolve(result);
+        };
+    }
+
     #postMessageAsync (name, args = {}) {
         return new Promise(resolve => {
             this.#postMessageWithCallback(name, resolve, args);
@@ -604,6 +637,7 @@ export class UIModule extends EventListener {
     #postMessageWithObject (name, value) {
         const dehydrator = this.util.rpc.getDehydrator({
             target: this.messageTarget,
+            origin: getGUIOrigin(puter.defaultGUIOrigin),
         });
         this.messageTarget?.postMessage({
             msg: name,
@@ -625,7 +659,10 @@ export class UIModule extends EventListener {
                 done_setting_resolve();
             });
         });
-        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget);
+        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget, {
+            once: true,
+            origin: getGUIOrigin(puter.defaultGUIOrigin),
+        });
         this.messageTarget?.postMessage({
             $: 'puter-ipc',
             v: 2,
@@ -636,6 +673,7 @@ export class UIModule extends EventListener {
             uuid: callback_id,
         }, '*');
         const ret = await p;
+        if (ret?.$ === 'puter-ipc-error') throw ret.error;
         if ( callback ) callback(ret);
         return ret;
     };
@@ -652,6 +690,8 @@ export class UIModule extends EventListener {
             'localeChanged',
             'themeChanged',
             'connection',
+            // Surfaced as `puter.notifications.on('click')`.
+            'notificationClick',
         ];
         super(eventNames);
         this.#eventNames = eventNames;
@@ -695,12 +735,12 @@ export class UIModule extends EventListener {
 
         // Bind the message event listener to the window
         let lastDraggedOverElement = null;
-        (globalThis.document) && window.addEventListener('message', async (e) => {
+        const handleMessage = async (e) => {
             if ( ! this.#isTrustedMessageSource(e) ) return;
             if ( ! e.data ) return;
             // `error`
             if ( e.data.error ) {
-                throw e.data.error;
+                console.error(e.data.error);
             }
             // `focus` event
             else if ( e.data.msg && e.data.msg === 'focus' ) {
@@ -826,28 +866,20 @@ export class UIModule extends EventListener {
             // getAppDataSucceeded
             else if ( e.data.msg === 'getAppDataSucceeded' ) {
                 let appDataItem = new FSItem(e.data.item);
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
-                    this.#callbackFunctions[e.data.original_msg_id](appDataItem);
-                }
+                this.#settleCallback(e.data.original_msg_id, appDataItem);
             }
             // instancesOpenSucceeded
             else if ( e.data.msg === 'instancesOpenSucceeded' ) {
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
-                    this.#callbackFunctions[e.data.original_msg_id](e.data.instancesOpen);
-                }
+                this.#settleCallback(e.data.original_msg_id, e.data.instancesOpen);
             }
             // readAppDataFileSucceeded
             else if ( e.data.msg === 'readAppDataFileSucceeded' ) {
                 let appDataItem = new FSItem(e.data.item);
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
-                    this.#callbackFunctions[e.data.original_msg_id](appDataItem);
-                }
+                this.#settleCallback(e.data.original_msg_id, appDataItem);
             }
             // readAppDataFileFailed
             else if ( e.data.msg === 'readAppDataFileFailed' ) {
-                if ( e.data.original_msg_id && this.#callbackFunctions[e.data.original_msg_id] ) {
-                    this.#callbackFunctions[e.data.original_msg_id](null);
-                }
+                this.#settleCallback(e.data.original_msg_id, null);
             }
             // Determine if this is a response to a previous message and if so, is there
             // a callback function for this message? if answer is yes to both then execute the callback
@@ -923,13 +955,8 @@ export class UIModule extends EventListener {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.saved_file));
                 }
-                else if ( e.data.msg === 'fileSaveCancelled' ) {
-                    // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](FILE_SAVE_CANCELLED);
-                }
-                else if ( e.data.msg === 'fileOpenCancelled' ) {
-                    // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](FILE_OPEN_CANCELLED);
+                else if ( PICKER_CANCEL_MSGS.has(e.data.msg) ) {
+                    this.#callbackFunctions[e.data.original_msg_id](PICKER_CANCELLED);
                 }
                 else {
                     // execute callback
@@ -981,6 +1008,15 @@ export class UIModule extends EventListener {
                 this.emit('connection', {
                     conn, accept, reject,
                 });
+            }
+        };
+        // Nothing awaits a message listener, so a throw would only surface as
+        // an unhandled rejection.
+        (globalThis.document) && window.addEventListener('message', async (e) => {
+            try {
+                await handleMessage(e);
+            } catch (err) {
+                console.error(err);
             }
         });
 
@@ -1038,6 +1074,36 @@ export class UIModule extends EventListener {
      * @param {(items: FSItem[]) => void} callback
      * @returns {void}
      */
+    /**
+     * The item the app was launched with, read from the `puter.item.*` URL
+     * params the host appends, or null when there is none.
+     *
+     * @returns {FSItem|null}
+     */
+    #launchItemFromURL () {
+        const URLParams = new URLSearchParams(globalThis.location.search);
+        if ( !URLParams.has('puter.item.name') || !URLParams.has('puter.item.uid') || !URLParams.has('puter.item.read_url') ) {
+            return null;
+        }
+        let fpath = URLParams.get('puter.item.path');
+        if ( !fpath.startsWith('~/') && !fpath.startsWith('/') ) {
+            fpath = `~/${fpath}`;
+        }
+        return new FSItem({
+            name: URLParams.get('puter.item.name'),
+            path: fpath,
+            uid: URLParams.get('puter.item.uid'),
+            is_dir: URLParams.get('puter.item.is_dir') === 'true',
+            readURL: URLParams.get('puter.item.read_url'),
+            writeURL: URLParams.get('puter.item.write_url'),
+            metadataURL: URLParams.get('puter.item.metadata_url'),
+            size: URLParams.get('puter.item.size'),
+            accessed: URLParams.get('puter.item.accessed'),
+            modified: URLParams.get('puter.item.modified'),
+            created: URLParams.get('puter.item.created'),
+        });
+    }
+
     onItemsOpened (callback) {
         // DEPRECATED - this is also called when items are dropped on the app, which in new versions should be handled
         // with the 'drop' event.
@@ -1047,27 +1113,9 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onItemsOpened) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onItemsOpened ) {
-            let URLParams = new URLSearchParams(globalThis.location.search);
-            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ) {
-                let fpath = URLParams.get('puter.item.path');
-
-                if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
-                {
-                    fpath = `~/${fpath}`;
-                }
-
-                callback([new FSItem({
-                    name: URLParams.get('puter.item.name'),
-                    path: fpath,
-                    uid: URLParams.get('puter.item.uid'),
-                    readURL: URLParams.get('puter.item.read_url'),
-                    writeURL: URLParams.get('puter.item.write_url'),
-                    metadataURL: URLParams.get('puter.item.metadata_url'),
-                    size: URLParams.get('puter.item.size'),
-                    accessed: URLParams.get('puter.item.accessed'),
-                    modified: URLParams.get('puter.item.modified'),
-                    created: URLParams.get('puter.item.created'),
-                })]);
+            const launchItem = this.#launchItemFromURL();
+            if ( launchItem ) {
+                callback([launchItem]);
             }
         }
 
@@ -1103,27 +1151,9 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onLaunchedWithItems) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onLaunchedWithItems ) {
-            let URLParams = new URLSearchParams(globalThis.location.search);
-            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ) {
-                let fpath = URLParams.get('puter.item.path');
-
-                if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
-                {
-                    fpath = `~/${fpath}`;
-                }
-
-                callback([new FSItem({
-                    name: URLParams.get('puter.item.name'),
-                    path: fpath,
-                    uid: URLParams.get('puter.item.uid'),
-                    readURL: URLParams.get('puter.item.read_url'),
-                    writeURL: URLParams.get('puter.item.write_url'),
-                    metadataURL: URLParams.get('puter.item.metadata_url'),
-                    size: URLParams.get('puter.item.size'),
-                    accessed: URLParams.get('puter.item.accessed'),
-                    modified: URLParams.get('puter.item.modified'),
-                    created: URLParams.get('puter.item.created'),
-                })]);
+            const launchItem = this.#launchItemFromURL();
+            if ( launchItem ) {
+                callback([launchItem]);
             }
         }
 
@@ -1296,14 +1326,17 @@ export class UIModule extends EventListener {
 
     /**
      * Shows a directory picker over the user's Puter storage. Resolves to one
-     * `FSItem`, or an array of them when multiple selection is allowed.
+     * `FSItem`, or an array of them when multiple selection is allowed. The
+     * returned promise also carries `undefinedOnCancel`, which resolves to
+     * `undefined` instead of staying pending when the user cancels.
      *
      * @param {{ multiple?: boolean }} [options]
      * @param {(value: FSItem | FSItem[]) => void} [callback]
-     * @returns {Promise<FSItem | FSItem[]>}
+     * @returns {CancelAwarePromise<FSItem | FSItem[]>}
      */
     showDirectoryPicker (options, callback) {
-        return new Promise((resolve, reject) => {
+        const undefinedOnCancel = createDeferred();
+        const resolveOnlyPromise = new Promise((resolve, reject) => {
             if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
             }
@@ -1334,9 +1367,10 @@ export class UIModule extends EventListener {
                 ));
             }
 
-            //register callback
-            this.#callbackFunctions[msg_id] = resolve;
+            this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
+        return resolveOnlyPromise;
     };
 
     /**
@@ -1347,7 +1381,7 @@ export class UIModule extends EventListener {
      *
      * @param {{ multiple?: boolean, accept?: string }} [options]
      * @param {(value: FSItem | FSItem[]) => void} [callback]
-     * @returns {Promise<FSItem | FSItem[]>}
+     * @returns {CancelAwarePromise<FSItem | FSItem[]>}
      */
     showOpenFilePicker (options, callback) {
         const undefinedOnCancel = createDeferred();
@@ -1378,28 +1412,31 @@ export class UIModule extends EventListener {
                     `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
                 ));
             }
-            //register callback
-            this.#callbackFunctions[msg_id] = (maybe_result) => {
-                // Only resolve cancel events if this was called with `.undefinedOnCancel`
-                if ( maybe_result === FILE_OPEN_CANCELLED ) {
-                    undefinedOnCancel.resolve(undefined);
-                    return;
-                }
-                undefinedOnCancel.resolve(maybe_result);
-                resolve(maybe_result);
-            };
+            this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
         resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
         return resolveOnlyPromise;
     };
 
     /**
-     * Shows a font picker. Resolves to the chosen font. Accepts either a
-     * default font name or an options object. `default` is a legacy alias for
-     * `defaultFont`.
+     * @overload
+     * @param {string} [defaultFont]
+     * @returns {Promise<{ fontFamily: string } | false | null>}
+     */
+    /**
+     * @overload
+     * @param {FontPickerOptions & { default?: string, defaultValue?: string }} [options]
+     * @returns {Promise<{ fontFamily: string } | false | null>}
+     */
+    /**
+     * Shows a font picker. Resolves to the chosen font, or to `false` inside a
+     * Puter app and `null` on a website when the user closes the picker without
+     * choosing. Accepts either a default font name or an options object.
+     * `default` and `defaultValue` are legacy aliases for `defaultFont`;
+     * `defaultValue` wins over `defaultFont`, which wins over `default`.
      *
-     * @param {string | (FontPickerOptions & { default?: string })} [options]
-     * @returns {Promise<{ fontFamily: string }>}
+     * @param {string | (FontPickerOptions & { default?: string, defaultValue?: string })} [options]
+     * @returns {Promise<{ fontFamily: string } | false | null>}
      */
     showFontPicker (options) {
         if ( this.messageTarget ) {
@@ -1411,7 +1448,7 @@ export class UIModule extends EventListener {
         return new Promise((resolve) => {
             const opts = typeof options === 'string' ? { defaultFont: options } : (options ?? {});
             const el = document.createElement('puter-font-picker');
-            const defaultFont = opts.defaultFont || opts.default || 'System UI';
+            const defaultFont = opts.defaultValue || opts.defaultFont || opts.default || 'System UI';
             el.setAttribute('default-font', defaultFont);
             el.addEventListener('response', (e) => resolve(e.detail));
             document.body.appendChild(el);
@@ -1536,7 +1573,7 @@ export class UIModule extends EventListener {
      *   or the path of an existing file when 'move' or 'copy'
      * @param {string} [suggestedName] name to prefill in the dialog
      * @param {'url' | 'move' | 'copy'} [type] how `content` is read; inferred as 'url' for a URL
-     * @returns {Promise<FSItem>}
+     * @returns {CancelAwarePromise<FSItem>}
      */
     showSaveFilePicker (content, suggestedName, type) {
         const undefinedOnCancel = createDeferred();
@@ -1613,16 +1650,7 @@ export class UIModule extends EventListener {
                 // Same window, for the picker's own reply on the main listener.
                 this.#trackPickerPopup(popup);
             }
-            //register callback
-            this.#callbackFunctions[msg_id] = (maybe_result) => {
-                // Only resolve cancel events if this was called with `.undefinedOnCancel`
-                if ( maybe_result === FILE_SAVE_CANCELLED ) {
-                    undefinedOnCancel.resolve(undefined);
-                    return;
-                }
-                undefinedOnCancel.resolve(maybe_result);
-                resolve(maybe_result);
-            };
+            this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
 
         resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
@@ -1887,6 +1915,8 @@ export class UIModule extends EventListener {
      * @returns {Promise<boolean>} `true` only if the permission was granted.
      * @throws {{ message: string, code: 'invalid_argument' }} if `create` is
      *   set to anything but `true`, `false`, `'dir'`, or `'file'`.
+     * @deprecated Use `puter.perms.request()` with a resource, such as
+     *   `puter.perms.request('fs', { path, access })`.
      */
     async requestPermission (options) {
         const create = options?.create;
@@ -2167,28 +2197,17 @@ export class UIModule extends EventListener {
             // won't construct, no `document.body` yet because this was called
             // from a <head> script — has to deny rather than reject.
             try {
-                if ( hasUserActivation() ) {
-                    // A user gesture is active — open the popup immediately.
-                    // Unique window name per request: window.open() reuses a
-                    // window with the same name, which would hijack a popup an
-                    // earlier, still-pending request is waiting on.
-                    watchPopup(openAuthPopup(url, `puter-permission-${msg_id}`));
-                } else {
-                    // No user gesture: a popup opened now would be blocked by
-                    // the browser. Show a consent dialog first; the popup is
-                    // then opened from the user's click on that dialog, which
-                    // provides the gesture the browser requires.
-                    const dialog = new PuterDialog(() => {}, () => {}, {
-                        popupURL: url,
-                        // Same unique-name reasoning as the direct path above.
-                        popupName: `puter-permission-${msg_id}`,
-                        onLaunch: (popup) => watchPopup(popup),
-                        onCancel: () => settle(false),
-                    });
-                    consentDialog = dialog;
-                    document.body.appendChild(dialog);
-                    dialog.open();
-                }
+                // Opens the popup now under a user gesture, else from the
+                // dialog's Continue click. Unique window name per request:
+                // window.open() reuses a window with the same name, which
+                // would hijack a popup an earlier, still-pending request is
+                // waiting on.
+                consentDialog = PuterDialog.launch({
+                    popupURL: url,
+                    popupName: `puter-permission-${msg_id}`,
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => settle(false),
+                });
             } catch (e) {
                 // `settle` runs cleanup, so the message listener is dropped too.
                 settle(false);
@@ -2216,16 +2235,7 @@ export class UIModule extends EventListener {
      */
     async showFeedbackDialog () {
         if ( this.env === 'app' ) {
-            // The host GUI advertises the IPC dialogs it can answer via
-            // `puter.gui_features` on the app iframe's URL (see
-            // launchApp.js). A GUI that predates this feature has no
-            // handler for the message and would never reply, hanging this
-            // never-rejecting promise forever — and a reply timeout can't
-            // stand in for the check, because a legitimate reply only
-            // arrives when the user closes the dialog.
-            const features = new URLSearchParams(globalThis.location?.search ?? '')
-                .get('puter.gui_features')?.split(',') ?? [];
-            if ( ! features.includes('feedback-dialog') ) {
+            if ( ! this.#guiOffers('feedback-dialog') ) {
                 return false;
             }
             const result = await this.#postMessageAsync('showFeedbackDialog', {});
@@ -2239,8 +2249,33 @@ export class UIModule extends EventListener {
         if ( this.env !== 'web' ) {
             return false;
         }
+        // The app's identity is deliberately NOT in the popup URL: the GUI
+        // derives it from the browser-attested opener origin, so a link
+        // can't open a feedback dialog in another app's name.
+        const result = await this.#runGuiActionPopup({
+            action: 'send-feedback',
+            replyMsg: 'feedbackDialogClosed',
+            popupName: 'puter-feedback',
+        });
+        return result?.sent === true;
+    };
+
+    /**
+     * Opens `/action/<action>` on the GUI origin in a popup and waits for
+     * its single result message. Resolves the message's data, or `null` when
+     * the popup is blocked, dismissed, or cut off from this page (COOP).
+     * Never rejects.
+     *
+     * @param {Object} opts
+     * @param {string} opts.action Popup action the GUI handles.
+     * @param {Record<string, string>} [opts.params] Extra query parameters.
+     * @param {string} opts.replyMsg `msg` of the result the GUI posts back.
+     * @param {string} opts.popupName Prefix for the popup's window name.
+     * @returns {Promise<Record<string, unknown> | null>}
+     */
+    async #runGuiActionPopup ({ action, params = {}, replyMsg, popupName }) {
         if ( ! globalThis.open || ! globalThis.document ) {
-            return false;
+            return null;
         }
 
         // See requestPermission: canonical-to-canonical origin comparison. A
@@ -2249,7 +2284,7 @@ export class UIModule extends EventListener {
         try {
             gui_origin = new URL(puter.defaultGUIOrigin).origin;
         } catch (e) {
-            return false;
+            return null;
         }
 
         // How long to wait, after the popup is observed closed, for a result
@@ -2258,12 +2293,11 @@ export class UIModule extends EventListener {
 
         return new Promise((resolve) => {
             // Unique per request and not reused across page loads — same
-            // stale-popup collision reasoning as requestPermission. The app's
-            // identity is deliberately NOT in this URL: the GUI derives it
-            // from the browser-attested opener origin, so a link can't open a
-            // feedback dialog in another app's name.
+            // stale-popup collision reasoning as requestPermission.
             const msg_id = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
-            const url = `${gui_origin}/action/send-feedback?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}`;
+            const query = new URLSearchParams({ embedded_in_popup: 'true', msg_id, ...params });
+            const url = `${gui_origin}/action/${action}?${query}`;
+            const name = `${popupName}-${msg_id}`;
 
             // Guards against settling more than once across the message,
             // popup-closed, and dialog-cancel code paths.
@@ -2282,11 +2316,11 @@ export class UIModule extends EventListener {
                 consentDialog = null;
             };
 
-            const settle = (sent) => {
+            const settle = (data) => {
                 if ( settled ) return;
                 settled = true;
                 cleanup();
-                resolve(sent === true);
+                resolve(data ?? null);
             };
 
             const messageHandler = (e) => {
@@ -2297,28 +2331,26 @@ export class UIModule extends EventListener {
                 if ( e.origin !== gui_origin ) return;
                 if ( popupWindow && e.source !== popupWindow ) return;
                 if ( e.data?.original_msg_id != msg_id ) return;
-                if ( e.data?.msg !== 'feedbackDialogClosed' ) return;
-                settle(e.data.sent === true);
+                if ( e.data?.msg !== replyMsg ) return;
+                settle(e.data);
             };
             window.addEventListener('message', messageHandler);
 
             const watchPopup = (popup) => {
                 if ( settled ) return;
                 if ( ! popup ) {
-                    settle(false);
+                    settle(null);
                     return;
                 }
                 // Pin the expected event.source before anything can return
                 // early.
                 popupWindow = popup;
                 // A severed opener relationship (COOP) means the popup can't
-                // post the result back and `popup.closed` tells us nothing.
-                // Unlike a permission grant, a feedback submission can't be
-                // read back from the server, so the outcome is unknowable
-                // here: report false now rather than hang. The popup stays
-                // open — the user can still send their feedback.
+                // post the result back and `popup.closed` tells us nothing,
+                // so the outcome is unknowable here: report null now rather
+                // than hang. The popup stays open for the user.
                 if ( window.crossOriginIsolated || popup.closed ) {
-                    settle(false);
+                    settle(null);
                     return;
                 }
                 checkClosed = setInterval(() => {
@@ -2330,32 +2362,185 @@ export class UIModule extends EventListener {
                     // relative to `closed` becoming true — give an in-flight
                     // result its grace period before treating the close as a
                     // dismissal.
+                    setTimeout(() => settle(null), CLOSE_GRACE_MS);
+                }, 100);
+            };
+
+            // Every path out of here resolves, so anything that throws while
+            // launching has to resolve null rather than reject.
+            try {
+                // Same launch as requestPermission: popup now, or from the
+                // dialog's Continue click, under a per-request window name.
+                consentDialog = PuterDialog.launch({
+                    popupURL: url,
+                    popupName: name,
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => settle(null),
+                });
+            } catch (e) {
+                settle(null);
+            }
+        });
+    }
+
+    /**
+     * Backs `puter.hosting.attach()`: lets the user pick or add a custom
+     * domain for `subdomain` in a Puter dialog. The app learns only the
+     * domain the user chose.
+     *
+     * @internal
+     * @param {string} subdomain
+     * @returns {Promise<import('./hosting/types.js').CustomDomain | null>}
+     */
+    async attachCustomDomain_ (subdomain) {
+        if ( this.env === 'app' ) {
+            // An older desktop has no handler and would never reply; see
+            // showFeedbackDialog.
+            if ( ! this.#guiOffers('custom-domains') ) {
+                throw new PuterJSError(
+                    'Custom domains are not available on this Puter desktop',
+                    'not_supported',
+                );
+            }
+            const result = await this.#postMessageAsync('attachCustomDomain', { subdomain });
+            return result?.domain ?? null;
+        }
+
+        if ( this.env !== 'web' ) {
+            throw new PuterJSError(
+                'puter.hosting.attach() needs a browser page or a Puter app',
+                'not_available',
+            );
+        }
+        const result = await this.#runGuiActionPopup({
+            action: 'attach-custom-domain',
+            params: { subdomain },
+            replyMsg: 'customDomainAttached',
+            popupName: 'puter-custom-domain',
+        });
+        return /** @type {import('./hosting/types.js').CustomDomain | null} */ (result?.domain ?? null);
+    }
+
+    /** Whether the host GUI lists this IPC dialog in `puter.gui_features` on the app iframe's URL (see launchApp.js); a GUI without the handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */
+    #guiOffers (feature) {
+        return this.#guiFeatures.includes(feature);
+    }
+
+    /** Backs `puter.notifications.status()` inside the desktop: this browser's push state for this app, or null from a desktop that can't answer. @internal @returns {Promise<string | null>} */
+    async pushStatus_ () {
+        if ( this.env !== 'app' || ! this.#guiOffers('push-status') ) return null;
+        const result = await this.#ipc_stub({ method: 'pushStatus', parameters: {} });
+        return typeof result?.state === 'string' ? result.state : null;
+    }
+
+    /** Backs `puter.notifications.disable()` inside the desktop: revokes this app's `notifications:push` grant. @internal @returns {Promise<boolean>} Whether the app held it; `false` from a desktop that can't */
+    async disablePush_ () {
+        if ( this.env !== 'app' || ! this.#guiOffers('disable-push') ) return false;
+        let result;
+        try {
+            result = await this.#ipc_stub({ method: 'disablePush', parameters: {} });
+        } catch ( e ) {
+            throw PuterJSError.from(e);
+        }
+        return result?.removed === true;
+    }
+
+    /** Offers to turn push on in the user's browser, for `puter.notifications.enablePush()`: the desktop shows the offer in the `app` environment, a popup on the Puter origin does in `web` (call it from a click), and every other environment resolves `false`. @internal @returns {Promise<boolean>} `true` when this browser now receives pushes */
+    async enablePush () {
+        if ( this.env === 'app' ) {
+            if ( ! this.#guiOffers('enable-push') ) {
+                return false;
+            }
+            const result = await this.#postMessageAsync('enablePush', {});
+            return result?.state === 'on';
+        }
+
+        if ( this.env !== 'web' ) {
+            return false;
+        }
+        if ( ! globalThis.open || ! globalThis.document ) {
+            return false;
+        }
+
+        // See requestPermission: canonical-to-canonical origin comparison.
+        let gui_origin;
+        try {
+            gui_origin = new URL(puter.defaultGUIOrigin).origin;
+        } catch (e) {
+            return false;
+        }
+
+        // How long a result message may still arrive after the popup is observed closed.
+        const CLOSE_GRACE_MS = 1000;
+
+        return new Promise((resolve) => {
+            // Unique per request and per page load, as in requestPermission; the GUI knows the site by its attested opener origin.
+            const msg_id = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
+            const url = `${gui_origin}/action/enable-push?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}`;
+
+            let settled = false;
+            let checkClosed = null;
+            let popupWindow = null;
+            let consentDialog = null;
+
+            const cleanup = () => {
+                if ( checkClosed ) {
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                }
+                window.removeEventListener('message', messageHandler);
+                consentDialog?.remove();
+                consentDialog = null;
+            };
+
+            const settle = (enabled) => {
+                if ( settled ) return;
+                settled = true;
+                cleanup();
+                resolve(enabled === true);
+            };
+
+            const messageHandler = (e) => {
+                // The GUI origin, the popup opened here, and this request; msg_id comes back as a string, so `!=`.
+                if ( e.origin !== gui_origin ) return;
+                if ( popupWindow && e.source !== popupWindow ) return;
+                if ( e.data?.original_msg_id != msg_id ) return;
+                if ( e.data?.msg !== 'pushEnabled' ) return;
+                settle(e.data.state === 'on');
+            };
+            window.addEventListener('message', messageHandler);
+
+            const watchPopup = (popup) => {
+                if ( settled ) return;
+                if ( ! popup ) {
+                    settle(false);
+                    return;
+                }
+                popupWindow = popup;
+                // With the opener relationship severed (COOP) the popup cannot post back; it stays open and the outcome is not confirmed.
+                if ( window.crossOriginIsolated || popup.closed ) {
+                    settle(false);
+                    return;
+                }
+                checkClosed = setInterval(() => {
+                    if ( ! popup.closed ) return;
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                    // The result is posted before the close and may still be in flight.
                     setTimeout(() => settle(false), CLOSE_GRACE_MS);
                 }, 100);
             };
 
-            // Every path out of here resolves a boolean, so anything that
-            // throws while launching has to resolve false rather than reject.
+            // Anything that throws while launching resolves false rather than rejecting.
             try {
-                if ( hasUserActivation() ) {
-                    // Unique window name per request: window.open() reuses a
-                    // window with the same name, which would hijack a popup an
-                    // earlier, still-pending request is waiting on.
-                    watchPopup(openAuthPopup(url, `puter-feedback-${msg_id}`));
-                } else {
-                    // No user gesture: a popup opened now would be blocked.
-                    // Show a consent dialog first; the popup is then opened
-                    // from the user's click on it.
-                    const dialog = new PuterDialog(() => {}, () => {}, {
-                        popupURL: url,
-                        popupName: `puter-feedback-${msg_id}`,
-                        onLaunch: (popup) => watchPopup(popup),
-                        onCancel: () => settle(false),
-                    });
-                    consentDialog = dialog;
-                    document.body.appendChild(dialog);
-                    dialog.open();
-                }
+                // Popup now under a user gesture, else from the dialog's Continue click.
+                consentDialog = PuterDialog.launch({
+                    popupURL: url,
+                    popupName: `puter-push-${msg_id}`,
+                    message: 'This website wants to send you push notifications through Puter.',
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => settle(false),
+                });
             } catch (e) {
                 settle(false);
             }
@@ -2604,11 +2789,6 @@ export class UIModule extends EventListener {
         return puter.auth.signIn({ request_auth: true }).then(
             () => {
                 settle(true);
-                if ( puter.onAuth && typeof puter.onAuth === 'function' ) {
-                    puter.getUser().then((user) => {
-                        puter.onAuth(user);
-                    });
-                }
             },
             (err) => {
                 settle(false);

@@ -44,10 +44,31 @@ const init = (authToken) => {
 };
 
 const getAuthToken = (guiOrigin = 'https://puter.com') => {
-    const http = require('http');
+    const http = require('node:http');
+    const state = require('node:crypto').randomBytes(32).toString('base64url');
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+        let consumed = false;
         const requestListener = function (/**@type {IncomingMessage} */ req, res) {
+            let callback;
+            try {
+                callback = new URL(req.url, 'http://127.0.0.1/');
+            } catch {
+                res.writeHead(400);
+                res.end('Invalid authentication callback.');
+                return;
+            }
+            const token = callback.searchParams.get('token');
+            if (consumed || req.method !== 'GET' || callback.pathname !== '/' ||
+                callback.searchParams.getAll('state').length !== 1 ||
+                callback.searchParams.get('state') !== state ||
+                callback.searchParams.getAll('token').length !== 1 || !token) {
+                res.writeHead(400);
+                res.end('Invalid authentication callback.');
+                return;
+            }
+            consumed = true;
+            server.close();
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(`<!DOCTYPE html>
 <html lang="en">
@@ -140,12 +161,25 @@ const getAuthToken = (guiOrigin = 'https://puter.com') => {
 </body>
 </html>`);
 
-            resolve(new URL(req.url, 'http://localhost/').searchParams.get('token'));
+            resolve(token);
         };
         const server = http.createServer(requestListener);
-        server.listen(0, function () {
-            const url = `${guiOrigin}/?action=authme&redirectURL=${encodeURIComponent('http://localhost:') + this.address().port}`;
-            open.default(url);
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', function () {
+            try {
+                const callback = new URL(`http://127.0.0.1:${this.address().port}/`);
+                callback.searchParams.set('state', state);
+                const signIn = new URL(guiOrigin);
+                signIn.searchParams.set('action', 'authme');
+                signIn.searchParams.set('redirectURL', callback.href);
+                Promise.resolve(open.default(signIn.href)).catch(error => {
+                    server.close();
+                    reject(error);
+                });
+            } catch (error) {
+                server.close();
+                reject(error);
+            }
         });
     });
 };

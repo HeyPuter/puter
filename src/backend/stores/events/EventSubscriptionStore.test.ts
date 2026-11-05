@@ -19,12 +19,16 @@
 
 import MockRedis from 'ioredis-mock';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET } from '../../controllers/events/limits.js';
+import {
+    EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE,
+    EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
+} from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types.js';
 import {
     EventSubscriptionStore,
     SESSION_SUBSCRIPTION_TTL_SECONDS,
+    valueWatchToken,
     type DurableSubscription,
     type SessionSubscription,
 } from './EventSubscriptionStore.js';
@@ -253,6 +257,200 @@ describe('the per-socket cap', () => {
         expect(await redis.scard(`ev:s:{${USER}}:socket-a`)).toBe(
             EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
         );
+    });
+});
+
+describe('rows made through a share handle', () => {
+    const HANDLE = 'kvh-handle-a';
+    const OTHER_HANDLE = 'kvh-handle-b';
+
+    /** A row in `USER`'s keyspace, made through a handle by `holderUserId`. */
+    const through = (
+        holderUserId: number,
+        i: number,
+        over: Partial<SessionSubscription> = {},
+    ): SessionSubscription =>
+        makeSub({
+            subId: `h-${holderUserId}-${i}`,
+            // Spread over connections so the per-socket cap never binds.
+            socketId: `socket-${Math.floor(i / 10)}`,
+            holderUserId,
+            ownerUserId: USER,
+            subject: `kv:${HANDLE}:*`,
+            token: `k#owner#app#ws:`,
+            anchorUid: 'app',
+            anchorPath: 'ws:',
+            permission: 'kv-share:owner:app:ws',
+            ...over,
+        });
+
+    it('doesn`t let connections that dropped without being reaped refuse a new one', async () => {
+        const holder = USER + 7000;
+        const full = EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET;
+        // Two connections at their cap through one handle, gone but not
+        // reaped: a crashed node, or a blip the server hasn't noticed yet.
+        for (const socketId of ['socket-old-1', 'socket-old-2'])
+            for (let i = 0; i < full; i++)
+                await store.add(
+                    through(holder, i, {
+                        subId: `${socketId}-${i}`,
+                        socketId,
+                    }),
+                );
+
+        for (let i = 0; i < full; i++)
+            await expect(
+                store.add(
+                    through(holder, i, {
+                        subId: `socket-new-${i}`,
+                        socketId: 'socket-new',
+                    }),
+                ),
+            ).resolves.toMatchObject({ userId: USER });
+    });
+
+    it('takes a row out of its handle`s index when it goes', async () => {
+        const holder = USER + 7000;
+        const unsubscribed = through(holder, 0, { socketId: 'socket-a' });
+        const reaped = through(holder, 1, { socketId: 'socket-b' });
+        await store.add(unsubscribed);
+        await store.add(reaped);
+        expect(await redis.scard(`ev:kh:{${USER}}:${HANDLE}`)).toBe(2);
+
+        await store.remove(unsubscribed);
+        await store.reapSocket(holder, 'socket-b');
+
+        expect(await redis.scard(`ev:kh:{${USER}}:${HANDLE}`)).toBe(0);
+    });
+
+    it('holds another user to a loose cap through one handle, across their connections', async () => {
+        const cap = EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE;
+        const isLimit = (err: unknown) =>
+            isHttpError(err) &&
+            err.statusCode === 429 &&
+            err.legacyCode === 'events_subscription_limit';
+        const holder = USER + 7000;
+        for (let i = 0; i < 10; i++) await store.add(through(USER, i));
+        for (let i = 0; i < cap; i++) await store.add(through(holder, i));
+
+        const overflow = through(holder, cap);
+        await expect(store.add(overflow)).rejects.toSatisfy(isLimit);
+        expect(
+            await redis.smembers(`ev:s:{${holder}}:${overflow.socketId}`),
+        ).not.toContain(`${USER}|${overflow.token}|${overflow.subId}`);
+
+        // The owner's own rows don't count, and another handle has its own room.
+        await expect(store.add(through(USER, 10))).resolves.toMatchObject({
+            userId: USER,
+        });
+        await expect(
+            store.add(
+                through(holder, cap + 1, { subject: `kv:${OTHER_HANDLE}:*` }),
+            ),
+        ).resolves.toMatchObject({ userId: USER });
+
+        await store.remove(through(holder, 0));
+        await expect(
+            store.add(through(holder, cap + 2)),
+        ).resolves.toMatchObject({ userId: USER });
+        // Fills the whole cap one add at a time, which a loaded runner takes
+        // past the default timeout.
+    }, 30_000);
+
+    it('lists the rows made through the given handles, and no others', async () => {
+        const holder = USER + 7000;
+        const held = through(holder, 0);
+        const own = through(USER, 1);
+        await store.add(held);
+        await store.add(own);
+        await store.add(
+            through(holder, 2, { subject: `kv:${OTHER_HANDLE}:*` }),
+        );
+        await store.add(makeSub({ subId: 'plain', subject: 'kv:ws:*' }));
+
+        const listed = await store.listForKvHandles(USER, [HANDLE]);
+        expect(listed.map((row) => row.subId).sort()).toEqual(
+            [held.subId, own.subId].sort(),
+        );
+        // Nothing is indexed under a user who owns none of it.
+        await expect(store.listForKvHandles(holder, [HANDLE])).resolves.toEqual(
+            [],
+        );
+
+        await store.remove(held);
+        await expect(store.listForKvHandles(USER, [HANDLE])).resolves.toEqual([
+            own,
+        ]);
+    });
+
+    it('lets go of rows whose handle no longer stands on refresh, and keeps the rest', async () => {
+        const holder = USER + 7000;
+        const viaHandle = through(holder, 0, { socketId: 'socket-a' });
+        const own = sharedWith(holder, { subId: 'folder', token: 'f#shared' });
+        await store.add(viaHandle);
+        await store.add(own);
+
+        const asked: string[] = [];
+        const { reasserted, lapsed } = await store.refresh(holder, 'socket-a', {
+            stillHeld: async (row) => {
+                asked.push(row.subId);
+                return false;
+            },
+        });
+
+        // Only rows made through a handle are asked about.
+        expect(asked).toEqual([viaHandle.subId]);
+        expect(lapsed).toEqual([viaHandle]);
+        expect(reasserted).toEqual([{ ownerUserId: USER, token: 'f#shared' }]);
+    });
+
+    it('renews the handle index with the rows that still stand', async () => {
+        const holder = USER + 7000;
+        const row = through(holder, 0, { socketId: 'socket-a' });
+        await store.add(row);
+        await redis.del(`ev:kh:{${USER}}:${HANDLE}`);
+
+        await store.refresh(holder, 'socket-a', {
+            stillHeld: async () => true,
+        });
+
+        await expect(store.listForKvHandles(USER, [HANDLE])).resolves.toEqual([
+            row,
+        ]);
+        expect(await redis.ttl(`ev:kh:{${USER}}:${HANDLE}`)).toBeGreaterThan(
+            SESSION_SUBSCRIPTION_TTL_SECONDS - 10,
+        );
+    });
+
+    it('asks about each handle once per holder and app on refresh', async () => {
+        const holder = USER + 7000;
+        const rows = [
+            through(holder, 0, { socketId: 'socket-a' }),
+            through(holder, 1, {
+                socketId: 'socket-a',
+                token: 'k#owner#app#ws:a:',
+            }),
+            through(holder, 2, {
+                socketId: 'socket-a',
+                token: 'k#owner#app#ws:b:',
+            }),
+            through(holder, 3, { socketId: 'socket-a', appUid: 'app-x' }),
+            through(holder, 4, {
+                socketId: 'socket-a',
+                subject: `kv:${OTHER_HANDLE}:*`,
+            }),
+        ];
+        for (const row of rows) await store.add(row);
+
+        const stillHeld = vi.fn(async (row: SessionSubscription) =>
+            row.subject.includes(HANDLE),
+        );
+        const { lapsed } = await store.refresh(holder, 'socket-a', {
+            stillHeld,
+        });
+
+        expect(stillHeld).toHaveBeenCalledTimes(3);
+        expect(lapsed).toEqual([rows[4]]);
     });
 });
 
@@ -566,6 +764,50 @@ describe('reanchor', () => {
     });
 });
 
+describe('a key with `|` in it', () => {
+    // The socket ref is `owner|token|subId`, and a KV token carries the key.
+    const piped = (over: Partial<SessionSubscription> = {}) =>
+        makeSub({
+            subject: 'kv:app:a|b:*',
+            token: 'k#owner#app#a|b:',
+            anchorUid: 'app',
+            anchorPath: 'a|b:',
+            ...over,
+        });
+
+    it('can be unsubscribed', async () => {
+        const sub = piped();
+        await store.add(sub);
+
+        const held = await store.getForSocket(USER, 'socket-a', sub.subId);
+        expect(held).toEqual(sub);
+        await expect(store.remove(held!)).resolves.toMatchObject({
+            userId: USER,
+        });
+        await expect(store.getForTokens(USER, [sub.token])).resolves.toEqual(
+            [],
+        );
+        await expect(store.watchedTokens(USER, [sub.token])).resolves.toEqual(
+            [],
+        );
+    });
+
+    it('is reaped with its connection', async () => {
+        const sub = piped();
+        await store.add(sub);
+        await expect(store.listForSocket(USER, 'socket-a')).resolves.toEqual([
+            sub,
+        ]);
+
+        await store.reapSocket(USER, 'socket-a');
+
+        await expect(store.getForTokens(USER, [sub.token])).resolves.toEqual(
+            [],
+        );
+        await expect(store.userHasAny(USER)).resolves.toBe(false);
+    });
+});
+
 describe('disconnect', () => {
     it('leaves no key behind for the socket that went', async () => {
         await store.add(makeSub({ subId: 'a', token: 'f#one' }));
@@ -660,7 +902,6 @@ describe('durable rows sharing a session key', () => {
             socketId: undefined,
             durable: true,
             delivery: 'broadcast',
-            targets: ['socket'],
             handlerName: null,
             context: null,
             expiresAt: null,
@@ -762,6 +1003,246 @@ describe('the watched-set race', () => {
     });
 });
 
+describe('rows asking for kv values', () => {
+    const VALUE = valueWatchToken('f#anchor');
+    const asking = (over: Partial<SessionSubscription> = {}) =>
+        makeSub({ includeValue: true, ...over });
+
+    it('announces the value watch with the first row asking, and not again', async () => {
+        const first = await store.add(asking());
+        const second = await store.add(asking({ socketId: 'socket-b' }));
+
+        expect(first.announce).toEqual([
+            { token: 'f#anchor', op: 'add' },
+            { token: VALUE, op: 'add' },
+        ]);
+        expect(second.announce).toBeUndefined();
+    });
+
+    it('never announces one for a row that did not ask', async () => {
+        const bump = await store.add(makeSub());
+
+        expect(bump.announce).toEqual([{ token: 'f#anchor', op: 'add' }]);
+    });
+
+    it('withdraws it with the last row asking, and keeps the plain watch', async () => {
+        const valued = asking();
+        await store.add(valued);
+        await store.add(makeSub({ socketId: 'socket-b' }));
+
+        const bump = await store.remove(valued);
+
+        expect(bump?.announce).toEqual([{ token: VALUE, op: 'drop' }]);
+    });
+
+    it('keeps it while another row still asks', async () => {
+        const valued = asking();
+        await store.add(valued);
+        await store.add(asking({ socketId: 'socket-b' }));
+
+        const bump = await store.remove(valued);
+
+        expect(bump?.announce).toBeUndefined();
+    });
+
+    it('withdraws it when the socket holding the row is reaped', async () => {
+        await store.add(asking());
+        await store.add(makeSub({ socketId: 'socket-b' }));
+
+        const [bump] = await store.reapSocket(USER, 'socket-a');
+
+        expect(bump.announce).toEqual([{ token: VALUE, op: 'drop' }]);
+    });
+
+    it('moves it with a row carried to another anchor', async () => {
+        const valued = asking();
+        await store.add(valued);
+
+        const { moved, bumps } = await store.reanchorSession(valued, {
+            ...valued,
+            token: 'f#parent',
+            anchorUid: 'parent',
+            anchorPath: '/testuser',
+        });
+
+        expect(moved).toBe(true);
+        expect(bumps[0].announce).toEqual(
+            expect.arrayContaining([
+                { token: 'f#anchor', op: 'drop' },
+                { token: VALUE, op: 'drop' },
+                { token: 'f#parent', op: 'add' },
+                { token: valueWatchToken('f#parent'), op: 'add' },
+            ]),
+        );
+    });
+
+    it('reasserts it on refresh only for a socket whose rows ask', async () => {
+        await store.add(asking());
+        await store.add(makeSub({ socketId: 'socket-b' }));
+
+        expect((await store.refresh(USER, 'socket-a')).reasserted).toEqual([
+            { ownerUserId: USER, token: 'f#anchor' },
+            { ownerUserId: USER, token: VALUE },
+        ]);
+        expect((await store.refresh(USER, 'socket-b')).reasserted).toEqual([
+            { ownerUserId: USER, token: 'f#anchor' },
+        ]);
+    });
+
+    it('answers which peers asked for values alongside which watch', async () => {
+        await store.noteRemoteWatch(USER, 'f#anchor', 'east', 'add');
+        await store.noteRemoteWatch(USER, 'f#anchor', 'south', 'add');
+        await store.noteRemoteWatch(USER, VALUE, 'east', 'add');
+
+        const watched = await store.watchedFor(USER, ['f#anchor'], {
+            values: true,
+        });
+
+        expect(watched.remote.get('f#anchor')?.sort()).toEqual([
+            'east',
+            'south',
+        ]);
+        expect(watched.remoteValues.get('f#anchor')).toEqual(['east']);
+    });
+});
+
+describe('reading rows for dispatch', () => {
+    const durableRows = (count: number): DurableSubscription[] =>
+        Array.from(
+            { length: count },
+            (_, i) =>
+                ({
+                    ...makeSub({ subId: `durable-${i}` }),
+                    socketId: undefined,
+                    durable: true,
+                    delivery: 'broadcast',
+                    handlerName: null,
+                    context: null,
+                    expiresAt: null,
+                    suspendedAt: null,
+                    suspendedReason: null,
+                    createdAt: 0,
+                }) as DurableSubscription,
+        );
+
+    it('reads a bounded share of a token everyone watches', async () => {
+        await store.cacheDurable(durableRows(600));
+
+        const bounded = await store.getForTokens(USER, ['f#anchor'], {
+            perToken: 50,
+        });
+
+        expect(bounded).toHaveLength(50);
+        expect(new Set(bounded.map((row) => row.subId)).size).toBe(50);
+        await expect(
+            store.getForTokens(USER, ['f#anchor']),
+        ).resolves.toHaveLength(600);
+    });
+
+    it('counts only the rows it was asked to keep', async () => {
+        await store.cacheDurable(durableRows(300));
+        const session = makeSub({ subId: 'session-1' });
+        await store.add(session);
+
+        const kept = await store.getForTokens(USER, ['f#anchor'], {
+            perToken: 50,
+            keep: (row) => row.socketId !== undefined,
+        });
+
+        expect(kept).toEqual([session]);
+    });
+
+    it('drops many cached rows in one pass per owner', async () => {
+        const rows = durableRows(3);
+        await store.cacheDurable(rows);
+
+        const hdel = vi.spyOn(redis, 'hdel');
+        try {
+            await store.dropDurables(rows);
+            expect(hdel).toHaveBeenCalledTimes(1);
+        } finally {
+            hdel.mockRestore();
+        }
+        await expect(store.getForTokens(USER, ['f#anchor'])).resolves.toEqual(
+            [],
+        );
+        await expect(store.watchedTokens(USER, ['f#anchor'])).resolves.toEqual(
+            [],
+        );
+    });
+
+    it('bounds each token on its own', async () => {
+        await store.cacheDurable(durableRows(100));
+        await store.add(makeSub({ token: 'f#other', anchorUid: 'other' }));
+
+        const rows = await store.getForTokens(USER, ['f#anchor', 'f#other'], {
+            perToken: 10,
+        });
+
+        expect(rows.filter((row) => row.token === 'f#anchor')).toHaveLength(10);
+        expect(rows.filter((row) => row.token === 'f#other')).toHaveLength(1);
+    });
+});
+
+describe('anyone watching, when the region is warm', () => {
+    it('answers null while the region is cold, whatever is watched', async () => {
+        await store.add(makeSub());
+
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBeNull();
+    });
+
+    it('answers what userHasAny would once the region is warm', async () => {
+        await store.markRegionWarm(USER);
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBe(false);
+
+        await store.add(makeSub());
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBe(true);
+    });
+
+    it('counts a peer watching one of the owner`s tokens', async () => {
+        await store.markRegionWarm(USER);
+        await store.noteRemoteWatch(USER, 'f#anchor', 'peer-region', 'add');
+
+        await expect(store.userHasAny(USER)).resolves.toBe(true);
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBe(true);
+    });
+
+    it('goes back to null once the region is marked cold', async () => {
+        await store.markRegionWarm(USER);
+        await store.add(makeSub());
+        await store.markRegionCold(USER);
+
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBeNull();
+    });
+
+    // One pipeline in a cluster has to stay in one slot.
+    it('asks in one pipeline, on keys under the owner`s hash tag', async () => {
+        await store.markRegionWarm(USER);
+        const keys: string[] = [];
+        let pipelines = 0;
+        const realPipeline = redis.pipeline.bind(redis);
+        const spy = vi.spyOn(redis, 'pipeline').mockImplementation(() => {
+            pipelines++;
+            const pipeline = realPipeline();
+            const exists = pipeline.exists.bind(pipeline);
+            pipeline.exists = ((key: string) => {
+                keys.push(key);
+                return exists(key);
+            }) as typeof pipeline.exists;
+            return pipeline;
+        });
+        try {
+            await store.userHasAnyIfWarm(USER);
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(pipelines).toBe(1);
+        expect(keys).toHaveLength(3);
+        for (const key of keys) expect(key).toContain(`{${USER}}`);
+    });
+});
+
 describe('the generation counter', () => {
     it('advances on every registration and removal', async () => {
         const first = await store.add(makeSub({ subId: 'a' }));
@@ -780,5 +1261,30 @@ describe('the generation counter', () => {
         expect(await redis.ttl(`ev:g:{${USER}}`)).toBeGreaterThan(
             SESSION_SUBSCRIPTION_TTL_SECONDS,
         );
+    });
+});
+
+describe('dropping an owner', () => {
+    it("removes every key kept for the owner and leaves other owners' alone", async () => {
+        const other = USER + 5000;
+        await store.add(makeSub({ subId: 'a' }));
+        await store.add(makeSub({ subId: 'b', token: 'f#two' }));
+        await store.cacheDurable([
+            makeSub({
+                subId: 'd',
+                token: 'f#durable',
+            }) as unknown as DurableSubscription,
+        ]);
+        await store.markRegionWarm(USER);
+        await store.add(
+            makeSub({ subId: 'c', holderUserId: other, ownerUserId: other }),
+        );
+
+        await store.dropOwner(USER);
+
+        // Socket sets are the holder's, named by socket, and expire on their own.
+        const left = await redis.keys(`ev:*:{${USER}}*`);
+        expect(left.filter((key) => !key.startsWith('ev:s:'))).toEqual([]);
+        await expect(store.userHasAny(other)).resolves.toBe(true);
     });
 });

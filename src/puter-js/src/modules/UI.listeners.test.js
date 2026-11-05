@@ -1,0 +1,359 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { $SCOPE } from '../lib/xdrpc.js';
+import { UtilRPC } from './Util.js';
+
+const { AppConnection, UIModule } = await import('./UI.js');
+
+let messageHandlers;
+let parentPostMessage;
+let parentWindow;
+
+const listen = (name, handler) => {
+    if (name === 'message') messageHandlers.push(handler);
+};
+
+/** Deliver one message event to every listener registered so far. */
+const deliver = async (event) => {
+    for (const handler of [...messageHandlers]) await handler(event);
+};
+
+/** A logger whose every chain ends quietly. */
+const quietLogger = () => {
+    const logger = { info: () => {}, fields: () => logger };
+    return logger;
+};
+
+const makePuter = () => ({
+    env: 'app',
+    defaultGUIOrigin: 'https://puter.com',
+    authToken: 'token-1',
+    APIOrigin: 'https://api.test',
+    appID: 'app-1',
+    logger: quietLogger(),
+    util: { rpc: new UtilRPC() },
+});
+
+const makeUI = () => new UIModule(makePuter(), { appInstanceID: 'instance-1' });
+
+beforeEach(() => {
+    messageHandlers = [];
+    parentPostMessage = vi.fn();
+    parentWindow = { postMessage: parentPostMessage };
+    globalThis.window = {
+        parent: parentWindow,
+        focus: vi.fn(),
+        addEventListener: listen,
+        removeEventListener: (name, handler) => {
+            if (name !== 'message') return;
+            const i = messageHandlers.indexOf(handler);
+            if (i !== -1) messageHandlers.splice(i, 1);
+        },
+    };
+    globalThis.addEventListener = listen;
+    globalThis.document = { addEventListener: vi.fn() };
+    globalThis.puter = { defaultGUIOrigin: 'https://puter.com' };
+});
+
+afterEach(() => {
+    delete globalThis.window;
+    delete globalThis.addEventListener;
+    delete globalThis.document;
+    delete globalThis.puter;
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+});
+
+describe('AppConnection', () => {
+    const connect = (puter = makePuter()) =>
+        new AppConnection(puter, {
+            target: 'child-1',
+            usesSDK: true,
+            messageTarget: parentWindow,
+            appInstanceID: 'instance-1',
+        });
+
+    const fromChild = (data) => ({
+        source: parentWindow,
+        origin: 'https://puter.com',
+        data: {
+            appInstanceID: 'child-1',
+            targetAppInstanceID: 'instance-1',
+            ...data,
+        },
+    });
+
+    it('ignores connection messages from the parent at another origin', async () => {
+        const conn = connect();
+        const onMessage = vi.fn();
+        conn.on('message', onMessage);
+        await deliver({
+            ...fromChild({ msg: 'messageToApp', contents: 'forged' }),
+            origin: 'https://other.test',
+        });
+        expect(onMessage).not.toHaveBeenCalled();
+    });
+
+    it('stops listening once the target app closes', async () => {
+        const puter = makePuter();
+        const before = messageHandlers.length;
+        const conn = connect(puter);
+        expect(messageHandlers.length).toBe(before + 1);
+
+        const onClose = vi.fn();
+        const onMessage = vi.fn();
+        conn.on('close', onClose);
+        conn.on('message', onMessage);
+
+        await deliver(fromChild({ msg: 'messageToApp', contents: 'hi' }));
+        await deliver(fromChild({ msg: 'appClosed', statusCode: 0 }));
+        await deliver(fromChild({ msg: 'appClosed', statusCode: 0 }));
+        await deliver(fromChild({ msg: 'messageToApp', contents: 'late' }));
+
+        expect(onMessage.mock.calls).toEqual([['hi']]);
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(onClose).toHaveBeenCalledWith({
+            appInstanceID: 'child-1',
+            statusCode: 0,
+        });
+        expect(messageHandlers.length).toBe(before);
+    });
+
+    it('keeps listening when another app closes', async () => {
+        const conn = connect();
+        const count = messageHandlers.length;
+        const onClose = vi.fn();
+        conn.on('close', onClose);
+
+        await deliver(
+            fromChild({ msg: 'appClosed', appInstanceID: 'child-2' }),
+        );
+
+        expect(onClose).not.toHaveBeenCalled();
+        expect(messageHandlers.length).toBe(count);
+    });
+});
+
+describe('host replies (env: app)', () => {
+    it('rejects launchApp when the desktop replies with a handler error', async () => {
+        const ui = makeUI();
+        const result = ui.launchApp('missing-app');
+        const rejection = expect(result).rejects.toMatchObject({
+            code: 'ipc_handler_failed',
+        });
+        await vi.waitFor(() => expect(parentPostMessage).toHaveBeenCalled());
+        const { uuid } = parentPostMessage.mock.calls.at(-1)[0];
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
+            data: {
+                $SCOPE,
+                id: uuid,
+                args: [
+                    {
+                        $: 'puter-ipc-error',
+                        error: {
+                            code: 'ipc_handler_failed',
+                            message: 'The request could not be completed.',
+                        },
+                    },
+                ],
+            },
+        });
+        await rejection;
+        expect(ui.util.rpc.callbackManager.callbacks.size).toBe(0);
+    });
+
+    it('frees an IPC reply callback once the reply arrives', async () => {
+        const ui = makeUI();
+        const { callbackManager } = ui.util.rpc;
+        const before = callbackManager.callbacks.size;
+
+        const result = ui.exitPictureInPicture();
+        // The stub registers its callback after a tick.
+        await vi.waitFor(() => expect(parentPostMessage).toHaveBeenCalled());
+        const { uuid } = parentPostMessage.mock.calls.at(-1)[0];
+
+        await deliver({
+            source: parentWindow,
+            origin: 'https://other.test',
+            data: { $SCOPE, id: uuid, args: [{ wasOpen: false }] },
+        });
+        expect(callbackManager.callbacks.size).toBe(before + 1);
+
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
+            data: { $SCOPE, id: uuid, args: [{ wasOpen: true }] },
+        });
+
+        await expect(result).resolves.toBe(true);
+        expect(callbackManager.callbacks.size).toBe(before);
+    });
+
+    // A settled reply's id must not keep catching later messages ahead of the
+    // branches below the reply dispatch.
+    it.each([
+        ['instancesOpenSucceeded', { instancesOpen: 2 }],
+        ['getAppDataSucceeded', { item: { uid: 'u' } }],
+        ['readAppDataFileSucceeded', { item: { uid: 'u' } }],
+        ['readAppDataFileFailed', {}],
+    ])('settles a %s reply once', async (msg, fields) => {
+        const ui = makeUI();
+        ui.instancesOpen();
+        const { uuid } = parentPostMessage.mock.calls.at(-1)[0];
+        const onLocale = vi.fn();
+        ui.on('localeChanged', onLocale);
+
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
+            data: { msg, original_msg_id: uuid, ...fields },
+        });
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
+            data: {
+                msg: 'broadcast',
+                name: 'localeChanged',
+                data: { language: 'fr' },
+                original_msg_id: uuid,
+            },
+        });
+
+        expect(onLocale).toHaveBeenCalledWith({ language: 'fr' });
+    });
+
+    it('emits a notificationClick broadcast from the desktop', async () => {
+        const ui = makeUI();
+        const onClick = vi.fn();
+        ui.on('notificationClick', onClick);
+
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
+            data: {
+                msg: 'broadcast',
+                name: 'notificationClick',
+                data: { uid: 'n-1', target: '/a', data: { id: 1 } },
+            },
+        });
+
+        expect(onClick).toHaveBeenCalledWith({ uid: 'n-1', target: '/a', data: { id: 1 } });
+    });
+
+    it('hands a click broadcast to the first notifications click handler once', async () => {
+        const { NotificationsModule } = await import('./notifications/index.js');
+        const ui = makeUI();
+        const notifications = new NotificationsModule({ ...makePuter(), ui });
+        const click = {
+            msg: 'broadcast',
+            name: 'notificationClick',
+            data: { uid: 'n-1', target: '/a', data: null },
+        };
+        await deliver({ source: parentWindow, origin: 'https://puter.com', data: click });
+
+        const first = vi.fn();
+        const second = vi.fn();
+        notifications.on('click', first);
+        notifications.on('click', second);
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
+            data: { ...click, data: { uid: 'n-2' } },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(first.mock.calls).toEqual([
+            [{ uid: 'n-1', target: '/a', data: null, action: null }],
+            [{ uid: 'n-2', target: null, data: null, action: null }],
+        ]);
+        expect(second.mock.calls).toEqual([
+            [{ uid: 'n-2', target: null, data: null, action: null }],
+        ]);
+    });
+
+    it('drops a notificationClick broadcast from another source', async () => {
+        const { NotificationsModule } = await import('./notifications/index.js');
+        const ui = makeUI();
+        const notifications = new NotificationsModule({ ...makePuter(), ui });
+        const onClick = vi.fn();
+        notifications.on('click', onClick);
+
+        await deliver({
+            source: {},
+            origin: 'https://example.com',
+            data: { msg: 'broadcast', name: 'notificationClick', data: { uid: 'n-1' } },
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(onClick).not.toHaveBeenCalled();
+    });
+
+    it('reports an error reply instead of rejecting the listener', async () => {
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        makeUI();
+        const failure = { code: 'method_removed', message: 'gone' };
+
+        await expect(
+            deliver({
+                source: parentWindow,
+                origin: 'https://puter.com',
+                data: { msg: 'error', original_msg_id: 1, error: failure },
+            }),
+        ).resolves.toBeUndefined();
+        expect(error).toHaveBeenCalledWith(failure);
+    });
+
+    it('survives a malformed message', async () => {
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.stubGlobal('location', { search: '' });
+        const ui = makeUI();
+        ui.onItemsOpened(() => {});
+
+        await expect(
+            deliver({
+                source: parentWindow,
+                origin: 'https://puter.com',
+                data: { msg: 'itemsOpened', msg_id: 1 },
+            }),
+        ).resolves.toBeUndefined();
+        expect(error).toHaveBeenCalled();
+    });
+});
+
+describe('launch items', () => {
+    const launchSearch = (extra = '') =>
+        '?puter.item.name=docs&puter.item.uid=uid-1&puter.item.path=%2Fu%2Fdocs'
+        + `&puter.item.read_url=${encodeURIComponent('https://api.test/file?uid=uid-1')}${extra}`;
+
+    it('marks a launched folder as a directory', () => {
+        vi.stubGlobal('location', { search: launchSearch('&puter.item.is_dir=true') });
+        const launched = vi.fn();
+        const opened = vi.fn();
+        const ui = makeUI();
+        ui.onLaunchedWithItems(launched);
+        ui.onItemsOpened(opened);
+
+        for ( const callback of [launched, opened] ) {
+            const [[item]] = callback.mock.calls[0];
+            expect(item.name).toBe('docs');
+            expect(item.isDirectory).toBe(true);
+        }
+    });
+
+    it('treats a launched item without the flag as a file', () => {
+        vi.stubGlobal('location', { search: launchSearch() });
+        const launched = vi.fn();
+        makeUI().onLaunchedWithItems(launched);
+
+        expect(launched.mock.calls[0][0][0].isDirectory).toBe(false);
+    });
+
+    it('calls back with nothing when the app was not launched with an item', () => {
+        vi.stubGlobal('location', { search: '' });
+        const launched = vi.fn();
+        makeUI().onLaunchedWithItems(launched);
+
+        expect(launched).not.toHaveBeenCalled();
+    });
+});

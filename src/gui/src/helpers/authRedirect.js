@@ -109,3 +109,25 @@ export const get_oidc_return_to = () => {
     if ( recipient_uuid ) params.set(SHARE_RECIPIENT_PARAM, recipient_uuid);
     return `${path}?${params.toString()}`;
 };
+
+
+/** Capture a provider challenge before boot code can retain its URL. */
+export const takeOidcLoginChallenge = () => {
+    const url = new URL(window.location.href);
+    const paths = url.pathname.split('/').filter(Boolean);
+    if (paths[0]?.toLowerCase() === 'desktop') paths.shift();
+    const action = paths[0]?.toLowerCase() === 'action'
+        ? paths[1] : url.searchParams.get('action');
+    if (action?.toLowerCase() !== 'oidc-2fa') return null;
+    const fragment = new URLSearchParams(url.hash.slice(1));
+    url.hash = '';
+    window.history.replaceState(null, document.title, url.pathname + url.search);
+    let retryUrl = '/action/login';
+    try {
+        const retry = new URL(fragment.get('retryUrl'), url.origin);
+        if (retry.origin === url.origin && (
+            retry.pathname === '/action/login' || retry.searchParams.get('action') === 'login'
+        )) retryUrl = retry.href;
+    } catch { /* Missing or malformed retry context returns to ordinary login. */ }
+    return { token: fragment.get('token'), retryUrl };
+};

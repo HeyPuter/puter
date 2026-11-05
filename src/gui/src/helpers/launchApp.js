@@ -20,10 +20,14 @@
 import path from '../lib/path.js';
 import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from '../definitions.js';
 import UIWindow from '../UI/UIWindow.js';
+import UIAlert from '../UI/UIAlert.js';
 import { starts_hidden } from './startsHidden.js';
 import { append_signed_item_params } from './appendSignedItemParams.js';
 import { expand_home_path } from './expandHomePath.js';
 import { confirmUrlFileAccess } from './confirmUrlFileAccess.js';
+import { mintGodmodeToken, reusableGodmodeToken, trackGodmodeToken } from './godmodeTokens.js';
+import { withoutNotificationClick } from './notificationTap.js';
+import { syncBrowserPush } from './pushSync.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -209,6 +213,7 @@ const launch_app = async (options) => {
                 name: fallbackAppName,
                 args: fallbackArgs,
                 app_obj: undefined,
+                on_ready: undefined,
                 privateLaunchRequestedAppName: requestedAppName,
                 privateLaunchRedirectDepth: privateLaunchRedirectDepth + 1,
             });
@@ -237,17 +242,11 @@ const launch_app = async (options) => {
             return fallbackLaunchOutcome ?? { launchResult: redirectedLaunchResult };
         }
 
-        if ( ! options?.silent_on_failure ) {
-            const deniedAppTitle = app_info.title ?? app_info.name ?? options.name ?? 'this app';
-            const safeDeniedAppTitle = window.html_encode
-                ? window.html_encode(deniedAppTitle)
-                : deniedAppTitle;
-            if ( typeof window.UIAlert === 'function' ) {
-                await window.UIAlert(`You don't have access to ${safeDeniedAppTitle}.`);
-            } else {
-                window.alert(`You don't have access to ${deniedAppTitle}.`);
-            }
-        }
+        // Unencoded: UIAlert encodes its message itself.
+        const deniedAppTitle = app_info.title ?? app_info.name ?? options.name;
+        await UIAlert(deniedAppTitle
+            ? i18n('app_launch_no_access', { app: deniedAppTitle }, false)
+            : i18n('app_launch_no_access_unnamed', [], false));
 
         const deniedLaunchResult = {
             launched: false,
@@ -511,58 +510,62 @@ const launch_app = async (options) => {
             iframe_url.searchParams.append('puter.item.read_url', options.readURL);
         }
 
-        // In godmode, we add the super token to the iframe URL
-        // so that the app can access everything.
-        if ( app_info.godmode && (app_info.godmode === true || app_info.godmode === 1) ) {
-            iframe_url.searchParams.append('puter.auth.token', window.auth_token);
-            iframe_url.searchParams.append('puter.auth.username', window.user.username);
-        }
-        // App token. Only add token if it's not a GODMODE app since GODMODE apps already have the super token
-        // that has access to everything.
-        else if ( options.token ) {
-            iframe_url.searchParams.append('puter.auth.token', options.token);
+        const is_godmode = app_info.godmode === true || app_info.godmode === 1;
+        const launch_app_uid = app_info.uid ?? app_info.uuid;
+
+        // A godmode app gets a full-access token of its own, renewed while its
+        // window is open; never the desktop's session.
+        let launch_token = null;
+        let tokenResult = null;
+        if ( is_godmode ) {
+            const godmode_token = reusableGodmodeToken(launch_app_uid)
+                ?? await mintGodmodeToken(launch_app_uid);
+            if ( godmode_token.ok ) {
+                launch_token = godmode_token.token;
+                trackGodmodeToken(
+                    uuid, launch_app_uid, godmode_token.token,
+                    godmode_token.expiresAt, godmode_token.mintedAt, iframe_url.href,
+                );
+            } else {
+                tokenResult = { token: null, reason: 'godmode-token-request-failed', ...godmode_token };
+            }
+        } else if ( options.token ) {
+            launch_token = options.token;
         } else {
-            const tokenResult = await fetchUserAppTokenForLaunch({
-                appUid: app_info.uid ?? app_info.uuid,
+            tokenResult = await fetchUserAppTokenForLaunch({ appUid: launch_app_uid });
+            launch_token = tokenResult?.token ?? null;
+        }
+
+        if ( launch_token ) {
+            iframe_url.searchParams.append('puter.auth.token', launch_token);
+            if ( is_godmode ) {
+                iframe_url.searchParams.append('puter.auth.username', window.user.username);
+            }
+        } else {
+            console.error('App launch blocked because app token could not be acquired', {
+                appName: app_info?.name ?? options?.name,
+                appUid: app_info?.uid ?? app_info?.uuid,
+                tokenResult,
             });
 
-            if ( tokenResult?.token ) {
-                iframe_url.searchParams.append('puter.auth.token', tokenResult.token);
-            } else {
-                console.error('App launch blocked because app token could not be acquired', {
-                    appName: app_info?.name ?? options?.name,
-                    appUid: app_info?.uid ?? app_info?.uuid,
-                    tokenResult,
-                });
+            const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name;
+            await UIAlert(tokenErrorAppTitle
+                ? i18n('app_launch_failed_retry', { app: tokenErrorAppTitle }, false)
+                : i18n('app_launch_failed_retry_unnamed', [], false));
 
-                // `silent_on_failure` callers (e.g. best-effort auto-launches
-                // like the AI panel on desktop boot) skip the blocking alert.
-                if ( ! options?.silent_on_failure ) {
-                    const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name ?? 'this app';
-                    const safeTokenErrorAppTitle = window.html_encode
-                        ? window.html_encode(tokenErrorAppTitle)
-                        : tokenErrorAppTitle;
-                    if ( typeof window.UIAlert === 'function' ) {
-                        await window.UIAlert(`Couldn't open ${safeTokenErrorAppTitle}. Please try again.`);
-                    } else {
-                        window.alert(`Couldn't open ${tokenErrorAppTitle}. Please try again.`);
-                    }
-                }
-
-                const tokenFailureLaunchResult = {
-                    launched: false,
-                    requestedAppName,
-                    openedAppName: null,
-                    appInstanceID: null,
-                    appUid: app_info?.uid ?? app_info?.uuid ?? null,
-                    redirectedToFallback: privateLaunchRedirectDepth > 0,
-                    deniedPrivateAccess: false,
-                    privateAccess: privateAccessDecision ?? undefined,
-                    authTokenAcquired: false,
-                };
-                endLaunchTransaction(transaction, 'token-unavailable');
-                return { launchResult: tokenFailureLaunchResult };
-            }
+            const tokenFailureLaunchResult = {
+                launched: false,
+                requestedAppName,
+                openedAppName: null,
+                appInstanceID: null,
+                appUid: app_info?.uid ?? app_info?.uuid ?? null,
+                redirectedToFallback: privateLaunchRedirectDepth > 0,
+                deniedPrivateAccess: false,
+                privateAccess: privateAccessDecision ?? undefined,
+                authTokenAcquired: false,
+            };
+            endLaunchTransaction(transaction, 'token-unavailable');
+            return { launchResult: tokenFailureLaunchResult };
         }
 
         iframe_url.searchParams.append('puter.domain', window.app_domain);
@@ -595,10 +598,10 @@ const launch_app = async (options) => {
         // for: such a message is never replied to, and a reply timeout can't
         // stand in for the check because legitimate replies only arrive when
         // the user closes the dialog.
-        iframe_url.searchParams.append('puter.gui_features', 'feedback-dialog');
+        iframe_url.searchParams.append('puter.gui_features', 'feedback-dialog,enable-push,custom-domains,push-status,disable-push');
 
         // Add options.args to URL
-        iframe_url.searchParams.append('puter.args', JSON.stringify(options.args ?? {}));
+        iframe_url.searchParams.append('puter.args', JSON.stringify(withoutNotificationClick(options.args) ?? {}));
 
         // ...and finally append utm_source=puter.com to the URL
         iframe_url.searchParams.append('utm_source', 'puter.com');
@@ -756,6 +759,10 @@ const launch_app = async (options) => {
             $(el_win).show();
         }
 
+        if ( ! window.embedded_in_popup ) {
+            void syncBrowserPush({ appUid: launch_app_uid });
+        }
+
         // send post request to /rao to record app open
         if ( options.name !== 'explorer' ) {
             // add the app to the beginning of the array
@@ -820,6 +827,7 @@ const launch_app = async (options) => {
 
             // Send any saved broadcasts to the new app
             globalThis.services.get('broadcast').sendSavedBroadcastsTo(uuid);
+            options.on_ready?.(process);
 
             // If `window-active` is set (meaning the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)

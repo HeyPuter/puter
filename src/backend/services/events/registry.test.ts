@@ -28,7 +28,7 @@ import {
     lookupFsSubject,
     lookupKvSubject,
     lookupPublicSubject,
-    pushProjection,
+    projectScheduleTick,
     type FsDeliveryContext,
     type FsPublicSubject,
     type KvDeliveryContext,
@@ -44,10 +44,20 @@ const PROJECTED_KEYS = [
     'subject',
     'ts',
     'uid',
+    'viaWorker',
 ];
 
 /** A KV event names a key where an FS event names a node. */
-const PROJECTED_KV_KEYS = ['id', 'key', 'op', 'self', 'seq', 'subject', 'ts'];
+const PROJECTED_KV_KEYS = [
+    'id',
+    'key',
+    'op',
+    'self',
+    'seq',
+    'subject',
+    'ts',
+    'viaWorker',
+];
 
 const entry = {
     id: 42,
@@ -181,20 +191,6 @@ describe('PUBLIC_SUBJECTS', () => {
     it('requires list to subscribe — see alone is not enough', () => {
         for (const subject of fsSubjects()) expect(subject.mode).toBe('list');
     });
-
-    it('produces no push payload while notify is null', () => {
-        for (const subject of fsSubjects()) {
-            expect(subject.notify).toBeNull();
-            expect(
-                pushProjection(subject, subject.project(delivery)),
-            ).toBeNull();
-        }
-    });
-
-    it('defaults every entry to broadcast', () => {
-        for (const subject of PUBLIC_SUBJECTS)
-            expect(subject.defaultDelivery).toBe('broadcast');
-    });
 });
 
 describe('the kv subject', () => {
@@ -210,9 +206,22 @@ describe('the kv subject', () => {
             op: 'set',
             key: 'cart:items',
             self: true,
+            viaWorker: false,
             ts: 1_700_000_002,
             seq: 0,
         });
+    });
+
+    it('says whether server-side code made the change, on kv and fs alike', () => {
+        expect(
+            subject().project({ ...kvDelivery, viaWorker: true }),
+        ).toMatchObject({ viaWorker: true });
+        expect(
+            lookupFsSubject('fs.write.file')!.project({
+                ...delivery,
+                viaWorker: true,
+            }),
+        ).toMatchObject({ viaWorker: true });
     });
 
     it('names the namespace app, never the namespace itself', () => {
@@ -255,11 +264,6 @@ describe('the kv subject', () => {
         expect(subject().matchScope('cart:', 'cart:items:1')).toBe(
             'cart:items:1',
         );
-    });
-
-    it('is not pushable and broadcasts by default', () => {
-        expect(subject().notify).toBeNull();
-        expect(subject().defaultDelivery).toBe('broadcast');
     });
 });
 
@@ -319,5 +323,54 @@ describe('registry typing', () => {
     it('exposes entries under the shared shape', () => {
         const subjects: readonly PublicSubject[] = PUBLIC_SUBJECTS;
         expect(subjects.length).toBeGreaterThan(0);
+    });
+});
+
+describe('the schedule tick', () => {
+    const tick = {
+        scheduleId: '2f7c1b6e-4d1a-4c55-9a8e-0e6f3c2b1a90',
+        scheduledFor: 1_798_761_600_000,
+        missed: 0,
+        missedCapped: false,
+        attempt: 1,
+    };
+
+    it('carries exactly the fields a handler is promised', () => {
+        const event = projectScheduleTick(tick);
+        expect(Object.keys(event).sort()).toEqual([
+            'attempt',
+            'id',
+            'missed',
+            'op',
+            'scheduleId',
+            'scheduledFor',
+            'subject',
+        ]);
+        expect(event).toEqual({
+            subject: `schedule:${tick.scheduleId}`,
+            op: 'tick',
+            id: `${tick.scheduleId}:${tick.scheduledFor}`,
+            scheduleId: tick.scheduleId,
+            scheduledFor: tick.scheduledFor,
+            missed: 0,
+            attempt: 1,
+        });
+    });
+
+    it('says when `missed` stopped counting, and only then', () => {
+        const capped = projectScheduleTick({
+            ...tick,
+            missed: 1000,
+            missedCapped: true,
+        });
+        expect(capped.missedCapped).toBe(true);
+        expect(capped.missed).toBe(1000);
+        expect('missedCapped' in projectScheduleTick(tick)).toBe(false);
+    });
+
+    it('keeps the id across attempts at one slot', () => {
+        expect(projectScheduleTick({ ...tick, attempt: 3 }).id).toBe(
+            projectScheduleTick(tick).id,
+        );
     });
 });

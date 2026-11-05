@@ -49,6 +49,26 @@ export interface MaskedSharePath {
     tail: string;
 }
 
+/** `/<owner>/<uuid>/<name>`: how a holder addresses a shared item. */
+export const maskedRoot = (owner: string, uuid: string, name: string): string =>
+    `/${owner}/${uuid}/${name}`;
+
+/**
+ * `realPath` as a holder of the share rooted at `root` addresses it, or null
+ * when it sits outside that share.
+ */
+export function maskUnder(
+    root: { path: string; uuid: string; name: string },
+    realPath: string,
+): string | null {
+    const owner = root.path.split('/')[1];
+    if (!owner || !root.name) return null;
+    const base = maskedRoot(owner, root.uuid, root.name);
+    if (realPath === root.path) return base;
+    if (!realPath.startsWith(`${root.path}/`)) return null;
+    return base + realPath.slice(root.path.length);
+}
+
 /** Read `/<owner>/<uuid>[/tail]` without touching the database. */
 export function parseMaskedSharePath(path: string): MaskedSharePath | null {
     if (typeof path !== 'string' || !path.startsWith('/')) return null;
@@ -95,7 +115,7 @@ export async function resolveSharePath(
     if (pathPosix.normalize(real) !== real) return path;
     maskerFor(actor)?.learn(
         root.path,
-        `/${parsed.ownerUsername}/${root.uuid}/${root.name}`,
+        maskedRoot(parsed.ownerUsername, root.uuid, root.name),
     );
     return real;
 }
@@ -156,7 +176,7 @@ export class SharePathMasker {
         const owner = entry.path.split('/')[1];
         const name = entry.name ?? pathPosix.basename(entry.path);
         if (!owner || !name) return entry.path;
-        return `/${owner}/${entry.uuid}/${name}`;
+        return maskedRoot(owner, entry.uuid, name);
     }
 
     /**
@@ -209,11 +229,15 @@ export function maskUnderAnchor(
         entry.path === anchor.path ||
         entry.path.startsWith(`${anchor.path}/`)
     ) {
-        const root = `/${owner}/${anchor.uid}/${pathPosix.basename(anchor.path)}`;
+        const root = maskedRoot(
+            owner,
+            anchor.uid,
+            pathPosix.basename(anchor.path),
+        );
         return root + entry.path.slice(anchor.path.length);
     }
     const name = pathPosix.basename(entry.path);
-    return name ? `/${owner}/${entry.uid}/${name}` : entry.path;
+    return name ? maskedRoot(owner, entry.uid, name) : entry.path;
 }
 
 /**
@@ -286,6 +310,6 @@ export async function learnShareRoots(
     for (const root of roots) {
         const owner = root.path.split('/')[1];
         if (!owner) continue;
-        masker.learn(root.path, `/${owner}/${root.uuid}/${root.name}`);
+        masker.learn(root.path, maskedRoot(owner, root.uuid, root.name));
     }
 }

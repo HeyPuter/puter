@@ -1,0 +1,169 @@
+{
+    "success": true,
+    "result": [
+        {
+            "id": "e580c765-810c-4da3-936c-a2808892f14c",
+            "name": "@cf/black-forest-labs/flux-2-klein-9b",
+            "task": {
+                "name": "Text-to-Image"
+            },
+            "properties": []
+        },
+        {
+            "id": "a9abaef0-3031-47ad-8790-d311d8684c6c",
+            "name": "@cf/runwayml/stable-diffusion-v1-5-inpainting",
+            "task": {
+                "name": "Text-to-Image"
+            },
+            "properties": [
+                {
+                    "property_id": "price",
+                    "value": [
+                        {
+                            "unit": "per step",
+                            "price": 0,
+                            "currency": "USD"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "9e087485-23dc-47fa-997d-f5bfafc0c7cc",
+            "name": "@cf/black-forest-labs/flux-1-schnell",
+            "task": {
+                "name": "Text-to-Image"
+            },
+            "properties": []
+        },
+        {
+            "id": "7f9a76e1-d120-48dd-a565-101d328bbb02",
+            "name": "@cf/microsoft/resnet-50",
+            "task": {
+                "name": "Image Classification"
+            },
+            "properties": [
+                {
+                    "property_id": "price",
+                    "value": [
+                        {
+                            "unit": "per inference request",
+                            "price": 2.51e-6,
+                            "currency": "USD"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "7f797b20-3eb0-44fd-b571-6cbbaa3c423b",
+            "name": "@cf/bytedance/stable-diffusion-xl-lightning",
+            "task": {
+                "name": "Text-to-Image"
+            },
+            "properties": [
+                {
+                    "property_id": "price",
+                    "value": [
+                        {
+                            "unit": "per step",
+                            "price": 0,
+                            "currency": "USD"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "724608fa-983e-495d-b95c-340d6b7e78be",
+            "name": "@cf/leonardo/phoenix-1.0",
+            "task": {
+                "name": "Text-to-Image"
+            },
+            "properties": [
+                {
+                    "property_id": "price",
+                    "value": [
+                        {
+                            "unit": "per 512 by 512 tile",
+                            "price": 0.00583,
+                            "currency": "USD"
+                        },
+                        {
+                            "unit": "per step",
+                            "price": 0.00011,
+                            "currency": "USD"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "6d52253a-b731-4a03-b203-cde2d4fae871",
+            "name": "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+            "task": {
+                "name": "Text-to-Image"
+            },
+            "properties": [
+                {
+                    "property_id": "price",
+                    "value": [
+                        {
+                            "unit": "per step",
+                            "price": 0,
+                            "currency": "USD"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "5cdffa8e-1b1e-48e8-85f1-ab9b943cdd32",
+            "name": "@cf/black-forest-labs/flux-2-klein-4b",
+            "task": {
+                "name": "Text-to-Image"
+            },
+            "properties": []
+        },
+        {
+            "id": "3ae8936e-593e-4fb2-85ee-95dd8a057588",
+            "name": "@cf/black-forest-labs/flux-2-dev",
+            "task": {
+                "name": "Text-to-Image"
+            },
+            "properties": []
+        },
+        {
+            "id": "0e372c11-8720-46c9-a02d-666188a22dae",
+            "name": "@cf/leonardo/lucid-origin",
+            "task": {
+                "name": "Text-to-Image"
+            },
+            "properties": [
+                {
+                    "property_id": "price",
+                    "value": [
+                        {
+                            "unit": "per 512 by 512 tile",
+                            "price": 0.007,
+                            "currency": "USD"
+                        },
+                        {
+                            "unit": "per step",
+                            "price": 0.000132,
+                            "currency": "USD"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "errors": [],
+    "messages": [],
+    "result_info": {
+        "count": 10,
+        "page": 1,
+        "per_page": 100,
+        "total_count": 325
+    }
+}

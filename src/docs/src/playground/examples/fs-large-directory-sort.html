@@ -1,0 +1,39 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <h3>Media gallery</h3>
+    <button id="name">Name</button>
+    <button id="modified">Newest first</button>
+    <button id="deep">Include subfolders</button>
+    <script>
+        // The sort header of a gallery, and the toggle that pulls in everything
+        // filed under this year's subfolders.
+        const setup = async () => {
+            await puter.fs.write('uploads/a.txt', 'a', { createMissingParents: true });
+            await puter.fs.write('uploads/b.txt', 'b');
+            await puter.fs.write('uploads/2026/c.txt', 'c', { createMissingParents: true });
+        };
+
+        const show = (items) =>
+            puter.print(items.map(i => i.name).join(', ') + '<br>');
+
+        document.getElementById('name').addEventListener('click', async () => {
+            await setup();
+            show(await puter.fs.readdir({ path: 'uploads', sortBy: 'name' }));
+        });
+
+        document.getElementById('modified').addEventListener('click', async () => {
+            await setup();
+            show(await puter.fs.readdir({
+                path: 'uploads', sortBy: 'modified', sortOrder: 'desc',
+            }));
+        });
+
+        document.getElementById('deep').addEventListener('click', async () => {
+            await setup();
+            // Sorting by name orders by full path, so folders stay together.
+            show(await puter.fs.readdir({ path: 'uploads', recursive: true, depth: 2 }));
+        });
+    </script>
+</body>
+</html>

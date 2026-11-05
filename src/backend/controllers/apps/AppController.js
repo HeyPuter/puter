@@ -17,25 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
+import {
+    isAccessTokenActor,
+    isAccountContext,
+    isAppActor,
+} from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { driversContainers } from '../../exports.js';
 import {
     APP_ICON_SIZES,
     ICON_DATA_URL_MIME_ALLOWLIST,
     isTrustedIconHost,
 } from '../../util/appIcon.js';
-import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
+import { toAppReadView } from '../../util/appView.js';
 import { PuterController } from '../types.js';
 import DEFAULT_APP_ICON from './default-app-icon.js';
 
-/**
- * REST endpoints for app management.
- *
- * Delegates to AppDriver for the actual CRUD + permission logic — these routes
- * are just thin shape adapters that translate REST conventions into driver
- * calls.
- */
 /**
  * Desktop boot reads the app list and individual app records repeatedly, so the
  * ceiling is set well above normal boot traffic and exists to catch a runaway
@@ -74,11 +70,14 @@ const APP_ICON_LIMIT = {
 const APP_LOOKUP_MAX_ENTRIES = 200;
 const APP_LOOKUP_MAX_SELECTOR_LEN = 200;
 
-export class AppController extends PuterController {
-    get appStore() {
-        return this.stores.app;
-    }
+/** What `/apps/:name` reports for an app no launch gate applies to. */
+const PUBLIC_APP_ACCESS = { hasAccess: true, checkedBy: 'core/public-app' };
 
+/**
+ * REST endpoints for app management. CRUD goes through the apps driver; the
+ * read routes use AppService for visibility and views, as the driver does.
+ */
+export class AppController extends PuterController {
     // In-flight background app-open writes. Tracked only so tests and
     // shutdown can wait for them — the request path never does.
     #pendingOpenWrites = new Set();
@@ -130,15 +129,6 @@ export class AppController extends PuterController {
         await Promise.allSettled([...this.#pendingOpenWrites]);
     }
 
-    get appDriver() {
-        // Drivers are wired into the shared driversContainers export by
-        // PuterServer at boot. Controllers get them lazily via this getter
-        // since they're instantiated before drivers in the boot order.
-        const d = driversContainers.apps;
-        if (!d) throw new Error('AppDriver not registered yet');
-        return d;
-    }
-
     registerRoutes(
         /** @type {import('../../core/http/PuterRouter').PuterRouter} */ router,
     ) {
@@ -152,7 +142,7 @@ export class AppController extends PuterController {
                 rateLimit: APP_READ_LIMIT,
             },
             async (req, res) => {
-                const apps = await this.appDriver.select({
+                const apps = await this.drivers.apps.select({
                     predicate: ['user-can-edit'],
                 });
                 res.json(apps);
@@ -184,7 +174,7 @@ export class AppController extends PuterController {
                         { legacyCode: 'bad_request' },
                     );
                 }
-                const available = await this.appDriver.isNameAvailable(name);
+                const available = await this.drivers.apps.isNameAvailable(name);
                 res.json({ name, available });
             },
         );
@@ -195,10 +185,10 @@ export class AppController extends PuterController {
         // before 400-ing for a missing body field.
         //
         // Authorization: only two callers are trusted to report opens —
-        //   1. a root user actor (plain session, no `.app` and no access
+        //   1. the account acting as itself (plain session or full-access
         //      token), e.g. the GUI launching apps on behalf of the user;
         //   2. the app-under-user actor for the app being reported.
-        // Everything else — access tokens (regardless of issuer), asset
+        // Everything else — scoped and app-issued access tokens, asset
         // tokens, app actors reporting for a *different* app — is denied,
         // otherwise any authenticated party could inflate another app's
         // open count.
@@ -223,14 +213,11 @@ export class AppController extends PuterController {
                     });
                 }
 
-                // Access tokens (and any other non-user/non-app identity,
-                // e.g. asset tokens) are not allowed to report opens —
-                // they're shared / scoped credentials and shouldn't drive
-                // analytics counters.
-                if (isAccessTokenActor(actor)) {
+                // Shared credentials shouldn't drive analytics counters.
+                if (isAccessTokenActor(actor) && !isAccountContext(actor)) {
                     throw new HttpError(
                         403,
-                        'Access tokens cannot report app opens',
+                        'This token cannot report app opens',
                         { legacyCode: 'forbidden' },
                     );
                 }
@@ -243,7 +230,7 @@ export class AppController extends PuterController {
                     );
                 }
 
-                const app = await this.appStore.getByUid(app_uid);
+                const app = await this.stores.app.getByUid(app_uid);
                 if (!app)
                     throw new HttpError(404, 'App not found', {
                         legacyCode: 'not_found',
@@ -279,38 +266,31 @@ export class AppController extends PuterController {
                     );
                 }
 
-                const userUid = req.actor?.user?.uuid ?? null;
-
-                const results = await Promise.all(
-                    names.map(async (name) => {
-                        if (name.length > APP_LOOKUP_MAX_SELECTOR_LEN) {
-                            return null;
-                        }
-                        const app = await this.appStore.getByName(name);
-                        if (!app) return null;
-                        let shaped;
-                        try {
-                            shaped = await this.appDriver.read({
-                                uid: app.uid,
-                            });
-                        } catch {
-                            return null;
-                        }
-                        const privateAccess = await resolvePrivateLaunchAccess({
-                            app: shaped,
-                            eventClient: this.clients.event,
-                            userUid,
-                            source: 'appsRoute',
-                            args: req.query ?? {},
+                const actor = req.actor;
+                const appsByName = await this.stores.app.getByNames(
+                    names.filter(
+                        (name) => name.length <= APP_LOOKUP_MAX_SELECTOR_LEN,
+                    ),
+                );
+                const readable = await this.services.app.filterReadable(
+                    [...new Set(appsByName.values())],
+                    actor,
+                );
+                const views = await this.services.app.views(readable, actor, {
+                    source: 'appsRoute',
+                });
+                const shapedByUid = new Map(
+                    readable.map((app, i) => {
+                        const shaped = toAppReadView(app, views[i], {
+                            viewer: actor.user,
                         });
-                        return {
-                            ...shaped,
-                            privateAccess:
-                                shaped.privateAccess?.hasAccess === false
-                                    ? shaped.privateAccess
-                                    : privateAccess,
-                        };
+                        shaped.privateAccess ??= PUBLIC_APP_ACCESS;
+                        return [app.uid, shaped];
                     }),
+                );
+                const results = names.map(
+                    (name) =>
+                        shapedByUid.get(appsByName.get(name)?.uid) ?? null,
                 );
 
                 // Single-name requests return the app directly; batch returns an array
@@ -331,8 +311,8 @@ export class AppController extends PuterController {
         //
         // Access rules: only apps the caller has a legitimate reason to
         // see are returned — public (`approved_for_listing`), owned by
-        // the caller, or explicitly accessible via AppDriver.read (for
-        // protected apps with a granted permission). Everything else is
+        // the caller, or readable per `AppService.filterReadable` (for
+        // protected apps, a granted permission). Everything else is
         // silently skipped so the endpoint can't be used to enumerate
         // existence of private / unapproved apps by guessing names.
         //
@@ -359,63 +339,54 @@ export class AppController extends PuterController {
                     );
                 }
 
-                const actorUserId = req.actor?.user?.id ?? null;
-                const results = [];
+                const actor = req.actor;
+                const selectors = appList.filter(
+                    (selector) =>
+                        typeof selector === 'string' &&
+                        selector.length > 0 &&
+                        selector.length <= APP_LOOKUP_MAX_SELECTOR_LEN,
+                );
+                const isUid = (selector) => selector.startsWith('app-');
+                const [byUid, byName] = await Promise.all([
+                    this.stores.app.getByUids(selectors.filter(isUid)),
+                    this.stores.app.getByNames(
+                        selectors.filter((s) => !isUid(s)),
+                    ),
+                ]);
+                const found = selectors
+                    .map((s) => (isUid(s) ? byUid.get(s) : byName.get(s)))
+                    .filter(Boolean);
 
-                for (const selector of appList) {
-                    if (
-                        typeof selector !== 'string' ||
-                        selector.length === 0 ||
-                        selector.length > APP_LOOKUP_MAX_SELECTOR_LEN
-                    ) {
-                        continue;
-                    }
-                    const isUid = selector.startsWith('app-');
-                    const app = isUid
-                        ? await this.appStore.getByUid(selector)
-                        : await this.appStore.getByName(selector);
-                    if (!app) continue;
-
-                    const isOwner =
-                        actorUserId !== null &&
-                        app.owner_user_id === actorUserId;
-                    const isApproved = Boolean(app.approved_for_listing);
-
-                    if (!isOwner && !isApproved) {
-                        // Unapproved, non-owned — only surface if the
-                        // caller has an explicit grant (purchased /
-                        // permissioned). AppDriver.read enforces that
-                        // via #canReadApp; a thrown 403 means "not
-                        // accessible" and we treat it as "not found".
-                        try {
-                            const shaped = await this.appDriver.read({
-                                uid: app.uid,
-                            });
-                            if (!shaped) continue;
-                        } catch {
-                            continue;
-                        }
-                    }
-
-                    const assocRows = await this.clients.db.read(
-                        'SELECT `type` FROM `app_filetype_association` WHERE `app_id` = ?',
-                        [app.id],
+                // Unapproved apps the caller doesn't own surface only when
+                // the caller may read them (one batched grant check).
+                const isListed = (app) =>
+                    app.owner_user_id === actor.user?.id ||
+                    Boolean(app.approved_for_listing);
+                const readable = new Set(
+                    await this.services.app.filterReadable(
+                        [...new Set(found.filter((app) => !isListed(app)))],
+                        actor,
+                    ),
+                );
+                const visible = found.filter(
+                    (app) => isListed(app) || readable.has(app),
+                );
+                const filetypesByAppId =
+                    await this.stores.app.getFiletypeAssociationsByIds(
+                        visible.map((app) => app.id),
                     );
 
-                    results.push({
-                        uuid: app.uid,
-                        name: app.name,
-                        title: app.title,
-                        description: app.description,
-                        metadata: app.metadata,
-                        tags:
-                            typeof app.tags === 'string'
-                                ? app.tags.split(',')
-                                : [],
-                        created: app.timestamp,
-                        associations: assocRows.map((r) => r.type),
-                    });
-                }
+                const results = visible.map((app) => ({
+                    uuid: app.uid,
+                    name: app.name,
+                    title: app.title,
+                    description: app.description,
+                    metadata: app.metadata,
+                    tags:
+                        typeof app.tags === 'string' ? app.tags.split(',') : [],
+                    created: app.timestamp,
+                    associations: filetypesByAppId.get(app.id) ?? [],
+                }));
 
                 res.json(results);
             },
@@ -473,7 +444,7 @@ export class AppController extends PuterController {
             }
             if (!appUid.startsWith('app-')) appUid = `app-${appUid}`;
 
-            const app = await this.appStore.getByUid(appUid);
+            const app = await this.stores.app.getByUid(appUid);
             const icon = app?.icon;
 
             // If the icon isn't an inline data URL, try to serve it from the

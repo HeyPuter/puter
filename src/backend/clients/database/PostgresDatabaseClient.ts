@@ -17,16 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { readdirSync, readFileSync } from 'fs';
-import { isAbsolute, resolve as resolvePath } from 'path';
 import { Pool, type PoolConfig, type QueryResult } from 'pg';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { Span } from '../../util/span.js';
 import {
     AbstractDatabaseClient,
     type BatchEntry,
     type WriteResult,
 } from './DatabaseClient';
-import { compareMigrationFilenames } from './migrationFilenames.js';
 import { preparePostgresSql } from './preparePostgresSql.js';
 import { splitPostgresStatements } from './splitPostgresStatements.js';
 import type { IConfig } from '../../types';
@@ -62,6 +60,7 @@ enum Configuration {
 }
 
 const POSTGRES_INT8_OID = 20;
+const PREPARED_SQL_CACHE_SIZE = 1000;
 const INTEGER_TEXT_PATTERN = /^-?\d+$/u;
 
 const normalizePostgresInt8 = (
@@ -138,6 +137,10 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
     private replicaPool!: PostgresPool;
     private configuration = Configuration.SINGLE;
     private shutdownStarted = false;
+    /** Query text as written → its Postgres rewrite, which is pure. */
+    private readonly preparedSql = new BoundedTtlMap<string, string>({
+        maxEntries: PREPARED_SQL_CACHE_SIZE,
+    });
 
     constructor(
         config: IConfig,
@@ -164,7 +167,11 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
             this.configuration = Configuration.SINGLE;
         }
 
-        await this.runMigrations();
+        await this.applyMigrationPaths(
+            () => this.primaryPool.connect(),
+            splitPostgresStatements,
+            { transactional: true },
+        );
     }
 
     override async onServerPrepareShutdown(): Promise<void> {
@@ -248,98 +255,8 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         }
     }
 
-    @Span('db.tryHardRead', (query: string) => ({ 'db.statement': query }))
-    override async tryHardRead(
-        query: string,
-        params: unknown[] = [],
-    ): Promise<Record<string, unknown>[]> {
-        if (this.configuration === Configuration.SINGLE) {
-            return this.read(query, params);
-        }
-
-        const primaryPromise = this.query(this.primaryPool, query, params);
-        try {
-            const replicaResult = await this.query(
-                this.replicaPool,
-                query,
-                params,
-            );
-            if (replicaResult.rows.length > 0) {
-                primaryPromise.catch(() => {});
-                return normalizePostgresRows(replicaResult);
-            }
-        } catch {
-            // fall through to primary
-        }
-
-        const primaryResult = await primaryPromise;
-        return normalizePostgresRows(primaryResult);
-    }
-
-    private async runMigrations(): Promise<void> {
-        const paths = this.config.database?.migrationPaths;
-        if (!paths || paths.length === 0) return;
-
-        const conn = await this.primaryPool.connect();
-        try {
-            for (const rawPath of paths) {
-                const dir = isAbsolute(rawPath)
-                    ? rawPath
-                    : resolvePath(process.cwd(), rawPath);
-
-                let files: string[];
-                try {
-                    files = readdirSync(dir)
-                        .filter(
-                            (f) =>
-                                f.endsWith('.sql') && f.startsWith('postgres'),
-                        )
-                        .sort(compareMigrationFilenames);
-                } catch (e) {
-                    throw new Error(
-                        `[postgres] migration path is unreadable: ${dir}`,
-                        { cause: e },
-                    );
-                }
-
-                if (files.length === 0) {
-                    console.log(`[postgres] no migrations in ${dir}`);
-                    continue;
-                }
-
-                console.log(
-                    `[postgres] running migrations from ${dir}: ${files.length} file(s)`,
-                );
-
-                for (const file of files) {
-                    const filePath = resolvePath(dir, file);
-                    const contents = readFileSync(filePath, 'utf8');
-                    const statements = splitPostgresStatements(contents);
-                    await conn.query('BEGIN');
-                    try {
-                        for (let i = 0; i < statements.length; i++) {
-                            try {
-                                await conn.query(statements[i]);
-                            } catch (e) {
-                                throw new Error(
-                                    `[postgres] failed to apply ${file} at statement ${i}`,
-                                    { cause: e },
-                                );
-                            }
-                        }
-                        await conn.query('COMMIT');
-                    } catch (e) {
-                        await conn.query('ROLLBACK').catch(() => {});
-                        throw e;
-                    }
-                    console.log(
-                        `[postgres] applied ${file} (${statements.length} statements)`,
-                    );
-                }
-            }
-        } finally {
-            conn.release();
-        }
+    protected override hasReadReplica(): boolean {
+        return this.configuration === Configuration.REPLICA;
     }
 
     private createPool(dbConf: PostgresEndpointConfig): PostgresPool {
@@ -366,8 +283,12 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         query: string,
         params: unknown[] = [],
     ): Promise<QueryResult> {
-        const prepared = preparePostgresSql(query);
-        return target.query(prepared.text, params);
+        let text = this.preparedSql.get(query);
+        if (text === undefined) {
+            text = preparePostgresSql(query).text;
+            this.preparedSql.set(query, text);
+        }
+        return target.query(text, params);
     }
 
     private async closeCurrentPools(): Promise<void> {

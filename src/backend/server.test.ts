@@ -21,19 +21,30 @@
 import http from 'node:http';
 import net from 'node:net';
 import type { Request, RequestHandler, Response } from 'express';
+import uaParser from 'ua-parser-js';
 import {
     afterAll,
     afterEach,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
+import { Controller, Get } from './core/http/decorators.ts';
 import { HttpError } from './core/http/HttpError.ts';
-import { extensionStore } from './extensions.ts';
+import { extension, extensionStore } from './extensions.ts';
 import { PuterServer } from './server.ts';
-import { allocateEphemeralPort, setupTestServer } from './testUtil.ts';
+import {
+    JobScheduler,
+    type JobDefinition,
+} from './services/jobs/JobScheduler.ts';
+import {
+    allocateEphemeralPort,
+    createTestUser,
+    setupTestServer,
+} from './testUtil.ts';
 import type { IConfig } from './types';
 
 /**
@@ -52,6 +63,7 @@ const rawRequest = (
     path: string,
     headers: Record<string, string> = {},
     method = 'GET',
+    body?: string,
 ): Promise<RawResponse> =>
     new Promise((resolve, reject) => {
         const req = http.request(
@@ -70,7 +82,7 @@ const rawRequest = (
             },
         );
         req.on('error', reject);
-        req.end();
+        req.end(body);
     });
 
 /**
@@ -292,6 +304,26 @@ describe('PuterServer host header validation', () => {
         expect(res.headers['dav']).toBeUndefined();
     });
 
+    it('lets a browser cache a preflight off the dav subdomain', async () => {
+        const res = await request(
+            '/drivers/call',
+            {
+                host: `api.puter.localhost:${port}`,
+                origin: 'https://third-party.example',
+                'access-control-request-method': 'POST',
+                'access-control-request-headers': 'authorization,content-type',
+            },
+            'OPTIONS',
+        );
+        expect(res.status).toBe(200);
+        expect(res.body).toBe('OK');
+        expect(res.headers['access-control-max-age']).toBe('86400');
+        expect(res.headers['access-control-allow-origin']).toBe(
+            'https://third-party.example',
+        );
+        expect(res.headers['access-control-allow-credentials']).toBe('true');
+    });
+
     it('pins X-Frame-Options on the main domain only', async () => {
         const main = await request('/healthcheck', {
             host: 'puter.localhost',
@@ -375,6 +407,28 @@ describe('PuterServer host header validation', () => {
             server.clients.event.off('ip.validate', handler as never);
         }
     });
+
+    it('never marks a vetoed preflight as cacheable', async () => {
+        const handler = (_key: unknown, data: unknown) => {
+            (data as { allow: boolean }).allow = false;
+        };
+        server.clients.event.on('ip.validate', handler as never);
+        try {
+            const res = await request(
+                '/drivers/call',
+                {
+                    host: `api.puter.localhost:${port}`,
+                    origin: 'https://third-party.example',
+                    'access-control-request-method': 'POST',
+                },
+                'OPTIONS',
+            );
+            expect(res.status).toBe(403);
+            expect(res.headers['access-control-max-age']).toBeUndefined();
+        } finally {
+            server.clients.event.off('ip.validate', handler as never);
+        }
+    });
 });
 
 /**
@@ -451,6 +505,7 @@ describe('PuterServer host header validation — permissive modes', () => {
                 allow_no_host_header: false,
                 custom_domains_enabled: true,
                 allow_nipio_domains: true,
+                static_hosting_domain: 'site.puter.localhost',
             } as unknown as IConfig,
             { listen: true },
         );
@@ -460,11 +515,13 @@ describe('PuterServer host header validation — permissive modes', () => {
         await server?.shutdown();
     });
 
-    it('lets an unknown host through when custom domains are enabled', async () => {
+    it('hands an unknown host to site hosting when custom domains are enabled', async () => {
         const res = await rawRequest(port, '/', {
             host: 'my-own-domain.example',
         });
-        expect(res.status).not.toBe(400);
+        // No site claims it, so it 404s instead of reaching the GUI.
+        expect(res.status).toBe(404);
+        expect(res.body).toBe('Site not found');
     });
 
     it('accepts nip.io hosts when they are opted in', async () => {
@@ -472,6 +529,684 @@ describe('PuterServer host header validation — permissive modes', () => {
             host: '127-0-0-1.nip.io',
         });
         expect(res.status).toBe(200);
+    });
+});
+
+describe('PuterServer host header validation — custom domains with every host accepted', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                allow_all_host_values: true,
+                custom_domains_enabled: true,
+                static_hosting_domain: 'site.puter.localhost',
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('still hands a host outside our domains to site hosting', async () => {
+        const res = await rawRequest(port, '/', {
+            host: 'www.my-own-domain.example',
+        });
+        expect(res.status).toBe(404);
+        expect(res.body).toBe('Site not found');
+    });
+
+    it('leaves our own domain to the GUI', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `puter.localhost:${port}`,
+        });
+        expect(res.status).toBe(200);
+    });
+
+    it('never treats an IP or localhost as a custom domain', async () => {
+        for (const host of [
+            `127.0.0.1:${port}`,
+            `[::1]:${port}`,
+            `localhost:${port}`,
+        ]) {
+            const res = await rawRequest(port, '/healthcheck', { host });
+            expect(res.status, host).toBe(200);
+            const root = await rawRequest(port, '/', { host });
+            expect(root.body, host).not.toBe('Site not found');
+        }
+    });
+});
+
+describe('PuterServer request parsing', () => {
+    let server: PuterServer;
+    let port: number;
+    let token: string;
+    const routeCount = { before: 0 };
+
+    beforeAll(async () => {
+        routeCount.before = extensionStore.routeHandlers.length;
+        extension.get('/ua-probe', (req: Request, res: Response) => {
+            const first = req.ua;
+            res.json({ ua: first ?? null, memoized: req.ua === first });
+        });
+        extension.get('/ua-assign', (req: Request, res: Response) => {
+            req.ua = { browser: { name: 'set' }, os: {}, device: {} };
+            res.json({ ua: req.ua });
+        });
+        extension.post('/raw-probe', (req: Request, res: Response) => {
+            res.json({
+                isBuffer: Buffer.isBuffer(req.rawBody),
+                raw: req.rawBody?.toString('base64') ?? null,
+                body: req.body,
+            });
+        });
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+            } as unknown as IConfig,
+            { listen: true },
+        );
+        ({ token } = await createTestUser(server, {
+            username: 'large_body_user',
+            password: 'large-body-password',
+        }));
+    });
+
+    afterAll(async () => {
+        extensionStore.routeHandlers.length = routeCount.before;
+        await server?.shutdown();
+    });
+
+    const host = () => `puter.localhost:${port}`;
+
+    const MiB = 1024 * 1024;
+    const postJson = (
+        path: string,
+        payload: string,
+        headers: Record<string, string> = {},
+    ) =>
+        rawRequest(
+            port,
+            path,
+            {
+                host: `api.puter.localhost:${port}`,
+                'content-type': 'application/json',
+                'content-length': String(Buffer.byteLength(payload)),
+                ...headers,
+            },
+            'POST',
+            payload,
+        );
+
+    it.each([
+        '/drivers/call',
+        '/puterai/openai/v1/chat/completions',
+        '/puterai/anthropic/v1/messages',
+        '/puterai/anthropic/v1/messages/count_tokens',
+    ])(
+        'keeps the default JSON limit on %s without a credential',
+        async (path) => {
+            const payload = JSON.stringify({ text: 'x'.repeat(51 * MiB) });
+            expect((await postJson(path, payload)).status).toBe(413);
+        },
+    );
+
+    it('parses a chat call above 50 MiB for a signed-in caller', async () => {
+        const payload = JSON.stringify({
+            interface: 'puter-chat-completion',
+            method: 'no-such-method',
+            pad: 'x'.repeat(51 * MiB),
+        });
+        for (const contentType of [
+            'application/json',
+            'text/plain;actually=json',
+        ]) {
+            const res = await postJson('/drivers/call', payload, {
+                'content-type': contentType,
+                authorization: `Bearer ${token}`,
+            });
+            // The controller read `method` out of the body.
+            expect(res.status, contentType).toBe(404);
+            expect(res.body).toContain('no-such-method');
+        }
+    });
+
+    it('keeps the default JSON limit for other drivers', async () => {
+        const payload = JSON.stringify({
+            interface: 'puter-kvstore',
+            method: 'get',
+            pad: 'x'.repeat(51 * MiB),
+        });
+        // Routing matches these spellings too.
+        for (const path of ['/drivers/call', '/Drivers/Call/']) {
+            const res = await postJson(path, payload, {
+                authorization: `Bearer ${token}`,
+            });
+            expect(res.status, path).toBe(413);
+        }
+    });
+
+    it.each([
+        ['/drivers/call', 128],
+        ['/puterai/anthropic/v1/messages', 128],
+        ['/raw-probe', 50],
+    ])('rejects bodies above the JSON limit on %s', async (path, limitMiB) => {
+        const payload = JSON.stringify({ text: 'x'.repeat(limitMiB * MiB) });
+        const res = await postJson(path, payload, {
+            authorization: `Bearer ${token}`,
+        });
+        expect(res.status).toBe(413);
+    });
+
+    it('parses the user agent the first time a handler reads it', async () => {
+        const agent =
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
+        const res = await rawRequest(port, '/ua-probe', {
+            host: host(),
+            'user-agent': agent,
+        });
+        const body = JSON.parse(res.body);
+        expect(body.ua).toEqual(JSON.parse(JSON.stringify(uaParser(agent))));
+        expect(body.ua.browser.name).toBe('Chrome');
+        expect(body.memoized).toBe(true);
+    });
+
+    it('leaves it unset without a User-Agent header', async () => {
+        const res = await rawRequest(port, '/ua-probe', { host: host() });
+        expect(JSON.parse(res.body)).toEqual({ ua: null, memoized: true });
+    });
+
+    it('lets a handler overwrite it', async () => {
+        const res = await rawRequest(port, '/ua-assign', {
+            host: host(),
+            'user-agent': 'curl/8.0',
+        });
+        expect(JSON.parse(res.body).ua.browser).toEqual({ name: 'set' });
+    });
+
+    it('keeps the exact JSON bytes next to the parsed body', async () => {
+        const payload = '{ "a" : "\u00e9\u2713",\n "n": [1, 2] }';
+        for (const contentType of [
+            'application/json',
+            'text/plain;actually=json',
+        ]) {
+            const res = await rawRequest(
+                port,
+                '/raw-probe',
+                { host: host(), 'content-type': contentType },
+                'POST',
+                payload,
+            );
+            const body = JSON.parse(res.body);
+            expect(body.isBuffer, contentType).toBe(true);
+            expect(Buffer.from(body.raw, 'base64').toString('utf8')).toBe(
+                payload,
+            );
+            expect(body.body).toEqual({ a: '\u00e9\u2713', n: [1, 2] });
+        }
+    });
+});
+
+/**
+ * A claimed subdomain answers where an unclaimed one 404s, ahead of everything
+ * after that point in the global stack, and only past its `authorize`. Driven
+ * end to end because the blanket OPTIONS responder, CORS and `subdomain: '*'`
+ * routes only exist on the app.
+ */
+describe('PuterServer claimed subdomains', () => {
+    let server: PuterServer;
+    let port: number;
+    const seen: string[] = [];
+
+    // Everything except what varies per connection or per second.
+    const comparable = (res: RawResponse) => {
+        const headers = { ...res.headers };
+        delete headers.date;
+        delete headers.connection;
+        delete headers['keep-alive'];
+        return { status: res.status, headers, body: res.body };
+    };
+
+    @Controller('/ctl')
+    class ClaimTestController {
+        @Get('/hello', { subdomain: 'claimtest' })
+        hello(_req: Request, res: Response) {
+            res.send('from controller');
+        }
+
+        @Get('/teapot', { subdomain: 'claimtest' })
+        teapot() {
+            throw new HttpError(418, 'Short and stout');
+        }
+    }
+
+    const routeCount = { before: 0 };
+
+    beforeAll(async () => {
+        extension.claimSubdomain('claimtest', {
+            authorize: (req) => {
+                seen.push(`${req.method} ${req.path}`);
+                if (req.headers['x-test'] === 'deny') return false;
+                if (req.headers['x-test'] === 'crash') {
+                    throw new Error('store down');
+                }
+                if (req.headers['x-test'] === 'forbid') {
+                    throw new HttpError(403, 'Not you');
+                }
+                return true;
+            },
+        });
+        extension.registerController('claimTest', ClaimTestController as never);
+        routeCount.before = extensionStore.routeHandlers.length;
+        extension.get(
+            '/hello',
+            { subdomain: 'claimtest' },
+            (_req: Request, res: Response) => {
+                res.send('from extension');
+            },
+        );
+        extension.get('/everywhere', { subdomain: '*' }, (_req, res) => {
+            res.send('everywhere');
+        });
+        extension.get('/hello', (_req: Request, res: Response) => {
+            res.send('root hello');
+        });
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                static_hosting_domain: 'site.puter.localhost',
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        extensionStore.claimedSubdomains.delete('claimtest');
+        delete (extensionStore.controllers as Record<string, unknown>)
+            .claimTest;
+        extensionStore.routeHandlers.length = routeCount.before;
+        await server?.shutdown();
+    });
+
+    afterEach(() => {
+        seen.length = 0;
+    });
+
+    const claimed = (
+        path: string,
+        headers: Record<string, string> = {},
+        method = 'GET',
+    ) =>
+        rawRequest(
+            port,
+            path,
+            { ...headers, host: 'claimtest.puter.localhost' },
+            method,
+        );
+
+    const expectHidden = async (
+        path: string,
+        headers: Record<string, string> = {},
+        method = 'GET',
+    ) => {
+        const res = await claimed(path, headers, method);
+        const unclaimed = await rawRequest(
+            port,
+            path,
+            { ...headers, host: 'unclaimed.puter.localhost' },
+            method,
+        );
+        expect(res.status).toBe(404);
+        expect(comparable(res)).toEqual(comparable(unclaimed));
+    };
+
+    it('serves decorated and extension routes once authorized, before CORS', async () => {
+        const fromController = await claimed('/ctl/hello', {
+            origin: 'https://elsewhere.example',
+        });
+        expect(fromController.status).toBe(200);
+        expect(fromController.body).toBe('from controller');
+        expect(
+            fromController.headers['access-control-allow-origin'],
+        ).toBeUndefined();
+
+        const fromExtension = await claimed('/hello');
+        expect(fromExtension.body).toBe('from extension');
+        expect(seen).toEqual(['GET /ctl/hello', 'GET /hello']);
+    });
+
+    it('answers an unauthorized request exactly like an unclaimed subdomain', async () => {
+        for (const path of ['/hello', '/ctl/hello', '/', '/healthcheck']) {
+            await expectHidden(path, { 'x-test': 'deny' });
+        }
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            await expectHidden('/hello', { 'x-test': 'crash' });
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    it('sends an HttpError from authorize through the error handler', async () => {
+        const res = await claimed('/hello', { 'x-test': 'forbid' });
+        expect(res.status).toBe(403);
+        expect(JSON.parse(res.body)).toMatchObject({ message: 'Not you' });
+    });
+
+    it("never serves the main app's routes, even when authorized", async () => {
+        for (const path of [
+            '/everywhere',
+            '/healthcheck',
+            '/version',
+            '/nope',
+        ]) {
+            await expectHidden(path);
+        }
+        expect(seen).toContain('GET /everywhere');
+        const elsewhere = await rawRequest(port, '/everywhere', {
+            host: 'puter.localhost',
+        });
+        expect(elsewhere.body).toBe('everywhere');
+    });
+
+    it("keeps the claim's routes off every other host", async () => {
+        const root = await rawRequest(port, '/hello', {
+            host: 'puter.localhost',
+        });
+        expect(root.body).toBe('root hello');
+        for (const host of [
+            'api.puter.localhost',
+            'unclaimed.puter.localhost',
+        ]) {
+            for (const path of ['/hello', '/ctl/hello']) {
+                const res = await rawRequest(port, path, { host });
+                expect(res.status, `${host}${path}`).toBe(404);
+            }
+        }
+        const rootController = await rawRequest(port, '/ctl/hello', {
+            host: 'puter.localhost',
+        });
+        expect(rootController.body).not.toBe('from controller');
+    });
+
+    it('routes OPTIONS through authorize instead of the blanket 200', async () => {
+        await expectHidden('/hello', { 'x-test': 'deny' }, 'OPTIONS');
+        const res = await claimed('/hello', {}, 'OPTIONS');
+        expect(res.headers.allow).toBe('GET, HEAD');
+        expect(seen).toContain('OPTIONS /hello');
+    });
+
+    it("sends a route's error through the error handler", async () => {
+        const res = await claimed('/ctl/teapot');
+        expect(res.status).toBe(418);
+        expect(JSON.parse(res.body)).toMatchObject({
+            message: 'Short and stout',
+        });
+    });
+
+    it('treats a host carrying a port like the same host without one', async () => {
+        const ported = await rawRequest(port, '/hello', {
+            host: `claimtest.puter.localhost:${port}`,
+        });
+        expect(ported.body).toBe('from extension');
+
+        const unclaimed = await rawRequest(port, '/healthcheck', {
+            host: `unclaimed.puter.localhost:${port}`,
+        });
+        expect(unclaimed.status).toBe(404);
+        expect(
+            unclaimed.headers['access-control-allow-origin'],
+        ).toBeUndefined();
+    });
+
+    it('leaves a deeper host under the claimed label alone', async () => {
+        const res = await rawRequest(port, '/hello', {
+            host: 'claimtest.x.puter.localhost',
+        });
+        const unclaimed = await rawRequest(port, '/hello', {
+            host: 'unclaimed.x.puter.localhost',
+        });
+        expect(seen).toEqual([]);
+        expect(comparable(res)).toEqual(comparable(unclaimed));
+    });
+});
+
+/**
+ * A main-pipeline claim is served like a reserved subdomain, with ordinary
+ * routes.
+ */
+describe('PuterServer main-pipeline claims', () => {
+    let server: PuterServer;
+    let port: number;
+    const routeCount = { before: 0 };
+
+    beforeAll(async () => {
+        extension.claimSubdomain('mainclaim', { mainPipeline: true });
+        routeCount.before = extensionStore.routeHandlers.length;
+        extension.get(
+            '/hello',
+            { subdomain: 'mainclaim' },
+            (_req: Request, res: Response) => {
+                res.send('main hello');
+            },
+        );
+        extension.get(
+            '/signed-in',
+            {
+                subdomain: 'mainclaim',
+                requireAuth: true,
+                rateLimit: { limit: 5, window: 1000, key: 'user' },
+            },
+            (_req: Request, res: Response) => {
+                res.send('signed in');
+            },
+        );
+        extension.get('/everywhere', { subdomain: '*' }, (_req, res) => {
+            res.send('everywhere');
+        });
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                static_hosting_domain: 'site.puter.localhost',
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        extensionStore.claimedSubdomains.delete('mainclaim');
+        extensionStore.routeHandlers.length = routeCount.before;
+        await server?.shutdown();
+    });
+
+    it('serves its routes and the main app on the claimed host', async () => {
+        const host = 'mainclaim.puter.localhost';
+        expect((await rawRequest(port, '/hello', { host })).body).toBe(
+            'main hello',
+        );
+        const everywhere = await rawRequest(port, '/everywhere', {
+            host,
+            origin: 'https://elsewhere.example',
+        });
+        const reserved = await rawRequest(port, '/everywhere', {
+            host: 'api.puter.localhost',
+            origin: 'https://elsewhere.example',
+        });
+        expect(everywhere.body).toBe('everywhere');
+        for (const res of [everywhere, reserved]) {
+            expect(res.headers['access-control-allow-origin']).toBe(
+                'https://elsewhere.example',
+            );
+        }
+    });
+
+    it('runs auth for its routes', async () => {
+        const res = await rawRequest(port, '/signed-in', {
+            host: 'mainclaim.puter.localhost',
+        });
+        expect(res.status).toBe(401);
+    });
+
+    it('keeps its routes off other hosts', async () => {
+        for (const host of ['api.puter.localhost', 'other.puter.localhost']) {
+            const res = await rawRequest(port, '/hello', { host });
+            expect(res.status, host).toBe(404);
+        }
+    });
+});
+
+describe('PuterServer claimed subdomain route options', () => {
+    const noop = ((_req: Request, res: Response) =>
+        res.end()) as unknown as RequestHandler;
+
+    beforeEach(() => {
+        extension.claimSubdomain('bootcheck', { authorize: () => true });
+    });
+
+    afterEach(() => {
+        extensionStore.claimedSubdomains.delete('bootcheck');
+        extensionStore.routeHandlers.length = 0;
+    });
+
+    it('refuses options that need the main pipeline', async () => {
+        for (const [option, value] of [
+            ['requireAuth', true],
+            ['requireUserActor', true],
+            ['allowAccessToken', true],
+            ['guiOriginOnly', true],
+            ['antiCsrf', true],
+            ['captcha', true],
+            ['requireCredits', true],
+            ['requireVerified', true],
+            ['noUserSession', true],
+        ] as const) {
+            extensionStore.routeHandlers.length = 0;
+            extensionStore.routeHandlers.push({
+                method: 'get',
+                path: '/gated',
+                options: { subdomain: 'bootcheck', [option]: value },
+                handler: noop,
+            });
+            await expect(setupTestServer()).rejects.toThrow(
+                `route GET /gated: '${option}' is not available on a claimed subdomain`,
+            );
+        }
+    });
+
+    it('hands each claimed route to checkRoute and fails the boot when it throws', async () => {
+        const seenRoutes: string[] = [];
+        extensionStore.claimedSubdomains.delete('bootcheck');
+        extension.claimSubdomain('bootcheck', {
+            authorize: () => true,
+            checkRoute: (options, label) => {
+                seenRoutes.push(`${label} ${String(options.subdomain)}`);
+                if (!options.middleware?.length) {
+                    throw new Error('needs a gate');
+                }
+            },
+        });
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/gated',
+            options: {
+                subdomain: 'bootcheck',
+                middleware: [(_req, _res, next) => next()],
+            },
+            handler: noop,
+        });
+        const server = await setupTestServer();
+        await server.shutdown();
+        expect(seenRoutes).toEqual(['route GET /gated bootcheck']);
+
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/open',
+            options: { subdomain: 'bootcheck' },
+            handler: noop,
+        });
+        await expect(setupTestServer()).rejects.toThrow(
+            'route GET /open: needs a gate',
+        );
+    });
+
+    it('refuses a claimed label written in another case', async () => {
+        for (const subdomain of ['BootCheck', ['api', 'BOOTCHECK']]) {
+            extensionStore.routeHandlers.length = 0;
+            extensionStore.routeHandlers.push({
+                method: 'get',
+                path: '/cased',
+                options: { subdomain },
+                handler: noop,
+            });
+            await expect(setupTestServer()).rejects.toThrow(
+                "route GET /cased: claimed subdomain 'bootcheck' must be written in lowercase",
+            );
+        }
+    });
+
+    it('refuses a claimed subdomain mixed with others', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/mixed',
+            options: { subdomain: ['bootcheck', 'api'] },
+            handler: noop,
+        });
+        await expect(setupTestServer()).rejects.toThrow(
+            /route GET \/mixed: claimed subdomain 'bootcheck' must be the route's only subdomain/,
+        );
+    });
+
+    it('refuses limits keyed on anything but the IP', async () => {
+        for (const options of [
+            { rateLimit: { limit: 1, window: 1000 } },
+            { rateLimit: { limit: 1, window: 1000, key: 'user' as const } },
+            { concurrent: { limit: 1, key: 'fingerprint' as const } },
+        ]) {
+            extensionStore.routeHandlers.length = 0;
+            extensionStore.routeHandlers.push({
+                method: 'get',
+                path: '/limited',
+                options: { subdomain: 'bootcheck', ...options },
+                handler: noop,
+            });
+            await expect(setupTestServer()).rejects.toThrow(
+                /limits on a claimed subdomain must key on 'ip'/,
+            );
+        }
+    });
+
+    it('boots with the options a claimed host supports', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'post',
+            path: '/fine',
+            options: {
+                subdomain: 'bootcheck',
+                bodyJson: { limit: '1kb' },
+                rateLimit: { limit: 5, window: 1000, key: 'ip' },
+                concurrent: { limit: 2, key: 'ip' },
+                middleware: [(_req, _res, next) => next()],
+                requireAuth: false,
+            },
+            handler: noop,
+        });
+        const server = await setupTestServer();
+        await server.shutdown();
     });
 });
 
@@ -576,6 +1311,14 @@ describe('PuterServer HTTP alarm gate', () => {
                 }) as unknown as RequestHandler,
             },
             {
+                method: 'post',
+                path: '/explode-with-secrets',
+                options: {},
+                handler: (() => {
+                    throw new Error('kaboom');
+                }) as unknown as RequestHandler,
+            },
+            {
                 method: 'get',
                 path: '/plain',
                 options: {},
@@ -600,6 +1343,27 @@ describe('PuterServer HTTP alarm gate', () => {
                                 },
                             ],
                         },
+                    });
+                }) as unknown as RequestHandler,
+            },
+            {
+                method: 'get',
+                path: '/model-unavailable',
+                options: {},
+                handler: (() => {
+                    throw new HttpError(400, 'Model not available: m', {
+                        legacyCode: 'upstream_bad_request',
+                        alarmSeverity: 'info',
+                    });
+                }) as unknown as RequestHandler,
+            },
+            {
+                method: 'get',
+                path: '/upstream-bad-request',
+                options: {},
+                handler: (() => {
+                    throw new HttpError(400, 'bad tool schema', {
+                        legacyCode: 'upstream_bad_request',
                     });
                 }) as unknown as RequestHandler,
             },
@@ -663,6 +1427,37 @@ describe('PuterServer HTTP alarm gate', () => {
         expect(fields).not.toHaveProperty('details');
     });
 
+    it('keeps request body values, query values and the user row out of the alarm', async () => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const res = await rawRequest(
+            port,
+            '/explode-with-secrets?auth_token=query-secret',
+            { host: 'puter.localhost', 'content-type': 'application/json' },
+            'POST',
+            JSON.stringify({ username: 'u', password: 'body-secret' }),
+        );
+        expect(res.status).toBe(500);
+        const raised = alarm.mock.calls.find((c) =>
+            String(c[0]).startsWith('http_500:POST:/explode-with-secrets:'),
+        );
+        expect(raised).toBeTruthy();
+        const [, message, fields] = raised! as unknown as [
+            string,
+            string,
+            Record<string, unknown>,
+        ];
+        const { error: _error, ...rest } = fields;
+        const serialized = `${message} ${JSON.stringify(rest)}`;
+        expect(serialized).not.toContain('body-secret');
+        expect(serialized).not.toContain('query-secret');
+        expect(fields).not.toHaveProperty('body');
+        expect(fields.path).toBe('/explode-with-secrets');
+        expect(fields.bodyKeys).toEqual(['username', 'password']);
+        expect(fields.queryKeys).toEqual(['auth_token']);
+    });
+
     it('raises a warning when an upstream account is out of credits', async () => {
         const { id, fields, severity } = await raisedFor(
             '/credits-exhausted',
@@ -682,6 +1477,25 @@ describe('PuterServer HTTP alarm gate', () => {
                 },
             ],
         });
+    });
+
+    it("alarms a 4xx at the thrower's alarmSeverity", async () => {
+        const { id, severity } = await raisedFor('/model-unavailable', 400);
+        expect(id).toBe(
+            'http_400:GET:/model-unavailable:upstream_bad_request:Model not available: m',
+        );
+        expect(severity).toBe('info');
+    });
+
+    it('does not alarm an upstream 4xx without one', async () => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const res = await rawRequest(port, '/upstream-bad-request', {
+            host: 'puter.localhost',
+        });
+        expect(res.status).toBe(400);
+        expect(alarm).not.toHaveBeenCalled();
     });
 });
 
@@ -733,6 +1547,286 @@ describe('PuterServer keep-alive timeout', () => {
     });
 });
 
+describe('PuterServer lifecycle hooks', () => {
+    it('fails startup before running later hooks when a start hook rejects', async () => {
+        const failure = new Error('startup failed');
+        const later = vi.fn();
+        class FailingStart extends JobScheduler {
+            override async onServerStart() {
+                throw failure;
+            }
+        }
+        class LaterStart extends JobScheduler {
+            override async onServerStart() {
+                later();
+            }
+        }
+        extension.registerService('failingStart', FailingStart as never);
+        extension.registerService('laterStart', LaterStart as never);
+        try {
+            await expect(setupTestServer()).rejects.toBe(failure);
+            expect(later).not.toHaveBeenCalled();
+        } finally {
+            delete (extensionStore.services as Record<string, unknown>)
+                .failingStart;
+            delete (extensionStore.services as Record<string, unknown>)
+                .laterStart;
+        }
+    });
+
+    it.each([false, true])(
+        'continues teardown after failing hooks with listener callback %s',
+        async (prepareFirst) => {
+            const port = await allocateEphemeralPort();
+            const server = await setupTestServer(
+                { port } as unknown as IConfig,
+                { listen: true },
+            );
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            const ran: string[] = [];
+            class FailingHooks {
+                onServerPrepareShutdown() {
+                    ran.push('prepare:failed');
+                    throw new Error('prepare failed');
+                }
+                async onServerShutdown() {
+                    ran.push('shutdown:failed');
+                    throw new Error('shutdown failed');
+                }
+            }
+            (server.services as Record<string, unknown>).fails =
+                new FailingHooks();
+            (server.services as Record<string, unknown>).after = {
+                onServerPrepareShutdown: () => ran.push('prepare:after'),
+                onServerShutdown: () => ran.push('shutdown:after'),
+            };
+            (server.clients as Record<string, unknown>).last = {
+                onServerShutdown: () => ran.push('shutdown:client'),
+            };
+            try {
+                if (prepareFirst) {
+                    await server.prepareShutdown();
+                    await vi.waitFor(() =>
+                        expect(ran).toContain('prepare:after'),
+                    );
+                }
+                await server.shutdown();
+                expect(ran).toEqual([
+                    'prepare:failed',
+                    'prepare:after',
+                    'shutdown:failed',
+                    'shutdown:after',
+                    'shutdown:client',
+                ]);
+                expect(logged).toHaveBeenCalledWith(
+                    '[server] onServerPrepareShutdown failed in FailingHooks',
+                    expect.any(Error),
+                );
+                expect(logged).toHaveBeenCalledWith(
+                    '[server] onServerShutdown failed in FailingHooks',
+                    expect.any(Error),
+                );
+                await expect(
+                    new Promise<void>((resolve, reject) => {
+                        const socket = net.connect(port, '127.0.0.1');
+                        socket.on('connect', () => {
+                            socket.destroy();
+                            resolve();
+                        });
+                        socket.on('error', reject);
+                    }),
+                ).rejects.toMatchObject({ code: 'ECONNREFUSED' });
+            } finally {
+                delete (server.services as Record<string, unknown>).fails;
+                await server.shutdown();
+                logged.mockRestore();
+            }
+        },
+    );
+
+    it('runs drain-start and prepare-shutdown bottom-up, once, before tearing down', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+
+        const order: string[] = [];
+        const probe = (label: string) => ({
+            onServerDrainStart: (info?: { drainMs?: number }) => {
+                order.push(`drain:${label}:${info?.drainMs}`);
+            },
+            onServerPrepareShutdown: () => {
+                order.push(`prepare:${label}`);
+            },
+            onServerShutdown: () => {
+                order.push(`shutdown:${label}`);
+            },
+        });
+        for (const [layer, label] of [
+            [server.clients, 'client'],
+            [server.stores, 'store'],
+            [server.services, 'service'],
+            [server.controllers, 'controller'],
+            [server.drivers, 'driver'],
+        ] as const) {
+            (layer as Record<string, unknown>).hookOrderProbe = probe(label);
+        }
+
+        await server.prepareShutdown({ drainMs: 1_000 });
+        await server.shutdown();
+
+        expect(order).toEqual([
+            'drain:client:1000',
+            'drain:store:1000',
+            'drain:service:1000',
+            'drain:controller:1000',
+            'drain:driver:1000',
+            'prepare:client',
+            'prepare:store',
+            'prepare:service',
+            'prepare:controller',
+            'prepare:driver',
+            'shutdown:driver',
+            'shutdown:controller',
+            'shutdown:service',
+            'shutdown:store',
+            'shutdown:client',
+        ]);
+    });
+
+    it('keeps accepting connections until every drain-start hook settles, without one holding up another', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        let otherRan = false;
+        (server.services as unknown as Record<string, unknown>).holdsListener =
+            { onServerDrainStart: () => held };
+        (server.drivers as unknown as Record<string, unknown>).other = {
+            onServerDrainStart: () => {
+                otherRan = true;
+            },
+        };
+
+        const connect = () =>
+            new Promise<void>((resolve, reject) => {
+                const socket = net.connect(port, '127.0.0.1');
+                socket.on('connect', () => {
+                    socket.destroy();
+                    resolve();
+                });
+                socket.on('error', reject);
+            });
+
+        const prepared = server.prepareShutdown({ drainMs: 1_000 });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(otherRan).toBe(true);
+        await expect(connect()).resolves.toBeUndefined();
+
+        release();
+        await prepared;
+        await expect(connect()).rejects.toMatchObject({
+            code: 'ECONNREFUSED',
+        });
+        await server.shutdown();
+    });
+
+    it('runs every drain-start hook when one of them throws', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const ran: string[] = [];
+        (server.stores as unknown as Record<string, unknown>).fails = {
+            onServerDrainStart: () => {
+                throw new Error('drain hook failed');
+            },
+        };
+        (server.services as unknown as Record<string, unknown>).after = {
+            onServerDrainStart: () => {
+                ran.push('after');
+            },
+        };
+
+        await server.prepareShutdown({ drainMs: 1_000 });
+        await server.shutdown();
+
+        expect(ran).toEqual(['after']);
+        expect(console.error).toHaveBeenCalledWith(
+            expect.stringContaining('onServerDrainStart failed'),
+            expect.any(Error),
+        );
+    });
+});
+
+describe('PuterServer shutdown during prepare', () => {
+    it('waits for prepare hooks the drain already started before tearing down', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+        const order: string[] = [];
+        (server.services as unknown as Record<string, unknown>).slowPrepare = {
+            onServerPrepareShutdown: async () => {
+                order.push('prepare:start');
+                await new Promise((resolve) => setTimeout(resolve, 200));
+                order.push('prepare:done');
+            },
+            onServerShutdown: () => {
+                order.push('shutdown');
+            },
+        };
+
+        await server.prepareShutdown({ drainMs: 0 });
+        // The listener's close callback starts the prepare hooks.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await server.shutdown();
+
+        expect(order).toEqual(['prepare:start', 'prepare:done', 'shutdown']);
+    });
+});
+
+/**
+ * An extension may take over `services.jobs` (a fleet-wide scheduler). Core
+ * services register their jobs on it at start, so it must keep the built-in's
+ * first place in the layer.
+ */
+describe('PuterServer jobs replacement', () => {
+    it('lets an extension service registered as `jobs` replace the built-in and keep its first position', async () => {
+        const registered: string[] = [];
+        class ReplacementJobs extends JobScheduler {
+            override register(name: string, definition: JobDefinition) {
+                registered.push(name);
+                super.register(name, definition);
+            }
+        }
+        const started = vi.spyOn(JobScheduler.prototype, 'onServerStart');
+        extension.registerService('jobs', ReplacementJobs as never);
+        let server: PuterServer | undefined;
+        try {
+            server = await setupTestServer();
+            const { jobs } = server.services;
+            expect(jobs).toBeInstanceOf(ReplacementJobs);
+            expect(Object.keys(server.services)[0]).toBe('jobs');
+            expect(extension.import('service').jobs).toBeInstanceOf(
+                ReplacementJobs,
+            );
+            // Only the replacement gets lifecycle hooks.
+            expect(started.mock.contexts).toEqual([jobs]);
+            expect(registered).toContain('auth.sessions.purge');
+        } finally {
+            delete (extensionStore.services as Record<string, unknown>).jobs;
+            started.mockRestore();
+            await server?.shutdown();
+        }
+    });
+});
+
 /**
  * Each layer's `onServerShutdown` has to run while the layers beneath it (the
  * ones it writes through) are still up, so teardown goes top-down: drivers,
@@ -772,4 +1866,25 @@ describe('PuterServer shutdown order', () => {
             'client',
         ]);
     });
+
+    // close() only drops connections idle at that moment; one mid-request
+    // stays open until PuterServer severs it after the prepare hooks.
+    it('finishes while a connection is mid-request', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+
+        const socket = net.connect(port, '127.0.0.1');
+        socket.on('error', () => {});
+        await new Promise<void>((resolve) => socket.once('connect', resolve));
+        socket.write('GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        try {
+            await server.shutdown();
+        } finally {
+            socket.destroy();
+        }
+    }, 15_000);
 });

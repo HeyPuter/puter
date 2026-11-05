@@ -1,10 +1,12 @@
 ---
 title: puter.ai.speech2txt()
-description: Transcribe or translate audio into text using OpenAI or xAI speech-to-text models.
+description: Transcribe audio into text using OpenAI, xAI or Gemini speech-to-text models.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Converts spoken audio into text with optional English translation and diarization support. This helper wraps the Puter driver-backed transcription API (OpenAI and xAI) so you can work with local files, remote URLs, or in-memory blobs from the browser.
+Converts spoken audio into text.
+
+Supports OpenAI, xAI and Gemini models, with speaker diarization on xAI and Gemini.
 
 ## Syntax
 
@@ -31,31 +33,22 @@ When you omit `source`, supply `options.file` or `options.audio` instead.
 
 Fine-tune how transcription runs.
 
-- `file` / `audio` (String | File | Blob): Alternative way to pass the audio input.
-- `provider` (String): STT provider to use. `'openai'` (default) or `'xai'`. Aliases `'whisper'`, `'grok'` and `'x-ai'` are also accepted; anything else is rejected with a `bad_request` error.
-- `model` (String): One of `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`, `gpt-4o-transcribe-diarize`, `whisper-1`, or any future backend-supported model. Defaults to `gpt-4o-mini-transcribe` for transcription and `whisper-1` for translation.
-- `translate` (Boolean): Set to `true` to force English output (uses the translations endpoint).
-- `response_format` (String): Desired output shape. Examples: `json`, `text`, `diarized_json`, `srt`, `verbose_json`, `vtt` (depends on the model).
-- `language` (String): ISO language code hint for the input audio.
-- `prompt` (String): Optional context for models that support prompting (all except `gpt-4o-transcribe-diarize`).
-- `temperature` (Number): Sampling temperature (0–1) for supported models.
-- `logprobs` (Boolean): Request token log probabilities where supported.
-- `timestamp_granularities` (Array\<String>): Include `segment` or `word` level timestamps on models that offer them (currently `whisper-1`).
-- `chunking_strategy` (String): Required for `gpt-4o-transcribe-diarize` inputs longer than 30 seconds (recommend `"auto"`).
-- `known_speaker_names` / `known_speaker_references` (Array): Optional diarization references encoded as data URLs.
-- `extra_body` (Object): Forwarded verbatim to the OpenAI API for experimental flags.
-- `stream` (Boolean): Reserved for future streaming support. Streaming is not currently supported.
-- `test_mode` (Boolean): When `true`, returns a sample response without using credits. Defaults to `false`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `provider` | `String` | STT provider to use. One of `'openai'` (default), `'xai'` or `'gemini'`. Aliases `'whisper'`, `'grok'`, `'x-ai'`, `'google'` and `'gemini-speech2txt'` are also accepted; anything else is rejected with a `bad_request` error. |
+| `model` | `String` | Model to use. Each provider's models are listed under [Model-specific features](#model-specific-features). |
+| `language` | `String` | ISO language code hint for the input audio. |
+| `response_format` | `String` | Either `json` (default) or `text` for OpenAI and Gemini. |
+| `prompt` | `String` | Optional context to guide the transcription. |
+| `temperature` | `Number` | Sampling temperature (0–1) for supported models. |
+| `logprobs` | `Boolean` | Request token log probabilities where supported. |
+| `file` | `String \| File \| Blob` | Alternative way to pass the audio input. |
+| `audio` | `String \| File \| Blob` | Same as `file`. |
+| `translate` | `Boolean` | Not supported. On OpenAI and Gemini, `translate: true` fails with `bad_request`; on xAI it returns an ordinary transcript in the source language. |
+| `stream` | `Boolean` | Reserved for future streaming support. Streaming is not currently supported. |
+| `test_mode` | `Boolean` | When `true`, returns a sample response without using credits. Defaults to `false`. |
 
-**xAI-specific options** (when `provider: 'xai'`):
-
-- `language` (String): Language code (e.g. `en`, `fr`). Enables text formatting when `format` is `true`.
-- `format` (Boolean): When `true`, enables Inverse Text Normalization (numbers/currency to written form). Requires `language`.
-- `diarize` (Boolean): When `true`, words include a `speaker` field identifying the detected speaker.
-- `multichannel` (Boolean): When `true`, transcribes each audio channel independently.
-- `channels` (Number): Number of audio channels (2–8). Required for multichannel raw audio.
-- `audio_format` (String): Format hint for raw/headerless audio: `pcm`, `mulaw`, `alaw`.
-- `sample_rate` (Number): Sample rate in Hz. Required for raw audio.
+Some models accept additional options or handle these options differently. See [Model-specific features](#model-specific-features).
 
 #### `testMode` (Boolean) (optional)
 
@@ -66,11 +59,49 @@ When `true`, skips the live API call and returns a static sample transcript so y
 Returns a `Promise` that resolves to either:
 
 - A string (when `response_format: "text"`), or
-- An object of [`Speech2TxtResult`](/Objects/speech2txtresult) containing the transcription payload (including diarization segments, timestamps, etc., depending on the selected model and format). This is the default, including when you pass a bare `source` with no options.
+- An object of [`Speech2TxtResult`](/Objects/speech2txtresult) containing the transcription payload (which can include per-word timestamps and speakers, depending on the model and options). This is the default, including when you pass a bare `source` with no options.
+
+## Model-specific features
+
+### OpenAI models
+
+OpenAI is the default provider, and its default model is `gpt-transcribe`. The `extra_body` option (`Object`) is forwarded verbatim to the OpenAI API for experimental flags.
+
+### xAI (Grok) models
+
+Use `provider: 'xai'`. Its model is `grok-voice-transcribe-2.0`.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `language` | `String` | Language code (e.g. `en`, `fr`). Enables text formatting when `format` is `true`. |
+| `format` | `Boolean` | When `true`, enables Inverse Text Normalization (numbers/currency to written form). Requires `language`. |
+| `diarize` | `Boolean` | When `true`, words include a `speaker` field identifying the detected speaker. |
+| `multichannel` | `Boolean` | When `true`, transcribes each audio channel independently. |
+| `channels` | `Number` | Number of audio channels (2–8). Required for multichannel raw audio. |
+| `audio_format` | `String` | Format hint for raw/headerless audio: `pcm`, `mulaw`, `alaw`. |
+| `sample_rate` | `Number` | Sample rate in Hz. Required for raw audio. |
+
+### Gemini models
+
+Use `provider: 'gemini'`. Its only model is `gemini-3.5-transcribe`.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `language` | `String` | Language code (e.g. `en`) the audio is spoken in. The result echoes it as `language`. Without it, the result has no `language`. |
+| `timestamp_granularities` | `Array` | Passing `['word']` adds a `words` array with each word's `start` and `end` in seconds. Only `word` entries are supported. Other entries fail with `bad_request`. When Gemini returns a word with an unusable timing or speaker, that word is left out of `words`, and `text` still has the full transcript. |
+| `diarize` | `Boolean` | When `true`, the result includes `words`. Words can include a `speaker` label such as `spk:0`. |
+
+Gemini rejects options it can't honor with `bad_request` instead of ignoring them. These are `prompt`, `temperature`, `logprobs: true`, `stream: true`, `chunking_strategy`, `known_speaker_names`, `extra_body`, and the xAI-specific options.
+
+Gemini accepts WAV, MP3, AIFF, AAC, OGG, FLAC, MPEG, M4A, L16, Opus, A-law, mu-law and WebM audio, sent with an `audio/*` MIME type (`audio/wav`, `audio/mpeg`, `audio/webm`, and so on). Other types fail with `bad_request`, and the audio isn't converted. The audio can be at most 10 MiB, or 1 hour long, or 30 minutes long with word timestamps or `diarize`. Gemini enforces the duration limits itself, and the call fails when the audio is longer. A transcript is limited to 8,192 output tokens. A longer one fails with `502 upstream_failed`, so split long recordings into shorter files.
+
+The result has `text`, `model`, `language` when you passed one, and `words` when you asked for word timestamps or `diarize`. Gemini returns no `duration`.
+
+Before transcribing, Puter reserves the cost of the counted audio tokens plus the full 8,192 output tokens, then charges the tokens Gemini reports. A transcription Gemini answers is charged even when it fails, as Gemini bills it, including one cut off at the output limit. When Gemini reports no usable token counts, only the counted audio is charged.
 
 ## Examples
 
-<strong class="example-title">Transcribe a file</strong>
+### Transcribe a file
 
 ```html;ai-speech2txt
 <html>
@@ -86,32 +117,7 @@ Returns a `Promise` that resolves to either:
 </html>
 ```
 
-<strong class="example-title">Translate to English with diarization</strong>
-
-```html
-<html>
-<body>
-    <script src="https://js.puter.com/v2/"></script>
-    <script>
-        (async () => {
-            const meeting = await puter.ai.speech2txt({
-                file: '~/test.mp3',
-                translate: true,
-                model: 'gpt-4o-transcribe-diarize',
-                response_format: 'diarized_json',
-                chunking_strategy: 'auto'
-            });
-
-            meeting.segments.forEach(segment => {
-                console.log(`${segment.speaker}: ${segment.text}`);
-            });
-        })();
-    </script>
-</body>
-</html>
-```
-
-<strong class="example-title">Transcribe with xAI (Grok)</strong>
+### Transcribe with xAI (Grok)
 
 ```html;ai-speech2txt-xai
 <html>
@@ -138,7 +144,31 @@ Returns a `Promise` that resolves to either:
 </html>
 ```
 
-<strong class="example-title">Use test mode during development</strong>
+### Transcribe with Gemini, with word timestamps and speakers
+
+```html;ai-speech2txt-gemini
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const transcript = await puter.ai.speech2txt({
+                file: 'https://assets.puter.site/example.mp3',
+                provider: 'gemini',
+                language: 'en',
+                diarize: true
+            });
+            puter.print('Transcript:', transcript.text);
+            transcript.words.forEach(w => {
+                puter.print(`  ${w.start.toFixed(2)}s - ${w.end.toFixed(2)}s ${w.speaker ?? ''}: ${w.text}`);
+            });
+        })();
+    </script>
+</body>
+</html>
+```
+
+### Use test mode during development
 
 ```html
 <html>

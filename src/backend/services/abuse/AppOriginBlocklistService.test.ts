@@ -114,6 +114,26 @@ describe('AppOriginBlocklistService', () => {
                 true,
             );
         });
+
+        it('treats a fully-qualified trailing dot as the same host', async () => {
+            const { service } = makeService([
+                { domain: 'exact.com', include_subdomains: 0 },
+                { domain: 'evil.com.', include_subdomains: 1 },
+            ]);
+            expect((await service.isHostBlocked('exact.com.')).blocked).toBe(
+                true,
+            );
+            expect(
+                (await service.isHostBlocked('exact.com.:443')).blocked,
+            ).toBe(true);
+            expect((await service.isHostBlocked('a.evil.com')).blocked).toBe(
+                true,
+            );
+            expect(
+                (await service.isOriginBlocked('https://a.evil.com./x'))
+                    .blocked,
+            ).toBe(true);
+        });
     });
 
     describe('isOriginBlocked', () => {

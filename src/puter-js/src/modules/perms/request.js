@@ -5,16 +5,27 @@ import {
     pollAppRootDir,
     statAppRootDir,
 } from './appRootDir.js';
+import { PuterJSError } from '../../lib/PuterJSError.js';
 import { folderPathFor, folderReadable } from './folders.js';
+import { fsTargetOf } from './fs.js';
+import { kvShareRequestPermission } from './kvShare.js';
 import { checkPermissions } from './lib/holds.js';
 import {
     appRootDirPermission,
     appsPermission,
+    BACKGROUND_EVENTS_PERMISSION,
     emailPermission,
     fsPermission,
+    PUSH_NOTIFICATIONS_PERMISSION,
     subdomainsPermission,
 } from './lib/permissionStrings.js';
-import { assertAccess, assertFolderName, invalidArgument } from './lib/validate.js';
+import {
+    assertAccess,
+    assertCreateKind,
+    assertFolderName,
+    assertKnownFields,
+    invalidArgument,
+} from './lib/validate.js';
 import { requestPermissions } from './permissions.js';
 
 /** @typedef {import('./index.js').PermsModule} PermsModule */
@@ -63,26 +74,26 @@ const folderNameOf = (details) => assertFolderName(details.name);
  */
 const permissionsOf = (details) => {
     const { permission, permissions, create } = details;
-    if ( create !== undefined
-        && create !== true && create !== false
-        && create !== 'dir' && create !== 'file' ) {
-        throw invalidArgument('`create` must be true, false, "dir", or "file"');
-    }
-    if ( permissions !== undefined ) {
-        if ( permission !== undefined ) {
-            throw invalidArgument('pass `permission` or `permissions`, not both');
+    assertCreateKind(create);
+    if (permissions !== undefined) {
+        if (permission !== undefined) {
+            throw invalidArgument(
+                'pass `permission` or `permissions`, not both',
+            );
         }
-        if ( ! Array.isArray(permissions) || permissions.length === 0 ) {
+        if (!Array.isArray(permissions) || permissions.length === 0) {
             throw invalidArgument('`permissions` must be a non-empty array');
         }
-        for ( const entry of permissions ) {
-            if ( typeof entry !== 'string' || entry === '' ) {
-                throw invalidArgument('`permissions` entries must be non-empty strings');
+        for (const entry of permissions) {
+            if (typeof entry !== 'string' || entry === '') {
+                throw invalidArgument(
+                    '`permissions` entries must be non-empty strings',
+                );
             }
         }
         return [...new Set(/** @type {string[]} */ (permissions))];
     }
-    if ( typeof permission !== 'string' || permission === '' ) {
+    if (typeof permission !== 'string' || permission === '') {
         throw invalidArgument('`permission` must be a non-empty string');
     }
     return [permission];
@@ -96,12 +107,12 @@ const permissionsOf = (details) => {
  * @property {Record<string, unknown>} details
  * @property {string[]} permissions - What this entry needs, already resolved.
  * @property {(permissions: string[]) => Promise<boolean>} holds - Answered from
- * the call's one pooled permission read.
+ *   the call's one pooled permission read.
  * @property {boolean} prompt - Whether this is a `request`. A resource whose
- * check would otherwise repeat work the request is about to do anyway can spend
- * the round trip once and hand the result on through `scratch`.
+ *   check would otherwise repeat work the request is about to do anyway can
+ *   spend the round trip once and hand the result on through `scratch`.
  * @property {Record<string, unknown>} scratch - Per-entry, passed from `check`
- * to `resolve`.
+ *   to `resolve`.
  */
 
 /**
@@ -111,9 +122,19 @@ const permissionsOf = (details) => {
  * asks the server itself, so its strings stay out of the pooled read.
  *
  * @typedef {Object} PermsResourceHandler
- * @property {(query: { ctx: PermsContext, details: Record<string, unknown> }) => Promise<string[]>} permissions
+ * @property {(query: {
+ *     ctx: PermsContext;
+ *     details: Record<string, unknown>;
+ * }) => Promise<string[]>} permissions
  * @property {(query: PermsQuery) => Promise<boolean>} check
- * @property {(query: { ctx: PermsContext, details: Record<string, unknown>, scratch: Record<string, unknown> }, held: boolean) => Promise<unknown>} resolve
+ * @property {(
+ *     query: {
+ *         ctx: PermsContext;
+ *         details: Record<string, unknown>;
+ *         scratch: Record<string, unknown>;
+ *     },
+ *     held: boolean,
+ * ) => Promise<unknown>} resolve
  * @property {boolean} [pooled]
  */
 
@@ -125,21 +146,71 @@ const permissionsOf = (details) => {
  * @type {Record<string, PermsResourceHandler>}
  */
 const RESOURCES = Object.assign(Object.create(null), {
+    fs: {
+        permissions: async ({ ctx, details }) => {
+            assertKnownFields(details, ['path', 'uid', 'access', 'create']);
+            assertCreateKind(details.create);
+            return [
+                fsPermission(
+                    await fsTargetOf(details, ctx.whoami),
+                    accessOf(details),
+                ),
+            ];
+        },
+        // The server answers an app's own `fs:` check through ACL, so a
+        // grant on a parent folder counts.
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
+    },
+
+    backgroundEvents: {
+        permissions: async ({ details }) => {
+            assertKnownFields(details, []);
+            return [BACKGROUND_EVENTS_PERMISSION];
+        },
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
+    },
+
+    pushNotifications: {
+        permissions: async ({ details }) => {
+            assertKnownFields(details, []);
+            return [PUSH_NOTIFICATIONS_PERMISSION];
+        },
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
+    },
+
+    kvShare: {
+        permissions: async ({ ctx, details }) => {
+            assertKnownFields(details, ['prefix', 'access']);
+            return [
+                kvShareRequestPermission(
+                    ctx.puter,
+                    await ctx.whoami(),
+                    details,
+                ),
+            ];
+        },
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
+    },
+
     email: {
         permissions: async ({ ctx }) => [
             emailPermission((await ctx.whoami()).uuid),
         ],
         check: async ({ ctx, permissions, holds }) => {
             // The grant is what puts the field on `whoami`, so `null` is granted.
-            if ( (await ctx.whoami()).email !== undefined ) return true;
+            if ((await ctx.whoami()).email !== undefined) return true;
             return holds(permissions);
         },
         resolve: async ({ ctx }, held) => {
-            if ( ! held ) return undefined;
+            if (!held) return undefined;
             // Already there before the prompt, or released by it — one more
             // read only in the second case.
             const whoami = await ctx.whoami();
-            if ( whoami.email !== undefined ) return whoami.email;
+            if (whoami.email !== undefined) return whoami.email;
             return (await ctx.reread()).email;
         },
     },
@@ -147,22 +218,25 @@ const RESOURCES = Object.assign(Object.create(null), {
     folder: {
         permissions: async ({ ctx, details }) => [
             fsPermission(
-                folderPathFor((await ctx.whoami()).username, folderNameOf(details)),
+                folderPathFor(
+                    (await ctx.whoami()).username,
+                    folderNameOf(details),
+                ),
                 accessOf(details),
             ),
         ],
         check: async ({ ctx, details, permissions, holds }) => {
-            if ( accessOf(details) !== 'write' ) {
+            if (accessOf(details) !== 'write') {
                 const path = folderPathFor(
                     (await ctx.whoami()).username,
                     folderNameOf(details),
                 );
-                if ( await folderReadable(ctx.puter, path) ) return true;
+                if (await folderReadable(ctx.puter, path)) return true;
             }
             return holds(permissions);
         },
         resolve: async ({ ctx, details }, held) => {
-            if ( ! held ) return undefined;
+            if (!held) return undefined;
             return folderPathFor(
                 (await ctx.whoami()).username,
                 folderNameOf(details),
@@ -191,7 +265,9 @@ const RESOURCES = Object.assign(Object.create(null), {
             appDataRequest(
                 ctx.puter,
                 /** @type {string} */ (details.app),
-                /** @type {import('./types.js').AppDataScopes} */ (details.scopes),
+                /** @type {import('./types.js').AppDataScopes} */ (
+                    details.scopes
+                ),
             ),
         // An empty list is its own data, which it may always use.
         check: async ({ permissions, holds }) =>
@@ -210,13 +286,23 @@ const RESOURCES = Object.assign(Object.create(null), {
             const appUid = appUidOf(details.app);
             const access = accessOf(details);
             // A check must not provision the directory just for asking.
-            if ( ! prompt ) {
+            if (!prompt) {
                 return await checkAppRootDir(ctx.puter, appUid, access);
             }
             // A request is going to claim it either way, so the claim is the
             // check — one round trip, as the shipped method has always made.
             const result = await statAppRootDir(ctx.puter, appUid, access);
-            if ( result.error ) return false;
+            // Permanent, unlike a plain refusal a grant is about to lift.
+            if (result.error && result.reason === 'app_mismatch') {
+                throw new PuterJSError(
+                    typeof result.message === 'string'
+                        ? result.message
+                        : 'Only the app itself may request its root dir',
+                    'forbidden',
+                    { permsUngrantable: true },
+                );
+            }
+            if (result.error) return false;
             scratch.entry = result;
             return true;
         },
@@ -224,8 +310,8 @@ const RESOURCES = Object.assign(Object.create(null), {
         // check claimed it; otherwise asked for now, riding out the cache lag
         // behind a fresh grant.
         resolve: async ({ ctx, details, scratch }, held) => {
-            if ( ! held ) return undefined;
-            if ( scratch.entry ) return scratch.entry;
+            if (!held) return undefined;
+            if (scratch.entry) return scratch.entry;
             return await pollAppRootDir(
                 ctx.puter,
                 appUidOf(details.app),
@@ -244,6 +330,9 @@ const RESOURCES = Object.assign(Object.create(null), {
 /** The resource names, for the "expected one of" in an unknown-resource error. */
 const RESOURCE_NAMES = Object.keys(RESOURCES);
 
+/** The resources whose details carry `create`. */
+const CREATE_RESOURCES = new Set(['fs', 'permission']);
+
 /**
  * Resolve a call to its resource, or to the legacy raw-permission form.
  *
@@ -253,22 +342,27 @@ const RESOURCE_NAMES = Object.keys(RESOURCES);
  *
  * @param {unknown} resource
  * @param {unknown} details
- * @returns {{ resource: string, details: Record<string, unknown> }}
+ * @returns {{ resource: string; details: Record<string, unknown> }}
  */
 const singleEntry = (resource, details) => {
-    if ( typeof resource !== 'string' || resource === '' ) {
+    if (typeof resource !== 'string' || resource === '') {
         throw invalidArgument('resource must be a non-empty string');
     }
-    if ( details !== undefined && (typeof details !== 'object' || details === null || Array.isArray(details)) ) {
+    if (
+        details !== undefined &&
+        (typeof details !== 'object' ||
+            details === null ||
+            Array.isArray(details))
+    ) {
         throw invalidArgument('details must be an object');
     }
-    if ( RESOURCES[resource] ) {
+    if (RESOURCES[resource]) {
         return {
             resource,
             details: /** @type {Record<string, unknown>} */ (details ?? {}),
         };
     }
-    if ( details !== undefined ) {
+    if (details !== undefined) {
         throw invalidArgument(
             `unknown resource: ${resource} (expected one of: ${RESOURCE_NAMES.join(', ')})`,
         );
@@ -282,20 +376,24 @@ const singleEntry = (resource, details) => {
  *
  * @param {unknown} entry
  * @param {number} index
- * @returns {{ resource: string, details: Record<string, unknown> }}
+ * @returns {{ resource: string; details: Record<string, unknown> }}
  */
 const batchEntry = (entry, index) => {
-    if ( typeof entry !== 'object' || entry === null || Array.isArray(entry) ) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
         throw invalidArgument(`requests[${index}] must be an object`);
     }
-    const { resource, ...details } = /** @type {Record<string, unknown>} */ (entry);
-    if ( typeof resource !== 'string' || resource === '' ) {
-        throw invalidArgument(`requests[${index}].resource must be a non-empty string`);
+    const { resource, ...details } = /** @type {Record<string, unknown>} */ (
+        entry
+    );
+    if (typeof resource !== 'string' || resource === '') {
+        throw invalidArgument(
+            `requests[${index}].resource must be a non-empty string`,
+        );
     }
-    if ( ! RESOURCES[resource] ) {
+    if (!RESOURCES[resource]) {
         throw invalidArgument(
             `requests[${index}]: unknown resource: ${resource} ` +
-            `(expected one of: ${RESOURCE_NAMES.join(', ')})`,
+                `(expected one of: ${RESOURCE_NAMES.join(', ')})`,
         );
     }
     return { resource, details };
@@ -311,13 +409,13 @@ const batchEntry = (entry, index) => {
  * @param {string[]} permissions
  * @returns {(permissions: string[]) => Promise<boolean>}
  */
-function pooledHolds (ctx, permissions) {
+function pooledHolds(ctx, permissions) {
     const wanted = [...new Set(permissions)];
     /** @type {Promise<Record<string, boolean>> | undefined} */
     let pending;
 
     return async (needed) => {
-        if ( needed.length === 0 || wanted.length === 0 ) return false;
+        if (needed.length === 0 || wanted.length === 0) return false;
         const held = await (pending ??= checkPermissions(ctx.puter, wanted));
         return needed.every((name) => held[name] === true);
     };
@@ -329,11 +427,11 @@ function pooledHolds (ctx, permissions) {
  * drift apart.
  *
  * @param {PermsContext} ctx
- * @param {{ resource: string, details: Record<string, unknown> }[]} entries
+ * @param {{ resource: string; details: Record<string, unknown> }[]} entries
  * @param {boolean} prompt
  * @returns {Promise<unknown[]>}
  */
-async function runEntries (ctx, entries, prompt) {
+async function runEntries(ctx, entries, prompt) {
     // Resolved — and so validated — before anything is asked, so a bad entry
     // can't surface after a prompt has gone up for the rest.
     const permissions = await Promise.all(
@@ -342,16 +440,17 @@ async function runEntries (ctx, entries, prompt) {
         ),
     );
 
-    // Only the raw-permission resource carries `create`, and one prompt is one
-    // decision — so at most one distinct value may cover it. Checked here,
-    // still before anything is asked.
-    const createValues = [...new Set(
-        entries
-            .filter(({ resource }) => resource === 'permission')
-            .map(({ details }) => details.create)
-            .filter((value) => value !== undefined),
-    )];
-    if ( createValues.length > 1 ) {
+    // One prompt is one decision, so at most one distinct `create` may cover
+    // it. Checked here, still before anything is asked.
+    const createValues = [
+        ...new Set(
+            entries
+                .filter(({ resource }) => CREATE_RESOURCES.has(resource))
+                .map(({ details }) => details.create)
+                .filter((value) => value !== undefined),
+        ),
+    ];
+    if (createValues.length > 1) {
         throw invalidArgument('conflicting `create` values in one request');
     }
     const create = createValues[0];
@@ -368,7 +467,11 @@ async function runEntries (ctx, entries, prompt) {
     // it did before there was a check at all. `check` has nowhere to go, and
     // answering "not granted" would prompt someone who already granted it.
     /** Per entry, for whatever its `check` wants to hand to its `resolve`. */
-    const scratch = entries.map(() => /** @type {Record<string, unknown>} */ ({}));
+    const scratch = entries.map(
+        () => /** @type {Record<string, unknown>} */ ({}),
+    );
+    /** Entries whose refusal no grant could lift, so they never reach a prompt. */
+    const ungrantable = entries.map(() => false);
 
     const held = await Promise.all(
         entries.map(async ({ resource, details }, i) => {
@@ -381,16 +484,24 @@ async function runEntries (ctx, entries, prompt) {
                     prompt,
                     scratch: scratch[i],
                 });
-            } catch ( e ) {
-                if ( ! prompt ) throw e;
+            } catch (e) {
+                if (e?.permsUngrantable) {
+                    ungrantable[i] = true;
+                    return false;
+                }
+                if (!prompt) throw e;
                 return false;
             }
         }),
     );
-    if ( ! prompt ) return held;
+    if (!prompt) return held;
 
     const missing = [
-        ...new Set(entries.flatMap((_entry, i) => (held[i] ? [] : permissions[i]))),
+        ...new Set(
+            entries.flatMap((_entry, i) =>
+                held[i] || ungrantable[i] ? [] : permissions[i],
+            ),
+        ),
     ];
     const granted =
         missing.length === 0
@@ -403,7 +514,8 @@ async function runEntries (ctx, entries, prompt) {
                 { ctx, details, scratch: scratch[i] },
                 // An entry that named no permission asked nothing, so a grant
                 // covering the others says nothing about it.
-                held[i] || (permissions[i].length > 0 && granted),
+                !ungrantable[i] &&
+                    (held[i] || (permissions[i].length > 0 && granted)),
             ),
         ),
     );
@@ -412,16 +524,22 @@ async function runEntries (ctx, entries, prompt) {
 /**
  * @param {unknown} resource
  * @param {unknown} details
- * @returns {{ resource: string, details: Record<string, unknown> }[]}
+ * @returns {{ resource: string; details: Record<string, unknown> }[]}
  */
 const entriesOf = (resource, details) => {
-    if ( ! Array.isArray(resource) ) return [singleEntry(resource, details)];
-    if ( details !== undefined ) {
+    if (!Array.isArray(resource)) return [singleEntry(resource, details)];
+    if (details !== undefined) {
         throw invalidArgument('a batch takes no second argument');
     }
     return resource.map(batchEntry);
 };
 
+/**
+ * @overload
+ * @param {'fs'} resource
+ * @param {import('./types.js').PermsFsRequest} details
+ * @returns {Promise<boolean>}
+ */
 /**
  * @overload
  * @param {'email'} resource
@@ -453,6 +571,18 @@ const entriesOf = (resource, details) => {
  */
 /**
  * @overload
+ * @param {'backgroundEvents' | 'pushNotifications'} resource
+ * @returns {Promise<boolean>}
+ */
+/**
+ * @overload
+ * @param {'kvShare'} resource
+ * @param {import('./types.js').PermsKvShareRequest} details
+ * @returns {Promise<boolean>}
+ */
+/**
+ * @overload
+ * @deprecated Use the resource the permission string names, such as `'fs'`.
  * @param {'permission'} resource
  * @param {import('./types.js').PermsPermissionRequest} details
  * @returns {Promise<boolean>}
@@ -464,6 +594,7 @@ const entriesOf = (resource, details) => {
  */
 /**
  * @overload
+ * @deprecated Use the resource the permission string names, such as `'fs'`.
  * @param {string} permission
  * @returns {Promise<boolean>}
  */
@@ -471,9 +602,13 @@ const entriesOf = (resource, details) => {
  * Ask the user for access, prompting only for what isn't already held. The
  * resource decides which details are taken and what resolves: `'folder'` gives
  * the path, `'email'` the address, `'appRootDir'` the directory, the rest a
- * boolean. Denied is always falsy.
+ * boolean. Denied is always falsy. `puter.perms.Resource` and
+ * `puter.perms.Access` name the accepted values.
  *
- *     await puter.perms.request('folder', { name: 'Documents', access: 'write' });
+ *     await puter.perms.request(puter.perms.Resource.FS, {
+ *         path: '~/Documents/notes.txt',
+ *         access: puter.perms.Access.WRITE,
+ *     });
  *
  * An array asks for several at once, behind one prompt, resolving in order.
  *
@@ -487,12 +622,18 @@ const entriesOf = (resource, details) => {
  * @param {PermsRequestDetails} [details]
  * @returns {Promise<unknown>}
  */
-export async function request (resource, details) {
+export async function request(resource, details) {
     const entries = entriesOf(resource, details);
     const results = await runEntries(makeContext(this.puter), entries, true);
     return Array.isArray(resource) ? results : results[0];
 }
 
+/**
+ * @overload
+ * @param {'fs'} resource
+ * @param {import('./types.js').PermsFsRequest} details
+ * @returns {Promise<boolean>}
+ */
 /**
  * @overload
  * @param {'email'} resource
@@ -524,6 +665,18 @@ export async function request (resource, details) {
  */
 /**
  * @overload
+ * @param {'backgroundEvents' | 'pushNotifications'} resource
+ * @returns {Promise<boolean>}
+ */
+/**
+ * @overload
+ * @param {'kvShare'} resource
+ * @param {import('./types.js').PermsKvShareRequest} details
+ * @returns {Promise<boolean>}
+ */
+/**
+ * @overload
+ * @deprecated Use the resource the permission string names, such as `'fs'`.
  * @param {'permission'} resource
  * @param {import('./types.js').PermsPermissionRequest} details
  * @returns {Promise<boolean>}
@@ -535,6 +688,7 @@ export async function request (resource, details) {
  */
 /**
  * @overload
+ * @deprecated Use the resource the permission string names, such as `'fs'`.
  * @param {string} permission
  * @returns {Promise<boolean>}
  */
@@ -553,7 +707,7 @@ export async function request (resource, details) {
  * @param {PermsRequestDetails} [details]
  * @returns {Promise<boolean | boolean[]>}
  */
-export async function check (resource, details) {
+export async function check(resource, details) {
     const entries = entriesOf(resource, details);
     const held = /** @type {boolean[]} */ (
         await runEntries(makeContext(this.puter), entries, false)

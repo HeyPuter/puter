@@ -1,0 +1,155 @@
+{
+    "formatVersion": "v1.0",
+    "disclaimer": "This pricing list is for informational purposes only. All prices are subject to the additional terms included in the pricing pages on http://aws.amazon.com. All Free Tier prices are also subject to the terms included at https://aws.amazon.com/free/",
+    "offerCode": "AmazonPolly",
+    "version": "20260911124459",
+    "publicationDate": "2026-09-11T12:44:59Z",
+    "products": {
+        "VZ4D3PNAPQ5WMXJ8": {
+            "sku": "VZ4D3PNAPQ5WMXJ8",
+            "productFamily": "AmazonPolly",
+            "attributes": {
+                "servicecode": "AmazonPolly",
+                "location": "US West (Oregon)",
+                "locationType": "AWS Region",
+                "usagetype": "USW2-SynthesizeSpeechGenerative-Characters",
+                "operation": "",
+                "engine": "Generative",
+                "regionCode": "us-west-2",
+                "servicename": "Amazon Polly"
+            }
+        },
+        "72CUXERTVPEGPMWC": {
+            "sku": "72CUXERTVPEGPMWC",
+            "productFamily": "AmazonPolly",
+            "attributes": {
+                "servicecode": "AmazonPolly",
+                "location": "US West (Oregon)",
+                "locationType": "AWS Region",
+                "usagetype": "USW2-ai-SynthesizeSpeechGenerative-Characters",
+                "operation": "",
+                "electronStatus": "ai-",
+                "engine": "Generative",
+                "regionCode": "us-west-2",
+                "servicename": "Amazon Polly"
+            }
+        },
+        "9NHBTCP8TY24SED9": {
+            "sku": "9NHBTCP8TY24SED9",
+            "productFamily": "AmazonPolly",
+            "attributes": {
+                "servicecode": "AmazonPolly",
+                "location": "US West (Oregon)",
+                "locationType": "AWS Region",
+                "usagetype": "USW2-SynthesizeSpeechNeural-Characters",
+                "operation": "",
+                "engine": "Neural",
+                "regionCode": "us-west-2",
+                "servicename": "Amazon Polly"
+            }
+        },
+        "XZARWA3E77CTTW3A": {
+            "sku": "XZARWA3E77CTTW3A",
+            "productFamily": "Synthesize Speech",
+            "attributes": {
+                "servicecode": "AmazonPolly",
+                "location": "US West (Oregon)",
+                "locationType": "AWS Region",
+                "usagetype": "USW2-SynthesizeSpeech-Characters",
+                "operation": "",
+                "engine": "Standard",
+                "regionCode": "us-west-2",
+                "servicename": "Amazon Polly"
+            }
+        }
+    },
+    "terms": {
+        "OnDemand": {
+            "9NHBTCP8TY24SED9": {
+                "9NHBTCP8TY24SED9.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "9NHBTCP8TY24SED9",
+                    "effectiveDate": "2026-05-01T00:00:00Z",
+                    "priceDimensions": {
+                        "9NHBTCP8TY24SED9.JRTCKXETXF.6YS6EN2CT7": {
+                            "rateCode": "9NHBTCP8TY24SED9.JRTCKXETXF.6YS6EN2CT7",
+                            "description": "$16 per million characters for SynthesizeSpeechNeural-Characters in US West (Oregon)",
+                            "beginRange": "0",
+                            "endRange": "Inf",
+                            "unit": "Characters",
+                            "pricePerUnit": {
+                                "USD": "0.0000160000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            },
+            "VZ4D3PNAPQ5WMXJ8": {
+                "VZ4D3PNAPQ5WMXJ8.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "VZ4D3PNAPQ5WMXJ8",
+                    "effectiveDate": "2026-05-01T00:00:00Z",
+                    "priceDimensions": {
+                        "VZ4D3PNAPQ5WMXJ8.JRTCKXETXF.6YS6EN2CT7": {
+                            "rateCode": "VZ4D3PNAPQ5WMXJ8.JRTCKXETXF.6YS6EN2CT7",
+                            "description": "$30.00 per million Characters for Synthesize Speech Generative in US West (Oregon)",
+                            "beginRange": "0",
+                            "endRange": "Inf",
+                            "unit": "Characters",
+                            "pricePerUnit": {
+                                "USD": "0.0000300000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            },
+            "XZARWA3E77CTTW3A": {
+                "XZARWA3E77CTTW3A.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "XZARWA3E77CTTW3A",
+                    "effectiveDate": "2026-05-01T00:00:00Z",
+                    "priceDimensions": {
+                        "XZARWA3E77CTTW3A.JRTCKXETXF.6YS6EN2CT7": {
+                            "rateCode": "XZARWA3E77CTTW3A.JRTCKXETXF.6YS6EN2CT7",
+                            "description": "$4 per million characters",
+                            "beginRange": "0",
+                            "endRange": "Inf",
+                            "unit": "Characters",
+                            "pricePerUnit": {
+                                "USD": "0.0000040000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            },
+            "72CUXERTVPEGPMWC": {
+                "72CUXERTVPEGPMWC.JRTCKXETXF": {
+                    "offerTermCode": "JRTCKXETXF",
+                    "sku": "72CUXERTVPEGPMWC",
+                    "effectiveDate": "2026-05-01T00:00:00Z",
+                    "priceDimensions": {
+                        "72CUXERTVPEGPMWC.JRTCKXETXF.6YS6EN2CT7": {
+                            "rateCode": "72CUXERTVPEGPMWC.JRTCKXETXF.6YS6EN2CT7",
+                            "description": "$0.00 per Character for SynthesizeSpeechGenerative in US West (Oregon)",
+                            "beginRange": "0",
+                            "endRange": "Inf",
+                            "unit": "Characters",
+                            "pricePerUnit": {
+                                "USD": "0.0000000000"
+                            },
+                            "appliesTo": []
+                        }
+                    },
+                    "termAttributes": {}
+                }
+            }
+        }
+    },
+    "attributesList": {}
+}

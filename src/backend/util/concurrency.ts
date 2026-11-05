@@ -94,3 +94,48 @@ export async function runWithConcurrencyLimitSettled<TInput, TOutput>(
     await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
     return results;
 }
+
+/**
+ * For a promise started before the code that needs it: marks it handled, so an
+ * early return or throw that never awaits it doesn't leave an unhandled
+ * rejection. Its rejection still surfaces where it is awaited.
+ */
+export function awaitLater<T>(promise: Promise<T>): Promise<T> {
+    void (async () => {
+        try {
+            await promise;
+        } catch {
+            // Surfaced where awaited.
+        }
+    })();
+    return promise;
+}
+
+/**
+ * Waits for `promise` for at most `ms`, without rejecting. Resolves `true` if
+ * it settled in time, `false` if the time ran out first.
+ */
+export async function settleWithin(
+    promise: Promise<unknown>,
+    ms: number,
+): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const settled = async () => {
+        try {
+            await promise;
+        } catch {
+            // Callers report work failures.
+        }
+        return true;
+    };
+    try {
+        return await Promise.race([
+            settled(),
+            new Promise<boolean>((resolve) => {
+                timer = setTimeout(() => resolve(false), ms);
+            }),
+        ]);
+    } finally {
+        clearTimeout(timer);
+    }
+}

@@ -44,6 +44,20 @@ export class BroadcastService extends Service {
         }
     }
 
+    // Send a 'broadcast' message to the SDK app in one window, at its origin.
+    sendBroadcastToWindow (el_window, name, data) {
+        const iframe = $(el_window).find('.window-app-iframe[data-appUsesSDK=true]').get(0);
+        if ( ! iframe?.contentWindow ) return false;
+        let origin;
+        try {
+            origin = new URL(iframe.src).origin;
+        } catch ( e ) {
+            return false;
+        }
+        iframe.contentWindow.postMessage({ msg: 'broadcast', name, data }, origin);
+        return true;
+    }
+
     // Send all saved broadcast messages to the given app instance.
     sendSavedBroadcastsTo (appInstanceID) {
         const iframe = $(`.window[data-element_uuid="${appInstanceID}"] .window-app-iframe[data-appUsesSDK=true]`).get(0);

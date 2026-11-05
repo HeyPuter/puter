@@ -122,15 +122,24 @@ export const toSummary = (entry, folder) => {
 };
 
 /**
- * Where a listing resumes: the day folder being walked and, while it still has
- * pages, the readdir cursor within it.
+ * Where a listing resumes: the day folder being walked; while it still has
+ * pages, the readdir cursor within it; and the readdir cursor of the page of
+ * day folders that day was read from, so resuming does not re-list every day
+ * newer than it. A cursor without that last part (issued before it existed)
+ * walks the days from the top, which is only slower.
  *
- * @typedef {{ folder: EmailFolder, day: string, fsCursor?: string }} ListPosition
+ * @typedef {{ folder: EmailFolder, day: string, fsCursor?: string, daysCursor?: string }} ListPosition
  */
 
 /** @param {ListPosition} position @returns {string} */
-export const encodeCursor = ({ folder, day, fsCursor }) => {
-    const payload = { v: 1, f: folder, d: day, ...(fsCursor ? { c: fsCursor } : {}) };
+export const encodeCursor = ({ folder, day, fsCursor, daysCursor }) => {
+    const payload = {
+        v: 1,
+        f: folder,
+        d: day,
+        ...(fsCursor ? { c: fsCursor } : {}),
+        ...(daysCursor ? { dc: daysCursor } : {}),
+    };
     return btoa(JSON.stringify(payload));
 };
 
@@ -153,7 +162,12 @@ export const decodeCursor = (cursor, folder) => {
     if ( payload.f !== folder ) {
         throw new PuterJSError('Cursor does not match the requested folder', 'invalid_request');
     }
-    return { folder, day: payload.d, ...(typeof payload.c === 'string' ? { fsCursor: payload.c } : {}) };
+    return {
+        folder,
+        day: payload.d,
+        ...(typeof payload.c === 'string' ? { fsCursor: payload.c } : {}),
+        ...(typeof payload.dc === 'string' ? { daysCursor: payload.dc } : {}),
+    };
 };
 
 /** A readdir on a folder that was never created. @param {unknown} e */

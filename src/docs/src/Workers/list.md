@@ -35,7 +35,7 @@ When the request includes any pagination option, the promise instead resolves to
 - `cursor` (String) (optional): Present while more pages exist; pass it to the next call.
 - `total` (Number) (optional): Present when `includeTotal` was set.
 
-Requests without pagination params keep returning the full list as a plain array, so existing code is unaffected — under the hood the SDK now fetches it page by page.
+Without pagination params, the full list is returned as a plain array.
 
 With `stream: true`, the method returns an async iterator of page objects instead:
 

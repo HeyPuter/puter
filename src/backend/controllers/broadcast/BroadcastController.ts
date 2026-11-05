@@ -19,6 +19,7 @@
 
 import type { Request, Response } from 'express';
 import { Controller, Post } from '../../core/http/decorators.js';
+import { schedulesUnavailable } from '../../core/schedules.js';
 import type { BroadcastService } from '../../services/broadcast/BroadcastService.js';
 import type { ForwardBatch } from '../../services/events/forwardQueue.js';
 import { PuterController } from '../types.js';
@@ -73,8 +74,8 @@ export class BroadcastController extends PuterController {
     /**
      * Event deliveries one region addressed at this one, on the same signed
      * channel as the webhook above but carrying socket traffic rather than bus
-     * events. The answer names the pairs this region holds no socket for, which
-     * is what lets the sender correct its presence row.
+     * events. The answer names the anchor tokens this region holds no session
+     * row for, which is what lets the sender prune its remote-watch index.
      */
     @Post('/events', { subdomain: '*' })
     async events(req: Request, res: Response): Promise<void> {
@@ -106,6 +107,42 @@ export class BroadcastController extends PuterController {
             (req.body ?? {}) as ForwardBatch,
             verified.peerId ?? '',
         );
+        res.status(200).json({ ok: true, ...reply });
+    }
+
+    /**
+     * Schedule changes a region made for schedules this one owns, handed to
+     * `services.schedules`; `events_disabled` on a server without it.
+     */
+    @Post('/events/schedules', { subdomain: '*' })
+    async schedules(req: Request, res: Response): Promise<void> {
+        const broadcast = this.services.broadcast as unknown as
+            BroadcastService | undefined;
+        if (!broadcast) {
+            res.status(503).json({
+                error: { message: 'Broadcast service not registered' },
+            });
+            return;
+        }
+
+        const verified = await broadcast.verifySignedRequest(
+            req.rawBody,
+            broadcastHeaders(req),
+        );
+        if (!verified.ok) {
+            res.status(verified.status ?? 400).json({
+                error: { message: verified.message ?? 'Bad request' },
+            });
+            return;
+        }
+        if (verified.info?.ignored) {
+            res.status(200).json({ ok: true, ...verified.info });
+            return;
+        }
+
+        const schedules = this.services.schedules;
+        if (!schedules) throw schedulesUnavailable();
+        const reply = await schedules.receivePeerChanges(req.body);
         res.status(200).json({ ok: true, ...reply });
     }
 }

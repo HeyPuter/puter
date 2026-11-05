@@ -21,4 +21,4 @@ The provider this engine belongs to, e.g. `'aws-polly'`, `'openai'`, `'elevenlab
 
 #### `pricing_per_million_chars` (Number)
 
-An optional cost per million characters. May be absent when the provider does not expose pricing.
+An optional cost in US dollars per million characters. May be absent when the provider does not expose pricing.

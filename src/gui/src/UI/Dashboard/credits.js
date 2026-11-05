@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { intlLocale } from '../../i18n/intlLocale.js';
+
 /**
  * Usage renders in credits, a display unit the SERVER scales amounts into
  * before they leave the API (a deployment-config multiplier the client never
@@ -24,6 +26,15 @@
  * 'credits'` means every monetary field is already in credits; absent means
  * raw amounts from a deployment with no multiplier, rendered as dollars.
  */
+
+// In the dashboard's language: "5,000" reads as five in German.
+const numberFormat = (options) => {
+    try {
+        return new Intl.NumberFormat(intlLocale(globalThis.window?.locale ?? 'en'), options);
+    } catch {
+        return new Intl.NumberFormat('en', options);
+    }
+};
 
 /** Whether a `getMonthlyUsage()` response reports credits. */
 export const usageIsCredits = (allowanceInfo) =>
@@ -42,21 +53,19 @@ export const formatCredits = (credits) => {
     const value = Number.isFinite(credits) ? credits : 0;
     if (value < 0) return `-${formatCredits(-value)}`;
     if (value <= 0) return '0';
-    if (value >= 100) {
-        return Math.round(value).toLocaleString('en-US');
-    }
-    if (value >= 1) {
-        // Trim trailing zeros so "2.50" reads as "2.5" and "9.00" as "9".
-        return String(Number(value.toFixed(2)));
-    }
-    return value < 0.01 ? '<0.01' : String(Number(value.toFixed(2)));
+    if (value < 0.01) return `<${numberFormat({}).format(0.01)}`;
+    // Trailing zeros go, so 2.50 reads as "2.5" and 9.00 as "9".
+    return numberFormat({ maximumFractionDigits: value >= 100 ? 0 : 2 }).format(value);
 };
 
-/** Dollar rendering for deployments that report raw (unscaled) amounts. */
+/**
+ * Dollar rendering for deployments that report raw (unscaled) amounts. Like
+ * `formatCredits`, a nonzero amount under a cent shows as "<$0.01", not "$0.00".
+ */
 export const formatDollarsFromMicrocents = (microcents) => {
     const mc = Number.isFinite(microcents) ? microcents : 0;
-    return window.number_format(mc / 100_000_000, {
-        decimals: 2,
-        prefix: '$',
-    });
+    const dollars = mc / 100_000_000;
+    const format = numberFormat({ style: 'currency', currency: 'USD' });
+    if ( dollars !== 0 && Math.abs(dollars) < 0.005 ) return `${dollars < 0 ? '-' : ''}<${format.format(0.01)}`;
+    return format.format(dollars);
 };

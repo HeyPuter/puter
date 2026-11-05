@@ -39,13 +39,16 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { type Actor, makeActor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
+import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import { BYTEPLUS_VIDEO_GENERATION_MODELS } from './models.js';
 import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { BytePlusVideoProvider } from './BytePlusVideoProvider.js';
+import { translateProviderError } from '../../../../controllers/drivers/DriverController.js';
 
 // -- Test harness ----------------------------------------------------
 
@@ -62,6 +65,14 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
+/** Metering as the driver hands it to its providers. */
+const aiMetering = () =>
+    withAiCostFactor(
+        server.services.metering,
+        server.clients.event,
+        'ai-video',
+    );
+
 const makeProvider = (
     config: { apiKey?: string; apiBaseUrl?: string } = {},
 ) =>
@@ -71,7 +82,7 @@ const makeProvider = (
             ...(config.apiBaseUrl ? { apiBaseUrl: config.apiBaseUrl } : {}),
             pollIntervalMs: 1,
         },
-        server.services.metering,
+        aiMetering(),
     );
 
 beforeEach(() => {
@@ -127,11 +138,7 @@ const findModel = (id: string) =>
 describe('BytePlusVideoProvider construction and catalog', () => {
     it('throws when no apiKey is supplied', () => {
         expect(
-            () =>
-                new BytePlusVideoProvider(
-                    { apiKey: '' },
-                    server.services.metering,
-                ),
+            () => new BytePlusVideoProvider({ apiKey: '' }, aiMetering()),
         ).toThrow(/API key/i);
     });
 
@@ -150,6 +157,14 @@ describe('BytePlusVideoProvider construction and catalog', () => {
         expect(await makeProvider().models()).toBe(
             BYTEPLUS_VIDEO_GENERATION_MODELS,
         );
+    });
+    it('drops seedance 1.5 pro, which ModelArk has retired', async () => {
+        const ids = (await makeProvider().models()).flatMap((m) => [
+            m.id,
+            ...(m.aliases ?? []),
+        ]);
+        expect(ids).not.toContain('seedance-1-5-pro-251215');
+        expect(ids).not.toContain('seedance-1-5-pro');
     });
 });
 
@@ -176,10 +191,11 @@ describe('BytePlusVideoProvider.generate gates', () => {
     });
 
     it('throws 402 BEFORE creating a task when even the shortest clip is unaffordable', async () => {
-        remainingUsageSpy.mockResolvedValue(0);
-        await expect(
-            withTestActor(() => makeProvider().generate({ prompt: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: 402 });
+        remainingUsageSpy.mockResolvedValue(12345);
+        const error = await withTestActor(() => makeProvider().generate({ prompt: 'hi' })).catch(error => error);
+        expect(error).toMatchObject({ statusCode: 402, legacyCode: 'insufficient_funds' });
+        expect(JSON.stringify(error)).not.toContain('12345');
+        expect(error.message).not.toContain('12345');
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 });
@@ -379,25 +395,33 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
         expect(fetchSpy).toHaveBeenCalledTimes(4); // 1 create + 3 polls
     });
 
-    it('gives up after the wait window as HttpError 504 upstream_timeout, without metering', async () => {
+    it('gives up after the wait window as HttpError 504 upstream_timeout, metering the task once it settles', async () => {
         vi.useFakeTimers();
         try {
+            let late: Record<string, unknown> = {
+                id: 'cgt-slow',
+                status: 'running',
+            };
             fetchSpy
                 .mockResolvedValueOnce(
                     jsonResponse({ id: 'cgt-slow', status: 'queued' }),
                 )
-                .mockImplementation(async () =>
-                    jsonResponse({ id: 'cgt-slow', status: 'running' }),
-                );
+                .mockImplementation(async () => jsonResponse(late));
             // The default poll interval keeps the window to ~60 polls.
             const provider = new BytePlusVideoProvider(
                 { apiKey: 'test-key' },
-                server.services.metering,
+                aiMetering(),
             );
 
-            const rejection = withTestActor(() =>
-                provider.generate({ prompt: 'hi' }),
-            ).catch((e: unknown) => e);
+            const rejection = (async () => {
+                try {
+                    await withTestActor(() =>
+                        provider.generate({ prompt: 'hi' }),
+                    );
+                } catch (e) {
+                    return e;
+                }
+            })();
 
             // Ten-minute wait window, polled every 5s.
             await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
@@ -409,7 +433,21 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
                     'Timed out waiting for BytePlus video generation to complete',
                 fields: { provider: 'byteplus' },
             });
+            // BytePlus still renders and bills the task past the window.
             expect(incrementUsageSpy).not.toHaveBeenCalled();
+            late = {
+                id: 'cgt-slow',
+                status: 'succeeded',
+                content: { video_url: 'https://byteplus.example/v.mp4' },
+                usage: { completion_tokens: 1234 },
+            };
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+            const [, usageType, tokens, cost] =
+                incrementUsageSpy.mock.calls[0]!;
+            expect(usageType).toMatch(/^byteplus-video-generation:/);
+            expect(tokens).toBe(1234);
+            expect(cost).toBeGreaterThan(0);
         } finally {
             vi.useRealTimers();
         }
@@ -448,13 +486,77 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('maps upstream 5xx on create to a 502', async () => {
+    /** The failure as `/drivers/call` hands it to the caller. */
+    const callerError = async (): Promise<unknown> => {
+        try {
+            await withTestActor(() =>
+                makeProvider().generate({ prompt: 'hi' }),
+            );
+        } catch (e) {
+            return translateProviderError(e);
+        }
+        throw new Error('expected generate to reject');
+    };
+
+    const arkError = (code: string, message: string, status: number) =>
+        jsonResponse({ error: { code, message } }, status);
+
+    it.each([
+        [
+            429,
+            'RateLimitExceeded.EndpointRPMExceeded',
+            429,
+            'upstream_rate_limited',
+        ],
+        [401, 'AuthenticationError', 500, 'upstream_auth_failed'],
+        [403, 'AccessDenied', 500, 'upstream_auth_failed'],
+        [500, 'InternalServiceError', 400, 'upstream_provider_unavailable'],
+        [400, 'InvalidParameter', 400, 'upstream_bad_request'],
+    ])(
+        'maps an upstream %i (%s) on create to %i %s',
+        async (upstreamStatus, upstreamCode, statusCode, legacyCode) => {
+            fetchSpy.mockResolvedValueOnce(
+                arkError(upstreamCode, 'nope', upstreamStatus),
+            );
+            expect(await callerError()).toMatchObject({
+                statusCode,
+                legacyCode,
+                fields: { provider: 'byteplus', upstreamStatus, upstreamCode },
+            });
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([429, 503])(
+        'retries a status poll that returns %i and finishes the job',
+        async (status) => {
+            mockTaskFlow();
+            fetchSpy.mockResolvedValueOnce(
+                arkError('Busy', 'try later', status),
+            );
+            fetchSpy.mockResolvedValueOnce(jsonResponse(succeededTask()));
+
+            const result = await withTestActor(() =>
+                makeProvider().generate({ prompt: 'hi' }),
+            );
+
+            expect(result).toBe('https://ark.example/video.mp4');
+            expect(fetchSpy).toHaveBeenCalledTimes(3);
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it('does not retry a status poll rejected for auth', async () => {
+        mockTaskFlow();
         fetchSpy.mockResolvedValueOnce(
-            jsonResponse({ error: { message: 'boom' } }, 500),
+            arkError('AuthenticationError', 'bad key', 401),
         );
-        await expect(
-            withTestActor(() => makeProvider().generate({ prompt: 'hi' })),
-        ).rejects.toMatchObject({ statusCode: 502 });
+        expect(await callerError()).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+        });
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
     });
 });
 
@@ -480,26 +582,6 @@ describe('BytePlusVideoProvider.generate metering', () => {
         );
     });
 
-    it('bills seedance 1.5 pro at the silent rate when generate_audio is false', async () => {
-        mockTaskFlow(succeededTask());
-        await withTestActor(() =>
-            makeProvider().generate({
-                model: 'seedance-1-5-pro',
-                prompt: 'hi',
-                generate_audio: false,
-            }),
-        );
-        expect(sentBody().generate_audio).toBe(false);
-        const model = findModel('seedance-1-5-pro-251215');
-        const rate = model.costs!['video_tokens:silent'];
-        expect(incrementUsageSpy).toHaveBeenCalledWith(
-            expect.anything(),
-            'byteplus-video-generation:seedance-1-5-pro-251215:video_tokens:silent',
-            108_000,
-            108_000 * rate * 1_000_000,
-        );
-    });
-
     it('clamps the clip to what remaining credit buys', async () => {
         // seedance 2.0 mini @720p: 1280×720×24/1024 = 21600 tokens/s at
         // 0.00035¢/token → 7.56¢/s. Grant ~15¢ ≈ 2s... below the 4s
@@ -518,6 +600,54 @@ describe('BytePlusVideoProvider.generate metering', () => {
                 makeProvider().generate({ prompt: 'hi', seconds: 10 }),
             ),
         ).rejects.toMatchObject({ statusCode: 402 });
+    });
+
+    const holdUser = (name: string) =>
+        makeActor({
+            user: {
+                id: 102,
+                uuid: `ark-video-${name}-${Date.now()}`,
+                username: name,
+            },
+        });
+    const outstanding = (actor: Actor) =>
+        server.stores.creditHold.outstanding(actor.user!.uuid);
+
+    it('holds the clamped clip while the task runs and releases it after', async () => {
+        // seedance 2.0 mini @720p: 7.56 cents/s.
+        const perSecondMicroCents = 21_600 * 0.00035 * 1_000_000;
+        const actor = holdUser('hold');
+        let heldWhilePolling = -1;
+        fetchSpy.mockResolvedValueOnce(jsonResponse({ id: 'cgt-test-1' }));
+        fetchSpy.mockImplementationOnce(async () => {
+            heldWhilePolling = await outstanding(actor);
+            return jsonResponse(succeededTask());
+        });
+
+        await withTestActor(
+            () => makeProvider().generate({ prompt: 'hi', seconds: 5 }),
+            actor,
+        );
+
+        expect(heldWhilePolling).toBe(Math.round(5 * perSecondMicroCents));
+        expect(await outstanding(actor)).toBe(0);
+    });
+
+    it('releases the hold when the task fails', async () => {
+        const actor = holdUser('fail');
+        mockTaskFlow({
+            id: 'cgt-test-1',
+            status: 'failed',
+            error: { code: 'InternalError', message: 'boom' },
+        });
+
+        await expect(
+            withTestActor(
+                () => makeProvider().generate({ prompt: 'hi' }),
+                actor,
+            ),
+        ).rejects.toMatchObject({ statusCode: 502 });
+        expect(await outstanding(actor)).toBe(0);
     });
 });
 

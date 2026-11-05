@@ -26,7 +26,7 @@ const sl = {
         account: 'Račun',
         account_password: 'Potrdite geslo računa',
         access_granted_to: 'Dostop odobren za',
-        add_existing_account: 'Dodaj obstoječi račun',
+        add_another_account: 'Dodaj drug račun',
         all_fields_required: 'Vsa polja so obvezna.',
         allow: 'Dovoli',
         apply: 'Uporabi',

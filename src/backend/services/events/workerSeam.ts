@@ -17,8 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { EventsWorkerInvokerClient } from '../../clients/events/EventsWorkerInvokerClient.js';
-import type { DeliverableEvent } from './registry.js';
+import type {
+    EventsWorkerInvokerClient,
+    WorkerInvokeOptions,
+} from '../../clients/events/EventsWorkerInvokerClient.js';
+import type { Actor } from '../../core/actor.js';
+import type { HandlerScopeKind } from '../../stores/events/types.js';
+import type { DeliverableEvent, ScheduleEvent } from './registry.js';
+
+export type { ScheduleEvent } from './registry.js';
 
 /**
  * Where a delivery leaves the event system for the app's own code.
@@ -36,24 +43,43 @@ export interface WorkerInvocation {
     /** The app whose handler runs, or null for an account-owned row. */
     appUid: string | null;
     handlerName: string | null;
-    event: DeliverableEvent;
+    /** Whose handler set `handlerName` is in: absent means the app's own. */
+    handlerScope?: HandlerScopeKind;
+    event: DeliverableEvent | ScheduleEvent;
     /** The subscription's stored context, delivered to the handler as `ctx`. */
     context: string | null;
     /** Handler runs behind `event`; the token this run is handed is one deeper. */
     handlerDepth: number;
+    /** The holder acting as the app, when the caller resolved it already. */
+    actor?: Actor;
 }
 
 /**
  * `settled`: delivered. `terminal`: handler refused, not retried. `retriable`:
- * nobody answered, comes back. `deferred`: nothing attempted. Both failures
- * count toward the run that suspends a subscription.
+ * the handler failed, comes back. `unavailable`: Puter could not run it, comes
+ * back. `deferred`: nothing attempted. Only `terminal` and `retriable` count
+ * toward the run that suspends a subscription.
  */
 export type WorkerInvocationOutcome =
-    'settled' | 'terminal' | 'retriable' | 'deferred';
+    'settled' | 'terminal' | 'retriable' | 'unavailable' | 'deferred';
+
+export interface WorkerInvocationResult {
+    outcome: WorkerInvocationOutcome;
+    /** Least wait before the next attempt, when the answer named one. */
+    retryAfterMs?: number;
+}
 
 export interface WorkerInvokerSeam {
-    invoke(invocation: WorkerInvocation): Promise<WorkerInvocationOutcome>;
+    invoke(invocation: WorkerInvocation): Promise<WorkerInvocationResult>;
+    /** Whether this seam can take an invocation at all. Absent means yes. */
+    available?(): boolean;
 }
+
+/**
+ * Why no token could be minted: nobody to run as, no consent to, or the mint
+ * itself failed.
+ */
+export type MintRefusal = 'no-identity' | 'no-consent' | 'mint-failed';
 
 /**
  * Mints the subscriber's app-under-user token for one invocation. The
@@ -62,15 +88,35 @@ export interface WorkerInvokerSeam {
  */
 export type SubscriberTokenMinter = (
     invocation: WorkerInvocation,
-) => Promise<string | null>;
+) => Promise<{ token: string } | { refused: MintRefusal }>;
+
+/** Where the handler set is read from when its cache misses. */
+export interface AddressOptions {
+    missRead?: 'primary' | 'replica';
+    /** A handler the set must have; a set without it is re-read on the primary. */
+    handlerName?: string;
+    /** Absent means the app's own set. */
+    handlerScope?: HandlerScopeKind;
+    /** The user whose scope it is, for `handlerScope: 'user'`. */
+    holderUserId?: number;
+}
 
 /**
- * The script an app's handlers deploy as and its invocation key; null when the
- * app has no handlers or no events secret is configured.
+ * The script a handler deploys as and its invocation key; null when it has none
+ * to run, no events secret is configured, or (in a user scope) the holder is
+ * gone or suspended. `holder` is the holder's uuid, for a user scope.
  */
 export type EventsWorkerAddresser = (
     appUid: string,
-) => Promise<{ script: string; key: string } | null>;
+    options?: AddressOptions,
+) => Promise<{ script: string; key: string; holder?: string } | null>;
+
+/** What one run came to, including why nothing was invoked. */
+export type WorkerRunResult =
+    WorkerInvocationResult | { outcome: MintRefusal | 'deploy-busy' };
+
+/** How {@link EventsWorkerInvoker.run} reaches the worker. */
+export type WorkerRunOptions = WorkerInvokeOptions & AddressOptions;
 
 /** How often the same script's retriable failures are logged. */
 const WARN_INTERVAL_MS = 60_000;
@@ -87,6 +133,8 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
     readonly #client: Pick<EventsWorkerInvokerClient, 'invoke'>;
     readonly #mintToken: SubscriberTokenMinter;
     readonly #address: EventsWorkerAddresser;
+    readonly #available: () => boolean;
+    readonly #userHandlersEnabled: () => boolean;
     /**
      * Script -> when it was last logged, so a failing script floods once a
      * minute.
@@ -97,39 +145,95 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
         client: Pick<EventsWorkerInvokerClient, 'invoke'>,
         mintToken: SubscriberTokenMinter,
         address: EventsWorkerAddresser,
+        available: () => boolean,
+        userHandlersEnabled: () => boolean = () => true,
     ) {
         this.#client = client;
         this.#mintToken = mintToken;
         this.#address = address;
+        this.#available = available;
+        this.#userHandlersEnabled = userHandlersEnabled;
+    }
+
+    available(): boolean {
+        return this.#available();
     }
 
     async invoke(
         invocation: WorkerInvocation,
-    ): Promise<WorkerInvocationOutcome> {
+    ): Promise<WorkerInvocationResult> {
+        const result = await this.run(invocation);
+        switch (result.outcome) {
+            // Nothing was attempted.
+            case 'no-identity':
+            case 'no-consent':
+            case 'mint-failed':
+                return { outcome: 'deferred' };
+            case 'deploy-busy':
+                return { outcome: 'unavailable' };
+            default:
+                return result;
+        }
+    }
+
+    /** {@link invoke}, saying why nothing was invoked. */
+    async run(
+        invocation: WorkerInvocation,
+        options: WorkerRunOptions = {},
+    ): Promise<WorkerRunResult> {
         const { appUid, handlerName } = invocation;
-        if (!appUid || !handlerName) return 'deferred';
+        if (!appUid || !handlerName) return { outcome: 'deferred' };
+        if (!this.#available()) return { outcome: 'unavailable' };
+        // Owed, not failed: nothing resolves a user scope while it is off.
+        const { handlerScope } = invocation;
+        if (handlerScope === 'user' && !this.#userHandlersEnabled())
+            return { outcome: 'unavailable' };
 
-        const token = await this.#mintToken(invocation);
-        if (token === null) return 'deferred';
+        const minted = await this.#mintToken(invocation);
+        if ('refused' in minted) return { outcome: minted.refused };
 
-        // Nowhere to send it yet. Retriable rather than terminal: the address
-        // is the platform's to provide, and the app has done nothing wrong —
-        // the consecutive-failure rule is what stops this retrying forever.
-        const address = await this.#address(appUid);
-        if (address === null) return 'retriable';
-
-        const result = await this.#client.invoke({
-            script: address.script,
-            key: address.key,
-            appUid,
-            handler: handlerName,
-            token,
-            event: invocation.event,
-            ctx: parseContext(invocation.context),
+        // Nowhere to send it: the app has no handlers or no owner to run them
+        // as. Retrying cannot fix that, so the consecutive-failure rule is what
+        // stops it.
+        const address = await this.#address(appUid, {
+            missRead: options.missRead,
+            handlerName,
+            ...(handlerScope === 'user'
+                ? { handlerScope, holderUserId: invocation.holderUserId }
+                : {}),
         });
-        if (result.outcome === 'retriable' && result.error)
+        if (address === null) return { outcome: 'retriable' };
+
+        const result = await this.#client.invoke(
+            {
+                script: address.script,
+                key: address.key,
+                appUid,
+                ...(address.holder ? { holder: address.holder } : {}),
+                handler: handlerName,
+                token: minted.token,
+                event: invocation.event,
+                ctx: parseContext(invocation.context),
+            },
+            {
+                lane: options.lane,
+                stampEvent: options.stampEvent,
+                beforeSend: options.beforeSend,
+            },
+        );
+        if (result.deployBusy) return { outcome: 'deploy-busy' };
+        if (
+            (result.outcome === 'retriable' ||
+                result.outcome === 'unavailable') &&
+            result.error
+        )
             this.#warnRetriable(address.script, appUid, result.error);
-        return result.outcome;
+        return {
+            outcome: result.outcome,
+            ...(result.retryAfterMs
+                ? { retryAfterMs: result.retryAfterMs }
+                : {}),
+        };
     }
 
     #warnRetriable(script: string, appUid: string, error: string): void {
@@ -169,9 +273,9 @@ const RECORDED_INVOCATIONS = 100;
 export class RecordingWorkerInvoker implements WorkerInvokerSeam {
     readonly recorded: WorkerInvocation[] = [];
 
-    invoke(invocation: WorkerInvocation): Promise<WorkerInvocationOutcome> {
+    invoke(invocation: WorkerInvocation): Promise<WorkerInvocationResult> {
         this.recorded.push(invocation);
         if (this.recorded.length > RECORDED_INVOCATIONS) this.recorded.shift();
-        return Promise.resolve('deferred');
+        return Promise.resolve({ outcome: 'deferred' });
     }
 }

@@ -25,12 +25,13 @@ export class Debug {
             this.puter.logger.on(category);
         }
 
-        globalThis.addEventListener('message', async e => {
+        globalThis.addEventListener('message', e => {
             // Ensure message is from parent window
             if ( e.source !== globalThis.parent ) return;
             // (parent window is allowed to be anything)
 
             // Check if it's a debug message
+            if ( ! e.data || typeof e.data !== 'object' ) return;
             if ( ! e.data.$ ) return;
             if ( e.data.$ !== 'puterjs-debug' ) return;
 

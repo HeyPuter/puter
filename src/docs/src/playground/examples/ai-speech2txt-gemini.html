@@ -1,0 +1,19 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const transcript = await puter.ai.speech2txt({
+                file: 'https://assets.puter.site/example.mp3',
+                provider: 'gemini',
+                language: 'en',
+                diarize: true
+            });
+            puter.print('Transcript: ' + transcript.text);
+            transcript.words.forEach(w => {
+                puter.print('  ' + w.start.toFixed(2) + 's - ' + w.end.toFixed(2) + 's ' + (w.speaker ?? '') + ': ' + w.text);
+            });
+        })();
+    </script>
+</body>
+</html>

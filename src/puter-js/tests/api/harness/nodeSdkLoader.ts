@@ -56,10 +56,10 @@ const sdkScript = (): vm.Script => {
 };
 
 /**
- * Load the built puter.js bundle into a fresh vm context — the same
- * technique as `src/init.cjs`, but parameterized on the test env and
- * isolated per call so each invocation gets an independent SDK instance
- * (own localStorage shim, own auth state).
+ * Load the built puter.js bundle into a fresh vm context — the same technique
+ * as `src/init.cjs`, but parameterized on the test env and isolated per call so
+ * each invocation gets an independent SDK instance (own localStorage shim, own
+ * auth state).
  */
 export const loadNodePuter = (env: EnvManifest, token: string): PuterSDK => {
     const context: Record<string, unknown> = {};
@@ -83,4 +83,19 @@ export const loadNodePuter = (env: EnvManifest, token: string): PuterSDK => {
     const puter = context.puter as PuterSDK;
     puter.setAuthToken(token);
     return puter;
+};
+
+type SdkSockets = {
+    fs?: { socket?: { disconnect: () => void } };
+    events?: { channel?: { close: () => void } };
+};
+
+/**
+ * A vm context never closes its sockets, and each one holds a server connection
+ * slot.
+ */
+export const closeNodePuter = (puter: PuterSDK): void => {
+    const sockets = puter as unknown as SdkSockets;
+    sockets.events?.channel?.close();
+    sockets.fs?.socket?.disconnect();
 };

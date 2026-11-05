@@ -19,8 +19,36 @@
 
 import type { IChatModel } from '../../types.js';
 
-// Hardcoded from https://models.dev/api.json and https://docs.mistral.ai/models/overview
+// Standard rates: https://docs.mistral.ai/inference/pricing
 export const MISTRAL_MODELS: IChatModel[] = [
+    {
+        puterId: 'mistralai:mistralai/mistral-large-4',
+        id: 'mistral-large-4',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-10-06',
+        name: 'Mistral Large 4',
+        aliases: [
+            'mistral-large-4-0',
+            'mistralai/mistral-large-4',
+            'mistralai/mistral-large-4-0',
+        ],
+        context: 1_000_000,
+        max_tokens: 1_000_000,
+        description:
+            'Public-preview multimodal model for reasoning, coding, and agentic workflows; open weights are forthcoming.',
+        provider: 'mistral',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 136,
+            cached_tokens: 14,
+            completion_tokens: 418,
+        },
+    },
     {
         puterId: 'mistralai:mistralai/mistral-medium-2604',
         id: 'mistral-medium-2604',
@@ -50,7 +78,38 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 150,
+            cached_tokens: 15,
             completion_tokens: 750,
+        },
+    },
+    {
+        puterId: 'mistralai:mistralai/mistral-large-2512',
+        id: 'mistral-large-2512',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2025-12',
+        release_date: '2025-12-02',
+        name: 'Mistral Large 3',
+        aliases: [
+            'mistral-large-latest',
+            'mistral-large',
+            'mistralai/mistral-large-latest',
+            'mistralai/mistral-large-2512',
+        ],
+        context: 262_144,
+        max_tokens: 262_144,
+        description:
+            'State-of-the-art, open-weight, general-purpose multimodal model.',
+        provider: 'mistral',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 50,
+            cached_tokens: 5,
+            completion_tokens: 150,
         },
     },
     {
@@ -79,7 +138,32 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 15,
+            cached_tokens: 1.5,
             completion_tokens: 60,
+        },
+    },
+    {
+        puterId: 'mistralai:mistralai/zai-glm-5-3',
+        id: 'zai-glm-5-3',
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        release_date: '2026-08-14',
+        name: 'Z.ai GLM 5.3',
+        aliases: ['zai-glm-5', 'zai-glm-latest'],
+        context: 1_000_000,
+        max_tokens: 131_072,
+        description:
+            'Third-party open-source model from Z.ai, hosted by Mistral for long-horizon coding and agentic workflows.',
+        provider: 'mistral',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 140,
+            cached_tokens: 14,
+            completion_tokens: 440,
         },
     },
     {
@@ -91,7 +175,11 @@ export const MISTRAL_MODELS: IChatModel[] = [
         knowledge: '2025-08',
         release_date: '2025-08-29',
         name: 'Codestral',
-        aliases: ['codestral-latest', 'mistralai/codestral-2508'],
+        aliases: [
+            'codestral-latest',
+            'mistral-code-latest',
+            'mistralai/codestral-2508',
+        ],
         context: 256_000,
         max_tokens: 256_000,
         description:
@@ -103,34 +191,8 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30,
+            cached_tokens: 3,
             completion_tokens: 90,
-        },
-    },
-    {
-        puterId: 'mistralai:mistralai/magistral-small-latest',
-        id: 'magistral-small-latest',
-        modalities: { input: ['text'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2025-06',
-        release_date: '2025-09-01',
-        name: 'Magistral Small',
-        aliases: [
-            'magistral-small-2509',
-            'mistralai/magistral-small-2509',
-            'mistralai/magistral-small-latest',
-        ],
-        context: 131_072,
-        max_tokens: 131_072,
-        description: 'Efficient open-weight reasoning model.',
-        provider: 'mistral',
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 50,
-            completion_tokens: 150,
         },
     },
     {
@@ -154,6 +216,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 20,
+            cached_tokens: 2,
             completion_tokens: 20,
         },
     },
@@ -177,8 +240,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         output_cost_key: 'completion_tokens',
         costs: {
             tokens: 1_000_000,
-            prompt_tokens: 10,
-            completion_tokens: 10,
+            prompt_tokens: 15,
+            cached_tokens: 1.5,
+            completion_tokens: 15,
         },
     },
     {
@@ -200,35 +264,9 @@ export const MISTRAL_MODELS: IChatModel[] = [
         output_cost_key: 'completion_tokens',
         costs: {
             tokens: 1_000_000,
-            prompt_tokens: 4,
-            completion_tokens: 4,
-        },
-    },
-    {
-        puterId: 'mistralai:mistralai/voxtral-small-2507',
-        id: 'voxtral-small-2507',
-        modalities: { input: ['text', 'audio'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2025-07',
-        release_date: '2025-07-15',
-        name: 'Voxtral Small',
-        aliases: [
-            'voxtral-small-latest',
-            'mistralai/voxtral-small-2507',
-            'mistralai/voxtral-small-latest',
-        ],
-        context: 32_768,
-        max_tokens: 32_768,
-        description: 'Audio-input model for instruct tasks.',
-        provider: 'mistral',
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
             prompt_tokens: 10,
-            completion_tokens: 30,
+            cached_tokens: 1,
+            completion_tokens: 10,
         },
     },
 ];

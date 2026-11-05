@@ -17,6 +17,21 @@ Out-of-scope:
 - Denial of Service (DoS), spam, or volumetric attacks.
 - Physical security issues.
 
+## Eligibility
+
+We pay bounties for issues that threaten user security and privacy, or the security and health of the platform. We appreciate every report, but hardening suggestions and correctness bugs are not eligible, even when we fix them. Please open a GitHub issue for those.
+
+A report must show how an attacker can directly perform the action against another account or the system. It is not eligible if it:
+
+- Starts from access the attacker should not already have: a stolen session or token, the victim's password, a root or full-access token, or script execution on `puter.com`.
+- Needs the victim to do more than ordinary use (opening a link or an app), such as publishing their own secrets, sending a verification link to an address they don't control, or approving a prompt that accurately states what it grants.
+- Gives the attacker nothing they couldn't already get through a supported API.
+- Only reproduces in a non-default or development setup (SQLite, a `custom` OIDC provider, an unset outbound proxy, cookies or config planted by hand). Findings in the open-source code must affect `puter.com` or a default self-hosted install.
+
+**Shared state.** Sharing files, KV entries, or cross-app KV access means the sharer trusts the sharee. Exploits that depend on that trust, such as a sharee misusing access the sharer granted, may be treated as hardening or lower severity.
+
+Hardening we ship in a public PR does not make similar code paths vulnerabilities. They are judged by these same rules.
+
 ## Known Non-Issues (Please Check Before Submitting)
 
 The following have already been reviewed and determined **not to be vulnerabilities**. Reports that only re-describe one of these are **not eligible for a reward** and will be closed as non-issues — even if they include new code references. Please review this list before submitting:
@@ -27,11 +42,12 @@ The following have already been reviewed and determined **not to be vulnerabilit
 - **Apps invoking drivers, creating workers, or using KV.** Applications are intended to do this; worker permissions are scoped to the owning app. This is by design.
 - **App metadata or app user-count "leaks".** This information is currently public by design. This covers **private apps** too: private apps are an unreleased, admin-only beta for paid listings in the Puter App Center. Their `index_url` and other metadata are not secret, the flag is not user-settable, and no production app relies on it. Reports that a private app's metadata is reachable through a sibling route (taskbar items, `/get-launch-apps`, `index_url` drift on the hosting gate, etc.) are normalization work, not vulnerabilities.
 - **Worker hot-reload driven by a share recipient.** Sharing a worker's source file with write access is how you let a collaborator change that worker's code and have it deploy live. The redeploy running as the file owner, with the owner's worker credentials, is the intended behavior of that grant — the owner chose to hand out write access to executable code. If you do not want that, do not share the source file with write access.
+- **Re-claiming a site or worker name its owner deleted.** A hosted site or worker name that its owner deletes is treated as abandoned by that owner. If one of their apps still points at it, whoever claims the name next serves that app's `index_url` and receives what the app is launched with, and a new app on the same origin may share the old one's identity. Guarding app identities against being recycled this way is ongoing hardening, not a security boundary, so new ways to re-claim an abandoned name, or to inherit an app's tokens or data through one, are not eligible.
 - **Share-mode downgrades that do not cascade.** Demoting a delegate does not retroactively revoke the grants that delegate already issued downstream. Shares are independent grants once issued, not a live-evaluated chain. Revoking the downstream grant is a separate, supported action.
-- **Concurrency / TOCTOU overspend of credits or storage quota.** Firing concurrent requests to exceed an AI credit hold or a storage quota by some margin is known and accepted; the per-account concurrency and rate-limit gates are the control we rely on, and the residual overage is bounded and billed. Report these only if you can demonstrate _unbounded_ overspend.
+- **Metering, credit-hold, and quota inaccuracies.** Credit holds and quota checks are up-front estimates, and actual usage is billed afterwards. Overspend that is bounded and still billed is a correctness bug, including concurrent requests that exceed a hold or quota by some margin; the per-account concurrency and rate-limit gates are the control we rely on. Report these only if you can use a service without it being billed, or overspend without bound.
+- **Existence-only oracles.** A response that tells "exists but forbidden" apart from "not found" for a path or ID the caller already supplied, without revealing anything else about it, is hardening.
 - **Session and credential lifecycle around 2FA enrollment.** Enrolling in 2FA is not a credential-revocation event: existing authenticated sessions stay valid, and outstanding password-reset links stay valid. Likewise, account-management actions behind the `/user-protected/*` gate are password-gated by design, not TOTP-gated. A recovery code that stops being accepted fails _closed_ — it denies access rather than granting it, so it is a bug report, not a vulnerability.
 - **Group permissions** (`/auth/revoke-user-group` and siblings). The group-permission surface is unfinished and not exposed anywhere in the product. Findings there are not reachable by any user.
-- **Correctness bugs with no security boundary crossed.** For example, an API that reports success while silently leaving data behind. We want these reported — please open a GitHub issue — but they are not bounty-eligible.
 - **Missing Subresource Integrity (SRI) on external scripts/styles.** Accepted as hardening, not as a vulnerability, absent a demonstrated compromise of the CDN in question.
 - **General "token in a URL" / token-lifetime / token-storage designs** — signed directory URLs exposing children, a write signature implying read, app tokens outliving a web session, or the session token being held in `localStorage` on `puter.com`. These are current intended behaviors. Shorter-lived tokens with a refresh flow are on the roadmap; their absence is not a vulnerability on its own. Show a reproducible attack that does not already presuppose script execution on `puter.com`.
 - **Missing PKCE, unverified `id_token` signatures, or other OIDC hardening.** Provider tokens are obtained through a server-to-server authorization-code exchange with the provider's token endpoint over TLS, so the resulting `id_token` / userinfo claims are trusted from that channel rather than from local JWKS signature verification — the callback never accepts a caller-supplied `id_token`. Adding local signature / `aud` / `iss` / `exp` checks is welcome defense-in-depth (please open a GitHub issue/PR), but their absence is not an account-takeover vector on its own.
@@ -52,7 +68,7 @@ To participate, you must:
 3. **Respect availability**: Do not perform denial-of-service attacks or automated scans that degrade service.
 4. **Follow disclosure policy**: Do not publicly disclose vulnerabilities until we have confirmed and patched the issue.
 5. **Act in good faith**: Make every effort to avoid privacy violations, destruction of data, and interruption or degradation of services.
-6. **Check the Known Non-Issues list**: Reports matching an item in the "Known Non-Issues" section above are not eligible and will be closed.
+6. **Check Eligibility and Known Non-Issues**: Reports that fall outside "Eligibility" or match an item in "Known Non-Issues" above are not eligible and will be closed.
 
 Reports that do not meet these guidelines may not be eligible for a reward.
 
@@ -63,14 +79,14 @@ Reports **MUST** demonstrate a **working, reproducible exploit with real impact*
 - Exact steps to reproduce, the relevant request/response or code path, and the commit or version you tested.
 - The **observed** result versus the **expected** result.
 - For client-side, UI, or authentication-flow bugs: a short screen recording (≤ 2 minutes) showing the exploit working end-to-end on a real Puter instance.
-- For server-side bugs: a runnable proof-of-concept and screenshot or video showing the attack process.
+- For server-side bugs: a runnable proof-of-concept and screenshot or video showing the attack process. A unit test or in-process harness alone does not count; show it against a running instance.
 
 Reports based solely on reading the source ("source review only, not tested") or unverified AI/LLM-generated reports are the **lowest triage priority and not eligible for bounty**.
-If you used an AI tool to help find an issue, you must personally verify that it actually reproduces before submitting.
+If you used an AI tool to help find an issue, you must personally verify that it actually reproduces before submitting. Reports sent by automated agents are not eligible.
 
 Please submit **one issue per report**.
-Bundled "audit packs" of many speculative findings will not be elligible for bounty; send each confirmed issue separately.
-Additionally please **DO NOT** submit too many issues at once; these will be treated as a bundled report, and will not be elligible for bounty.
+Bundled "audit packs" of many speculative findings will not be eligible for bounty; send each confirmed issue separately.
+Additionally please **DO NOT** submit too many issues at once; these will be treated as a bundled report, and will not be eligible for bounty.
 
 ## Reporting Process
 
@@ -82,6 +98,8 @@ Include:
 - Potential impact
 - Suggested remediation (if available)
 - Paypal id where we can send the bounty (if eligible)
+
+Send the full report in your first email. We don't reply to messages that only ask whether we run a bounty or where to report.
 
 We aim to acknowledge receipt within **72 hours** and provide a resolution timeline.
 
@@ -95,7 +113,7 @@ We offer monetary rewards based on the severity of the vulnerability, as determi
 - **Low: \$50 – \$100**
 
 Non-security issues, suggestions, and best practices feedback are always welcome, but may not qualify for a reward.
-If multiple researchers report the same issue, the bounty will be awarded to the first eligible report we receive.
+If multiple researchers report the same issue, the bounty will be awarded to the first eligible report we receive. Issues we already know about, from internal review, an open ticket, or a fix already in a public commit or PR, count as duplicates.
 
 ## Payments Disclaimer
 

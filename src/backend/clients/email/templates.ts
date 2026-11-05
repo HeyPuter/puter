@@ -352,10 +352,10 @@ support@puter.com immediately.
         html: `
 <p>Hi there,</p>
 <p>{{team_name}} has created a Puter account for you.</p>
-<p>Username: <b>{{username}}</b><br>
-Temporary password: <b>{{temporary_password}}</b></p>
-<p>You will be asked to choose your own password the first time you sign in.
-This temporary one stops working then, and it expires on its own if unused.</p>
+<p>Username: <b>{{username}}</b></p>
+<p>{{team_name}} will give you a temporary password. You will be asked to choose
+your own the first time you sign in. The temporary one stops working then, and it
+expires on its own if unused.</p>
 <p>What this means:</p>
 <ul>
 <li>This account belongs to {{team_name}}. They pay for it and can close it.</li>
@@ -363,6 +363,21 @@ This temporary one stops working then, and it expires on its own if unused.</p>
 <li>{{team_name}} <b>can</b> reset your password, which would let them sign in
 as you. Choose your own password promptly.</li>
 </ul>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
+    team_account_reissued: {
+        subject: 'A new temporary password for your {{team_name}} account',
+        html: `
+<p>Hi there,</p>
+<p>{{team_name}} has issued a new temporary password for your Puter account
+<b>{{username}}</b>. Any temporary password you were given before this one has
+stopped working.</p>
+<p>{{team_name}} will give you the new one. You will be asked to choose your own
+password the first time you sign in; the temporary one stops working then, and
+it expires on its own if unused.</p>
+<p>If you were not expecting this, ask {{team_name}} -- only they can issue it.</p>
 <p>Sincerely,</p>
 <p>Puter</p>
         `,

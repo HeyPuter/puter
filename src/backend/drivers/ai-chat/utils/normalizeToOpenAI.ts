@@ -30,6 +30,7 @@
  */
 
 import type { IChatMessageResult } from '../types.js';
+import { toFinishReason } from './stopReason.js';
 
 /**
  * Models released on or after this date return OpenAI-shaped responses by
@@ -95,14 +96,6 @@ export const shouldPresentAsOpenAI = (
     return isPostCutoffRelease(release_date);
 };
 
-const STOP_REASON_TO_FINISH_REASON: Record<string, string> = {
-    end_turn: 'stop',
-    stop_sequence: 'stop',
-    max_tokens: 'length',
-    tool_use: 'tool_calls',
-    refusal: 'content_filter',
-};
-
 const mapStopReason = (
     stop_reason: unknown,
     fallback: string | undefined,
@@ -113,7 +106,7 @@ const mapStopReason = (
         // Objects/chatresponse.md documents. Collapsing e.g. Anthropic's
         // `pause_turn` to `stop` would erase a "continue this turn" signal
         // the caller needs to act on.
-        return STOP_REASON_TO_FINISH_REASON[stop_reason] ?? stop_reason;
+        return toFinishReason(stop_reason)!;
     }
     return fallback ?? 'stop';
 };

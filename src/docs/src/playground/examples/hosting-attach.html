@@ -1,0 +1,24 @@
+<html>
+<body>
+    <button id="attach">Use my own domain</button>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        document.getElementById('attach').addEventListener('click', async () => {
+            // (1) Create a website to connect the domain to
+            const site = await puter.hosting.create(puter.randName(), '.');
+
+            // (2) Let the user pick or add a domain for it
+            const domain = await puter.hosting.attach(site.subdomain);
+            if (!domain) {
+                puter.print('No domain was chosen.');
+                return;
+            }
+
+            puter.print(`${domain.hostname} is ${domain.status}.<br>`);
+            for (const record of domain.records) {
+                puter.print(`${record.type} ${record.name} → ${record.value}<br>`);
+            }
+        });
+    </script>
+</body>
+</html>

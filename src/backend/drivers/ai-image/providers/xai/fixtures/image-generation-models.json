@@ -1,0 +1,79 @@
+{
+    "models": [
+        {
+            "id": "grok-imagine-image",
+            "fingerprint": "fp_750f5052a8",
+            "max_prompt_length": 16000,
+            "created": 1769558400,
+            "object": "model",
+            "owned_by": "xai",
+            "version": "1.0",
+            "input_modalities": ["text", "image"],
+            "output_modalities": ["image"],
+            "image_price": 200000000,
+            "aliases": ["grok-imagine-image-2026-03-02"]
+        },
+        {
+            "id": "grok-imagine-image-2.0",
+            "fingerprint": "fp_e15b3a1fcc",
+            "max_prompt_length": 64000,
+            "created": 1786147200,
+            "object": "model",
+            "owned_by": "xai",
+            "version": "1.0",
+            "input_modalities": ["text", "image"],
+            "output_modalities": ["image"],
+            "image_price": 600000000,
+            "pricing": [
+                {
+                    "quality": "low",
+                    "resolution": "1k",
+                    "price_per_image": 400000000
+                },
+                {
+                    "quality": "low",
+                    "resolution": "2k",
+                    "price_per_image": 600000000
+                },
+                {
+                    "quality": "low",
+                    "resolution": "1.5k",
+                    "price_per_image": 500000000
+                },
+                {
+                    "quality": "medium",
+                    "resolution": "1k",
+                    "price_per_image": 600000000
+                },
+                {
+                    "quality": "medium",
+                    "resolution": "2k",
+                    "price_per_image": 800000000
+                },
+                {
+                    "quality": "medium",
+                    "resolution": "1.5k",
+                    "price_per_image": 700000000
+                }
+            ],
+            "aliases": []
+        },
+        {
+            "id": "grok-imagine-image-quality",
+            "fingerprint": "fp_cc7863a71d",
+            "max_prompt_length": 16000,
+            "created": 1775174400,
+            "object": "model",
+            "owned_by": "xai",
+            "version": "1.0",
+            "input_modalities": ["text", "image"],
+            "output_modalities": ["image"],
+            "image_price": 500000000,
+            "aliases": [
+                "grok-imagine-image-quality-20260403",
+                "grok-imagine-image-quality-latest",
+                "grok-imagine-image-pro"
+            ]
+        }
+    ]
+}

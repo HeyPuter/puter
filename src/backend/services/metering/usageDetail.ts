@@ -18,7 +18,7 @@
  */
 
 import murmurhash from 'murmurhash';
-import { USAGE_DETAIL_SHARD_COUNT } from './consts';
+import { MONTHLY_CHARGE_CLAIM, USAGE_DETAIL_SHARD_COUNT } from './consts';
 import type { UsageRecord } from './types';
 
 /** A usage type's per-type map, decoded back to the shape callers read. */
@@ -178,7 +178,10 @@ export const addUsageDetail = (
     return out;
 };
 
-/** A record's own numeric top-level fields, `detailPaths` excluded. */
+/**
+ * A record's own numeric top-level fields, `detailPaths` excluded. The monthly
+ * charge claim holds a random token, and reads as `1` once taken.
+ */
 export const scalarsOf = (record: unknown): Record<string, number> => {
     const out: Record<string, number> = {};
     if (!record || typeof record !== 'object' || Array.isArray(record))
@@ -187,7 +190,8 @@ export const scalarsOf = (record: unknown): Record<string, number> => {
         record as Record<string, unknown>,
     )) {
         if (key === 'detailPaths') continue;
-        if (typeof value === 'number') out[key] = value;
+        if (typeof value !== 'number') continue;
+        out[key] = key === MONTHLY_CHARGE_CLAIM ? 1 : value;
     }
     return out;
 };

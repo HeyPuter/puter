@@ -24,16 +24,12 @@ export type XaiImageModel = IImageModel & {
     defaultEditQuality?: string;
 };
 
-// Costs are in usd-cents (1 = $0.01). xAI's "Grok Imagine" image API bills a
-// per-image output rate by resolution tier (1k/2k) plus, for edits, a
-// per-input-image "media input" rate. Rates per the xAI Imagine pricing table:
-// https://docs.x.ai/developers/pricing
-//   grok-imagine-image          media $0.002  | 1k $0.02 | 2k $0.02
-//   grok-imagine-image-quality  media $0.01   | 1k $0.05 | 2k $0.07
-//   grok-imagine-image-2.0      media $0.01   | low 1k $0.04, 2k $0.06 | medium 1k $0.06, 2k $0.08
-// The pricing page only prints a flat $0.04 for 2.0 while the models listing
-// reports $0.06; the release notes say images bill at the quality served, so
-// the 2.0 tiers above are the best public reading, not a vendor table.
+// Costs are in usd-cents (1 = $0.01): a per-image output rate by resolution
+// (and, for 2.0, quality) plus a per-input-image `media_input` rate on edits.
+// Rates per https://docs.x.ai/developers/pricing. The 2.0 output tiers are
+// refreshed from the `pricing` matrix of GET /v1/image-generation-models (see
+// catalog.ts); every other rate here is curated, since the endpoint lists no
+// media-input price and its `image_price` unit is ambiguous.
 export const XAI_IMAGE_GENERATION_MODELS: XaiImageModel[] = [
     {
         puterId: 'x-ai:x-ai/grok-imagine-image',
@@ -53,27 +49,6 @@ export const XAI_IMAGE_GENERATION_MODELS: XaiImageModel[] = [
             'output:1k': 2, // $0.02 per image
             'output:2k': 2, // $0.02 per image
             media_input: 0.2, // $0.002 per input image (edits)
-        },
-        allowedQualityLevels: ['1k', '2k'],
-    },
-    {
-        puterId: 'x-ai:x-ai/grok-imagine-image-quality',
-        id: 'grok-imagine-image-quality',
-        aliases: [
-            'x-ai/grok-imagine-image-quality',
-            'grok-imagine-image-quality-20260403',
-            'grok-imagine-image-quality-latest',
-            'grok-imagine-image-pro',
-        ],
-        name: 'Grok Imagine Image (Quality)',
-        version: '1.0',
-        costs_currency: 'usd-cents',
-        pricing_unit: 'per-image',
-        index_cost_key: 'output:1k',
-        costs: {
-            'output:1k': 5, // $0.05 per image
-            'output:2k': 7, // $0.07 per image
-            media_input: 1, // $0.01 per input image (edits)
         },
         allowedQualityLevels: ['1k', '2k'],
     },

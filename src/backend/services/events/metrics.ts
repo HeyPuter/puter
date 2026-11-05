@@ -43,6 +43,16 @@ export const singleAttempt = meter.createCounter('events.single.attempt', {
 });
 
 /**
+ * One write to a region's presence item in the replicated table, by `op`:
+ * `join`, `leave` (after a disconnect), `refresh` (a long-lived socket) or
+ * `retire` (after a forward found nothing here). Each is replicated to every
+ * region, so this is what presence costs.
+ */
+export const presenceWrite = meter.createCounter('events.presence.write', {
+    description: 'Writes to presence items in the replicated table, by op',
+});
+
+/**
  * What a forwarded session event found on the far side: `no-rows` is the
  * remote-watch index going stale (the token a peer announced is no longer
  * watched here), and is what drives a `noWatch` reply.

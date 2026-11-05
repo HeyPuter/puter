@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AI } from './index.js';
 
 /**
@@ -153,6 +153,7 @@ describe('ai.chat driver payloads', () => {
             max_tokens: 42,
             stream: true,
             provider: 'openai',
+            fallback: false,
             tools: [{ type: 'function' }],
             reasoning_effort: 'low',
             unknown_param: 'dropped',
@@ -164,8 +165,23 @@ describe('ai.chat driver payloads', () => {
             max_tokens: 42,
             stream: true,
             provider: 'openai',
+            fallback: false,
             tools: [{ type: 'function' }],
             reasoning_effort: 'low',
+        });
+    });
+
+    it('chat(prompt, options) forwards the OpenAI prompt-cache options', async () => {
+        await ai.chat('hello', {
+            prompt_cache_key: 'ck',
+            prompt_cache_retention: '24h',
+            prompt_cache_options: { mode: 'explicit', ttl: '12h' },
+        });
+        expect(lastBody().args).toEqual({
+            messages: [{ content: 'hello' }],
+            prompt_cache_key: 'ck',
+            prompt_cache_retention: '24h',
+            prompt_cache_options: { mode: 'explicit', ttl: '12h' },
         });
     });
 
@@ -561,6 +577,40 @@ describe('ai.speech2txt driver payloads', () => {
         });
     });
 
+    it('speech2txt still sends options the backend accepts but ignores', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { text: 'hi' } });
+        const legacy = {
+            timestamp_granularities: ['word'],
+            chunking_strategy: 'auto',
+            known_speaker_names: ['agent'],
+        };
+        await ai.speech2txt({ file: 'data:audio/mpeg;base64,QUJD', ...legacy });
+        expect(lastBody().args).toEqual({
+            file: 'data:audio/mpeg;base64,QUJD',
+            ...legacy,
+        });
+    });
+
+    it('speech2txt forwards gemini word timestamp and diarization options', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { text: 'hi' } });
+        await ai.speech2txt('data:audio/wav;base64,QUJD', {
+            provider: 'gemini',
+            language: 'en',
+            timestamp_granularities: ['word'],
+            diarize: true,
+        });
+        const body = lastBody();
+        expect(body.driver).toBe('ai-speech2txt');
+        expect(body.method).toBe('transcribe');
+        expect(body.args).toEqual({
+            file: 'data:audio/wav;base64,QUJD',
+            provider: 'gemini',
+            language: 'en',
+            timestamp_granularities: ['word'],
+            diarize: true,
+        });
+    });
+
     it('speech2txt returns bare text for response_format text', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: { text: 'transcribed' } });
         const out = await ai.speech2txt({
@@ -692,6 +742,12 @@ describe('ai.txt2vid driver payloads', () => {
         expect(lastBody().args).toEqual({ prompt: 'a sunset', duration: 6, seconds: 6 });
     });
 
+    it('txt2vid sends inputVideo as input_video', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: 'https://cdn.test/video.mp4' });
+        await ai.txt2vid('make this dog a dinosaur', { inputVideo: '~/dog.mp4' });
+        expect(lastBody().args).toEqual({ prompt: 'make this dog a dinosaur', input_video: '~/dog.mp4' });
+    });
+
     it('txt2vid resolves to a video object exposing the URL', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: 'https://cdn.test/video.mp4' });
         const video = await ai.txt2vid('a sunset');
@@ -701,6 +757,167 @@ describe('ai.txt2vid driver payloads', () => {
 
     it('txt2vid rejects without a prompt', async () => {
         await expect(ai.txt2vid({})).rejects.toMatchObject({ code: 'prompt_required' });
+    });
+});
+
+describe('ai media inputs staged through Puter files', () => {
+    const MiB = 1024 * 1024;
+    const bigDataUri = (type) =>
+        `data:${type};base64,${Buffer.alloc(MiB + 1, 1).toString('base64')}`;
+
+    /** Records the temporary files written and deleted through `puter.fs`. */
+    const stageFs = () => {
+        const fs = {
+            written: [],
+            write: vi.fn(async (path, blob) => {
+                fs.written.push({ path, blob });
+                const n = fs.written.length;
+                return { path: `/user/AppData/app-test/.tmp/staged-${n}.tmp`, uid: `uid-${n}` };
+            }),
+            delete: vi.fn(async () => {}),
+        };
+        fakePuter.fs = fs;
+        return fs;
+    };
+
+    beforeEach(() => {
+        FakeXHR.respondWith = () => ({ success: true, result: 'https://cdn.test/out.mp4' });
+    });
+
+    it('txt2vid writes a Blob source video to a temporary file, sends its path, and deletes it after', async () => {
+        const fs = stageFs();
+        const clip = new Blob(['video bytes'], { type: 'video/mp4' });
+
+        await ai.txt2vid('make this dog a dinosaur', { inputVideo: clip });
+
+        expect(fs.write).toHaveBeenCalledOnce();
+        const [path, blob, options] = fs.write.mock.calls[0];
+        expect(path).toMatch(/^~\/AppData\/app-test\/\.tmp\/[0-9a-f-]{36}\.tmp$/);
+        expect(blob).toBe(clip);
+        expect(options).toEqual({ createMissingParents: true });
+        expect(lastBody().args.input_video).toBe('/user/AppData/app-test/.tmp/staged-1.tmp');
+        expect(fs.delete).toHaveBeenCalledWith(['uid-1']);
+    });
+
+    it('txt2vid stages a data URI over 1 MiB and sends small ones and URLs inline', async () => {
+        const fs = stageFs();
+        const small = `data:video/mp4;base64,${Buffer.from('small').toString('base64')}`;
+
+        await ai.txt2vid('edit', { inputVideo: small, input_reference: 'https://example.com/a.png' });
+        expect(fs.write).not.toHaveBeenCalled();
+        expect(fs.delete).not.toHaveBeenCalled();
+        expect(lastBody().args).toMatchObject({
+            input_video: small,
+            input_reference: 'https://example.com/a.png',
+        });
+
+        await ai.txt2vid('edit', { inputVideo: bigDataUri('video/mp4') });
+        const [, blob] = fs.write.mock.calls[0];
+        expect(blob.type).toBe('video/mp4');
+        expect(blob.size).toBe(MiB + 1);
+        expect(lastBody().args.input_video).toBe('/user/AppData/app-test/.tmp/staged-1.tmp');
+    });
+
+    it("txt2vid stages image inputs, keyframes and references included, without changing the caller's options", async () => {
+        const fs = stageFs();
+        const image = new Blob(['png'], { type: 'image/png' });
+        const references = [image, 'https://example.com/b.png'];
+        const frames = [{ input_image: image, frame: 'first' }];
+
+        await ai.txt2vid('animate', {
+            input_reference: image,
+            last_frame: bigDataUri('image/png'),
+            reference_images: references,
+            frame_images: frames,
+        });
+
+        expect(fs.write).toHaveBeenCalledTimes(4);
+        const args = lastBody().args;
+        expect(args.input_reference).toMatch(/staged-\d\.tmp$/);
+        expect(args.last_frame).toMatch(/staged-\d\.tmp$/);
+        expect(args.reference_images[0]).toMatch(/staged-\d\.tmp$/);
+        expect(args.reference_images[1]).toBe('https://example.com/b.png');
+        expect(args.frame_images[0]).toEqual({ input_image: expect.stringMatching(/staged-\d\.tmp$/), frame: 'first' });
+        expect(references[0]).toBe(image);
+        expect(frames[0].input_image).toBe(image);
+        expect(fs.delete).toHaveBeenCalledOnce();
+        expect(fs.delete.mock.calls[0][0]).toHaveLength(4);
+    });
+
+    it('txt2vid deletes the temporary files when the call fails', async () => {
+        const fs = stageFs();
+        FakeXHR.statusOverride = 400;
+        FakeXHR.respondWith = () => ({ message: 'bad', code: 'bad_request' });
+
+        await expect(
+            ai.txt2vid('edit', { inputVideo: new Blob(['v'], { type: 'video/mp4' }) }),
+        ).rejects.toBeTruthy();
+        expect(fs.delete).toHaveBeenCalledWith(['uid-1']);
+    });
+
+    it('txt2vid still settles when deleting a temporary file fails', async () => {
+        const fs = stageFs();
+        fs.delete.mockRejectedValueOnce(new Error('gone'));
+        await expect(
+            ai.txt2vid('edit', { inputVideo: new Blob(['v'], { type: 'video/mp4' }) }),
+        ).resolves.toBeTruthy();
+    });
+
+    it('signs a signed-out website visitor in before choosing the app data path', async () => {
+        const fs = stageFs();
+        fakePuter.env = 'web';
+        fakePuter.authToken = undefined;
+        fakePuter.appID = undefined;
+        fakePuter.ui = {
+            authenticateWithPuter: vi.fn(async () => {
+                fakePuter.authToken = 'signed-in-token';
+                fakePuter.appID = 'site-app';
+            }),
+        };
+        const image = new Blob(['png'], { type: 'image/png' });
+
+        await ai.txt2vid('animate', { input_reference: image, last_frame: image });
+
+        expect(fakePuter.ui.authenticateWithPuter).toHaveBeenCalledOnce();
+        for ( const [path] of fs.write.mock.calls ) {
+            expect(path).toMatch(/^~\/AppData\/site-app\/\.tmp\//);
+        }
+    });
+
+    it('sends an image inline when it cannot be written, but fails a video', async () => {
+        const fs = stageFs();
+        fs.write.mockRejectedValue({ message: 'Storage capacity limit reached', code: 'storage_limit_reached' });
+        const large = bigDataUri('image/png');
+
+        await ai.txt2img({ prompt: 'a cat', input_image: large, maskImage: new Blob(['m'], { type: 'image/png' }) });
+        expect(lastBody().args.input_image).toBe(large);
+        expect(lastBody().args.maskImage).toBe(`data:image/png;base64,${Buffer.from('m').toString('base64')}`);
+        expect(fs.delete).not.toHaveBeenCalled();
+
+        await expect(
+            ai.txt2vid('edit', { inputVideo: bigDataUri('video/mp4') }),
+        ).rejects.toMatchObject({ code: 'storage_limit_reached' });
+    });
+
+    it('txt2img stages Blob input images and the mask', async () => {
+        const fs = stageFs();
+        FakeXHR.respondWith = () => ({ success: true, result: 'https://cdn.test/out.png' });
+        const image = new Blob(['png'], { type: 'image/png' });
+
+        await ai.txt2img({
+            prompt: 'a cat',
+            input_image: image,
+            input_images: [image, 'https://example.com/c.png'],
+            maskImage: image,
+        });
+
+        expect(fs.write).toHaveBeenCalledTimes(3);
+        const args = lastBody().args;
+        expect(args.input_image).toMatch(/staged-\d\.tmp$/);
+        expect(args.input_images[0]).toMatch(/staged-\d\.tmp$/);
+        expect(args.input_images[1]).toBe('https://example.com/c.png');
+        expect(args.maskImage).toMatch(/staged-\d\.tmp$/);
+        expect(fs.delete.mock.calls[0][0]).toHaveLength(3);
     });
 });
 
@@ -729,13 +946,13 @@ describe('ai.listModels', () => {
         const models = await ai.listModels('p2');
         const request = FakeXHR.requests.at(-1);
         expect(request.method).toBe('GET');
-        expect(request.url).toBe('https://api.test/puterai/chat/models/details');
+        expect(request.url).toBe('https://api.test/puterai/chat/models/details?provider=p2');
         expect(request.requestHeaders).toEqual({ Authorization: 'Bearer test-token' });
         expect(models).toEqual([{ id: 'm2', provider: 'p2' }]);
     });
 
-    it('falls back to the driver call when the endpoint fails', async () => {
-        FakeXHR.statusOverride = 500;
+    it.each([404, 501])('falls back to the driver when the endpoint returns %s', async (status) => {
+        FakeXHR.statusOverride = status;
         let driverCallArgs;
         fakePuter.drivers.call = async (...args) => {
             driverCallArgs = args;
@@ -757,4 +974,78 @@ describe('ai.listModels', () => {
         const providers = await ai.listModelProviders();
         expect(providers).toEqual(['p1', 'p2']);
     });
+});
+
+
+describe('AI catalogue caching and options ownership', () => {
+    it('deduplicates requests, caches successful results and returns independent values', async () => {
+        FakeXHR.respondWith = () => ({ models: [{ id: 'm', provider: 'p', cost: { input: 1 } }] });
+        const [a, b] = await Promise.all([ai.listModels(), ai.listModels()]);
+        a[0].cost.input = 99;
+        expect(b[0].cost.input).toBe(1);
+        expect((await ai.listModels())[0].cost.input).toBe(1);
+        expect(FakeXHR.requests).toHaveLength(1);
+    });
+
+    it('refreshes after expiry, auth changes and origin changes', async () => {
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(1000);
+        try {
+            FakeXHR.respondWith = () => ({ models: [] });
+            await ai.listModels();
+            clock.mockReturnValue(61_001);
+            await ai.listModels();
+            fakePuter.authToken = 'new-token';
+            await ai.listModels();
+            fakePuter.APIOrigin = 'https://other.test';
+            await ai.listModels();
+            expect(FakeXHR.requests).toHaveLength(4);
+        } finally { clock.mockRestore(); }
+    });
+
+    it('surfaces failures and does not cache them as an empty catalogue', async () => {
+        FakeXHR.statusOverride = 500;
+        FakeXHR.respondWith = () => ({ message: 'Unavailable', code: 'unavailable' });
+        await expect(ai.listModels()).rejects.toMatchObject({ code: 'unavailable' });
+        FakeXHR.statusOverride = 200;
+        FakeXHR.respondWith = () => ({ models: [] });
+        await expect(ai.listModels()).resolves.toEqual([]);
+        expect(FakeXHR.requests).toHaveLength(2);
+    });
+
+    it('propagates legacy driver errors and rejects malformed catalogues', async () => {
+        FakeXHR.statusOverride = 404;
+        fakePuter.drivers.call = async () => { throw { message: 'Failed', code: 'failed' }; };
+        await expect(ai.listModels()).rejects.toMatchObject({ code: 'failed' });
+        FakeXHR.statusOverride = 200;
+        FakeXHR.respondWith = () => ({ models: 'invalid' });
+        await expect(ai.listModels()).rejects.toMatchObject({ code: 'invalid_response' });
+    });
+
+    it.each(['txt2img', 'txt2vid'])('%s accepts frozen options without changing paths or aliases', async (method) => {
+        FakeXHR.respondWith = () => ({ success: true, result: { url: 'https://asset.test/output' } });
+        const options = Object.freeze({ prompt: 'hello', duration: 5, puter_output_path: 'output' });
+        const snapshot = { ...options };
+        await ai[method](options);
+        expect(options).toEqual(snapshot);
+        await ai[method]('hello', options);
+        expect(options).toEqual(snapshot);
+    });
+});
+
+
+it('bounds catalogue cache entries per SDK instance', async () => {
+    FakeXHR.respondWith = () => ({ models: [] });
+    for (let i = 0; i < 33; i++) await ai.listModels(`provider-${i}`);
+    await ai.listModels('provider-0');
+    expect(FakeXHR.requests).toHaveLength(34);
+});
+
+it('returns stable errors to every caller sharing a failed catalogue request', async () => {
+    FakeXHR.respondWith = () => { throw new TypeError('Transport failed'); };
+    const results = await Promise.allSettled([ai.listModels(), ai.listModels()]);
+    for (const result of results) {
+        expect(result.status).toBe('rejected');
+        expect(result.reason).toEqual({ message: 'Failed to fetch model catalogue.', code: 'network_error' });
+    }
+    expect(FakeXHR.requests).toHaveLength(1);
 });

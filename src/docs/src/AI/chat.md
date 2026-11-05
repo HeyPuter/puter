@@ -27,16 +27,28 @@ A string containing the prompt you want to complete.
 
 An object containing the following properties:
 
-- `model` (String) - The model you want to use for the completion. If not specified, defaults to `gpt-5-nano`. More than 500 models are available from vendors including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page.
-- `provider` (String) (Optional) - Pin the request to a specific vendor, for example `openrouter` or `infron`. Without it, Puter selects a vendor for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given vendor serves.
-- `stream` (Boolean) - A boolean indicating whether you want to stream the completion. Defaults to `false`.
-- `max_tokens` (Number) - The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used.
-- `temperature` (Number) - A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the specific model's temperature is used.
-- `tools` (Array) (Optional) - Function definitions the AI can call. See [Function Calling](#function-calling) for details.
-- `reasoning_effort` / `reasoning.effort` (String) (Optional) - Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Lower values give faster responses with less reasoning. OpenAI models and Meta's Muse Spark models only; Muse Spark always reasons, so `none` is ignored for it.
-- `verbosity` / `text.verbosity` (String) (Optional) - Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only.
-- `normalize` (Boolean) (Optional) - Controls the format of the non-streaming response. When `true`, the response is normalized to the OpenAI format regardless of the model's vendor: `message.content` is a string, tool calls appear as `message.tool_calls`, and `finish_reason` is one of `stop`, `length`, `tool_calls`, or `content_filter` — or the vendor's own stop reason, passed through unchanged when it has no OpenAI equivalent. When `false`, the response keeps the vendor's native format (for Anthropic models, an array of content blocks). When unset, the SDK-wide `puter.ai.normalize` applies — itself tri-state: set it to `true` to normalize every call regardless of release date, `false` to disable normalization for every call, and when it is left unset too (the default) the release-date policy applies: **models released on or after September 1, 2026 return normalized (OpenAI-format) responses by default**, and for older models the default is unchanged — `message.content` keeps its vendor-native shape. (A handful of reasoning fields were made consistent across all models independently of this option; see [Reasoning fields on existing models](#reasoning-fields-on-existing-models).) Streaming responses are unaffected — chunks already share one format across vendors. See [Response normalization](#response-normalization).
-- `compaction` (Boolean | Object) (Optional) - Opt into inline context compaction for long conversations. Pass `true` to enable it with provider defaults, or `{ trigger_tokens: number }` to set the token threshold at which earlier context is summarized. When the model compacts, you receive a `compaction` chunk while streaming (or a `compaction` field on the result when not streaming) containing an opaque `encrypted_content` summary. Resend that item in `messages` on the next turn in place of the summarized history. The compaction chunk shape is identical across providers, so the same code works whether `model` is an OpenAI or Anthropic model. See [Compaction](#compaction).
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | String | The model you want to use for the completion. If not specified, defaults to `gpt-5.4-nano`. More than 500 models are available from providers including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page. |
+| `stream` | Boolean | A boolean indicating whether you want to stream the completion. Defaults to `false`. |
+| `max_tokens` | Number | The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used. |
+| `temperature` | Number | A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the model's own temperature is used. See [Model-specific features](#model-specific-features). |
+| `reasoning_effort` / `reasoning.effort` | String | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. OpenAI models, Moonshot's Kimi K3.1 Pro models, Meta's Muse Spark models, `gemini-4-argon`, `gemini-3.1-flash-lite` and `gemini-3-flash-preview` only. See [Model-specific features](#model-specific-features). |
+| `thinking` | Object \| null | Extended-thinking control: `{ type: "adaptive" \| "enabled" \| "disabled" \| "between_tools", budgetTokens?, display? }`. Pass `null` to send no thinking configuration at all (the model's own default); leaving it unset falls back to the legacy derivation from `reasoning_effort`. `budgetTokens` only applies to `type: "enabled"`. |
+| `verbosity` / `text.verbosity` | String | Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only. |
+| `tools` | Array | Function definitions the AI can call. See [Function Calling](#function-calling) for details. |
+| `toolChoice` | String \| Object | Which tool, if any, the model must call. Pass `"auto"` (the model decides), `"none"` (never call a tool), `"required"` (call at least one), or an object naming a specific tool: `{ type: "tool", name: "..." }`. Requires `tools`. |
+| `parallelToolCalls` | Boolean | Whether the model may call more than one tool in a single turn. Left unset, tool calls run one at a time. |
+| `streamToolInput` | Boolean | Streaming only. When `true`, a tool call's arguments arrive incrementally as `tool_use_start` / `tool_input_delta` chunks instead of a single `tool_use` chunk once the call completes. |
+| `normalize` | Boolean | Controls the format of the non-streaming response. See [Response normalization](#response-normalization). |
+| `compaction` | Boolean \| Object | Opt into inline context compaction for long conversations. See [Compaction](#compaction). |
+| `signal` | AbortSignal | Abort the request, including while waiting for the next streamed chunk. Cancellation rejects with the signal reason (normally an `AbortError`). |
+| `provider` | String | Pin the request to a specific provider, for example `openrouter` or `infron`. Without it, Puter selects a provider for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given provider serves. See [Providers](#providers). |
+| `fallback` | Boolean | Set to `false` to fail the request when the first provider tried fails, instead of retrying it on another provider that serves the same model. Defaults to `true`. See [Providers](#providers). |
+| `outputFormat` | Object | Constrains the response to a JSON schema: `{ type: "json_schema", schema, name?, strict? }`. |
+| `stopSequences` | Array of String | Up to the model's limit of strings; generation stops the moment one of them appears in the output. |
+
+Some models accept additional options or handle these options differently. See [Model-specific features](#model-specific-features).
 
 #### `testMode` (Boolean) (Optional)
 
@@ -109,66 +121,36 @@ Returns a `Promise` that resolves to either:
 - A [`ChatResponse`](/Objects/chatresponse) object containing the chat response data, or
 - An async iterable object of [`ChatResponseChunk`](/Objects/chatresponsechunk) (when `stream` is set to `true`) that you can use with a `for await...of` loop to receive the response in parts as they become available.
 
+Break out of the `for await...of` loop to stop reading a chat stream. When using
+`new ReadableStream(response)`, call `reader.cancel()` to stop it.
+
+You can also pass an `AbortSignal` to stop waiting for output. See the [stop a stream example](/playground/ai-chat-stop-stream/).
+
+Stopping a stream stops the output your app receives. Once the request has
+reached the model, the model still finishes its response, and the whole response
+is billed.
+
+The `ReadableStream` adapter emits text chunks as UTF-8 text. Other chunk types
+(including usage, tool calls, reasoning and errors) are serialized as JSON followed
+by a newline. Use the async iterator to receive every chunk as an object.
+
+## Errors
+
 In case of an error, the `Promise` will reject with an error message.
 
-## Vendors
+For streaming responses, an error from the AI provider is returned as a chunk
+with `type: "error"` and a `message` describing the failure. This also happens
+if the provider stops sending the response before it is complete. Check for
+error chunks in your `for await...of` loop before treating the response as complete.
 
-We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, Meta, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
-
-## Response Normalization
-
-Most vendors respond in the OpenAI chat format, where `message.content` is a string and tool calls appear as `message.tool_calls`. Anthropic models historically respond in Anthropic's native format instead, where `message.content` is an array of content blocks such as `[{ type: "text", text: "..." }]`.
-
-**Going forward, all models released on or after September 1, 2026 return responses in the OpenAI format**, no matter which vendor serves them — so the same response-handling code works across every new model. For models released before that date, the `normalize` default does not change: leave the option unset and `message.content` keeps its vendor-native shape.
-
-### Reasoning fields on existing models
-
-Separately from the `normalize` default, four reasoning-related fields were made consistent across vendors. These apply to **every** model, including ones released before the cutoff, and are not affected by `normalize`:
-
-| Field | Before | Now |
-| --- | --- | --- |
-| `message.reasoning_content` | Present on providers following the DeepSeek convention (DeepSeek, OpenRouter and others) | **Renamed to `message.reasoning`.** Read `reasoning` instead — `reasoning_content` is no longer present on non-streaming responses. |
-| `message.reasoning` on OpenAI Responses models | Always present as `null` | Absent when the model returned no reasoning summary; a string when it did. `if (msg.reasoning)` is unaffected; `'reasoning' in msg` changes. |
-| `message.reasoning_details` on OpenAI Responses models | Not present | Present when the model returned reasoning items, carrying their `id` and `encrypted_content` for replay. |
-| `finish_reason` on OpenAI Responses models | Always `"stop"` | `"tool_calls"` when the turn ended in tool calls, `"stop"` otherwise. |
-
-If your code reads `message.reasoning_content` on a non-streaming response, that is the one change that removes a field — switch to `message.reasoning`.
-
-You can control this per call with the `normalize` option:
-
-```js
-// Force the OpenAI format on any model, old or new:
-const response = await puter.ai.chat("Hello", { model: "claude-sonnet-5", normalize: true });
-console.log(response.message.content);   // a string, or null on a tool-only turn
-console.log(response.finish_reason);     // "stop" | "length" | "tool_calls" | "content_filter" | vendor value
-
-// Force the vendor-native format, even on a post-cutoff model:
-const native = await puter.ai.chat("Hello", { model: "claude-sonnet-5", normalize: false });
-```
-
-Or SDK-wide with `puter.ai.normalize`:
-
-```js
-// Unset (the default): the release-date rule applies — models released on or
-// after September 1, 2026 return the OpenAI format, older models stay native.
-puter.ai.normalize = true;      // force normalization: every chat() call
-                                // returns the OpenAI format, old or new model
-puter.ai.normalize = false;     // disable normalization: every chat() call
-                                // returns the vendor-native format
-puter.ai.normalize = undefined; // back to the release-date rule
-```
-
-A `normalize` option on an individual call always overrides `puter.ai.normalize` in either direction. Normalized responses carry `normalized: true`.
-
-On a normalized response, extended-thinking output (from reasoning models that expose it) is joined into `message.reasoning`, and Anthropic stop reasons are mapped to OpenAI values (`end_turn` → `stop`, `max_tokens` → `length`, `tool_use` → `tool_calls`, `refusal` → `content_filter`). A vendor stop reason with no OpenAI equivalent — Anthropic's `pause_turn`, for instance — passes through unchanged, so treat `finish_reason` as an open set. See [`finish_reason`](/Objects/chatresponse) for the full mapping.
-
-Normalization does not cost you the ability to continue a reasoning turn. The opaque parts a provider needs back — Anthropic thinking-block signatures, OpenAI reasoning item ids and encrypted content — are preserved verbatim on `message.reasoning_details`. Resend that array as-is alongside the message when you continue an extended-thinking tool-use loop. The artifacts are vendor-specific and only meaningful to the model that produced them, so replay them to the same model — don't carry them across vendors.
-
-One caveat. The release-date rule applies to the model that actually serves the request — if a request is rerouted to a fallback provider, the served model's release date decides.
-
-One thing to know about the release-date rule: a model's release date comes from the catalog of whichever provider serves it, and some providers report it from their own live listing. Models served through OpenRouter carry the date OpenRouter itself assigns, so a model newly listed there on or after September 1, 2026 is normalized by default without Puter shipping any change. Pin `normalize: false` if your code depends on a provider's native shape.
-
-Streaming is unaffected by normalization: streamed [`ChatResponseChunk`](/Objects/chatresponsechunk) objects already share one format across all vendors, and the chunk types a model emits do not depend on the `normalize` option. Reasoning models stream their thinking as `reasoning` chunks on every provider, whether or not normalization applies.
+If the network connection fails after streaming starts, the loop throws
+`{ message, code: "network_error" }`. Malformed or truncated JSON throws
+`{ message, code: "invalid_stream_response" }`. If the stream sends nothing for 15
+minutes, it throws `{ message, code: "request_timeout" }`; a call that gets no
+response at all for 15 minutes rejects the same way. Neither is retried, since
+the model may already have run (see
+[Request timeouts](/rate-limits-and-quotas/#request-timeouts)). Use
+`try...catch` around the call and loop to handle these failures.
 
 ## Function Calling
 
@@ -200,46 +182,9 @@ After executing the function, send the result back by including a message with:
 - `tool_call_id` (String) - The `id` from the tool call
 - `content` (String) - The function result as a string
 
+See also [Gemini models](#gemini-models).
+
 See the [Function Calling example](/playground/ai-function-calling/) for a complete working implementation.
-
-### Web Search
-
-Specific to OpenAI models, you can use the built-in web search tool, allowing the AI to access up-to-date information from the internet.
-
-Pass in the `tools` parameter with the type of `web_search`.
-
-```js
-{
-  model: 'openai/gpt-5.6-luna',
-  tools: [{type: "web_search"}]
-}
-```
-
-The code implementation is available in our [web search example](/playground/ai-web-search/).
-
-List of OpenAI models that support the web search can be found in their [API compatibility documentation](https://platform.openai.com/docs/guides/tools-web-search#api-compatibility).
-
-## Prompt Caching
-
-Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompts.
-
-Pass in the `cache_control` parameter inside the object in the `messages` array.
-
-```js
-[
-    {
-        role: 'system',
-        content: 'a really long system prompt',
-        cache_control: { type: "ephemeral" }
-    },
-    {
-        role: 'user',
-        content: '<your message>'
-    },
-]
-```
-
-You can find the implementation in our [prompt caching example](/playground/ai-claude-cache-control/). Find more details about cache control in [Anthropic documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
 
 ## Compaction
 
@@ -353,7 +298,163 @@ if ( result.compaction ) {
   `trigger_tokens` below a provider's minimum) arrive as an `error` chunk, not a
   thrown exception.
 
-## Image Generation (Gemini Image Models)
+## Response Normalization
+
+Most providers respond in the OpenAI chat format, where `message.content` is a string and tool calls appear as `message.tool_calls`. Anthropic models historically respond in Anthropic's native format instead, where `message.content` is an array of content blocks such as `[{ type: "text", text: "..." }]`.
+
+**Going forward, all models released on or after September 1, 2026 return responses in the OpenAI format**, no matter which provider serves them — so the same response-handling code works across every new model. For models released before that date, the `normalize` default does not change: leave the option unset and `message.content` keeps its provider-native shape.
+
+**Reasoning fields on existing models**
+
+Separately from the `normalize` default, four reasoning-related fields were made consistent across providers. These apply to **every** model, including ones released before the cutoff, and are not affected by `normalize`:
+
+| Field | Before | Now |
+| --- | --- | --- |
+| `message.reasoning_content` | Present on providers following the DeepSeek convention (DeepSeek, OpenRouter and others) | **Renamed to `message.reasoning`.** Read `reasoning` instead — `reasoning_content` is no longer present on non-streaming responses. |
+| `message.reasoning` on OpenAI Responses models | Always present as `null` | Absent when the model returned no reasoning summary; a string when it did. `if (msg.reasoning)` is unaffected; `'reasoning' in msg` changes. |
+| `message.reasoning_details` on OpenAI Responses models | Not present | Present when the model returned reasoning items, carrying their `id` and `encrypted_content` for replay. |
+| `finish_reason` on OpenAI Responses models | Always `"stop"` | `"tool_calls"` when the turn ended in tool calls, `"stop"` otherwise. |
+
+If your code reads `message.reasoning_content` on a non-streaming response, that is the one change that removes a field — switch to `message.reasoning`.
+
+You can control this per call with the `normalize` option:
+
+```js
+// Force the OpenAI format on any model, old or new:
+const response = await puter.ai.chat("Hello", { model: "claude-sonnet-5", normalize: true });
+console.log(response.message.content);   // a string, or null on a tool-only turn
+console.log(response.finish_reason);     // "stop" | "length" | "tool_calls" | "content_filter" | provider value
+
+// Force the provider-native format, even on a post-cutoff model:
+const native = await puter.ai.chat("Hello", { model: "claude-sonnet-5", normalize: false });
+```
+
+Or SDK-wide with `puter.ai.normalize`:
+
+```js
+// Unset (the default): the release-date rule applies — models released on or
+// after September 1, 2026 return the OpenAI format, older models stay native.
+puter.ai.normalize = true;      // force normalization: every chat() call
+                                // returns the OpenAI format, old or new model
+puter.ai.normalize = false;     // disable normalization: every chat() call
+                                // returns the provider-native format
+puter.ai.normalize = undefined; // back to the release-date rule
+```
+
+A `normalize` option on an individual call always overrides `puter.ai.normalize` in either direction. Normalized responses carry `normalized: true`.
+
+On a normalized response, extended-thinking output (from reasoning models that expose it) is joined into `message.reasoning`, and Anthropic stop reasons are mapped to OpenAI values (`end_turn` → `stop`, `max_tokens` → `length`, `tool_use` → `tool_calls`, `refusal` → `content_filter`). A provider stop reason with no OpenAI equivalent — Anthropic's `pause_turn`, for instance — passes through unchanged, so treat `finish_reason` as an open set. See [`finish_reason`](/Objects/chatresponse) for the full mapping.
+
+Normalization does not cost you the ability to continue a reasoning turn. The opaque parts a provider needs back — Anthropic thinking-block signatures, OpenAI reasoning item ids and encrypted content — are preserved verbatim on `message.reasoning_details`. Resend that array as-is alongside the message when you continue an extended-thinking tool-use loop. The artifacts are provider-specific and only meaningful to the model that produced them, so replay them to the same model — don't carry them across providers. Kimi K3.1 Pro reads its `reasoning` string back the same way, so keep `reasoning` on the assistant message when you continue a conversation with it.
+
+One caveat. The release-date rule applies to the model that actually serves the request — if a request is rerouted to a fallback provider, the served model's release date decides.
+
+One thing to know about the release-date rule: a model's release date comes from the catalog of whichever provider serves it, and some providers report it from their own live listing. Models served through OpenRouter carry the date OpenRouter itself assigns, so a model newly listed there on or after September 1, 2026 is normalized by default without Puter shipping any change. Pin `normalize: false` if your code depends on a provider's native shape.
+
+Streaming is unaffected by normalization: streamed [`ChatResponseChunk`](/Objects/chatresponsechunk) objects already share one format across all providers, and the chunk types a model emits do not depend on the `normalize` option. Reasoning models stream their thinking as `reasoning` chunks on every provider, whether or not normalization applies.
+
+## Providers
+
+We use different providers for different models and try to use the best provider available at the time of the request. Providers currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, Meta, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
+
+When the provider serving a request fails, Puter retries the request on the next provider that serves the same model (up to three attempts), and you are billed for the attempt that answers. Pass `fallback: false` to turn this off, so that a failure from the first provider tried is returned to you instead:
+
+```js
+// Answered by Anthropic directly, or an error. Never sent to another provider.
+const response = await puter.ai.chat('Hello', {
+    model: 'claude-sonnet-4-6',
+    provider: 'claude',
+    fallback: false,
+});
+```
+
+With `provider` set as well, the request is answered by that provider or fails. If that provider does not serve the model, the request fails with a `400` instead of going to another provider. The error is the same one you would get if every provider had failed, for example `400 upstream_provider_unavailable` or `429 upstream_rate_limited`.
+
+## Model-specific features
+
+### OpenAI models
+
+#### `temperature`
+
+Some OpenAI reasoning models ignore `temperature` and `top_p`. GPT-5.6, GPT-6 Sol/Luna, and GPT-6.1 Terra accept them only with `reasoning_effort: 'none'`, and GPT-6 Astra, GPT-6.1 Sol, and GPT-5.3 Codex always ignore them.
+
+#### `reasoning_effort`
+
+GPT-6.1 Terra accepts `none`, `low`, `medium` (default), `high`, `xhigh`, and `max`.
+
+#### Web Search
+
+Specific to OpenAI models, you can use the built-in web search tool, allowing the AI to access up-to-date information from the internet.
+
+Pass in the `tools` parameter with the type of `web_search`.
+
+```js
+{
+  model: 'openai/gpt-6-luna',
+  tools: [{type: "web_search"}]
+}
+```
+
+The code implementation is available in our [web search example](/playground/ai-web-search/).
+
+List of OpenAI models that support the web search can be found in their [API compatibility documentation](https://platform.openai.com/docs/guides/tools-web-search#api-compatibility).
+
+#### Prompt Caching
+
+OpenAI models cache prompt prefixes on their own. Requests from the same app and user share one cache by default, and you can pick the cache with `prompt_cache_key`. Their `usage` reports the tokens read from the cache as `cached_tokens`.
+
+GPT-5.6 and later models charge for cache writes and let you choose how long an entry lives. Pass `prompt_cache_options` with a `ttl` of `"30m"` (the default) or `"12h"`. The `usage` reports the tokens written with the 30 minute lifetime as `cache_write_tokens` and the tokens written with the 12 hour lifetime as `cache_write_12h_tokens`. Writing a 30 minute entry costs 1.25 times the model's input rate, and writing a 12 hour entry costs 2.5 times the input rate. Reads cost the same for both lifetimes. To mark where a reusable prefix ends, add `prompt_cache_breakpoint: { mode: "explicit" }` to a content part. A breakpoint can carry its own `ttl`, which overrides the request's. OpenAI only takes a 12 hour lifetime, or a lifetime on a breakpoint, through its Responses API, so a request that uses either is sent there.
+
+```js
+puter.ai.chat('<your message>', {
+    model: 'gpt-6-luna',
+    prompt_cache_options: { ttl: '12h' }
+});
+```
+
+Older OpenAI models charge nothing for cache writes. Pass `prompt_cache_retention` with `"in_memory"` for an entry that lives a few minutes or `"24h"` for one that can live up to a day. The 24 hour option is the default, and GPT-5.5 and later models only support it.
+
+The `usageDetails` object on every result carries the same counts under provider-neutral names, with one field per lifetime, such as `cacheWrite30mTokens` and `cacheWrite12hTokens`. See the [ChatResponse](/Objects/chatresponse/) object for the full list.
+
+### Anthropic models
+
+#### Prompt Caching
+
+Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompts.
+
+Pass in the `cache_control` parameter inside the object in the `messages` array.
+
+```js
+[
+    {
+        role: 'system',
+        content: 'a really long system prompt',
+        cache_control: { type: "ephemeral" }
+    },
+    {
+        role: 'user',
+        content: '<your message>'
+    },
+]
+```
+
+You can find the implementation in our [prompt caching example](/playground/ai-claude-cache-control/). Find more details about cache control in [Anthropic documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
+
+### Gemini models
+
+#### `temperature`
+
+`gemini-4-argon` ignores `temperature`. `gemini-3.1-flash-lite` and `gemini-3-flash-preview` use it.
+
+#### `reasoning_effort`
+
+`gemini-4-argon` accepts `low`, `medium` and `high`, and uses `medium` when you leave it unset. `gemini-3.1-flash-lite` and `gemini-3-flash-preview` accept `minimal`, `low`, `medium` and `high`, and use Google's default level when you leave it unset. For these three Gemini models, any other value fails with `400 bad_request`, and messages can contain text and images only.
+
+#### Function calling
+
+Gemini models can attach `extra_content.google.thought_signature` to a tool call. Send the assistant message back with its `tool_calls` unchanged, including `extra_content`, so the model can continue its reasoning. In a stream, the signature arrives on the `tool_use` chunk's `extra_content`.
+
+### Gemini image models
 
 Certain Gemini models can generate and edit images as part of a chat conversation. These models accept text and image inputs, and return text and images in the response.
 
@@ -361,7 +462,6 @@ Certain Gemini models can generate and edit images as part of a chat conversatio
 
 | Model | Quality Levels |
 |-------|---------------|
-| `gemini-2.5-flash-image` | — |
 | `gemini-3-pro-image-preview` | `1K`, `2K`, `4K` |
 | `gemini-3.1-flash-image-preview` | `512`, `1K`, `2K`, `4K` |
 
@@ -441,22 +541,38 @@ for await (const part of resp) {
 }
 ```
 
+### Moonshot Kimi models
+
+#### `reasoning_effort`
+
+Kimi K3.1 Pro accepts `low`, `high` and `max`, uses `max` when you leave it unset, and fails with `400 bad_request` on any other value.
+
+#### Prompt Caching
+
+Moonshot's Kimi K3 and Kimi K3.1 Pro models cache prompt prefixes on their own and take no `cache_control`. Their `usage` reports the tokens read from the cache as `cached_tokens` and the tokens written to it as `cache_write_tokens`. Each is billed at the model's own rate from the [AI models list](https://developer.puter.com/ai/models/).
+
+### Meta Muse Spark models
+
+#### `reasoning_effort`
+
+Muse Spark always reasons, so `none` is ignored for it.
+
 ## Examples
 
-<strong class="example-title">Ask GPT-5.6 Luna a question</strong>
+### Ask GPT-6 Luna a question
 
 ```html;ai-chatgpt
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
-        puter.ai.chat(`What is life?`, { model: "gpt-5.6-luna" }).then(puter.print);
+        puter.ai.chat(`What is life?`, { model: "gpt-6-luna" }).then(puter.print);
     </script>
 </body>
 </html>
 ```
 
-<strong class="example-title">Image Analysis</strong>
+### Image Analysis
 
 ```html;ai-gpt-vision
 <html>
@@ -466,7 +582,7 @@ for await (const part of resp) {
     <script>
         puter.ai
             .chat(`What do you see?`, `https://assets.puter.site/doge.jpeg`, {
-                model: "gpt-5.6-luna",
+                model: "gpt-6-luna",
             })
             .then(puter.print);
     </script>
@@ -474,7 +590,7 @@ for await (const part of resp) {
 </html>
 ```
 
-<strong class="example-title">Video Analysis</strong>
+### Video Analysis
 
 ```html;ai-video-analysis
 <html>
@@ -491,7 +607,7 @@ for await (const part of resp) {
 </html>
 ```
 
-<strong class="example-title">Stream the response</strong>
+### Stream the response
 
 ```html;ai-chat-stream
 <html>
@@ -499,7 +615,7 @@ for await (const part of resp) {
     <script src="https://js.puter.com/v2/"></script>
     <script>
     (async () => {
-        const resp = await puter.ai.chat('Tell me in detail what Rick and Morty is all about.', {model: 'gemini-3.1-flash-lite', stream: true });
+        const resp = await puter.ai.chat('Tell me in detail what Rick and Morty is all about.', {model: 'gemini-3.5-flash-lite', stream: true });
         for await ( const part of resp ) document.write(part?.text.replaceAll('\n', '<br>'));
     })();
     </script>
@@ -507,7 +623,40 @@ for await (const part of resp) {
 </html>
 ```
 
-<strong class="example-title">Function Calling</strong>
+### Stop a stream
+
+```html;ai-chat-stop-stream
+<html>
+<body>
+    <button id="stop">Stop</button>
+    <div id="output" style="white-space: pre-wrap"></div>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+    (async () => {
+        const controller = new AbortController();
+        const stopButton = document.getElementById('stop');
+        const output = document.getElementById('output');
+        stopButton.onclick = () => controller.abort();
+        try {
+            const response = await puter.ai.chat('Write a long story', {
+                stream: true,
+                signal: controller.signal,
+            });
+            for await (const part of response) {
+                if (part.type === 'text') output.append(part.text);
+            }
+        } catch (error) {
+            if (error.name !== 'AbortError') throw error;
+        } finally {
+            stopButton.remove();
+        }
+    })();
+    </script>
+</body>
+</html>
+```
+
+### Function Calling
 
 ```html;ai-function-calling
 <html>
@@ -567,7 +716,7 @@ for await (const part of resp) {
 </html>
 ```
 
-<strong class="example-title">Streaming Function Calling</strong>
+### Streaming Function Calling
 
 ```html;ai-streaming-function-calling
 <html>
@@ -649,7 +798,7 @@ for await (const part of resp) {
 </html>
 ```
 
-<strong class="example-title">Web Search</strong>
+### Web Search
 
 ```html;ai-web-search
 <html>
@@ -659,7 +808,7 @@ for await (const part of resp) {
         puter.print(`Loading...`);
         puter.ai
             .chat("Summarize what the User-Pays Model is: https://docs.puter.com/user-pays-model/", {
-                model: "openai/gpt-5.6-luna",
+                model: "openai/gpt-6-luna",
                 tools: [{ type: "web_search" }],
             })
             .then(puter.print);
@@ -668,7 +817,7 @@ for await (const part of resp) {
 </html>
 ```
 
-<strong class="example-title">Prompt caching with Claude</strong>
+### Prompt caching with Claude
 
 ```html;ai-claude-cache-control
 <html>
@@ -723,7 +872,7 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
 </html>
 ```
 
-<strong class="example-title">Image Generation</strong>
+### Image Generation
 
 ```html;ai-image-chat
 <html>
@@ -748,7 +897,7 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
 </html>
 ```
 
-<strong class="example-title">Multi-Turn Image Editing</strong>
+### Multi-Turn Image Editing
 
 ```html;ai-image-edit
 <html>
@@ -800,7 +949,7 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
 </html>
 ```
 
-<strong class="example-title">Working with Files</strong>
+### Working with Files
 
 ```html;ai-resume-analyzer
 <!DOCTYPE html>

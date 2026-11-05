@@ -18,6 +18,8 @@
  */
 
 const update_username_in_gui = function (new_username) {
+    // Unset while signing in: then there is no earlier username.
+    const old_username = window.user?.username;
     // ------------------------------------------------------------
     // Flush cache
     // ------------------------------------------------------------
@@ -107,6 +109,13 @@ const update_username_in_gui = function (new_username) {
     window.desktop_path = `/${ new_username }/Desktop`;
     window.public_path = `/${ new_username }/Public`;
     window.home_path = `/${ new_username}`;
+
+    // For paths held outside the DOM, which the rewrite above can't reach.
+    if ( old_username ) {
+        window.dispatchEvent(new CustomEvent('username-changed', {
+            detail: { oldUsername: old_username, newUsername: new_username },
+        }));
+    }
 };
 
 export default update_username_in_gui;

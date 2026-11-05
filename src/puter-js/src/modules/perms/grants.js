@@ -44,15 +44,43 @@ export async function grantOrigin (origin, permission) {
 // -- Revoke --
 
 /**
+ * @typedef {Object} RevokeAppOptions
+ * @property {boolean} [deleteData] With `'*'` only: also delete the app's data
+ * in the user's account. Defaults to `false`.
+ */
+
+/**
  * Revokes a permission from an app. `'*'` revokes every permission the user has
  * granted it, which is what uninstalling an app does.
+ * @overload
  * @this {PermsModule}
  * @param {string} appUid
  * @param {string} permission
  * @returns {PermResult}
  */
-export async function revokeApp (appUid, permission) {
-    return await req(this.puter, '/auth/revoke-user-app', { app_uid: appUid, permission });
+/**
+ * Revokes every permission the user has granted an app, optionally deleting
+ * the app's data in the user's account too.
+ * @overload
+ * @this {PermsModule}
+ * @param {string} appUid
+ * @param {'*'} permission
+ * @param {RevokeAppOptions} options
+ * @returns {PermResult}
+ */
+/**
+ * @this {PermsModule}
+ * @param {string} appUid
+ * @param {string} permission
+ * @param {RevokeAppOptions} [options]
+ * @returns {PermResult}
+ */
+export async function revokeApp (appUid, permission, options) {
+    return await req(this.puter, '/auth/revoke-user-app', {
+        app_uid: appUid,
+        permission,
+        ...(options?.deleteData !== undefined ? { deleteData: options.deleteData } : {}),
+    });
 }
 
 /**

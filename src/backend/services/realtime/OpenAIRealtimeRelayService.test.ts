@@ -1,0 +1,3545 @@
+import {
+    createServer,
+    type IncomingMessage,
+    type Server as HttpServer,
+} from 'node:http';
+import { connect, type AddressInfo, type Socket } from 'node:net';
+import { PassThrough } from 'node:stream';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import WebSocket, { WebSocketServer } from 'ws';
+import { EventClient } from '../../clients/event/EventClient.js';
+import { BroadcastService } from '../broadcast/BroadcastService.js';
+import { makeActor } from '../../core/actor.js';
+import { FULL_API_ACCESS } from '../permission/consts.js';
+import {
+    checkRateLimit,
+    sweepMemoryWindows,
+} from '../../core/http/middleware/rateLimit.js';
+import { withAiCostFactorHook } from '../../drivers/integrationTestUtil';
+import type { IConfig } from '../../types';
+import type { PuterServer } from '../../server';
+import { installSeatStub } from '../../testFixtures/seatStub';
+import {
+    allocateEphemeralPort,
+    createTestUser,
+    setupTestServer,
+    type TestUserCredentials,
+} from '../../testUtil';
+import { kv } from '../../util/kvSingleton';
+import {
+    MAX_REALTIME_MESSAGE_BYTES,
+    MAX_UPSTREAM_MESSAGE_BYTES,
+    OpenAIRealtimeRelayService,
+    REALTIME_PATH,
+    type RealtimeUsage,
+    type RealtimeTranscriptionUsage,
+    realtimeAuthKey,
+    realtimeBillingModel,
+    realtimeConnectKey,
+    realtimeTokenFrom,
+    realtimeTranscriptionRows,
+    realtimeUsageRows,
+} from './OpenAIRealtimeRelayService';
+
+const reqWith = (headers: Record<string, string>) => ({ headers });
+
+describe('realtimeTokenFrom', () => {
+    const url = new URL('http://x/?auth_token=from-query');
+
+    it('prefers the Authorization header', () => {
+        const req = reqWith({ authorization: 'Bearer from-header' });
+        expect(realtimeTokenFrom(req, url)).toBe('from-header');
+    });
+
+    it("reads OpenAI's browser key subprotocol", () => {
+        const req = reqWith({
+            'sec-websocket-protocol':
+                'realtime, openai-insecure-api-key.from-protocol',
+        });
+        expect(realtimeTokenFrom(req, url)).toBe('from-protocol');
+    });
+
+    it('falls back to auth_token, then nothing', () => {
+        expect(realtimeTokenFrom(reqWith({}), url)).toBe('from-query');
+        expect(realtimeTokenFrom(reqWith({}), new URL('http://x/'))).toBe(
+            undefined,
+        );
+    });
+});
+
+describe('realtimeUsageRows', () => {
+    it('prices uncached and cached tokens per modality', () => {
+        const rows = realtimeUsageRows('gpt-realtime-mini', {
+            input_token_details: {
+                text_tokens: 100,
+                audio_tokens: 50,
+                cached_tokens_details: { text_tokens: 40 },
+            },
+            output_token_details: { text_tokens: 10, audio_tokens: 20 },
+        });
+        expect(rows).toEqual([
+            {
+                usageType: 'openai:gpt-realtime-mini:realtime:text_input',
+                usageAmount: 60,
+                costOverride: 60 * 60,
+            },
+            {
+                usageType: 'openai:gpt-realtime-mini:realtime:text_cached',
+                usageAmount: 40,
+                costOverride: 40 * 6,
+            },
+            {
+                usageType: 'openai:gpt-realtime-mini:realtime:audio_input',
+                usageAmount: 50,
+                costOverride: 50 * 1000,
+            },
+            {
+                usageType: 'openai:gpt-realtime-mini:realtime:text_output',
+                usageAmount: 10,
+                costOverride: 10 * 240,
+            },
+            {
+                usageType: 'openai:gpt-realtime-mini:realtime:audio_output',
+                usageAmount: 20,
+                costOverride: 20 * 2000,
+            },
+        ]);
+    });
+
+    it('returns nothing for an unknown model or missing usage', () => {
+        expect(realtimeUsageRows('constructor', {})).toEqual([]);
+        expect(realtimeUsageRows('gpt-4o', {})).toEqual([]);
+        expect(realtimeUsageRows('gpt-realtime', undefined)).toEqual([]);
+    });
+});
+
+describe('realtimeTranscriptionRows', () => {
+    it('prices token usage by transcription model', () => {
+        const rows = realtimeTranscriptionRows('gpt-4o-mini-transcribe', {
+            type: 'tokens',
+            input_tokens: 30,
+            input_token_details: { text_tokens: 10, audio_tokens: 20 },
+            output_tokens: 5,
+        });
+        expect(rows.map((r) => [r.usageType, r.costOverride])).toEqual([
+            [
+                'openai:gpt-4o-mini-transcribe:realtime:transcription_text_input',
+                10 * 125,
+            ],
+            [
+                'openai:gpt-4o-mini-transcribe:realtime:transcription_audio_input',
+                20 * 300,
+            ],
+            [
+                'openai:gpt-4o-mini-transcribe:realtime:transcription_text_output',
+                5 * 500,
+            ],
+        ]);
+    });
+
+    it('prices duration usage per second', () => {
+        expect(
+            realtimeTranscriptionRows('whisper-1', {
+                type: 'duration',
+                seconds: 2.5,
+            }),
+        ).toEqual([
+            {
+                usageType: 'openai:whisper-1:realtime:transcription_seconds',
+                usageAmount: 2.5,
+                costOverride: 25_000,
+            },
+        ]);
+    });
+
+    it('bills an unknown model at the highest known rate', () => {
+        const [row] = realtimeTranscriptionRows(undefined, {
+            type: 'tokens',
+            input_tokens: 10,
+        });
+        expect(row).toEqual({
+            usageType: 'openai:unknown:realtime:transcription_audio_input',
+            usageAmount: 10,
+            costOverride: 10 * 600,
+        });
+    });
+});
+
+describe('realtimeBillingModel', () => {
+    it('bills the model the session reports, dated snapshots included', () => {
+        expect(
+            realtimeBillingModel(
+                { model: 'gpt-realtime' },
+                'gpt-realtime-mini',
+            ),
+        ).toBe('gpt-realtime');
+        expect(
+            realtimeBillingModel(
+                { model: 'gpt-realtime-mini-2025-10-06' },
+                'gpt-realtime',
+            ),
+        ).toBe('gpt-realtime-mini');
+    });
+
+    it('distinguishes a missing model from an explicitly unpriced model', () => {
+        expect(realtimeBillingModel({}, 'gpt-realtime-mini')).toBe(
+            'gpt-realtime-mini',
+        );
+        expect(
+            realtimeBillingModel({ model: 'gpt-9' }, 'gpt-realtime-mini'),
+        ).toBeUndefined();
+        expect(realtimeBillingModel(null, 'gpt-realtime')).toBe('gpt-realtime');
+    });
+});
+
+describe('OpenAIRealtimeRelayService relay', () => {
+    let server: PuterServer;
+    let upstream: WebSocketServer;
+    let user: TestUserCredentials;
+    let relayUrl: string;
+    let paidPolicy: NonNullable<
+        ReturnType<PuterServer['services']['metering']['getRegisteredPolicy']>
+    >;
+    let planId = 'test_paid';
+    let initialProviderSession: object | undefined;
+    const upstreamRequests: IncomingMessage[] = [];
+    const upstreamEvents: {
+        type: string;
+        response_id?: string;
+        event_id?: string;
+    }[] = [];
+    const clients = new Set<WebSocket>();
+    let responseCount = 0;
+
+    // Realtime is subscriber-only; the test user is on a paid plan with a $10
+    // allowance unless a test says otherwise.
+    beforeEach(async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        user.token = (
+            await server.services.auth.createSessionToken(row!, {})
+        ).token;
+        const metering = server.services.metering;
+        planId = 'test_paid';
+        initialProviderSession = undefined;
+        paidPolicy.monthUsageAllowance = 1_000_000_000;
+        metering.invalidateActorSubscription(row!.uuid);
+        const plan = metering.getActorSubscription.bind(metering);
+        vi.spyOn(metering, 'getActorSubscription').mockImplementation((actor) =>
+            plan(actor),
+        );
+    });
+
+    afterEach(async () => {
+        for (const client of clients) client.terminate();
+        clients.clear();
+        vi.restoreAllMocks();
+        // Every session, settle included, has ended its upstream.
+        await vi.waitFor(() => expect(upstream.clients.size).toBe(0), {
+            timeout: 8_000,
+        });
+        // Every test connects from loopback; expire the per-IP pre-auth
+        // window so the file's total stays under that limit.
+        const now = Date.now();
+        vi.spyOn(Date, 'now').mockReturnValue(now + 24 * 60 * 60_000);
+        sweepMemoryWindows();
+        vi.restoreAllMocks();
+    });
+
+    beforeAll(async () => {
+        // A fake OpenAI: echoes every client event back as `echo` and answers
+        // `response.create` with a `response.done` carrying usage.
+        upstream = new WebSocketServer({
+            port: 0,
+            // `gpt-realtime` stands in for a model OpenAI refuses.
+            verifyClient: (info, done) =>
+                info.req.url?.endsWith('model=gpt-realtime')
+                    ? done(false, 429)
+                    : info.req.url?.endsWith('model=gpt-realtime-1.5')
+                      ? void setTimeout(() => done(true), 300)
+                      : done(true),
+        });
+        upstream.on('connection', (ws, req) => {
+            upstreamRequests.push(req);
+            ws.on('error', () => {});
+            ws.send(
+                JSON.stringify({
+                    type: 'session.created',
+                    session: initialProviderSession,
+                }),
+            );
+            ws.on('message', (data, isBinary) => {
+                // OpenAI rejects binary frames outright.
+                if (isBinary) {
+                    ws.send(JSON.stringify({ type: 'error', binary: true }));
+                    return;
+                }
+                const event = JSON.parse(data.toString());
+                upstreamEvents.push(event);
+                if (event.type === 'test.upstream') {
+                    ws.send(event.payload, { binary: event.binary ?? false });
+                    return;
+                }
+                if (event.type === 'test.burst') {
+                    for (let i = 0; i < event.count; i++) {
+                        ws.send(
+                            JSON.stringify({
+                                type: event.eventType ?? 'response.done',
+                                response: {
+                                    usage: {
+                                        output_token_details: {
+                                            text_tokens: 1,
+                                        },
+                                    },
+                                },
+                            }),
+                        );
+                    }
+                    return;
+                }
+                if (event.type === 'test.largeBurst') {
+                    const payload = JSON.stringify({
+                        type: 'response.output_text.delta',
+                        delta: 'x'.repeat(60 * 1024),
+                    });
+                    for (let i = 0; i < 6; i++) ws.send(payload);
+                    return;
+                }
+                if (event.type === 'test.exact') {
+                    const envelope = { type: 'test.exact', pad: '' };
+                    envelope.pad = 'x'.repeat(
+                        MAX_REALTIME_MESSAGE_BYTES -
+                            Buffer.byteLength(JSON.stringify(envelope)),
+                    );
+                    ws.send(JSON.stringify(envelope));
+                    return;
+                }
+                if (event.type === 'test.retrieve') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'conversation.item.retrieved',
+                            item: { audio: 'A'.repeat(event.bytes) },
+                        }),
+                    );
+                    return;
+                }
+                // Drops the connection, like a provider ending the session.
+                if (event.type === 'test.pendingOverflow') {
+                    for (let i = 0; i < 65; i++) {
+                        if (i === 1)
+                            ws.send(
+                                JSON.stringify({
+                                    type: 'session.updated',
+                                    session: {
+                                        input_audio_transcription: {
+                                            model: 'gpt-4o-mini-transcribe',
+                                        },
+                                    },
+                                }),
+                            );
+                        ws.send(
+                            JSON.stringify({
+                                type: 'input_audio_buffer.committed',
+                                item_id: `pending${i}`,
+                            }),
+                        );
+                    }
+                    setTimeout(() => {
+                        if (ws.readyState === WebSocket.OPEN)
+                            ws.send(
+                                JSON.stringify({
+                                    type: 'conversation.item.input_audio_transcription.completed',
+                                    item_id: 'pending0',
+                                    usage: {
+                                        type: 'tokens',
+                                        input_tokens: 4,
+                                        input_token_details: {
+                                            audio_tokens: 4,
+                                        },
+                                    },
+                                }),
+                            );
+                    }, 150);
+                    return;
+                }
+                if (event.type === 'test.delayedTranscription') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'input_audio_buffer.committed',
+                            item_id: 'delayed',
+                        }),
+                    );
+                    setTimeout(() => {
+                        if (ws.readyState === WebSocket.OPEN)
+                            ws.send(
+                                JSON.stringify({
+                                    type: 'conversation.item.input_audio_transcription.completed',
+                                    item_id: 'delayed',
+                                    usage: {
+                                        type: 'tokens',
+                                        input_tokens: 4,
+                                        input_token_details: {
+                                            audio_tokens: 4,
+                                        },
+                                        output_tokens: 2,
+                                    },
+                                }),
+                            );
+                    }, 150);
+                    return;
+                }
+                if (event.type === 'test.closeReason') {
+                    ws.close(1000, 'provider org-AbCdEf1234567890');
+                    return;
+                }
+                if (event.type === 'test.drop') {
+                    ws.terminate();
+                    return;
+                }
+                if (event.type === 'test.oversize') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'response.output_text.delta',
+                            delta: 'x'.repeat(MAX_UPSTREAM_MESSAGE_BYTES),
+                        }),
+                    );
+                    return;
+                }
+                ws.send(JSON.stringify({ type: 'echo', event }));
+                if (event.type === 'transcribe') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'session.updated',
+                            session: {
+                                audio: {
+                                    input: {
+                                        transcription: {
+                                            model: 'gpt-4o-transcribe',
+                                        },
+                                    },
+                                },
+                            },
+                        }),
+                    );
+                    ws.send(
+                        JSON.stringify({
+                            type: 'input_audio_buffer.committed',
+                            item_id: 'transcribed',
+                        }),
+                    );
+                    ws.send(
+                        JSON.stringify({
+                            type: 'conversation.item.input_audio_transcription.completed',
+                            item_id: 'transcribed',
+                            usage: {
+                                type: 'tokens',
+                                input_tokens: 4,
+                                input_token_details: { audio_tokens: 4 },
+                                output_tokens: 2,
+                            } satisfies RealtimeTranscriptionUsage,
+                        }),
+                    );
+                }
+                // Commits on one transcription model, then switches to a
+                // cheaper one before the transcription completes.
+                if (event.type === 'transcribe.switch') {
+                    const model = (name: string) =>
+                        JSON.stringify({
+                            type: 'session.updated',
+                            session: {
+                                audio: {
+                                    input: { transcription: { model: name } },
+                                },
+                            },
+                        });
+                    ws.send(model('gpt-4o-transcribe'));
+                    ws.send(
+                        JSON.stringify({
+                            type: 'input_audio_buffer.committed',
+                            item_id: 'item_switch',
+                        }),
+                    );
+                    ws.send(model('gpt-4o-mini-transcribe'));
+                    ws.send(
+                        JSON.stringify({
+                            type: 'conversation.item.input_audio_transcription.completed',
+                            item_id: 'item_switch',
+                            usage: {
+                                type: 'tokens',
+                                input_tokens: 4,
+                                input_token_details: { audio_tokens: 4 },
+                            } satisfies RealtimeTranscriptionUsage,
+                        }),
+                    );
+                }
+                // Generates until cancelled, then reports usage like OpenAI.
+                if (event.type === 'hold.response') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'response.created',
+                            response: { id: 'resp_hold' },
+                        }),
+                    );
+                }
+                if (event.type === 'response.cancel') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'response.done',
+                            response: {
+                                id: event.response_id,
+                                status: 'cancelled',
+                                usage: {
+                                    output_token_details: { audio_tokens: 50 },
+                                } satisfies RealtimeUsage,
+                            },
+                        }),
+                    );
+                }
+                // Holds a response open so the drain has one in flight.
+                if (event.type === 'slow.response') {
+                    ws.send(JSON.stringify({ type: 'response.created' }));
+                    setTimeout(
+                        () =>
+                            ws.send(
+                                JSON.stringify({
+                                    type: 'response.done',
+                                    response: {},
+                                }),
+                            ),
+                        300,
+                    );
+                }
+                // Starts only after a delay, like a reply still being queued.
+                if (event.type === 'response.create' && event.late) {
+                    setTimeout(
+                        () =>
+                            ws.send(
+                                JSON.stringify({
+                                    type: 'response.created',
+                                    response: { id: 'resp_late' },
+                                }),
+                            ),
+                        150,
+                    );
+                } else if (event.type === 'response.create') {
+                    const id = `resp_${++responseCount}`;
+                    ws.send(
+                        JSON.stringify({
+                            type: 'response.created',
+                            response: { id },
+                        }),
+                    );
+                    ws.send(
+                        JSON.stringify({
+                            type: 'response.done',
+                            response: {
+                                id,
+                                usage: {
+                                    input_token_details: { text_tokens: 7 },
+                                    output_token_details: { text_tokens: 3 },
+                                } satisfies RealtimeUsage,
+                            },
+                        }),
+                    );
+                }
+            });
+        });
+        const upstreamPort = (upstream.address() as AddressInfo).port;
+
+        const port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                realtime: { upstreamUrl: `ws://127.0.0.1:${upstreamPort}` },
+                providers: { 'openai-completion': { apiKey: 'sk-test' } },
+            } satisfies Partial<IConfig> as IConfig,
+            { listen: true },
+        );
+        user = await createTestUser(server, {
+            username: 'realtime-user',
+            password: 'realtime-user-password',
+        });
+        const userRow = await server.stores.user.getByUsername(user.username);
+        paidPolicy = {
+            ...(await server.services.metering.getActorSubscription(
+                makeActor({ user: userRow! }),
+            )),
+            id: 'test_paid',
+            monthUsageAllowance: 1_000_000_000,
+            free: false,
+            noAllowance: false,
+        };
+        server.services.metering.registerPolicy(paidPolicy);
+        server.services.metering.registerSubscriptionResolver(
+            async () => planId,
+        );
+        relayUrl = `ws://api.puter.localhost:${port}${REALTIME_PATH}`;
+    }, 60_000);
+
+    afterAll(async () => {
+        await server?.shutdown();
+        await new Promise((r) => upstream?.close(r));
+    }, 60_000);
+
+    /** Open a client and collect every event until it closes. */
+    const open = (
+        url: string,
+        protocols?: string[],
+        headers?: Record<string, string>,
+    ) => {
+        const ws = new WebSocket(url, protocols, { headers });
+        clients.add(ws);
+        ws.once('close', () => clients.delete(ws));
+        const events: Record<string, unknown>[] = [];
+        const closed = new Promise<{ code: number }>((resolve) =>
+            ws.on('close', (code) => resolve({ code })),
+        );
+        ws.on('error', () => {});
+        ws.on('message', (d) => events.push(JSON.parse(d.toString())));
+        const waitFor = (type: string) =>
+            vi.waitFor(
+                () => {
+                    const e = events.find((x) => x.type === type);
+                    if (!e)
+                        throw new Error(
+                            `no ${type} yet: ${JSON.stringify(events)}`,
+                        );
+                    return e;
+                },
+                { timeout: 5_000 },
+            );
+        const waitForEcho = (type: string) =>
+            vi.waitFor(
+                () =>
+                    expect(
+                        events.some(
+                            (e) =>
+                                e.type === 'echo' &&
+                                (e.event as { type: string }).type === type,
+                        ),
+                    ).toBe(true),
+                { timeout: 5_000 },
+            );
+        return { ws, events, closed, waitFor, waitForEcho };
+    };
+
+    it('rejects a missing credential with an error event and 1008', async () => {
+        const { closed, waitFor } = open(relayUrl);
+        const error = (await waitFor('error')) as {
+            error: { code: string };
+        };
+        expect(error.error.code).toBe('invalid_api_key');
+        expect((await closed).code).toBe(1008);
+    });
+
+    it('rejects a model outside the realtime catalog', async () => {
+        const { closed, waitFor } = open(
+            `${relayUrl}?model=gpt-4o&auth_token=${user.token}`,
+        );
+        const error = (await waitFor('error')) as {
+            error: { code: string };
+        };
+        expect(error.error.code).toBe('model_not_found');
+        expect((await closed).code).toBe(1008);
+    });
+
+    it('relays events both ways, buffering ones sent before upstream opens, and meters usage', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        const { ws, waitFor, events } = open(
+            `${relayUrl}?model=gpt-realtime-mini`,
+            ['realtime', `openai-insecure-api-key.${user.token}`],
+        );
+        await new Promise((r) => ws.once('open', r));
+        expect(ws.protocol).toBe('realtime');
+        ws.send(JSON.stringify({ type: 'session.update', session: {} }));
+        ws.send(JSON.stringify({ type: 'response.create' }));
+
+        await waitFor('session.created');
+        await waitFor('response.done');
+        expect(
+            events
+                .filter((e) => e.type === 'echo')
+                .map((e) => (e.event as { type: string }).type),
+        ).toEqual(['session.update', 'response.create']);
+
+        const upstreamReq = upstreamRequests.at(-1)!;
+        expect(upstreamReq.url).toBe('/?model=gpt-realtime-mini');
+        expect(upstreamReq.headers.authorization).toBe('Bearer sk-test');
+
+        await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+        const [, rows] = spy.mock.calls.at(-1)!;
+        expect(rows.map((r) => [r.usageType, r.costOverride])).toEqual([
+            ['openai:gpt-realtime-mini:realtime:text_input', 7 * 60],
+            ['openai:gpt-realtime-mini:realtime:text_output', 3 * 240],
+        ]);
+        ws.close();
+    });
+
+    it.each(['null', '[]', '{}', '{', '{"type":3}', '{"type":""}'])(
+        'rejects malformed client envelope %s',
+        async (payload) => {
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await c.waitFor('session.created');
+            c.ws.send(payload);
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'invalid_event' },
+            });
+            expect((await c.closed).code).toBe(1008);
+        },
+    );
+
+    it('rejects binary client messages before forwarding them', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(Buffer.from('{}'));
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_event' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('accepts an exactly 64 KiB message unchanged', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'test.exact' }));
+        const event = await c.waitFor('test.exact');
+        expect(Buffer.byteLength(JSON.stringify(event))).toBe(
+            MAX_REALTIME_MESSAGE_BYTES,
+        );
+        c.ws.close();
+    });
+
+    it('closes oversized client messages with 1009', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.large',
+                pad: 'x'.repeat(MAX_REALTIME_MESSAGE_BYTES),
+            }),
+        );
+        expect((await c.closed).code).toBe(1009);
+    });
+
+    it('bounds fragmented messages before reassembly', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        for (let i = 0; i < 65; i++) c.ws.send(' ', { fin: false });
+        c.ws.send(' ', { fin: true });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('forwards upstream messages beyond the client limit', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({ type: 'test.retrieve', bytes: 1024 * 1024 }),
+        );
+        await c.waitFor('conversation.item.retrieved');
+        c.ws.send('{"type":"test.alive"}');
+        await c.waitForEcho('test.alive');
+        c.ws.close();
+    });
+
+    // 8,000 audio input and 4,096 audio output tokens at mini rates.
+    const MINI_HOLD = 8_000 * 1000 + 4_096 * 2000;
+    const unreportedRows = (costOverride: number) => [
+        {
+            usageType: 'openai:gpt-realtime-mini:realtime:unreported_response',
+            usageAmount: 1,
+            costOverride,
+        },
+    ];
+
+    it('closes on an oversized upstream message and bills the response it loses at its hold', async () => {
+        const alarm = vi.spyOn(server.clients.alarm, 'create');
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        c.ws.send(JSON.stringify({ type: 'test.oversize' }));
+        expect((await c.closed).code).toBe(1011);
+        expect(
+            c.events.some(
+                (event) => event.type === 'response.output_text.delta',
+            ),
+        ).toBe(false);
+        await vi.waitFor(() =>
+            expect(spy.mock.calls.map(([, rows]) => rows)).toContainEqual(
+                unreportedRows(MINI_HOLD),
+            ),
+        );
+        expect(alarm).toHaveBeenCalledWith(
+            'realtime_unreported_response',
+            expect.any(String),
+            expect.objectContaining({ inFlight: 1 }),
+            'warning',
+            { dedup: true },
+        );
+    });
+
+    it('bills a response at its hold through the cost factor when the upstream drops mid-response', async () => {
+        const dropped = await createTestUser(server, {
+            username: 'realtime-dropped',
+            password: 'realtime-dropped-password',
+        });
+        const row = await server.stores.user.getByUsername(dropped.username);
+        const actor = { user: row } as never;
+        const metering = server.services.metering;
+        const spy = vi.spyOn(metering, 'batchIncrementUsages');
+        await withAiCostFactorHook(server.clients.event, 2, async () => {
+            const c = open(
+                `${relayUrl}?model=gpt-realtime-mini&auth_token=${dropped.token}`,
+            );
+            await c.waitFor('session.created');
+            c.ws.send(JSON.stringify({ type: 'hold.response' }));
+            await c.waitFor('response.created');
+            await vi.waitFor(async () =>
+                expect(await metering.getOutstandingHolds(actor)).toBe(
+                    MINI_HOLD * 2,
+                ),
+            );
+            c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            expect((await c.closed).code).toBe(1011);
+            await vi.waitFor(() =>
+                expect(spy.mock.calls.map(([, rows]) => rows)).toContainEqual(
+                    unreportedRows(MINI_HOLD * 2),
+                ),
+            );
+        });
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(0),
+        );
+    });
+
+    const mcpTool = {
+        type: 'mcp',
+        server_label: 'docs',
+        server_url: 'https://mcp.example.com',
+    };
+    it.each([
+        [
+            'conversation.item.retrieve',
+            { type: 'conversation.item.retrieve', item_id: 'item_1' },
+        ],
+        [
+            'an MCP tool in session.update',
+            {
+                type: 'session.update',
+                session: { type: 'realtime', tools: [mcpTool] },
+            },
+        ],
+        [
+            'an MCP tool in response.create',
+            { type: 'response.create', response: { tools: [mcpTool] } },
+        ],
+    ])('refuses %s without forwarding it', async (_name, event) => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const eventId = `event_refused_${Date.now()}_${Math.random()}`;
+        c.ws.send(JSON.stringify({ ...event, event_id: eventId }));
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_event' },
+        });
+        expect((await c.closed).code).toBe(1008);
+        expect(upstreamEvents.some((e) => e.event_id === eventId)).toBe(false);
+    });
+
+    it('forwards function tools', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'session.update',
+                session: {
+                    type: 'realtime',
+                    tools: [
+                        {
+                            type: 'function',
+                            name: 'lookup',
+                            parameters: { type: 'object' },
+                        },
+                    ],
+                },
+            }),
+        );
+        await c.waitForEcho('session.update');
+        expect(c.events.some((e) => e.type === 'error')).toBe(false);
+        c.ws.close();
+    });
+
+    it('treats a null usage as none and keeps the session', async () => {
+        const alarm = vi.spyOn(server.clients.alarm, 'create');
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload:
+                    '{"type":"response.done","response":{"id":"resp_hold","usage":null}}',
+            }),
+        );
+        await c.waitFor('response.done');
+        c.ws.send('{"type":"test.alive"}');
+        await c.waitForEcho('test.alive');
+        c.ws.close();
+        await c.closed;
+        expect(alarm).not.toHaveBeenCalledWith(
+            'realtime_unreported_response',
+            expect.anything(),
+            expect.anything(),
+            expect.anything(),
+            expect.anything(),
+        );
+    });
+
+    it.each([
+        'null',
+        '{"type":"response.done","response":{"usage":{"input_tokens":-1}}}',
+        '{"type":"response.done","response":{"usage":[]}}',
+        '{"type":"response.done","response":{"usage":{"input_token_details":null}}}',
+    ])('rejects malformed upstream shape %s', async (payload) => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'test.upstream', payload }));
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'upstream_error' },
+        });
+        expect((await c.closed).code).toBe(1011);
+    });
+
+    it('caps messages pending an upstream handshake', async () => {
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-1.5&auth_token=${user.token}`,
+        );
+        await new Promise((resolve) => c.ws.once('open', resolve));
+        for (let i = 0; i < 33; i++) c.ws.send('{"type":"response.create"}');
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('caps client message floods without waiting for a byte budget', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        for (let i = 0; i < 150; i++) c.ws.send('{"type":"test.small"}');
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('asks a session to retry with 1013 when metering falls behind, then bills what it queued', async () => {
+        const holder = await createTestUser(server, {
+            username: 'realtime-backlog',
+            password: 'realtime-backlog-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const metering = server.services.metering;
+        const record = metering.batchIncrementUsages.bind(metering);
+        let open_: () => void = () => {};
+        const gate = new Promise<void>((resolve) => (open_ = resolve));
+        const recorded = vi
+            .spyOn(metering, 'batchIncrementUsages')
+            .mockImplementation(async (...args) => {
+                await gate;
+                return record(...args);
+            });
+        const url = `${relayUrl}?model=gpt-realtime-mini&auth_token=${holder.token}`;
+        const flooding = open(url);
+        const quiet = open(url);
+        await Promise.all([
+            flooding.waitFor('session.created'),
+            quiet.waitFor('session.created'),
+        ]);
+        // Each reply's usage queues behind metering with its credit hold.
+        for (let i = 0; i < 40; i++) {
+            flooding.ws.send('{"type":"response.create"}');
+        }
+        expect(await flooding.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await flooding.closed).code).toBe(1013);
+        quiet.ws.send('{"type":"test.quiet"}');
+        expect(await quiet.waitFor('echo')).toMatchObject({
+            event: { type: 'test.quiet' },
+        });
+        quiet.ws.close();
+
+        expect(await metering.getOutstandingHolds(actor)).toBeGreaterThan(0);
+
+        // Everything queued is still recorded once metering catches up, and
+        // each hold is released after its usage.
+        open_();
+        await vi.waitFor(
+            async () => {
+                expect(recorded.mock.calls.length).toBeGreaterThan(32);
+                expect(await metering.getOutstandingHolds(actor)).toBe(0);
+            },
+            { timeout: 10_000 },
+        );
+    });
+
+    it('reports a refused upstream handshake', async () => {
+        const { closed, waitFor } = open(
+            `${relayUrl}?model=gpt-realtime&auth_token=${user.token}`,
+        );
+        expect(await waitFor('error')).toMatchObject({
+            error: { code: 'upstream_error' },
+        });
+        expect((await closed).code).toBe(1011);
+    });
+
+    it('meters usage when type follows other event fields', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const usage = {
+            output_token_details: { text_tokens: 13 },
+        } satisfies RealtimeUsage;
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload: JSON.stringify({
+                    event_id: 'test-order',
+                    response: { usage },
+                    type: 'response.done',
+                }),
+            }),
+        );
+        await c.waitFor('response.done');
+        await vi.waitFor(() =>
+            expect(
+                spy.mock.calls.some(([, rows]) =>
+                    rows.some(
+                        (row) =>
+                            row.usageType.endsWith(':text_output') &&
+                            row.usageAmount === 13,
+                    ),
+                ),
+            ).toBe(true),
+        );
+        c.ws.close();
+    });
+
+    it('caps bytes retained before session readiness', async () => {
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-1.5&auth_token=${user.token}`,
+        );
+        await new Promise((resolve) => c.ws.once('open', resolve));
+        const payload = JSON.stringify({
+            type: 'test.pending',
+            pad: 'x'.repeat(33 * 1024),
+        });
+        c.ws.send(payload);
+        c.ws.send(payload);
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('slows uploads beyond the byte burst without buffering them', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const first = JSON.stringify({
+            type: 'test.bytes',
+            pad: 'x'.repeat(60 * 1024),
+        });
+        c.ws.send(first);
+        c.ws.send(first);
+        await vi.waitFor(() =>
+            expect(c.events.filter((e) => e.type === 'echo')).toHaveLength(2),
+        );
+        const sentAt = Date.now();
+        c.ws.send('{"type":"test.afterBudget"}');
+        await vi.waitFor(() =>
+            expect(
+                c.events.some(
+                    (e) =>
+                        e.type === 'echo' &&
+                        (e.event as { type: string }).type ===
+                            'test.afterBudget',
+                ),
+            ).toBe(true),
+        );
+        expect(Date.now() - sentAt).toBeGreaterThanOrEqual(200);
+        c.ws.close();
+    });
+
+    it('forwards upstream bursts faster than real time', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'test.largeBurst' }));
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.burst',
+                count: 250,
+                eventType: 'test.delta',
+            }),
+        );
+        await vi.waitFor(
+            () => {
+                expect(
+                    c.events.filter((e) => e.type === 'test.delta'),
+                ).toHaveLength(250);
+            },
+            { timeout: 5_000 },
+        );
+        expect(
+            c.events.filter((e) => e.type === 'response.output_text.delta'),
+        ).toHaveLength(6);
+        expect(c.events.some((e) => e.type === 'error')).toBe(false);
+        c.ws.close();
+    });
+
+    it('bills a response still generating when the client disconnects', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        c.ws.close();
+        await vi.waitFor(() =>
+            expect(
+                spy.mock.calls.some(([, rows]) =>
+                    rows.some(
+                        (r) =>
+                            r.usageType ===
+                            'openai:gpt-realtime-mini:realtime:audio_output',
+                    ),
+                ),
+            ).toBe(true),
+        );
+        expect(upstreamEvents).toContainEqual({
+            type: 'response.cancel',
+            response_id: 'resp_hold',
+        });
+    });
+
+    it('records costs through the AI cost factor', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        await withAiCostFactorHook(server.clients.event, 2, async () => {
+            const c = open(
+                `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+            );
+            try {
+                await c.waitFor('session.created');
+                c.ws.send(JSON.stringify({ type: 'response.create' }));
+                // Closed sessions can still record usage from earlier tests.
+                await vi.waitFor(() =>
+                    expect(
+                        spy.mock.calls.map(([, rows]) =>
+                            rows.map((row) => [
+                                row.usageType,
+                                row.costOverride,
+                            ]),
+                        ),
+                    ).toContainEqual([
+                        [
+                            'openai:gpt-realtime-mini:realtime:text_input',
+                            7 * 60 * 2,
+                        ],
+                        [
+                            'openai:gpt-realtime-mini:realtime:text_output',
+                            3 * 240 * 2,
+                        ],
+                    ]),
+                );
+            } finally {
+                c.ws.close();
+                await c.closed;
+            }
+        });
+    });
+
+    it('refuses a session.update that changes the model', async () => {
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'session.update',
+                session: { type: 'realtime', model: 'gpt-realtime' },
+            }),
+        );
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_event' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('refuses accounts without a subscription', async () => {
+        planId = 'user_free';
+        const row = await server.stores.user.getByUsername(user.username);
+        server.services.metering.invalidateActorSubscription(row!.uuid);
+        vi.mocked(server.services.metering.getActorSubscription).mockRestore();
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'subscription_required' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    describe('when the plan lookup fails', () => {
+        type Resolvers = { subscriptionResolvers: unknown[] };
+        // A resolver that throws makes the plan a provisional fallback.
+        const failing = () => {
+            throw new Error('billing unavailable');
+        };
+        const failLookups = (uuid: string) => {
+            const metering = server.services.metering;
+            (metering as unknown as Resolvers).subscriptionResolvers.unshift(
+                failing,
+            );
+            metering.invalidateActorSubscription(uuid);
+        };
+        afterEach(async () => {
+            const metering = server.services.metering;
+            const resolvers = (metering as unknown as Resolvers)
+                .subscriptionResolvers;
+            const index = resolvers.indexOf(failing);
+            if (index >= 0) resolvers.splice(index, 1);
+            // The fallback stays cached for its window otherwise.
+            const u = await server.stores.user.getByUsername(user.username);
+            metering.invalidateActorSubscription(u!.uuid);
+        });
+
+        it('asks the client to retry instead of reporting no subscription', async () => {
+            planId = 'user_free';
+            const u = await server.stores.user.getByUsername(user.username);
+            vi.mocked(
+                server.services.metering.getActorSubscription,
+            ).mockRestore();
+            failLookups(u!.uuid);
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'internal_error' },
+            });
+            expect((await c.closed).code).toBe(1011);
+            expect(
+                c.events.some(
+                    (e) =>
+                        (e.error as { code?: string } | undefined)?.code ===
+                        'subscription_required',
+                ),
+            ).toBe(false);
+        });
+
+        it('still asks for a retry when the fallback runs out right after the refusal', async () => {
+            // The plan check refuses on a fallback; by the time the refusal is
+            // classified, the lookup has recovered.
+            const metering = server.services.metering;
+            let decided = false;
+            vi.mocked(metering.getActorSubscription).mockImplementation(
+                async () => {
+                    decided = true;
+                    return { id: 'user_free', monthUsageAllowance: 0 } as never;
+                },
+            );
+            vi.spyOn(metering, 'getActorSubscriptionStatus').mockImplementation(
+                async () =>
+                    ({
+                        policy: { id: 'user_free', monthUsageAllowance: 0 },
+                        paid: false,
+                        provisional: !decided,
+                    }) as never,
+            );
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'internal_error' },
+            });
+            expect((await c.closed).code).toBe(1011);
+        });
+
+        it('asks a session to retry instead of reporting no funds', async () => {
+            const u = await server.stores.user.getByUsername(user.username);
+            const c = open(
+                `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+            );
+            await c.waitFor('session.created');
+            failLookups(u!.uuid);
+            vi.spyOn(
+                server.services.metering,
+                'getAllowedUsage',
+            ).mockResolvedValue({
+                remaining: 0,
+                monthUsageAllowance: 0,
+                addons: {},
+            });
+            c.ws.send(JSON.stringify({ type: 'hold.response' }));
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'internal_error' },
+            });
+            expect((await c.closed).code).toBe(1011);
+        });
+    });
+
+    it('forwards a normal stream without waiting for metering', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const latencies: number[] = [];
+        for (let i = 0; i < 20; i++) {
+            const start = performance.now();
+            const echoed = new Promise<void>((resolve) =>
+                c.ws.once('message', () => resolve()),
+            );
+            c.ws.send(
+                JSON.stringify({ type: 'test.audio', pad: 'x'.repeat(2048) }),
+            );
+            await echoed;
+            latencies.push(performance.now() - start);
+        }
+        latencies.sort((a, b) => a - b);
+        process.stdout.write(
+            `[realtime test] 2 KiB echo round trip p50=${latencies[9].toFixed(2)}ms p95=${latencies[18].toFixed(2)}ms\n`,
+        );
+        expect(c.events.filter((event) => event.type === 'echo')).toHaveLength(
+            20,
+        );
+        c.ws.close();
+    });
+
+    it('meters input transcription at the session transcription model', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        spy.mockClear();
+        const { ws, waitFor } = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await new Promise((r) => ws.once('open', r));
+        ws.send(
+            JSON.stringify({
+                type: 'session.update',
+                session: {
+                    input_audio_transcription: { model: 'gpt-4o-transcribe' },
+                },
+            }),
+        );
+        ws.send(JSON.stringify({ type: 'transcribe' }));
+        await waitFor('conversation.item.input_audio_transcription.completed');
+        const expectedPrefix =
+            'openai:gpt-4o-transcribe:realtime:transcription_';
+        await vi.waitFor(() =>
+            expect(
+                spy.mock.calls.some(([, rows]) =>
+                    rows.some((row) =>
+                        row.usageType.startsWith(expectedPrefix),
+                    ),
+                ),
+            ).toBe(true),
+        );
+        const [, rows] = spy.mock.calls.find(([, rows]) =>
+            rows.some((row) => row.usageType.startsWith(expectedPrefix)),
+        )!;
+        expect(rows.map((r) => [r.usageType, r.costOverride])).toEqual([
+            [
+                'openai:gpt-4o-transcribe:realtime:transcription_audio_input',
+                4 * 600,
+            ],
+            [
+                'openai:gpt-4o-transcribe:realtime:transcription_text_output',
+                2 * 1000,
+            ],
+        ]);
+        ws.close();
+    });
+
+    it('applies the IP gate before opening an upstream connection', async () => {
+        const before = upstreamRequests.length;
+        const deny = (_key: string, data: { allow: boolean }) => {
+            data.allow = false;
+        };
+        server.clients.event.on('ip.validate', deny);
+        try {
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'permission_denied' },
+            });
+            await c.closed;
+            expect(upstreamRequests).toHaveLength(before);
+        } finally {
+            server.clients.event.off('ip.validate', deny);
+        }
+    });
+
+    it('does not allocate credential limiter buckets for many unique invalid signatures', async () => {
+        const before = upstreamRequests.length;
+        const auth = vi.spyOn(server.services.auth, 'authenticate');
+        const redis = vi.spyOn(server.clients.redis, 'multi');
+        const relay = new OpenAIRealtimeRelayService(
+            { domain: 'puter.localhost', trust_proxy: 'loopback' } as IConfig,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        const http = createServer();
+        relay.attachHttpServer(http);
+        await new Promise<void>((resolve) =>
+            http.listen(0, '127.0.0.1', resolve),
+        );
+        try {
+            for (let i = 0; i < 64; i++) {
+                const c = open(
+                    `ws://127.0.0.1:${(http.address() as AddressInfo).port}${REALTIME_PATH}?auth_token=invalid-${i}`,
+                    undefined,
+                    {
+                        host: 'api.puter.localhost',
+                        'x-forwarded-for': `203.0.113.${i + 1}`,
+                    },
+                );
+                expect(await c.waitFor('error')).toMatchObject({
+                    error: { code: 'invalid_api_key' },
+                });
+                await c.closed;
+            }
+            expect(auth).not.toHaveBeenCalled();
+            expect(redis).not.toHaveBeenCalled();
+            expect(upstreamRequests).toHaveLength(before);
+        } finally {
+            await relay.onServerPrepareShutdown();
+            await new Promise<void>((resolve) => http.close(() => resolve()));
+        }
+    });
+
+    it('uses non-touching authentication on connection and recheck', async () => {
+        const auth = vi.spyOn(server.services.auth, 'authenticate');
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        kv.del(realtimeAuthKey(user.token));
+        await server.services.openaiRealtime.recheckSessions();
+        expect(auth.mock.calls.length).toBeGreaterThanOrEqual(2);
+        expect(auth.mock.calls.every(([, ctx]) => ctx?.touch === false)).toBe(
+            true,
+        );
+        c.ws.close();
+    });
+
+    it('evicts a revoked session through the auth API and preserves another session', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const first = await server.services.auth.createSessionToken(row!, {});
+        const second = await server.services.auth.createSessionToken(row!, {});
+        const a = open(`${relayUrl}?auth_token=${first.token}`);
+        const b = open(`${relayUrl}?auth_token=${second.token}`);
+        await Promise.all([
+            a.waitFor('session.created'),
+            b.waitFor('session.created'),
+        ]);
+        await server.services.auth.revokeSession(first.session.uuid);
+        expect(await a.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        await a.closed;
+        expect(kv.get(realtimeAuthKey(first.token))).toBeUndefined();
+        b.ws.send(JSON.stringify({ type: 'still.valid' }));
+        await b.waitForEcho('still.valid');
+        b.ws.close();
+    });
+
+    it('detects a downgrade without a response or auth cache expiry', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        planId = 'user_free';
+        const row = await server.stores.user.getByUsername(user.username);
+        server.services.metering.invalidateActorSubscription(row!.uuid);
+        await server.services.openaiRealtime.recheckSessions();
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'subscription_required' },
+        });
+        await c.closed;
+    });
+
+    const providerEvent = (c: ReturnType<typeof open>, event: object) =>
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload: JSON.stringify(event),
+            }),
+        );
+    const enableTranscription = async (c: ReturnType<typeof open>) => {
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'session.update',
+                session: {
+                    input_audio_transcription: { model: 'gpt-4o-transcribe' },
+                },
+            }),
+        );
+        await c.waitForEcho('session.update');
+        providerEvent(c, {
+            type: 'session.updated',
+            session: {
+                input_audio_transcription: { model: 'gpt-4o-transcribe' },
+            },
+        });
+        await c.waitFor('session.updated');
+    };
+
+    it('settles a delayed transcription after the client disconnects', async () => {
+        const recorded = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = { user: row } as never;
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await enableTranscription(c);
+        // Spare items at the selected model's price, not a whole window.
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(2 * 10_896_000),
+        );
+        c.ws.send(JSON.stringify({ type: 'test.delayedTranscription' }));
+        await c.waitFor('input_audio_buffer.committed');
+        c.ws.close();
+        await vi.waitFor(() =>
+            expect(
+                recorded.mock.calls
+                    .flatMap(([, rows]) => rows)
+                    .filter((r) => r.usageType.includes('transcription_'))
+                    .map((r) => r.costOverride),
+            ).toEqual([2400, 2000]),
+        );
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0),
+        );
+    });
+
+    it('keeps transcription settlement alive after response.done', async () => {
+        const recorded = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await enableTranscription(c);
+        c.ws.send(JSON.stringify({ type: 'test.delayedTranscription' }));
+        await c.waitFor('input_audio_buffer.committed');
+        c.ws.send(JSON.stringify({ type: 'response.create' }));
+        await c.waitFor('response.done');
+        c.ws.close();
+        await vi.waitFor(() =>
+            expect(
+                recorded.mock.calls
+                    .flatMap(([, rows]) => rows)
+                    .some(
+                        (r) =>
+                            r.usageType.includes('transcription_audio_input') &&
+                            r.costOverride === 2400,
+                    ),
+            ).toBe(true),
+        );
+    });
+
+    it('records a transcription once despite duplicate completion or failure', async () => {
+        const recorded = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await enableTranscription(c);
+        providerEvent(c, {
+            type: 'input_audio_buffer.committed',
+            item_id: 'once',
+        });
+        const completion = {
+            type: 'conversation.item.input_audio_transcription.completed',
+            item_id: 'once',
+            usage: { type: 'duration', seconds: 1 },
+        };
+        providerEvent(c, completion);
+        providerEvent(c, completion);
+        providerEvent(c, {
+            type: 'input_audio_buffer.committed',
+            item_id: 'once',
+        });
+        providerEvent(c, {
+            type: 'conversation.item.input_audio_transcription.failed',
+            item_id: 'once',
+            error: {},
+        });
+        await c.waitFor(completion.type);
+        c.ws.close();
+        await vi.waitFor(() =>
+            expect(
+                recorded.mock.calls
+                    .flatMap(([, rows]) => rows)
+                    .filter((r) => r.usageType.includes('transcription_')),
+            ).toHaveLength(1),
+        );
+    });
+
+    it('admits concurrent transcription sessions on one allowance', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-concurrent',
+            password: 'transcription-concurrent-password',
+        });
+        const sessions = Array.from({ length: 5 }, () =>
+            open(`${relayUrl}?auth_token=${holder.token}`),
+        );
+        await Promise.all(sessions.map((c) => enableTranscription(c)));
+        expect(
+            sessions.some((c) => c.events.some((e) => e.type === 'error')),
+        ).toBe(false);
+        const row = await server.stores.user.getByUsername(holder.username);
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds({
+                    user: row,
+                } as never),
+            ).toBe(5 * 2 * 10_896_000),
+        );
+        for (const c of sessions) c.ws.close();
+    });
+
+    const transcriptionUpdate = (model: string) =>
+        JSON.stringify({
+            type: 'session.update',
+            session: { input_audio_transcription: { model } },
+        });
+
+    it('prices the transcription reservation at the selected model', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-selected',
+            password: 'transcription-selected-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        paidPolicy.monthUsageAllowance = 20_000_000;
+        server.services.metering.invalidateActorSubscription(row!.uuid);
+        const costly = open(`${relayUrl}?auth_token=${holder.token}`);
+        const cheap = open(`${relayUrl}?auth_token=${holder.token}`);
+        await Promise.all([
+            costly.waitFor('session.created'),
+            cheap.waitFor('session.created'),
+        ]);
+        // Leaves room for a few whisper-1 items but not one gpt-4o-transcribe
+        // item.
+        const blocker =
+            await server.services.metering.reserveCreditsIfAffordable(
+                actor,
+                10_000_000,
+            );
+        expect(blocker).not.toBeNull();
+        const before = upstreamEvents.length;
+        costly.ws.send(transcriptionUpdate('gpt-4o-transcribe'));
+        expect(await costly.waitFor('error')).toMatchObject({
+            error: { code: 'insufficient_funds' },
+        });
+        await costly.closed;
+        expect(
+            upstreamEvents
+                .slice(before)
+                .some((event) => event.type === 'session.update'),
+        ).toBe(false);
+
+        cheap.ws.send(transcriptionUpdate('whisper-1'));
+        await cheap.waitForEcho('session.update');
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(10_000_000 + 2 * 1_600_000),
+        );
+        cheap.ws.close();
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(10_000_000),
+        );
+        await blocker!.release();
+    });
+
+    it('reprices spare transcription items when the model changes', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-reprice',
+            password: 'transcription-reprice-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await enableTranscription(c);
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(2 * 10_896_000),
+        );
+        c.ws.send(transcriptionUpdate('gpt-4o-mini-transcribe'));
+        await c.waitForEcho('session.update');
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(2 * 5_448_000),
+        );
+        c.ws.close();
+    });
+
+    it('waits for pending items to free credit before refusing more audio', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-exhausted',
+            password: 'transcription-exhausted-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        paidPolicy.monthUsageAllowance = 20_000_000;
+        server.services.metering.invalidateActorSubscription(row!.uuid);
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await c.waitFor('session.created');
+        // Room for one gpt-4o-transcribe item at a time.
+        const blocker =
+            await server.services.metering.reserveCreditsIfAffordable(
+                actor,
+                8_000_000,
+            );
+        expect(blocker).not.toBeNull();
+        await enableTranscription(c);
+        providerEvent(c, {
+            type: 'input_audio_buffer.committed',
+            item_id: 'only',
+        });
+        await c.waitFor('input_audio_buffer.committed');
+        expect(await server.services.metering.getOutstandingHolds(actor)).toBe(
+            8_000_000 + 10_896_000,
+        );
+        const before = upstreamEvents.length;
+        c.ws.send(
+            JSON.stringify({ type: 'input_audio_buffer.append', audio: '' }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(
+            upstreamEvents
+                .slice(before)
+                .some((event) => event.type === 'input_audio_buffer.append'),
+        ).toBe(false);
+        expect(c.events.some((e) => e.type === 'error')).toBe(false);
+        // Client reads are paused, so the provider sends this one directly.
+        [...upstream.clients][0].send(
+            JSON.stringify({
+                type: 'conversation.item.input_audio_transcription.completed',
+                item_id: 'only',
+                usage: { type: 'duration', seconds: 0.001 },
+            }),
+        );
+        await c.waitForEcho('input_audio_buffer.append');
+        expect(c.events.some((e) => e.type === 'error')).toBe(false);
+        c.ws.close();
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(8_000_000),
+        );
+        await blocker!.release();
+    });
+
+    it.each(['upstreamDrop', 'clientClose'] as const)(
+        'bills audio whose commit acknowledgement is lost after an earlier item (%s)',
+        async (ending) => {
+            const holder = await createTestUser(server, {
+                username: `transcription-lost-ack-${ending}`,
+                password: 'transcription-lost-ack-password',
+            });
+            const row = await server.stores.user.getByUsername(holder.username);
+            const actor = { user: row } as never;
+            const recorded = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            const c = open(`${relayUrl}?auth_token=${holder.token}`);
+            await enableTranscription(c);
+            const append = JSON.stringify({
+                type: 'input_audio_buffer.append',
+                audio: 'AAAA',
+            });
+            c.ws.send(append);
+            await c.waitForEcho('input_audio_buffer.append');
+            providerEvent(c, {
+                type: 'input_audio_buffer.committed',
+                item_id: 'A',
+            });
+            providerEvent(c, {
+                type: 'conversation.item.input_audio_transcription.completed',
+                item_id: 'A',
+                usage: {
+                    type: 'tokens',
+                    input_tokens: 4,
+                    input_token_details: { audio_tokens: 4 },
+                },
+            });
+            await c.waitFor(
+                'conversation.item.input_audio_transcription.completed',
+            );
+            // B's audio is committed, but its acknowledgement never arrives.
+            c.ws.send(append);
+            c.ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+            await c.waitForEcho('input_audio_buffer.commit');
+            if (ending === 'upstreamDrop') {
+                c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            } else {
+                c.ws.close();
+            }
+            const transcriptionRows = () =>
+                recorded.mock.calls
+                    .flatMap(([, rows]) => rows)
+                    .filter((r) => r.usageType.includes('transcription_'))
+                    .map((r) => [r.usageType, r.costOverride]);
+            await vi.waitFor(
+                () =>
+                    expect(transcriptionRows()).toEqual([
+                        [
+                            'openai:gpt-4o-transcribe:realtime:transcription_audio_input',
+                            2400,
+                        ],
+                        [
+                            'openai:gpt-4o-transcribe:realtime:transcription_unreported',
+                            10_896_000,
+                        ],
+                    ]),
+                { timeout: 7_000 },
+            );
+            await vi.waitFor(async () =>
+                expect(
+                    await server.services.metering.getOutstandingHolds(actor),
+                ).toBe(0),
+            );
+            expect(transcriptionRows()).toHaveLength(2);
+        },
+        10_000,
+    );
+
+    it('charges no fallback for audio whose commit was acknowledged', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-acked',
+            password: 'transcription-acked-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const recorded = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await enableTranscription(c);
+        for (const item of ['A', 'B']) {
+            c.ws.send(
+                JSON.stringify({
+                    type: 'input_audio_buffer.append',
+                    audio: 'AAAA',
+                }),
+            );
+            await c.waitForEcho('input_audio_buffer.append');
+            providerEvent(c, {
+                type: 'input_audio_buffer.committed',
+                item_id: item,
+            });
+            providerEvent(c, {
+                type: 'conversation.item.input_audio_transcription.completed',
+                item_id: item,
+                usage: { type: 'duration', seconds: 1 },
+            });
+        }
+        await vi.waitFor(() =>
+            expect(
+                c.events.filter(
+                    (e) =>
+                        e.type ===
+                        'conversation.item.input_audio_transcription.completed',
+                ),
+            ).toHaveLength(2),
+        );
+        c.ws.close();
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0),
+        );
+        const rows = recorded.mock.calls
+            .flatMap(([, rows]) => rows)
+            .filter((r) => r.usageType.includes('transcription_'));
+        expect(rows).toHaveLength(2);
+        expect(
+            rows.some((r) => r.usageType.endsWith('transcription_unreported')),
+        ).toBe(false);
+    });
+
+    describe('unacknowledged input audio', () => {
+        const ITEM = 10_896_000;
+        // Reports a provider session with transcription on and `input`.
+        const configureProvider = async (
+            c: ReturnType<typeof open>,
+            input: object,
+        ) => {
+            const seen = c.events.filter(
+                (e) => e.type === 'session.updated',
+            ).length;
+            providerEvent(c, {
+                type: 'session.updated',
+                session: {
+                    input_audio_transcription: { model: 'gpt-4o-transcribe' },
+                    ...input,
+                },
+            });
+            await vi.waitFor(() =>
+                expect(
+                    c.events.filter((e) => e.type === 'session.updated'),
+                ).toHaveLength(seen + 1),
+            );
+        };
+        const appends = (c: ReturnType<typeof open>) =>
+            c.events.filter(
+                (e) =>
+                    e.type === 'echo' &&
+                    (e.event as { type: string }).type ===
+                        'input_audio_buffer.append',
+            ).length;
+        // Streams `seconds` of audio at `rate` bytes per second in frames of
+        // 48,000 decoded bytes, advancing the clock past the byte-rate limit.
+        const streamAudio = async (
+            c: ReturnType<typeof open>,
+            seconds: number,
+            rate: number,
+        ) => {
+            const frame = JSON.stringify({
+                type: 'input_audio_buffer.append',
+                audio: 'A'.repeat(64_000),
+            });
+            const realNow = Date.now.bind(Date);
+            let offset = 0;
+            const spy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset);
+            const start = appends(c);
+            const frames = Math.ceil((seconds * rate) / 48_000);
+            for (let i = 1; i <= frames; i++) {
+                offset += 600;
+                c.ws.send(frame);
+                await vi.waitFor(() => expect(appends(c)).toBe(start + i));
+            }
+        };
+        const transcriptionRows = (
+            recorded: ReturnType<typeof vi.spyOn>,
+        ) =>
+            (recorded.mock.calls as [unknown, UsageRow[]][])
+                .flatMap(([, rows]) => rows)
+                .filter((r) => r.usageType.includes('transcription_'))
+                .map((r) => [r.usageType, r.usageAmount, r.costOverride]);
+        type UsageRow = {
+            usageType: string;
+            usageAmount: number;
+            costOverride?: number;
+        };
+        const setup = async (name: string) => {
+            const holder = await createTestUser(server, {
+                username: `unacked-audio-${name}`,
+                password: 'unacked-audio-password',
+            });
+            const row = await server.stores.user.getByUsername(
+                holder.username,
+            );
+            const recorded = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            const c = open(`${relayUrl}?auth_token=${holder.token}`);
+            await enableTranscription(c);
+            const held = () =>
+                server.services.metering.getOutstandingHolds({
+                    user: row,
+                } as never);
+            return { c, recorded, held };
+        };
+
+        it('keeps a PCM16 session streaming well past 27 seconds without a commit', async () => {
+            const { c, recorded, held } = await setup('pcm16');
+            await configureProvider(c, { input_audio_format: 'pcm16' });
+            await streamAudio(c, 40, 48_000);
+            expect(c.ws.readyState).toBe(WebSocket.OPEN);
+            expect(c.events.some((e) => e.type === 'error')).toBe(false);
+            expect(await held()).toBe(2 * ITEM);
+            providerEvent(c, {
+                type: 'input_audio_buffer.committed',
+                item_id: 'A',
+            });
+            providerEvent(c, {
+                type: 'conversation.item.input_audio_transcription.completed',
+                item_id: 'A',
+                usage: { type: 'duration', seconds: 40 },
+            });
+            await c.waitFor(
+                'conversation.item.input_audio_transcription.completed',
+            );
+            c.ws.close();
+            await vi.waitFor(async () => expect(await held()).toBe(0));
+            expect(
+                transcriptionRows(recorded).some(([type]) =>
+                    (type as string).endsWith('transcription_unreported'),
+                ),
+            ).toBe(false);
+        }, 30_000);
+
+        it('holds and bills one item per 160 seconds of audio whose commit is lost', async () => {
+            const { c, recorded, held } = await setup('long');
+            await configureProvider(c, { input_audio_format: 'g711_ulaw' });
+            await streamAudio(c, 200, 8_000);
+            expect(c.ws.readyState).toBe(WebSocket.OPEN);
+            // Two items cover the audio; a spare covers the next commit.
+            await vi.waitFor(async () => expect(await held()).toBe(3 * ITEM));
+            c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            await vi.waitFor(() =>
+                expect(transcriptionRows(recorded)).toEqual([
+                    [
+                        'openai:gpt-4o-transcribe:realtime:transcription_unreported',
+                        2,
+                        2 * ITEM,
+                    ],
+                ]),
+            );
+            await vi.waitFor(async () => expect(await held()).toBe(0));
+        }, 30_000);
+
+        it.each(['upstreamDrop', 'clientClose'] as const)(
+            'bills no fallback for silence under server VAD (%s)',
+            async (ending) => {
+                const { c, recorded, held } = await setup(`vad-${ending}`);
+                await configureProvider(c, {
+                    turn_detection: { type: 'server_vad' },
+                });
+                for (let i = 0; i < 3; i++) {
+                    c.ws.send(
+                        JSON.stringify({
+                            type: 'input_audio_buffer.append',
+                            audio: 'AAAA',
+                        }),
+                    );
+                }
+                await vi.waitFor(() => expect(appends(c)).toBe(3));
+                const before = upstreamEvents.length;
+                if (ending === 'upstreamDrop') {
+                    c.ws.send(JSON.stringify({ type: 'test.drop' }));
+                } else {
+                    c.ws.close();
+                }
+                await vi.waitFor(async () => expect(await held()).toBe(0));
+                expect(transcriptionRows(recorded)).toEqual([]);
+                // The settle has nothing to commit.
+                expect(
+                    upstreamEvents
+                        .slice(before)
+                        .some((e) => e.type === 'input_audio_buffer.commit'),
+                ).toBe(false);
+            },
+        );
+
+        it('bills detected speech whose commit is lost under server VAD', async () => {
+            const { c, recorded, held } = await setup('vad-speech');
+            await configureProvider(c, {
+                audio: {
+                    input: {
+                        format: { type: 'audio/pcm', rate: 24_000 },
+                        turn_detection: { type: 'server_vad' },
+                    },
+                },
+            });
+            c.ws.send(
+                JSON.stringify({
+                    type: 'input_audio_buffer.append',
+                    audio: 'AAAA',
+                }),
+            );
+            await vi.waitFor(() => expect(appends(c)).toBe(1));
+            providerEvent(c, {
+                type: 'input_audio_buffer.speech_started',
+                audio_start_ms: 0,
+                item_id: 'A',
+            });
+            await c.waitFor('input_audio_buffer.speech_started');
+            c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            await vi.waitFor(() =>
+                expect(transcriptionRows(recorded)).toEqual([
+                    [
+                        'openai:gpt-4o-transcribe:realtime:transcription_unreported',
+                        1,
+                        ITEM,
+                    ],
+                ]),
+            );
+            await vi.waitFor(async () => expect(await held()).toBe(0));
+        });
+
+        it('bills no fallback after the provider refuses an empty commit', async () => {
+            const { c, recorded, held } = await setup('commit-empty');
+            c.ws.send(
+                JSON.stringify({
+                    type: 'input_audio_buffer.append',
+                    audio: 'AAAA',
+                }),
+            );
+            c.ws.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
+            await c.waitForEcho('input_audio_buffer.commit');
+            providerEvent(c, {
+                type: 'error',
+                error: {
+                    type: 'invalid_request_error',
+                    code: 'input_audio_buffer_commit_empty',
+                    message: 'buffer too small',
+                },
+            });
+            await c.waitFor('error');
+            c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            await c.closed;
+            await vi.waitFor(async () => expect(await held()).toBe(0));
+            expect(transcriptionRows(recorded)).toEqual([]);
+        });
+    });
+
+    it('refuses an unpriced initial provider model before forwarding buffered client frames', async () => {
+        initialProviderSession = { model: 'gpt-9' };
+        const before = upstreamEvents.length;
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        c.ws.once('open', () =>
+            c.ws.send(JSON.stringify({ type: 'buffered.before.model' })),
+        );
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'upstream_error' },
+        });
+        await c.closed;
+        expect(
+            upstreamEvents
+                .slice(before)
+                .some((event) => event.type === 'buffered.before.model'),
+        ).toBe(false);
+    });
+
+    it('fails closed for an explicitly unpriced provider model', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        providerEvent(c, {
+            type: 'session.updated',
+            session: { model: 'gpt-9' },
+        });
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'upstream_error' },
+        });
+        expect((await c.closed).code).toBe(1011);
+    });
+
+    it('evicts only the access token revoked through the auth API', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row! });
+        const token = await server.services.auth.createAccessToken(actor, [
+            [FULL_API_ACCESS],
+        ]);
+        const a = open(`${relayUrl}?auth_token=${token}`);
+        const b = open(`${relayUrl}?auth_token=${user.token}`);
+        await Promise.all([
+            a.waitFor('session.created'),
+            b.waitFor('session.created'),
+        ]);
+        await server.services.auth.revokeAccessToken(actor, token);
+        expect(await a.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        await a.closed;
+        b.ws.send(JSON.stringify({ type: 'still.valid' }));
+        await b.waitForEcho('still.valid');
+        b.ws.close();
+    });
+
+    it('closes with a retryable error after a sustained verification outage', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        vi.spyOn(server.clients.redis, 'get').mockRejectedValue(
+            new Error('lookup down'),
+        );
+        vi.spyOn(server.clients.db, 'read').mockRejectedValue(
+            new Error('lookup down'),
+        );
+        vi.spyOn(server.clients.db, 'pread').mockRejectedValue(
+            new Error('lookup down'),
+        );
+        kv.del(realtimeAuthKey(user.token));
+        await server.services.openaiRealtime.recheckSessions();
+        expect(c.ws.readyState).toBe(WebSocket.OPEN);
+        const now = Date.now();
+        vi.spyOn(Date, 'now').mockReturnValue(now + 61_000);
+        await server.services.openaiRealtime.recheckSessions();
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'internal_error' },
+        });
+        expect((await c.closed).code).toBe(1011);
+    });
+
+    it.each([
+        [false, '203.0.113.9, 10.0.0.1', '127.0.0.1'],
+        [['loopback', '10.0.0.0/8'], '203.0.113.9, 10.0.0.1', '203.0.113.9'],
+        [['loopback'], '203.0.113.9, 198.51.100.5', '198.51.100.5'],
+    ])(
+        'resolves forwarded chains using trust policy %j',
+        async (trustProxy, forwarded, expected) => {
+            const relay = new OpenAIRealtimeRelayService(
+                {
+                    domain: 'puter.localhost',
+                    trust_proxy: trustProxy,
+                } as IConfig,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            const http = createServer();
+            relay.attachHttpServer(http);
+            await new Promise<void>((resolve) =>
+                http.listen(0, '127.0.0.1', resolve),
+            );
+            let seen = '';
+            const deny = (
+                _key: string,
+                data: { allow: boolean; ip: string },
+            ) => {
+                seen = data.ip;
+                data.allow = false;
+            };
+            server.clients.event.on('ip.validate', deny);
+            try {
+                const ws = new WebSocket(
+                    `ws://127.0.0.1:${(http.address() as AddressInfo).port}${REALTIME_PATH}`,
+                    {
+                        headers: {
+                            host: 'api.puter.localhost',
+                            'x-forwarded-for': forwarded as string,
+                        },
+                    },
+                );
+                ws.on('error', () => {});
+                await new Promise((resolve) => ws.once('close', resolve));
+                expect(seen).toBe(expected);
+            } finally {
+                server.clients.event.off('ip.validate', deny);
+                await relay.onServerPrepareShutdown();
+                await new Promise<void>((resolve) =>
+                    http.close(() => resolve()),
+                );
+            }
+        },
+    );
+
+    it.each(['failure', 'missingUsage', 'upstreamClose', 'timeout'])(
+        'settles and releases transcription budget on %s',
+        async (ending) => {
+            const recorded = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            const row = await server.stores.user.getByUsername(user.username);
+            const actor = { user: row } as never;
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await enableTranscription(c);
+            if (ending === 'timeout')
+                vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+            providerEvent(c, {
+                type: 'input_audio_buffer.committed',
+                item_id: 'unreported',
+            });
+            await c.waitFor('input_audio_buffer.committed');
+            if (ending === 'upstreamClose')
+                c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            else if (ending === 'timeout')
+                await vi.advanceTimersByTimeAsync(30_001);
+            else
+                providerEvent(c, {
+                    type:
+                        ending === 'failure'
+                            ? 'conversation.item.input_audio_transcription.failed'
+                            : 'conversation.item.input_audio_transcription.completed',
+                    item_id: 'unreported',
+                    error: {},
+                });
+            vi.useRealTimers();
+            await vi.waitFor(() =>
+                expect(
+                    recorded.mock.calls
+                        .flatMap(([, rows]) => rows)
+                        .filter((r) =>
+                            r.usageType.endsWith('transcription_unreported'),
+                        )
+                        .map((r) => r.costOverride),
+                ).toEqual([10_896_000]),
+            );
+            c.ws.close();
+            await vi.waitFor(async () =>
+                expect(
+                    await server.services.metering.getOutstandingHolds(actor),
+                ).toBe(0),
+            );
+        },
+    );
+
+    it('uses cached continuation without re-reading headroom or subtracting its own hold', async () => {
+        const holder = await createTestUser(server, {
+            username: 'continuation-fraction',
+            password: 'continuation-fraction-password',
+        });
+        paidPolicy.monthUsageAllowance = MINI_HOLD + 0.5;
+        const paid = vi.mocked(server.services.metering.getActorSubscription);
+        const plan = paid.getMockImplementation()!;
+        paid.mockImplementation(async (actor) => ({
+            ...(await plan(actor)),
+            monthUsageAllowance: MINI_HOLD + 0.5,
+        }));
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(MINI_HOLD),
+        );
+        const headroom = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+        const redis = vi.spyOn(
+            server.clients.redis as typeof server.clients.redis & {
+                creditHoldSum(
+                    key: string,
+                    now: string,
+                ): Promise<[string, number]>;
+            },
+            'creditHoldSum',
+        );
+        const kvRead = vi.spyOn(server.stores.kv, 'get');
+        const dbRead = vi.spyOn(server.clients.db, 'read');
+        const dbPrimaryRead = vi.spyOn(server.clients.db, 'pread');
+        const readCached = server.services.metering.hasAnyUsageCached.bind(
+            server.services.metering,
+        );
+        const cached = vi
+            .spyOn(server.services.metering, 'hasAnyUsageCached')
+            .mockImplementation(async (actor) => {
+                const before = [
+                    redis.mock.calls.length,
+                    kvRead.mock.calls.length,
+                    dbRead.mock.calls.length + dbPrimaryRead.mock.calls.length,
+                ];
+                const result = await readCached(actor);
+                expect([
+                    redis.mock.calls.length - before[0],
+                    kvRead.mock.calls.length - before[1],
+                    dbRead.mock.calls.length +
+                        dbPrimaryRead.mock.calls.length -
+                        before[2],
+                ]).toEqual([0, 0, 0]);
+                return result;
+            });
+        providerEvent(c, {
+            type: 'response.done',
+            response: {
+                id: 'resp_hold',
+                usage: {
+                    input_token_details: { audio_tokens: 8000 },
+                    output_token_details: { audio_tokens: 4096 },
+                },
+            },
+        });
+        await c.waitFor('response.done');
+        await vi.waitFor(() => expect(cached).toHaveBeenCalled());
+        expect(headroom).not.toHaveBeenCalled();
+        expect(c.ws.readyState).toBe(WebSocket.OPEN);
+        const beforeHeadroom = [
+            redis.mock.calls.length,
+            kvRead.mock.calls.length,
+            dbRead.mock.calls.length + dbPrimaryRead.mock.calls.length,
+        ];
+        await server.services.metering.hasEnoughCredits(actor, 1);
+        const comparison = [
+            redis.mock.calls.length - beforeHeadroom[0],
+            kvRead.mock.calls.length - beforeHeadroom[1],
+            dbRead.mock.calls.length +
+                dbPrimaryRead.mock.calls.length -
+                beforeHeadroom[2],
+        ];
+        process.stdout.write(
+            `[realtime continuation I/O] Redis hold sum / KV get / SQL read: cached [0,0,0], headroom ${JSON.stringify(comparison)}\n`,
+        );
+        c.ws.close();
+    });
+
+    it('closes an exhausted account after recording and releases its response hold', async () => {
+        paidPolicy.monthUsageAllowance = MINI_HOLD;
+        const holder = await createTestUser(server, {
+            username: 'continuation-empty',
+            password: 'continuation-empty-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(MINI_HOLD),
+        );
+        providerEvent(c, {
+            type: 'response.done',
+            response: {
+                id: 'resp_hold',
+                usage: {
+                    input_token_details: { audio_tokens: 8000 },
+                    output_token_details: { audio_tokens: 4096 },
+                },
+            },
+        });
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'insufficient_funds' },
+        });
+        await c.closed;
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0),
+        );
+    });
+
+    it('preserves the oldest billing identity when pending capacity is exceeded', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-cap',
+            password: 'transcription-cap-password',
+        });
+        const recorded = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await enableTranscription(c);
+        c.ws.send(JSON.stringify({ type: 'test.pendingOverflow' }));
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        await c.closed;
+        await vi.waitFor(() =>
+            expect(
+                recorded.mock.calls
+                    .flatMap(([, rows]) => rows)
+                    .filter((r) =>
+                        r.usageType.includes('transcription_unreported'),
+                    ),
+            ).toHaveLength(65),
+        );
+        const rows = recorded.mock.calls
+            .flatMap(([, rows]) => rows)
+            .filter((r) => r.usageType.includes('transcription_unreported'));
+        expect(
+            rows.filter(
+                (r) =>
+                    r.usageType ===
+                    'openai:gpt-4o-transcribe:realtime:transcription_unreported',
+            ),
+        ).toHaveLength(1);
+        // Each item is billed at its own model's budget; the overflow at the
+        // highest one.
+        expect(rows.reduce((sum, row) => sum + row.costOverride!, 0)).toBe(
+            2 * 10_896_000 + 63 * 5_448_000,
+        );
+        const row = await server.stores.user.getByUsername(holder.username);
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds({
+                    user: row,
+                } as never),
+            ).toBe(0),
+        );
+    });
+
+    it.each([undefined, '', 'not-a-jwt', 'x'.repeat(8193)])(
+        'rejects missing or malformed credentials before upstream admission',
+        async (token) => {
+            const before = upstreamRequests.length;
+            const c = open(
+                token === undefined
+                    ? relayUrl
+                    : `${relayUrl}?auth_token=${token}`,
+            );
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'invalid_api_key' },
+            });
+            await c.closed;
+            expect(upstreamRequests).toHaveLength(before);
+        },
+    );
+
+    it('reports a distributed limiter outage as retryable without authenticating or connecting upstream', async () => {
+        const before = upstreamRequests.length;
+        const auth = vi.spyOn(server.services.auth, 'authenticate');
+        vi.spyOn(server.clients.redis, 'multi').mockImplementationOnce(() => {
+            throw new Error('limiter unavailable');
+        });
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'internal_error' },
+        });
+        expect((await c.closed).code).toBe(1011);
+        expect(auth).not.toHaveBeenCalled();
+        expect(upstreamRequests).toHaveLength(before);
+    });
+
+    it('detects an auth revocation when its event is missed', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const identity = server.services.token.verify<{ session_uid: string }>(
+            'auth',
+            user.token,
+        );
+        const emit = server.clients.event.emit.bind(server.clients.event);
+        vi.spyOn(server.clients.event, 'emit').mockImplementation((...args) => {
+            if (args[0] !== 'outer.auth.sessions.revoked') return emit(...args);
+        });
+        await server.services.auth.revokeSession(identity.session_uid);
+        expect(c.ws.readyState).toBe(WebSocket.OPEN);
+        vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
+        await server.services.openaiRealtime.recheckSessions();
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        await c.closed;
+    });
+
+    it('detects a paid downgrade after a missed plan invalidation while free credit remains', async () => {
+        const holder = await createTestUser(server, {
+            username: 'missed-plan-event',
+            password: 'missed-plan-event-password',
+        });
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await c.waitFor('session.created');
+        planId = 'user_free';
+        vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
+        const row = await server.stores.user.getByUsername(holder.username);
+        expect(
+            await server.services.metering.getRemainingUsage({
+                user: row,
+            } as never),
+        ).toBeGreaterThan(0);
+        await server.services.openaiRealtime.recheckSessions();
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'subscription_required' },
+        });
+        await c.closed;
+    });
+
+    it('bounds an entitlement lookup outage without reporting invalid credentials', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const metering = server.services.metering;
+        const resolvers = (
+            metering as unknown as {
+                subscriptionResolvers: (() => Promise<string>)[];
+            }
+        ).subscriptionResolvers;
+        const fail = async (): Promise<string> => {
+            throw new Error('plan lookup down');
+        };
+        resolvers.unshift(fail);
+        const row = await server.stores.user.getByUsername(user.username);
+        metering.invalidateActorSubscription(row!.uuid);
+        try {
+            await server.services.openaiRealtime.recheckSessions();
+            expect(c.ws.readyState).toBe(WebSocket.OPEN);
+            vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
+            await server.services.openaiRealtime.recheckSessions();
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'internal_error' },
+            });
+            expect((await c.closed).code).toBe(1011);
+        } finally {
+            resolvers.splice(resolvers.indexOf(fail), 1);
+            metering.invalidateActorSubscription(row!.uuid);
+        }
+    });
+
+    it('evicts a raw socket on a sibling node through the real cluster pubsub path', async () => {
+        const config = {
+            domain: 'puter.localhost',
+            realtime: {
+                upstreamUrl: `ws://127.0.0.1:${(upstream.address() as AddressInfo).port}`,
+            },
+            providers: { 'openai-completion': { apiKey: 'sk-test' } },
+            broadcast: {
+                peers: [],
+                webhook: {
+                    peerId: 'relay-sibling',
+                    secret: 'test-cluster-secret',
+                },
+            },
+        } as IConfig;
+        const event = new EventClient(config);
+        const remoteClients = { ...server.clients, event };
+        const broadcast = new BroadcastService(
+            config,
+            remoteClients,
+            server.stores,
+            server.services,
+        );
+        const relay = new OpenAIRealtimeRelayService(
+            config,
+            remoteClients,
+            server.stores,
+            server.services,
+        );
+        const http = createServer();
+        relay.attachHttpServer(http);
+        broadcast.onServerStart();
+        relay.onServerStart();
+        await new Promise<void>((resolve) =>
+            http.listen(0, '127.0.0.1', resolve),
+        );
+        const row = await server.stores.user.getByUsername(user.username);
+        const revoked = await server.services.auth.createSessionToken(row!, {});
+        const url = (token: string) =>
+            `ws://127.0.0.1:${(http.address() as AddressInfo).port}${REALTIME_PATH}?auth_token=${token}`;
+        const a = open(url(revoked.token), undefined, {
+            host: 'api.puter.localhost',
+        });
+        const b = open(url(user.token), undefined, {
+            host: 'api.puter.localhost',
+        });
+        try {
+            await Promise.all([
+                a.waitFor('session.created'),
+                b.waitFor('session.created'),
+            ]);
+            await server.services.auth.revokeSession(revoked.session.uuid);
+            expect(await a.waitFor('error')).toMatchObject({
+                error: { code: 'invalid_api_key' },
+            });
+            await a.closed;
+            b.ws.send(JSON.stringify({ type: 'sibling.valid' }));
+            await b.waitForEcho('sibling.valid');
+        } finally {
+            a.ws.terminate();
+            b.ws.terminate();
+            await relay.onServerPrepareShutdown();
+            await broadcast.onServerPrepareShutdown();
+            await new Promise<void>((resolve) => http.close(() => resolve()));
+        }
+    });
+
+    it('backpressures audio while the pending transcription cap is full', async () => {
+        const holder = await createTestUser(server, {
+            username: 'transcription-renewal',
+            password: 'transcription-renewal-password',
+        });
+        const recorded = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await enableTranscription(c);
+        const provider = [...upstream.clients][0];
+        for (let i = 0; i < 64; i++)
+            provider.send(
+                JSON.stringify({
+                    type: 'input_audio_buffer.committed',
+                    item_id: `renew${i}`,
+                }),
+            );
+        await vi.waitFor(() =>
+            expect(
+                c.events.filter(
+                    (event) => event.type === 'input_audio_buffer.committed',
+                ),
+            ).toHaveLength(64),
+        );
+        // The pool grew one item per commit, with nothing spare at the cap.
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(64 * 10_896_000),
+        );
+        const before = upstreamEvents.length;
+        c.ws.send(
+            JSON.stringify({ type: 'input_audio_buffer.append', audio: '' }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(
+            upstreamEvents
+                .slice(before)
+                .some((event) => event.type === 'input_audio_buffer.append'),
+        ).toBe(false);
+        const complete = (i: number) =>
+            provider.send(
+                JSON.stringify({
+                    type: 'conversation.item.input_audio_transcription.completed',
+                    item_id: `renew${i}`,
+                    usage: { type: 'duration', seconds: 0.001 },
+                }),
+            );
+        complete(0);
+        await c.waitForEcho('input_audio_buffer.append');
+        // In batches, so the usage queue stays under its cap.
+        for (let batch = 0; batch < 8; batch++) {
+            for (let i = Math.max(1, batch * 8); i < (batch + 1) * 8; i++)
+                complete(i);
+            await vi.waitFor(() =>
+                expect(
+                    recorded.mock.calls
+                        .flatMap(([, rows]) => rows)
+                        .filter((row) =>
+                            row.usageType.includes('transcription_'),
+                        ),
+                ).toHaveLength((batch + 1) * 8),
+            );
+        }
+        expect(
+            recorded.mock.calls
+                .flatMap(([, rows]) => rows)
+                .filter((row) => row.usageType.includes('transcription_'))
+                .reduce((sum, row) => sum + row.costOverride!, 0),
+        ).toBe(640);
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(2 * 10_896_000),
+        );
+        c.ws.close();
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0),
+        );
+    });
+
+    it('bounds unverified socket allocation while rejected clients withhold close acknowledgments', async () => {
+        const relay = new OpenAIRealtimeRelayService(
+            { domain: 'puter.localhost', trust_proxy: 'loopback' } as IConfig,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        const http = createServer();
+        relay.attachHttpServer(http);
+        await new Promise<void>((resolve) =>
+            http.listen(0, '127.0.0.1', resolve),
+        );
+        const raw = new Set<Socket>();
+        const accepted: WebSocket[] = [];
+        const upgrade = WebSocketServer.prototype.handleUpgrade;
+        vi.spyOn(WebSocketServer.prototype, 'handleUpgrade').mockImplementation(
+            function (this: WebSocketServer, req, socket, head, done) {
+                upgrade.call(this, req, socket, head, (ws, request) => {
+                    accepted.push(ws);
+                    done(ws, request);
+                });
+            },
+        );
+        const request = (index: number) =>
+            new Promise<string>((resolve, reject) => {
+                const socket = connect(
+                    (http.address() as AddressInfo).port,
+                    '127.0.0.1',
+                );
+                raw.add(socket);
+                socket.on('error', () => {});
+                socket.once('error', reject);
+                socket.once('data', (data) => resolve(data.toString()));
+                socket.once('connect', () =>
+                    socket.write(
+                        [
+                            `GET ${REALTIME_PATH}?auth_token=invalid-${index} HTTP/1.1`,
+                            'Host: api.puter.localhost',
+                            'Connection: Upgrade',
+                            'Upgrade: websocket',
+                            'Sec-WebSocket-Version: 13',
+                            'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+                            `X-Forwarded-For: 203.0.113.${index + 1}`,
+                            '',
+                            '',
+                        ].join('\r\n'),
+                    ),
+                );
+            });
+        try {
+            for (let i = 0; i < 64; i++)
+                expect(await request(i)).toMatch(/^HTTP\/1\.1 101/);
+            await vi.waitFor(() =>
+                expect(
+                    accepted.every((ws) => ws.readyState === WebSocket.CLOSING),
+                ).toBe(true),
+            );
+            expect(await request(64)).toMatch(/^HTTP\/1\.1 503/);
+            expect(accepted).toHaveLength(64);
+        } finally {
+            for (const socket of raw) socket.destroy();
+            await relay.onServerPrepareShutdown();
+            await new Promise<void>((resolve) => http.close(() => resolve()));
+        }
+    });
+
+    it('closes a session whose credential stops authenticating', async () => {
+        const relay = server.services.openaiRealtime;
+        const auth = vi.spyOn(server.services.auth, 'authenticate');
+        const { ws, closed, waitFor } = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await waitFor('session.created');
+
+        // Within the cache window nothing is re-checked.
+        auth.mockClear();
+        await relay.recheckSessions();
+        expect(auth).not.toHaveBeenCalled();
+        expect(ws.readyState).toBe(WebSocket.OPEN);
+
+        auth.mockResolvedValue({ invalid: true });
+        kv.del(realtimeAuthKey(user.token));
+        await relay.recheckSessions();
+        const error = (await waitFor('error')) as {
+            error: { code: string };
+        };
+        expect(error.error.code).toBe('invalid_api_key');
+        expect((await closed).code).toBe(1008);
+        auth.mockRestore();
+    });
+
+    it('keeps a session when the re-check lookup itself fails', async () => {
+        const relay = server.services.openaiRealtime;
+        const auth = vi.spyOn(server.services.auth, 'authenticate');
+        const { ws, events, waitFor, waitForEcho } = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await waitFor('session.created');
+        auth.mockRejectedValue(new Error('db down'));
+        kv.del(realtimeAuthKey(user.token));
+        await relay.recheckSessions();
+        // Frames arrive in order, so a close from the recheck would beat this.
+        ws.send('{"type":"test.alive"}');
+        await waitForEcho('test.alive');
+        expect(events.some((e) => e.type === 'error')).toBe(false);
+        auth.mockRestore();
+        ws.close();
+    });
+
+    it('reports a failed credential lookup as internal_error and 1011, and caches nothing', async () => {
+        const auth = vi
+            .spyOn(server.services.auth, 'authenticate')
+            .mockRejectedValueOnce(new Error('db down'));
+        const before = upstreamRequests.length;
+        kv.del(realtimeAuthKey(user.token));
+        const failed = open(`${relayUrl}?auth_token=${user.token}`);
+        expect(await failed.waitFor('error')).toMatchObject({
+            error: {
+                code: 'internal_error',
+                message: 'Could not verify credentials',
+            },
+        });
+        expect((await failed.closed).code).toBe(1011);
+        expect(upstreamRequests.length).toBe(before);
+        expect(kv.get(realtimeAuthKey(user.token))).toBeUndefined();
+
+        // The lookup recovers, and so does the next attempt.
+        const retry = open(`${relayUrl}?auth_token=${user.token}`);
+        await retry.waitFor('session.created');
+        expect(auth).toHaveBeenCalledTimes(2);
+        expect(kv.get(realtimeAuthKey(user.token))).toBeDefined();
+        retry.ws.close();
+    });
+
+    it('reports an unexpected setup failure as internal_error and 1011', async () => {
+        vi.spyOn(
+            server.services.metering,
+            'reserveCreditsIfAffordable',
+        ).mockRejectedValueOnce(new Error('metering down'));
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'internal_error', message: 'Realtime setup failed' },
+        });
+        expect((await c.closed).code).toBe(1011);
+    });
+
+    it('refuses an invalid, blocked or revoked credential with invalid_api_key and 1008', async () => {
+        for (const result of [
+            { invalid: true },
+            { blocked: true },
+            { reauth: { reason: 'session_revoked' } },
+        ]) {
+            vi.spyOn(
+                server.services.auth,
+                'authenticate',
+            ).mockResolvedValueOnce(result as never);
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'invalid_api_key' },
+            });
+            expect((await c.closed).code).toBe(1008);
+        }
+    });
+
+    it('refuses a seat whose team requires 2FA the account lacks', async () => {
+        const relay = server.services.openaiRealtime;
+        const live = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await live.waitFor('session.created');
+
+        const row = await server.stores.user.getByUsername(user.username);
+        installSeatStub(server as never, [row!.id], { require2fa: true });
+
+        const fresh = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        expect(await fresh.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        expect((await fresh.closed).code).toBe(1008);
+
+        kv.del(realtimeAuthKey(user.token));
+        await relay.recheckSessions();
+        expect(await live.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        expect((await live.closed).code).toBe(1008);
+    });
+
+    it('holds credit for each response until its usage is recorded', async () => {
+        const holder = await createTestUser(server, {
+            username: 'realtime-holds',
+            password: 'realtime-holds-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const metering = server.services.metering;
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${holder.token}`,
+        );
+        await c.waitFor('session.created');
+        expect(await metering.getOutstandingHolds(actor)).toBe(0);
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(MINI_HOLD),
+        );
+        c.ws.close();
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(0),
+        );
+    });
+
+    it('admits one of two simultaneous responses a constrained balance covers once, and bills both', async () => {
+        const users = await Promise.all(
+            ['realtime-race', 'realtime-race-other'].map((username) =>
+                createTestUser(server, {
+                    username,
+                    password: `${username}-password`,
+                }),
+            ),
+        );
+        const actors = await Promise.all(
+            users.map(
+                async (u) =>
+                    ({
+                        user: await server.stores.user.getByUsername(
+                            u.username,
+                        ),
+                    }) as never,
+            ),
+        );
+        const metering = server.services.metering;
+        // Room for one response's hold, not two.
+        const paid = vi.mocked(metering.getActorSubscription);
+        const plan = paid.getMockImplementation()!;
+        paid.mockImplementation(async (actor) => ({
+            ...(await plan(actor)),
+            monthUsageAllowance: Math.floor(MINI_HOLD * 1.5),
+        }));
+        const recorded = vi.spyOn(metering, 'batchIncrementUsages');
+        const url = (token: string) =>
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${token}`;
+        const [first, second] = [
+            open(url(users[0].token)),
+            open(url(users[0].token)),
+        ];
+        await Promise.all(
+            [first, second].map((c) => c.waitFor('session.created')),
+        );
+
+        for (const c of [first, second]) {
+            c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        }
+        await Promise.all(
+            [first, second].map((c) => c.waitFor('response.created')),
+        );
+        await vi.waitFor(() =>
+            expect(
+                [first, second].filter((c) =>
+                    c.events.some(
+                        (e) =>
+                            e.type === 'error' &&
+                            (e.error as { code: string }).code ===
+                                'insufficient_funds',
+                    ),
+                ),
+            ).toHaveLength(1),
+        );
+        const loser = [first, second].find((c) =>
+            c.events.some((e) => e.type === 'error'),
+        )!;
+        const winner = loser === first ? second : first;
+        expect((await loser.closed).code).toBe(1008);
+        expect(await metering.getOutstandingHolds(actors[0])).toBe(MINI_HOLD);
+
+        // Another account's balance is its own.
+        const other = open(url(users[1].token));
+        await other.waitFor('session.created');
+        other.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await other.waitFor('response.created');
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actors[1])).toBe(
+                MINI_HOLD,
+            ),
+        );
+        expect(other.events.some((e) => e.type === 'error')).toBe(false);
+
+        // The loser's response was cancelled and billed for what it made;
+        // the winner's is billed once it ends. No hold outlives its usage.
+        winner.ws.close();
+        other.ws.close();
+        await vi.waitFor(async () => {
+            const billed = recorded.mock.calls.filter(
+                ([actor, rows]) =>
+                    (actor as { user: { uuid: string } }).user.uuid ===
+                        (actors[0] as { user: { uuid: string } }).user.uuid &&
+                    rows.some(
+                        (r) =>
+                            r.usageType ===
+                            'openai:gpt-realtime-mini:realtime:audio_output',
+                    ),
+            );
+            expect(billed).toHaveLength(2);
+            expect(await metering.getOutstandingHolds(actors[0])).toBe(0);
+            expect(await metering.getOutstandingHolds(actors[1])).toBe(0);
+        });
+    });
+
+    it("refuses a session the account can't cover one response of", async () => {
+        const subscription = vi.mocked(
+            server.services.metering.getActorSubscription,
+        );
+        const paid = subscription.getMockImplementation()!;
+        subscription.mockImplementation(async (actor) => ({
+            ...(await paid(actor)),
+            monthUsageAllowance: 10_000_000,
+        }));
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'insufficient_funds' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('keeps recovery attempt capacity after the shared handover budget is exhausted', async () => {
+        const holder = await createTestUser(server, {
+            username: 'handover-attempts',
+            password: 'handover-attempts-password',
+        });
+        for (let i = 0; i < 20; i++)
+            await checkRateLimit(
+                `${realtimeConnectKey(holder.token)}:handover`,
+                20,
+                60_000,
+            );
+        const probe = open(
+            `${relayUrl}?auth_token=${holder.token}&purpose=handover`,
+        );
+        expect(await probe.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        await probe.closed;
+        const recovery = open(`${relayUrl}?auth_token=${holder.token}`);
+        await recovery.waitFor('session.created');
+        expect(
+            await checkRateLimit(realtimeConnectKey(holder.token), 2, 60_000),
+        ).toBe(true);
+        recovery.ws.close();
+    });
+
+    it('limits session attempts per credential', async () => {
+        const burst = await createTestUser(server, {
+            username: 'realtime-burst',
+            password: 'realtime-burst-password',
+        });
+        for (let i = 0; i < 60; i++) {
+            await checkRateLimit(realtimeConnectKey(burst.token), 60, 60_000);
+        }
+        const c = open(`${relayUrl}?auth_token=${burst.token}`);
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('cancels and bills a requested response that starts after the client leaves', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        spy.mockClear();
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'response.create', late: true }));
+        await c.waitForEcho('response.create');
+        c.ws.close();
+        await vi.waitFor(() =>
+            expect(upstreamEvents).toContainEqual({
+                type: 'response.cancel',
+                response_id: 'resp_late',
+            }),
+        );
+        await vi.waitFor(() =>
+            expect(
+                spy.mock.calls.some(([, rows]) =>
+                    rows.some(
+                        (r) =>
+                            r.usageType ===
+                            'openai:gpt-realtime-mini:realtime:audio_output',
+                    ),
+                ),
+            ).toBe(true),
+        );
+    });
+
+    it('prices a transcription at the costlier of its commit and current models', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        spy.mockClear();
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'session.update',
+                session: {
+                    input_audio_transcription: { model: 'gpt-4o-transcribe' },
+                },
+            }),
+        );
+        c.ws.send(JSON.stringify({ type: 'transcribe.switch' }));
+        await c.waitFor(
+            'conversation.item.input_audio_transcription.completed',
+        );
+        await vi.waitFor(() =>
+            expect(
+                spy.mock.calls.flatMap(([, rows]) =>
+                    rows.map((r) => [r.usageType, r.costOverride]),
+                ),
+            ).toContainEqual([
+                'openai:gpt-4o-transcribe:realtime:transcription_audio_input',
+                4 * 600,
+            ]),
+        );
+        c.ws.close();
+    });
+
+    it('drops rate_limits.updated and redacts organization IDs from errors', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload: '{"type":"rate_limits.updated","rate_limits":[]}',
+            }),
+        );
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload: JSON.stringify({
+                    type: 'error',
+                    error: {
+                        code: 'rate_limit_exceeded',
+                        message:
+                            'Rate limit reached in organization org-AbCdEf1234567890 on tokens',
+                    },
+                }),
+            }),
+        );
+        const error = (await c.waitFor('error')) as {
+            error: { message: string };
+        };
+        expect(error.error.message).toBe(
+            'Rate limit reached in organization org-redacted on tokens',
+        );
+        expect(c.events.some((e) => e.type === 'rate_limits.updated')).toBe(
+            false,
+        );
+        c.ws.close();
+    });
+
+    it.each([
+        ['error', { error: { message: 'org-AbCdEf1234567890' } }],
+        [
+            'response.done',
+            {
+                response: {
+                    status_details: {
+                        error: { message: 'org-AbCdEf1234567890' },
+                    },
+                },
+            },
+        ],
+        [
+            'conversation.item.input_audio_transcription.failed',
+            { error: { message: 'org-AbCdEf1234567890' } },
+        ],
+    ])('redacts only diagnostic messages in %s', async (type, fields) => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const event = { type, ...fields, content: 'org-AbCdEf1234567890' };
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload: JSON.stringify(event),
+            }),
+        );
+        const received = await c.waitFor(type);
+        expect(received).toEqual(
+            JSON.parse(
+                JSON.stringify(event).replace(
+                    '"message":"org-AbCdEf1234567890"',
+                    '"message":"org-redacted"',
+                ),
+            ),
+        );
+        c.ws.close();
+    });
+
+    it('redacts provider organization IDs in close diagnostics', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const close = new Promise<string>((resolve) =>
+            c.ws.once('close', (_code, reason) => resolve(reason.toString())),
+        );
+        c.ws.send(JSON.stringify({ type: 'test.closeReason' }));
+        expect(await close).toBe('provider org-redacted');
+    });
+
+    it('accepts a context replay burst right after full-size settings', async () => {
+        // The SDK reapplies large settings as several updates, each sent after
+        // the last is acknowledged, then replays up to 40 items and 48 KiB in
+        // one burst.
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        for (let i = 0; i < 2; i++) {
+            c.ws.send(
+                JSON.stringify({
+                    type: `test.settings${i}`,
+                    pad: 'x'.repeat(MAX_REALTIME_MESSAGE_BYTES - 64),
+                }),
+            );
+            await c.waitForEcho(`test.settings${i}`);
+        }
+        const item = JSON.stringify({
+            type: 'test.replay',
+            item: { type: 'message', role: 'user', pad: 'x'.repeat(1100) },
+        });
+        expect(item.length * 40).toBeLessThanOrEqual(48 * 1024);
+        for (let i = 0; i < 40; i++) c.ws.send(item);
+        await vi.waitFor(
+            () =>
+                expect(
+                    c.events.filter(
+                        (e) =>
+                            e.type === 'echo' &&
+                            (e.event as { type: string }).type ===
+                                'test.replay',
+                    ),
+                ).toHaveLength(40),
+            { timeout: 5_000 },
+        );
+        expect(c.events.some((e) => e.type === 'error')).toBe(false);
+        c.ws.close();
+    });
+
+    // A relay of its own, so draining it leaves the shared one serving.
+    describe('refusing sessions while draining', () => {
+        let relay: OpenAIRealtimeRelayService;
+        let httpServer: HttpServer;
+        let drainUrl: string;
+        // Server-side sockets the relay accepted, in order.
+        const accepted: WebSocket[] = [];
+        const uncaught: unknown[] = [];
+        const onUncaught = (err: unknown) => uncaught.push(err);
+
+        beforeAll(async () => {
+            relay = new OpenAIRealtimeRelayService(
+                {
+                    domain: 'puter.localhost',
+                    realtime: {
+                        upstreamUrl: `ws://127.0.0.1:${(upstream.address() as AddressInfo).port}`,
+                    },
+                    providers: { 'openai-completion': { apiKey: 'sk-test' } },
+                } satisfies Partial<IConfig> as IConfig,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            httpServer = createServer();
+            relay.attachHttpServer(httpServer);
+            await new Promise<void>((resolve) =>
+                httpServer.listen(0, '127.0.0.1', resolve),
+            );
+            const { port } = httpServer.address() as AddressInfo;
+            drainUrl = `ws://api.puter.localhost:${port}${REALTIME_PATH}?model=gpt-realtime-mini&auth_token=${user.token}`;
+            process.on('uncaughtException', onUncaught);
+        });
+
+        beforeEach(() => {
+            const handleUpgrade = WebSocketServer.prototype.handleUpgrade;
+            vi.spyOn(
+                WebSocketServer.prototype,
+                'handleUpgrade',
+            ).mockImplementation(function (
+                this: WebSocketServer,
+                req,
+                socket,
+                head,
+                done,
+            ) {
+                handleUpgrade.call(this, req, socket, head, (ws, r) => {
+                    accepted.push(ws);
+                    vi.spyOn(ws, 'emit');
+                    done(ws, r);
+                });
+            });
+        });
+
+        afterAll(async () => {
+            process.off('uncaughtException', onUncaught);
+            await relay.onServerPrepareShutdown();
+            await new Promise((r) => httpServer.close(r));
+        });
+
+        it('handles a socket error on an upgrade for another host', () => {
+            const socket = new PassThrough();
+            const req = {
+                url: REALTIME_PATH,
+                headers: { host: 'evil.example' },
+            } as IncomingMessage;
+            httpServer.emit('upgrade', req, socket, Buffer.alloc(0));
+            expect(() =>
+                socket.emit('error', new Error('read ECONNRESET')),
+            ).not.toThrow();
+        });
+
+        // Last in this block: it shuts the relay down.
+        it('refuses late sessions, survives a client error mid-refusal, and finishes open ones', async () => {
+            const metering = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            const established = open(drainUrl);
+            await established.waitFor('session.created');
+            await relay.onServerDrainStart({ drainMs: 60_000 });
+            await established.waitFor('puter.reconnect');
+
+            const late = open(drainUrl);
+            expect(await late.waitFor('error')).toMatchObject({
+                error: { code: 'server_restarting' },
+            });
+            expect((await late.closed).code).toBe(1012);
+
+            const before = accepted.length;
+            const oversized = new WebSocket(drainUrl);
+            clients.add(oversized);
+            oversized.on('error', () => {});
+            // Sent on open, before the client reads the refusal: the relay's
+            // close frame is already out when this reaches it.
+            oversized.once('open', () =>
+                oversized.send(Buffer.alloc(MAX_REALTIME_MESSAGE_BYTES + 1)),
+            );
+            const socket = await vi.waitFor(() => {
+                expect(accepted.length).toBeGreaterThan(before);
+                return accepted[before];
+            });
+            await vi.waitFor(() =>
+                expect(socket.readyState).toBe(WebSocket.CLOSED),
+            );
+            expect(
+                vi
+                    .mocked(socket.emit)
+                    .mock.calls.filter(([name]) => name === 'error'),
+            ).toEqual([
+                [
+                    'error',
+                    expect.objectContaining({
+                        code: 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH',
+                    }),
+                ],
+            ]);
+            expect(uncaught).toEqual([]);
+
+            // The established session keeps working and billing, then
+            // finishes its response and closes with 1012 at shutdown.
+            metering.mockClear();
+            established.ws.send('{"type":"response.create"}');
+            await established.waitFor('response.done');
+            await vi.waitFor(() => expect(metering).toHaveBeenCalled());
+            established.ws.send(JSON.stringify({ type: 'slow.response' }));
+            await vi.waitFor(() =>
+                expect(
+                    established.events.filter(
+                        (e) => e.type === 'response.created',
+                    ),
+                ).toHaveLength(2),
+            );
+            await relay.onServerPrepareShutdown();
+            expect((await established.closed).code).toBe(1012);
+            expect(
+                established.events.filter((e) => e.type === 'response.done'),
+            ).toHaveLength(2);
+            expect(uncaught).toEqual([]);
+        }, 20_000);
+    });
+
+    describe('restart', () => {
+        type Notice = {
+            type: string;
+            event_id: string;
+            reason: string;
+            close_in_ms?: number;
+        };
+        const notices = (c: ReturnType<typeof open>) =>
+            c.events.filter((e) => e.type === 'puter.reconnect') as Notice[];
+
+        it('sends only a reconnect notice when a host extension announces a restart', async () => {
+            const relay = server.services.openaiRealtime;
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await c.waitFor('session.created');
+            server.clients.event.emit(
+                'serverRestartAnnounced',
+                { closeInMs: 300_000.4 },
+                {},
+            );
+            const notice = (await c.waitFor('puter.reconnect')) as Notice;
+            expect(notice).toEqual({
+                type: 'puter.reconnect',
+                event_id: expect.stringMatching(/^event_puter_/),
+                reason: 'server_restarting',
+                close_in_ms: 300_000,
+            });
+
+            // Repeats within a minute are dropped; the session keeps working.
+            server.clients.event.emit('serverRestartAnnounced', {}, {});
+            await relay.recheckSessions();
+            c.ws.send('{"type":"test.alive"}');
+            await c.waitForEcho('test.alive');
+            expect(notices(c)).toHaveLength(1);
+
+            // New sessions are still accepted, and get no notice.
+            const fresh = open(`${relayUrl}?auth_token=${user.token}`);
+            await fresh.waitFor('session.created');
+            fresh.ws.send('{"type":"test.alive"}');
+            await fresh.waitForEcho('test.alive');
+            expect(notices(fresh)).toHaveLength(0);
+            expect(c.ws.readyState).toBe(WebSocket.OPEN);
+            c.ws.close();
+            fresh.ws.close();
+        });
+
+        it('omits close_in_ms when the announcement has no usable duration', async () => {
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await c.waitFor('session.created');
+            server.clients.event.emit(
+                'serverRestartAnnounced',
+                { closeInMs: -1 },
+                {},
+            );
+            const notice = (await c.waitFor('puter.reconnect')) as Notice;
+            expect(notice).not.toHaveProperty('close_in_ms');
+            c.ws.close();
+        });
+
+        // Last: the relay is shut down afterwards.
+        it('drains: notifies open sessions, refuses new ones, bills leavers, then closes the rest with 1012', async () => {
+            const relay = server.services.openaiRealtime;
+            const spy = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            const url = `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`;
+            const idle = open(url);
+            const busy = open(url);
+            const leaver = open(url);
+            await Promise.all(
+                [idle, busy, leaver].map((c) => c.waitFor('session.created')),
+            );
+            leaver.ws.send(JSON.stringify({ type: 'hold.response' }));
+            await leaver.waitFor('response.created');
+
+            await relay.onServerDrainStart({ drainMs: 90_000 });
+            for (const c of [idle, busy, leaver]) {
+                expect(await c.waitFor('puter.reconnect')).toMatchObject({
+                    reason: 'server_restarting',
+                    close_in_ms: 90_000,
+                });
+            }
+
+            const late = open(url);
+            expect(await late.waitFor('error')).toMatchObject({
+                error: { code: 'server_restarting' },
+            });
+            expect((await late.closed).code).toBe(1012);
+
+            // A client that leaves after the notice is billed as before: its
+            // response is cancelled and settled.
+            spy.mockClear();
+            leaver.ws.close();
+            await vi.waitFor(() =>
+                expect(upstreamEvents).toContainEqual({
+                    type: 'response.cancel',
+                    response_id: 'resp_hold',
+                }),
+            );
+            await vi.waitFor(() =>
+                expect(
+                    spy.mock.calls.some(([, rows]) =>
+                        rows.some(
+                            (r) =>
+                                r.usageType ===
+                                'openai:gpt-realtime-mini:realtime:audio_output',
+                        ),
+                    ),
+                ).toBe(true),
+            );
+
+            // The rest keep working until shutdown.
+            idle.ws.send('{"type":"test.alive"}');
+            await idle.waitForEcho('test.alive');
+            busy.ws.send(JSON.stringify({ type: 'slow.response' }));
+            await busy.waitFor('response.created');
+
+            await relay.onServerPrepareShutdown();
+            expect((await idle.closed).code).toBe(1012);
+            expect((await busy.closed).code).toBe(1012);
+            expect(busy.events.some((e) => e.type === 'response.done')).toBe(
+                true,
+            );
+            expect(notices(idle)).toHaveLength(1);
+        });
+    });
+});

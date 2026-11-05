@@ -61,14 +61,24 @@ interface RegisteredHandler {
 /** Severity used when neither the call site nor config picks one. */
 const FALLBACK_SEVERITY: PagerSeverity = 'critical';
 /**
- * How many recent occurrences an alarm keeps. An alarm is never cleared unless
- * something calls `clear`, and a hot one repeats for as long as the fault lasts
- * — so retaining every occurrence means retaining every message and field set
- * it was ever raised with, request bodies and actors included, for the life of
- * the process. The last few are what a human reads; the rest is only a count,
- * and `count` keeps that.
+ * How many recent occurrences an alarm keeps. A hot alarm repeats for as long
+ * as the fault lasts, so retaining every occurrence means retaining every
+ * message and field set it was ever raised with, request bodies and actors
+ * included. The last few are what a human reads; the rest is only a count, and
+ * `count` keeps that.
  */
 const OCCURRENCE_HISTORY_LIMIT = 20;
+/**
+ * An alarm that hasn't recurred for this long is forgotten; its next occurrence
+ * is a new alarm with a fresh count. Kept far past the chat transport's repeat
+ * throttle so a slowly recurring fault still counts as one alarm.
+ */
+export const ALARM_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * Most alarms held at once. Ids that embed a user or key can outrun the idle
+ * window; past this the least recently raised alarm is dropped.
+ */
+export const MAX_TRACKED_ALARMS = 1000;
 
 // A fast-recurring fault repeats far faster than it is useful to report, and
 // every report allocates a log line and a payload. Report every occurrence up
@@ -187,6 +197,7 @@ function cleanFields(fields: AlarmFields): Record<string, string> {
  * `pager.severityOverrides` in {@link IConfig}.
  */
 export class AlarmClient extends PuterClient {
+    /** Ordered by last occurrence: a repeat moves its alarm to the back. */
     private alarms = new Map<string, Alarm>();
     private aliases = new Map<string, Alarm>();
     private alertHandlers: RegisteredHandler[] = [];
@@ -290,7 +301,8 @@ export class AlarmClient extends PuterClient {
 
     /**
      * Create or update an alarm. If the alarm ID already exists, the occurrence
-     * count is incremented and a repeat alert is dispatched.
+     * count is incremented and a repeat alert is dispatched. An alarm idle for
+     * {@link ALARM_IDLE_TTL_MS} is forgotten, so its next occurrence is new.
      *
      * `severity` decides where the alarm lands:
      *
@@ -321,9 +333,12 @@ export class AlarmClient extends PuterClient {
             return;
         }
 
+        this.evict();
         const existing = this.alarms.get(id);
 
         if (existing) {
+            this.alarms.delete(id);
+            this.alarms.set(id, existing);
             this.recordOccurrence(existing, message, fields);
             this.handleRepeat(existing);
             return;
@@ -348,6 +363,7 @@ export class AlarmClient extends PuterClient {
         this.alarms.set(id, alarm);
         this.aliases.set(alarm.shortId, alarm);
         this.recordOccurrence(alarm, message, fields);
+        this.evict();
         this.handleNew(alarm);
     }
 
@@ -356,8 +372,7 @@ export class AlarmClient extends PuterClient {
         const alarm = this.alarms.get(id);
         if (!alarm) return;
 
-        this.alarms.delete(id);
-        this.aliases.delete(alarm.shortId);
+        this.forget(alarm);
         console.log(`[alarm] CLEAR ${displayId(alarm)} :: ${alarm.message}`);
     }
 
@@ -394,6 +409,32 @@ export class AlarmClient extends PuterClient {
     }
 
     // -- Internals ----------------------------------------------------
+
+    /**
+     * Drop idle alarms, then the least recently raised ones past the cap. The
+     * map's order puts both at the front, so this stops at the first keeper.
+     */
+    private evict(): void {
+        const now = Date.now();
+        for (const alarm of this.alarms.values()) {
+            const lastSeen = alarm.timestamps.at(-1) ?? alarm.started;
+            if (
+                this.alarms.size <= MAX_TRACKED_ALARMS &&
+                now - lastSeen < ALARM_IDLE_TTL_MS
+            ) {
+                return;
+            }
+            this.forget(alarm);
+        }
+    }
+
+    private forget(alarm: Alarm): void {
+        this.alarms.delete(alarm.id);
+        // Short ids can collide; leave an alias that now names another alarm.
+        if (this.aliases.get(alarm.shortId) === alarm) {
+            this.aliases.delete(alarm.shortId);
+        }
+    }
 
     private recordOccurrence(
         alarm: Alarm,

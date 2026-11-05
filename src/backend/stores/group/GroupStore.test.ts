@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -180,7 +181,13 @@ describe('GroupStore', () => {
                 'VALUES (?, ?, ?, ?, ?, ?)',
             [uid, owner.id, 'team', 'Also Not Yours', '{}', '{}'],
         );
-        await server.stores.team.addMember(uid, member.id, { orgOwned: true });
+        // Written directly: the seat row is all this rule reads, and teams
+        // ships separately.
+        await server.clients.db.write(
+            'INSERT INTO `jct_user_group` (`user_id`, `group_id`, `org_owned`) ' +
+                'SELECT ?, id, 1 FROM `group` WHERE uid = ?',
+            [member.id, uid],
+        );
 
         await store.removeUsers(uid, [member.username]);
         expect(await memberUsernames(uid)).toEqual([member.username]);

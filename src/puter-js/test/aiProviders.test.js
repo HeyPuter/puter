@@ -256,18 +256,18 @@ window.aiProvidersTests = [
 
                 const defaulted = await puter.drivers.call('puter-speech2txt', 'list_models', {});
                 const defaultedIds = defaulted.map(m => m.id);
-                assert(defaultedIds.includes('whisper-1'),
+                assert(defaultedIds.includes('gpt-transcribe'),
                     `default list_models should be the openai catalogue, got: ${JSON.stringify(defaultedIds)}`);
                 assert(!defaultedIds.includes('xai-stt'),
                     "default list_models should not aggregate other providers");
 
                 const all = await puter.drivers.call('puter-speech2txt', 'list_models', { provider: 'all' });
                 const allIds = all.map(m => m.id);
-                assert(allIds.includes('whisper-1') && allIds.includes('xai-stt'),
+                assert(allIds.includes('gpt-transcribe') && allIds.includes('xai-stt'),
                     `provider 'all' should aggregate every catalogue, got: ${JSON.stringify(allIds)}`);
 
                 const aliased = await puter.drivers.call('puter-speech2txt', 'list_models', { provider: 'grok' });
-                assert(aliased.length === 1 && aliased[0].id === 'xai-stt',
+                assert(aliased.map(m => m.id).join(',') === 'xai-stt,grok-voice-transcribe-2.0',
                     `alias "grok" should list only the xai catalogue, got: ${JSON.stringify(aliased)}`);
                 pass("testSTTListModels passed");
             } catch (error) {

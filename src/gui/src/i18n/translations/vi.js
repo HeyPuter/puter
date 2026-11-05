@@ -26,7 +26,7 @@ const vi = {
         account: 'Tài khoản',
         account_password: 'Xác minh mật khẩu tài khoản',
         access_granted_to: 'Đã cấp quyền truy cập cho',
-        add_existing_account: 'Thêm tài khoản hiện có',
+        add_another_account: 'Thêm tài khoản khác',
         all_fields_required: 'Tất cả các trường đều bắt buộc.',
         allow: 'Cho phép',
         apply: 'Áp dụng',

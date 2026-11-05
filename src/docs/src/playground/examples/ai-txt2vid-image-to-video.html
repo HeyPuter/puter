@@ -11,7 +11,7 @@
             const file = e.target.files[0];
             if (!file) return;
 
-            // Seedance and Veo take the first frame as a data: URI
+            // Seedance takes the first frame as a data: URI
             const dataUri = await new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result);

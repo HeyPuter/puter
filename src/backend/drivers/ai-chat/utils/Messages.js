@@ -90,6 +90,11 @@ export const normalize_single_message = (message, params = {}) => {
                     id: tool_call.id,
                     name: tool_call.function.name,
                     input: tool_call.function.arguments,
+                    // Gemini's thought signature rides here and must be
+                    // replayed with the call.
+                    ...(tool_call.extra_content
+                        ? { extra_content: tool_call.extra_content }
+                        : {}),
                 });
             }
             delete message.tool_calls;

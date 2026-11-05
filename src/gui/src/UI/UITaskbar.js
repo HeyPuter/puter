@@ -23,6 +23,9 @@ import UIPopover from './UIPopover.js';
 import launch_app from '../helpers/launchApp.js';
 import UIContextMenu from './UIContextMenu.js';
 import { appIconAttrs, appIconSrc } from '../helpers/appIcon.js';
+import { filterLaunchableApps } from '../helpers/launchAppsList.js';
+
+const TASKBAR_POSITIONS = ['left', 'bottom', 'right'];
 
 async function UITaskbar (options) {
     window.global_element_id++;
@@ -40,7 +43,8 @@ async function UITaskbar (options) {
         taskbar_position = await puter.kv.get('taskbar_position').catch(() => null);
         // if this is not first visit, set taskbar position to bottom since it's from a user that
         // used puter before customizing taskbar position was added and the taskbar position was set to bottom
-        if ( ! taskbar_position ) {
+        // Unknown values are discarded too: this ends up in markup and stored values may be poisoned.
+        if ( ! TASKBAR_POSITIONS.includes(taskbar_position) ) {
             taskbar_position = 'bottom'; // default position
             puter.kv.set('taskbar_position', taskbar_position).catch(err => console.warn('Could not save taskbar_position:', err));
         }
@@ -54,19 +58,26 @@ async function UITaskbar (options) {
     // Set global taskbar position
     window.taskbar_position = taskbar_position;
 
-    // get launch apps
-    $.ajax({
-        url: `${window.api_origin }/get-launch-apps?icon_size=64`,
-        type: 'GET',
-        async: true,
-        contentType: 'application/json',
-        headers: {
-            'Authorization': `Bearer ${window.auth_token}`,
-        },
-        success: function (apps) {
-            window.launch_apps = apps;
-        },
-    });
+    let launchAppsRequest = 0;
+    let pendingLaunchApps;
+    const fetchLaunchApps = () => {
+        pendingLaunchApps?.abort();
+        pendingLaunchApps = $.ajax({
+            url: `${window.api_origin}/get-launch-apps?icon_size=64`,
+            type: 'GET',
+            contentType: 'application/json',
+            timeout: 30000,
+            headers: { 'Authorization': `Bearer ${window.auth_token}` },
+        });
+        return pendingLaunchApps;
+    };
+    const logRefreshFailure = (xhr, status) => {
+        if ( status !== 'abort' ) console.error('Failed to refresh launch apps:', status);
+    };
+
+    fetchLaunchApps().done(apps => {
+        if ( launchAppsRequest === 0 ) window.launch_apps = apps;
+    }).fail(logRefreshFailure);
 
     let h = '';
     h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar taskbar-position-${taskbar_position}" style="height:${window.taskbar_height}px;">`;
@@ -107,97 +118,97 @@ async function UITaskbar (options) {
                 center_horizontally: true,
             });
 
-            // In the rare case that launch_apps is not populated yet, get it from the server
-            // then populate the popover
-            if ( !window.launch_apps || !window.launch_apps.recent || window.launch_apps.recent.length === 0 ) {
-                // get launch apps
-                window.launch_apps = await $.ajax({
-                    url: `${window.api_origin }/get-launch-apps?icon_size=64`,
-                    type: 'GET',
-                    async: true,
-                    contentType: 'application/json',
-                    headers: {
-                        'Authorization': `Bearer ${window.auth_token}`,
+            $(popover).on('remove', () => pendingLaunchApps?.abort());
+            const request = ++launchAppsRequest;
+            if ( ! window.launch_apps?.recent ) {
+                window.launch_apps = { recent: [], recommended: [] };
+            }
+            $(popover).find('.launch-popover').append(`
+                <div class="launch-search-wrapper">
+                    <input style="background-image:url('${window.icons['magnifier-outline.svg']}');" class="launch-search">
+                    <img class="launch-search-clear" src="${window.icons['close.svg']}">
+                </div>
+            `);
+
+            const renderApps = () => {
+                const recentApps = filterLaunchableApps(window.launch_apps.recent);
+                const recommendedApps = filterLaunchableApps(window.launch_apps.recommended);
+                let apps_str = '';
+
+                // -------------------------------------------
+                // Recent apps
+                // -------------------------------------------
+                if ( recentApps.length > 0 ) {
+                    // heading
+                    apps_str += `<h1 class="start-section-heading start-section-heading-recent">${i18n('recent')}</h1>`;
+
+                    // apps
+                    apps_str += '<div class="launch-apps-recent">';
+                    for ( let index = 0; index < window.launch_recent_apps_count && index < recentApps.length; index++ ) {
+                        const app_info = recentApps[index];
+                        apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
+                        const icon = appIconSrc(app_info);
+                        apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(icon.src)}" data-app-icon-fallback="${html_encode(icon.fallback)}" data-app-title="${html_encode(app_info.title)}">`;
+                        apps_str += `<img class="start-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
+                        apps_str += `<span class="start-app-title">${html_encode(app_info.title)}</span>`;
+                        apps_str += '</div>';
+                        apps_str += '</div>';
+                    }
+                    apps_str += '</div>';
+                }
+                // -------------------------------------------
+                // Recommended apps
+                // -------------------------------------------
+                if ( recommendedApps.length > 0 ) {
+                    // heading
+                    apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${recentApps.length > 0 ? 'padding-top: 30px;' : ''}">${i18n('recommended')}</h1>`;
+                    // apps
+                    apps_str += '<div class="launch-apps-recommended">';
+                    for ( let index = 0; index < recommendedApps.length; index++ ) {
+                        const app_info = recommendedApps[index];
+                        apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
+                        const icon = appIconSrc(app_info);
+                        apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(icon.src)}" data-app-icon-fallback="${html_encode(icon.fallback)}" data-app-title="${html_encode(app_info.title)}">`;
+                        apps_str += `<img class="start-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
+                        apps_str += `<span class="start-app-title">${html_encode(app_info.title)}</span>`;
+                        apps_str += '</div>';
+                        apps_str += '</div>';
+                    }
+                    apps_str += '</div>';
+                }
+
+                // Replace tiles only, so the search input keeps its text and focus.
+                $(popover).find('.start-section-heading, .launch-apps-recent, .launch-apps-recommended').remove();
+                $(popover).find('.launch-popover').append(apps_str);
+
+                // make apps draggable
+                $(popover).find('.start-app').draggable({
+                    appendTo: 'body',
+                    revert: 'invalid',
+                    connectToSortable: '.taskbar-sortable',
+                    zIndex: parseInt($(popover).css('z-index')) + 1,
+                    scroll: false,
+                    distance: 5,
+                    revertDuration: 100,
+                    helper: 'clone',
+                    cursorAt: { left: 18, top: 20 },
+                    start: function (event, ui) {
+                    },
+                    drag: function (event, ui) {
+                    },
+                    stop: function () {
                     },
                 });
-            }
+            };
+            renderApps();
+            if ( ! isMobile.phone ) $(popover).find('.launch-search').focus();
 
-            let apps_str = '';
-
-            apps_str += '<div class="launch-search-wrapper">';
-            apps_str += `<input style="background-image:url('${window.icons['magnifier-outline.svg']}');" class="launch-search">`;
-            apps_str += `<img class="launch-search-clear" src="${window.icons['close.svg']}">`;
-            apps_str += '</div>';
-
-            // -------------------------------------------
-            // Recent apps
-            // -------------------------------------------
-            if ( window.launch_apps.recent.length > 0 ) {
-                // heading
-                apps_str += `<h1 class="start-section-heading start-section-heading-recent">${i18n('recent')}</h1>`;
-
-                // apps
-                apps_str += '<div class="launch-apps-recent">';
-                for ( let index = 0; index < window.launch_recent_apps_count && index < window.launch_apps.recent.length; index++ ) {
-                    const app_info = window.launch_apps.recent[index];
-                    apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
-                    const icon = appIconSrc(app_info);
-                    apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(icon.src)}" data-app-icon-fallback="${html_encode(icon.fallback)}" data-app-title="${html_encode(app_info.title)}">`;
-                    apps_str += `<img class="start-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
-                    apps_str += `<span class="start-app-title">${html_encode(app_info.title)}</span>`;
-                    apps_str += '</div>';
-                    apps_str += '</div>';
-                }
-                apps_str += '</div>';
-            }
-            // -------------------------------------------
-            // Reccomended apps
-            // -------------------------------------------
-            if ( window.launch_apps.recommended.length > 0 ) {
-                // heading
-                apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${window.launch_apps.recent.length > 0 ? 'padding-top: 30px;' : ''}">${i18n('recommended')}</h1>`;
-                // apps
-                apps_str += '<div class="launch-apps-recommended">';
-                for ( let index = 0; index < window.launch_apps.recommended.length; index++ ) {
-                    const app_info = window.launch_apps.recommended[index];
-                    apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
-                    const icon = appIconSrc(app_info);
-                    apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(icon.src)}" data-app-icon-fallback="${html_encode(icon.fallback)}" data-app-title="${html_encode(app_info.title)}">`;
-                    apps_str += `<img class="start-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
-                    apps_str += `<span class="start-app-title">${html_encode(app_info.title)}</span>`;
-                    apps_str += '</div>';
-                    apps_str += '</div>';
-                }
-                apps_str += '</div>';
-            }
-
-            // add apps to popover
-            $(popover).find('.launch-popover').append(apps_str);
-
-            // focus on search input only if not on mobile
-            if ( ! isMobile.phone )
-            {
-                $(popover).find('.launch-search').focus();
-            }
-
-            // make apps draggable
-            $(popover).find('.start-app').draggable({
-                appendTo: 'body',
-                revert: 'invalid',
-                connectToSortable: '.taskbar-sortable',
-                zIndex: parseInt($(popover).css('z-index')) + 1,
-                scroll: false,
-                distance: 5,
-                revertDuration: 100,
-                helper: 'clone',
-                cursorAt: { left: 18, top: 20 },
-                start: function (event, ui) {
-                },
-                drag: function (event, ui) {
-                },
-                stop: function () {
-                },
-            });
+            fetchLaunchApps().done(apps => {
+                if ( request !== launchAppsRequest || !popover.isConnected ) return;
+                window.launch_apps = apps;
+                renderApps();
+                $(popover).find('.launch-search').trigger('change');
+            }).fail(logRefreshFailure);
 
             $(popover).on('click', function () {
                 // close other context menus
@@ -501,10 +512,7 @@ window.update_taskbar_position = async function (new_position) {
         return;
     }
 
-    // Valid positions
-    const valid_positions = ['left', 'bottom', 'right'];
-
-    if ( ! valid_positions.includes(new_position) ) {
+    if ( ! TASKBAR_POSITIONS.includes(new_position) ) {
         return;
     }
 
@@ -538,17 +546,6 @@ window.update_taskbar_position = async function (new_position) {
     setTimeout(() => {
         window.adjust_taskbar_item_sizes();
     }, 10);
-
-    // adjust position if sidepanel is open
-    if ( window.taskbar_position === 'bottom' ) {
-        if ( $('.window[data-is_panel="1"][data-is_visible="1"]').length > 0 ) {
-            $('.taskbar.taskbar-position-bottom').css('left', `calc(50% - ${window.PANEL_WIDTH / 2}px)`);
-        } else if ( $('.window[data-is_panel="1"][data-is_visible="0"]').length > 0 ) {
-            $('.taskbar.taskbar-position-bottom').css('left', 'calc(50%)');
-        }
-    } else {
-
-    }
 
     // Reinitialize all taskbar item tooltips with new position
     $('.taskbar-item').each(function () {

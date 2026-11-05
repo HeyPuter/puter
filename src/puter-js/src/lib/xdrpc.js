@@ -54,15 +54,17 @@ export class CallbackManager {
     /**
      * Registers `callback` and binds it to `source`, the only window whose
      * messages may invoke it later. A callback registered without a source
-     * can never be invoked from outside this document.
+     * can never be invoked from outside this document. A `once` callback is
+     * dropped after its first call; anything else lives as long as the page.
      *
      * @param {Function} callback
      * @param {Window} [source]
+     * @param {{ once?: boolean, origin?: string | null }} [options]
      * @returns {string}
      */
-    register_callback (callback, source) {
+    register_callback (callback, source, { once = false, origin } = {}) {
         const id = randomCallbackId();
-        this.callbacks.set(id, { callback, source });
+        this.callbacks.set(id, { callback, source, once, origin });
         return id;
     }
 
@@ -80,6 +82,8 @@ export class CallbackManager {
             // Only the window the callback was dehydrated for may invoke it,
             // otherwise a sibling frame could drive another app's callbacks.
             if ( ! entry || event.source !== entry.source ) return;
+            if ( entry.origin !== undefined && event.origin !== entry.origin ) return;
+            if ( entry.once ) this.callbacks.delete(data.id);
             entry.callback(...(Array.isArray(data.args) ? data.args : []));
         });
     }
@@ -92,16 +96,17 @@ export class CallbackManager {
  * so that they can be called when the RPC is invoked.
  */
 export class Dehydrator {
-    constructor ({ callbackManager, source }) {
+    constructor ({ callbackManager, source, origin }) {
         this.callbackManager = callbackManager;
         this.source = source;
+        this.origin = origin;
     }
     dehydrate (value) {
         return this.dehydrate_value_(value);
     }
     dehydrate_value_ (value) {
         if ( typeof value === 'function' ) {
-            const id = this.callbackManager.register_callback(value, this.source);
+            const id = this.callbackManager.register_callback(value, this.source, { origin: this.origin });
             return { $SCOPE, id };
         } else if ( Array.isArray(value) ) {
             return value.map(this.dehydrate_value_.bind(this));

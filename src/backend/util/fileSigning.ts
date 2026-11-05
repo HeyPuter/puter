@@ -17,16 +17,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
+import { lookup as lookupMime } from 'mime-types';
 import { HttpError } from '../core/http/HttpError.js';
 import type { FSEntry } from '../stores/fs/FSEntry.js';
+import { BoundedTtlMap } from './boundedTtlMap.js';
+import { secretsEqual } from './secureCompare.js';
 
 /**
- * HMAC-like file URL signing. The on-wire contract is fixed by existing
- * clients.
+ * File URL signing. A signed URL carries `uid`, `expires` and `signature`; that
+ * shape is fixed by existing clients.
  *
- * Signature scheme: `sha256(<uid>/<action>/<secret>/<expires>)`. A `write`
- * signature is treated as a superset (it also satisfies `read`).
+ * Signatures are an HMAC over uid, action, expiry and the entry's owner when
+ * signed, and verify only while the entry still has that owner. Signatures
+ * issued before owner binding, `sha256(<uid>/<action>/<secret>/<expires>)`,
+ * still verify without the owner check by default — `allowLegacySignatures`
+ * (config `legacy_file_signatures`) turns that off. Both formats are hex in the
+ * same param, so the verifier tries each. A `write` signature also satisfies
+ * `read`.
  */
 
 export type SignAction = 'read' | 'write';
@@ -34,6 +42,8 @@ export type SignAction = 'read' | 'write';
 export interface SigningConfig {
     secret: string;
     apiBaseUrl: string;
+    /** Accept the pre-owner-binding signature format. Default true. */
+    allowLegacySignatures?: boolean;
 }
 
 export interface SignedFile {
@@ -57,7 +67,7 @@ function sha256(input: string): string {
     return createHash('sha256').update(input).digest('hex');
 }
 
-function computeSignature(
+function computeLegacySignature(
     uid: string,
     action: SignAction,
     secret: string,
@@ -66,30 +76,55 @@ function computeSignature(
     return sha256(`${uid}/${action}/${secret}/${expires}`);
 }
 
+// Derived keys by secret; deployments sign with one secret, rarely a few.
+const purposeKeys = new BoundedTtlMap<string, Buffer>({ maxEntries: 8 });
+
 /**
- * Constant-time equality for the hex signature strings. A plain `===`
- * short-circuits on the first differing character, leaking a byte-by-byte
- * timing oracle on the one value an attacker controls and submits repeatedly.
- * Length mismatch (or non-hex input) returns false without a timing-variable
- * compare.
+ * Purpose-labelled key, so no other token signed with the platform secret can
+ * be replayed as a file signature.
+ */
+function purposeKey(secret: string): Buffer {
+    let key = purposeKeys.get(secret);
+    if (!key) {
+        key = createHmac('sha256', secret)
+            .update('puter-fs:signed-url')
+            .digest();
+        purposeKeys.set(secret, key);
+    }
+    return key;
+}
+
+function computeOwnerBoundSignature(
+    uid: string,
+    action: SignAction,
+    ownerUserId: number,
+    secret: string,
+    expires: number,
+): string {
+    return createHmac('sha256', purposeKey(secret))
+        .update(`${uid}/${action}/${ownerUserId}/${expires}`)
+        .digest('hex');
+}
+
+/**
+ * Constant-time equality for the hex signature strings; compares the decoded
+ * bytes, so hex case doesn't matter.
  */
 function signaturesEqual(provided: string, expected: string): boolean {
     if (provided.length !== expected.length) return false;
-    const a = Buffer.from(provided, 'hex');
-    const b = Buffer.from(expected, 'hex');
-    // Malformed hex yields a shorter buffer than the hex length implies;
-    // timingSafeEqual requires equal lengths, so guard before comparing.
-    if (a.length !== b.length) return false;
-    return timingSafeEqual(a, b);
+    return secretsEqual(
+        Buffer.from(provided, 'hex'),
+        Buffer.from(expected, 'hex'),
+    );
 }
 
 /**
  * Lifetime for a signature over an entry the signer doesn't own.
  *
- * `verifySignature` checks the signature and expiry, never the ACL, so a URL
- * handed to a recipient keeps working after their access is revoked. This is
- * what bounds that window; the durable fix is a per-entry signature epoch the
- * owner can bump.
+ * `verifySignature` checks the signature, expiry and owner, never the ACL, so a
+ * URL handed to a recipient keeps working after their access is revoked. This
+ * is what bounds that window; the durable fix is a per-entry signature epoch
+ * the owner can bump.
  */
 export const NON_OWNER_SIGNATURE_TTL_SECONDS = 60 * 60;
 
@@ -106,15 +141,17 @@ export function signFile(
 ): SignedFile {
     const ttl = options.ttlSeconds ?? 9_999_999_999_999;
     const expires = Math.ceil(Date.now() / 1000) + ttl;
-    const signature = computeSignature(
+    const signature = computeOwnerBoundSignature(
         entry.uuid,
         'read',
+        entry.userId,
         config.secret,
         expires,
     );
-    const writeSignature = computeSignature(
+    const writeSignature = computeOwnerBoundSignature(
         entry.uuid,
         'write',
+        entry.userId,
         config.secret,
         expires,
     );
@@ -141,16 +178,21 @@ export function signFile(
     };
 }
 
+export interface SignedQuery {
+    uid?: string;
+    expires?: string | number;
+    signature?: string;
+}
+
 /**
- * Verify a request's URL signature for a given action. A valid `write`
- * signature also authorises `read`. Throws HttpError(403) on mismatch, expired
- * signatures, or missing params.
+ * Read the signed params off a request and reject missing or expired ones.
+ * Needs no lookup, so callers can run it before resolving the entry.
  */
-export function verifySignature(
-    query: { uid?: string; expires?: string | number; signature?: string },
-    action: SignAction,
-    config: SigningConfig,
-): void {
+export function parseSignedQuery(query: SignedQuery): {
+    uid: string;
+    expires: number;
+    signature: string;
+} {
     const uid = typeof query.uid === 'string' ? query.uid : '';
     const signature =
         typeof query.signature === 'string' ? query.signature : '';
@@ -177,22 +219,73 @@ export function verifySignature(
             legacyCode: 'forbidden',
         });
     }
+    return { uid, expires, signature };
+}
 
-    // Write signature satisfies any action.
-    if (
-        signaturesEqual(
-            signature,
-            computeSignature(uid, 'write', config.secret, expires),
-        )
-    )
+/**
+ * Legacy (pre-owner-binding) signatures have no expiry on being phased out, so
+ * operators need a way to see usage trend toward zero. Logs at most once per
+ * `LEGACY_SIGNATURE_WARN_INTERVAL_MS`, with the count of hits since the last
+ * log — never the uid or signature itself.
+ */
+const LEGACY_SIGNATURE_WARN_INTERVAL_MS = 5 * 60 * 1000;
+let legacySignatureHits = 0;
+let legacySignatureWindowStart = 0;
+
+function noteLegacySignatureAccepted(): void {
+    legacySignatureHits++;
+    const now = Date.now();
+    if (now - legacySignatureWindowStart < LEGACY_SIGNATURE_WARN_INTERVAL_MS)
         return;
-    if (
-        signaturesEqual(
-            signature,
-            computeSignature(uid, action, config.secret, expires),
+    console.warn(
+        `[fileSigning] accepted ${legacySignatureHits} request(s) authorized by a pre-owner-binding (legacy) file signature`,
+    );
+    legacySignatureHits = 0;
+    legacySignatureWindowStart = now;
+}
+
+/**
+ * Verify a request's URL signature for a given action. A valid `write`
+ * signature also authorises `read`. `ownerUserId` is the entry's current owner,
+ * or null when it doesn't exist; then only a pre-binding signature can pass.
+ * Throws HttpError(403) on mismatch, expired signatures, or missing params.
+ */
+export function verifySignature(
+    query: SignedQuery,
+    action: SignAction,
+    config: SigningConfig,
+    ownerUserId: number | null,
+): void {
+    const { uid, expires, signature } = parseSignedQuery(query);
+    const actions: SignAction[] =
+        action === 'write' ? ['write'] : ['write', action];
+    const allowLegacy = config.allowLegacySignatures ?? true;
+    for (const candidate of actions) {
+        if (
+            ownerUserId !== null &&
+            signaturesEqual(
+                signature,
+                computeOwnerBoundSignature(
+                    uid,
+                    candidate,
+                    ownerUserId,
+                    config.secret,
+                    expires,
+                ),
+            )
         )
-    )
-        return;
+            return;
+        if (
+            allowLegacy &&
+            signaturesEqual(
+                signature,
+                computeLegacySignature(uid, candidate, config.secret, expires),
+            )
+        ) {
+            noteLegacySignatureAccepted();
+            return;
+        }
+    }
 
     throw new HttpError(403, 'Authentication failed', {
         legacyCode: 'forbidden',
@@ -205,59 +298,29 @@ export function verifySignature(
  * to `read` without triggering error propagation.
  */
 export function isSignatureValid(
-    query: { uid?: string; expires?: string | number; signature?: string },
+    query: SignedQuery,
     action: SignAction,
     config: SigningConfig,
+    ownerUserId: number | null,
 ): boolean {
     try {
-        verifySignature(query, action, config);
+        verifySignature(query, action, config, ownerUserId);
         return true;
     } catch {
         return false;
     }
 }
 
-// Minimal MIME type inference from file extension. Uses a small inline map
-// to avoid pulling in `mime-types`. Callers that need complete coverage
-// should import `mime-types` directly.
-const MIME_BY_EXT: Record<string, string> = {
-    txt: 'text/plain',
-    html: 'text/html',
-    htm: 'text/html',
-    css: 'text/css',
-    js: 'application/javascript',
-    mjs: 'application/javascript',
-    json: 'application/json',
-    xml: 'application/xml',
-    pdf: 'application/pdf',
-    zip: 'application/zip',
-    gz: 'application/gzip',
-    tar: 'application/x-tar',
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    gif: 'image/gif',
-    webp: 'image/webp',
-    svg: 'image/svg+xml',
+// Where mime-types' preferred type differs from what this has always reported.
+const MIME_OVERRIDES: Record<string, string> = {
     ico: 'image/x-icon',
-    bmp: 'image/bmp',
-    tiff: 'image/tiff',
-    tif: 'image/tiff',
-    mp3: 'audio/mpeg',
     wav: 'audio/wav',
-    ogg: 'audio/ogg',
-    m4a: 'audio/mp4',
-    mp4: 'video/mp4',
-    webm: 'video/webm',
-    mov: 'video/quicktime',
-    md: 'text/markdown',
-    markdown: 'text/markdown',
-    csv: 'text/csv',
 };
 
+/** MIME type for a file name by its extension, or null when unknown. */
 export function mimeFromName(name: string): string | null {
     const dot = name.lastIndexOf('.');
     if (dot <= 0) return null;
     const ext = name.slice(dot + 1).toLowerCase();
-    return MIME_BY_EXT[ext] ?? null;
+    return MIME_OVERRIDES[ext] ?? (lookupMime(ext) || null);
 }

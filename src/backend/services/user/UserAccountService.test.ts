@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { installSeatStub } from '../../testFixtures/seatStub.js';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { setupTestServer } from '../../testUtil.ts';
@@ -184,6 +185,219 @@ describe('UserAccountService', () => {
                 [user.id],
             )) as Array<{ n: number }>;
             expect(Number(sessions[0].n)).toBe(0);
+        });
+
+        it('clears the flat entries for grants the account issued', async () => {
+            const issuer = await seedUser();
+            const holder = await seedUser();
+            const permission = `zztest:del-${uuidv4()}:ii:read`;
+
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                permission,
+                {},
+            );
+            await server.stores.permission.setFlatUserPerm(
+                holder.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                },
+            );
+            expect(
+                (
+                    await server.stores.permission.getFlatUserPerms(holder.id, [
+                        permission,
+                    ])
+                )[0]?.permission,
+            ).toBe(permission);
+
+            await server.services.userAccount.cascadeDelete(issuer.id);
+
+            // The SQL row cascades; without the purge the flat entry would
+            // keep answering for an issuer nobody can ask about any more.
+            const [flat] = await server.stores.permission.getFlatUserPerms(
+                holder.id,
+                [permission],
+            );
+            expect(flat?.permission).toBeUndefined();
+        });
+
+        it('clears the flat entries for grants the account held', async () => {
+            const holder = await seedUser();
+            const issuer = await seedUser();
+            const otherHolder = await seedUser();
+            const permissions = [
+                `zztest:held-${uuidv4()}:a:read`,
+                `zztest:held-${uuidv4()}:b:write`,
+            ];
+            const value = (permission: string) => ({
+                permission,
+                deleted: false,
+                issuer_user_id: issuer.id,
+            });
+            for (const permission of permissions)
+                await server.stores.permission.setFlatUserPerm(
+                    holder.id,
+                    permission,
+                    value(permission),
+                );
+            await server.stores.permission.setFlatUserPerm(
+                otherHolder.id,
+                permissions[0],
+                value(permissions[0]),
+            );
+
+            await server.services.userAccount.cascadeDelete(holder.id);
+
+            expect(
+                await server.stores.permission.getFlatUserPerms(
+                    holder.id,
+                    permissions,
+                ),
+            ).toEqual([]);
+            expect(
+                await server.stores.permission.getFlatUserPerms(
+                    otherHolder.id,
+                    [permissions[0]],
+                ),
+            ).toHaveLength(1);
+        });
+
+        it('deletes the account’s sites, announcing each one', async () => {
+            const user = await seedUser();
+            const slug = Math.random().toString(36).slice(2, 10);
+            const site = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `ua-site-${slug}`,
+            });
+            const worker = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `workers.puter.ua-worker-${slug}`,
+            });
+            // Warm the lookup cache so a row surviving there would show up.
+            expect(
+                (await server.stores.subdomain.getBySubdomain(site.subdomain))
+                    ?.uuid,
+            ).toBe(site.uuid);
+
+            const emitSpy = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await server.services.userAccount.cascadeDelete(user.id);
+
+                const emitted = emitSpy.mock.calls.map(([key, data]) => ({
+                    key,
+                    data,
+                }));
+                const deletes = emitted.filter(
+                    (e) => e.key === 'subdomain.delete',
+                );
+                expect(deletes.map((e) => e.data)).toEqual(
+                    expect.arrayContaining([
+                        {
+                            subdomain: site.subdomain,
+                            uid: site.uuid,
+                            userId: user.id,
+                        },
+                        {
+                            subdomain: worker.subdomain,
+                            uid: worker.uuid,
+                            userId: user.id,
+                        },
+                    ]),
+                );
+                // Listeners keyed on the user still see the sites go first.
+                const userDeleteAt = emitted.findIndex(
+                    (e) => e.key === 'user.delete',
+                );
+                expect(userDeleteAt).toBeGreaterThan(
+                    emitted.lastIndexOf(deletes[deletes.length - 1]!),
+                );
+            } finally {
+                emitSpy.mockRestore();
+            }
+
+            expect(
+                await server.stores.subdomain.getBySubdomain(site.subdomain),
+            ).toBeNull();
+        });
+
+        it("drops the cached sites that go with the account's apps", async () => {
+            const developer = await seedUser();
+            const siteOwner = await seedUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `ua-app-${uuidv4()}`,
+                    title: 'Hosting',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: developer.id },
+            );
+            const site = await server.stores.subdomain.create({
+                userId: siteOwner.id,
+                subdomain: `ua-app-site-${Math.random().toString(36).slice(2, 10)}`,
+                appOwner: app.id,
+            });
+
+            const cacheKey = `subdomains:name:${site.subdomain}`;
+            expect(await server.clients.redis.get(cacheKey)).not.toBeNull();
+
+            await server.services.userAccount.cascadeDelete(developer.id);
+
+            // SQLite keeps the app and its site (MySQL and Postgres cascade
+            // both); either way the cached copy has to go.
+            expect(await server.clients.redis.get(cacheKey)).toBeNull();
+        });
+
+        it('finishes when dropping the seat caches fails', async () => {
+            const user = await seedUser();
+            installSeatStub(server as never, [user.id]);
+            const capture = vi
+                .spyOn(server.services.team as never, 'captureSeatForBilling')
+                .mockResolvedValue({
+                    team_uid: `team-${uuidv4()}`,
+                    owner_user_id: 1,
+                    user_id: user.id,
+                    user_uuid: user.uuid,
+                    username: user.username,
+                });
+            const lookup = vi
+                .spyOn(server.stores.team as never, 'getByUid')
+                .mockRejectedValue(new Error('store down'));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                await expect(
+                    server.services.userAccount.cascadeDelete(user.id),
+                ).resolves.toBeUndefined();
+            } finally {
+                capture.mockRestore();
+                lookup.mockRestore();
+                warn.mockRestore();
+            }
+            expect(await server.stores.user.getById(user.id)).toBeNull();
+        });
+
+        it("records the account's apps as deleted", async () => {
+            const user = await seedUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `ua-app-${uuidv4()}`,
+                    title: 'Owned',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+
+            await server.services.userAccount.cascadeDelete(user.id);
+
+            expect(
+                (await server.stores.app.getDeletedOwnersByUids([app.uid])).get(
+                    app.uid,
+                ),
+            ).toBe(user.id);
         });
 
         it('frees the address for a new account', async () => {

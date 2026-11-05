@@ -29,6 +29,7 @@ import en from './en.js';
 import es from './es.js';
 import fa from './fa.js';
 import fi from './fi.js';
+import fil from './fil.js';
 import fr from './fr.js';
 import he from './he.js';
 import hi from './hi.js';
@@ -72,6 +73,7 @@ export default {
     es,
     fa,
     fi,
+    fil,
     fr,
     he,
     hi,

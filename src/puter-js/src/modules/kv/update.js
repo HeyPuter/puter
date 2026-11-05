@@ -7,12 +7,12 @@ import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 /** @typedef {import('./types.js').KVUpdatePath} KVUpdatePath */
 /** @typedef {import('./types.js').KVValue} KVValue */
 
-const updateDriverCall = (puter, args) =>
+const updateDriverCall = (/** @type {import('./index.js').KVModule} */ kv, args) =>
     utils.makeDriverMethod({
         iface: 'puter-kvstore',
         method: 'update',
         argNames: ['key', 'pathAndValueMap', 'ttl'],
-        puter,
+        puter: kv.puter,
         preprocess: (driverArgs) => {
             assertKeyPresent(driverArgs.key);
             assertKeySize(driverArgs.key);
@@ -32,6 +32,7 @@ const updateDriverCall = (puter, args) =>
                 }
                 driverArgs.ttl = ttl;
             }
+            kv.guiCache.invalidate(driverArgs.key);
             return driverArgs;
         },
     })(args);
@@ -71,10 +72,8 @@ const updateDriverCall = (puter, args) =>
  * @returns {Promise<KVValue>}
  */
 export async function update (keyOrObject, pathAndValueMap, ...rest) {
-    const { puter } = this;
-
     if ( isObject(keyOrObject) && pathAndValueMap === undefined && rest.length === 0 ) {
-        return await updateDriverCall(puter, keyOrObject);
+        return await updateDriverCall(this, keyOrObject);
     }
 
     let ttl;
@@ -84,5 +83,5 @@ export async function update (keyOrObject, pathAndValueMap, ...rest) {
         ttl = rest.shift();
     }
     const { optConfig, success, error } = parseTrailingArgs(rest);
-    return await updateDriverCall(puter, { key: keyOrObject, pathAndValueMap, ttl, optConfig, success, error });
+    return await updateDriverCall(this, { key: keyOrObject, pathAndValueMap, ttl, optConfig, success, error });
 }

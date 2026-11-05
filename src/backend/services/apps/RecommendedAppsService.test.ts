@@ -1,14 +1,25 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { extension, extensionStore } from '../../extensions.js';
 import type { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { RECOMMENDED_APP_NAMES } from './RecommendedAppsService.js';
 
 describe('RecommendedAppsService', () => {
     let server: PuterServer;
     let customApp: Record<string, unknown>;
     let defaults: Array<Record<string, unknown>>;
     const previousListeners = extensionStore.events['app.recommended'];
+    // From the list itself, so editing it cannot strand this test.
+    const [first, second] = RECOMMENDED_APP_NAMES;
 
     beforeAll(async () => {
         server = await setupTestServer();
@@ -20,7 +31,7 @@ describe('RecommendedAppsService', () => {
             free_storage: 1024,
             requires_email_confirmation: false,
         });
-        for (const name of ['editor', 'camera', 'custom-recommendation']) {
+        for (const name of [first, second, 'custom-recommendation']) {
             if (!(await server.stores.app.getByName(name))) {
                 await server.stores.app.create(
                     {
@@ -52,8 +63,8 @@ describe('RecommendedAppsService', () => {
         const apps = await server.services.recommendedApps.getRecommendedApps();
         expect(apps).toEqual(defaults);
         const names = apps.map((app) => app.name);
-        expect(names).toContain('editor');
-        expect(names.indexOf('editor')).toBeLessThan(names.indexOf('camera'));
+        expect(names).toContain(first);
+        expect(names.indexOf(first)).toBeLessThan(names.indexOf(second));
         expect(names).not.toContain(customApp.name);
     });
 
@@ -61,18 +72,18 @@ describe('RecommendedAppsService', () => {
         extension.on('app.recommended', async (_key, data) => {
             await new Promise((resolve) => setTimeout(resolve, 0));
             data.appNames = [
-                'camera',
+                second,
                 'custom-recommendation',
                 'missing-recommendation',
-                'editor',
+                first,
             ];
         });
 
         const apps = await server.services.recommendedApps.getRecommendedApps();
         expect(apps.map((app) => app.name)).toEqual([
-            'camera',
+            second,
             'custom-recommendation',
-            'editor',
+            first,
         ]);
         expect(apps[1]).toMatchObject({
             uuid: customApp.uid,
@@ -112,5 +123,18 @@ describe('RecommendedAppsService', () => {
         expect(
             await server.services.recommendedApps.getRecommendedApps(),
         ).toEqual([]);
+    });
+
+    it('resolves the whole list with one batched name lookup', async () => {
+        const getByName = vi.spyOn(server.stores.app, 'getByName');
+        const getByNames = vi.spyOn(server.stores.app, 'getByNames');
+        try {
+            await server.services.recommendedApps.getRecommendedApps();
+            expect(getByName).not.toHaveBeenCalled();
+            expect(getByNames).toHaveBeenCalledTimes(1);
+        } finally {
+            getByName.mockRestore();
+            getByNames.mockRestore();
+        }
     });
 });

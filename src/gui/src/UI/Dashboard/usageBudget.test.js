@@ -1,5 +1,24 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 import { describe, expect, it } from 'vitest';
-import { usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 
 const info = (allowance, addons = {}) => ({
     monthUsageAllowance: allowance,
@@ -18,23 +37,9 @@ describe('usageBudget', () => {
         expect(budget.percent).toBe(6);
     });
 
-    it('keeps the capacity at the plan when top-up credit exists', () => {
-        // $12.00 of a $95.00 allowance spent, $5.00 top-up untouched: the
-        // credit reads as headroom against the plan, never as more plan.
-        const budget = usageBudget(
-            { total: 1_200_000_000, allowanceUsed: 1_200_000_000 },
-            info(9_500_000_000, {
-                purchasedCredits: 500_000_000,
-                consumedPurchaseCredits: 0,
-            }),
-        );
-        expect(budget.capacity).toBe(9_500_000_000);
-        expect(budget.used).toBe(700_000_000);
-        expect(budget.percent).toBe(7);
-    });
-
-    it('goes negative when unspent top-up exceeds the spend', () => {
-        // $0.50 spent, $10.00 credit untouched, $9.00 allowance.
+    it('leaves add-on credit out of the monthly meter', () => {
+        // $0.50 of a $9.00 allowance spent, $10.00 add-on untouched: the
+        // plan meter reads the plan alone and never goes negative.
         const budget = usageBudget(
             { total: 50_000_000, allowanceUsed: 50_000_000 },
             info(900_000_000, {
@@ -42,14 +47,12 @@ describe('usageBudget', () => {
                 consumedPurchaseCredits: 0,
             }),
         );
-        expect(budget.used).toBe(-950_000_000);
-        expect(budget.percent).toBe(-106);
-        expect(budget.barPercent).toBe(0);
+        expect(budget.capacity).toBe(900_000_000);
+        expect(budget.used).toBe(50_000_000);
+        expect(budget.percent).toBe(6);
     });
 
-    it('ignores credit already consumed — only what is left offsets usage', () => {
-        // Allowance exhausted, $200 of top-up bought and fully spent: the
-        // month reads as full, not as 200 dollars into the negatives.
+    it('reads a full plan once the allowance is spent and add-on credit pays', () => {
         const budget = usageBudget(
             { total: 29_500_000_000, allowanceUsed: 9_500_000_000 },
             info(9_500_000_000, {
@@ -98,6 +101,11 @@ describe('usageBudget', () => {
         expect(budget.barPercent).toBe(100);
     });
 
+    it('reads 99% rather than 100% while some allowance is left', () => {
+        expect(usageBudget({ total: 996 }, info(1000)).percent).toBe(99);
+        expect(usageBudget({ total: 1000 }, info(1000)).percent).toBe(100);
+    });
+
     it('answers zero for an account with no budget at all', () => {
         const budget = usageBudget({ total: 0 }, info(0));
         expect(budget).toMatchObject({ capacity: 0, used: 0, percent: 0 });
@@ -108,5 +116,66 @@ describe('usageBudget', () => {
         expect(usageBudget(null, info(NaN)).capacity).toBe(0);
         expect(usageBudget({ total: NaN }, info(100)).capacity).toBe(100);
         expect(usageBudget({ total: NaN }, info(100)).percent).toBe(0);
+    });
+});
+
+describe('addonCreditsRemaining', () => {
+    it('is null for an account that never had add-on credit', () => {
+        expect(addonCreditsRemaining(info(900_000_000))).toBeNull();
+        expect(addonCreditsRemaining(info(900_000_000, { purchasedCredits: 0 }))).toBeNull();
+        expect(addonCreditsRemaining(undefined)).toBeNull();
+    });
+
+    it('reports what is left of the pool', () => {
+        expect(addonCreditsRemaining(info(900_000_000, {
+            purchasedCredits: 2_500,
+            consumedPurchaseCredits: 850,
+        }))).toBe(1_650);
+    });
+
+    it('reads zero, not null or negative, once the pool is spent', () => {
+        expect(addonCreditsRemaining(info(0, {
+            purchasedCredits: 1_000,
+            consumedPurchaseCredits: 1_200,
+        }))).toBe(0);
+    });
+
+    it('treats a missing or bad consumed value as nothing spent', () => {
+        expect(addonCreditsRemaining(info(0, {
+            purchasedCredits: 1_000,
+            consumedPurchaseCredits: NaN,
+        }))).toBe(1_000);
+    });
+});
+
+describe('monthlyUsageOrThrow', () => {
+    it('passes a usage report through', () => {
+        const res = { usage: { total: 0 }, allowanceInfo: null };
+        expect(monthlyUsageOrThrow(res)).toBe(res);
+    });
+
+    it('throws on an error body instead of reading it as zero usage', () => {
+        expect(() => monthlyUsageOrThrow({ message: 'boom' })).toThrow('boom');
+        expect(() => monthlyUsageOrThrow({ usage: null })).toThrow();
+        expect(() => monthlyUsageOrThrow(null)).toThrow();
+        expect(() => monthlyUsageOrThrow(undefined)).toThrow();
+    });
+});
+
+describe('meterPercent', () => {
+    it('holds at 99% until the meter is full', () => {
+        expect(meterPercent(99.5)).toBe(99);
+        expect(meterPercent(99.99)).toBe(99);
+        expect(meterPercent(100)).toBe(100);
+    });
+
+    it('rounds anything below that', () => {
+        expect(meterPercent(0)).toBe(0);
+        expect(meterPercent(42.5)).toBe(43);
+        expect(meterPercent(98.4)).toBe(98);
+    });
+
+    it('reports an overspent meter as it is', () => {
+        expect(meterPercent(130.2)).toBe(130);
     });
 });

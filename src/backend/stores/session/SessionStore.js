@@ -20,6 +20,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
+import { awaitLater } from '../../util/concurrency.js';
 import {
     isMissingParentViolation,
     isUniqueViolation,
@@ -37,14 +38,17 @@ import { PuterStore } from '../types';
 const CACHE_KEY_PREFIX = 'sessions:v2';
 const CACHE_TTL_SECONDS = 15 * 60;
 // Min interval between successive activity flushes per session/user.
-// In-memory throttle keeps DB writes bounded; multi-node duplicates
-// are harmless because the SQL guard `last_activity < ?` makes the
-// UPDATE idempotent.
+// The in-memory throttle is per process; a Redis `SET NX` gate behind it
+// keeps the other nodes from writing the same rows in the same window.
 const TOUCH_THROTTLE_MS = 60 * 1000;
+const TOUCH_GATE_TTL_SECONDS = TOUCH_THROTTLE_MS / 1000;
+const TOUCH_GATE_PREFIX = 'sessions:touch';
 // Hard cap to keep the throttle map from growing unbounded for
 // long-lived processes. Clearing only loses throttling — at worst a
 // brief burst of redundant UPDATEs.
 const TOUCH_THROTTLE_MAX_ENTRIES = 10000;
+// Roots per batched revoke statement; each is bound twice.
+const REVOKE_CHUNK_SIZE = 500;
 
 // Per-kind sliding-expiry windows. The `touch` path bumps `expires_at`
 // to `now + window` for the session's kind on activity, so an active
@@ -56,6 +60,14 @@ export const APP_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite);
 
 export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
+// A godmode app's token lapses at most this long after the desktop last asked
+// for it, so a closed desktop's tokens die on their own. A token past the max
+// age is never renewed again; the next ask replaces it and revokes the old one.
+export const GODMODE_TOKEN_WINDOW_SECONDS = 12 * 60 * 60; // 12h
+export const GODMODE_TOKEN_MAX_AGE_SECONDS = 7 * 24 * 60 * 60; // 7d
+// A renewal that would move a godmode token's expiry by less than this is
+// skipped, so repeat launches don't each write the row.
+const GODMODE_TOKEN_RENEW_STEP_SECONDS = 60 * 60; // 1h
 
 const sqlTimestamp = (ms) =>
     new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
@@ -66,7 +78,18 @@ const nowSeconds = () => Math.floor(Date.now() / 1000);
 const isExpired = (row, now = nowSeconds()) =>
     row?.expires_at != null && row.expires_at <= now;
 
+/**
+ * True when a row was created before `notBefore` (unix seconds): an app or
+ * worker row minted for an earlier app that held the same uid.
+ */
+const predates = (row, notBefore) =>
+    notBefore != null &&
+    Number(row?.created_at) > 0 &&
+    Number(row.created_at) < notBefore;
+
 export class SessionStore extends PuterStore {
+    /** Worker lookups under way, so a burst of first calls inserts once. */
+    #workerLookups = new Map();
     #lastSessionTouchMs = new Map();
     #lastUserTouchMs = new Map();
 
@@ -90,26 +113,41 @@ export class SessionStore extends PuterStore {
         const cached = await this.#readCache(uuid);
         if (cached) return cached;
 
-        const rows = await this.clients.db.read(
+        // Revoked moments ago: a replica may still show the row live.
+        const key = this.#cacheKey(uuid);
+        const revokedRecently = await this.isCacheKeyTombstoned([key]);
+        const rows = await this.clients.db[revokedRecently ? 'pread' : 'read'](
             'SELECT * FROM `sessions` WHERE `uuid` = ? LIMIT 1',
             [uuid],
         );
         const normalized = this.#normalizeRow(rows[0]);
         if (!normalized) return null;
 
-        this.#writeCache(normalized).catch(() => {});
+        if (revokedRecently) {
+            void this.#writeCache(normalized);
+        } else {
+            void this.writeCacheUnlessDeleted([key], () =>
+                this.#writeCache(normalized),
+            );
+        }
         return normalized;
     }
 
     /**
      * Get sessions for a user. By default returns only active rows; pass `{
-     * includeRevoked: true }` to include soft-revoked rows.
+     * includeRevoked: true }` to include soft-revoked rows. Revoke paths pass
+     * `{ primary: true }` so a session created moments ago isn't missed.
      */
-    async getByUserId(userId, { includeRevoked = false } = {}) {
+    async getByUserId(
+        userId,
+        { includeRevoked = false, primary = false } = {},
+    ) {
         const sql = includeRevoked
             ? 'SELECT * FROM `sessions` WHERE `user_id` = ?'
             : 'SELECT * FROM `sessions` WHERE `user_id` = ? AND `revoked_at` IS NULL';
-        const rows = await this.clients.db.read(sql, [userId]);
+        const rows = await this.clients.db[primary ? 'pread' : 'read'](sql, [
+            userId,
+        ]);
         return rows.map((r) => this.#normalizeRow(r)).filter(Boolean);
     }
 
@@ -166,9 +204,9 @@ export class SessionStore extends PuterStore {
      *   row-level expiry (used for `access_token` rows whose JWT `exp` is the
      *   truth). Sliding kinds (web/app/asset) get this populated by the caller
      *   per the lifetime table; `touch()` then slides it.
-     * @param opts.app_uid - App UID this row authorizes. Only set for
-     *   `kind='app'`; participates in the (user_id, app_uid) idempotency
-     *   index.
+     * @param opts.app_uid - App UID this row authorizes, for `kind='app'`
+     *   (where it participates in the (user_id, app_uid) idempotency index), or
+     *   the godmode app an `access_token` row was minted for.
      * @param opts.legacy_token_uid - V1 token_uid this row backfills. Only set
      *   for `created_via='legacy_backfill'`.
      * @param opts.access_token_uid - For `kind='access_token'` v2 rows: the
@@ -181,7 +219,10 @@ export class SessionStore extends PuterStore {
      * @returns The created session row.
      */
     async create(userId, opts = {}) {
-        return this.#insertSession(userId, opts, { ignoreConflict: false });
+        const { row } = await this.#insertSession(userId, opts, {
+            ignoreConflict: false,
+        });
+        return row;
     }
 
     /**
@@ -189,7 +230,8 @@ export class SessionStore extends PuterStore {
      * `getOrCreate*` paths. With `ignoreConflict: true`, only a duplicate- key
      * error from the partial unique indexes is swallowed (concurrent caller won
      * the race); every other failure — CHECK, NOT NULL, FK, type — throws. The
-     * caller then re-SELECTs to find the winning row.
+     * caller then re-SELECTs to find the winning row. `inserted` is false only
+     * for that swallowed duplicate.
      */
     async #insertSession(
         userId,
@@ -211,6 +253,7 @@ export class SessionStore extends PuterStore {
     ) {
         const uuid = uuidv4();
         const now = nowSeconds();
+        let inserted = true;
 
         meta.created = new Date().toISOString();
         meta.created_unix = now;
@@ -260,6 +303,7 @@ export class SessionStore extends PuterStore {
             // `row` object below is a placeholder for the caller's
             // `winner ?? created` fallback shape and is never cached on
             // the ignoreConflict path.
+            inserted = false;
         }
 
         const row = {
@@ -291,7 +335,7 @@ export class SessionStore extends PuterStore {
             this.#writeCache(row).catch(() => {});
         }
 
-        return row;
+        return { row, inserted };
     }
 
     /**
@@ -314,7 +358,7 @@ export class SessionStore extends PuterStore {
             // Invalidate every cached view onto the row so the next read
             // (manage-sessions reload, /whoami, etc.) sees the new label.
             const rows = await this.clients.db.read(
-                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
+                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? LIMIT 1',
                 [uuid],
             );
             if (rows[0]) {
@@ -352,7 +396,7 @@ export class SessionStore extends PuterStore {
         // replica miss here would return early and silently skip the
         // revoke. Revokes are rare, so the primary read is cheap.
         const rows = await this.clients.db.pread(
-            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
+            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE `uuid` = ? AND `revoked_at` IS NULL LIMIT 1',
             [uuid],
         );
         if (rows.length === 0) return;
@@ -373,7 +417,57 @@ export class SessionStore extends PuterStore {
             'UPDATE `sessions` SET `revoked_at` = ? WHERE `uuid` = ? AND `revoked_at` IS NULL',
             [now, uuid],
         );
-        await this.publishCacheKeys({ keys, broadcast: true });
+        await this.#publishRevoked(rows);
+    }
+
+    /**
+     * Drop every cache key of rows that just ended. A plain DEL leaves the next
+     * miss to a replica that may still show a row live, cached for a full TTL,
+     * so the uuid keys are tombstoned here and on peers (misses read the
+     * primary).
+     */
+    async #dropEndedRowKeys(rows) {
+        const uuidKeys = new Set(rows.map((r) => this.#cacheKey(r.uuid)));
+        await this.tombstoneCacheKeys([...uuidKeys]);
+        await this.publishCacheKeys({
+            keys: rows
+                .flatMap((r) => this.#allCacheKeysForRow(r))
+                .filter((key) => !uuidKeys.has(key)),
+            broadcast: true,
+        });
+    }
+
+    /**
+     * Post-UPDATE half of the double-delete: tombstone the keys, then cache the
+     * revoked rows on this node.
+     */
+    async #publishRevoked(rows) {
+        await this.#dropEndedRowKeys(rows);
+
+        try {
+            const placeholders = rows.map(() => '?').join(', ');
+            const revoked = (
+                await this.clients.db.pread(
+                    `SELECT * FROM \`sessions\` WHERE \`uuid\` IN (${placeholders})`,
+                    rows.map((r) => r.uuid),
+                )
+            )
+                .map((r) => this.#normalizeRow(r))
+                .filter((r) => r?.revoked_at != null);
+            if (revoked.length === 0) return;
+            const pipeline = this.clients.redis.pipeline();
+            for (const row of revoked) {
+                pipeline.set(
+                    this.#cacheKey(row.uuid),
+                    JSON.stringify(row),
+                    'EX',
+                    CACHE_TTL_SECONDS,
+                );
+            }
+            await pipeline.exec();
+        } catch {
+            // No entry is the safe miss; the tombstone sends it to the primary.
+        }
     }
 
     /**
@@ -388,34 +482,147 @@ export class SessionStore extends PuterStore {
      */
     async revokeCascade(rootUuid) {
         if (!rootUuid) return null;
+        return (await this.revokeCascades([rootUuid]))[0] ?? null;
+    }
 
-        // Read each affected row's identity columns up-front — every
-        // composite cache mapping (app, legacy-token, legacy-web) must
-        // be invalidated alongside the uuid key, otherwise a follow-up
-        // `getOrCreateApp` would short-circuit to the freshly-revoked row.
-        const rows = await this.clients.db.read(
-            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
-            [rootUuid, rootUuid],
+    /**
+     * `revokeCascade` over many roots, batched so revoking all of a user's
+     * sessions costs a few primary round trips rather than a few per session.
+     * Returns `{ userId, uuids }` for each user that had rows revoked.
+     *
+     * @param {string[]} rootUuids
+     */
+    async revokeCascades(rootUuids) {
+        const roots = [...new Set(rootUuids.filter(Boolean).map(String))];
+        const uuidsByUser = new Map();
+        for (let i = 0; i < roots.length; i += REVOKE_CHUNK_SIZE) {
+            const chunk = roots.slice(i, i + REVOKE_CHUNK_SIZE);
+            const placeholders = chunk.map(() => '?').join(', ');
+            const scope = `(\`uuid\` IN (${placeholders}) OR \`parent_session_id\` IN (${placeholders})) AND \`revoked_at\` IS NULL`;
+            const scopeParams = [...chunk, ...chunk];
+
+            // Read each affected row's identity columns up-front — every
+            // composite cache mapping (app, legacy-token, legacy-web) must
+            // be invalidated alongside the uuid key, otherwise a follow-up
+            // `getOrCreateApp` would short-circuit to the freshly-revoked row.
+            // Primary read: see `removeByUuid`.
+            const rows = await this.clients.db.pread(
+                'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `parent_session_id`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` ' +
+                    `FROM \`sessions\` WHERE ${scope}`,
+                scopeParams,
+            );
+            if (rows.length === 0) continue;
+
+            // Double-delete: see `removeByUuid` for rationale.
+            await this.publishCacheKeys({
+                keys: rows.flatMap((r) => this.#allCacheKeysForRow(r)),
+                broadcast: true,
+            });
+            await this.clients.db.write(
+                `UPDATE \`sessions\` SET \`revoked_at\` = ? WHERE ${scope}`,
+                [nowSeconds(), ...scopeParams],
+            );
+            await this.#publishRevoked(rows);
+
+            for (const r of rows) {
+                const userId = Number(r.user_id);
+                if (!uuidsByUser.has(userId)) uuidsByUser.set(userId, []);
+                uuidsByUser.get(userId).push(String(r.uuid));
+            }
+        }
+        return [...uuidsByUser].map(([userId, uuids]) => ({ userId, uuids }));
+    }
+
+    /**
+     * Hard-delete the worker sessions matching every given filter, plus the
+     * sessions derived from them via `parent_session_id`. A deleted worker
+     * never comes back, so there is no revoked row worth keeping.
+     *
+     * Returns each deleted row as `{ uuid, userId, accessTokenUid }` so the
+     * caller can announce the revocation and drop access-token grants.
+     *
+     * `exceptAppUid` keeps the session bound to that app (`null`: the
+     * user-scoped one), for a worker rebound to it.
+     *
+     * @param {{
+     *     workerName?: string;
+     *     userId?: number;
+     *     appUid?: string;
+     *     appUids?: string[];
+     *     exceptAppUid?: string | null;
+     * }} filter
+     */
+    async deleteWorkerSessions({
+        workerName,
+        userId,
+        appUid,
+        appUids,
+        exceptAppUid,
+    } = {}) {
+        const where = ["`kind` = 'worker'"];
+        const params = [];
+        if (workerName) {
+            const workerNameExpr = this.clients.db.jsonTextExtract('`meta`', [
+                'worker_name',
+            ]);
+            where.push(`${workerNameExpr} = ?`);
+            params.push(workerName);
+        }
+        if (userId) {
+            where.push('`user_id` = ?');
+            params.push(userId);
+        }
+        if (appUid) {
+            where.push('`app_uid` = ?');
+            params.push(appUid);
+        }
+        if (appUids !== undefined) {
+            if (appUids.length === 0) return [];
+            where.push(`\`app_uid\` IN (${appUids.map(() => '?').join(', ')})`);
+            params.push(...appUids);
+        }
+        if (exceptAppUid === null) where.push('`app_uid` IS NOT NULL');
+        else if (exceptAppUid !== undefined) {
+            where.push('(`app_uid` IS NULL OR `app_uid` <> ?)');
+            params.push(exceptAppUid);
+        }
+        // No filter would mean every worker session on the server.
+        if (params.length === 0) return [];
+
+        // Primary: a session minted moments ago must not survive a replica miss.
+        const roots = await this.clients.db.pread(
+            `SELECT \`uuid\` FROM \`sessions\` WHERE ${where.join(' AND ')}`,
+            params,
         );
-        if (rows.length === 0) return null;
+        if (roots.length === 0) return [];
+        const rootUuids = roots.map((r) => String(r.uuid));
+        const placeholders = rootUuids.map(() => '?').join(', ');
+        const scope = `\`uuid\` IN (${placeholders}) OR \`parent_session_id\` IN (${placeholders})`;
+        const scopeParams = [...rootUuids, ...rootUuids];
+
+        const rows = await this.clients.db.pread(
+            'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent`, `access_token_uid` ' +
+                `FROM \`sessions\` WHERE ${scope}`,
+            scopeParams,
+        );
 
         // Double-delete: see `removeByUuid` for rationale.
         const keys = [];
         for (const r of rows) keys.push(...this.#allCacheKeysForRow(r));
         await this.publishCacheKeys({ keys, broadcast: true });
-
-        const now = nowSeconds();
         await this.clients.db.write(
-            'UPDATE `sessions` SET `revoked_at` = ? WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
-            [now, rootUuid, rootUuid],
+            `DELETE FROM \`sessions\` WHERE ${scope}`,
+            scopeParams,
         );
+        await this.#dropEndedRowKeys(rows);
 
-        await this.publishCacheKeys({ keys, broadcast: true });
-
-        return {
-            userId: Number(rows[0].user_id),
-            uuids: rows.map((r) => String(r.uuid)),
-        };
+        return rows.map((r) => ({
+            uuid: String(r.uuid),
+            userId: Number(r.user_id),
+            accessTokenUid: r.access_token_uid
+                ? String(r.access_token_uid)
+                : null,
+        }));
     }
 
     /**
@@ -430,7 +637,7 @@ export class SessionStore extends PuterStore {
      */
     async accessTokenUidsForCascade(rootUuid) {
         if (!rootUuid) return [];
-        const rows = await this.clients.db.read(
+        const rows = await this.clients.db.pread(
             "SELECT `access_token_uid`, `legacy_token_uid` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `kind` = 'access_token' AND `revoked_at` IS NULL",
             [rootUuid, rootUuid],
         );
@@ -460,6 +667,86 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * The token row a godmode app runs on under one web session. A live row is
+     * reused and its `expires_at` moved to `expiresAt`, so the token stays the
+     * same across renewals; a move of under an hour is skipped and the row
+     * comes back with the expiry it has. A row that lapsed or is older than
+     * `maxAgeSeconds` is never extended: a fresh row is minted, and the old one
+     * comes back as `replaced` for the caller to revoke. Concurrent first
+     * launches can each insert a row; both stay valid.
+     *
+     * @param {number} userId - User row id.
+     * @param {{
+     *     parentSessionUid: string;
+     *     appUid: string;
+     *     expiresAt: number;
+     *     maxAgeSeconds: number;
+     *     label?: string;
+     *     auth_id?: string;
+     * }} opts
+     *   - `parentSessionUid` is the web session minting it; revoking that session
+     *       cascades here. `appUid` is the godmode app. `expiresAt` is the unix
+     *       seconds the row lives to unless renewed. `maxAgeSeconds` is the
+     *       oldest a row may be and still be renewed. `label` is shown in the
+     *       sessions list. `auth_id` is the stable per-user identity.
+     *
+     * @returns
+     */
+    async getOrCreateGodmodeToken(
+        userId,
+        { parentSessionUid, appUid, expiresAt, maxAgeSeconds, label, auth_id },
+    ) {
+        if (!userId || !parentSessionUid || !appUid) return null;
+
+        const now = nowSeconds();
+        const renewable = (row) =>
+            !!row &&
+            row.revoked_at == null &&
+            !isExpired(row, now) &&
+            Number(row.created_at) > now - maxAgeSeconds;
+
+        const pointerKey = this.#cacheKeyGodmode(
+            userId,
+            parentSessionUid,
+            appUid,
+        );
+        const cached = await this.#cachedGodmodeRow(pointerKey, {
+            userId,
+            parentSessionUid,
+            appUid,
+        });
+        if (renewable(cached)) {
+            const row = await this.#renewGodmodeRow(cached, expiresAt, now);
+            if (row) return { row, replaced: null };
+        }
+
+        const rows = await this.clients.db.pread(
+            "SELECT * FROM `sessions` WHERE `kind` = 'access_token' AND `user_id` = ? AND `parent_session_id` = ? AND `app_uid` = ? AND `revoked_at` IS NULL ORDER BY `id` DESC LIMIT 1",
+            [userId, parentSessionUid, appUid],
+        );
+        const found = this.#normalizeRow(rows[0]);
+        if (renewable(found)) {
+            const row = await this.#renewGodmodeRow(found, expiresAt, now);
+            if (row) {
+                await this.#writeGodmodePointer(pointerKey, row.uuid);
+                return { row, replaced: null };
+            }
+        }
+
+        const { row } = await this.#insertSession(userId, {
+            kind: 'access_token',
+            label,
+            parent_session_id: parentSessionUid,
+            expires_at: expiresAt,
+            app_uid: appUid,
+            access_token_uid: uuidv4(),
+            auth_id,
+        });
+        await this.#writeGodmodePointer(pointerKey, row.uuid);
+        return { row, replaced: found ?? null };
+    }
+
+    /**
      * Idempotent "give me the app session for this (user, app)" lookup. Returns
      * the existing active app session if one exists, or creates a new one.
      * Concurrent callers converge on a single row via the partial unique index
@@ -478,29 +765,43 @@ export class SessionStore extends PuterStore {
      *   first-time creation. Ignored when a row already exists.
      * @param opts.auth_id - Stable per-user identity (survives re-login);
      *   carried on every v2 JWT so manage-sessions can group by identity.
+     * @param opts.notBefore - Unix seconds. A live row created earlier belongs
+     *   to a previous app with this uid; it is revoked and replaced.
      */
     async getOrCreateApp(userId, appUid, opts = {}) {
         if (!userId || !appUid) return null;
 
         const cacheKey = this.#cacheKeyApp(userId, appUid);
         const now = nowSeconds();
+        const notBefore = opts.notBefore ?? null;
 
         const cached = await this.#readCacheKey(cacheKey);
-        if (cached && cached.revoked_at == null && !isExpired(cached, now)) {
+        const cachedLive =
+            cached && cached.revoked_at == null && !isExpired(cached, now);
+        if (cachedLive && !predates(cached, notBefore)) {
             return cached;
         }
 
-        const existing = await this.#selectAppRow(userId, appUid);
-        if (existing) {
-            await this.#writeCacheKey(cacheKey, existing);
-            this.#writeCache(existing).catch(() => {});
+        const selectRow = (opts) => this.#selectAppRow(userId, appUid, opts);
+        const { row: existing, primary: onlyOnPrimary } =
+            await this.#selectUnlessEnded(selectRow);
+        if (existing && !predates(existing, notBefore)) {
+            // Auth that misses the cache reads the replica, which already has
+            // a row it returned here; a row only the primary had is cached
+            // before the token goes out.
+            const caching = awaitLater(
+                this.#cacheComposite(cacheKey, existing),
+            );
+            if (onlyOnPrimary) await caching;
             return existing;
         }
+        const stale = existing ?? (cachedLive ? cached : null);
+        if (stale) await this.revokeCascade(stale.uuid);
 
         // INSERT-or-IGNORE so concurrent racers don't throw on the
         // partial unique index; we re-SELECT below to find the row
         // that actually won.
-        const created = await this.#insertSession(
+        const { row: created, inserted } = await this.#insertSession(
             userId,
             {
                 kind: 'app',
@@ -516,10 +817,12 @@ export class SessionStore extends PuterStore {
             { ignoreConflict: true },
         );
 
-        const winner = await this.#selectAppRow(userId, appUid);
+        // Only a lost race needs the winner read back, and from the primary: a
+        // replica that hasn't seen it would leave `created`, which was never
+        // written.
+        const winner = inserted ? null : await selectRow({ primary: true });
         const row = winner ?? created;
-        await this.#writeCacheKey(cacheKey, row);
-        this.#writeCache(row).catch(() => {});
+        await this.#cacheComposite(cacheKey, row);
         return row;
     }
 
@@ -541,19 +844,38 @@ export class SessionStore extends PuterStore {
      * @param opts.last_ip / opts.last_user_agent - Request context for
      *   first-time creation. Ignored when a row already exists.
      * @param opts.auth_id - Stable per-user identity (survives re-login).
+     * @param opts.notBefore - Unix seconds. A live row created earlier belongs
+     *   to a previous app with this uid; it is revoked and replaced.
      */
     async getOrCreateWorker(userId, opts = {}) {
         if (!userId || !opts.workerName) return null;
+        const key = `${this.#cacheKeyWorker(
+            userId,
+            opts.appUid ?? null,
+            String(opts.workerName),
+        )}|${opts.notBefore ?? ''}`;
+        const running = this.#workerLookups.get(key);
+        if (running) return running;
+        const started = this.#getOrCreateWorker(userId, opts).finally(() =>
+            this.#workerLookups.delete(key),
+        );
+        this.#workerLookups.set(key, started);
+        return started;
+    }
 
+    async #getOrCreateWorker(userId, opts) {
         const existing = await this.getWorker(userId, opts);
-        if (existing) return existing;
+        if (existing && !predates(existing, opts.notBefore ?? null)) {
+            return existing;
+        }
+        if (existing) await this.revokeCascade(existing.uuid);
 
         const appUid = opts.appUid ?? null;
         const workerName = String(opts.workerName);
         const cacheKey = this.#cacheKeyWorker(userId, appUid, workerName);
         const now = nowSeconds();
 
-        const created = await this.#insertSession(
+        const { row: created } = await this.#insertSession(
             userId,
             {
                 kind: 'worker',
@@ -575,10 +897,13 @@ export class SessionStore extends PuterStore {
         // INSERT-IGNORE may have lost the race against another caller;
         // re-SELECT under the partial unique index to find whichever
         // row actually won.
-        const winner = await this.#selectWorkerRow(userId, appUid, workerName);
+        // After a revoke the replica may still show the old row as live.
+        const { row: winner } = await this.#selectUnlessEnded(
+            (o) => this.#selectWorkerRow(userId, appUid, workerName, o),
+            { primary: existing !== null },
+        );
         const row = winner ?? created;
-        await this.#writeCacheKey(cacheKey, row);
-        this.#writeCache(row).catch(() => {});
+        await this.#cacheComposite(cacheKey, row);
         return row;
     }
 
@@ -600,15 +925,10 @@ export class SessionStore extends PuterStore {
             return cached;
         }
 
-        const existing = await this.#selectWorkerRow(
-            userId,
-            appUid,
-            workerName,
+        const { row: existing } = await this.#selectUnlessEnded((o) =>
+            this.#selectWorkerRow(userId, appUid, workerName, o),
         );
-        if (existing) {
-            await this.#writeCacheKey(cacheKey, existing);
-            this.#writeCache(existing).catch(() => {});
-        }
+        if (existing) await this.#cacheComposite(cacheKey, existing);
         return existing;
     }
 
@@ -646,6 +966,32 @@ export class SessionStore extends PuterStore {
             userId: Number(row.user_id),
             appUid: String(row.app_uid),
         }));
+    }
+
+    /** Highest row id, the bound for a primary-key walk. */
+    async maxId() {
+        const rows = await this.clients.db.read(
+            'SELECT MAX(`id`) AS `max_id` FROM `sessions`',
+        );
+        return Number(rows[0]?.max_id) || 0;
+    }
+
+    /**
+     * Hard-delete rows with ids in `(afterId, afterId + span]` that were
+     * revoked or expired before `webCutoff` (web rows, which `listSignIns`
+     * reads) or `cutoff` (every other kind), both unix seconds. Bounded by
+     * primary key instead of an index on either column, since `touch` rewrites
+     * `expires_at` constantly. Cached copies need no invalidation: they still
+     * read as revoked or expired.
+     */
+    async purgeEndedInRange(afterId, span, { cutoff, webCutoff }) {
+        const result = await this.clients.db.write(
+            'DELETE FROM `sessions` WHERE `id` > ? AND `id` <= ? AND (' +
+                "(`kind` = 'web' AND (`revoked_at` < ? OR `expires_at` < ?)) OR " +
+                "(`kind` <> 'web' AND (`revoked_at` < ? OR `expires_at` < ?)))",
+            [afterId, afterId + span, webCutoff, webCutoff, cutoff, cutoff],
+        );
+        return result?.affectedRows ?? result?.changes ?? 0;
     }
 
     /**
@@ -772,23 +1118,59 @@ export class SessionStore extends PuterStore {
             this.#lastUserTouchMs.set(userId, nowMs);
         }
 
+        const [sessionClaimed, userClaimed] = await Promise.all([
+            sessionDue &&
+                this.#claimTouchGate(`${TOUCH_GATE_PREFIX}:s:${uuid}`),
+            userDue && this.#claimTouchGate(`${TOUCH_GATE_PREFIX}:u:${userId}`),
+        ]);
+
         const tasks = [];
-        if (sessionDue) {
+        if (sessionClaimed) {
             tasks.push(
-                this.updateActivity(uuid, Math.floor(nowMs / 1000), {
-                    ip,
-                    userAgent,
-                }).catch(() => {}),
+                (async () => {
+                    try {
+                        await this.updateActivity(
+                            uuid,
+                            Math.floor(nowMs / 1000),
+                            { ip, userAgent },
+                        );
+                    } catch {
+                        // best-effort
+                    }
+                })(),
             );
         }
-        if (userDue) {
+        if (userClaimed) {
             tasks.push(
-                this.updateUserActivity(userId, sqlTimestamp(nowMs)).catch(
-                    () => {},
-                ),
+                (async () => {
+                    try {
+                        await this.updateUserActivity(
+                            userId,
+                            sqlTimestamp(nowMs),
+                        );
+                    } catch {
+                        // best-effort
+                    }
+                })(),
             );
         }
         await Promise.all(tasks);
+    }
+
+    /** True when this node won the touch window; fails open on Redis errors. */
+    async #claimTouchGate(key) {
+        try {
+            const result = await this.clients.redis.set(
+                key,
+                '1',
+                'EX',
+                TOUCH_GATE_TTL_SECONDS,
+                'NX',
+            );
+            return result === 'OK';
+        } catch {
+            return true;
+        }
     }
 
     // -- Internals ---------------------------------------------------
@@ -817,6 +1199,15 @@ export class SessionStore extends PuterStore {
      */
     #cacheKeyWorker(userId, appUid, workerName) {
         return `${CACHE_KEY_PREFIX}:worker:${userId}:${appUid ?? ''}:${workerName}`;
+    }
+
+    /**
+     * Cache key naming the godmode token row for (user, web session, app). It
+     * holds only the row's uuid; the row is read through the uuid cache and
+     * checked on every use, and revoking the row drops the key.
+     */
+    #cacheKeyGodmode(userId, parentSessionUid, appUid) {
+        return `${CACHE_KEY_PREFIX}:godmode:${userId}:${parentSessionUid}:${appUid}`;
     }
 
     /**
@@ -877,6 +1268,20 @@ export class SessionStore extends PuterStore {
                 ),
             );
         }
+        if (
+            row.kind === 'access_token' &&
+            row.user_id &&
+            row.parent_session_id &&
+            row.app_uid
+        ) {
+            keys.push(
+                this.#cacheKeyGodmode(
+                    row.user_id,
+                    row.parent_session_id,
+                    row.app_uid,
+                ),
+            );
+        }
         if (row.legacy_token_uid) {
             keys.push(this.#cacheKeyLegacyAt(row.legacy_token_uid));
         }
@@ -901,13 +1306,13 @@ export class SessionStore extends PuterStore {
         await this.#writeCacheKey(this.#cacheKey(session.uuid), session);
     }
 
-    async #writeCacheKey(key, value) {
+    async #writeCacheKey(key, value, ttlSeconds = CACHE_TTL_SECONDS) {
         try {
             await this.clients.redis.set(
                 key,
                 JSON.stringify(value),
                 'EX',
-                CACHE_TTL_SECONDS,
+                ttlSeconds,
             );
         } catch {
             // Best-effort local backfill.
@@ -915,13 +1320,43 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * Run a row select on the replica, or on the primary when asked or when the
+     * replica's row ended moments ago (its uuid key is tombstoned) and the
+     * replica may not have the revoke or delete yet. `primary` says which
+     * answered.
+     */
+    async #selectUnlessEnded(select, { primary = false } = {}) {
+        if (primary) return { row: await select({ primary: true }), primary };
+        const row = await select({ primary: false });
+        if (
+            !row ||
+            !(await this.isCacheKeyTombstoned([this.#cacheKey(row.uuid)]))
+        ) {
+            return { row, primary: false };
+        }
+        return { row: await select({ primary: true }), primary: true };
+    }
+
+    /** Cache a row under its composite key and its uuid key, unless it ended. */
+    async #cacheComposite(compositeKey, row) {
+        await this.writeCacheUnlessDeleted(
+            [this.#cacheKey(row.uuid), compositeKey],
+            async () => {
+                await this.#writeCacheKey(compositeKey, row);
+                await this.#writeCache(row);
+            },
+        );
+    }
+
+    /**
      * Active app session for (userId, appUid). Matches the partial unique index
      * `idx_sessions_user_app_active`. Kept private — public callers should go
      * through `getOrCreateApp` so cache and idempotency stay in sync.
      */
-    async #selectAppRow(userId, appUid) {
+    async #selectAppRow(userId, appUid, { primary = false } = {}) {
         const now = nowSeconds();
-        const rows = await this.clients.db.read(
+        const read = primary ? 'pread' : 'read';
+        const rows = await this.clients.db[read](
             "SELECT * FROM `sessions` WHERE `kind` = 'app' AND `user_id` = ? AND `app_uid` = ? AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) LIMIT 1",
             [userId, appUid, now],
         );
@@ -934,18 +1369,80 @@ export class SessionStore extends PuterStore {
      * allowed null for user-scoped workers; COALESCE keeps the comparison
      * correct since SQL `= NULL` doesn't match.
      */
-    async #selectWorkerRow(userId, appUid, workerName) {
+    async #selectWorkerRow(
+        userId,
+        appUid,
+        workerName,
+        { primary = false } = {},
+    ) {
         const now = nowSeconds();
+        const read = primary ? 'pread' : 'read';
         const workerNameExpr = this.clients.db.jsonTextExtract('`meta`', [
             'worker_name',
         ]);
         const appUidExpr = this.clients.db.nullCoalesce('`app_uid`', "''");
         const appUidBound = this.clients.db.nullCoalesce('?', "''");
-        const rows = await this.clients.db.read(
+        const rows = await this.clients.db[read](
             `SELECT * FROM \`sessions\` WHERE \`kind\` = 'worker' AND \`user_id\` = ? AND ${appUidExpr} = ${appUidBound} AND ${workerNameExpr} = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) LIMIT 1`,
             [userId, appUid ?? null, workerName, now],
         );
         return this.#normalizeRow(rows[0]);
+    }
+
+    /**
+     * The row a godmode pointer names, read the way token auth reads it. Null
+     * when there is no pointer or the row it names isn't this triple's.
+     */
+    async #cachedGodmodeRow(key, { userId, parentSessionUid, appUid }) {
+        const pointer = await this.#readCacheKey(key);
+        if (typeof pointer?.uuid !== 'string') return null;
+        const row = await this.getByUuidAny(pointer.uuid);
+        if (
+            row?.kind !== 'access_token' ||
+            Number(row.user_id) !== Number(userId) ||
+            row.parent_session_id !== parentSessionUid ||
+            row.app_uid !== appUid
+        ) {
+            return null;
+        }
+        return row;
+    }
+
+    /**
+     * Move a live godmode row's expiry up to `expiresAt`, or leave it when the
+     * move is under the renew step. Null when the row turned out to be revoked
+     * or lapsed by the time of the write.
+     */
+    async #renewGodmodeRow(row, expiresAt, now) {
+        if (
+            Number(row.expires_at) >=
+            expiresAt - GODMODE_TOKEN_RENEW_STEP_SECONDS
+        ) {
+            return row;
+        }
+        // The pointer stays: it names this same row after the write.
+        const keys = this.#allCacheKeysForRow(row).filter(
+            (key) =>
+                key !==
+                this.#cacheKeyGodmode(
+                    row.user_id,
+                    row.parent_session_id,
+                    row.app_uid,
+                ),
+        );
+        await this.publishCacheKeys({ keys, broadcast: true });
+        const result = await this.clients.db.write(
+            'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ? AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?)',
+            [expiresAt, row.uuid, now],
+        );
+        await this.publishCacheKeys({ keys, broadcast: true });
+        return result?.anyRowsAffected
+            ? { ...row, expires_at: expiresAt }
+            : null;
+    }
+
+    async #writeGodmodePointer(key, uuid) {
+        await this.#writeCacheKey(key, { uuid }, GODMODE_TOKEN_WINDOW_SECONDS);
     }
 
     #normalizeRow(row) {

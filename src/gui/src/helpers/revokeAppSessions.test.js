@@ -18,6 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { mintGodmodeToken, reusableGodmodeToken } from './godmodeTokens.js';
 import { appSessionUuids, revokeAppSessions } from './revokeAppSessions.js';
 
 const APP = 'app-1111';
@@ -33,8 +34,8 @@ const sessions = [
 ];
 
 describe('appSessionUuids', () => {
-    it("picks only the app's own app-kind rows", () => {
-        expect(appSessionUuids(sessions, APP)).toEqual(['app-a', 'app-b']);
+    it("picks the app's own app rows and its godmode token row", () => {
+        expect(appSessionUuids(sessions, APP)).toEqual(['app-a', 'app-b', 'tok-1']);
     });
 
     it('leaves worker rows alone — they are deployment credentials', () => {
@@ -74,9 +75,9 @@ describe('revokeAppSessions', () => {
         const { fetchImpl, calls } = makeFetch();
         const revoked = await revokeAppSessions(APP, deps({ fetchImpl }));
 
-        expect(revoked).toBe(2);
+        expect(revoked).toBe(3);
         const revokes = calls.filter(c => c.url.endsWith('/auth/revoke-session'));
-        expect(revokes.map(c => c.body.uuid)).toEqual(['app-a', 'app-b']);
+        expect(revokes.map(c => c.body.uuid)).toEqual(['app-a', 'app-b', 'tok-1']);
     });
 
     it('sends an anti-csrf token with every revoke — they are single-use', async () => {
@@ -90,7 +91,7 @@ describe('revokeAppSessions', () => {
         const tokens = calls
             .filter(c => c.url.endsWith('/auth/revoke-session'))
             .map(c => c.body.anti_csrf);
-        expect(tokens).toEqual(['csrf-1', 'csrf-2']);
+        expect(tokens).toEqual(['csrf-1', 'csrf-2', 'csrf-3']);
     });
 
     it('makes no revoke call when the app has no sessions', async () => {
@@ -101,7 +102,7 @@ describe('revokeAppSessions', () => {
 
     it('counts a 404 as done — the row already went away', async () => {
         const { fetchImpl } = makeFetch({ revokeStatus: 404 });
-        expect(await revokeAppSessions(APP, deps({ fetchImpl }))).toBe(2);
+        expect(await revokeAppSessions(APP, deps({ fetchImpl }))).toBe(3);
     });
 
     it('keeps going after one row fails, and reports the shortfall', async () => {
@@ -110,8 +111,8 @@ describe('revokeAppSessions', () => {
         const { fetchImpl, calls } = makeFetch({ revokeStatus: () => (++n === 1 ? 500 : 200) });
         const revoked = await revokeAppSessions(APP, deps({ fetchImpl }));
 
-        expect(revoked).toBe(1);
-        expect(calls.filter(c => c.url.endsWith('/auth/revoke-session'))).toHaveLength(2);
+        expect(revoked).toBe(2);
+        expect(calls.filter(c => c.url.endsWith('/auth/revoke-session'))).toHaveLength(3);
     });
 
     it('throws when the session list cannot be read', async () => {
@@ -119,6 +120,22 @@ describe('revokeAppSessions', () => {
         await expect(revokeAppSessions(APP, deps({ fetchImpl }))).rejects.toThrow(
             /Failed to list sessions/,
         );
+    });
+
+    it('stops launches reusing the godmode token it just revoked', async () => {
+        const minted = async () => ({
+            ok: true,
+            status: 200,
+            json: async () => ({ token: 'jwt', godmode: true, expires_at: Math.floor(Date.now() / 1000) + 12 * 60 * 60 }),
+        });
+        await mintGodmodeToken(APP, { fetchImpl: minted, apiOrigin: 'https://api.test', authToken: 'auth-token' });
+        expect(reusableGodmodeToken(APP, { authToken: 'auth-token' })).not.toBeNull();
+
+        const { fetchImpl } = makeFetch({ revokeStatus: () => {
+            throw new Error('offline');
+        } });
+        await expect(revokeAppSessions(APP, deps({ fetchImpl }))).rejects.toThrow('offline');
+        expect(reusableGodmodeToken(APP, { authToken: 'auth-token' })).toBeNull();
     });
 
     it('does nothing without an app uid', async () => {

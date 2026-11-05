@@ -17,12 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { RequestHandler } from 'express';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { IConfig } from '../../../types';
+import type { RouteOptions } from '../types';
 import { assertNormalized } from '../../../services/fs/resolveNode.js';
-import { HttpError } from '../HttpError';
+import { HttpError, isHttpError } from '../HttpError';
+import { isLocalWorkerHost } from './localWorkerProxy';
 
 /** Native-app subdomains served via `nativeAppStatic`. */
 const NATIVE_APP_SUBDOMAINS = [
@@ -39,8 +41,9 @@ const NATIVE_APP_SUBDOMAINS = [
 const NATIVE_APPS_WITH_DIST = new Set(['docs', 'developer']);
 
 /**
- * Subdomains that v2 serves itself. Anything NOT in this set that lives on the
- * root domain is treated as a user-defined site and rejected with a 404.
+ * Subdomains that v2 serves itself. A root-domain subdomain neither in this set
+ * nor claimed by an extension is treated as a user-defined site and rejected
+ * with a 404.
  *
  * Kept as a plain Set so `has()` is O(1); order doesn't matter.
  */
@@ -53,14 +56,159 @@ const RESERVED_SUBDOMAINS = new Set<string>([
     ...NATIVE_APP_SUBDOMAINS,
     // App-icon serving subdomain.
     'puter-app-icons',
-    // Extension-owned subdomains.
-    'onlyoffice',
 ]);
+
+/**
+ * Decides whether a request to a claimed subdomain is answered at all. `false`
+ * gets the unclaimed-subdomain 404, so it must not touch `res` first; a thrown
+ * `HttpError` is sent as is, any other throw counts as `false`.
+ */
+export type ClaimAuthorize = (
+    req: Request,
+    res: Response,
+) => boolean | Promise<boolean>;
+
+/** A claim answered on its own router, only past `authorize`. */
+export interface GatedSubdomainClaim {
+    authorize: ClaimAuthorize;
+    /**
+     * Vets each route declared for the claim as the server builds it; a throw
+     * fails the boot, naming the route.
+     */
+    checkRoute?: (options: RouteOptions, label: string) => void;
+}
+
+/** Served like core's own subdomains: CORS, auth and every route. */
+export interface MainPipelineSubdomainClaim {
+    mainPipeline: true;
+}
+
+export type SubdomainClaim = GatedSubdomainClaim | MainPipelineSubdomainClaim;
+
+/** A claim as dispatch sees it: a gate and the routes behind it, or neither. */
+export type ResolvedClaim =
+    | { authorize: ClaimAuthorize; handler?: RequestHandler }
+    | MainPipelineSubdomainClaim;
+
+export const isMainPipelineClaim = (
+    claim: SubdomainClaim | ResolvedClaim | undefined,
+): claim is MainPipelineSubdomainClaim =>
+    (claim as { mainPipeline?: unknown } | undefined)?.mainPipeline === true;
+
+export type ClaimLookup = (name: string) => ResolvedClaim | undefined;
+
+const SUBDOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/** The label `x` when `host` is exactly `x.<domain>`, ignoring case and port. */
+export const subdomainLabelOf = (
+    host: string,
+    domain: string,
+): string | undefined => {
+    const hostName = host.toLowerCase().split(':')[0];
+    const base = domain.toLowerCase().split(':')[0];
+    if (!base || !hostName.endsWith(`.${base}`)) return undefined;
+    const label = hostName.slice(0, -(base.length + 1));
+    return label && !label.includes('.') ? label : undefined;
+};
+
+/**
+ * Record a claim on `<name>.<domain>`. Throws on a malformed or uppercase
+ * label, a subdomain core already handles, or a name that is already claimed.
+ */
+export const addClaimedSubdomain = (
+    claims: Map<string, SubdomainClaim>,
+    name: string,
+    claim: SubdomainClaim,
+): void => {
+    if (typeof name !== 'string' || !SUBDOMAIN_LABEL.test(name)) {
+        throw new Error(`Invalid subdomain label: ${JSON.stringify(name)}`);
+    }
+    if (name === 'www' || RESERVED_SUBDOMAINS.has(name)) {
+        throw new Error(`Subdomain '${name}' is reserved`);
+    }
+    if (claims.has(name)) {
+        throw new Error(`Subdomain '${name}' is already claimed`);
+    }
+    if (isMainPipelineClaim(claim)) {
+        if ('authorize' in claim || 'checkRoute' in claim) {
+            throw new Error(
+                `Subdomain '${name}' claimed for the main pipeline with a gate`,
+            );
+        }
+        claims.set(name, { mainPipeline: true });
+        return;
+    }
+    if (typeof claim?.authorize !== 'function') {
+        throw new Error(`Subdomain '${name}' claimed without authorize`);
+    }
+    if (
+        claim.checkRoute !== undefined &&
+        typeof claim.checkRoute !== 'function'
+    ) {
+        throw new Error(
+            `Subdomain '${name}' claimed with an invalid checkRoute`,
+        );
+    }
+    claims.set(name, {
+        authorize: claim.authorize,
+        ...(claim.checkRoute ? { checkRoute: claim.checkRoute } : {}),
+    });
+};
+
+const subdomainNotFound = () =>
+    new HttpError(404, 'Not Found', { legacyCode: 'not_found' });
+
+/**
+ * Ends the global chain at a claim: unauthorized or unanswered requests get the
+ * unclaimed-subdomain 404, and errors reach the error handler.
+ */
+const dispatchClaimed = async (
+    claim: Exclude<ResolvedClaim, MainPipelineSubdomainClaim>,
+    req: Request,
+    res: Response,
+    next: NextFunction,
+): Promise<void> => {
+    let allowed = false;
+    try {
+        allowed = (await claim.authorize(req, res)) === true;
+    } catch (err) {
+        if (isHttpError(err)) {
+            next(err);
+            return;
+        }
+        console.warn(
+            `[subdomain-claim] authorize failed: ${(err as Error)?.message}`,
+        );
+    }
+    if (!allowed || !claim.handler) {
+        if (!res.headersSent) next(subdomainNotFound());
+        return;
+    }
+
+    let finished = false;
+    const done = ((err?: unknown) => {
+        if (finished) return;
+        finished = true;
+        if (err && err !== 'route' && err !== 'router') {
+            next(err);
+            return;
+        }
+        if (res.headersSent) return;
+        next(subdomainNotFound());
+    }) as NextFunction;
+    try {
+        await claim.handler(req, res, done);
+    } catch (err) {
+        done(err);
+    }
+};
 
 /** Redirects `www.<domain>` → `<domain>` (dropping the path). */
 export const createWwwRedirect = (config: IConfig): RequestHandler => {
     const domain = (config.domain ?? '').toLowerCase();
     return (req, res, next) => {
+        // `www.` on a host outside our domains belongs to that host's site.
+        if (req.is_custom_domain) return next();
         const active = req.subdomains?.[req.subdomains.length - 1] ?? '';
         if (active !== 'www') return next();
         if (!domain) return next();
@@ -76,18 +224,26 @@ export const createWwwRedirect = (config: IConfig): RequestHandler => {
  * Passes through when:
  *
  * - No active subdomain (root)
- * - Active subdomain is reserved (api, js, native apps, …)
+ * - Active subdomain is reserved (api, js, native apps, …) or claimed for the
+ *   main pipeline
  * - Host is on one of the hosting domains (they may nest under `config.domain`)
- * - Host doesn't end in `config.domain` (custom domains, other hosts)
+ * - Host is a local worker host and the local worker server is on
+ * - Host isn't under `config.domain` (custom domains, other hosts)
  * - `static_hosting_domain` isn't configured (no separate hosting domain)
+ *
+ * Hosts compare without their port, so `foo.<domain>:<port>` is treated like
+ * `foo.<domain>`. A host that is exactly `<name>.<domain>` for a claimed `name`
+ * goes to that claim instead of the 404; claims are looked up per request.
  */
 export const createUserSubdomainNotFound = (
     config: IConfig,
+    lookupClaim: ClaimLookup = () => undefined,
 ): RequestHandler => {
-    const domain = (config.domain ?? '').toLowerCase();
+    const domain = (config.domain ?? '').toLowerCase().split(':')[0];
     if (!domain || !config.static_hosting_domain) {
         return (_req, _res, next) => next();
     }
+    const localWorkers = Boolean(config.workers?.localServer);
 
     const hostingDomains = [
         config.static_hosting_domain,
@@ -102,9 +258,10 @@ export const createUserSubdomainNotFound = (
             req.subdomains?.[req.subdomains.length - 1] ?? ''
         ).toLowerCase();
         if (active === '' || RESERVED_SUBDOMAINS.has(active)) return next();
+        const claim = lookupClaim(active);
+        if (isMainPipelineClaim(claim)) return next();
 
-        const host = (req.headers.host ?? '').toLowerCase();
-        const hostName = host.split(':')[0];
+        const hostName = (req.headers.host ?? '').toLowerCase().split(':')[0];
         if (
             hostingDomains.some(
                 (d) => hostName === d || hostName.endsWith(`.${d}`),
@@ -112,9 +269,23 @@ export const createUserSubdomainNotFound = (
         ) {
             return next();
         }
-        if (!host.endsWith(domain)) return next();
+        if (localWorkers && isLocalWorkerHost(hostName)) return next();
+        if (!hostName.endsWith(`.${domain}`)) return next();
 
-        next(new HttpError(404, 'Not Found', { legacyCode: 'not_found' }));
+        // The claim replaces this 404, so it runs before CORS, the OPTIONS
+        // responder, body parsing, auth and every route, `subdomain: '*'` ones
+        // included. One label deep only: `<name>.x.<domain>` is not the claim.
+        const claimed =
+            req.subdomains?.length === 1 &&
+            subdomainLabelOf(hostName, domain) === active
+                ? claim
+                : undefined;
+        if (claimed) {
+            void dispatchClaimed(claimed, req, res, next);
+            return;
+        }
+
+        next(subdomainNotFound());
     };
 };
 
@@ -136,6 +307,7 @@ export const createNativeAppStatic = (config: IConfig): RequestHandler => {
         return (_req, _res, next) => next();
     }
     return async (req, res, next) => {
+        if (req.is_custom_domain) return next();
         const active = (
             req.subdomains?.[req.subdomains.length - 1] ?? ''
         ).toLowerCase();

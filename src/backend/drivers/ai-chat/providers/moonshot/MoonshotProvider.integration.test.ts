@@ -20,8 +20,8 @@
 /**
  * Integration test for the Moonshot provider.
  *
- * Uses `kimi-k2.6` (the cheapest current Kimi model). Skipped
- * when `PUTER_TEST_AI_MOONSHOT_API_KEY` is unset.
+ * Uses `kimi-k2.6` (the cheapest current Kimi model) and `kimi-k3.1-pro`.
+ * Skipped when `PUTER_TEST_AI_MOONSHOT_API_KEY` is unset.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -58,6 +58,37 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
             const text = (result as { message?: { content?: string } }).message
                 ?.content;
             expect(typeof text === 'string' && text.length > 0).toBe(true);
+        });
+
+        it('returns a completion and cache usage from kimi-k3.1-pro', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+            const provider = new MoonshotProvider(
+                { apiKey: optionalEnv(ENV_VAR)! },
+                makeMeteringStub(),
+            );
+
+            const result = (await withTestActor(() =>
+                provider.complete({
+                    model: 'kimi-k3.1-pro',
+                    messages: [
+                        { role: 'user', content: 'Say hi in one word.' },
+                    ],
+                    // Reasoning counts against the cap, so leave room for it.
+                    max_tokens: 2048,
+                    reasoning_effort: 'low',
+                }),
+            )) as {
+                message?: { content?: string };
+                usage?: Record<string, number>;
+            };
+
+            const text = result.message?.content;
+            expect(typeof text === 'string' && text.length > 0).toBe(true);
+            expect(result.usage).toMatchObject({
+                prompt_tokens: expect.any(Number),
+                completion_tokens: expect.any(Number),
+                cached_tokens: expect.any(Number),
+                cache_write_tokens: expect.any(Number),
+            });
         });
     },
 );

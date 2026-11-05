@@ -4,7 +4,7 @@ import type { Request, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
-import { setupTestServer } from '../../testUtil.js';
+import { createTestUser, setupTestServer } from '../../testUtil.js';
 import type { WispController } from './WispController.js';
 
 let server: PuterServer;
@@ -147,26 +147,114 @@ describe('WispController', () => {
     });
 
     describe('verify', () => {
-        it('verifies a valid authenticated-user token', async () => {
-            const { res: createRes, captured: createCaptured } = makeRes();
-            await createHandler(
-                makeReq({
-                    actor: {
-                        user: {
-                            uuid: '00000000-0000-0000-0000-000000000001',
-                        },
-                    },
-                }),
-                createRes,
-            );
-            const token = (createCaptured.body as { token: string }).token;
+        const relayTokenFor = async (actor: unknown) => {
+            const { res, captured } = makeRes();
+            await createHandler(makeReq({ actor }), res);
+            return (captured.body as { token: string }).token;
+        };
+
+        const verifyStatus = async (token: string) => {
+            const { res, captured } = makeRes();
+            try {
+                await verifyHandler(makeReq({ body: { token } }), res);
+                return captured.statusCode;
+            } catch (e) {
+                return (e as { statusCode: number }).statusCode;
+            }
+        };
+
+        const freshUser = async () => {
+            const username = `wisp_${Math.random().toString(36).slice(2, 10)}`;
+            const creds = await createTestUser(server, {
+                username,
+                password: 'wisp-test-password',
+            });
+            const row = (await server.stores.user.getByUsername(username))!;
+            const actorFor = async (token: string) =>
+                (await server.services.auth.authenticateFromToken(token))!;
+            return {
+                row,
+                sessionActor: await actorFor(creds.token),
+                apiTokenActor: await actorFor(creds.apiToken),
+                apiToken: creds.apiToken,
+            };
+        };
+
+        it('verifies a token minted by a live session', async () => {
+            const { sessionActor } = await freshUser();
+            const token = await relayTokenFor(sessionActor);
 
             const { res, captured } = makeRes();
             await verifyHandler(makeReq({ body: { token } }), res);
 
             expect(captured.statusCode).toBe(200);
-            const body = captured.body as { allow: boolean };
-            expect(body.allow).toBe(true);
+            expect((captured.body as { allow: boolean }).allow).toBe(true);
+        });
+
+        it('rejects a token once the account is suspended', async () => {
+            const { row, sessionActor } = await freshUser();
+            const token = await relayTokenFor(sessionActor);
+
+            await server.stores.user.update(row.id, { suspended: 1 });
+
+            expect(await verifyStatus(token)).toBe(403);
+        });
+
+        it('rejects a token once the account is pending verification', async () => {
+            const { row, sessionActor } = await freshUser();
+            const token = await relayTokenFor(sessionActor);
+
+            await server.stores.user.update(row.id, {
+                requires_email_confirmation: 1,
+                email_confirmed: 0,
+            });
+
+            expect(await verifyStatus(token)).toBe(403);
+        });
+
+        it('rejects a token whose user no longer exists', async () => {
+            const token = await relayTokenFor({
+                user: { uuid: '00000000-0000-0000-0000-000000000001' },
+            });
+
+            expect(await verifyStatus(token)).toBe(403);
+        });
+
+        it('rejects a token once its session is revoked', async () => {
+            const { sessionActor } = await freshUser();
+            const token = await relayTokenFor(sessionActor);
+            expect(await verifyStatus(token)).toBe(200);
+
+            await server.services.auth.revokeSession(sessionActor.session!.uid);
+
+            expect(await verifyStatus(token)).toBe(403);
+        });
+
+        it('binds a token minted by an access token to that token', async () => {
+            const { sessionActor, apiTokenActor, apiToken } = await freshUser();
+            const token = await relayTokenFor(apiTokenActor);
+            expect(await verifyStatus(token)).toBe(200);
+
+            await server.services.auth.revokeAccessToken(
+                sessionActor,
+                apiToken,
+            );
+
+            expect(await verifyStatus(token)).toBe(403);
+        });
+
+        it('applies the account checks to a token with no session claim', async () => {
+            const { row } = await freshUser();
+            const token = server.services.token.sign(
+                'wisp',
+                { $: 'token:wisp', $v: '0.0.0', user_uid: row.uuid },
+                { expiresIn: '1d' },
+            );
+            expect(await verifyStatus(token)).toBe(200);
+
+            await server.stores.user.update(row.id, { suspended: 1 });
+
+            expect(await verifyStatus(token)).toBe(403);
         });
 
         it('verifies a valid guest token', async () => {

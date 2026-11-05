@@ -62,6 +62,7 @@ export {
     ROUTES_METADATA_KEY,
     type AuthRequired,
     type CollectedRoute,
+    type ErrorRenderer,
     type RouteDescriptor,
     type RouteMethod,
     type RouteOptions,

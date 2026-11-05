@@ -46,6 +46,8 @@ export interface CompileMatchOptions {
     separator?: string | null;
     /** Let a wildcard-free pattern also match everything beneath it. */
     literalCoversSubtree?: boolean;
+    /** Longest pattern accepted; defaults to {@link MATCH_PATTERN_MAX_LENGTH}. */
+    maxLength?: number;
 }
 
 const WILDCARD = /[*?]/;
@@ -91,14 +93,12 @@ export function compileMatch(
     options: CompileMatchOptions = {},
 ): CompiledMatch {
     const separator = options.separator === undefined ? '/' : options.separator;
+    const maxLength = options.maxLength ?? MATCH_PATTERN_MAX_LENGTH;
 
     if (typeof pattern !== 'string' || pattern.length === 0)
         throw invalidPattern('is empty');
-    if (pattern.length > MATCH_PATTERN_MAX_LENGTH)
-        throw invalidPattern(
-            `exceeds ${MATCH_PATTERN_MAX_LENGTH} characters`,
-            pattern,
-        );
+    if (pattern.length > maxLength)
+        throw invalidPattern(`exceeds ${maxLength} characters`, pattern);
 
     const raw = separator === null ? [pattern] : pattern.split(separator);
     if (raw.length > MATCH_PATTERN_MAX_SEGMENTS)

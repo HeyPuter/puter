@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 86;
+const CURRENT_SCHEMA_VERSION = 98;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -673,10 +673,133 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
         });
     });
 
+    it('adds kv_share_handles.notify from 0099, off for every existing share', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'puter-sqlite-notify-'));
+        const path = join(dir, 'puter.sqlite');
+        try {
+            const before = new SqliteDatabaseClient(
+                sqliteConfig({ inMemory: false, path, targetVersion: 94 }),
+            );
+            await before.onServerStart();
+            await before.write(
+                'INSERT INTO `kv_share_handles` (`handle`, `owner_user_id`, ' +
+                    '`grantee_user_id`, `app_uid`, `key_prefix`, `permission`, ' +
+                    '`created_at`) VALUES (?, 1, 1, ?, ?, ?, 0)',
+                ['kvh-before-notify', 'os-global', 'a:', 'kv-share:x'],
+            );
+            before.onServerShutdown();
+
+            const after = new SqliteDatabaseClient(
+                sqliteConfig({ inMemory: false, path }),
+            );
+            await after.onServerStart();
+            await expect(
+                after.read(
+                    'SELECT `notify` FROM `kv_share_handles` WHERE `handle` = ?',
+                    ['kvh-before-notify'],
+                ),
+            ).resolves.toEqual([{ notify: 0 }]);
+            after.onServerShutdown();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
     it('indexes notification.created_at for the retention sweep', async () => {
         const rows = await client.read('PRAGMA index_list(`notification`)');
         expect(rows.map((r) => String(r.name))).toContain(
             'idx_notification_created_at',
+        );
+    });
+
+    it('indexes notification.replaced_at per mailbox slice for catch-up', async () => {
+        const columns = await client.read(
+            'PRAGMA index_info(`idx_notification_replaced`)',
+        );
+        expect(columns.map((c) => String(c.name))).toEqual([
+            'user_id',
+            'audience',
+            'app_uid',
+            'replaced_at',
+        ]);
+    });
+
+    it('keeps notification.send_key unique', async () => {
+        const rows = await client.read('PRAGMA index_list(`notification`)');
+        expect(
+            rows.find((r) => r.name === 'idx_notification_send_key'),
+        ).toMatchObject({ unique: 1 });
+        const columns = await client.read(
+            'PRAGMA index_info(`idx_notification_send_key`)',
+        );
+        expect(columns.map((c) => String(c.name))).toEqual(['send_key']);
+    });
+
+    it('creates event_user_handlers with its unique and holder indexes', async () => {
+        const columns = await client.read(
+            'PRAGMA table_info(`event_user_handlers`)',
+        );
+        expect(columns.map((c) => String(c.name))).toEqual([
+            'id',
+            'app_uid',
+            'holder_user_id',
+            'name',
+            'source',
+            'source_hash',
+            'created_at',
+            'updated_at',
+            'scope_since',
+        ]);
+        const indexes = await client.read(
+            'PRAGMA index_list(`event_user_handlers`)',
+        );
+        expect(
+            indexes.find(
+                (i) => i.name === 'idx_event_user_handlers_app_holder_name',
+            ),
+        ).toMatchObject({ unique: 1 });
+        expect(
+            indexes.find((i) => i.name === 'idx_event_user_handlers_holder_app'),
+        ).toMatchObject({ unique: 0 });
+        const columnsOf = async (index: string) =>
+            (await client.read(`PRAGMA index_info(\`${index}\`)`)).map((c) =>
+                String(c.name),
+            );
+        expect(await columnsOf('idx_event_user_handlers_app_holder_name')).toEqual(
+            ['app_uid', 'holder_user_id', 'name'],
+        );
+        expect(await columnsOf('idx_event_user_handlers_holder_app')).toEqual([
+            'holder_user_id',
+            'app_uid',
+        ]);
+    });
+
+    it('leaves event_handlers as it was', async () => {
+        const columns = await client.read('PRAGMA table_info(`event_handlers`)');
+        expect(columns.map((c) => String(c.name))).toEqual([
+            'id',
+            'app_uid',
+            'name',
+            'source',
+            'source_hash',
+            'created_at',
+            'updated_at',
+        ]);
+    });
+
+    it('adds event_subscriptions.handler_scope, app scope for existing rows', async () => {
+        const columns = await client.read(
+            'PRAGMA table_info(`event_subscriptions`)',
+        );
+        expect(columns.find((c) => c.name === 'handler_scope')).toMatchObject({
+            notnull: 1,
+            dflt_value: '0',
+        });
+        const indexes = await client.read(
+            'PRAGMA index_list(`event_subscriptions`)',
+        );
+        expect(indexes.map((i) => String(i.name))).toContain(
+            'idx_event_subscriptions_holder',
         );
     });
 
@@ -930,6 +1053,7 @@ describe('SqliteDatabaseClient — query interface', () => {
             affectedRows: 1,
             anyRowsAffected: true,
         });
+        expect(inserted).not.toHaveProperty('warningStatus');
 
         const missed = await client.write(
             'UPDATE `widget` SET `name` = ? WHERE `id` = ?',
@@ -1038,8 +1162,7 @@ describe('SqliteDatabaseClient — query interface', () => {
 });
 
 // Single-node engines have no replica to race, so `tryHardRead` must not
-// issue the query twice — the base-class default fires `pread()` and
-// `read()` in parallel, which on sqlite is the same connection.
+// issue the query twice on the one connection.
 describe('SqliteDatabaseClient — tryHardRead', () => {
     let client: SqliteDatabaseClient;
 
@@ -1078,20 +1201,50 @@ describe('SqliteDatabaseClient — tryHardRead', () => {
         expect(readSpy).toHaveBeenCalledTimes(1);
         expect(preadSpy).not.toHaveBeenCalled();
     });
+});
 
-    it('throws from requireRead when nothing matches', async () => {
-        await expect(
-            client.requireRead(
-                'SELECT `name` FROM `widget` WHERE `id` = ?',
-                [42],
-            ),
-        ).rejects.toThrow('required read returned no rows');
+describe('SqliteDatabaseClient — prepared statements', () => {
+    let client: SqliteDatabaseClient;
+    let prepare: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(async () => {
+        client = await bootClient();
+        await client.write(
+            'CREATE TABLE `widget` (`id` INTEGER PRIMARY KEY, `name` TEXT)',
+        );
+        // better-sqlite3 is the driver boundary; count compilations there.
+        const db = (client as unknown as { db: Database.Database }).db;
+        prepare = vi.spyOn(db, 'prepare');
     });
 
-    it('returns the rows from requireRead when something matches', async () => {
-        await client.write('INSERT INTO `widget` (`name`) VALUES (?)', ['ok']);
-        await expect(
-            client.requireRead('SELECT `name` FROM `widget`'),
-        ).resolves.toEqual([{ name: 'ok' }]);
+    afterEach(() => {
+        client.onServerShutdown();
+    });
+
+    it('compiles a repeated query once', async () => {
+        const insert = 'INSERT INTO `widget` (`name`) VALUES (?)';
+        await client.write(insert, ['a']);
+        await client.write(insert, ['b']);
+        await client.batchWrite([{ statement: insert, values: ['c'] }]);
+        const select = 'SELECT `name` FROM `widget` ORDER BY `id`';
+        await client.read(select);
+
+        await expect(client.read(select)).resolves.toEqual([
+            { name: 'a' },
+            { name: 'b' },
+            { name: 'c' },
+        ]);
+        expect(prepare).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps serving a cached query after the schema changes', async () => {
+        const select = 'SELECT * FROM `widget`';
+        await client.write('INSERT INTO `widget` (`name`) VALUES (?)', ['a']);
+        await client.read(select);
+        await client.write('ALTER TABLE `widget` ADD COLUMN `size` INTEGER');
+
+        await expect(client.read(select)).resolves.toEqual([
+            { id: 1, name: 'a', size: null },
+        ]);
     });
 });

@@ -26,7 +26,7 @@ const ta = {
         account: 'கணக்கு',
         account_password: 'கணக்கு கடவுச்சொல்லை சரிபார்க்கவும்',
         access_granted_to: 'அனுமதி வழங்கப்பட்ட',
-        add_existing_account: 'ஏற்கனவே உள்ள கணக்கைச் சேர்க்கவும்',
+        add_another_account: 'மற்றொரு கணக்கைச் சேர்க்கவும்',
         all_fields_required: 'அனைத்து புலங்களும் தேவை.',
         allow: 'அனுமதி',
         apply: 'விண்ணப்பிக்கவும்',

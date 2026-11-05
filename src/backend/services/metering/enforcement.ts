@@ -17,11 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Request } from 'express';
+import type { EventClient } from '../../clients/event/EventClient';
 import type { Actor } from '../../core/actor';
 import { isSystemActor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types';
-import { FREE_SUBSCRIPTION_IDS } from './consts.js';
+import { isFreeSubscription } from './consts.js';
 import type { MeteringService } from './MeteringService';
 
 // -- Credit enforcement ----------------------------------------------
@@ -94,11 +96,17 @@ export const assertActorHasCredits = async (
     if (creditEnforcementExempt(actor, config)) return;
 
     if (!(await metering.hasAnyUsageCached(actor!))) {
-        throw new HttpError(402, 'No usage left for request.', {
-            legacyCode: 'insufficient_funds',
-        });
+        throw insufficientCreditsError();
     }
 };
+
+/** The 402 for a request the account's remaining credits can't cover. */
+export const insufficientCreditsError = (): HttpError =>
+    new HttpError(
+        402,
+        "Your account doesn't have enough credits left for this request. Upgrade your plan at https://puter.com/#billing to continue.",
+        { legacyCode: 'insufficient_funds' },
+    );
 
 /** The part of the metering service the subscription check calls. */
 export type SubscriptionMetering = Pick<
@@ -107,8 +115,8 @@ export type SubscriptionMetering = Pick<
 >;
 
 /**
- * `true`: any plan outside `FREE_SUBSCRIPTION_IDS`. An array: only those policy
- * ids. `false`: no requirement.
+ * `true`: any plan `isFreeSubscription` doesn't consider free. An array: only
+ * those policy ids. `false`: no requirement.
  */
 export type SubscriptionRequirement = boolean | readonly string[];
 
@@ -148,7 +156,7 @@ export const subscriptionSatisfies = (
     if (Array.isArray(requirement)) {
         return requirement.length === 0 || requirement.includes(id);
     }
-    return !FREE_SUBSCRIPTION_IDS.has(id);
+    return !isFreeSubscription(id);
 };
 
 /**
@@ -216,6 +224,55 @@ export const actorOnPaidPlan = async (
 };
 
 /**
+ * The actor's plan id, for tiered limits. `null` with no metering to ask, or
+ * when the lookup fails, which the tier tables read as their default.
+ */
+export const actorPlanId = async (
+    metering: SubscriptionMetering | undefined,
+    actor: Actor,
+): Promise<string | null> => {
+    if (!metering) return null;
+    try {
+        return (await metering.getActorSubscription(actor)).id;
+    } catch (err) {
+        console.warn('[metering] could not resolve a plan', err);
+        return null;
+    }
+};
+
+/**
+ * Where a plan gate sits, so a `subscription.gate.<surface>` listener can waive
+ * it for a call it recognizes. `surface` is the key segment after
+ * `subscription.gate.`, e.g. `route.post.puterai.openai.v1.chat.completions`.
+ */
+export interface SubscriptionGateHook {
+    events: Pick<EventClient, 'emitAndWait'> | undefined;
+    surface: string;
+    req?: Request;
+}
+
+const waivedByHook = async (
+    hook: SubscriptionGateHook | undefined,
+    actor: Actor,
+    requirement: SubscriptionRequirement,
+): Promise<boolean> => {
+    if (!hook?.events) return false;
+    const event = {
+        actor,
+        surface: hook.surface,
+        requirement,
+        req: hook.req,
+        allow: false,
+    };
+    await hook.events.emitAndWait(
+        `subscription.gate.${hook.surface}`,
+        event,
+        {},
+    );
+    return event.allow === true;
+};
+
+/**
  * Reject a caller whose plan doesn't cover the surface they're calling.
  *
  * Unlike the credit check, a worker session is not exempt: a worker acts for an
@@ -224,13 +281,15 @@ export const actorOnPaidPlan = async (
  * metering wired — there are no plans to be on.
  *
  * The answer comes from the metering service's per-actor subscription cache, so
- * this normally costs a map lookup.
+ * this normally costs a map lookup. A caller the plan doesn't cover is offered
+ * to `hook` listeners before being refused.
  */
 export const assertActorHasSubscription = async (
     metering: SubscriptionMetering,
     actor: Actor | undefined,
     requirement: SubscriptionRequirement,
     config: EnforcementConfig,
+    hook?: SubscriptionGateHook,
 ): Promise<void> => {
     if (subscriptionCheckWaived(metering, actor, requirement, config)) return;
 
@@ -242,6 +301,7 @@ export const assertActorHasSubscription = async (
 
     const subscription = await metering!.getActorSubscription(actor);
     if (subscriptionSatisfies(subscription.id, requirement)) return;
+    if (await waivedByHook(hook, actor, requirement)) return;
 
     throw new HttpError(402, 'A subscription is required for this action', {
         legacyCode: 'subscription_required',

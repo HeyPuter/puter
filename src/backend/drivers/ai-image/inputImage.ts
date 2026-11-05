@@ -29,10 +29,14 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { assertInputImageString } from '../util/imageInput.js';
 import type { IGenerateParams } from './types.js';
 
+/** Most input images one request may carry. */
+export const MAX_INPUT_IMAGES = 16;
+
 export {
     assertInputImageString,
     fetchImageAsBase64,
     fetchImageBytes,
+    inputImageTooLarge,
     isHttpUrl,
     parseDataUri,
     toBase64DataUri,
@@ -58,6 +62,14 @@ export function assertInputImagesShape(
         throw new HttpError(400, `${label}: input_images must be an array.`, {
             legacyCode: 'bad_request',
         });
+    }
+    // Above every provider's own limit; bounds the fetches before any runs.
+    if (imgs.length > MAX_INPUT_IMAGES) {
+        throw new HttpError(
+            400,
+            `${label}: at most ${MAX_INPUT_IMAGES} input images are accepted.`,
+            { legacyCode: 'bad_request' },
+        );
     }
     for (const img of imgs) assertInputImageString(img, label);
 }

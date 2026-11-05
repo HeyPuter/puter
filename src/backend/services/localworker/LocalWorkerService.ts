@@ -2,10 +2,16 @@ import { Miniflare, RequestInit as MiniflareRequestInit } from 'miniflare';
 import { puterServices } from '..';
 import { makeActor } from '../../core';
 import { loadFileInput } from '../../drivers/util/fileInput';
-import { getWorkerPreamble } from '../../drivers/workers/WorkerDriver';
+import {
+    getWorkerPreamble,
+    WORKER_COMPATIBILITY_DATE,
+    WORKER_COMPATIBILITY_FLAGS,
+} from '../../drivers/workers/WorkerDriver';
 import { puterStores } from '../../stores';
 import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore';
 import { LayerInstances } from '../../types';
+import { settleWithin } from '../../util/concurrency.js';
+import { FINAL_FLUSH_TIMEOUT_MS } from '../../util/gracefulShutdown.js';
 import { PuterService } from '../types';
 
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -30,6 +36,14 @@ let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 const EVENTS_KEY_PREFIX = 'events:';
 const eventsKey = (workerName: string): string =>
     `${EVENTS_KEY_PREFIX}${workerName}`;
+
+/**
+ * Miniflare ignores the strict-public flag, so local workers fetch through this
+ * network instead: public addresses and this machine (where Puter's own hosts
+ * live), but not link-local, where cloud metadata endpoints answer. The LAN is
+ * opt-in via `workers.allowLanAccess`.
+ */
+const LINK_LOCAL_RANGE = '169.254.0.0/16';
 
 export class LocalWorkerService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
@@ -77,6 +91,17 @@ export class LocalWorkerService extends PuterService {
             const mf = new Miniflare({
                 modules: false,
                 name: workerName,
+                compatibilityDate: WORKER_COMPATIBILITY_DATE,
+                compatibilityFlags: WORKER_COMPATIBILITY_FLAGS,
+                outboundService: {
+                    network: {
+                        allow: this.config.workers?.allowLanAccess
+                            ? ['public', 'local', 'private']
+                            : ['public', 'local'],
+                        deny: [LINK_LOCAL_RANGE],
+                        tlsOptions: { trustBrowserCas: true },
+                    },
+                },
                 // Binds variables/secrets to the environment. A worker
                 // deployed without a token gets no `puter_auth` at all, the
                 // same as upstream.
@@ -217,13 +242,16 @@ export class LocalWorkerService extends PuterService {
         idleSweepTimer.unref?.();
     }
 
-    override onServerShutdown(): void {
+    override async onServerShutdown(): Promise<void> {
         if (idleSweepTimer) {
             clearInterval(idleSweepTimer);
             idleSweepTimer = null;
         }
-        for (const name of [...activeWorkers.keys()]) {
-            void this.#disposeWorker(name);
+        const work = Promise.allSettled(
+            [...activeWorkers.keys()].map((name) => this.#disposeWorker(name)),
+        );
+        if (!(await settleWithin(work, FINAL_FLUSH_TIMEOUT_MS))) {
+            console.warn('[localworker] final flush timed out');
         }
     }
     async reconstructDeployArgs(workerName: string, row: SubdomainRow) {
@@ -245,12 +273,15 @@ export class LocalWorkerService extends PuterService {
                 ownerActor,
                 app.uid,
                 workerName,
+                { workerUid: row.uuid ? String(row.uuid) : undefined },
             );
         } else {
             const session = await this.services.auth.createWorkerSessionToken(
                 ownerActor,
                 ownerUser,
                 workerName,
+                {},
+                { workerUid: row.uuid ? String(row.uuid) : undefined },
             );
 
             authorization = session.token;
@@ -267,6 +298,11 @@ export class LocalWorkerService extends PuterService {
         if (!sourceEntry) {
             throw new Error(
                 `Local: worker ${workerName} source file not found (id=${row.root_dir_id})`,
+            );
+        }
+        if (sourceEntry.userId !== ownerUser.id) {
+            throw new Error(
+                `Local: worker ${workerName} source file is not owned by the worker's owner`,
             );
         }
 

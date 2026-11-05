@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { dirname as pathDirname } from 'node:path/posix';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Actor } from '../../core/actor.js';
@@ -236,6 +237,64 @@ describe('ShareService: deleting a shared item', () => {
         expect(await server.stores.share.getAnyone(dir.id)).toBeNull();
         expect(await server.stores.share.listPendingOnFsentry(file.id)).toEqual(
             [],
+        );
+    });
+
+    it('does not answer whether a name is already in the owner\'s Trash', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const trash = await dirAt(`/${owner.user.username}/Trash`);
+        const { dir, file } = await makeDirWithFile(owner.user);
+
+        // Write on the folder is what lets the recipient trash what is in it.
+        await share(owner.actor, {
+            uid: dir.uuid,
+            recipient: { username: recipient.user.username },
+            mode: 'write',
+        });
+
+        // Already in the owner's Trash under that name, and unlistable.
+        await server.clients.db.write(
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                uuidv4(),
+                file.name,
+                `${trash.path}/${file.name}`,
+                owner.user.id,
+                0,
+                Math.floor(Date.now() / 1000),
+                trash.id,
+                trash.uuid,
+            ],
+        );
+
+        const moved = await runWithContext({ actor: recipient.actor }, () =>
+            server.services.fs.move(recipient.user.id, {
+                source: file,
+                destinationParent: trash,
+            }),
+        );
+        expect(moved.path.startsWith(`${trash.path}/`)).toBe(true);
+
+        // A move with no collision must look the same, or the name answers.
+        const { file: second } = await makeDirWithFile(owner.user);
+        await share(owner.actor, {
+            uid: (await dirAt(pathDirname(second.path))).uuid,
+            recipient: { username: recipient.user.username },
+            mode: 'write',
+        });
+        const clean = await runWithContext({ actor: recipient.actor }, () =>
+            server.services.fs.move(recipient.user.id, {
+                source: second,
+                destinationParent: trash,
+            }),
+        );
+        const shape = (n: string, orig: string) =>
+            n
+                .replace(orig.replace(/\.txt$/u, ''), '<stem>')
+                .replace(/\([0-9a-f]{8}\)/u, '(<uid>)');
+        expect(shape(moved.name, file.name)).toBe(
+            shape(clean.name, second.name),
         );
     });
 

@@ -20,6 +20,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Actor } from '../../core/actor';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import {
+    runWithConcurrencyLimitSettled,
+    settleWithin,
+} from '../../util/concurrency.js';
+import { FINAL_FLUSH_TIMEOUT_MS } from '../../util/gracefulShutdown.js';
 import { PuterService } from '../types';
 import {
     digestItemPaths,
@@ -40,8 +45,11 @@ import {
     shareDeepLink,
     sharedViewLink,
 } from './shareDeepLink';
-import { NOTIFY_FANOUT_CAP } from '../../stores/team/TeamStore';
-import { blocksAllShares, type ResolvedShare } from './ShareService';
+import { NOTIFY_FANOUT_CAP } from '../../core/teams.js';
+import { abuseKey, cleanEmail, isBlockedEmail } from '../../util/email.js';
+import { blocksAllShares } from './shareBlocks.js';
+import type { ResolvedShare } from './ShareService';
+import { withRedisLock } from '../../util/redisLock.js';
 
 /**
  * How long one sharer stays quiet after reaching a recipient, and how long a
@@ -92,6 +100,8 @@ const DIGEST_SWEEP_GRACE_MS = 5 * 60_000;
  * either way — a silent truncation here reads as "nothing left to send".
  */
 const DIGEST_LIST_LIMIT = 200;
+/** Digest entries one flush claims at once. */
+const DIGEST_TAKE_CONCURRENCY = 8;
 
 /** Names carried per sender; the wording counts the rest. */
 const DIGEST_NAMES_PER_SENDER = 5;
@@ -172,6 +182,7 @@ export class ShareNotificationService extends PuterService {
      * queued sends live in KV, where any node's flush can pick them up.
      */
     #digestTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    #digestFlushes = new Map<string, Promise<void>>();
 
     /** The recovery sweep; see `onServerStart`. */
     #digestSweep: ReturnType<typeof setInterval> | null = null;
@@ -193,12 +204,46 @@ export class ShareNotificationService extends PuterService {
 
     /** Send what's still waiting while the transport is alive to send it. */
     override async onServerPrepareShutdown(): Promise<void> {
+        await this.#drainDigests();
+    }
+
+    override async onServerShutdown(): Promise<void> {
+        await this.#drainDigests();
+    }
+
+    async #drainDigests(): Promise<void> {
         if (this.#digestSweep) clearInterval(this.#digestSweep);
         this.#digestSweep = null;
-        const keys = [...this.#digestTimers.keys()];
+        const keys = new Set([
+            ...this.#digestTimers.keys(),
+            ...this.#digestFlushes.keys(),
+        ]);
         for (const [, timer] of this.#digestTimers) clearTimeout(timer);
         this.#digestTimers.clear();
-        await Promise.all(keys.map((key) => this.#flushDigest(key)));
+        const active = [...this.#digestFlushes.values()];
+        const deadline = Date.now() + FINAL_FLUSH_TIMEOUT_MS;
+        const drain = async () => {
+            try {
+                await Promise.allSettled(active);
+                if (Date.now() >= deadline) return;
+                for (const [key, timer] of this.#digestTimers) {
+                    keys.add(key);
+                    clearTimeout(timer);
+                }
+                this.#digestTimers.clear();
+                await Promise.allSettled(
+                    [...keys].map((key) => this.#flushDigest(key)),
+                );
+            } catch (err) {
+                console.warn(
+                    '[share-notify] shutdown digest flush failed:',
+                    err,
+                );
+            }
+        };
+        if (!(await settleWithin(drain(), FINAL_FLUSH_TIMEOUT_MS))) {
+            console.warn('[share-notify] final flush timed out');
+        }
     }
 
     /** The recovery sweep, for tests that can't wait out an interval. */
@@ -365,9 +410,10 @@ export class ShareNotificationService extends PuterService {
             let members = byGroup.get(share.holderGroupId);
             if (!members) {
                 try {
-                    members = await this.stores.team.listMemberIdsByGroupId(
-                        share.holderGroupId,
-                    );
+                    members =
+                        (await this.stores.team?.listMemberIdsByGroupId(
+                            share.holderGroupId,
+                        )) ?? [];
                 } catch (err) {
                     // Silence is this path's failure mode, so say so out loud.
                     console.warn(
@@ -407,22 +453,21 @@ export class ShareNotificationService extends PuterService {
 
     /** Members who have not refused shares from this issuer. */
     async #unblocked(members: number[], issuerId: number): Promise<number[]> {
-        const kept = await Promise.all(
-            members.map(async (id) => {
-                try {
-                    const user = await this.stores.user.getById(id);
-                    if (blocksAllShares(user)) return null;
-                    return (await this.stores.userBlock.isBlocked(id, issuerId))
-                        ? null
-                        : id;
-                } catch (err) {
-                    // Failing open would announce to someone who refused it.
-                    console.warn('[share-notify] block check failed', id, err);
-                    return null;
-                }
-            }),
-        );
-        return kept.filter((id): id is number => id !== null);
+        try {
+            const [users, blockers] = await Promise.all([
+                this.stores.user.getByIds(members),
+                this.stores.userBlock.blockersAmong(members, issuerId),
+            ]);
+            return members.filter(
+                (id) =>
+                    !blockers.has(id) &&
+                    !blocksAllShares(users.get(id) ?? null),
+            );
+        } catch (err) {
+            // Failing open would announce to someone who refused it.
+            console.warn('[share-notify] block check failed', members, err);
+            return [];
+        }
     }
 
     /**
@@ -603,9 +648,8 @@ export class ShareNotificationService extends PuterService {
     }
 
     #addressKey(email: string): string {
-        const canonical = this.clients.email.clean(email.trim().toLowerCase());
         return createHash('sha256')
-            .update(canonical)
+            .update(abuseKey(email.trim()))
             .digest('hex')
             .slice(0, 32);
     }
@@ -670,8 +714,8 @@ export class ShareNotificationService extends PuterService {
             skipped('recipient has unsubscribed', { holderId });
             return;
         }
-        if (!(await this.clients.email.validate(to))) {
-            skipped('address refused by validate', { holderId });
+        if (isBlockedEmail(to, this.config.blockedEmailDomains)) {
+            skipped('address is on a blocked domain', { holderId });
             return;
         }
 
@@ -873,26 +917,40 @@ export class ShareNotificationService extends PuterService {
      * everything queued), and across regions the KV `take` is the real claim,
      * handing each entry to exactly one flusher.
      */
-    async #flushDigest(key: string): Promise<void> {
-        const lockKey = `share:digest:lock:${key}`;
-        try {
-            const locked = await this.clients.redis.set(
-                lockKey,
-                '1',
-                'EX',
-                DIGEST_LOCK_SECONDS,
-                'NX',
-            );
-            if (locked !== 'OK') {
-                console.log('[share-notify] another flush holds the lock:', {
-                    key,
-                });
-                return;
-            }
-        } catch {
-            // No lock beats no mail; `take` still prevents double sends.
-        }
+    #flushDigest(key: string): Promise<void> {
+        const active = this.#digestFlushes.get(key);
+        if (active) return active;
+        const flushing = this.#sendDigest(key);
+        this.#digestFlushes.set(key, flushing);
+        return flushing;
+    }
 
+    async #sendDigest(key: string): Promise<void> {
+        try {
+            await withRedisLock(
+                this.clients.redis,
+                `share:digest:lock:${key}`,
+                () => this.#flushDigestLocked(key),
+                {
+                    ttlMs: DIGEST_LOCK_SECONDS * 1000,
+                    // No lock beats no mail; `take` still prevents double sends.
+                    onUnavailable: 'run',
+                    onBusy: () => {
+                        console.log(
+                            '[share-notify] another flush holds the lock:',
+                            { key },
+                        );
+                    },
+                },
+            );
+        } catch (err) {
+            console.warn('[share-notify] digest flush failed:', err);
+        } finally {
+            this.#digestFlushes.delete(key);
+        }
+    }
+
+    async #flushDigestLocked(key: string): Promise<void> {
         try {
             const prefix = `share:digest:${key}:`;
             const { res } = await this.stores.kv.list({
@@ -916,16 +974,33 @@ export class ShareNotificationService extends PuterService {
                 });
             }
 
-            const claimed: Array<{ key: string; record: DigestEntryRecord }> =
-                [];
-            for (const entryKey of keys) {
-                const taken = await this.stores.kv.take({ key: entryKey });
-                if (taken.res == null) continue; // another flush won this one
-                claimed.push({
-                    key: entryKey,
-                    record: taken.res as DigestEntryRecord,
+            const takes = await runWithConcurrencyLimitSettled(
+                keys,
+                DIGEST_TAKE_CONCURRENCY,
+                (entryKey) => this.stores.kv.take({ key: entryKey }),
+            );
+            const failedTakes = takes.filter((t) => t.status === 'rejected');
+            if (failedTakes.length > 0) {
+                // A failed take left its entry queued for a later flush; the
+                // ones already taken exist only here now, so send them.
+                console.warn('[share-notify] digest take failed:', {
+                    key,
+                    failed: failedTakes.length,
+                    err: (failedTakes[0] as PromiseRejectedResult).reason,
                 });
             }
+            const claimed: Array<{ key: string; record: DigestEntryRecord }> =
+                [];
+            keys.forEach((entryKey, i) => {
+                const taken = takes[i];
+                // Null: another flush won this one.
+                if (taken?.status !== 'fulfilled' || taken.value.res == null)
+                    return;
+                claimed.push({
+                    key: entryKey,
+                    record: taken.value.res as DigestEntryRecord,
+                });
+            });
             if (claimed.length === 0) {
                 // Listed nothing, or every entry went to another flusher.
                 console.log('[share-notify] nothing to send:', {
@@ -1027,12 +1102,6 @@ export class ShareNotificationService extends PuterService {
             }
         } catch (err) {
             console.warn('[share-notify] digest flush failed:', err);
-        } finally {
-            try {
-                await this.clients.redis.del(lockKey);
-            } catch {
-                // The lock self-expires.
-            }
         }
     }
 
@@ -1077,13 +1146,15 @@ export class ShareNotificationService extends PuterService {
             // Each address fails alone — one refused send must not cost the
             // next invitee their only channel.
             try {
-                if (!(await this.clients.email.validate(to))) {
-                    skipped('invite address refused by validate', { to });
+                if (isBlockedEmail(to, this.config.blockedEmailDomains)) {
+                    skipped('invite address is on a blocked domain', { to });
                     continue;
                 }
                 const mayOpen = await this.#claimInviteEmail(issuerId, to);
+                // Canonical, so a later share typed in another case or alias
+                // joins this digest instead of losing to the spent budget.
                 await this.#queueDigest(
-                    `invite:${to}`,
+                    `invite:${cleanEmail(to)}`,
                     { kind: 'invite', to },
                     issuer,
                     count,

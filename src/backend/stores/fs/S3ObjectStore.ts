@@ -29,6 +29,7 @@ import {
     PutObjectCommand,
     type S3Client,
     UploadPartCommand,
+    UploadPartCopyCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'node:stream';
@@ -40,6 +41,7 @@ import type {
     MultipartCompleteInput,
     ServerUploadInput,
     SignedMultipartPartUrlsInput,
+    SignedReadInput,
     SignedUploadInput,
     SignedUploadPart,
     SignedUploadResult,
@@ -71,6 +73,16 @@ export function isMissingObjectError(err: unknown): boolean {
         e.name === 'NoSuchKey' ||
         e.Code === 'NoSuchKey'
     );
+}
+
+/**
+ * True when the store rejected an upload because the body ended before the
+ * length it was sent with.
+ */
+export function isIncompleteBodyError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+    const e = err as { name?: unknown; Code?: unknown };
+    return e.name === 'IncompleteBody' || e.Code === 'IncompleteBody';
 }
 
 /**
@@ -355,6 +367,35 @@ export class S3ObjectStore extends PuterStore {
         );
     }
 
+    /**
+     * A presigned GET for handing one object to a third party that fetches it
+     * itself. The expiry is clamped like the upload URLs.
+     */
+    @Span('s3.createSignedReadUrl')
+    async createSignedReadUrl(
+        input: SignedReadInput,
+        region: string,
+    ): Promise<string> {
+        const presignClient = this.#getPresignClientForRegion(region);
+        // Counted at signing, like the upload URLs: the fetch never reaches us.
+        recordStorageOps('read');
+        return getSignedUrl(
+            presignClient,
+            new GetObjectCommand({
+                Bucket: input.bucket,
+                Key: input.objectKey,
+                ...(input.contentType
+                    ? { ResponseContentType: input.contentType }
+                    : {}),
+            }),
+            {
+                expiresIn: clampSignedUploadExpirySeconds(
+                    input.expiresInSeconds,
+                ),
+            },
+        );
+    }
+
     @Span('s3.completeMultipartUpload')
     async completeMultipartUpload(
         input: MultipartCompleteInput,
@@ -533,6 +574,85 @@ export class S3ObjectStore extends PuterStore {
         );
     }
 
+    /** Most S3 implementations refuse a single-request copy beyond this. */
+    static readonly MAX_SINGLE_COPY_BYTES = 5 * 1024 * 1024 * 1024;
+
+    /** Server-side copy of any size: one request, or part by part past the cap. */
+    @Span('s3.copyObjectOfAnySize')
+    async copyObjectOfAnySize(
+        input: CopyObjectInput,
+        region: string,
+        size: number,
+    ): Promise<void> {
+        if (size <= S3ObjectStore.MAX_SINGLE_COPY_BYTES) {
+            await this.copyObject(input, region);
+            return;
+        }
+
+        const client = this.#getClientForRegion(region);
+        const partSize = Math.max(
+            this.getMultipartPartSize(),
+            // Ten thousand parts is the ceiling, so the floor follows the size.
+            Math.ceil(size / 10_000),
+        );
+        const created = await client.send(
+            new CreateMultipartUploadCommand({
+                Bucket: input.destinationBucket,
+                Key: input.destinationKey,
+                ...(input.contentType
+                    ? { ContentType: input.contentType }
+                    : {}),
+            }),
+        );
+        const uploadId = created.UploadId;
+        if (!uploadId) {
+            throw new Error('Copy could not start a multipart upload');
+        }
+
+        try {
+            const parts: Array<{ partNumber: number; etag: string }> = [];
+            for (let offset = 0, partNumber = 1; offset < size; partNumber++) {
+                const end = Math.min(offset + partSize, size) - 1;
+                recordStorageOps('write');
+                const copied = await client.send(
+                    new UploadPartCopyCommand({
+                        Bucket: input.destinationBucket,
+                        Key: input.destinationKey,
+                        UploadId: uploadId,
+                        PartNumber: partNumber,
+                        CopySource: `${input.sourceBucket}/${encodeURIComponent(input.sourceKey)}`,
+                        CopySourceRange: `bytes=${offset}-${end}`,
+                    }),
+                );
+                const etag = copied.CopyPartResult?.ETag;
+                if (!etag) {
+                    throw new Error(
+                        `Copy returned no ETag for part ${partNumber}`,
+                    );
+                }
+                parts.push({ partNumber, etag });
+                offset = end + 1;
+            }
+            await this.completeMultipartUpload(
+                {
+                    bucket: input.destinationBucket,
+                    objectKey: input.destinationKey,
+                    multipartUploadId: uploadId,
+                    parts,
+                },
+                region,
+            );
+        } catch (error) {
+            await this.abortMutipartUpload(
+                uploadId,
+                region,
+                input.destinationBucket,
+                input.destinationKey,
+            ).catch(() => {});
+            throw error;
+        }
+    }
+
     @Span('s3.getObjectStream')
     async getObjectStream(
         input: GetObjectInput,
@@ -559,6 +679,15 @@ export class S3ObjectStore extends PuterStore {
                 : Readable.fromWeb(
                       body as unknown as import('node:stream/web').ReadableStream,
                   );
+        // The body can fail before its consumer attaches (the connection drops
+        // while the caller is still awaiting something else), and an 'error'
+        // with no listener exits the process. Consumers still get the error
+        // through their own listener, pipeline or iterator.
+        stream.on('error', (err) => {
+            if (stream.listenerCount('error') === 1) {
+                console.warn('[s3] object stream failed with no reader', err);
+            }
+        });
 
         return {
             body: stream,

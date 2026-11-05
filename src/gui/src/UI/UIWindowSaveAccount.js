@@ -156,11 +156,11 @@ async function UIWindowSaveAccount (options) {
                     'Authorization': `Bearer ${window.auth_token}`,
                 },
                 success: async function (data) {
-                    window.dispatchEvent(new CustomEvent('account-saved', { detail: { data: data } }));
-
                     // /save_account promotes the current session's user in place
                     // and does not rotate the token, so keep the one we have.
                     await window.update_auth_data(data.token ?? window.auth_token, data.user);
+                    // After the update, so listeners read the saved user.
+                    window.dispatchEvent(new CustomEvent('account-saved', { detail: { data: data } }));
 
                     //close this window
                     if ( data.user.requires_email_confirmation && !data.user.email_confirmed ) {

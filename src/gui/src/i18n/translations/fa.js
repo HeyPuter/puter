@@ -26,7 +26,7 @@ const fa = {
         account: 'حساب کاربری',
         account_password: 'تایید رمزعبور',
         access_granted_to: 'دسترسی داده شده به',
-        add_existing_account: 'افزودن حساب کاربری موجود',
+        add_another_account: 'افزودن حساب کاربری دیگر',
         all_fields_required: 'تمامی فیلدها الزامی هستند.',
         allow: 'اجازه دسترسی',
         apply: 'اعمال',

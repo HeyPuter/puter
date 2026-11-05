@@ -20,16 +20,44 @@
 import type { Request, Response } from 'express';
 import { Controller, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import type { NotificationService } from '../../services/notification/NotificationService.js';
 import { PuterController } from '../types.js';
 
+/** Both routes fire per interaction; the ceiling catches a loop, not a user. */
+const MARK_ROUTE_OPTIONS = {
+    subdomain: 'api',
+    requireUserActor: true,
+    allowFullAccessToken: true,
+    rateLimit: {
+        scope: 'notification-mark',
+        limit: 300,
+        window: 60_000,
+        key: 'user',
+    },
+} as const;
+
+/** The uid and owner a mark names, or the 400/401 the request earns. */
+const markTarget = (req: Request): { uid: string; userId: number } => {
+    const uid = req.body?.uid;
+    if (typeof uid !== 'string' || uid.length === 0) {
+        throw new HttpError(400, '`uid` must be a non-empty string', {
+            legacyCode: 'bad_request',
+        });
+    }
+    const userId = req.actor?.user?.id;
+    if (!userId)
+        throw new HttpError(401, 'Unauthorized', {
+            legacyCode: 'unauthorized',
+        });
+    return { uid, userId };
+};
+
 /**
- * GUI-facing notification endpoint. Supplements the `puter-notifications`
- * driver (which handles CRUD via `/drivers/call`) with the one mutation route
- * the puter desktop client calls directly.
+ * GUI-facing notification endpoints. Supplement the `puter-notifications`
+ * driver (which handles reads via `/drivers/call`) with the mutations the puter
+ * desktop client calls directly.
  *
- * It emits `outer.gui.notif.ack` via the NotificationService so other open tabs
- * for the same user see the state change immediately.
+ * Each goes through the NotificationService, which tells the user's other open
+ * tabs (`notif.ack`, `notif.removed`) so they update immediately.
  */
 @Controller('/notif')
 export class NotificationController extends PuterController {
@@ -37,50 +65,21 @@ export class NotificationController extends PuterController {
      * POST /notif/mark-ack — user dismissed a notification. Sets `acknowledged`
      * timestamp; pushes ack event to sockets.
      */
-    @Post('/mark-ack', {
-        subdomain: 'api',
-        requireUserActor: true,
-        allowFullAccessToken: true,
-        // Fires per notification interaction, so the ceiling stays
-        // generous — it is here to catch a loop, not to pace a user.
-        rateLimit: {
-            scope: 'notification-mark',
-            limit: 300,
-            window: 60_000,
-            key: 'user',
-        },
-    })
+    @Post('/mark-ack', MARK_ROUTE_OPTIONS)
     async markAck(req: Request, res: Response): Promise<void> {
-        const uid = req.body?.uid;
-        if (typeof uid !== 'string' || uid.length === 0) {
-            throw new HttpError(400, '`uid` must be a non-empty string', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const userId = req.actor?.user?.id;
-        if (!userId)
-            throw new HttpError(401, 'Unauthorized', {
-                legacyCode: 'unauthorized',
-            });
+        const { uid, userId } = markTarget(req);
+        await this.services.notification.markAcknowledged(uid, userId);
+        res.json({});
+    }
 
-        const notifService = this.services.notification as unknown as
-            | NotificationService
-            | undefined;
-        if (notifService?.markAcknowledged) {
-            await notifService.markAcknowledged(uid, userId);
-        } else {
-            // Fallback: direct store call if service isn't wired
-            await (
-                this.stores as Record<string, unknown> as {
-                    notification: {
-                        markAcknowledged: (
-                            uid: string,
-                            userId: number,
-                        ) => Promise<boolean>;
-                    };
-                }
-            ).notification.markAcknowledged(uid, userId);
-        }
+    /**
+     * POST /notif/delete — user removed a notification from their history. A
+     * uid naming none of their rows succeeds too: it is gone either way.
+     */
+    @Post('/delete', MARK_ROUTE_OPTIONS)
+    async remove(req: Request, res: Response): Promise<void> {
+        const { uid, userId } = markTarget(req);
+        await this.services.notification.remove(uid, userId);
         res.json({});
     }
 }

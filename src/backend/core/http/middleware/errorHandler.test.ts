@@ -34,10 +34,14 @@ interface CapturedResponse {
     headersSent: boolean;
 }
 
-const makeRes = (headersSent = false): { res: Response; out: CapturedResponse } => {
+const makeRes = (
+    headersSent = false,
+    locals: Record<string, unknown> = {},
+): { res: Response; out: CapturedResponse } => {
     const out: CapturedResponse = { headers: {}, headersSent };
     const res = {
         headersSent,
+        locals,
         status(code: number) {
             out.statusCode = code;
             return this;
@@ -66,9 +70,13 @@ const makeReq = (
 const runHandler = (
     handler: ReturnType<typeof createErrorHandler>,
     err: unknown,
-    init?: { headersSent?: boolean; req?: Partial<Request> },
+    init?: {
+        headersSent?: boolean;
+        req?: Partial<Request>;
+        locals?: Record<string, unknown>;
+    },
 ) => {
-    const { res, out } = makeRes(init?.headersSent ?? false);
+    const { res, out } = makeRes(init?.headersSent ?? false, init?.locals);
     const next = vi.fn();
     handler(err, makeReq(init?.req), res, next);
     return { out, next };
@@ -230,6 +238,75 @@ describe('createErrorHandler — when the response has already started streaming
         const err = new Error('boom');
         runHandler(handler, err, { headersSent: true });
         expect(onError).toHaveBeenCalledTimes(1);
+    });
+});
+
+// -- Vendor error rendering (res.locals.errorRenderer) ----------------
+
+describe('createErrorHandler — res.locals.errorRenderer', () => {
+    it('uses the renderer instead of the default envelope when it is set', () => {
+        const handler = createErrorHandler();
+        const errorRenderer = vi.fn().mockReturnValue({
+            status: 402,
+            body: { type: 'error', error: { type: 'billing_error', message: 'nope' } },
+            headers: { 'request-id': 'req_1' },
+        });
+        const { out } = runHandler(
+            handler,
+            new HttpError(402, 'subscription required', {
+                legacyCode: 'subscription_required',
+            }),
+            { locals: { errorRenderer } },
+        );
+
+        expect(out.statusCode).toBe(402);
+        expect(out.body).toEqual({
+            type: 'error',
+            error: { type: 'billing_error', message: 'nope' },
+        });
+        expect(out.headers['request-id']).toBe('req_1');
+        // The default envelope's fields (code, errorCode) never appear.
+        expect(out.body).not.toHaveProperty('code');
+    });
+
+    it('still fires onError when a renderer handles the response', () => {
+        const onError = vi.fn();
+        const handler = createErrorHandler({ onError });
+        const errorRenderer = vi.fn().mockReturnValue({ status: 500, body: {} });
+        runHandler(handler, new HttpError(500, 'boom'), {
+            locals: { errorRenderer },
+        });
+        expect(onError).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders a non-HttpError failure too, without calling onUnhandled a second time', () => {
+        const onUnhandled = vi.fn();
+        const handler = createErrorHandler({ onUnhandled });
+        const errorRenderer = vi.fn().mockReturnValue({
+            status: 500,
+            body: { error: { message: 'Internal server error', type: 'server_error' } },
+        });
+        const { out } = runHandler(handler, new Error('leaky details'), {
+            locals: { errorRenderer },
+        });
+
+        expect(out.statusCode).toBe(500);
+        expect(onUnhandled).toHaveBeenCalledTimes(1);
+        expect(JSON.stringify(out.body)).not.toContain('leaky details');
+    });
+
+    it('falls back to the default envelope when res.locals has no renderer', () => {
+        const handler = createErrorHandler();
+        const { out } = runHandler(
+            handler,
+            new HttpError(404, 'Not Found', { legacyCode: 'not_found' }),
+            { locals: {} },
+        );
+        expect(out.body).toEqual({
+            error: 'Not Found',
+            message: 'Not Found',
+            code: 'not_found',
+        });
     });
 });
 

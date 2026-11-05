@@ -4,10 +4,10 @@
  * A user of an app, as returned by `App.users()` and `App.getUsers()`.
  *
  * @typedef {Object} AppUser
- * @property {string} username The user's username.
+ * @property {string} user The user's username.
  * @property {string} user_uuid The user's unique identifier.
  * @property {string | null} [user_email] The user's email address. Only present when the user granted
- * this app the `user:<uuid>:email:read` permission (e.g. via `puter.perms.requestEmail()`); omitted
+ * this app access to their email (via `puter.perms.request('email')`); omitted
  * otherwise. May be `null` if the user granted access but has no email on file.
  */
 
@@ -78,8 +78,8 @@
  * Options for creating an app with `Apps.create()`.
  *
  * @typedef {Object} CreateAppOptions
- * @property {string} name The name of the app to create. Must be unique to the user's apps; if an app
- * with this name already exists the promise is rejected.
+ * @property {string} name The name of the app to create. App names are unique across all accounts; if
+ * any app already has this name the promise is rejected.
  * @property {string} indexURL The URL of the app's index page, displayed when the app is started. Must
  * start with `http://` or `https://`; other protocols are not allowed.
  * @property {string} [title] The human-readable title of the app. Defaults to `name` if not provided.
@@ -101,8 +101,8 @@
  * Attributes to update with `Apps.update()`.
  *
  * @typedef {Object} UpdateAppAttributes
- * @property {string} [name] The new name of the app. Must be unique to the user's apps; if an app with
- * this name already exists the promise is rejected.
+ * @property {string} [name] The new name of the app. App names are unique across all accounts; if any
+ * app already has this name the promise is rejected.
  * @property {string} [indexURL] The new URL of the app's index page. Must be accessible to the user.
  * @property {string} [title] The new title of the app.
  * @property {string} [description] The new description of the app aimed at the end user.

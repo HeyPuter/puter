@@ -66,6 +66,7 @@ AGENTS.md
 
 
 coverage/
+.vitest-reports/
 *.log
 undefined
 servers.json

@@ -3,24 +3,27 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { describe, expect, it } from 'vitest';
 import {
     NOTIFICATION_TYPES,
+    OUTSIDE_ACCOUNT_MAILBOX_TYPES,
     findNotificationType,
+    inAccountMailbox,
     resolveNotificationWrite,
 } from './notificationTypes.js';
 
@@ -51,6 +54,9 @@ describe('NOTIFICATION_TYPES', () => {
             audience: 'developer',
             appScoped: true,
         });
+        expect(
+            findNotificationType('app.events.handler_suspended'),
+        ).toMatchObject({ audience: 'app-user', appScoped: true });
         expect(findNotificationType('app.events.ended')).toMatchObject({
             audience: 'app-user',
             appScoped: false,
@@ -59,9 +65,9 @@ describe('NOTIFICATION_TYPES', () => {
 
     it('projects a subject naming the app, or the recipient when there is none', () => {
         const account = findNotificationType('share.received')!;
-        expect(
-            account.subject({ userUuid: 'user-uuid', appUid: null }),
-        ).toBe('notif:user-uuid:account');
+        expect(account.subject({ userUuid: 'user-uuid', appUid: null })).toBe(
+            'notif:user-uuid:account',
+        );
 
         const developer = findNotificationType('app.events.suspended')!;
         expect(
@@ -72,6 +78,11 @@ describe('NOTIFICATION_TYPES', () => {
         expect(holder.subject({ userUuid: 'user-uuid', appUid: 'app-1' })).toBe(
             'notif:app-1:app-user',
         );
+
+        const message = findNotificationType('app.message')!;
+        expect(
+            message.subject({ userUuid: 'user-uuid', appUid: 'app-1' }),
+        ).toBe('notif:app-1:app-user');
 
         // A worker bound to no app has no app to name.
         const worker = findNotificationType('app.worker.deployed')!;
@@ -122,9 +133,53 @@ describe('resolveNotificationWrite', () => {
         ).toThrow('requires an app uid');
     });
 
-    it('lets a subscription an account made end without naming an app', () => {
-        expect(resolveNotificationWrite('app.events.ended', null).audience).toBe(
-            'app-user',
+    it('requires an app uid for an app message', () => {
+        expect(resolveNotificationWrite('app.message', 'app-1')).toMatchObject({
+            audience: 'app-user',
+            appScoped: true,
+            groupable: true,
+        });
+        expect(() => resolveNotificationWrite('app.message', null)).toThrow(
+            'requires an app uid',
         );
+    });
+
+    it('lets a subscription an account made end without naming an app', () => {
+        expect(
+            resolveNotificationWrite('app.events.ended', null).audience,
+        ).toBe('app-user');
+    });
+});
+
+describe('types kept off the account mailbox', () => {
+    it('are only the ones an app alone has a use for', () => {
+        const appOnly = ['app.message', 'kv.share.received'];
+        expect(OUTSIDE_ACCOUNT_MAILBOX_TYPES).toEqual(appOnly);
+        for (const entry of NOTIFICATION_TYPES)
+            expect(inAccountMailbox(entry.type)).toBe(
+                !appOnly.includes(entry.type),
+            );
+        // An unclassified legacy row still belongs on the desktop.
+        expect(inAccountMailbox('')).toBe(true);
+        expect(inAccountMailbox(undefined)).toBe(true);
+    });
+
+    it("include an app's own messages, and keep shares on the desktop", () => {
+        expect(inAccountMailbox('app.message')).toBe(false);
+        expect(inAccountMailbox('share.received')).toBe(true);
+        expect(inAccountMailbox('share.claimed')).toBe(true);
+        expect(inAccountMailbox('app.worker.deployFailed')).toBe(true);
+    });
+
+    it('include the key-value share notice, which always names its app', () => {
+        expect(findNotificationType('kv.share.received')).toMatchObject({
+            audience: 'app-user',
+            appScoped: true,
+            groupable: false,
+            accountMailbox: false,
+        });
+        expect(() =>
+            resolveNotificationWrite('kv.share.received', null),
+        ).toThrow(/requires an app uid/);
     });
 });
