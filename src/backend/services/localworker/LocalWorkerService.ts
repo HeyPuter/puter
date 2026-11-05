@@ -10,6 +10,8 @@ import {
 import { puterStores } from '../../stores';
 import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore';
 import { LayerInstances } from '../../types';
+import { settleWithin } from '../../util/concurrency.js';
+import { FINAL_FLUSH_TIMEOUT_MS } from '../../util/gracefulShutdown.js';
 import { PuterService } from '../types';
 
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -240,13 +242,16 @@ export class LocalWorkerService extends PuterService {
         idleSweepTimer.unref?.();
     }
 
-    override onServerShutdown(): void {
+    override async onServerShutdown(): Promise<void> {
         if (idleSweepTimer) {
             clearInterval(idleSweepTimer);
             idleSweepTimer = null;
         }
-        for (const name of [...activeWorkers.keys()]) {
-            void this.#disposeWorker(name);
+        const work = Promise.allSettled(
+            [...activeWorkers.keys()].map((name) => this.#disposeWorker(name)),
+        );
+        if (!(await settleWithin(work, FINAL_FLUSH_TIMEOUT_MS))) {
+            console.warn('[localworker] final flush timed out');
         }
     }
     async reconstructDeployArgs(workerName: string, row: SubdomainRow) {

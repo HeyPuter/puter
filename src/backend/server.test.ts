@@ -1492,6 +1492,104 @@ describe('PuterServer keep-alive timeout', () => {
 });
 
 describe('PuterServer lifecycle hooks', () => {
+    it('fails startup before running later hooks when a start hook rejects', async () => {
+        const failure = new Error('startup failed');
+        const later = vi.fn();
+        class FailingStart extends JobScheduler {
+            override async onServerStart() {
+                throw failure;
+            }
+        }
+        class LaterStart extends JobScheduler {
+            override async onServerStart() {
+                later();
+            }
+        }
+        extension.registerService('failingStart', FailingStart as never);
+        extension.registerService('laterStart', LaterStart as never);
+        try {
+            await expect(setupTestServer()).rejects.toBe(failure);
+            expect(later).not.toHaveBeenCalled();
+        } finally {
+            delete (extensionStore.services as Record<string, unknown>)
+                .failingStart;
+            delete (extensionStore.services as Record<string, unknown>)
+                .laterStart;
+        }
+    });
+
+    it.each([false, true])(
+        'continues teardown after failing hooks with listener callback %s',
+        async (prepareFirst) => {
+            const port = await allocateEphemeralPort();
+            const server = await setupTestServer(
+                { port } as unknown as IConfig,
+                { listen: true },
+            );
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            const ran: string[] = [];
+            class FailingHooks {
+                onServerPrepareShutdown() {
+                    ran.push('prepare:failed');
+                    throw new Error('prepare failed');
+                }
+                async onServerShutdown() {
+                    ran.push('shutdown:failed');
+                    throw new Error('shutdown failed');
+                }
+            }
+            (server.services as Record<string, unknown>).fails =
+                new FailingHooks();
+            (server.services as Record<string, unknown>).after = {
+                onServerPrepareShutdown: () => ran.push('prepare:after'),
+                onServerShutdown: () => ran.push('shutdown:after'),
+            };
+            (server.clients as Record<string, unknown>).last = {
+                onServerShutdown: () => ran.push('shutdown:client'),
+            };
+            try {
+                if (prepareFirst) {
+                    await server.prepareShutdown();
+                    await vi.waitFor(() =>
+                        expect(ran).toContain('prepare:after'),
+                    );
+                }
+                await server.shutdown();
+                expect(ran).toEqual([
+                    'prepare:failed',
+                    'prepare:after',
+                    'shutdown:failed',
+                    'shutdown:after',
+                    'shutdown:client',
+                ]);
+                expect(logged).toHaveBeenCalledWith(
+                    '[server] onServerPrepareShutdown failed in FailingHooks',
+                    expect.any(Error),
+                );
+                expect(logged).toHaveBeenCalledWith(
+                    '[server] onServerShutdown failed in FailingHooks',
+                    expect.any(Error),
+                );
+                await expect(
+                    new Promise<void>((resolve, reject) => {
+                        const socket = net.connect(port, '127.0.0.1');
+                        socket.on('connect', () => {
+                            socket.destroy();
+                            resolve();
+                        });
+                        socket.on('error', reject);
+                    }),
+                ).rejects.toMatchObject({ code: 'ECONNREFUSED' });
+            } finally {
+                delete (server.services as Record<string, unknown>).fails;
+                await server.shutdown();
+                logged.mockRestore();
+            }
+        },
+    );
+
     it('runs drain-start and prepare-shutdown bottom-up, once, before tearing down', async () => {
         const port = await allocateEphemeralPort();
         const server = await setupTestServer({ port } as unknown as IConfig, {
