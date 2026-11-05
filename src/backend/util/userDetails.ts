@@ -75,6 +75,7 @@ const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
     'signup_origin',
     'signup_server',
     'audit_metadata',
+    'emailStream',
 ]);
 
 /**

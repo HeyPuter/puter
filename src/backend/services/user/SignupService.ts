@@ -43,6 +43,15 @@ import { PuterService } from '../types.js';
 
 const EMAIL_STREAM_NAME = /^[a-z0-9][a-z0-9:_-]{0,63}$/;
 
+const emailStreamName = (value: unknown): string | null => {
+    if (value == null) return null;
+    if (typeof value === 'string' && EMAIL_STREAM_NAME.test(value)) {
+        return value;
+    }
+    console.warn('[signup] ignored email_stream:', value);
+    return null;
+};
+
 /** What `puter.signup.validate` and the bonus hooks decided about a signup. */
 export type SignupGateOutcome =
     | {
@@ -325,11 +334,7 @@ export class SignupService extends PuterService {
             emailGateLast:
                 Boolean(validateEvent.email_gate_last) &&
                 (requiresPhoneVerification || requiresCardVerification),
-            emailStream:
-                typeof validateEvent.email_stream === 'string' &&
-                EMAIL_STREAM_NAME.test(validateEvent.email_stream)
-                    ? validateEvent.email_stream
-                    : null,
+            emailStream: emailStreamName(validateEvent.email_stream),
         };
     }
 
@@ -588,9 +593,16 @@ export class SignupService extends PuterService {
         }
 
         const emailGateLast = !isTemp && gate.emailGateLast;
-        if (emailGateLast) user = await this.#markEmailGateLast(user);
-        if (gate.emailStream) {
-            user = await this.#setEmailStream(user, gate.emailStream);
+        const metadataPatch = {
+            ...(emailGateLast ? { emailGateLast: true } : {}),
+            ...(gate.emailStream ? { emailStream: gate.emailStream } : {}),
+        };
+        if (Object.keys(metadataPatch).length > 0) {
+            await this.stores.user.updateMetadata(user.id, metadataPatch);
+            user = {
+                ...user,
+                metadata: { ...user.metadata, ...metadataPatch },
+            };
         }
 
         let confirmationEmailSent: boolean | undefined;
@@ -601,7 +613,6 @@ export class SignupService extends PuterService {
                 (body.send_confirmation_code ?? true)
                     ? { code: emailConfirmCode }
                     : { token: emailConfirmToken },
-                gate.emailStream ? { stream: gate.emailStream } : {},
             );
         }
 
@@ -675,24 +686,10 @@ export class SignupService extends PuterService {
         }
     }
 
-    async #setEmailStream(
-        user: UserRow,
-        emailStream: string,
-    ): Promise<UserRow> {
-        await this.stores.user.updateMetadata(user.id, { emailStream });
-        return { ...user, metadata: { ...user.metadata, emailStream } };
-    }
-
     /** The stream this account's confirmation emails are sent on. */
     confirmationStream(user: UserRow): string {
         const stored = user.metadata?.emailStream;
         return typeof stored === 'string' ? stored : 'signup';
-    }
-
-    /** Record that this account clears card and phone before email. */
-    async #markEmailGateLast(user: UserRow): Promise<UserRow> {
-        await this.stores.user.updateMetadata(user.id, { emailGateLast: true });
-        return { ...user, metadata: { ...user.metadata, emailGateLast: true } };
     }
 
     /**
@@ -731,10 +728,9 @@ export class SignupService extends PuterService {
         user: UserRow,
         stage: 'signup' | 'resend' | 'deferred',
         message: { code: string } | { token: string },
-        options: { stream?: string } = {},
     ): Promise<boolean> {
         if (!this.clients.email || !user.email) return false;
-        const stream = options.stream ?? this.confirmationStream(user);
+        const stream = this.confirmationStream(user);
         try {
             const sent =
                 'code' in message

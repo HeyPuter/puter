@@ -9631,6 +9631,29 @@ describe('AuthController.handleSignup confirmation email outcome', () => {
         expect(body.confirmation_email_sent).toBe(true);
     });
 
+    it('keeps the confirmation stream out of the returned user details', async () => {
+        const res = makeRes();
+        const username = `ces_${uniq()}`;
+        await withSignupValidateOverride(
+            (event) => {
+                (event as Record<string, unknown>).email_stream = 'review';
+            },
+            () =>
+                controller.handleSignup(
+                    makeReq({
+                        username,
+                        email: `${username}@test.local`,
+                        password: 'correct-horse-battery',
+                    }),
+                    res,
+                ),
+        );
+        const stored = await server.stores.user.getByUsername(username);
+        expect(stored!.metadata?.emailStream).toBe('review');
+        const details = (res.body as { user: { metadata?: object } }).user;
+        expect(details.metadata ?? {}).not.toHaveProperty('emailStream');
+    });
+
     it('leaves the field out when no confirmation email is due', async () => {
         const res = makeRes();
         await controller.handleSignup(makeReq({ is_temp: true }), res);

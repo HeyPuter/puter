@@ -2813,19 +2813,11 @@ export class AuthController extends PuterController {
             username,
         });
 
-        // Send confirmation email
-        if (this.clients.email) {
-            try {
-                await this.clients.email.send(
-                    email,
-                    'email_verification_code',
-                    { code: email_confirm_code },
-                    { stream: this.services.signup.confirmationStream(user) },
-                );
-            } catch (e) {
-                console.warn('[save-account] confirmation email failed:', e);
-            }
-        }
+        await this.services.signup.sendConfirmationEmail(
+            { ...user, username, email },
+            'signup',
+            { code: email_confirm_code },
+        );
 
         try {
             this.clients.event?.emit(

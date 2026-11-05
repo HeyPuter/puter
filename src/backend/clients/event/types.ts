@@ -247,7 +247,11 @@ export type EventMap = {
         requires_phone_verification?: boolean;
         /** Set by the abuse harness — require card verification post-signup. */
         requires_card_verification?: boolean;
-        /** The email stream the confirmation message is sent on. */
+        /**
+         * The email stream the confirmation message is sent on: lowercase
+         * letters, digits, `:`, `_` and `-`, up to 64 characters, starting with
+         * a letter or digit. Any other value is ignored.
+         */
         email_stream?: string | null;
         [key: string]: unknown;
     };
@@ -1081,10 +1085,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1095,7 +1100,10 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    'received' | 'unreceived' | 'no-socket' | 'remote-only';
+    | 'received'
+    | 'unreceived'
+    | 'no-socket'
+    | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

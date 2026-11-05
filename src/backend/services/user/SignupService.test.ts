@@ -20,6 +20,7 @@
 import type { Request } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.js';
+import type { UserRow } from '../../stores/user/UserStore.js';
 import { setupTestServer } from '../../testUtil.js';
 
 let server: PuterServer;
@@ -309,11 +310,15 @@ describe('SignupService email gate last', () => {
 });
 
 describe('SignupService confirmation stream', () => {
-    /**
-     * Signs up with the validate hook setting `email_stream`; returns sent
-     * emails.
-     */
-    const signupWithStream = async (emailStream: unknown, extra = {}) => {
+    /** Signs up with a listener setting `email_stream`, then runs `check`. */
+    const signupWithStream = async (
+        emailStream: unknown,
+        check: (signedUp: {
+            stored: UserRow;
+            send: ReturnType<typeof vi.fn>;
+        }) => Promise<void>,
+        extra = {},
+    ) => {
         const send = vi.fn(async () => true);
         const clients = server.clients as unknown as { email: unknown };
         const realEmail = clients.email;
@@ -341,19 +346,15 @@ describe('SignupService confirmation stream', () => {
             const stored = await server.stores.user.getById(user.id, {
                 force: true,
             });
-            return {
-                stored: stored!,
-                send,
-                restore: () => (clients.email = realEmail),
-            };
+            await check({ stored: stored!, send });
         } finally {
             server.clients.event.off('puter.signup.validate', name);
+            clients.email = realEmail;
         }
     };
 
     it('sends the confirmation on the stream a listener names and remembers it', async () => {
-        const { stored, send, restore } = await signupWithStream('review:2');
-        try {
+        await signupWithStream('review:2', async ({ stored, send }) => {
             expect(send).toHaveBeenCalledWith(
                 stored.email,
                 'email_verification_code',
@@ -376,57 +377,69 @@ describe('SignupService confirmation stream', () => {
                 { code: '111111' },
                 { stream: 'review:2' },
             );
+        });
+    });
+
+    it('ignores a stream name that is not a short lowercase token, and says so', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            for (const bad of [
+                'Upper',
+                'has space',
+                7,
+                '-lead',
+                'x'.repeat(65),
+            ]) {
+                await signupWithStream(bad, async ({ stored, send }) => {
+                    expect(send).toHaveBeenCalledWith(
+                        stored.email,
+                        'email_verification_code',
+                        { code: stored.email_confirm_code },
+                        { stream: 'signup' },
+                    );
+                    expect(stored.metadata?.emailStream).toBeUndefined();
+                });
+                expect(warn).toHaveBeenCalledWith(
+                    '[signup] ignored email_stream:',
+                    bad,
+                );
+            }
         } finally {
-            restore();
+            warn.mockRestore();
         }
     });
 
-    it('ignores a stream name that is not a short lowercase token', async () => {
-        for (const bad of ['Upper', 'has space', 7, '-lead', 'x'.repeat(65)]) {
-            const { stored, send, restore } = await signupWithStream(bad);
-            try {
+    it('records the gate order and the stream together', async () => {
+        await signupWithStream(
+            'held',
+            async ({ stored, send }) => {
+                expect(stored.metadata).toMatchObject({
+                    emailGateLast: true,
+                    emailStream: 'held',
+                });
+                expect(send).not.toHaveBeenCalled();
+                await server.stores.user.update(stored.id, {
+                    requires_phone_verification: 0,
+                });
+                await server.services.signup.sendDeferredConfirmationEmail(
+                    stored.id,
+                );
                 expect(send).toHaveBeenCalledWith(
                     stored.email,
                     'email_verification_code',
                     { code: stored.email_confirm_code },
-                    { stream: 'signup' },
+                    { stream: 'held' },
                 );
-                expect(stored.metadata?.emailStream).toBeUndefined();
-            } finally {
-                restore();
-            }
-        }
-    });
-
-    it('sends a deferred confirmation on the remembered stream', async () => {
-        const { stored, send, restore } = await signupWithStream('held', {
-            requires_phone_verification: true,
-            email_gate_last: true,
-        });
-        try {
-            expect(send).not.toHaveBeenCalled();
-            await server.stores.user.update(stored.id, {
-                requires_phone_verification: 0,
-            });
-            await server.services.signup.sendDeferredConfirmationEmail(
-                stored.id,
-            );
-            expect(send).toHaveBeenCalledWith(
-                stored.email,
-                'email_verification_code',
-                { code: stored.email_confirm_code },
-                { stream: 'held' },
-            );
-        } finally {
-            restore();
-        }
+            },
+            { requires_phone_verification: true, email_gate_last: true },
+        );
     });
 
     it('falls back to the signup stream for an account without one', () => {
         expect(
             server.services.signup.confirmationStream({
                 metadata: {},
-            } as never),
+            } as unknown as UserRow),
         ).toBe('signup');
     });
 });
