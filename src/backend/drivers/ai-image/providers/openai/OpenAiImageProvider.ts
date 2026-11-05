@@ -56,8 +56,8 @@ interface OpenAIImageUsage {
 
 /**
  * OpenAI image generation provider for v2. Supports the GPT Image models
- * (gpt-image-2, -2.5-sunburst, -2.5-flare), including image-to-image editing
- * via `input_images` (the `images.edit` endpoint).
+ * (gpt-image-2 and the 2.5/2.6 Sunburst and Flare models), including
+ * image-to-image editing via `input_images` (the `images.edit` endpoint).
  */
 export class OpenAiImageProvider implements IImageProvider {
     #meteringService: AiMeteringService;
@@ -109,7 +109,7 @@ export class OpenAiImageProvider implements IImageProvider {
     }
 
     getDefaultModel(): string {
-        return 'gpt-image-2';
+        return 'gpt-image-2.6-flare';
     }
 
     async generate({
@@ -604,17 +604,36 @@ export class OpenAiImageProvider implements IImageProvider {
         height: number,
         quality?: string,
     ): number {
-        const factors = model.startsWith('gpt-image-2.5')
-            ? OpenAiImageProvider.#GPT_IMAGE_2_5_LATENT_FACTORS
-            : OpenAiImageProvider.#GPT_IMAGE_2_LATENT_FACTORS;
+        const isGptImage26 = model.startsWith('gpt-image-2.6');
+        const factors =
+            isGptImage26 || model.startsWith('gpt-image-2.5')
+                ? OpenAiImageProvider.#GPT_IMAGE_2_5_LATENT_FACTORS
+                : OpenAiImageProvider.#GPT_IMAGE_2_LATENT_FACTORS;
         const factor = factors[quality ?? ''] ?? factors.medium;
         const longEdge = Math.max(width, height);
         const shortEdge = Math.min(width, height);
-        const shortLatent = Math.round((factor * shortEdge) / longEdge);
+        const shortGrid = (factor * shortEdge) / longEdge;
+        const floorGrid = Math.floor(shortGrid);
+        const shortLatent =
+            isGptImage26 && shortGrid - floorGrid === 0.5
+                ? floorGrid + (floorGrid % 2)
+                : Math.round(shortGrid);
         const latentW = width >= height ? factor : shortLatent;
         const latentH = width >= height ? shortLatent : factor;
         const baseArea = latentW * latentH;
-        return Math.ceil((baseArea * (2_000_000 + width * height)) / 4_000_000);
+        const tokens = Math.ceil(
+            (baseArea * (2_000_000 + width * height)) / 4_000_000,
+        );
+        // GPT Image 2.6 bills more tokens at low and medium quality.
+        const estimatedQuality =
+            quality && quality in factors ? quality : 'medium';
+        const multiplier =
+            estimatedQuality === 'low'
+                ? 4.2
+                : estimatedQuality === 'medium'
+                  ? 3.3
+                  : 1;
+        return isGptImage26 ? Math.round(tokens * multiplier) : tokens;
     }
 
     #estimateOutputCostFromTokens(

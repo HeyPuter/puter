@@ -31,7 +31,7 @@ Additional settings for the generation request. Available options depend on the 
 | Option | Type | Description |
 | -------- | ------ | ------------- |
 | `prompt` | `String` | Text description for the image generation |
-| `model` | `String` | Image model ID. Defaults to `gpt-image-2`. Lookups are case-insensitive; provider-prefixed IDs, such as `replicate:leonardoai/lucid-origin`, select that provider. See the [AI model directory](https://developer.puter.com/ai/models/) for the included models and price units. |
+| `model` | `String` | Image model ID. Defaults to `gpt-image-2.6-flare`. Lookups are case-insensitive; provider-prefixed IDs, such as `replicate:leonardoai/lucid-origin`, select that provider. See the [AI model directory](https://developer.puter.com/ai/models/) for the included models and price units. |
 | `ratio` | `Object` | Aspect ratio as `{ w, h }` (e.g., `{ w: 16, h: 9 }`). See [Output dimensions](#output-dimensions). |
 | `aspect_ratio` | `String` | Aspect ratio (e.g., `'16:9'`). See [Output dimensions](#output-dimensions). |
 | `width` | `Number` | Output width in pixels. Set it together with `height`. See [Output dimensions](#output-dimensions). |
@@ -101,12 +101,12 @@ Absolute paths (`/username/Pictures/sunset.png`) and home-relative paths (`~/Pic
 
 ### OpenAI models
 
-Available when `provider: 'openai'` or inferred from model (`gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`):
+Available when `provider: 'openai'` or inferred from model (`gpt-image-2.6-sunburst`, `gpt-image-2.6-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`):
 
 | Option | Type | Description |
 | -------- | ------ | ------------- |
-| `model` | `String` | Image model to use. Available: `'gpt-image-2.5-sunburst'`, `'gpt-image-2.5-flare'`, `'gpt-image-2'` (default). |
-| `quality` | `String` | Image quality: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'`, and the `gpt-image-2.5-*` models also accept `'xhigh'`, `'max'`, and `'auto'`. Case-insensitive; unrecognized values fall back to `'low'`. |
+| `model` | `String` | Image model to use. Available: `'gpt-image-2.6-flare'` (default), `'gpt-image-2.6-sunburst'`, `'gpt-image-2.5-sunburst'`, `'gpt-image-2.5-flare'`, `'gpt-image-2'`. |
+| `quality` | `String` | Image quality: `'high'`, `'medium'`, `'low'` (default: `'low'`); `gpt-image-2` also accepts `'auto'`, and the `gpt-image-2.5-*` and `gpt-image-2.6-*` models also accept `'xhigh'`, `'max'`, and `'auto'`. Case-insensitive; unrecognized values fall back to `'low'`. |
 | `ratio` | `Object` | Aspect ratio with `w` and `h` properties. All GPT Image models accept dynamic sizes subject to provider limits (16-pixel steps, 3:1 maximum ratio, 3840-pixel edge cap). When you pass an aspect ratio, OpenAI scales it up to a size within its pixel-count limits. |
 
 For more details, see the [OpenAI API reference](https://platform.openai.com/docs/api-reference/images/create).
@@ -266,7 +266,7 @@ Any properties not set fall back to provider defaults.
     <script>
         // Generate an image of a cat playing piano using a specific model and quality set to low
         puter.ai.txt2img("a cat playing the piano", {
-            model: "gpt-image-2",
+            model: "gpt-image-2.6-flare",
             quality: "low"
         }).then((image)=>{
             document.body.appendChild(image);
