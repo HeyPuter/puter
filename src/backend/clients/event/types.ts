@@ -617,7 +617,10 @@ export type EventMap = {
     };
     /**
      * How one live notification went, on the node that asked for its receipt:
-     * from the desktop's sockets, or with `appUid` the app's own.
+     * from the desktop's sockets, or with `appUid` the app's own. With
+     * `notificationPeerReceipts` on, the peer regions presence names answer for
+     * their own sockets, and the socket fields below cover every region that
+     * answered.
      */
     'notif.delivery.settled': {
         sendId?: string;
@@ -627,14 +630,22 @@ export type EventMap = {
         /** The app whose own sockets were asked; absent for the desktop's. */
         appUid?: string;
         outcome: NotifDeliveryOutcome;
-        /** A socket in this region acknowledges the receipt. */
+        /** A socket in a region that answered acknowledges the receipt. */
         ackCapable: boolean;
-        /** No socket here is an older client that acknowledges nothing. */
+        /** No socket in a region that answered acknowledges nothing. */
         everySocketAcks: boolean;
-        /** Every node here answered the ask, not just this one. */
+        /** Every node of every region that answered took part in the ask. */
         complete: boolean;
-        /** A peer region holds a socket for the user. */
+        /** Presence names a peer region holding a socket for the user. */
         peerRegions: boolean;
+        /** Peer regions presence named; absent when peers are not asked. */
+        peersAsked?: string[];
+        /**
+         * Those that sent no answer in time, or were left unasked for lack of
+         * time or because too many asks to them were open. Absent when peers
+         * are not asked.
+         */
+        peersUnheard?: string[];
         responders: NotifDeliveryResponder[];
     };
 
@@ -1080,6 +1091,8 @@ export type NotifDeliveryOutcome =
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {
     visibilityState: 'visible' | 'hidden' | 'unknown';
+    /** The peer region the page is in; absent for this region's own. */
+    region?: string;
     /** The page's window has focus. Absent from older clients. */
     focused?: boolean;
     /**

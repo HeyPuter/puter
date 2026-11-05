@@ -23,11 +23,7 @@ import type {
     NotifDeliveryOutcome,
     NotifDeliveryResponder,
 } from '../../clients/event/types.js';
-import {
-    appSocketRoom,
-    type AckedAsk,
-    type SocketService,
-} from '../socket/SocketService.js';
+import { appSocketRoom, type SocketService } from '../socket/SocketService.js';
 import type { IConfig } from '../../types.js';
 
 /**
@@ -59,6 +55,13 @@ export const NOTIF_DELIVERY_EVENT = 'outer.notif.delivery';
 
 /** Default receipt window for a live notification. */
 export const DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS = 5_000;
+
+/** Left of the window for a peer's answer to travel back. */
+const PEER_RECEIPT_MARGIN_MS = 750;
+/** A peer with less than this left to ask its sockets is not asked. */
+const PEER_RECEIPT_MIN_BUDGET_MS = 500;
+/** Responders one peer's answer may name. */
+const PEER_RECEIPT_MAX_RESPONDERS = 100;
 
 /**
  * Asked of the desktop's or an app's sockets with `{ uid }`. A client answers
@@ -149,22 +152,31 @@ export const notificationAckTimeoutMs = (config: IConfig): number => {
         : DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS;
 };
 
+/** One region's ask, as far as the outcome is concerned. */
+type HeardRegion = Pick<
+    RegionReceipt,
+    'responses' | 'timedOut' | 'others' | 'complete'
+>;
+
 /** An incomplete count never reads as nobody being here. */
 const deliveryOutcome = (
-    asked: AckedAsk,
+    heard: HeardRegion[],
     responders: NotifDeliveryResponder[],
-    peerRegions: boolean,
+    unheardPeers: boolean,
 ): NotifDeliveryOutcome => {
     if (responders.length > 0) return 'received';
     // An ack-capable socket answered without it or let the ask time out.
     if (
-        asked.responses.length > 0 ||
-        asked.timedOut ||
-        asked.others ||
-        !asked.complete
+        heard.some(
+            (region) =>
+                region.responses > 0 ||
+                region.timedOut ||
+                region.others ||
+                !region.complete,
+        )
     )
         return 'unreceived';
-    return peerRegions ? 'remote-only' : 'no-socket';
+    return unheardPeers ? 'remote-only' : 'no-socket';
 };
 
 /** Null for a page that answered without the notification. */
@@ -192,16 +204,52 @@ const respondersOf = (responses: unknown[]): NotifDeliveryResponder[] =>
         return responder ? [responder] : [];
     });
 
+/** A peer's reply to a receipt ask, or null when it carries none. */
+export const regionReceiptOf = (reply: unknown): RegionReceipt | null => {
+    const receipt =
+        reply && typeof reply === 'object'
+            ? (reply as { receipt?: unknown }).receipt
+            : null;
+    if (!receipt || typeof receipt !== 'object') return null;
+    const { held, responses, timedOut, others, complete, responders } =
+        receipt as Record<string, unknown>;
+    if (
+        typeof held !== 'boolean' ||
+        typeof responses !== 'number' ||
+        !Number.isFinite(responses) ||
+        typeof timedOut !== 'boolean' ||
+        typeof others !== 'boolean' ||
+        typeof complete !== 'boolean' ||
+        !Array.isArray(responders)
+    )
+        return null;
+    return {
+        held,
+        responses: Math.max(0, responses),
+        timedOut,
+        others,
+        complete,
+        responders: respondersOf(
+            responders.slice(0, PEER_RECEIPT_MAX_RESPONDERS),
+        ),
+    };
+};
+
 interface AdapterDeps {
     event: EventClient;
     socket: SocketService;
     foldIn: () => boolean;
     ackTimeoutMs: () => number;
-    /** Whether a peer region holds a socket for the user, or for this app. */
-    heldInPeerRegion: (
-        userId: number,
-        appUid: string | null,
-    ) => Promise<boolean>;
+    /** Whether a receipt asks the peer regions as well as this one. */
+    peerReceipts: () => boolean;
+    /** Peer regions holding a socket for the user, or for this app. */
+    peerRegions: (userId: number, appUid: string | null) => Promise<string[]>;
+    /** One peer's receipt within `timeoutMs`, or null when none came. */
+    askPeer: (
+        region: string,
+        ask: PeerReceiptAsk,
+        timeoutMs: number,
+    ) => Promise<RegionReceipt | null>;
     /** Whether another node of this region may hold a socket for the pair. */
     heldInRegion: (userId: number, appUid: string | null) => Promise<boolean>;
 }
@@ -288,33 +336,70 @@ export class NotificationSocketAdapter {
     /**
      * Asks the desktop's sockets, or with `appUid` the app's own, whether the
      * live copy of `uid` reached a page, and settles that as
-     * `notif.delivery.settled`. Resolves the settle it emitted, or null when
-     * asking failed.
+     * `notif.delivery.settled`. With peer receipts on, the peer regions
+     * presence names are asked too, inside the same window. Resolves the settle
+     * it emitted, or null when asking failed.
      */
     async receipt(scope: ReceiptScope): Promise<SettledDelivery | null> {
         const { userId, appUid, uid, type, sendId } = scope;
         try {
-            const [asked, peerRegions] = await Promise.all([
+            const timeoutMs = this.#deps.ackTimeoutMs();
+            const deadline = Date.now() + timeoutMs;
+            const askPeers = this.#deps.peerReceipts();
+            const [asked, { regions, peers }] = await Promise.all([
                 this.#deps.socket.askWithAck(
                     { room: appUid ? appSocketRoom(userId, appUid) : userId },
                     NOTIF_RECEIPT_EVENT,
                     { uid },
-                    { timeoutMs: this.#deps.ackTimeoutMs() },
+                    { timeoutMs },
                 ),
-                this.#deps.heldInPeerRegion(userId, appUid),
+                this.#deps
+                    .peerRegions(userId, appUid)
+                    .then(async (regions) => ({
+                        regions,
+                        peers: askPeers
+                            ? await this.#askPeers(
+                                  regions,
+                                  { userId, appUid, uid },
+                                  deadline,
+                              )
+                            : null,
+                    })),
             ]);
+            const heard: HeardRegion[] = [
+                { ...asked, responses: asked.responses.length },
+            ];
             const responders = respondersOf(asked.responses);
+            const unheard: string[] = [];
+            for (const { region, receipt } of peers ?? []) {
+                if (!receipt) {
+                    unheard.push(region);
+                    continue;
+                }
+                heard.push(receipt);
+                for (const responder of receipt.responders)
+                    responders.push({ ...responder, region });
+            }
             const settled: SettledDelivery = {
                 ...(sendId ? { sendId } : {}),
                 uid,
                 userId,
                 type,
                 ...(appUid ? { appUid } : {}),
-                outcome: deliveryOutcome(asked, responders, peerRegions),
-                ackCapable: asked.responses.length > 0 || asked.timedOut,
-                everySocketAcks: !asked.others,
-                complete: asked.complete,
-                peerRegions,
+                outcome: deliveryOutcome(
+                    heard,
+                    responders,
+                    peers ? unheard.length > 0 : regions.length > 0,
+                ),
+                ackCapable: heard.some(
+                    (region) => region.responses > 0 || region.timedOut,
+                ),
+                everySocketAcks: heard.every((region) => !region.others),
+                complete: heard.every((region) => region.complete),
+                peerRegions: regions.length > 0,
+                ...(peers
+                    ? { peersAsked: regions, peersUnheard: unheard }
+                    : {}),
                 responders,
             };
             this.#deps.event.emit(
@@ -327,6 +412,29 @@ export class NotificationSocketAdapter {
             console.warn('[notification] receipt failed', err);
             return null;
         }
+    }
+
+    /**
+     * Each peer region's receipt, null for one that did not answer by the
+     * deadline or had too little of it left to be asked.
+     */
+    #askPeers(
+        regions: string[],
+        scope: Omit<PeerReceiptAsk, 'timeoutMs'>,
+        deadline: number,
+    ): Promise<Array<{ region: string; receipt: RegionReceipt | null }>> {
+        return Promise.all(
+            regions.map(async (region) => {
+                const left = deadline - Date.now();
+                const timeoutMs = left - PEER_RECEIPT_MARGIN_MS;
+                if (timeoutMs < PEER_RECEIPT_MIN_BUDGET_MS)
+                    return { region, receipt: null };
+                const receipt = await this.#deps
+                    .askPeer(region, { ...scope, timeoutMs }, left)
+                    .catch((): null => null);
+                return { region, receipt };
+            }),
+        );
     }
 
     /**

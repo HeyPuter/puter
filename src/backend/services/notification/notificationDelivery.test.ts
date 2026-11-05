@@ -32,7 +32,13 @@ import {
 import type { EventMap } from '../../clients/event/types.js';
 import type { PuterServer } from '../../server.js';
 import { accountSocketRoom, SocketService } from '../socket/SocketService.js';
-import { NOTIF_RECEIPT_EVENT } from './notificationSocket.js';
+import {
+    NOTIF_RECEIPT_EVENT,
+    NOTIF_RECEIPT_PEER_PATH,
+    parsePeerReceiptAsk,
+    type PeerReceiptAsk,
+    type RegionReceipt,
+} from './notificationSocket.js';
 import {
     allocateEphemeralPort,
     createTestUser,
@@ -59,6 +65,9 @@ const withServer = (opts: {
     cluster: boolean;
     events?: boolean;
     appUid?: string;
+    name?: string;
+    ackTimeoutMs?: number;
+    peerReceipts?: boolean;
 }) => {
     const state = {
         server: null as unknown as PuterServer,
@@ -125,14 +134,17 @@ const withServer = (opts: {
         state.server = await setupTestServer(
             {
                 port,
-                notificationAckTimeoutMs: ACK_TIMEOUT_MS,
+                notificationAckTimeoutMs: opts.ackTimeoutMs ?? ACK_TIMEOUT_MS,
+                ...(opts.peerReceipts
+                    ? { notificationPeerReceipts: true }
+                    : {}),
                 ...(opts.events ? { events: { enabled: true } } : {}),
             } as never,
             { listen: true },
         );
         state.origin = `http://puter.localhost:${port}`;
         state.user = await createTestUser(state.server, {
-            username: `receipt-${opts.cluster ? 'c' : 'l'}`,
+            username: `receipt-${opts.name ?? (opts.cluster ? 'c' : 'l')}`,
             password: 'receipt-user-password',
         });
         state.userId = (await state.server.stores.user.getByUsername(
@@ -239,10 +251,10 @@ const withServer = (opts: {
         return { uid, settled: settled! };
     };
 
-    const peerRegionHolds = () => {
+    const peerRegionHolds = (region = 'peer-a') => {
         const eventForward = state.server.services.eventForward;
         vi.spyOn(eventForward, 'active', 'get').mockReturnValue(true);
-        vi.spyOn(eventForward, 'regionsFor').mockResolvedValue(['peer-a']);
+        vi.spyOn(eventForward, 'regionsFor').mockResolvedValue([region]);
         return eventForward;
     };
 
@@ -441,6 +453,18 @@ describe('live notification delivery receipts', () => {
             state.userId,
             null,
         );
+    });
+
+    it('asks no peer region while peer receipts are off', async () => {
+        peerRegionHolds();
+        const post = vi.spyOn(state.server.services.broadcast, 'postToPeer');
+
+        const { settled } = await ask();
+
+        expect(post).not.toHaveBeenCalled();
+        expect(settled).toMatchObject({ outcome: 'remote-only' });
+        expect(settled).not.toHaveProperty('peersAsked');
+        expect(settled).not.toHaveProperty('peersUnheard');
     });
 
     it('says a peer region holds the user beside an unacknowledged tab here', async () => {
@@ -716,6 +740,177 @@ describe('app receipts where the adapter cannot count servers', () => {
             ackCapable: true,
             everySocketAcks: false,
             complete: false,
+        });
+    });
+});
+
+describe('live receipts from a peer region', () => {
+    // Long enough that a peer's share, the window less its margin, is asked.
+    const WINDOW_MS = 1_500;
+    const a = withServer({
+        cluster: true,
+        name: 'a',
+        ackTimeoutMs: WINDOW_MS,
+        peerReceipts: true,
+    });
+    const b = withServer({ cluster: true, name: 'b' });
+
+    /**
+     * Region A's receipt asks, handed to region B's answering side the way the
+     * signed route hands them over. The user is the same one in both regions.
+     */
+    const routeToB = (
+        reach: (ask: PeerReceiptAsk) => Promise<RegionReceipt> = (ask) =>
+            b.state.server.services.notification.answerPeerReceipt(ask),
+    ) => {
+        a.peerRegionHolds('b');
+        vi.spyOn(
+            a.state.server.services.broadcast,
+            'addressablePeers',
+            'get',
+        ).mockReturnValue(['b']);
+        const answers: RegionReceipt[] = [];
+        const post = vi
+            .spyOn(a.state.server.services.broadcast, 'postToPeer')
+            .mockImplementation(async (peerId, path, payload) => {
+                expect([peerId, path]).toEqual(['b', NOTIF_RECEIPT_PEER_PATH]);
+                const ask = parsePeerReceiptAsk({
+                    ...(payload as object),
+                    userId: b.state.userId,
+                })!;
+                const receipt = await reach(ask);
+                answers.push(receipt);
+                return { ok: true, receipt };
+            });
+        return { post, answers };
+    };
+
+    it.each(['visible', 'hidden'])(
+        'settles as received from a %s page in the peer region',
+        async (visibilityState) => {
+            desktopTab(
+                await b.connect({ acks: [NOTIF_RECEIPT_EVENT] }),
+                visibilityState,
+            );
+            const { post } = routeToB();
+
+            const { uid, settled } = await a.ask();
+
+            expect(settled).toEqual({
+                sendId: a.state.written[0].sendId,
+                uid,
+                userId: a.state.userId,
+                type: 'share.received',
+                outcome: 'received',
+                ackCapable: true,
+                everySocketAcks: true,
+                complete: true,
+                peerRegions: true,
+                peersAsked: ['b'],
+                peersUnheard: [],
+                responders: [{ visibilityState, region: 'b' }],
+            });
+            expect(a.state.settled).toEqual([settled]);
+            expect(b.state.settled).toEqual([]);
+            expect(post).toHaveBeenCalledWith(
+                'b',
+                NOTIF_RECEIPT_PEER_PATH,
+                {
+                    userId: a.state.userId,
+                    appUid: null,
+                    uid,
+                    timeoutMs: expect.any(Number),
+                },
+                { timeoutMs: expect.any(Number), agent: 'receipt' },
+            );
+            const [, , sent, options] = post.mock.calls[0] as [
+                string,
+                string,
+                PeerReceiptAsk,
+                { timeoutMs: number },
+            ];
+            expect(sent.timeoutMs).toBeLessThanOrEqual(WINDOW_MS - 750);
+            expect(options.timeoutMs - sent.timeoutMs).toBe(750);
+        },
+    );
+
+    it('settles as unreceived when the peer`s page never answers', async () => {
+        desktopTab(await b.connect({ acks: [NOTIF_RECEIPT_EVENT] }), null);
+        routeToB();
+
+        expect((await a.ask()).settled).toMatchObject({
+            outcome: 'unreceived',
+            ackCapable: true,
+            peersAsked: ['b'],
+            peersUnheard: [],
+            responders: [],
+        });
+    });
+
+    it('takes a page here and one in the peer region together', async () => {
+        desktopTab(await a.connect({ acks: [NOTIF_RECEIPT_EVENT] }), 'hidden');
+        desktopTab(await b.connect({ acks: [NOTIF_RECEIPT_EVENT] }), 'visible');
+        routeToB();
+
+        const { settled } = await a.ask();
+
+        expect(settled.outcome).toBe('received');
+        expect(settled.responders).toEqual(
+            expect.arrayContaining([
+                { visibilityState: 'hidden' },
+                { visibilityState: 'visible', region: 'b' },
+            ]),
+        );
+        expect(settled.responders).toHaveLength(2);
+    });
+
+    it('settles as no-socket when the peer region holds nothing after all', async () => {
+        vi.spyOn(
+            b.state.server.services.eventForward,
+            'active',
+            'get',
+        ).mockReturnValue(true);
+        const asked = vi.spyOn(b.state.server.services.socket, 'askWithAck');
+        const { answers } = routeToB();
+
+        expect((await a.ask()).settled).toMatchObject({
+            outcome: 'no-socket',
+            peerRegions: true,
+            peersAsked: ['b'],
+            peersUnheard: [],
+        });
+        expect(answers).toEqual([expect.objectContaining({ held: false })]);
+        expect(asked).not.toHaveBeenCalled();
+    });
+
+    it('settles as remote-only when the peer region is down', async () => {
+        routeToB(async () => {
+            throw new Error('Webhook POST failed: 502 Bad Gateway');
+        });
+
+        expect((await a.ask()).settled).toMatchObject({
+            outcome: 'remote-only',
+            ackCapable: false,
+            peersAsked: ['b'],
+            peersUnheard: ['b'],
+        });
+    });
+
+    it('settles inside the window when the peer answers too late', async () => {
+        desktopTab(await b.connect({ acks: [NOTIF_RECEIPT_EVENT] }), 'visible');
+        routeToB(async (ask) => {
+            await new Promise((resolve) => setTimeout(resolve, 2 * WINDOW_MS));
+            return b.state.server.services.notification.answerPeerReceipt(ask);
+        });
+
+        const started = Date.now();
+        const { settled } = await a.ask();
+
+        expect(Date.now() - started).toBeLessThan(WINDOW_MS + 500);
+        expect(settled).toMatchObject({
+            outcome: 'remote-only',
+            peersUnheard: ['b'],
+            responders: [],
         });
     });
 });

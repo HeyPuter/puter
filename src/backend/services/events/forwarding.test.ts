@@ -46,6 +46,11 @@ import type { IConfig } from '../../types.js';
 import { EventForwardService } from './EventForwardService.js';
 import { EventsService, type DeliveryEnvelope } from './EventsService.js';
 import { appSocketRoom } from '../socket/SocketService.js';
+import {
+    NOTIF_RECEIPT_PEER_PATH,
+    type PeerReceiptAsk,
+    type RegionReceipt,
+} from '../notification/notificationSocket.js';
 import type {
     ForwardBatch,
     ForwardDelivery,
@@ -201,6 +206,10 @@ interface Region {
     events: EventsService;
     /** Every addressed POST this region made, whether or not it arrived. */
     posts: Array<{ peerId: string; batch: ForwardBatch }>;
+    /** Every receipt ask this region sent, with the options it went with. */
+    receiptAsks: Array<{ peerId: string; ask: PeerReceiptAsk; opts: unknown }>;
+    /** How this region answers a peer's receipt ask. */
+    answerReceipt: (ask: PeerReceiptAsk) => Promise<RegionReceipt>;
     /** Rooms this region terminates a socket for. */
     rooms: Set<string>;
     sent: DeliveryEnvelope[];
@@ -301,6 +310,15 @@ const makeRegion = (
         name,
         redis,
         posts: [],
+        receiptAsks: [],
+        answerReceipt: async () => ({
+            held: false,
+            responses: 0,
+            timedOut: false,
+            others: false,
+            complete: true,
+            responders: [],
+        }),
         rooms: new Set(),
         sent: [],
         metered: [],
@@ -376,7 +394,21 @@ const makeRegion = (
         get addressablePeers() {
             return peers;
         },
-        postToPeer: async (peerId: string, _path: string, payload: unknown) => {
+        postToPeer: async (
+            peerId: string,
+            path: string,
+            payload: unknown,
+            opts?: unknown,
+        ) => {
+            if (path === NOTIF_RECEIPT_PEER_PATH) {
+                const ask = payload as PeerReceiptAsk;
+                region.receiptAsks.push({ peerId, ask, opts });
+                if (region.unreachable.has(peerId))
+                    throw new Error('peer did not answer');
+                const target = regions.get(peerId);
+                if (!target) throw new Error(`no such peer ${peerId}`);
+                return { ok: true, receipt: await target.answerReceipt(ask) };
+            }
             const batch = payload as ForwardBatch;
             region.posts.push({ peerId, batch });
             if (region.unreachable.has(peerId))
@@ -2464,5 +2496,108 @@ describe('notification dismissals across connected pages', () => {
         await west.events.dispatchNotif({ ...postedInput, value: { title: 'Hello' } });
         await arrived(east);
         expect(east.sent[0].event).toMatchObject({ op: 'post', uid: 'one', notification: { title: 'Hello' } });
+    });
+});
+
+describe('asking a peer region for a receipt', () => {
+    const ask = (): PeerReceiptAsk => ({
+        userId,
+        appUid: null,
+        uid: `n-${seq}`,
+        timeoutMs: 1_000,
+    });
+
+    it('carries the ask over the receipt pool and reads the answer', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.answerReceipt = async () => ({
+            held: true,
+            responses: 1,
+            timedOut: false,
+            others: false,
+            complete: true,
+            responders: [{ visibilityState: 'visible' }],
+        });
+
+        expect(await west.forward.askReceipt('east', ask(), 1_750)).toEqual({
+            held: true,
+            responses: 1,
+            timedOut: false,
+            others: false,
+            complete: true,
+            responders: [{ visibilityState: 'visible' }],
+        });
+        expect(west.receiptAsks).toEqual([
+            {
+                peerId: 'east',
+                ask: ask(),
+                opts: { timeoutMs: 1_750, agent: 'receipt' },
+            },
+        ]);
+        expect(west.posts).toEqual([]);
+    });
+
+    it('reads a peer that could not be reached as no answer', async () => {
+        const west = makeRegion('west', ['east']);
+        makeRegion('east', ['west']);
+        west.unreachable.add('east');
+
+        expect(await west.forward.askReceipt('east', ask(), 500)).toBeNull();
+    });
+
+    it('stops waiting at its timeout', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.answerReceipt = () => new Promise(() => {});
+
+        const started = Date.now();
+        expect(await west.forward.askReceipt('east', ask(), 100)).toBeNull();
+        expect(Date.now() - started).toBeLessThan(1_000);
+    });
+
+    it('asks nothing of a region that is not a peer', async () => {
+        const west = makeRegion('west', ['east']);
+
+        expect(await west.forward.askReceipt('north', ask(), 500)).toBeNull();
+        expect(west.receiptAsks).toEqual([]);
+    });
+
+    it('holds at most its cap of asks open to one peer', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        const releases: Array<() => void> = [];
+        east.answerReceipt = () =>
+            new Promise((resolve) => {
+                releases.push(() =>
+                    resolve({
+                        held: false,
+                        responses: 0,
+                        timedOut: false,
+                        others: false,
+                        complete: true,
+                        responders: [],
+                    }),
+                );
+            });
+        const cap = EventForwardService.RECEIPT_MAX_IN_FLIGHT;
+        expect(cap).toBe(64);
+
+        const open = Array.from({ length: cap }, () =>
+            west.forward.askReceipt('east', ask(), 5_000),
+        );
+        await vi.waitFor(() => expect(releases).toHaveLength(cap));
+        expect(await west.forward.askReceipt('east', ask(), 5_000)).toBeNull();
+        expect(west.receiptAsks).toHaveLength(cap);
+
+        for (const release of releases) release();
+        expect(await Promise.all(open)).toEqual(
+            Array.from({ length: cap }, () =>
+                expect.objectContaining({ held: false }),
+            ),
+        );
+        const next = west.forward.askReceipt('east', ask(), 5_000);
+        await vi.waitFor(() => expect(releases).toHaveLength(cap + 1));
+        releases[cap]();
+        expect(await next).toMatchObject({ held: false });
     });
 });

@@ -444,8 +444,10 @@ export class NotificationService extends PuterService {
             socket: this.services.socket,
             foldIn: () => notificationsFoldInEnabled(this.config),
             ackTimeoutMs: () => notificationAckTimeoutMs(this.config),
-            heldInPeerRegion: (userId, appUid) =>
-                this.#heldInPeerRegion(userId, appUid),
+            peerReceipts: () => this.config.notificationPeerReceipts === true,
+            peerRegions: (userId, appUid) => this.#peerRegions(userId, appUid),
+            askPeer: (region, ask, timeoutMs) =>
+                this.services.eventForward.askReceipt(region, ask, timeoutMs),
             heldInRegion: (userId, appUid) =>
                 this.#heldInRegion(userId, appUid),
         });
@@ -453,16 +455,16 @@ export class NotificationService extends PuterService {
     }
 
     /** A presence read that errors counts as no peer socket. */
-    async #heldInPeerRegion(
+    async #peerRegions(
         userId: number,
         appUid: string | null,
-    ): Promise<boolean> {
+    ): Promise<string[]> {
         const eventForward = this.services.eventForward;
-        if (!eventForward?.active) return false;
+        if (!eventForward?.active) return [];
         try {
-            return (await eventForward.regionsFor(userId, appUid)).length > 0;
+            return await eventForward.regionsFor(userId, appUid);
         } catch {
-            return false;
+            return [];
         }
     }
 

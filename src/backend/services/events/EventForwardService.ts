@@ -23,6 +23,13 @@ import {
     type PresenceRow,
 } from '../../stores/events/PresenceStore.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { RECEIPT_MAX_SOCKETS_PER_PEER } from '../broadcast/BroadcastService.js';
+import {
+    NOTIF_RECEIPT_PEER_PATH,
+    regionReceiptOf,
+    type PeerReceiptAsk,
+    type RegionReceipt,
+} from '../notification/notificationSocket.js';
 import {
     appSocketRoom,
     type SocketSpecifier,
@@ -121,6 +128,8 @@ export class EventForwardService extends PuterService {
     readonly #leaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
     /** Peer → subscriptions with a gap marker still queued for it. */
     readonly #pendingMarkers = new Map<string, Set<string>>();
+    /** Peer → receipt asks still open to it. */
+    readonly #receiptsInFlight = new Map<string, number>();
     #queue: PeerForwardQueue | null = null;
     #draining = false;
 
@@ -140,6 +149,9 @@ export class EventForwardService extends PuterService {
 
     /** Concurrency `receive()` settles a peer's relayed acks under. */
     static RECEIVE_CONCURRENCY = 16;
+
+    /** Receipt asks open to one peer before more count as unanswered. */
+    static RECEIPT_MAX_IN_FLIGHT = RECEIPT_MAX_SOCKETS_PER_PEER;
 
     override onServerStart(): void {
         this.clients.event.on(
@@ -458,6 +470,45 @@ export class EventForwardService extends PuterService {
             entryId,
             reason,
         });
+    }
+
+    /**
+     * One peer region's receipt for a live notification, or null when it did
+     * not answer within `timeoutMs`, failed, or already has its cap of asks
+     * open. The peer answers from its own sockets and asks nobody else.
+     */
+    async askReceipt(
+        region: string,
+        ask: PeerReceiptAsk,
+        timeoutMs: number,
+    ): Promise<RegionReceipt | null> {
+        if (!this.isPeer(region)) return null;
+        const open = this.#receiptsInFlight.get(region) ?? 0;
+        if (open >= EventForwardService.RECEIPT_MAX_IN_FLIGHT) return null;
+        this.#receiptsInFlight.set(region, open + 1);
+        const posted = this.services.broadcast
+            .postToPeer(region, NOTIF_RECEIPT_PEER_PATH, ask, {
+                timeoutMs,
+                agent: 'receipt',
+            })
+            .catch((): null => null)
+            .finally(() => {
+                const left = (this.#receiptsInFlight.get(region) ?? 1) - 1;
+                if (left > 0) this.#receiptsInFlight.set(region, left);
+                else this.#receiptsInFlight.delete(region);
+            });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const reply = await Promise.race([
+                posted,
+                new Promise<null>((resolve) => {
+                    timer = setTimeout(() => resolve(null), timeoutMs);
+                }),
+            ]);
+            return regionReceiptOf(reply);
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     /** Whether a region name is a peer this node can address. */

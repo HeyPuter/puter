@@ -256,12 +256,7 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        | 'sms'
-        | 'rcs'
-        | 'whatsapp'
-        | 'viber'
-        | 'zalo'
-        | 'telegram';
+        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
 }
 
 /**
@@ -995,6 +990,13 @@ interface IConfigOptional {
     notificationAckTimeoutMs?: number;
 
     /**
+     * Ask peer regions for their pages' receipts inside that same window,
+     * rather than reading a peer socket as unheard. Off by default; turn it on
+     * once every region answers `/broadcast/notif/receipt`.
+     */
+    notificationPeerReceipts?: boolean;
+
+    /**
      * How many `app.message` notifications one app may write for one user. A
      * replacement spends only the minute. Omit a field for the built-in default
      * (30 per minute, 1000 per day); a non-positive value removes that bound.
@@ -1393,7 +1395,8 @@ export interface ServerDrainInfo {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];
