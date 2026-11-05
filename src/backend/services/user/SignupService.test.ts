@@ -193,20 +193,21 @@ describe('SignupService.runSignupGate', () => {
 describe('SignupService.signup', () => {
     it('provisions a form signup and announces it with the form-only fields', async () => {
         const username = `su_${slug()}`;
-        const { result: user, seen } = await capture(
-            'puter.signup.success',
-            () =>
-                server.services.signup.signup({
-                    req,
-                    body: {
-                        username,
-                        email: `${username}@example.com`,
-                        password: 'correct horse battery',
-                    },
-                    isTemp: false,
-                    fingerprint: null,
-                    bonusCode: null,
-                }),
+        const {
+            result: { user },
+            seen,
+        } = await capture('puter.signup.success', () =>
+            server.services.signup.signup({
+                req,
+                body: {
+                    username,
+                    email: `${username}@example.com`,
+                    password: 'correct horse battery',
+                },
+                isTemp: false,
+                fingerprint: null,
+                bonusCode: null,
+            }),
         );
 
         expect(user.username).toBe(username);
@@ -238,7 +239,7 @@ describe('SignupService email gate last', () => {
         server.clients.event.on('puter.signup.validate', require);
         const username = `egl_${slug()}`;
         try {
-            const user = await server.services.signup.signup({
+            const { user } = await server.services.signup.signup({
                 req,
                 body: {
                     username,
@@ -284,6 +285,7 @@ describe('SignupService email gate last', () => {
                 `${user.username}@example.com`,
                 'email_verification_code',
                 { code: stored!.email_confirm_code },
+                { stream: 'signup' },
             );
         } finally {
             restore();
@@ -303,6 +305,129 @@ describe('SignupService email gate last', () => {
         } finally {
             restore();
         }
+    });
+});
+
+describe('SignupService confirmation stream', () => {
+    /**
+     * Signs up with the validate hook setting `email_stream`; returns sent
+     * emails.
+     */
+    const signupWithStream = async (emailStream: unknown, extra = {}) => {
+        const send = vi.fn(async () => true);
+        const clients = server.clients as unknown as { email: unknown };
+        const realEmail = clients.email;
+        clients.email = { send };
+        const name = (_k: string, data: unknown) => {
+            Object.assign(data as Record<string, unknown>, {
+                email_stream: emailStream,
+                ...extra,
+            });
+        };
+        server.clients.event.on('puter.signup.validate', name);
+        const username = `str_${slug()}`;
+        try {
+            const { user } = await server.services.signup.signup({
+                req,
+                body: {
+                    username,
+                    email: `${username}@example.com`,
+                    password: 'correct horse battery',
+                },
+                isTemp: false,
+                fingerprint: null,
+                bonusCode: null,
+            });
+            const stored = await server.stores.user.getById(user.id, {
+                force: true,
+            });
+            return {
+                stored: stored!,
+                send,
+                restore: () => (clients.email = realEmail),
+            };
+        } finally {
+            server.clients.event.off('puter.signup.validate', name);
+        }
+    };
+
+    it('sends the confirmation on the stream a listener names and remembers it', async () => {
+        const { stored, send, restore } = await signupWithStream('review:2');
+        try {
+            expect(send).toHaveBeenCalledWith(
+                stored.email,
+                'email_verification_code',
+                { code: stored.email_confirm_code },
+                { stream: 'review:2' },
+            );
+            expect(stored.metadata?.emailStream).toBe('review:2');
+            expect(server.services.signup.confirmationStream(stored)).toBe(
+                'review:2',
+            );
+
+            await server.services.signup.sendConfirmationEmail(
+                stored,
+                'resend',
+                { code: '111111' },
+            );
+            expect(send).toHaveBeenLastCalledWith(
+                stored.email,
+                'email_verification_code',
+                { code: '111111' },
+                { stream: 'review:2' },
+            );
+        } finally {
+            restore();
+        }
+    });
+
+    it('ignores a stream name that is not a short lowercase token', async () => {
+        for (const bad of ['Upper', 'has space', 7, '-lead', 'x'.repeat(65)]) {
+            const { stored, send, restore } = await signupWithStream(bad);
+            try {
+                expect(send).toHaveBeenCalledWith(
+                    stored.email,
+                    'email_verification_code',
+                    { code: stored.email_confirm_code },
+                    { stream: 'signup' },
+                );
+                expect(stored.metadata?.emailStream).toBeUndefined();
+            } finally {
+                restore();
+            }
+        }
+    });
+
+    it('sends a deferred confirmation on the remembered stream', async () => {
+        const { stored, send, restore } = await signupWithStream('held', {
+            requires_phone_verification: true,
+            email_gate_last: true,
+        });
+        try {
+            expect(send).not.toHaveBeenCalled();
+            await server.stores.user.update(stored.id, {
+                requires_phone_verification: 0,
+            });
+            await server.services.signup.sendDeferredConfirmationEmail(
+                stored.id,
+            );
+            expect(send).toHaveBeenCalledWith(
+                stored.email,
+                'email_verification_code',
+                { code: stored.email_confirm_code },
+                { stream: 'held' },
+            );
+        } finally {
+            restore();
+        }
+    });
+
+    it('falls back to the signup stream for an account without one', () => {
+        expect(
+            server.services.signup.confirmationStream({
+                metadata: {},
+            } as never),
+        ).toBe('signup');
     });
 });
 

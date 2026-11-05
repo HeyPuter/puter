@@ -49,6 +49,7 @@ interface SentEmail {
     html: string;
     /** The plain-text alternative, which carries its own links. */
     text: string;
+    stream?: string;
 }
 
 const uniqueSuffix = (): string =>
@@ -125,12 +126,14 @@ describe('share email', () => {
                 subject: string;
                 html?: string;
                 text?: string;
+                stream?: string;
             }) => {
                 sent.push({
                     to: options.to,
                     subject: options.subject,
                     html: options.html ?? '',
                     text: options.text ?? '',
+                    stream: options.stream,
                 });
                 return null;
             },
@@ -300,6 +303,7 @@ describe('share email', () => {
         // account on any other address will not find the share.
         expect(mail.html).toContain(invitee);
         expect(mail.html).toContain('Create your free account');
+        expect(mail.stream).toBe('notify');
         // The full origin, port included — a rebuilt protocol://domain link
         // is dead on any self-host that doesn't run on the default port.
         expect(mail.html).toContain(`href="${env.origin}"`);
@@ -370,6 +374,7 @@ describe('share email', () => {
             )}&user_uuid=${encodeURIComponent(recipient.uuid)}`,
         );
         expect(mail.html).toContain(recipient.username);
+        expect(mail.stream).toBe('notify');
 
         // A second share to the same pair inside the window is one more thing to
         // look at, not one more thing to be interrupted by.
@@ -810,12 +815,14 @@ describe('share email digest durability', () => {
                 subject: string;
                 html?: string;
                 text?: string;
+                stream?: string;
             }) => {
                 sent.push({
                     to: options.to,
                     subject: options.subject,
                     html: options.html ?? '',
                     text: options.text ?? '',
+                    stream: options.stream,
                 });
                 return null;
             },

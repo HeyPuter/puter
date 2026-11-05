@@ -882,14 +882,19 @@ export class AuthController extends PuterController {
             if (!bonusCode) throw bonusCodeInvalidError();
         }
 
-        const user = await this.services.signup.signup({
-            req,
-            body,
-            isTemp: is_temp,
-            fingerprint,
-            bonusCode,
+        const { user, confirmationEmailSent } =
+            await this.services.signup.signup({
+                req,
+                body,
+                isTemp: is_temp,
+                fingerprint,
+                bonusCode,
+            });
+        await this.#completeLogin(req, res, user, undefined, {
+            ...(confirmationEmailSent !== undefined
+                ? { confirmation_email_sent: confirmationEmailSent }
+                : {}),
         });
-        await this.#completeLogin(req, res, user);
     }
 
     /**
@@ -1028,10 +1033,12 @@ export class AuthController extends PuterController {
             email_confirm_code: code,
         });
 
-        await this.services.signup.sendConfirmationEmail(user, 'resend', {
-            code,
-        });
-        res.json({});
+        const sent = await this.services.signup.sendConfirmationEmail(
+            user,
+            'resend',
+            { code },
+        );
+        res.json({ sent });
     }
 
     @Post('/confirm-email', {
@@ -2019,6 +2026,7 @@ export class AuthController extends PuterController {
                     user.email,
                     'email_password_recovery',
                     { link },
+                    { stream: 'auth' },
                 );
             } catch (e) {
                 console.warn('[send-pass-recovery-email] send failed:', e);
@@ -2282,6 +2290,7 @@ export class AuthController extends PuterController {
                     {
                         username: user.username,
                     },
+                    { stream: 'auth' },
                 );
             } catch (e) {
                 console.warn('[change-password] notification send failed:', e);
@@ -2507,6 +2516,7 @@ export class AuthController extends PuterController {
                     new_email,
                     'email_verification_link',
                     { link },
+                    { stream: 'auth' },
                 );
             } catch (e) {
                 console.warn('[change-email] new-address email failed:', e);
@@ -2514,15 +2524,8 @@ export class AuthController extends PuterController {
             // Notify the old address too
             if (user.email) {
                 try {
-                    await (
-                        this.clients.email as unknown as {
-                            sendRaw: (opts: {
-                                to: string;
-                                subject: string;
-                                text: string;
-                            }) => Promise<unknown>;
-                        }
-                    ).sendRaw({
+                    await this.clients.email.sendRaw({
+                        stream: 'auth',
                         to: user.email,
                         subject: 'Your Puter email change was requested',
                         text: `A change to ${new_email} was requested on your account. If this wasn't you, please contact support.`,
@@ -2817,6 +2820,7 @@ export class AuthController extends PuterController {
                     email,
                     'email_verification_code',
                     { code: email_confirm_code },
+                    { stream: this.services.signup.confirmationStream(user) },
                 );
             } catch (e) {
                 console.warn('[save-account] confirmation email failed:', e);
@@ -4274,9 +4278,12 @@ export class AuthController extends PuterController {
 
             if (this.clients.email && user.email) {
                 try {
-                    await this.clients.email.send(user.email, 'enabled_2fa', {
-                        username: user.username,
-                    });
+                    await this.clients.email.send(
+                        user.email,
+                        'enabled_2fa',
+                        { username: user.username },
+                        { stream: 'auth' },
+                    );
                 } catch (e) {
                     console.warn('[configure-2fa] email send failed:', e);
                 }
@@ -4350,9 +4357,12 @@ export class AuthController extends PuterController {
 
         if (this.clients.email && user.email) {
             try {
-                await this.clients.email.send(user.email, 'disabled_2fa', {
-                    username: user.username,
-                });
+                await this.clients.email.send(
+                    user.email,
+                    'disabled_2fa',
+                    { username: user.username },
+                    { stream: 'auth' },
+                );
             } catch (e) {
                 console.warn('[disable-2fa] email send failed:', e);
             }
@@ -4768,6 +4778,7 @@ export class AuthController extends PuterController {
         res: Response,
         user: UserRow,
         oidcContinuation?: unknown,
+        extra: { confirmation_email_sent?: boolean } = {},
     ): Promise<void> {
         const redirectUrl =
             oidcContinuation === undefined
@@ -4802,6 +4813,7 @@ export class AuthController extends PuterController {
             token: gui_token,
             user: details,
             ...(redirectUrl ? { redirectUrl } : {}),
+            ...extra,
         });
     }
 }

@@ -168,6 +168,192 @@ describe('EmailClient — sending', () => {
     });
 });
 
+describe('EmailClient — streams', () => {
+    const STREAMS = {
+        notify: {
+            from: '"Notices" <notices@puter.test>',
+            headers: { 'X-Example-Stream': 'notify', 'X-Example-Kind': 'n' },
+            tagsHeader: 'X-Example-Tags',
+        },
+        plain: { headers: { 'X-Example-Stream': 'plain' } },
+    };
+    const streamClient = () =>
+        startClient({
+            email: { jsonTransport: true, from: FROM, streams: STREAMS },
+        } as unknown as Partial<IConfig>);
+    const base = { to: 'user@example.test', subject: 's', text: 't' };
+
+    it('adds the stream headers and from address to the message', async () => {
+        const info = await streamClient().sendRaw({
+            ...base,
+            stream: 'notify',
+        });
+
+        const message = sentMessage(info);
+        expect(message.headers).toMatchObject({
+            'X-Example-Stream': 'notify',
+            'X-Example-Kind': 'n',
+        });
+        expect(message.from.address).toBe('notices@puter.test');
+    });
+
+    it('lets caller headers and from win over the stream', async () => {
+        const info = await streamClient().sendRaw({
+            ...base,
+            stream: 'notify',
+            from: 'ops@puter.test',
+            headers: { 'x-example-stream': 'mine' },
+        });
+
+        const message = sentMessage(info);
+        expect(message.from.address).toBe('ops@puter.test');
+        expect(message.headers?.['x-example-stream']).toBe('mine');
+        expect(message.headers).not.toHaveProperty('X-Example-Stream');
+        expect(message.headers?.['X-Example-Kind']).toBe('n');
+    });
+
+    it('keeps the default from address for a stream without one', async () => {
+        const info = await streamClient().sendRaw({ ...base, stream: 'plain' });
+        expect(sentMessage(info).from.address).toBe('no-reply@puter.test');
+    });
+
+    it('leaves the message unchanged for an unknown or missing stream', async () => {
+        const client = streamClient();
+        for (const stream of ['nope', undefined]) {
+            const message = sentMessage(
+                await client.sendRaw({ ...base, stream, tags: { a: 'b' } }),
+            );
+            expect(message.from.address).toBe('no-reply@puter.test');
+            expect(message.headers ?? {}).toEqual({});
+        }
+    });
+
+    it('renders valid tags into the stream tags header and drops the rest', async () => {
+        const info = await streamClient().sendRaw({
+            ...base,
+            stream: 'notify',
+            tags: {
+                kind: 'share',
+                'app.id': 'a-1:x',
+                'bad key': 'v',
+                ok: 'bad value',
+                long: 'x'.repeat(129),
+            },
+        });
+        expect(sentMessage(info).headers?.['X-Example-Tags']).toBe(
+            'kind=share, app.id=a-1:x',
+        );
+    });
+
+    it('keeps a tags header the caller set', async () => {
+        const info = await streamClient().sendRaw({
+            ...base,
+            stream: 'notify',
+            headers: { 'X-Example-Tags': 'own=1' },
+            tags: { kind: 'share' },
+        });
+        expect(sentMessage(info).headers?.['X-Example-Tags']).toBe('own=1');
+    });
+
+    it('sends no tags header when the stream names none or no tag survives', async () => {
+        const client = streamClient();
+        const plain = sentMessage(
+            await client.sendRaw({
+                ...base,
+                stream: 'plain',
+                tags: { kind: 'share' },
+            }),
+        );
+        expect(plain.headers).toEqual({ 'X-Example-Stream': 'plain' });
+
+        const dropped = sentMessage(
+            await client.sendRaw({
+                ...base,
+                stream: 'notify',
+                tags: { 'bad key': 'v' },
+            }),
+        );
+        expect(dropped.headers).not.toHaveProperty('X-Example-Tags');
+    });
+
+    it('does not hand stream or tags to the transport', async () => {
+        const info = await streamClient().sendRaw({
+            ...base,
+            stream: 'notify',
+            tags: { kind: 'share' },
+        });
+        const raw = JSON.parse((info as { message: string }).message);
+        expect(raw).not.toHaveProperty('stream');
+        expect(raw).not.toHaveProperty('tags');
+    });
+
+    it('keeps streams out of the transport options', async () => {
+        const nodemailer = (await import('nodemailer')).default;
+        const create = vi.spyOn(nodemailer, 'createTransport');
+        try {
+            streamClient();
+            expect(create).toHaveBeenCalledTimes(1);
+            const [options] = create.mock.calls[0] as [Record<string, unknown>];
+            expect(options).not.toHaveProperty('streams');
+            expect(options).not.toHaveProperty('from');
+            expect(options).toMatchObject({ jsonTransport: true });
+        } finally {
+            create.mockRestore();
+        }
+    });
+
+    it('forwards the template send options to sendRaw', async () => {
+        const client = streamClient();
+        const sendRaw = vi.spyOn(client, 'sendRaw').mockResolvedValue(null);
+
+        await client.send(
+            'user@example.test',
+            'email_verification_code',
+            { code: '1' },
+            {
+                stream: 'notify',
+                replyTo: 'r@example.test',
+                headers: { 'X-Example-Extra': '1' },
+                tags: { kind: 'code' },
+            },
+        );
+
+        expect(sendRaw).toHaveBeenCalledWith(
+            expect.objectContaining({
+                stream: 'notify',
+                replyTo: 'r@example.test',
+                headers: { 'X-Example-Extra': '1' },
+                tags: { kind: 'code' },
+            }),
+        );
+    });
+
+    it('applies the stream from address to a template send', async () => {
+        const info = await streamClient().send(
+            'user@example.test',
+            'email_verification_code',
+            { code: '1' },
+            { stream: 'notify' },
+        );
+        expect(sentMessage(info).from.address).toBe('notices@puter.test');
+    });
+
+    it('prints no tags when no transport is configured', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const client = new EmailClient({
+                port: 0,
+                extensions: [],
+            } as unknown as IConfig);
+            await client.sendRaw({ ...base, tags: { kind: 'share' } });
+            const printed = warn.mock.calls[0][1] as Record<string, unknown>;
+            expect(printed).not.toHaveProperty('tags');
+        } finally {
+            warn.mockRestore();
+        }
+    });
+});
+
 describe('EmailClient — template rendering', () => {
     it('renders the code into both subject and body', async () => {
         const client = startClient();
