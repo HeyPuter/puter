@@ -52,7 +52,8 @@ type PeerAnswer = RegionReceipt | null | 'throws';
 const adapterWith = (opts: {
     ask?: AckedAsk;
     hasSocket?: boolean;
-    heldInRegion?: boolean;
+    heldInRegion?: boolean | 'rejects';
+    heldAfterMs?: number;
     peerReceipts?: boolean;
     regions?: string[];
     regionsAfterMs?: number;
@@ -87,7 +88,15 @@ const adapterWith = (opts: {
                 else setTimeout(() => resolve(regions), opts.regionsAfterMs);
             }),
         askPeer,
-        heldInRegion: async () => opts.heldInRegion ?? false,
+        heldInRegion: (): Promise<boolean> =>
+            new Promise((resolve, reject) => {
+                const settle = () =>
+                    opts.heldInRegion === 'rejects'
+                        ? reject(new Error('presence read failed'))
+                        : resolve(opts.heldInRegion ?? false);
+                if (opts.heldAfterMs === undefined) settle();
+                else setTimeout(settle, opts.heldAfterMs);
+            }),
     });
     const receipt = () =>
         adapter.receipt({
@@ -162,6 +171,15 @@ describe('settling a receipt across regions', () => {
             'unreceived when a page here timed out, even with a peer unheard',
             { ask: asked({ timedOut: true }), regions: ['b'] },
             { outcome: 'unreceived', peersUnheard: ['b'] },
+        ],
+        [
+            'unreceived when a page here timed out and the peer holds nothing',
+            {
+                ask: asked({ timedOut: true }),
+                regions: ['b'],
+                peers: { b: answered({ held: false }) },
+            },
+            { outcome: 'unreceived', ackCapable: true, peersUnheard: [] },
         ],
         [
             'remote-only when a peer did not answer',
@@ -398,6 +416,69 @@ describe('answering a peer region`s receipt ask', () => {
             { timeoutMs: 1_200 },
         );
         expect(emit).not.toHaveBeenCalled();
+    });
+
+    it('asks anyway when the presence read fails, and carries what it heard', async () => {
+        const { adapter, askWithAck } = adapterWith({
+            heldInRegion: 'rejects',
+            ask: asked({ responses: [{ visibilityState: 'visible' }] }),
+        });
+
+        expect(await adapter.askHere(ask)).toEqual({
+            held: true,
+            responses: 1,
+            timedOut: false,
+            others: false,
+            complete: true,
+            responders: [{ visibilityState: 'visible' }],
+        });
+        expect(askWithAck).toHaveBeenCalledTimes(1);
+    });
+
+    it('takes a slow presence read out of the wait it was given', async () => {
+        vi.useFakeTimers();
+        try {
+            const { adapter, askWithAck } = adapterWith({
+                heldInRegion: true,
+                heldAfterMs: 300,
+            });
+
+            const answering = adapter.askHere(ask);
+            await vi.advanceTimersByTimeAsync(300);
+            await answering;
+
+            expect(askWithAck).toHaveBeenCalledWith(
+                { room: 7 },
+                NOTIF_RECEIPT_EVENT,
+                { uid: 'n-1' },
+                { timeoutMs: 900 },
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('still asks for a millisecond when presence took the whole wait', async () => {
+        vi.useFakeTimers();
+        try {
+            const { adapter, askWithAck } = adapterWith({
+                heldInRegion: true,
+                heldAfterMs: 2_000,
+            });
+
+            const answering = adapter.askHere(ask);
+            await vi.advanceTimersByTimeAsync(2_000);
+            await answering;
+
+            expect(askWithAck).toHaveBeenCalledWith(
+                { room: 7 },
+                NOTIF_RECEIPT_EVENT,
+                { uid: 'n-1' },
+                { timeoutMs: 1 },
+            );
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('asks a socket on this node even when presence says nothing', async () => {

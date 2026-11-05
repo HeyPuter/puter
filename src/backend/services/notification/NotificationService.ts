@@ -21,6 +21,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { EventMap } from '../../clients/event/types.js';
 import { handlerDepthOf, type Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
+import { presenceApp } from '../events/EventForwardService.js';
 import type { NotifEventContext } from '../events/registry.js';
 import { PuterService } from '../types.js';
 import {
@@ -469,14 +470,16 @@ export class NotificationService extends PuterService {
         }
     }
 
-    /** Without presence kept here, any node may hold one. */
+    /** Without presence kept here, any node may hold one. Rejects on error. */
     async #heldInRegion(
         userId: number,
         appUid: string | null,
     ): Promise<boolean> {
-        const eventForward = this.services.eventForward;
-        if (!eventForward?.active) return true;
-        return eventForward.heldInRegion(userId, appUid);
+        if (!this.services.eventForward?.active) return true;
+        return this.stores.presence.holdsConnection(
+            userId,
+            presenceApp(appUid),
+        );
     }
 
     /**

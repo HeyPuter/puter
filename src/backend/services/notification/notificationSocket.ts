@@ -256,7 +256,7 @@ interface AdapterDeps {
         ask: PeerReceiptAsk,
         timeoutMs: number,
     ) => Promise<RegionReceipt | null>;
-    /** Whether another node of this region may hold a socket for the pair. */
+    /** Whether a node of this region may hold the pair's socket; may reject. */
     heldInRegion: (userId: number, appUid: string | null) => Promise<boolean>;
 }
 
@@ -443,17 +443,17 @@ export class NotificationSocketAdapter {
         );
     }
 
-    /**
-     * Answers a peer region's receipt ask from this region's sockets alone,
-     * without settling anything: the settle belongs to the region that asked.
-     */
+    /** A peer's receipt ask, answered from this region; the asker settles it. */
     async askHere(ask: PeerReceiptAsk): Promise<RegionReceipt> {
-        const { userId, appUid, uid, timeoutMs } = ask;
+        const start = Date.now();
+        const { userId, appUid, uid } = ask;
         const room = appUid ? appSocketRoom(userId, appUid) : userId;
-        if (
-            !this.#deps.socket.has({ room }) &&
-            !(await this.#deps.heldInRegion(userId, appUid))
-        ) {
+        const held =
+            this.#deps.socket.has({ room }) ||
+            (await this.#deps
+                .heldInRegion(userId, appUid)
+                .catch((): boolean => true));
+        if (!held) {
             return {
                 held: false,
                 responses: 0,
@@ -463,6 +463,7 @@ export class NotificationSocketAdapter {
                 responders: [],
             };
         }
+        const timeoutMs = Math.max(1, ask.timeoutMs - (Date.now() - start));
         const asked = await this.#deps.socket.askWithAck(
             { room },
             NOTIF_RECEIPT_EVENT,

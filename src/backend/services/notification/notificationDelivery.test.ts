@@ -883,6 +883,27 @@ describe('live receipts from a peer region', () => {
         expect(asked).not.toHaveBeenCalled();
     });
 
+    it('asks the peer`s pages anyway when its presence read fails', async () => {
+        desktopTab(await b.connect({ acks: [NOTIF_RECEIPT_EVENT] }), 'visible');
+        vi.spyOn(
+            b.state.server.services.eventForward,
+            'active',
+            'get',
+        ).mockReturnValue(true);
+        vi.spyOn(b.state.server.services.socket, 'has').mockReturnValue(false);
+        vi.spyOn(
+            b.state.server.stores.presence,
+            'holdsConnection',
+        ).mockRejectedValue(new Error('presence read failed'));
+        routeToB();
+
+        expect((await a.ask()).settled).toMatchObject({
+            outcome: 'received',
+            peersUnheard: [],
+            responders: [{ visibilityState: 'visible', region: 'b' }],
+        });
+    });
+
     it('settles as remote-only when the peer region is down', async () => {
         routeToB(async () => {
             throw new Error('Webhook POST failed: 502 Bad Gateway');
