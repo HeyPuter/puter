@@ -70,7 +70,7 @@ The array form resolves to an array of those values, in the order asked.
 
 The promise rejects with `{ message, code: 'invalid_argument' }` when the details are invalid, before anything is asked. That covers an unknown resource passed with details, a value the resource doesn't accept, a `path` that isn't `~` and doesn't start with `/` or `~/`, a `uid` that isn't a uid, a `'kvShare'` prefix over its length limit, and a `'kvShare'` request from a page that isn't running as an app.
 
-A string passed on its own that names no resource is read as a [permission string](#permission-strings-deprecated-). If it isn't one the user can be asked about, the promise resolves to `false` without a prompt.
+A string passed on its own that names no resource is read as a [permission string](#permission-strings-deprecated). If it isn't one the user can be asked about, the promise resolves to `false` without a prompt.
 
 ## Creating a path on request
 

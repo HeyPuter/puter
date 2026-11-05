@@ -68,6 +68,12 @@ const examples = [
                 source: '/playground/examples/ai-chat-stream.html',
             },
             {
+                title: 'Stop a stream',
+                description: 'Stop a streaming AI chat response with an AbortSignal in Puter.js. Run and experiment with this example in the playground.',
+                slug: 'ai-chat-stop-stream',
+                source: '/playground/examples/ai-chat-stop-stream.html',
+            },
+            {
                 title: 'Function Calling',
                 description: 'Try AI function calling with Puter.js. Run and experiment with this advanced example directly in the playground.',
                 slug: 'ai-function-calling',

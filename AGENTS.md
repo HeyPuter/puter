@@ -161,11 +161,38 @@ An overview page answers "what is this API and is it what I need?", and a functi
 
 When you add a page, add it to [src/docs/src/sidebar.js](src/docs/src/sidebar.js) under its area, or it won't show up in the navigation. When you add a runnable example, add its HTML to `src/docs/src/playground/examples/<slug>.html`, register the slug in [src/docs/src/examples.js](src/docs/src/examples.js), and link the code block to it by putting the slug after the language with a semicolon (` ```html;kv-set `).
 
+### Function page layout
+
+A function page opens with one sentence that says what the function does, in its own paragraph, such as "Given a prompt, generate an image using AI." Put any more detail in the paragraphs after it.
+
+After the intro, a function page has these `##` sections, in this order:
+
+1. Syntax
+2. Parameters
+3. Return value
+4. Errors, if the function has any
+5. Sections for specific topics, if the page needs them, with `## Model-specific features` last
+6. Examples
+
+[chat.md](src/docs/src/AI/chat.md) follows this layout.
+
+- **Options as a table.** Document an options object as a table with Option, Type, and Description columns. Give each option its own row, even when two options go together, such as `width` and `height`. Order the rows by how often developers use them, most common first, without group rows. In chat.md that's the core options, then reasoning, tools, response handling, request control, and output.
+- **Common options in the table, model-specific behavior in its own section.** A page whose function works with many models or providers, such as [chat.md](src/docs/src/AI/chat.md) and [txt2img.md](src/docs/src/AI/txt2img.md), splits its options this way:
+  - **The options table** under Parameters lists the options that work with every model, and describes each one the way it works for every model.
+  - **`## Model-specific features`**, the last section before Examples, covers everything else. It has a `###` for each model family or provider, named after it, such as "OpenAI models" or "Cloudflare models". Under it go the options only some models accept, and the common options a model handles differently, such as a narrower range, other allowed values, or an option it ignores.
+  - **Write there only what's different.** A `###` lists an option only when that model or provider adds it or handles it differently. An option that works the same everywhere stays out, even if the provider supports it, and a model or provider with nothing different gets no `###`.
+  - **Model-specific features is the only place for model-specific details.** Every limit, format, allowed value, default, price, or quirk that applies to some models goes there, in that model's or provider's `###`, and nowhere else. The options table and topic sections (such as Image inputs or Video input) describe what's true for every model and link to Model-specific features for the rest. Don't add a table or sentence there that compares providers or repeats a model's limits. Each copy is another source of truth to keep in sync, and copies drift when a model changes.
+  - **Link the two.** Directly under the options table, put `Some models accept additional options or handle these options differently. See [Model-specific features](#model-specific-features).` A row whose option behaves differently on some models can also end with `See [Model-specific features](#model-specific-features).`
+- **A long topic gets its own `##` section.** When explaining an option or feature takes more than a sentence or two, such as function calling or output dimensions, give it a section between Errors and Examples and link to it from the options table. This keeps the reference sections short.
+- **Usage patterns are examples.** A way of using the API, such as stopping a stream, goes in a runnable example that the relevant section links to ("See the [stop a stream example](/playground/ai-chat-stop-stream/)."), not in a section of its own.
+- **Each example has a `###` heading** under `## Examples`, so every example shows in the table of contents.
+
 ### Writing docs
 
 These apply to reference pages and recipes alike.
 
 - **Document the developer-facing side only.** The reader is building on top of puter.js, so cover what affects their code: signatures, defaults, return shapes, errors, limits, and behavior they can observe. Leave out internal workings (which service handles the call, storage layout, caching, retries) unless they change what the developer has to do. [rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md) is the exception: it publishes every limit, including timeouts and caps that come from how the backend works.
+- **Document Puter as it runs on puter.com.** The docs are for developers building on production Puter. Leave out behavior that only happens on a self-hosted or differently configured server, such as a provider that isn't set up there.
 - **Describe the current state.** Docs aren't a changelog. Write how the API behaves now, without "now", "no longer", "existing code is unaffected", or other wording that compares it to an older version.
 - **Verify before you document.** Run the calls you describe against a running Puter instead of inferring behavior from the source.
 - **Write plainly.** Use the literal words a developer would say out loud, with contractions and everyday words. No idioms or figurative verbs ("walk away from something shared with you" → "remove your own access", "nothing to page through" → "without pagination"). No formal register ("present only while more pages remain" → "includes a `cursor` if there are more pages to load"). Prefer dev terms such as atomic, concurrent, and insertion order.

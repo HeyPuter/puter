@@ -1,0 +1,28 @@
+<html>
+<body>
+    <button id="stop">Stop</button>
+    <div id="output" style="white-space: pre-wrap"></div>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+    (async () => {
+        const controller = new AbortController();
+        const stopButton = document.getElementById('stop');
+        const output = document.getElementById('output');
+        stopButton.onclick = () => controller.abort();
+        try {
+            const response = await puter.ai.chat('Write a long story', {
+                stream: true,
+                signal: controller.signal,
+            });
+            for await (const part of response) {
+                if (part.type === 'text') output.append(part.text);
+            }
+        } catch (error) {
+            if (error.name !== 'AbortError') throw error;
+        } finally {
+            stopButton.remove();
+        }
+    })();
+    </script>
+</body>
+</html>
