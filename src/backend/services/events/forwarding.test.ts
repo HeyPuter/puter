@@ -2562,6 +2562,71 @@ describe('asking a peer region for a receipt', () => {
         expect(west.receiptAsks).toEqual([]);
     });
 
+    const NOT_HELD: RegionReceipt = {
+        held: false,
+        responses: 0,
+        timedOut: false,
+        others: false,
+        complete: true,
+        responders: [],
+    };
+
+    it('frees its cap once asks that failed come back', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        const failures: Array<() => void> = [];
+        east.answerReceipt = () =>
+            new Promise((_resolve, reject) => {
+                failures.push(() => reject(new Error('502 Bad Gateway')));
+            });
+        const cap = EventForwardService.RECEIPT_MAX_IN_FLIGHT;
+
+        const open = Array.from({ length: cap }, () =>
+            west.forward.askReceipt('east', ask(), 5_000),
+        );
+        await vi.waitFor(() => expect(failures).toHaveLength(cap));
+        expect(await west.forward.askReceipt('east', ask(), 5_000)).toBeNull();
+        for (const fail of failures) fail();
+        expect(await Promise.all(open)).toEqual(
+            Array.from({ length: cap }, () => null),
+        );
+
+        east.answerReceipt = async () => NOT_HELD;
+        expect(await west.forward.askReceipt('east', ask(), 5_000)).toEqual(
+            NOT_HELD,
+        );
+        expect(west.receiptAsks).toHaveLength(cap + 1);
+    });
+
+    it('frees its cap once asks that timed out are given up by the transport', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        // The transport gives up a little after the ask's own timer does.
+        east.answerReceipt = () =>
+            new Promise((_resolve, reject) => {
+                setTimeout(() => reject(new Error('timeout')), 150);
+            });
+        const cap = EventForwardService.RECEIPT_MAX_IN_FLIGHT;
+
+        expect(
+            await Promise.all(
+                Array.from({ length: cap }, () =>
+                    west.forward.askReceipt('east', ask(), 100),
+                ),
+            ),
+        ).toEqual(Array.from({ length: cap }, () => null));
+        expect(await west.forward.askReceipt('east', ask(), 100)).toBeNull();
+        expect(west.receiptAsks).toHaveLength(cap);
+
+        east.answerReceipt = async () => NOT_HELD;
+        await vi.waitFor(async () =>
+            expect(await west.forward.askReceipt('east', ask(), 100)).toEqual(
+                NOT_HELD,
+            ),
+        );
+        expect(west.receiptAsks.length).toBeGreaterThan(cap);
+    });
+
     it('holds at most its cap of asks open to one peer', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
