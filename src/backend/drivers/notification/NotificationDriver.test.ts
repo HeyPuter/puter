@@ -859,3 +859,32 @@ describe('NotificationDriver — rows written before the scope columns', () => {
         expect(await selectUids(holder.actor)).toEqual([uid]);
     });
 });
+
+
+describe('NotificationDriver displayed notification catch-up', () => {
+    it('selects named ids within the app and user scope', async () => {
+        const box = await mailbox();
+        await server.services.notification.markAcknowledged(box.rows.appUser, box.holder.userId);
+        const rows = await withActor(box.ownAppActor, () => driver.select({
+            subject: 'notif:app-user',
+            uids: Object.values(box.rows),
+            limit: 50,
+        }));
+        expect(rows).toEqual([expect.objectContaining({
+            uid: box.rows.appUser, acknowledged: expect.any(Number),
+        })]);
+    });
+
+    it.each([Array(51).fill('one'), [''], [7], 'one', ['x'.repeat(129)]])(
+        'rejects an invalid or oversized id batch: %s', async (uids) => {
+            const { actor } = await makeUser();
+            await expect(withActor(actor, () => driver.select({ uids })))
+                .rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
+
+    it('returns no rows for an empty id batch', async () => {
+        const { actor } = await makeUser();
+        expect(await withActor(actor, () => driver.select({ uids: [] }))).toEqual([]);
+    });
+});

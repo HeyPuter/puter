@@ -39,7 +39,7 @@ export const APP_MESSAGE_RATE_LIMITS = {
     perDay: 1000,
 } as const;
 
-export type AppMessagePriority = 'normal';
+export type AppMessagePriority = 'normal' | 'high';
 
 /** An `app.message` value as stored, after normalization. */
 export type AppMessage = {
@@ -322,13 +322,11 @@ export const parseAppMessage = (input: Record<string, unknown>): AppMessage => {
         message.sensitive = input.sensitive;
     }
 
-    if (input.priority !== undefined && input.priority !== 'normal') {
-        throw invalid(
-            'priority',
-            input.priority === 'high'
-                ? "'high' is not available to apps; use 'normal'"
-                : "must be 'normal'",
-        );
+    if (input.priority !== undefined) {
+        if (input.priority !== 'normal' && input.priority !== 'high') {
+            throw invalid('priority', "must be 'normal' or 'high'");
+        }
+        message.priority = input.priority;
     }
 
     return message;

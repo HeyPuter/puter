@@ -282,6 +282,11 @@ export interface EventsInvokeCall {
      * connection first, so a send time stamped into it is the real one.
      */
     render?: () => string;
+    /**
+     * Rechecked by a transport that waits before sending; false drops the call
+     * with {@link supersededAnswer}.
+     */
+    beforeSend?: () => Promise<boolean>;
 }
 
 /** What one attempt at delivering an invocation came back with. */
@@ -334,12 +339,20 @@ export interface WorkerInvokeResult {
 /** How one invocation is sent. */
 export interface WorkerInvokeOptions {
     lane?: InvokeLane;
+    /** Rechecked before each send, including a resend after deployment. */
+    beforeSend?: () => Promise<boolean>;
     /** Applied to the event as each attempt is sent. */
     stampEvent?: (event: unknown) => unknown;
 }
 
 const NO_TRANSPORT =
     'no events dispatcher configured (url and internal secret)';
+
+/** What a call whose `beforeSend` said no answers instead of being sent. */
+const supersededAnswer = (): EventsInvokeAnswer => ({
+    status: null,
+    error: 'invocation superseded',
+});
 
 export class EventsWorkerInvokerClient extends PuterClient {
     /** Set only where invocations do not leave the process — local development. */
@@ -395,11 +408,13 @@ export class EventsWorkerInvokerClient extends PuterClient {
         const margin = Math.min(EVENTS_DEADLINE_MARGIN_MS, timeoutMs / 2);
         const deadline =
             Date.now() + timeoutMs * EVENTS_WORKER_LEASE_FACTOR - margin;
-        const send = (
+        const send = async (
             deployed: boolean,
             sendTimeoutMs = timeoutMs,
-        ): Promise<EventsInvokeAnswer> =>
-            transport.send({
+        ): Promise<EventsInvokeAnswer> => {
+            if (options.beforeSend && !(await options.beforeSend()))
+                return supersededAnswer();
+            return transport.send({
                 script: request.script,
                 appUid: request.appUid,
                 ...(request.holder ? { holder: request.holder } : {}),
@@ -409,7 +424,11 @@ export class EventsWorkerInvokerClient extends PuterClient {
                 ...(deployed ? { deployed: true } : {}),
                 ...(options.lane ? { lane: options.lane } : {}),
                 ...(stampEvent ? { render } : {}),
+                ...(options.beforeSend
+                    ? { beforeSend: options.beforeSend }
+                    : {}),
             });
+        };
 
         // A send may wait for a connection for half its timeout before the
         // run's own timeout starts, so it is given what is left divided by that.
@@ -534,6 +553,8 @@ export class EventsWorkerInvokerClient extends PuterClient {
 interface BatchedCall {
     call: EventsInvokeCall;
     resolve: (answer: EventsInvokeAnswer) => void;
+    /** For a `beforeSend` that threw. */
+    reject: (err: unknown) => void;
     /** When its wait for a connection began, for what is left of it. */
     waitingSince: number;
 }
@@ -604,9 +625,14 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                 error: 'no free connection to the events dispatcher',
             };
         try {
-            if (this.#batchSize === 1) return await this.#sendOne(call);
-            return await new Promise<EventsInvokeAnswer>((resolve) => {
-                this.#batch.push({ call, resolve, waitingSince });
+            if (this.#batchSize === 1) {
+                // The wait for a connection may have outlived the call.
+                if (call.beforeSend && !(await call.beforeSend()))
+                    return supersededAnswer();
+                return await this.#sendOne(call);
+            }
+            return await new Promise<EventsInvokeAnswer>((resolve, reject) => {
+                this.#batch.push({ call, resolve, reject, waitingSince });
                 if (this.#batch.length >= this.#batchSize) this.#flush();
                 else
                     this.#batchTimer ??= setTimeout(
@@ -626,12 +652,38 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
         const batch = this.#batch;
         this.#batch = [];
         if (batch.length === 0) return;
+        if (batch.some(({ call }) => call.beforeSend))
+            void this.#sendStillCurrent(batch);
+        else this.#sendGathered(batch);
+    }
+
+    #sendGathered(batch: BatchedCall[]): void {
         if (batch.length === 1 || Date.now() < this.#batchUnsupportedUntil) {
             for (const { call, resolve } of batch)
                 void this.#sendOne(call).then(resolve);
             return;
         }
         void this.#sendBatch(batch);
+    }
+
+    /** Drops calls superseded while they were gathered, then sends the rest. */
+    async #sendStillCurrent(batch: BatchedCall[]): Promise<void> {
+        const checked = await Promise.all(
+            batch.map(async (entry) => {
+                if (!entry.call.beforeSend) return entry;
+                try {
+                    if (await entry.call.beforeSend()) return entry;
+                    entry.resolve(supersededAnswer());
+                } catch (err) {
+                    entry.reject(err);
+                }
+                return null;
+            }),
+        );
+        const current = checked.filter(
+            (entry): entry is BatchedCall => entry !== null,
+        );
+        if (current.length > 0) this.#sendGathered(current);
     }
 
     /** One call on the single route. */
@@ -688,13 +740,15 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
         let open = batch.length;
         const answered = batch.map(() => false);
         const timers: ReturnType<typeof setTimeout>[] = [];
-        const settle = (i: number, answer: EventsInvokeAnswer): void => {
+        const finish = (i: number, done: (entry: BatchedCall) => void) => {
             if (answered[i]) return;
             answered[i] = true;
             clearTimeout(timers[i]);
-            batch[i].resolve(answer);
+            done(batch[i]);
             if (--open === 0) hangUp.abort();
         };
+        const settle = (i: number, answer: EventsInvokeAnswer): void =>
+            finish(i, (entry) => entry.resolve(answer));
         const settleRest = (answer: EventsInvokeAnswer): void => {
             for (let i = 0; i < batch.length; i++) settle(i, answer);
         };
@@ -777,8 +831,22 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                 this.#batchUnsupportedUntil =
                     Date.now() + BATCH_UNSUPPORTED_RETRY_MS;
                 batch.forEach(({ call }, i) => {
-                    if (!answered[i])
+                    if (answered[i]) return;
+                    const { beforeSend } = call;
+                    if (!beforeSend) {
                         void this.#sendOne(call).then((a) => settle(i, a));
+                        return;
+                    }
+                    // The batch round trip may have outlived the call.
+                    void (async () => {
+                        try {
+                            if (!(await beforeSend()))
+                                return settle(i, supersededAnswer());
+                        } catch (err) {
+                            return finish(i, (entry) => entry.reject(err));
+                        }
+                        settle(i, await this.#sendOne(call));
+                    })();
                 });
                 return;
             }

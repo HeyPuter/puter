@@ -466,7 +466,10 @@ export class DurableSubscriptionStore extends PuterStore {
     async suspend(
         rows: readonly DurableSubscription[],
         reason: SuspendedReason,
-        opts: { override?: readonly SuspendedReason[] } = {},
+        opts: {
+            override?: readonly SuspendedReason[];
+            guard?: SqlGuard;
+        } = {},
     ): Promise<{ suspended: DurableSubscription[]; bumps: GenerationBump[] }> {
         if (rows.length === 0) return { suspended: [], bumps: [] };
 
@@ -488,8 +491,17 @@ export class DurableSubscriptionStore extends PuterStore {
             const written = await this.clients.db.write(
                 `UPDATE \`${TABLE}\` SET \`suspended_at\` = ?, ` +
                     '`suspended_reason` = ? ' +
-                    `WHERE \`sub_id\` = ? AND ${condition}`,
-                [at, reason, row.subId, ...override],
+                    `WHERE \`sub_id\` = ? AND ${condition}` +
+                    (opts.guard
+                        ? ` AND EXISTS (SELECT 1 FROM \`${opts.guard.table}\` WHERE ${opts.guard.where})`
+                        : ''),
+                [
+                    at,
+                    reason,
+                    row.subId,
+                    ...override,
+                    ...(opts.guard?.values ?? []),
+                ],
             );
             if (written.anyRowsAffected)
                 suspended.push({
@@ -957,6 +969,20 @@ export class DurableSubscriptionStore extends PuterStore {
      */
     async reapForApp(appUid: string, batchSize: number): Promise<DurableReap> {
         return this.#reap(await this.#listForApp(appUid, batchSize));
+    }
+
+    scheduleSubscriptionContextEntry(
+        scheduleUid: string,
+        context: string | null,
+        guard: SqlGuard,
+    ): BatchEntry {
+        assertDurableContext(context);
+        return {
+            statement:
+                `UPDATE \`${TABLE}\` SET \`context\` = ? WHERE \`token\` = ? ` +
+                `AND EXISTS (SELECT 1 FROM \`${guard.table}\` WHERE ${guard.where})`,
+            values: [context, scheduleToken(scheduleUid), ...guard.values],
+        };
     }
 
     /**

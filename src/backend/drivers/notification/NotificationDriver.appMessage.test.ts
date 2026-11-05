@@ -188,7 +188,11 @@ describe('app.message with live delivery over the socket wire', () => {
             captureBus(state.server, 'outer.gui.notif.message', async () => {
                 created = (await withActor(asApp(holder, app), () =>
                     state.driver.create(
-                        message({ text: 'Body', channel: 'replies' }),
+                        message({
+                            text: 'Body',
+                            priority: 'high',
+                            channel: 'replies',
+                        }),
                     ),
                 )) as Record<string, unknown>;
             }).then((seen) => (desktop = seen)),
@@ -200,7 +204,7 @@ describe('app.message with live delivery over the socket wire', () => {
             title: 'Hello',
             text: 'Body',
             channel: 'replies',
-            priority: 'normal',
+            priority: 'high',
             ttl: 3600,
             app: { uid: app.uid, name: 'App message test' },
         });
@@ -212,6 +216,7 @@ describe('app.message with live delivery over the socket wire', () => {
             app_uid: app.uid,
             audience: 'app-user',
             type: 'app.message',
+            value: expect.objectContaining({ priority: 'high' }),
         });
         // Not silent, but sent for the app alone: the desktop wire stays quiet.
         expect(written).toEqual([
@@ -220,7 +225,7 @@ describe('app.message with live delivery over the socket wire', () => {
                 uid,
                 type: 'app.message',
                 appUid: app.uid,
-            }),
+                value: expect.objectContaining({ priority: 'high' }),            }),
         ]);
         expect(desktop).toEqual([]);
     });

@@ -110,14 +110,23 @@ export class AbstractDatabaseClient extends PuterClient {
         tableName: string,
         data: Record<string, unknown>,
     ): Promise<WriteResult> {
+        const entry = this.insertEntry(tableName, data);
+        return this.write(
+            entry.statement + this.returningIdClause(),
+            entry.values,
+        );
+    }
+
+    /** An insert that can join other writes in a transaction. */
+    insertEntry(tableName: string, data: Record<string, unknown>): BatchEntry {
         const cols = Object.keys(data);
-        const values = Object.values(data);
-        const sql =
-            `INSERT INTO ${this.quoteIdentifier(tableName)} ` +
-            `(${cols.map((c) => this.quoteIdentifier(c)).join(', ')}) ` +
-            `VALUES (${cols.map(() => '?').join(', ')})` +
-            this.returningIdClause();
-        return this.write(sql, values);
+        return {
+            statement:
+                `INSERT INTO ${this.quoteIdentifier(tableName)} ` +
+                `(${cols.map((c) => this.quoteIdentifier(c)).join(', ')}) ` +
+                `VALUES (${cols.map(() => '?').join(', ')})`,
+            values: Object.values(data),
+        };
     }
 
     /** Whether `read()` goes to a separate replica rather than the primary. */

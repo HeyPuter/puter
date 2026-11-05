@@ -92,6 +92,7 @@ const loadWorker = ({
     matchAllDelayMs = 0,
     scope: registrationScope = `${ORIGIN}/`,
     subscription = null,
+    navigator = {},
 } = {}) => {
     const listeners = {};
     const shown = [];
@@ -103,6 +104,7 @@ const loadWorker = ({
     };
     const scope = {
         location: { origin: ORIGIN },
+        navigator,
         addEventListener: (type, fn) => {
             listeners[type] = fn;
         },
@@ -140,7 +142,6 @@ const loadWorker = ({
         setTimeout,
         clearTimeout,
         Number,
-        Function,
         indexedDB: fakeIndexedDB(stores),
         IDBKeyRange: { bound: (lower, upper) => ({ lower, upper }) },
         atob,
@@ -153,13 +154,14 @@ const loadWorker = ({
         await pending;
     };
     /** Fires a tap and lets `answer(win, message)` respond to what it posts. */
-    const tap = async (puter, answer = () => {}) => {
+    const tap = async (puter, answer = () => {}, action = '') => {
         for (const win of windows) {
             win.postMessage.mockImplementation((message) =>
                 answer(win, message),
             );
         }
         await fire('notificationclick', {
+            action,
             notification: { data: { puter }, close: vi.fn() },
         });
     };
@@ -175,6 +177,16 @@ const OLD_KEY = Buffer.from([4, ...Array(64).fill(3)]).toString('base64url');
 const CHANGED = `puter:subscription-changed:${ORIGIN}/`;
 
 describe('push-sw push', () => {
+    it.each([undefined, false, true])('passes replaced as a boolean for %s', async (replaced) => {
+        const worker = loadWorker();
+        const handler = vi.fn();
+        worker.context.puterPush.onPush('chat', handler);
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n1', title: 'Hi', channel: 'chat', replaced } }),
+        });
+        expect(handler).toHaveBeenCalledWith(expect.objectContaining({ replaced: replaced === true }));
+    });
+
     it('leaves a push without a Puter message to the app', async () => {
         const worker = loadWorker();
         await worker.fire('push', { data: pushData({ hello: 1 }) });
@@ -231,6 +243,97 @@ describe('push-sw push', () => {
         });
         expect(worker.shown[0].title).toBe('worker');
     });
+
+    it('passes the first two valid actions to showNotification', async () => {
+        const actions = [
+            null, {}, { action: '', title: 'Empty' },
+            { action: ' ', title: 'Blank' }, { action: 1, title: 'Number' },
+            { action: 'x'.repeat(65), title: 'Long id' },
+            { action: 'bad', title: '' }, { action: 'bad', title: ' ' },
+            { action: 'bad', title: 1 }, { action: 'bad', title: 'x'.repeat(65) },
+            { action: 'accept', title: 'Accept', icon: '/accept.png', extra: 'dropped' },
+            { action: 'd'.repeat(64), title: 'D'.repeat(64), icon: 3 },
+            { action: 'third', title: 'Third' },
+        ];
+        const worker = loadWorker({
+            handlers: { chat: `() => ({ actions: ${JSON.stringify(actions)} })` },
+        });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n1', title: 'Hi', channel: 'chat' } }),
+        });
+        expect(worker.shown[0].options.actions).toEqual([
+            { action: 'accept', title: 'Accept', icon: '/accept.png' },
+            { action: 'd'.repeat(64), title: 'D'.repeat(64) },
+        ]);
+    });
+
+    it.each([null, 'accept', { action: 'accept', title: 'Accept' }])(
+        'ignores non-array actions: %s', async (actions) => {
+            const worker = loadWorker({
+                handlers: { chat: `() => ({ actions: ${JSON.stringify(actions)} })` },
+            });
+            await worker.fire('push', {
+                data: pushData({ puter: { uid: 'n1', title: 'Hi', channel: 'chat' } }),
+            });
+            expect(worker.shown[0].options).not.toHaveProperty('actions');
+        },
+    );
+
+    it('lets a saved handler badge the app through the worker navigator', async () => {
+        const navigator = { setAppBadge: vi.fn(async () => {}) };
+        const worker = loadWorker({
+            navigator,
+            handlers: { chat: 'async (n) => { await navigator.setAppBadge?.(n.data.count); return { title: "Badged" }; }' },
+        });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n1', title: 'Hi', channel: 'chat', data: { count: 3 } } }),
+        });
+        expect(navigator.setAppBadge).toHaveBeenCalledWith(3);
+        expect(worker.shown[0].title).toBe('Badged');
+    });
+
+    it('ignores a numeric badge and keeps the default badge', async () => {
+        const worker = loadWorker({ handlers: { chat: '() => ({ badge: 3 })' } });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n1', title: 'Hi', channel: 'chat' } }),
+        });
+        expect(worker.shown[0].title).toBe('Hi');
+        expect(worker.shown[0].options).not.toHaveProperty('badge');
+    });
+
+    it.each(['throw new Error("badging failed")', 'return Promise.reject(new Error("badging failed"))'])(
+        'still shows a notification when setAppBadge fails: %s', async (body) => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                const worker = loadWorker({
+                    navigator: { setAppBadge: new Function(body) },
+                    handlers: { chat: 'async () => { await navigator.setAppBadge?.(3); return { title: "Badged" }; }' },
+                });
+                await worker.fire('push', {
+                    data: pushData({ puter: { uid: 'n1', title: 'Hi', body: 'there', channel: 'chat' } }),
+                });
+                expect(worker.shown[0]).toMatchObject({ title: 'Hi', options: { body: 'there' } });
+            } finally {
+                warn.mockRestore();
+            }
+        },
+    );
+
+    it.each([true, false, 'true', 1, null, undefined])(
+        'passes only a boolean requireInteraction to showNotification: %s',
+        async (requireInteraction) => {
+            const worker = loadWorker({
+                handlers: { chat: `() => ({ requireInteraction: ${JSON.stringify(requireInteraction)} })` },
+            });
+            await worker.fire('push', {
+                data: pushData({ puter: { uid: 'n1', title: 'Hi', channel: 'chat' } }),
+            });
+            const options = worker.shown[0].options;
+            if (typeof requireInteraction === 'boolean')
+                expect(options.requireInteraction).toBe(requireInteraction);
+            else expect(options).not.toHaveProperty('requireInteraction');
+        },
+    );
 
     describe('with savedHandlers(false)', () => {
         // Rebuilding this source throws, so a test can tell whether it ran.
@@ -438,12 +541,47 @@ describe('push-sw notificationclick', () => {
         expect(open.postMessage).toHaveBeenCalledWith({
             type: 'puter-notification-click',
             id: expect.any(String),
-            notification: { uid: 'n1', target: '/chat', data: { id: 1 } },
+            notification: { uid: 'n1', target: '/chat', data: { id: 1 }, action: null },
             kept: true,
         });
         expect(open.focus).toHaveBeenCalled();
         expect(open.navigate).not.toHaveBeenCalled();
         expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
+    });
+
+    it('delivers a button id to the focused page and keeps it until acknowledged', async () => {
+        const open = windowClient(`${ORIGIN}/chat`);
+        const worker = loadWorker({ windows: [open] });
+        await worker.tap(
+            { uid: 'n1', target: '/chat', data: { eventId: 'e1' }, url: `${ORIGIN}/chat` },
+            (win, message) => {
+                expect(worker.stores.clicks.get('n1').action).toBe('accept');
+                acks(worker)(win, message);
+            },
+            'accept',
+        );
+        expect(open.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+            notification: { uid: 'n1', target: '/chat', data: { eventId: 'e1' }, action: 'accept' },
+        }));
+        expect(open.focus).toHaveBeenCalledOnce();
+        expect(worker.stores.clicks.has('n1')).toBe(false);
+        expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
+    });
+
+    it('keeps a button id for the page opened with the click URL', async () => {
+        const worker = loadWorker();
+        await worker.tap({ uid: 'n1', url: `${ORIGIN}/chat` }, undefined, 'decline');
+        expect(worker.scope.clients.openWindow).toHaveBeenCalledWith(`${ORIGIN}/chat?puter.notification=n1`);
+        expect(worker.stores.clicks.get('n1')).toMatchObject({ uid: 'n1', action: 'decline' });
+    });
+
+    it('keeps a button id when an unacknowledged tap navigates the page', async () => {
+        const open = windowClient(`${ORIGIN}/inbox`);
+        const worker = loadWorker({ windows: [open] });
+        await worker.tap({ uid: 'n1', url: `${ORIGIN}/chat` }, undefined, 'accept');
+        expect(open.navigate).toHaveBeenCalledWith(`${ORIGIN}/chat?puter.notification=n1`);
+        expect(worker.stores.clicks.get('n1')).toMatchObject({ uid: 'n1', action: 'accept' });
+        expect(worker.stores.clicks.get('n1')).not.toHaveProperty('id');
     });
 
     it('takes the window to the tap`s URL when nothing there takes the tap', async () => {
@@ -575,6 +713,7 @@ describe('push-sw notificationclick', () => {
                 uid: 'n1',
                 target: '/chat',
                 data: null,
+                action: null,
                 at: expect.any(Number),
             });
         });
@@ -609,13 +748,13 @@ describe('push-sw notificationclick', () => {
 });
 
 describe('push-sw notifications a page shows', () => {
-    const show = async (worker, source) => {
+    const show = async (worker, source, options = {}) => {
         const port = { postMessage: vi.fn() };
         await worker.fire('message', {
             data: {
                 type: 'puter-push-show',
                 title: 'Hi',
-                options: { tag: 'n1', data: { puter: { uid: 'n1' } } },
+                options: { tag: 'n1', data: { puter: { uid: 'n1' } }, ...options },
             },
             source,
             ports: [port],
@@ -639,6 +778,13 @@ describe('push-sw notifications a page shows', () => {
         });
         expect(await show(worker, away)).toEqual({ shown: false });
         expect(worker.shown).toEqual([]);
+    });
+
+    it('passes the page`s action buttons to showNotification', async () => {
+        const worker = loadWorker();
+        const actions = [{ action: 'accept', title: 'Accept' }, { action: 'decline', title: 'Decline' }];
+        expect(await show(worker, null, { actions })).toEqual({ shown: true });
+        expect(worker.shown[0].options.actions).toEqual(actions);
     });
 
     it('shows it while only a nested frame of the app has focus', async () => {

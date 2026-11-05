@@ -56,6 +56,7 @@ import {
 } from '../../core/actor.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import type {
+    SqlGuard,
     ScheduleEndReason,
     ScheduleSubscriptionChange,
 } from '../../core/schedules.js';
@@ -246,6 +247,7 @@ import {
     isNotifToken,
     kvHandleFromSubject,
     kvHandleMatchFromSubject,
+    notifAnchorToken,
     notifMatchSpansEveryApp,
     parseSubject,
     type FsOp,
@@ -680,6 +682,7 @@ export interface KvDispatchOptions {
 
 /** One persisted notification, as the bus reports it. */
 export interface NotifDispatchInput {
+    dismissed?: true;
     /** The recipient, whose mailbox is the anchor. */
     userId: number;
     userUuid: string;
@@ -915,7 +918,7 @@ const scheduleSubscription = (): HttpError =>
 const scheduleImmutable = (): HttpError =>
     new HttpError(
         400,
-        "A schedule's context can't be changed; remove the schedule and create a new one",
+        "Use updateSchedule() to change a schedule's context or timing",
         { legacyCode: 'events_schedule_immutable' },
     );
 
@@ -1661,6 +1664,26 @@ export class EventsService extends PuterService {
         this.clients.event.on('notif.created', (_key, data) => {
             void this.dispatchNotif(data as NotifDispatchInput).catch((err) => {
                 console.warn('[events] notification dispatch failed', err);
+            });
+        });
+
+        this.clients.event.on('notif.acknowledged', (_key, data) => {
+            if (!this.notificationsFoldIn) return;
+            void (async () => {
+                const user = await this.stores.user.getById(data.userId);
+                if (!user?.uuid) return;
+                await this.dispatchNotif({
+                    ...data,
+                    userUuid: user.uuid,
+                    value: {},
+                    createdAt: Date.now(),
+                    dismissed: true,
+                });
+            })().catch((err) => {
+                console.warn(
+                    '[events] notification dismissal dispatch failed',
+                    err,
+                );
             });
         });
 
@@ -2870,6 +2893,7 @@ export class EventsService extends PuterService {
             override?: readonly SuspendedReason[];
             /** What a schedule ended by this records instead of `reason`. */
             scheduleEndReason?: ScheduleEndReason;
+            guard?: SqlGuard;
         } = {},
     ): Promise<DurableSubscription[]> {
         if (rows.length === 0) return [];
@@ -2877,6 +2901,7 @@ export class EventsService extends PuterService {
         const { suspended, bumps } =
             await this.stores.durableSubscription.suspend(rows, reason, {
                 override: opts.override,
+                guard: opts.guard,
             });
         const policy = backlogPolicyFor(reason);
         for (const row of suspended) {
@@ -2992,8 +3017,14 @@ export class EventsService extends PuterService {
      * retry path's; this is the state it drives, and the developer is told
      * because it is their code that stopped working. Called by extensions.
      */
-    async suspendForFailures(subId: string): Promise<boolean> {
-        return this.#suspendOne(subId, 'failures', { notifyDeveloper: true });
+    async suspendForFailures(
+        subId: string,
+        guard?: SqlGuard,
+    ): Promise<boolean> {
+        return this.#suspendOne(subId, 'failures', {
+            notifyDeveloper: true,
+            guard,
+        });
     }
 
     /**
@@ -3668,13 +3699,16 @@ export class EventsService extends PuterService {
     async #suspendOne(
         subId: string,
         reason: SuspendedReason,
-        options: { notifyDeveloper: boolean },
+        options: { notifyDeveloper: boolean; guard?: SqlGuard },
     ): Promise<boolean> {
         if (!this.enabled) return false;
         const row = await this.stores.durableSubscription.getBySubId(subId);
         if (!row || row.suspendedAt !== null) return false;
 
-        await this.suspendSubscriptions([row], reason);
+        const suspended = await this.#suspend([row], reason, {
+            guard: options.guard,
+        });
+        if (suspended.length === 0) return false;
         if (options.notifyDeveloper && row.appUid && row.handlerName)
             await this.#notifySuspended(scopeOfRow(row), row.handlerName, 1);
         return true;
@@ -4554,27 +4588,42 @@ export class EventsService extends PuterService {
             return { matched, tokens };
         }
 
+        if (item.family === 'notif' && item.notif) {
+            const input = {
+                ...item.notif,
+                userId: item.ownerUserId,
+                createdAt: item.ts,
+            };
+            const matched = await this.dispatchNotif(input, {
+                forwarded: true,
+                id: item.id,
+            });
+            return { matched, tokens: [notifAnchorToken(item.notif.userUuid)] };
+        }
+
         return { matched: false, tokens: [] };
     }
 
     /**
-     * Publish one persisted notification: the desktop's wire first, because
-     * that is what a person is waiting on, then whatever subscriptions asked
-     * for this slice of the mailbox.
-     *
-     * The fan-out is one token — a notification is addressed to a person — so
-     * there is no tree to walk and nothing to coalesce against.
+     * Publish a posting or dismissal to the same mailbox audience. Postings
+     * also reach the desktop's wire; forwarded copies evaluate session rows
+     * only.
      */
-    async dispatchNotif(input: NotifDispatchInput): Promise<void> {
-        if (!this.notificationsFoldIn) return;
+    async dispatchNotif(
+        input: NotifDispatchInput,
+        options: { forwarded?: boolean; id?: string } = {},
+    ): Promise<boolean> {
+        if (!this.notificationsFoldIn) return false;
 
         const subject = lookupNotifSubject('notif.created');
-        if (!subject) return;
+        if (!subject) return false;
         const userId = input?.userId;
-        if (typeof userId !== 'number' || !input.userUuid || !input.uid) return;
+        if (typeof userId !== 'number' || !input.userUuid || !input.uid)
+            return false;
 
         const context: NotifEventContext = {
-            key: 'notif.created',
+            key: input.dismissed ? 'notif.acknowledged' : 'notif.created',
+            ...(input.dismissed ? { dismissed: true as const } : {}),
             userId,
             userUuid: input.userUuid,
             uid: input.uid,
@@ -4582,9 +4631,9 @@ export class EventsService extends PuterService {
             audience: (input.audience ??
                 'account') as NotifEventContext['audience'],
             appUid: input.appUid ?? null,
-            notification: input.value ?? {},
+            notification: input.dismissed ? {} : (input.value ?? {}),
             ...(input.replaced === true ? { replaced: true as const } : {}),
-            id: input.uid,
+            id: options.id ?? (input.dismissed ? randomUUID() : input.uid),
             ts: input.createdAt || Date.now(),
             handlerDepth: input.handlerDepth,
         };
@@ -4592,29 +4641,51 @@ export class EventsService extends PuterService {
         // The adapter is not a subscription: the desktop is delivered to
         // whether or not anything subscribed, which is what keeps the wire
         // contract identical with the fold-in on.
-        this.services.notification.deliverOverSocket(context);
+        if (!input.dismissed && !options.forwarded)
+            this.services.notification.deliverOverSocket(context);
 
-        if (!(await this.#userHasAny(userId))) return;
+        if (!(await this.#userHasAny(userId))) return false;
 
-        const watched = await this.stores.eventSubscription.watchedTokens(
-            userId,
-            subject.tokens(context),
-        );
-        if (watched.length === 0) return;
+        const { local, remote } =
+            await this.stores.eventSubscription.watchedFor(
+                userId,
+                subject.tokens(context),
+            );
+        if (!options.forwarded && remote.size > 0)
+            this.services.eventForward.forwardEvent(regionsIn(remote), {
+                family: 'notif',
+                ownerUserId: userId,
+                id: context.id,
+                ts: context.ts,
+                notif: {
+                    userUuid: input.userUuid,
+                    uid: input.uid,
+                    type: context.type,
+                    audience: context.audience,
+                    appUid: context.appUid,
+                    value: context.notification,
+                    ...(input.dismissed ? { dismissed: true as const } : {}),
+                    ...(input.replaced ? { replaced: true as const } : {}),
+                    handlerDepth: input.handlerDepth,
+                },
+            });
+        if (local.length === 0) return false;
 
         const fetched = await this.stores.eventSubscription.getForTokens(
             userId,
-            watched,
+            local,
+            { keep: dispatchKeeps(options.forwarded) },
         );
         // A subscription naming no app is the desktop's view of the mailbox.
         const rows = inAccountMailbox(context.type)
             ? fetched
             : fetched.filter((row) => !notifMatchSpansEveryApp(row.match));
-        if (rows.length === 0) return;
+        if (rows.length === 0) return true;
 
         await this.#route(subject, context, rows, userId, (matched) =>
             this.#notifStillAuthorized(matched, context),
         );
+        return true;
     }
 
     /**
@@ -6613,8 +6684,10 @@ export class EventsService extends PuterService {
      */
     async invokeForSchedule(
         invocation: WorkerInvocation,
-        options: Pick<WorkerRunOptions, 'stampEvent'> = {},
+        options: Pick<WorkerRunOptions, 'stampEvent' | 'beforeSend'> = {},
     ): Promise<ScheduleInvokeResult> {
+        if (options.beforeSend && !(await options.beforeSend()))
+            return { outcome: 'deferred' };
         if (await this.#tooDeep(invocation)) return { outcome: 'too-deep' };
         if (await this.#suspendIfHandlerGone(invocation))
             return { outcome: 'deferred' };
@@ -6855,7 +6928,12 @@ export class EventsService extends PuterService {
         delivery: AddressedDelivery,
     ): void {
         if (this.#ended.has(row.subId) || this.#parkedUserRow(row)) return;
-        this.#coalesce().push(coalesceKey(row.subId, subject), delivery);
+        const event = delivery.envelope.event;
+        const key =
+            event.op === 'dismiss'
+                ? `${subject}:dismiss:${event.uid}`
+                : subject;
+        this.#coalesce().push(coalesceKey(row.subId, key), delivery);
     }
 
     async #flush(delivery: AddressedDelivery): Promise<void> {

@@ -241,7 +241,7 @@
         if (!token)
             return answer(500, { error: 'missing delivery token' }, 'no-token');
 
-        // `ack()` releases the delivery early; a later throw does not unsay it.
+        // `ack()` ignores a later throw; the response still waits for the handler.
         let acked = false;
         const ack = () => {
             acked = true;

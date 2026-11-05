@@ -270,6 +270,49 @@ describe('notify', () => {
     });
 });
 
+describe.each([
+    ['markShown', 'mark_shown'],
+    ['dismiss', 'mark_acknowledged'],
+])('%s', (name, method) => {
+    it.each([true, false])('resolves with the success boolean %s', async (success) => {
+        mockDriverCall.mockResolvedValue({ success });
+        const notifications = makeModule();
+        const mark = notifications[name];
+        await expect(mark('n-1')).resolves.toBe(success);
+        expect(mockDriverCall).toHaveBeenCalledExactlyOnceWith({
+            puter: notifications.puter,
+            iface: 'puter-notifications',
+            driver: 'es:notification',
+            method,
+            args: { uid: 'n-1' },
+        });
+    });
+
+    it.each([undefined, null, '', 42, {}])('rejects an invalid uid %j', async (uid) => {
+        await expect(makeModule()[name](uid)).rejects.toMatchObject({
+            code: 'invalid_argument',
+        });
+        expect(mockDriverCall).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { code: 'too_many_requests', message: 'Slow down' },
+        { error: { code: 'forbidden', message: 'Not allowed' } },
+    ])('maps a driver error to PuterJSError', async (error) => {
+        mockDriverCall.mockRejectedValue(error);
+        const rejected = await rejects(() => makeModule()[name]('n-1'));
+        expect(rejected).toBeInstanceOf(PuterJSError);
+        expect(rejected).toMatchObject(error.error ?? error);
+    });
+
+    it.each([null, {}, { success: 'true' }])('rejects an unreadable answer %j', async (answer) => {
+        mockDriverCall.mockResolvedValue(answer);
+        await expect(makeModule()[name]('n-1')).rejects.toMatchObject({
+            code: 'notifications_failed',
+        });
+    });
+});
+
 describe('cancel', () => {
     it('removes the stored send through the schedule surface', async () => {
         const removeSchedule = vi.fn(async () => {});
@@ -301,7 +344,7 @@ describe('cancel', () => {
 });
 
 describe("on('click')", () => {
-    it('delivers the desktop broadcast as { uid, target, data }', async () => {
+    it('delivers the desktop broadcast as { uid, target, data, action }', async () => {
         const notifications = makeModule();
         const clicks = [];
         notifications.on('click', (click) => clicks.push(click));
@@ -316,8 +359,8 @@ describe("on('click')", () => {
         await flush();
 
         expect(clicks).toEqual([
-            { uid: 'n-1', target: '/a', data: { id: 1 } },
-            { uid: 'n-2', target: null, data: null },
+            { uid: 'n-1', target: '/a', data: { id: 1 }, action: null },
+            { uid: 'n-2', target: null, data: null, action: null },
         ]);
     });
 
@@ -343,12 +386,13 @@ describe("on('click')", () => {
         expect(clicks).toEqual([]);
     });
 
-    it('delivers a click that came before the first handler, once', async () => {
+    it.each([undefined, 'accept'])('delivers a click with action %s that came before the first handler, once', async (action) => {
         const notifications = makeModule();
         notifications.puter.ui.broadcast('notificationClick', {
             uid: 'n-9',
             target: '/x',
             data: [1],
+            action,
         });
         const first = [];
         const second = [];
@@ -357,7 +401,7 @@ describe("on('click')", () => {
         notifications.on('click', (click) => second.push(click));
         await flush();
 
-        expect(first).toEqual([{ uid: 'n-9', target: '/x', data: [1] }]);
+        expect(first).toEqual([{ uid: 'n-9', target: '/x', data: [1], action: action ?? null }]);
         expect(second).toEqual([]);
         expect(notifications.puter.ui.on).toHaveBeenCalledTimes(1);
     });

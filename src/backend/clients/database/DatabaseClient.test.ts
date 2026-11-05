@@ -318,3 +318,13 @@ describe('AbstractDatabaseClient — SQL generation', () => {
         );
     });
 });
+
+
+it('builds an insert for batchWrite and shares it with insert', async () => {
+    const client = new FixtureDatabaseClient([]);
+    const entry = client.insertEntry('widget', { name: "reader's", enabled: true });
+    expect(entry.values).toEqual(["reader's", true]);
+    expect(entry.statement).toContain('VALUES (?, ?)');
+    await client.insert('widget', { name: "reader's", enabled: true });
+    expect(client.writes).toEqual([{ query: entry.statement, params: entry.values }]);
+});

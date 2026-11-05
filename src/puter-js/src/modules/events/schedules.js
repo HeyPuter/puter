@@ -4,6 +4,7 @@ import { prepareHandler, serializeContext } from './lib/handlerSource.js';
 
 /** @typedef {import('./types.js').OnScheduleOptions} OnScheduleOptions */
 /** @typedef {import('./types.js').Schedule} Schedule */
+/** @typedef {import('./types.js').ScheduleChanges} ScheduleChanges */
 /** @typedef {import('./types.js').ScheduleListOptions} ScheduleListOptions */
 /** @typedef {import('../../lib/types.js').ListPage<Schedule>} SchedulePage */
 
@@ -40,7 +41,7 @@ const assertScheduleId = (scheduleId) => {
  * the source is sent and stored in the signed-in user's own scope.
  *
  * `context` is evaluated **here, now** and delivered to every run as a frozen
- * `ctx`. It can't be changed later: remove the schedule and create a new one.
+ * `ctx`. Replace it later with `updateSchedule()`.
  *
  * Needs an app, and the account's `events:background` permission for it. On a
  * website with nobody signed in, opens the sign-in first; rejects
@@ -155,6 +156,46 @@ export async function getSchedule (scheduleId) {
             this.puter,
             `/events/schedules/${encodeURIComponent(scheduleId)}`,
         )
+    );
+}
+
+/**
+ * Changes a schedule's timing or context, or a stored notification's send time
+ * and content. Timing keys replace the whole timing definition. The id, kind,
+ * handler and owner stay the same.
+ *
+ * @this {import('./index.js').EventsModule}
+ * @param {string} scheduleId The schedule to change.
+ * @param {ScheduleChanges} changes Fields to replace.
+ * @returns {Promise<Schedule>} The updated schedule, as in `getSchedule()`.
+ */
+export async function updateSchedule (scheduleId, changes) {
+    assertScheduleId(scheduleId);
+    if ( ! changes || typeof changes !== 'object' || Array.isArray(changes) ) {
+        throw new PuterJSError('changes must be an object', 'invalid_request');
+    }
+    for ( const key of [
+        'handlerName', 'handler', 'handlerScope', 'handlerHash', 'handlerSource', 'to',
+    ] ) {
+        if ( Object.hasOwn(changes, key) ) {
+            throw new PuterJSError(`${key} cannot change`, 'invalid_request');
+        }
+    }
+    for ( const key of ['at', 'startAt', 'expiresAt', 'sendAt'] ) {
+        const value = changes[key];
+        if ( value instanceof Date && ! Number.isFinite(value.getTime()) ) {
+            throw new PuterJSError(
+                `\`${key}\` is not a valid date`,
+                'events_schedule_invalid',
+            );
+        }
+    }
+    serializeContext(changes.context);
+    return /** @type {Schedule} */ (
+        await request(this.puter, '/events/schedules/update', {
+            scheduleId,
+            changes,
+        })
     );
 }
 

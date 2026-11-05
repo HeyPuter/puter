@@ -83,6 +83,7 @@ const recording = () => {
         createFor: vi.fn(),
         list: vi.fn(),
         get: vi.fn(),
+        update: vi.fn(),
         remove: vi.fn(),
         receivePeerChanges: vi.fn(),
         prepareSendAt: vi.fn(),

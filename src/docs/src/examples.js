@@ -701,6 +701,18 @@ const examples = [
                 source: '/playground/examples/events-get-schedule.html',
             },
             {
+                title: 'Move a Reminder',
+                description: 'Change a stored notification without replacing its schedule id.',
+                slug: 'events-update-reminder',
+                source: '/playground/examples/events-update-reminder.html',
+            },
+            {
+                title: 'Change a Schedule',
+                description: 'Change a recurring schedule to run at a different time.',
+                slug: 'events-update-cron',
+                source: '/playground/examples/events-update-cron.html',
+            },
+            {
                 title: 'Remove a Schedule',
                 description: 'End a schedule with the Puter.js Events API, then read the ended schedule. Run it in the playground.',
                 slug: 'events-remove-schedule',

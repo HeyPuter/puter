@@ -1,13 +1,7 @@
 import { driverCall } from '../../lib/networkUtils.js';
 import { PuterJSError } from '../../lib/PuterJSError.js';
+import { toDriverError } from './lib/errors.js';
 import { APP_MESSAGE_TYPE } from './lib/shapes.js';
-
-// A driver failure arrives flat or nested under `error`.
-const toError = (error) => {
-    const nested = /** @type {{ error?: unknown } | null} */ (error)?.error;
-    if (nested && typeof nested === 'object') return PuterJSError.from(nested);
-    return PuterJSError.from(error);
-};
 
 /**
  * What the server answers a create with: the written notification, or the send
@@ -105,7 +99,7 @@ export async function notify(notification) {
             })
         );
     } catch (error) {
-        throw toError(error);
+        throw toDriverError(error);
     }
 
     if (created?.scheduled) {

@@ -165,6 +165,7 @@ const fakeSchedules = (plan: Partial<DeferredSendPlan>) =>
         createFor: vi.fn(),
         list: vi.fn(),
         get: vi.fn(),
+        update: vi.fn(),
         remove: vi.fn(),
         receivePeerChanges: vi.fn(),
         prepareSendAt: vi.fn(async (): Promise<DeferredSendPlan> => ({
@@ -270,7 +271,9 @@ describe('notify({ sendAt }) with services.schedules', () => {
         const schedules = fakeSchedules({ sendAt: at });
         setSchedules(schedules);
 
-        await expect(notify({ sendAt: at, text: 'later' })).resolves.toEqual({
+        await expect(
+            notify({ sendAt: at, text: 'later', priority: 'high' }),
+        ).resolves.toEqual({
             scheduled: { scheduleId: 'sched-1', sendAt: at },
         });
         expect(schedules.prepareSendAt).toHaveBeenCalledWith(
@@ -283,6 +286,7 @@ describe('notify({ sendAt }) with services.schedules', () => {
                 message: expect.objectContaining({
                     title: 'Hi',
                     text: 'later',
+                    priority: 'high',
                 }),
             },
         );
@@ -318,11 +322,20 @@ describe('deferredAppMessages.write', () => {
         const key = uuidv4();
         const id = await claimed(token);
 
-        await expect(write(key, txFor(id, token))).resolves.toBe('delivered');
+        await expect(
+            write(key, txFor(id, token), {
+                payload: JSON.stringify({
+                    message: { title: 'Later', priority: 'high' },
+                }),
+            }),
+        ).resolves.toBe('delivered');
         const rows = await mailbox();
         expect(rows).toHaveLength(1);
         expect(rows[0]).toMatchObject({ uid: key, send_key: key });
-        expect(valueOf(rows[0])).toMatchObject({ title: 'Later' });
+        expect(valueOf(rows[0])).toMatchObject({
+            title: 'Later',
+            priority: 'high',
+        });
     });
 
     it('writes nothing when the guard no longer holds: another claim took it', async () => {

@@ -111,6 +111,7 @@
         group: groupOf(message),
         channel: str(message.channel),
         sensitive: message.sensitive === true,
+        replaced: message.replaced === true,
         createdAt: typeof message.ts === 'number' && Number.isFinite(message.ts) ? message.ts : Date.now(),
         app: appOf(message),
     });
@@ -146,6 +147,22 @@
             if ( result && typeof result === 'object' ) {
                 for ( const field of SHOWN_FIELDS ) {
                     if ( str(result[field]) ) shown[field] = result[field];
+                }
+                if ( typeof result.requireInteraction === 'boolean' ) shown.requireInteraction = result.requireInteraction;
+                if ( Array.isArray(result.actions) ) {
+                    shown.actions = [];
+                    for ( const entry of result.actions ) {
+                        if ( ! entry || typeof entry.action !== 'string' ||
+                            ! entry.action.trim() || entry.action.length > 64 ||
+                            typeof entry.title !== 'string' ||
+                            ! entry.title.trim() || entry.title.length > 64 ) continue;
+                        shown.actions.push({
+                            action: entry.action,
+                            title: entry.title,
+                            ...(str(entry.icon) ? { icon: entry.icon } : {}),
+                        });
+                        if ( shown.actions.length === 2 ) break;
+                    }
                 }
             }
         } catch ( err ) {
@@ -303,8 +320,8 @@
     }
 
     // An open window with a click handler takes the tap; otherwise one opens its URL.
-    async function routeClick (puter, startedAt = Date.now()) {
-        const click = { uid: puter.uid, target: puter.target ?? null, data: puter.data ?? null };
+    async function routeClick (puter, action, startedAt = Date.now()) {
+        const click = { uid: puter.uid, target: puter.target ?? null, data: puter.data ?? null, action: str(action) };
         const url = await sameOriginUrl(puter.url);
         const open = await windows({ topLevel: true });
         const win = open.find((c) => c.url === url) ?? open.find((c) => c.focused) ?? open[0];
@@ -377,7 +394,7 @@
         if ( ! puter || typeof puter !== 'object' ) return;
         const startedAt = Date.now();
         event.notification.close();
-        event.waitUntil(Promise.all([routeClick(puter, startedAt), forgetOldClicksQuietly()]));
+        event.waitUntil(Promise.all([routeClick(puter, event.action, startedAt), forgetOldClicksQuietly()]));
     });
 
     // Entries pushStore.js writes.

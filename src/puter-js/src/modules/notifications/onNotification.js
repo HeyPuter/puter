@@ -27,9 +27,12 @@ export async function onNotification(handler, options = {}) {
         );
     }
 
-    const feed = new NotificationFeed(this.puter, handler, options, (uid) =>
-        this._noteReceived(uid),
-    );
+    const feed = new NotificationFeed(this.puter, handler, options, {
+        received: (uid) => this._noteReceived(uid, handler),
+        dismissed: (uid) => this._receiveDismissal(uid),
+        gap: () => { void this._reconcileDismissed(); },
+    });
     await feed.start();
+    await this._reconcileDismissed();
     return { off: () => feed.off() };
 }

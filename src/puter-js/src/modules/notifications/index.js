@@ -2,6 +2,7 @@ import EventListener from '../../lib/EventListener.js';
 import { PuterJSError } from '../../lib/PuterJSError.js';
 import { needsSignIn } from '../events/lib/signIn.js';
 import { cancel } from './cancel.js';
+import { dismiss } from './dismiss.js';
 import { disable } from './disable.js';
 import { enable } from './enable.js';
 import { enablePush } from './enablePush.js';
@@ -21,6 +22,7 @@ import {
     setOptIn,
     takeClick,
 } from './lib/pushStore.js';
+import { closeNotification, reconcileDismissed } from './lib/osNotifications.js';
 import { ReceiptLog } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
 import {
@@ -36,6 +38,7 @@ import {
     workerScope,
 } from './lib/webPush.js';
 import { listDevices } from './listDevices.js';
+import { markShown } from './markShown.js';
 import { notify } from './notify.js';
 import { onNotification } from './onNotification.js';
 import { onPush, shownFrom } from './onPush.js';
@@ -247,13 +250,17 @@ const showThroughWorker = (registration, title, options) => {
 /**
  * An app's notifications to the user it runs for.
  *
- * @extends {EventListener<{ click: import('./types.js').NotificationClick }>}
+ * @extends {EventListener<{ click: import('./types.js').NotificationClick, dismiss: import('./types.js').NotificationDismissal }>}
  */
 export class NotificationsModule extends EventListener {
     // Rebound in the constructor so destructured calls keep `this`.
     notify = notify;
     /** @type {OmitThisParameter<typeof cancel>} */
     cancel = cancel;
+    /** @type {OmitThisParameter<typeof markShown>} */
+    markShown = markShown;
+    /** @type {OmitThisParameter<typeof dismiss>} */
+    dismiss = dismiss;
     onNotification = onNotification;
     enable = enable;
     disable = disable;
@@ -265,7 +272,12 @@ export class NotificationsModule extends EventListener {
     listDevices = listDevices;
     removeDevice = removeDevice;
 
+    #pushListener = (notification) => {
+        if (this.#pushHandlers.size > 0) return this.#dispatchPush(notification);
+    };
     #listening = false;
+    #dismissed = new Set();
+    #reconciling = null;
     /** @type {Map<string, Set<{ handler: Function; onError?: Function }>>} */
     #pushHandlers = new Map();
     /** @type {Promise<{ off: () => Promise<void> } | null> | null} */
@@ -315,7 +327,7 @@ export class NotificationsModule extends EventListener {
 
     /** @param {import('../../index.js').Puter} puter */
     constructor(puter) {
-        super(['click']);
+        super(['click', 'dismiss']);
         /** @type {import('../../index.js').Puter} */
         this.puter = puter;
 
@@ -325,6 +337,8 @@ export class NotificationsModule extends EventListener {
         for (const name of [
             'notify',
             'cancel',
+            'markShown',
+            'dismiss',
             'onNotification',
             'enable',
             'disable',
@@ -345,12 +359,12 @@ export class NotificationsModule extends EventListener {
     }
 
     /**
-     * Listens for clicks on this app's notifications. A click that came in
-     * before the first handler was added is delivered to that handler.
+     * Listens for clicks or dismissals of this app's notifications. An earlier
+     * click is delivered to the first handler added.
      *
-     * @param {'click'} eventName
-     * @param {(click: import('./types.js').NotificationClick) => void} handler
-     *   Called with `{ uid, target, data }`.
+     * @template {'click' | 'dismiss'} K
+     * @param {K} eventName
+     * @param {(event: { click: import('./types.js').NotificationClick, dismiss: import('./types.js').NotificationDismissal }[K]) => void} handler
      * @returns {this | undefined}
      */
     on(eventName, handler) {
@@ -370,6 +384,20 @@ export class NotificationsModule extends EventListener {
             replaying = false;
             if (this.puter.env === 'web') this.#listenForWorkerClicks(handler);
         }
+        if (result && eventName === 'dismiss') this.#startPushFeed();
+        return result;
+    }
+
+    /**
+     * @template {'click' | 'dismiss'} K
+     * @param {K} eventName
+     * @param {(event: { click: import('./types.js').NotificationClick, dismiss: import('./types.js').NotificationDismissal }[K]) => void} handler
+     * @returns {this | undefined}
+     */
+    off(eventName, handler) {
+        const result = super.off(eventName, handler);
+        if (eventName === 'dismiss' && !this._hasListeners('dismiss') && this.#pushHandlers.size === 0)
+            void this.#stopPushFeed();
         return result;
     }
 
@@ -418,7 +446,7 @@ export class NotificationsModule extends EventListener {
                 )
                     this.#pushHandlers.delete(key);
                 const stopping =
-                    this.#pushHandlers.size === 0 ? this.#stopPushFeed() : null;
+                    this.#pushHandlers.size === 0 && !this._hasListeners('dismiss') ? this.#stopPushFeed() : null;
                 if (source !== null) {
                     const released = this.#releaseHandlerLock(key);
                     await this.#writeSource(key, async () => {
@@ -437,8 +465,56 @@ export class NotificationsModule extends EventListener {
     }
 
     /** @internal This page received `uid` live, in a feed or the desktop. */
-    _noteReceived(uid) {
+    _noteReceived(uid, handler) {
+        // A dismiss-only listener leaves postings for push delivery.
+        if (handler === this.#pushListener && this.#pushHandlers.size === 0) return;
         this.#receipts.note(uid);
+    }
+
+    /** @internal Closes this browser's copy even when the row was already dismissed. */
+    async _closeNotification(uid) {
+        this.#rememberDismissed(uid);
+        if (this.puter.env !== 'web') return;
+        try {
+            await closeNotification(uid, this.#worker);
+        } catch (error) {
+            console.warn('[puter.notifications] could not close a notification', error);
+        }
+    }
+
+    /** @internal One live dismissal, shared by this page's feeds. */
+    _receiveDismissal(uid) {
+        const received = this.#dismissed.has(uid);
+        const closing = this._closeNotification(uid);
+        if (received) return closing;
+        try {
+            this.emit('dismiss', { uid });
+        } catch (error) {
+            console.error('[puter.notifications] dismissal handler failed', error);
+        }
+        return closing;
+    }
+
+    #rememberDismissed(uid) {
+        this.#dismissed.add(uid);
+        if (this.#dismissed.size > 5000)
+            this.#dismissed.delete(this.#dismissed.values().next().value);
+    }
+
+    /** @internal Reconciles displayed notifications without emitting live events. */
+    async _reconcileDismissed() {
+        if (this.puter.env !== 'web') return;
+        if (!this.#reconciling) {
+            this.#reconciling = reconcileDismissed(this.puter, this.#worker)
+                .then((uids) => {
+                    for (const uid of uids) this.#rememberDismissed(uid);
+                })
+                .catch((error) => {
+                    console.warn('[puter.notifications] could not check dismissed notifications', error);
+                })
+                .finally(() => { this.#reconciling = null; });
+        }
+        await this.#reconciling;
     }
 
     /** @internal The server asks whether this page received a notification. */
@@ -1013,7 +1089,7 @@ export class NotificationsModule extends EventListener {
     }
 
     #startPushFeed() {
-        if (this.#pushHandlers.size === 0) return;
+        if (this.#pushHandlers.size === 0 && !this._hasListeners('dismiss')) return;
         if (this.#pushFeed || this.#stopWaitingForAuth) return;
         // A visitor who hasn't signed in yet: start once they do.
         if (needsSignIn(this.puter)) {
@@ -1025,7 +1101,7 @@ export class NotificationsModule extends EventListener {
         const feed = (async () => {
             try {
                 return await this.onNotification(
-                    (notification) => this.#dispatchPush(notification),
+                    this.#pushListener,
                     {
                         catchUp: false,
                         onError: (error) => this.#feedFailed(feed, error),
@@ -1109,7 +1185,7 @@ export class NotificationsModule extends EventListener {
      * holds it back. Inside the Puter desktop, the desktop's banner shows it.
      */
     async #showIfAway(notification, result) {
-        if (this.puter.env !== 'web' || !this.#optedIn || !pageAway()) return;
+        if (this.puter.env !== 'web' || !this.#optedIn || !pageAway() || this.#dismissed.has(notification.uid)) return;
         if (globalThis.Notification?.permission !== 'granted') return;
         try {
             const worker = this.#worker ?? workerFor('web');
@@ -1135,8 +1211,10 @@ export class NotificationsModule extends EventListener {
                     },
                 },
             };
-            if (await showThroughWorker(registration, title, options)) return;
-            await registration.showNotification(title, options);
+            if (this.#dismissed.has(notification.uid)) return;
+            if (!await showThroughWorker(registration, title, options))
+                await registration.showNotification(title, options);
+            if (this.#dismissed.has(notification.uid)) await this._closeNotification(notification.uid);
         } catch (error) {
             console.warn(
                 '[puter.notifications] could not show a notification',

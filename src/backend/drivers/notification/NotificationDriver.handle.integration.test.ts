@@ -207,6 +207,7 @@ describe('app.message to the other party of a share', () => {
         const written = await captureBus('notif.written', async () => {
             sent = await send(inApp(owner, app), {
                 title: 'New message',
+                priority: 'high',
                 to: { handle },
             });
         });
@@ -222,7 +223,7 @@ describe('app.message to the other party of a share', () => {
         expect(row!.value).toEqual({
             type: 'app.message',
             title: 'New message',
-            priority: 'normal',
+            priority: 'high',
             ttl: 3600,
             app: { uid: app.uid, name: 'Handle App' },
         });

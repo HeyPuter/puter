@@ -27,7 +27,7 @@ puter.notifications.notify(notification)
 - `group` (String): A later notification with the same `group` replaces this one, as [Groups](#groups) describes. Up to 128 letters, digits and `. _ : @ -`.
 - `channel` (String): What kind of notification it is, such as `messages` or `reminders`. The [`onPush()`](/Notifications/onPush/) handler registered with this key decides what its push shows. Up to 32 lowercase letters, digits and `-`.
 - `sensitive` (Boolean): Pushes, and the notification a page of your app shows itself, name only your app, such as "New notification from Chat" for an app named Chat, instead of showing the title and text. On a website, a sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens your site's root, or your service worker's folder when your pages are inside it, and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. A listener added with [`onNotification()`](/Notifications/onNotification/) still gets the whole notification.
-- `priority` (String): Only `'normal'` is available to apps.
+- `priority` (String): `'normal'` (default) or `'high'`. High priority asks the push service to deliver right away even when the device is idle, for things like an incoming call. Pair it with a short `ttl` so a missed call doesn't ring late. Each user and app gets 60 high-priority pushes per hour. Further pushes use normal priority, and so do pushes when the budget can't be checked. Priority doesn't change how the notification looks. To keep it on screen until the user acts, return `requireInteraction` from your [`onPush()`](/Notifications/onPush/) handler.
 - `ttl` (Number): How many seconds a push may wait for a device that's offline, from 1 to 86400. Defaults to 3600. It doesn't change how long the notification is kept.
 - `to` (Object): Send it to the other side of a key-value share instead, as `{ handle }` with the share's handle. See [Notify the other side of a share](#notify-the-other-side-of-a-share).
 - `sendAt` (Number | String | Date): Send it at this time instead of now, as a `Date`, an ISO-8601 string with a zone, a date alone (midnight UTC), or whole milliseconds since the epoch. Rounded up to the next whole second, and at most 366 days ahead. A time within 5 seconds, or in the past, sends it now. See [Send it later](#send-it-later).
@@ -44,6 +44,10 @@ It rejects with an error carrying `message` and `code`:
 
 | `code` | Meaning |
 | --- | --- |
+| `events_value_too_large` | With `sendAt`, the stored notification is over 16 KB as JSON, or a field is longer than can be stored. |
+| `internal_error` | The notification couldn't be written. A retry may send it again. |
+| `notification_value_too_large` | The full notification value is over 16 KB as JSON. |
+| `notifications_failed` | The server didn't return the notification's uid. |
 | `invalid_argument` | `notification` isn't an object, or its `title` is missing or blank. |
 | `bad_request` | A field is over its limit, has the wrong type, or isn't one of the fields above. The message names the field. With `to`, it must be an object with only a string `handle`. |
 | `forbidden` | The call wasn't made by an app, for example from Node.js with an account token. |
@@ -84,18 +88,18 @@ const later = await puter.notifications.notify({
 if (typeof later === 'object' && later) await puter.notifications.cancel(later.scheduleId);
 ```
 
-A stored notification is a schedule of `kind: 'deferred'`. You can read it with [`puter.events.getSchedule()`](/Events/getSchedule/) and [`puter.events.listSchedules()`](/Events/listSchedules/), which show `nextRunAt` set to its `sendAt` until it starts to go out. It needs no handler and no `events:background` permission.
+A stored notification is a schedule of `kind: 'deferred'`. You can read it with [`puter.events.getSchedule()`](/Events/getSchedule/) and [`puter.events.listSchedules()`](/Events/listSchedules/), which show `nextRunAt` set to its `sendAt` until it starts to go out. You can change it with [`puter.events.updateSchedule()`](/Events/updateSchedule/). It needs no handler and no `events:background` permission.
 
 When it's due:
 
 - It usually goes out within 15 seconds of `sendAt`, as if [`notify()`](/Notifications/notify/) were called then. It reaches every open page of your app live, and goes out as a push when no page answers, as described in [Push notifications for your app](/Notifications/push/#when-a-notification-is-pushed). A `group` replaces whatever notification is open in that group at that time.
 - The notification limits are counted then, against the recipient. With `to`, the share is checked when you call [`notify()`](/Notifications/notify/), and again when it goes out, which is when it counts toward the limit for that sender, recipient and app. A push is billed to the user who receives it, as any push is.
-- If it can't go out because of a rate limit or a temporary error, it's retried, up to 5 attempts in all. After that it's dropped. A share that stopped, a recipient who blocked you, or an app or account that was deleted drops it right away.
+- A temporary error is retried, up to 5 attempts in all, then dropped. A rate-limited send waits at least a minute and tries again without using an attempt, and is dropped once it's over 6 hours late. A share that stopped, a recipient who blocked you, or an app or account that was deleted drops it right away.
 - While the sending account is suspended, it waits, and it's tried again every 15 minutes.
 
 It's written once, even when sending is retried. A retry doesn't write a second notification, and doesn't push it or bill it a second time. An open page of your app can receive it twice, with the same `uid`. A retry delivers it to open pages again only within 24 hours of the first attempt. After that, the retry finishes without delivering it.
 
-Once it has gone out, or been dropped, its schedule has `state: 'ended'` and an `endReason` of `delivered` or `dropped`, and it stays in [`puter.events.listSchedules()`](/Events/listSchedules/) for 7 days. While it's going out it's `sending`, and [`cancel()`](/Notifications/cancel/) rejects with `events_schedule_sending`.
+Once it has gone out, or been dropped, its schedule has `state: 'ended'` and an `endReason` of `delivered` or `dropped`, and it stays in [`puter.events.listSchedules()`](/Events/listSchedules/) for 7 days. While it's going out it's `sending`, and [`cancel()`](/Notifications/cancel/) rejects with `events_schedule_sending`. If a send fails before the notification is written, it can return to `active` and be cancelled while it waits to retry.
 
 When the user uninstalls your app, the notifications it has waiting for them are cancelled, and one that's due after the uninstall is dropped. Deleting the app, or the account that owns it, cancels all of them. This holds even on a server where sending later is turned off.
 
@@ -105,7 +109,11 @@ The number of notifications and [`at` schedules](/Events/onSchedule/) your app c
 
 A notification with a `group` replaces the newest notification your app sent the same user with that `group`, as long as that one hasn't been shown or dismissed. The replacement keeps that notification's `uid` and takes the new content and time. Its push replaces the earlier one on the device and alerts the user again. A listener added with [`onNotification()`](/Notifications/onNotification/) gets the replacement too, with the same `uid` and `replaced: true`.
 
-When the earlier notification was shown or dismissed, the call creates a new notification instead, and so does a call without a `group`. A tap on a push that Puter shows, such as one for an app inside the Puter desktop, dismisses its notification. Puter.js has no call that marks a notification shown or dismissed, so a group usually stays one notification that each new one replaces.
+When the earlier notification was shown or dismissed, the call creates a new notification instead, and so does a call without a `group`. A tap on a push that Puter shows, such as one for an app inside the Puter desktop, dismisses its notification.
+
+Mark the newest notification in the group shown with [`markShown()`](/Notifications/markShown/) or dismissed with [`dismiss()`](/Notifications/dismiss/) to make the next send with that group a new notification. `markShown()` doesn't close a notification already on screen. `dismiss()` closes it on devices where a page of your app is open, or the next time one opens there.
+
+For an immediate notification to your app's own user, [`notify()`](/Notifications/notify/) resolves with its `uid`. Notifications delivered to [`onNotification()`](/Notifications/onNotification/) and [`on('click')`](/Notifications/on/) events also carry `uid`.
 
 A replacement counts against the 30 notifications a minute but not the 1,000 a day. When it goes out as a push, it counts against the push limits like any other push.
 

@@ -75,6 +75,7 @@ const fakeSchedules = () =>
             total: 3,
         })),
         get: vi.fn(async () => view),
+        update: vi.fn(async () => view),
         remove: vi.fn(async () => {}),
         receivePeerChanges: vi.fn(async () => ({ applied: 2 })),
         prepareSendAt: vi.fn(),
@@ -128,6 +129,10 @@ const routes: Array<[string, (response: Response) => Promise<void>]> = [
         'GET /events/schedules/:scheduleId',
         (r) =>
             events.getSchedule(req({ params: { scheduleId: SCHEDULE_ID } }), r),
+    ],
+    [
+        'POST /events/schedules/update',
+        (r) => events.updateSchedule(req({ body: { scheduleId: SCHEDULE_ID, changes: { every: '2h' } } }), r),
     ],
     [
         'POST /events/schedules/remove',
@@ -247,6 +252,16 @@ describe('with services.schedules', () => {
             response,
         );
         expect(schedules.get).toHaveBeenCalledWith(actor, SCHEDULE_ID);
+        expect(sent.body).toEqual(view);
+    });
+
+    it('updates through update and answers its view', async () => {
+        const schedules = fakeSchedules();
+        setSchedules(schedules);
+        const { response, sent } = res();
+        const changes = { every: '2h' };
+        await events.updateSchedule(req({ body: { scheduleId: SCHEDULE_ID, changes } }), response);
+        expect(schedules.update).toHaveBeenCalledWith(actor, SCHEDULE_ID, changes);
         expect(sent.body).toEqual(view);
     });
 

@@ -170,8 +170,16 @@ export interface ScheduleServiceContract {
         request: ScheduleListRequest,
     ): Promise<PageResult<ScheduleView>>;
     get(actor: Actor, scheduleId: unknown): Promise<ScheduleView>;
+    update(
+        actor: Actor,
+        scheduleId: unknown,
+        changes: unknown,
+    ): Promise<ScheduleView>;
     remove(actor: Actor, scheduleId: unknown): Promise<void>;
-    receivePeerChanges(body: unknown): Promise<{ applied: number }>;
+    /** `results`: each change's index outcome, in order (`null` if dropped). */
+    receivePeerChanges(
+        body: unknown,
+    ): Promise<{ applied: number; results?: Array<number | null> }>;
     /** Checks a caller supplying `sendAt`; `events_disabled` when off. */
     prepareSendAt(actor: Actor, sendAt: unknown): Promise<DeferredSendPlan>;
     createDeferredAppMessage(

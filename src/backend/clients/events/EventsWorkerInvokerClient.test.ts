@@ -347,6 +347,46 @@ describe('DispatcherInvokeTransport with every connection busy', () => {
         held[INVOKE_CONNECTIONS].answer();
         await expect(after).resolves.toMatchObject({ status: 200 });
     });
+
+    it('rechecks the guard once a connection frees, and drops a superseded call', async () => {
+        const { transport, held, answerAll } = await saturated();
+
+        let current = true;
+        const guard = vi.fn(async () => current);
+        const waiting = transport.send({ ...CALL, beforeSend: guard });
+        current = false;
+        held[0].answer();
+
+        await expect(waiting).resolves.toEqual({
+            status: null,
+            error: 'invocation superseded',
+        });
+        expect(guard).toHaveBeenCalledTimes(1);
+        expect(held).toHaveLength(INVOKE_CONNECTIONS);
+        await answerAll();
+    });
+
+    it('fails a call whose guard throws after the wait, and frees its slot', async () => {
+        const { transport, held, answerAll } = await saturated();
+
+        const waiting = transport.send({
+            ...CALL,
+            beforeSend: async () => {
+                throw new Error('lease store down');
+            },
+        });
+        held[0].answer();
+        await expect(waiting).rejects.toThrow('lease store down');
+        expect(held).toHaveLength(INVOKE_CONNECTIONS);
+
+        await answerAll();
+        const after = transport.send(CALL);
+        await vi.waitFor(() =>
+            expect(held).toHaveLength(INVOKE_CONNECTIONS + 1),
+        );
+        held[INVOKE_CONNECTIONS].answer();
+        await expect(after).resolves.toMatchObject({ status: 200 });
+    });
 });
 
 describe('DispatcherInvokeTransport schedule lane', () => {
@@ -771,6 +811,138 @@ describe('DispatcherInvokeTransport batches', () => {
         ]);
     });
 
+    it('leaves a call superseded while gathered out of the batch', async () => {
+        const { fetchImpl, batches, singles } = streamingFetch();
+        const transport = transportFor(fetchImpl, { batchWindowMs: 20 });
+        let current = true;
+        const sent = [
+            transport.send(CALL),
+            transport.send({ ...CALL, beforeSend: async () => current }),
+            transport.send({ ...CALL, script: 'evw-other' }),
+        ];
+        current = false;
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+        expect(batches[0].body.calls.map((call) => call.script)).toEqual([
+            'evw-test',
+            'evw-other',
+        ]);
+        await expect(sent[1]).resolves.toEqual({
+            status: null,
+            error: 'invocation superseded',
+        });
+        batches[0].answer({ i: 0, status: 200, handled: true });
+        batches[0].answer({ i: 1, status: 200, handled: true });
+        await expect(Promise.all([sent[0], sent[2]])).resolves.toEqual([
+            { status: 200, handled: true },
+            { status: 200, handled: true },
+        ]);
+        expect(singles).toHaveLength(0);
+    });
+
+    it('sends nothing when every gathered call was superseded', async () => {
+        const fetchImpl = vi.fn(
+            stubFetch(200, { [EVENTS_HANDLED_HEADER]: '1' }),
+        );
+        const transport = transportFor(fetchImpl as unknown as FetchImpl);
+        const superseded = { ...CALL, beforeSend: async () => false };
+        await expect(
+            Promise.all([
+                transport.send(superseded),
+                transport.send(superseded),
+            ]),
+        ).resolves.toEqual([
+            { status: null, error: 'invocation superseded' },
+            { status: null, error: 'invocation superseded' },
+        ]);
+        expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    it('fails only the call whose guard throws at flush', async () => {
+        const { fetchImpl, batches, singles } = streamingFetch();
+        const transport = transportFor(fetchImpl);
+        const failing = transport.send({
+            ...CALL,
+            beforeSend: async () => {
+                throw new Error('lease store down');
+            },
+        });
+        const kept = transport.send(CALL);
+        await expect(failing).rejects.toThrow('lease store down');
+        // One call left, so it goes alone.
+        await expect(kept).resolves.toEqual({ status: 200, handled: true });
+        expect(batches).toHaveLength(0);
+        expect(singles).toHaveLength(1);
+    });
+
+    it('rechecks the guard before resending a batch call on its own', async () => {
+        const urls: string[] = [];
+        let current = true;
+        const fetchImpl = (async (url: string) => {
+            urls.push(url);
+            if (url.endsWith(EVENTS_DISPATCH_BATCH_PATH)) {
+                // Superseded while the batch was out.
+                current = false;
+                return new Response('no-such-route', {
+                    status: 404,
+                    headers: {
+                        [EVENTS_DISPATCH_ERROR_HEADER]: 'no-such-route',
+                    },
+                });
+            }
+            return new Response(null, {
+                status: 200,
+                headers: { [EVENTS_HANDLED_HEADER]: '1' },
+            });
+        }) as unknown as FetchImpl;
+        const transport = transportFor(fetchImpl);
+
+        await expect(
+            Promise.all([
+                transport.send({ ...CALL, beforeSend: async () => current }),
+                transport.send(CALL),
+            ]),
+        ).resolves.toEqual([
+            { status: null, error: 'invocation superseded' },
+            { status: 200, handled: true },
+        ]);
+        expect(urls.map((url) => new URL(url).pathname)).toEqual([
+            EVENTS_DISPATCH_BATCH_PATH,
+            EVENTS_DISPATCH_PATH,
+        ]);
+    });
+
+    it('answers a schedule run superseded in the batch as the early check does', async () => {
+        const { fetchImpl, batches } = streamingFetch();
+        const client = new EventsWorkerInvokerClient({
+            events: { invokeTimeoutMs: 5_000 },
+        } as unknown as IConfig);
+        client.setTransport(transportFor(fetchImpl, { batchWindowMs: 20 }));
+        let current = true;
+        const guard = vi.fn(async () => current);
+
+        const run = client.invoke(REQUEST, {
+            lane: 'schedule',
+            beforeSend: guard,
+        });
+        const other = client.invoke(REQUEST);
+        const another = client.invoke(REQUEST);
+        await vi.waitFor(() => expect(guard).toHaveBeenCalledTimes(1));
+        current = false;
+
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+        expect(batches[0].body.calls).toHaveLength(2);
+        await expect(run).resolves.toEqual(
+            await client.invoke(REQUEST, { beforeSend: async () => false }),
+        );
+        await expect(run).resolves.toMatchObject({
+            outcome: 'unavailable',
+            error: 'invocation superseded',
+        });
+        batches[0].answer({ i: 0, status: 200, handled: true });
+        batches[0].answer({ i: 1, status: 200, handled: true });
+        await Promise.all([other, another]);
+    });
+
     it('builds each body when the batch goes out', async () => {
         const { fetchImpl, batches } = streamingFetch();
         const transport = transportFor(fetchImpl);
@@ -827,6 +999,26 @@ describe('DispatcherInvokeTransport batches', () => {
 });
 
 describe('EventsWorkerInvokerClient invoke options', () => {
+    it('does not send a superseded invocation', async () => {
+        const client = makeClient();
+        const send = vi.fn(async () => ({ status: 200, handled: true }));
+        client.setTransport({ send });
+        const result = await client.invoke(REQUEST, { beforeSend: async () => false });
+        expect(result.outcome).toBe('unavailable');
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    it('rechecks before resending after a deployment', async () => {
+        const client = makeClient();
+        let current = true;
+        const send = vi.fn(async () => ({ status: null, dispatchReason: 'missing' }));
+        client.setTransport({ send });
+        client.setMissHandler(async () => { current = false; return 'deployed'; });
+        const result = await client.invoke(REQUEST, { beforeSend: async () => current });
+        expect(result.outcome).toBe('unavailable');
+        expect(send).toHaveBeenCalledTimes(1);
+    });
+
     it('stamps the event as each attempt goes out', async () => {
         const bodies: string[] = [];
         const client = makeClient();

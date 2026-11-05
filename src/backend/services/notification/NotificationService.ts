@@ -310,6 +310,9 @@ export class NotificationService extends PuterService {
                 ...scope,
                 value: structuredClone(payload),
                 ...(updated ? { updated: true as const } : {}),
+                ...(written.replacedAt !== undefined
+                    ? { replaced: true as const }
+                    : {}),
                 sendId: opts.sendId,
                 ...(opts.replayable ? { replayable: true as const } : {}),
             },

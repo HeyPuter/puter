@@ -556,6 +556,14 @@ export type EventMap = {
     'kv.share.retired': { handles: string[]; userId: number };
 
     // ---- Notifications ----
+    /** An app message was acknowledged after its state committed. */
+    'notif.acknowledged': {
+        userId: number;
+        uid: string;
+        type: string;
+        audience: string;
+        appUid: string;
+    };
     /**
      * A notification row exists. Emitted after the insert commits — nothing
      * pushes a uid before there is a row to name — and carries the scope tuple
@@ -589,6 +597,8 @@ export type EventMap = {
         value: Record<string, unknown>;
         /** An earlier notification rewritten in place. */
         updated?: true;
+        /** Replaced an earlier notification in its group. */
+        replaced?: true;
         /** Names this one send, for a receipt asked about it. */
         sendId: string;
         /** The same `sendId` may be emitted again, as a delayed send is. */
@@ -1051,11 +1061,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1066,10 +1075,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    | 'received'
-    | 'unreceived'
-    | 'no-socket'
-    | 'remote-only';
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

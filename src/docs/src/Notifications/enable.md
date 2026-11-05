@@ -10,6 +10,8 @@ On a website, the browser asks on your own origin, and pushes arrive through you
 
 The call resolves as soon as the browser has answered and Puter has its subscription. It doesn't wait for the confirmation. Pushes start once your page hands the confirmation back, usually within seconds. If the confirmation doesn't arrive within 30 seconds, the `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout`, or the console does without one, and the next page load tries again.
 
+With only the browser's permission prompt, a user can turn pushes on in up to 5 browsers for your app. With permission granted through Puter's prompt, the limit is 10. Turning them on past the limit removes the least recently seen browser. See [push limits](/rate-limits-and-quotas/#notifications).
+
 The choice sticks. Once pushes are on, [`onPush()`](/Notifications/onPush/) keeps the subscription current on later page loads without asking again. After [`disable()`](/Notifications/disable/), after the user turns your app off or removes this browser in Puter, after [`puter.auth.signOut()`](/Auth/signOut/), or after a different user signs in, page loads don't subscribe again until your page calls [`enable()`](/Notifications/enable/) from a click.
 
 If the user turned your app off in Puter's settings, the call rejects with `push_revoked`. To ask again, call [`requestPermission()`](/Notifications/requestPermission/) from a click, which opens Puter's permission prompt, and then call [`enable()`](/Notifications/enable/) again.
@@ -38,6 +40,11 @@ It rejects with an error carrying `message` and `code`:
 
 | `code` | Meaning |
 | --- | --- |
+| `notifications_failed` | The push request failed without a readable error code. |
+| `push_device_removed` | The user removed this browser in Puter, and the fresh subscription was also refused. |
+| `bad_request` | The browser's subscription isn't in a format or from a push service this server accepts. |
+| `forbidden` | The call isn't from a signed-in browser session of the app. |
+| `origin_mismatch` | The request's origin doesn't belong to the app making the call. |
 | `user_gesture_required` | The browser hasn't asked for notification permission yet, and the call wasn't made from a user gesture, such as a click. |
 | `push_unavailable` | This server has no push notification service, as on most self-hosted servers. |
 | `push_disabled` | This server has push notifications turned off. |

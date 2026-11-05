@@ -88,7 +88,7 @@ export interface ForwardWatch {
 /** One committed change, replayed against another region's session rows. */
 export interface ForwardEvent {
     kind: 'event';
-    family: 'fs' | 'kv';
+    family: 'fs' | 'kv' | 'notif';
     ownerUserId: number;
     /** Who caused it, so `self` is right on the far side. */
     actingUserId?: number;
@@ -109,6 +109,17 @@ export interface ForwardEvent {
             path: string;
             ancestors: Array<{ uid: string; path: string }>;
         };
+    };
+    notif?: {
+        userUuid: string;
+        uid: string;
+        type: string;
+        audience: string;
+        appUid: string | null;
+        value: Record<string, unknown>;
+        dismissed?: true;
+        replaced?: true;
+        handlerDepth?: number;
     };
     kv?: {
         userUuid: string;

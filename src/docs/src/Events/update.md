@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Changes the `context` of a subscription created with [`puter.events.onPersistent()`](/Events/onPersistent/). The subscription keeps its `subId`, its handler, and any events it hasn't delivered yet, and every delivery after the call runs with the new `context` as `ctx`. Ending the subscription and subscribing again would give it a new `subId` and drop its undelivered events.
+Changes the `context` of a subscription created with [`puter.events.onPersistent()`](/Events/onPersistent/). The subscription keeps its `subId`, its handler, and any events it hasn't delivered yet, and later deliveries in the events worker run with the new `context` as `ctx`. Ending the subscription and subscribing again would give it a new `subId` and drop its undelivered events.
 
 An app can change only the subscriptions it created. Outside an app, you can change any of yours. A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, can't change any.
 
@@ -29,14 +29,14 @@ The new context. It replaces the old one completely and is evaluated once, at th
 
 A `Promise` that resolves to the updated subscription, in the same shape [`puter.events.list()`](/Events/list/) returns. Its `contextKeys` and `contextHash` describe the new context, never its values.
 
-A delivery already running when you call `update()` finishes with the old context. A suspended subscription stays suspended and uses the new context once it resumes. If this page runs a function `handler` for the subscription, that handler gets the new context too.
+A delivery already running when you call `update()` finishes with the old context. A suspended subscription stays suspended and uses the new context once it resumes. If this page runs a function `handler` for the subscription, that handler gets the new context too. Handlers in other open pages keep the context they registered with.
 
 The promise rejects with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
 | `subscription_does_not_exist` | No such subscription, or it isn't yours to change. |
-| `events_schedule_immutable` | The subscription belongs to a [schedule](/Events/onSchedule/), and a schedule's `context` can't be changed. Remove the schedule and create a new one. |
+| `events_schedule_immutable` | The subscription belongs to a [schedule](/Events/onSchedule/). Change its context or timing with [`updateSchedule()`](/Events/updateSchedule/). |
 | `invalid_request` | `context` is missing. |
 | `events_context_too_large` | `context` is over 4 KB serialized. |
 | `events_context_invalid` | `context` can't be serialized as JSON. |
