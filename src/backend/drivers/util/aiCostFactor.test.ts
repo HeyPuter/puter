@@ -324,8 +324,10 @@ describe('AI cost factor', () => {
         it('gates and holds at the factored cost', async () => {
             listen(1.3);
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             const reserve = vi.spyOn(metering, 'reserveCredits');
             try {
                 const hold = await scoped.reserveAiCredits(
@@ -334,7 +336,11 @@ describe('AI cost factor', () => {
                     1000,
                 );
                 await hold?.release();
-                expect(check).toHaveBeenCalledWith(actor, 1300);
+                expect(check).toHaveBeenCalledExactlyOnceWith(
+                    actor,
+                    1300,
+                    undefined,
+                );
                 expect(reserve).toHaveBeenCalledWith(actor, 1300, undefined);
             } finally {
                 check.mockRestore();
@@ -342,10 +348,40 @@ describe('AI cost factor', () => {
             }
         });
 
+        it('admits one of two concurrent holds the balance only covers once', async () => {
+            listen(1.3);
+            vi.spyOn(metering, 'getAllowedUsage').mockResolvedValue({
+                remaining: 20_000_000,
+                monthUsageAllowance: 20_000_000,
+                addons: {},
+            });
+            const holds = await Promise.all(
+                [0, 1].map(() =>
+                    scoped.reserveAiCredits(
+                        actor,
+                        'openai:gpt-realtime:realtime:audio_output',
+                        12_500_000,
+                    ),
+                ),
+            );
+            try {
+                expect(holds.filter((h) => h !== null)).toHaveLength(1);
+                // The factor applies once: 12.5M at 1.3 is 16.25M held.
+                expect(await metering.getOutstandingHolds(actor)).toBe(
+                    16_250_000,
+                );
+            } finally {
+                await Promise.all(holds.map((h) => h?.release()));
+                vi.restoreAllMocks();
+            }
+        });
+
         it('passes a hold lifetime through to the service', async () => {
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             const reserve = vi.spyOn(metering, 'reserveCredits');
             try {
                 const hold = await scoped.reserveAiCredits(
@@ -367,8 +403,12 @@ describe('AI cost factor', () => {
         it('takes no hold when the factored cost is unaffordable', async () => {
             listen(1.3);
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockImplementation(async (_actor, amount) => amount <= 1000);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation(async (who, amount, opts) =>
+                    amount <= 1000
+                        ? metering.reserveCredits(who, amount, opts)
+                        : null,
+                );
             const reserve = vi.spyOn(metering, 'reserveCredits');
             try {
                 const hold = await scoped.reserveAiCredits(
@@ -409,8 +449,10 @@ describe('AI cost factor', () => {
         it('holds the factored cost while run executes, then releases it', async () => {
             listen(1.3);
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             try {
                 let heldDuringRun = 0;
                 const result = await withAiCreditHold(
@@ -448,8 +490,10 @@ describe('AI cost factor', () => {
             };
             server.clients.event.on('ai.cost.factor.*', slowFactor as never);
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             try {
                 await runWithContext({ actor }, () =>
                     withAiCreditHold(
@@ -485,8 +529,10 @@ describe('AI cost factor', () => {
 
         it('releases the hold when the usage write fails', async () => {
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             const write = vi
                 .spyOn(metering, 'incrementUsage')
                 .mockRejectedValueOnce(new Error('ledger down'));
@@ -515,8 +561,10 @@ describe('AI cost factor', () => {
 
         it('releases at once when nothing was recorded', async () => {
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             try {
                 await runWithContext({ actor }, () =>
                     withAiCreditHold(
@@ -535,8 +583,10 @@ describe('AI cost factor', () => {
 
         it('releases the hold when run throws', async () => {
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             const boom = new Error('upstream down');
             try {
                 await expect(
@@ -552,8 +602,8 @@ describe('AI cost factor', () => {
 
         it('refuses with a 402 and never runs when the cost is unaffordable', async () => {
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(false);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockResolvedValue(null);
             const run = vi.fn();
             try {
                 await expect(
@@ -575,8 +625,10 @@ describe('AI cost factor', () => {
         const relay = async (source: Readable) => {
             const record = vi.fn();
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             try {
                 const result = await withStreamedAiCharge(
                     scoped,
@@ -624,8 +676,10 @@ describe('AI cost factor', () => {
                 landCharge = resolve;
             });
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             try {
                 const result = await withStreamedAiCharge(
                     scoped,
@@ -655,8 +709,10 @@ describe('AI cost factor', () => {
             vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
             const refresh = vi.spyOn(server.stores.creditHold, 'refresh');
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             let landCharge = () => {};
             const charge = new Promise<void>((resolve) => {
                 landCharge = resolve;
@@ -697,8 +753,10 @@ describe('AI cost factor', () => {
             vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
             const refresh = vi.spyOn(server.stores.creditHold, 'refresh');
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             let opened = () => {};
             const opening = new Promise<void>((resolve) => {
                 opened = resolve;
@@ -741,8 +799,10 @@ describe('AI cost factor', () => {
 
         it('releases the hold when recording the charge throws', async () => {
             const check = vi
-                .spyOn(metering, 'hasEnoughCredits')
-                .mockResolvedValue(true);
+                .spyOn(metering, 'reserveCreditsIfAffordable')
+                .mockImplementation((who, amount, opts) =>
+                    metering.reserveCredits(who, amount, opts),
+                );
             try {
                 const result = await withStreamedAiCharge(
                     scoped,

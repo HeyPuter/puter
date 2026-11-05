@@ -102,20 +102,32 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Event type length | 1–128 characters | Invalid client envelopes receive `invalid_event` and close with 1008. Invalid upstream envelopes close with 1011. |
 | Client message rate | 100/s, burst 100 | Error `rate_limit_exceeded`, close 1008. Ping and pong frames count toward this allowance. |
 | Client upload rate | 128 KiB/s, burst 64 KiB | Reads pause to refill the budget. More than 64 KiB of overdraft closes with `rate_limit_exceeded`. |
-| Input pending session setup | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
+| Client events waiting for forwarding | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
 | Forwarding queue in either direction | Reads pause at 128 KiB. Admission stops above 192 KiB toward the provider and above 4 MiB plus 128 KiB toward the client. | A full queue closes with `rate_limit_exceeded`. |
 | Client that stops reading | 30 seconds of paused upstream reads | Close 1008. |
-| Pending usage records | 32 | Error `rate_limit_exceeded`, close 1008. Records already received are still billed. |
+| Pending usage records | 32 | Error `rate_limit_exceeded`, close 1013. Records already received are still billed. |
 | Numeric usage fields | Finite, nonnegative, at most 1 billion | Invalid upstream usage closes with 1011. A `null` usage counts as none. |
 | Session setup timeout | 15 seconds | Error `connection_timeout`, close 1011. |
 | Upstream handshake timeout | 10 seconds | Close 1011. |
 | Heartbeat interval | 30 seconds | A missing pong terminates the connection on the next heartbeat. |
-| Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. Overlapping sweeps are skipped. |
-| Session attempts per credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
+| Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. A check that fails at connection gets `internal_error` and closes with 1011. Once failures have continued for 60 seconds from the first failed lookup, the next failed check closes with `internal_error` and 1011. Subscription eligibility is checked independently on each sweep and after a plan invalidation. Revocation events close the affected credentials. Overlapping sweeps are skipped. |
+| Session attempts per signature-verified credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
+| Pre-auth attempts | 120 per client IP and 600 per node per minute | Local memory admission runs before the WebSocket handshake and signature verification. Exceeding either rate returns HTTP 429. Client IP follows the configured proxy trust policy. The shared memory limiter caps its state at 10,000 keys with a 1-hour retention floor and a 60-second sweep. |
+| Unauthenticated upgrade sockets, including closing sockets | 64 per node | Further upgrades receive HTTP 503. The slot is retained until successful admission or transport closure. |
+| Authentication setups in progress | 64 per node | Further upgrades receive HTTP 503. |
+| Presented credential | 8192 UTF-8 bytes | Longer or malformed credentials receive `invalid_api_key`. Unverified credentials allocate no distributed credential limiter state. Limiter lookup failures close with `internal_error` and 1011. |
+| Credit held per transcription item | The selected model's budget for 8,000 audio input, 8,000 text input and 4,096 text output tokens, or 160 seconds for duration-priced models, at that model's cost factor. Before cost factors: `gpt-4o-transcribe` 10,896,000 micro-cents, `gpt-4o-mini-transcribe` 5,448,000, `whisper-1` 1,600,000, `gpt-transcribe` 1,200,000, and 10,896,000 for any other model | Two spare items are reserved before transcription configuration or audio is forwarded, and replenished as the provider commits items. Enabling `gpt-4o-transcribe` therefore holds 21,792,000 micro-cents, or $0.21792, before cost factors. A model change releases the spare items and reserves new ones at the new price. The hold is a budget rather than a cap on reported usage. |
+| Transcription credit exhausted | When the account can't cover another item | Client reads pause while the session still holds items that may free credit. Once it holds none, error `insufficient_funds`, close 1008. |
+| Pending transcription identity | 64 items, spare items included | Reaching the cap pauses client reads until items settle. Provider commits beyond the cap close the connection with `rate_limit_exceeded` and 1013, and bill unresolved work conservatively. Unresolved item identities are retained. |
+| Transcription usage timeout | 30 seconds per committed item | Missing usage, transcription failure, or an upstream close bills the item's model budget before cost factors. A late or duplicate completion is ignored. |
+| Transcription reservation lifetime | 90 seconds, renewed on the 30-second heartbeat | Credit stays held until accepted usage is recorded. Unused reservation credit is released when the connection ends. |
+| Audio awaiting a commit acknowledgement | One held item per 160 seconds, at the session's input format | Counts all audio since the last commit or clear without turn detection, or only detected speech with server turn detection. Longer audio holds more items rather than closing the session. If the connection closes before the commit is acknowledged, each held item is billed. |
+| Completed transcription identity history | 128 items | Recent duplicate commits are ignored. Pending identities have a separate lifetime. |
+| Replacement attempts marked `purpose=handover` | 20 per credential per minute | This shared limit is checked before the general 60-attempt limit. A refused probe consumes no general attempt. Initial and dropped-session recovery attempts retain their general budget. |
 | Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. A response whose usage never arrives because the provider connection closed first is billed the full hold. |
 | Restart notice (`puter.reconnect`) | At most once a minute per session | Repeated announcements within the minute aren't sent. |
 | In-flight response drain at shutdown | 5 seconds | Close 1012. |
-| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. A response that doesn't report its usage within the 5 seconds is billed the credit held for it. |
+| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. Pending input transcriptions share this settlement window. Audio whose commit was not acknowledged is committed during settlement. Accepted work without final usage is billed conservatively. A response that does not report its usage within the 5 seconds is billed the credit held for it. |
 
 Send audio as a stream of small chunks. The message cap applies to text, configuration, tool output, and audio alike.
 
@@ -129,6 +141,7 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | PCM chunk | 12000 samples at 24 kHz, or 500 ms | Throws `input_too_large`. |
 | Native JSON traversal | Depth 16, 2048 visited values, 2048 array entries or object fields | Throws `input_too_large` before serialization. |
 | Outbound buffered data | 128 KiB for audio, 192 KiB for other events | Throws `queue_full`. The built-in microphone drops the chunk instead. |
+| Incoming server event | 4 MiB of UTF-8 | The conversation closes with code 4009 and doesn't reconnect. |
 | Pending acknowledgments | 8 | Rejects with `operation_in_progress`. |
 | Concurrent configuration updates | 1 | Rejects with `operation_in_progress`. |
 | Authentication and provider acknowledgment timeout | 10 seconds | Rejects preparation or the pending operation. |
@@ -137,10 +150,10 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | Capture chunk duration | 20 ms | AudioWorklet sends 480 PCM16 samples per chunk. |
 | Unacknowledged capture chunks | 25, or 500 ms | Further chunks are dropped until the page catches up. |
 | Queued playback | 300 seconds | Further audio for the reply is dropped and `queue_full` is reported once. |
-| Reconnection attempts | 10, backing off from 500 ms to 10 seconds, each delay randomized between half and one and a half times its value | The conversation closes with the original close code. |
-| Replacement session after a restart notice | Opened within 3 seconds of the notice, then retried from 1 second, backing off to 10 seconds, each delay randomized between half and one and a half times its value. Settings on a held replacement are acknowledged within 3 seconds. | The current session keeps working until the conversation switches or the server closes it. A refusal that retrying can't fix stops the attempts. |
+| Connection and reconnection attempts | 10, backing off from 500 ms to 10 seconds, each delay randomized between half and one and a half times its value | Initial transient failures retry through the original connection Promise. Terminal credential, model, funds, normal-close and oversized-event failures stop retries. An established conversation closes with the original close code after retries are exhausted. |
+| Replacement session after a restart notice | Opened within 3 seconds of the notice, then retried from 1 second, backing off to 10 seconds, each delay randomized between half and one and a half times its value. Settings on a held replacement are acknowledged within 3 seconds. | The current session keeps working until the conversation switches or the server closes it. Probes stop after 3 attempts or 30 seconds. Conversations sharing one SDK instance and credential share a budget of 20 probes per minute. Dropped-session recovery uses its separate attempt loop. A refusal that retrying cannot fix stops the probes. |
 | Offline wait while reconnecting | 2 minutes per reconnection, in browsers that report being offline | Attempts continue after the wait. |
-| Context restored after a reconnection | The 40 most recent restorable items, 48 KiB in total | Older items are left out. |
+| Context restored after a reconnection | The 40 most recent restorable items, 48 KiB in total | Restoration uses a contiguous suffix of restorable items. If the newest item exceeds the byte budget, the suffix is empty. Omitted items fire a nonfatal `context_trimmed` event with `omittedItems`. `context_restore_failed` is reserved for a provider refusal or a failed send. Text, function arguments and function results are preserved without truncation. |
 | Remembered canceled responses | 32 | Older response IDs are evicted from the suppression set. |
 
 
@@ -283,6 +296,8 @@ Each call is also capped, the same for every account:
 | `offset` on `list()`        | 5,000 |
 
 A `get()` or batch `set()` over its cap, or an `offset` over 5,000, is rejected with `bad_request` and nothing is read or written. A `limit` over 1,000 is lowered to 1,000, and the page's `cursor` picks up from there.
+
+Internal metering reads check up to 20 counters in Redis concurrently per call. Store-backed metering reads make up to 3 attempts when a flush overlaps the read. Each metering flush writes up to 20 counters concurrently.
 
 ### Filesystem
 

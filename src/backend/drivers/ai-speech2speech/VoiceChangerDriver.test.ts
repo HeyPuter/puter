@@ -72,7 +72,7 @@ vi.mock('undici', async (importOriginal) => ({
 let server: PuterServer;
 let driver: VoiceChangerDriver;
 let fetchSpy: MockInstance<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -91,7 +91,7 @@ afterAll(async () => {
 beforeEach(() => {
     webFetchMock.mockReset();
     fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -197,7 +197,7 @@ describe('VoiceChangerDriver.convert argument validation', () => {
 describe('VoiceChangerDriver.convert credit gate', () => {
     it('throws 402 BEFORE hitting ElevenLabs when the actor lacks credits', async () => {
         const { actor } = await makeUser();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withActor(actor, () =>
@@ -387,7 +387,7 @@ describe('VoiceChangerDriver.convert success path', () => {
 
         const [base, factored] = metered();
         expect(factored).toBe(base! * 2);
-        const held = hasCreditsSpy.mock.calls.map(([, amount]) => amount);
+        const held = admitSpy.mock.calls.map(([, amount]) => amount);
         expect(held).toEqual([base, base! * 2]);
     });
 
