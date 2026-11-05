@@ -18,7 +18,7 @@ Connect to this URL on the Puter API host:
 wss://api.puter.com/puterai/openai/v1/realtime?model=gpt-realtime-2.1-mini
 ```
 
-Self-hosted clients use their deployment's API host. The `model` query parameter defaults to `gpt-realtime-2.1-mini`. The model is fixed for the connection. A session update that changes it is rejected. It also accepts `gpt-realtime-2.1`, `gpt-realtime-2`, `gpt-realtime-1.5`, `gpt-realtime`, and `gpt-realtime-mini`.
+The `model` query parameter defaults to `gpt-realtime-2.1-mini`. The model is fixed for the connection. A session update that changes it is rejected. It also accepts `gpt-realtime-2.1`, `gpt-realtime-2`, `gpt-realtime-1.5`, `gpt-realtime`, and `gpt-realtime-mini`.
 
 Authenticate with a Puter session, app, or full-access API token. Puter supplies the provider credential. Server clients pass this header:
 
