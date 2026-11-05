@@ -47,11 +47,8 @@ import type { IConfig } from '../../types.js';
  * when that lapses, so the adapter is what keeps older clients and the fallback
  * working. It goes when the flag is on everywhere.
  *
- * A receipt asks this region's sockets whether a live copy landed. With
- * `notificationPeerReceipts` on, it also asks each peer region presence names,
- * over `/broadcast/notif/receipt` and inside the same window. A peer answers
- * from its own sockets and asks no one else, and only the asking region
- * settles. A peer with no answer by the deadline counts as unheard.
+ * With `notificationPeerReceipts` on, receipts also ask peer regions, which
+ * answer for their own sockets; only the asking region settles.
  */
 
 export type NotifWire =
@@ -342,9 +339,8 @@ export class NotificationSocketAdapter {
     /**
      * Asks the desktop's sockets, or with `appUid` the app's own, whether the
      * live copy of `uid` reached a page, and settles that as
-     * `notif.delivery.settled`. With peer receipts on, the peer regions
-     * presence names are asked too, inside the same window. Resolves the settle
-     * it emitted, or null when asking failed.
+     * `notif.delivery.settled`. Resolves the settle it emitted, or null when
+     * asking failed.
      */
     async receipt(scope: ReceiptScope): Promise<SettledDelivery | null> {
         const { userId, appUid, uid, type, sendId } = scope;
@@ -420,10 +416,7 @@ export class NotificationSocketAdapter {
         }
     }
 
-    /**
-     * Each peer region's receipt, null for one that did not answer by the
-     * deadline or had too little of it left to be asked.
-     */
+    /** Each peer's receipt; null when unheard by the deadline or not asked. */
     #askPeers(
         regions: string[],
         scope: Omit<PeerReceiptAsk, 'timeoutMs'>,

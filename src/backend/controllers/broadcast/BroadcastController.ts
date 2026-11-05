@@ -147,10 +147,7 @@ export class BroadcastController extends PuterController {
         res.status(200).json({ ok: true, ...reply });
     }
 
-    /**
-     * A peer region asking whether this region's pages got a live notification.
-     * Answered from this region's sockets only; it is never asked further.
-     */
+    /** A peer region's receipt ask, answered from this region's sockets. */
     @Post('/notif/receipt', { subdomain: '*' })
     async notifReceipt(req: Request, res: Response): Promise<void> {
         const broadcast = this.services.broadcast as unknown as

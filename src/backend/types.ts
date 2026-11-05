@@ -989,11 +989,7 @@ interface IConfigOptional {
     /** Ms a live notification waits for sockets to acknowledge it; 5000. */
     notificationAckTimeoutMs?: number;
 
-    /**
-     * Ask peer regions for their pages' receipts inside that same window,
-     * rather than reading a peer socket as unheard. Off by default; turn it on
-     * once every region answers `/broadcast/notif/receipt`.
-     */
+    /** Ask peer regions for receipts too; on once every region answers them. */
     notificationPeerReceipts?: boolean;
 
     /**

@@ -617,10 +617,8 @@ export type EventMap = {
     };
     /**
      * How one live notification went, on the node that asked for its receipt:
-     * from the desktop's sockets, or with `appUid` the app's own. With
-     * `notificationPeerReceipts` on, the peer regions presence names answer for
-     * their own sockets, and the socket fields below cover every region that
-     * answered.
+     * from the desktop's sockets, or with `appUid` the app's own. Socket fields
+     * cover every region that answered.
      */
     'notif.delivery.settled': {
         sendId?: string;
@@ -640,11 +638,7 @@ export type EventMap = {
         peerRegions: boolean;
         /** Peer regions presence named; absent when peers are not asked. */
         peersAsked?: string[];
-        /**
-         * Those that sent no answer in time, or were left unasked for lack of
-         * time or because too many asks to them were open. Absent when peers
-         * are not asked.
-         */
+        /** Of those, the ones with no answer in time; absent like peersAsked. */
         peersUnheard?: string[];
         responders: NotifDeliveryResponder[];
     };

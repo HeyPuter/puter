@@ -472,11 +472,7 @@ export class EventForwardService extends PuterService {
         });
     }
 
-    /**
-     * One peer region's receipt for a live notification, or null when it did
-     * not answer within `timeoutMs`, failed, or already has its cap of asks
-     * open. The peer answers from its own sockets and asks nobody else.
-     */
+    /** A peer's receipt, or null if it failed, timed out or hit its cap. */
     async askReceipt(
         region: string,
         ask: PeerReceiptAsk,
