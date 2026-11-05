@@ -253,7 +253,8 @@ describe('OpenAiImageProvider.generate credit gate', () => {
         });
         let blocked = false;
         vi.spyOn(redis, 'meterIncr').mockImplementation(async (...args) => {
-            if (!blocked && args[5].includes(`:actor:${actor.user!.uuid}:`)) {
+            const actorKey = `:actor:${actor.user!.uuid}:`;
+            if (!blocked && args.some((arg) => arg.includes(actorKey))) {
                 blocked = true;
                 await held;
             }
