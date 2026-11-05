@@ -29,7 +29,7 @@ import {
     storedTapHandler,
     tapRoute,
 } from '../../helpers/notificationTap.js';
-import { showLocalBanner, startPushWorker } from '../../helpers/pushWorker.js';
+import { startPushWorker } from '../../helpers/pushWorker.js';
 import { syncBrowserPush } from '../../helpers/pushSync.js';
 import { get_app_by_uid } from '../../helpers/getAppByUid.js';
 import launch_app from '../../helpers/launchApp.js';
@@ -637,9 +637,6 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
 
         const fresh = incoming.filter((entry) => ! surfaced.has(entry.uid));
         for ( const entry of fresh ) surfaced.add(entry.uid);
-        for ( const entry of fresh ) {
-            void showLocalBanner(entry, { replay, acknowledged: ! isUnread(entry) });
-        }
         for ( const entry of result.added ) justAdded.add(entry.uid);
         render();
         announce(fresh);

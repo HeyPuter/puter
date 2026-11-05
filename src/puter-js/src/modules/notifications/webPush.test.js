@@ -62,9 +62,8 @@ vi.mock('./lib/pushStore.js', () => {
 
 const { syncWebPush, removeWebPush, fromBase64Url, workerFor } =
     await import('./lib/webPush.js');
-const { NotificationsModule, tapUrl } = await import('./index.js');
+const { NotificationsModule } = await import('./index.js');
 const { PuterJSError } = await import('../../lib/PuterJSError.js');
-const { shownFrom } = await import('./onPush.js');
 
 const ORIGIN = 'https://app.example';
 const SCRIPT = `${ORIGIN}/puter-sw.js`;
@@ -886,93 +885,6 @@ describe('workerFor', () => {
         expect(workerFor('gui')).toEqual({ url: '/sw.js', scope: '/' });
         expect(workerFor('web')).toEqual({ url: '/puter-sw.js' });
         expect(workerFor('web', '/js/sw.js')).toEqual({ url: '/js/sw.js' });
-    });
-});
-
-describe('shownFrom', () => {
-    const notification = {
-        uid: 'n1',
-        title: 'Hi',
-        text: 'body',
-        icon: null,
-        target: '/chat/1',
-        group: null,
-        app: { uid: 'app-1', name: 'Chat' },
-    };
-
-    it('defaults to the notification`s own fields', () => {
-        expect(shownFrom(notification, undefined)).toEqual({
-            title: 'Hi',
-            body: 'body',
-            tag: 'n1',
-            url: '/chat/1',
-        });
-    });
-
-    it('takes only the shown fields a handler returns as strings', () => {
-        expect(
-            shownFrom(notification, { title: 'New', body: 7, onclick: 'x' }),
-        ).toEqual({ title: 'New', body: 'body', tag: 'n1', url: '/chat/1' });
-    });
-
-    it('keeps the first two valid buttons and only their display fields', () => {
-        expect(shownFrom(notification, { actions: [
-            null, {}, { action: '', title: 'Empty' },
-            { action: ' ', title: 'Blank' }, { action: 1, title: 'Number' },
-            { action: 'x'.repeat(65), title: 'Long id' },
-            { action: 'bad', title: '' }, { action: 'bad', title: ' ' },
-            { action: 'bad', title: 1 }, { action: 'bad', title: 'x'.repeat(65) },
-            { action: 'accept', title: 'Accept', icon: '/accept.png', extra: 'dropped' },
-            { action: 'd'.repeat(64), title: 'D'.repeat(64), icon: 3 },
-            { action: 'third', title: 'Third' },
-        ] }).actions).toEqual([
-            { action: 'accept', title: 'Accept', icon: '/accept.png' },
-            { action: 'd'.repeat(64), title: 'D'.repeat(64) },
-        ]);
-    });
-
-    it.each([null, 'accept', { action: 'accept', title: 'Accept' }])(
-        'ignores non-array actions: %s', (actions) => {
-            expect(shownFrom(notification, { actions })).not.toHaveProperty('actions');
-        },
-    );
-
-    it('tags a grouped notification as the server tags its push', () => {
-        expect(shownFrom({ ...notification, group: 'room-1' }).tag).toBe(
-            'app-1:room-1',
-        );
-    });
-
-    it('falls back to the app`s icon', () => {
-        const app = { ...notification.app, icon: 'https://cdn.test/app.png' };
-        expect(shownFrom({ ...notification, app }).icon).toBe(
-            'https://cdn.test/app.png',
-        );
-    });
-
-    it('names only the app for a sensitive notification, whatever the handler says', () => {
-        expect(
-            shownFrom(
-                { ...notification, group: 'room-1', sensitive: true },
-                { title: 'Secret', body: 'secret', actions: [{ action: 'secret', title: 'Secret' }] },
-            ),
-        ).toEqual({
-            title: 'Chat',
-            body: 'New notification from Chat',
-            tag: 'n1',
-        });
-    });
-});
-
-describe('tapUrl', () => {
-    it('reads relative paths from the worker`s scope and stays on its origin', () => {
-        const scope = `${ORIGIN}/app/`;
-        expect(tapUrl(undefined, scope)).toBe(`${ORIGIN}/app/`);
-        expect(tapUrl('chat/1', scope)).toBe(`${ORIGIN}/app/chat/1`);
-        expect(tapUrl('/chat/1', scope)).toBe(`${ORIGIN}/chat/1`);
-        expect(tapUrl('https://elsewhere.example/x', scope)).toBe(
-            `${ORIGIN}/app/`,
-        );
     });
 });
 
@@ -1862,12 +1774,11 @@ describe('onPush', () => {
         });
     });
 
-    describe('live delivery while the user is elsewhere', () => {
+    describe('live delivery', () => {
         let nav;
         const page = ({ visibilityState = 'visible', focused = true } = {}) => {
             globalThis.document = { visibilityState, hasFocus: () => focused };
         };
-        const away = () => page({ visibilityState: 'hidden', focused: false });
 
         beforeEach(() => {
             store.set(OPT_IN, true);
@@ -1882,383 +1793,37 @@ describe('onPush', () => {
         });
 
         it.each([
+            ['focused', {}],
             ['hidden', { visibilityState: 'hidden', focused: false }],
             ['visible in an unfocused window', { focused: false }],
         ])(
-            'shows the handler`s result when the page is %s',
+            'runs the handler and leaves showing it to the push when the page is %s',
             async (_, state) => {
                 page(state);
+                const handler = vi.fn(() => ({ title: 'From the handler' }));
                 const { module, feed } = makeModule();
-                await module.onPush('chat', () => ({
-                    title: 'From the handler',
-                }));
+                await module.onPush('chat', handler);
                 await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-                expect(nav.registration.showNotification).toHaveBeenCalledWith(
-                    'From the handler',
-                    expect.objectContaining({
-                        tag: 'n1',
-                        renotify: false,
-                        data: {
-                            puter: expect.objectContaining({
-                                uid: 'n1',
-                                url: `${ORIGIN}/`,
-                            }),
-                        },
-                    }),
+                expect(handler).toHaveBeenCalledWith(
+                    expect.objectContaining({ uid: 'n1' }),
                 );
+                expect(nav.registration.showNotification).not.toHaveBeenCalled();
             },
         );
 
-        it.each([true, false, 'true', 1, null, undefined])(
-            'passes only a boolean requireInteraction to the browser: %s',
-            async (requireInteraction) => {
-                away();
-                const { module, feed } = makeModule();
-                await module.onPush('chat', () => ({ requireInteraction }));
-                await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-                const options =
-                    nav.registration.showNotification.mock.calls[0][1];
-                if (typeof requireInteraction === 'boolean')
-                    expect(options.requireInteraction).toBe(requireInteraction);
-                else expect(options).not.toHaveProperty('requireInteraction');
-            },
-        );
-
-        it('passes action buttons through the page display path', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => ({
-                actions: [{ action: 'accept', title: 'Accept' }],
-            }));
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.registration.showNotification).toHaveBeenCalledWith('Hi', expect.objectContaining({
-                actions: [{ action: 'accept', title: 'Accept' }],
-            }));
-        });
-
-        it('closes the OS notification this page showed when its uid is dismissed', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            const { data } = nav.registration.showNotification.mock.calls[0][1];
-            const close = vi.fn();
-            nav.registration.getNotifications = vi.fn(async () => [{ data, close }]);
-            await module._receiveDismissal('n1');
-            expect(close).toHaveBeenCalledOnce();
-        });
-
-        it('keeps a late live posting from reopening a dismissed notification', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await module._receiveDismissal('n1');
-            module._noteReceived('n1');
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Late' });
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('keeps a slow handler from showing an already dismissed notification', async () => {
-            away();
-            const { module, feed } = makeModule();
-            let finish;
-            await module.onPush('chat', () => new Promise((resolve) => { finish = resolve; }));
-            const delivery = feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            await module._receiveDismissal('n1');
-            finish({ title: 'Too late' });
-            await delivery;
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('shows a notification no handler takes, as sent', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => ({ title: 'not this one' }));
-            await feed.deliver({
-                uid: 'n1',
-                channel: null,
-                title: 'Hi',
-                text: 'there',
-                target: '/c/1',
-            });
-            expect(nav.registration.showNotification).toHaveBeenCalledWith(
-                'Hi',
-                expect.objectContaining({
-                    body: 'there',
-                    data: {
-                        puter: expect.objectContaining({
-                            url: `${ORIGIN}/c/1`,
-                        }),
-                    },
-                }),
-            );
-        });
-
-        it('tags a grouped notification as its push and alerts again', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await feed.deliver({
-                uid: 'n1',
-                channel: 'chat',
-                title: 'Hi',
-                group: 'room-1',
-                app: { uid: 'app-1', name: 'Chat' },
-            });
-            expect(nav.registration.showNotification).toHaveBeenCalledWith(
-                'Hi',
-                expect.objectContaining({
-                    tag: 'app-1:room-1',
-                    renotify: true,
-                }),
-            );
-        });
-
-        it('names only the app for a sensitive notification', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => ({ title: 'Secret' }));
-            await feed.deliver({
-                uid: 'n1',
-                channel: 'chat',
-                title: 'Secret',
-                target: '/secret',
-                data: { id: 1 },
-                sensitive: true,
-                app: { uid: 'app-1', name: 'Chat' },
-            });
-            expect(nav.registration.showNotification).toHaveBeenCalledWith(
-                'Chat',
-                {
-                    body: 'New notification from Chat',
-                    tag: 'n1',
-                    renotify: false,
-                    data: {
-                        puter: {
-                            uid: 'n1',
-                            target: null,
-                            data: null,
-                            url: `${ORIGIN}/`,
-                        },
-                    },
-                },
-            );
-        });
-
-        it('shows the notification when its handler outlasts 5 seconds', async () => {
-            vi.useFakeTimers();
-            away();
-            const onError = vi.fn();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => new Promise(() => {}), {
-                onError,
-            });
-            const delivered = feed.deliver({
-                uid: 'n1',
-                channel: 'chat',
-                title: 'Hi',
-            });
-            await vi.advanceTimersByTimeAsync(5_000);
-            await delivered;
-            expect(onError).toHaveBeenCalledWith(
-                expect.objectContaining({ code: 'push_handler_timeout' }),
-            );
-            expect(nav.registration.showNotification).toHaveBeenCalledWith(
-                'Hi',
-                expect.any(Object),
-            );
-        });
-
-        it('looks up the registration of the worker it was given', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {}, {
-                serviceWorker: '/js/sw.js',
-            });
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.serviceWorker.getRegistration).toHaveBeenLastCalledWith(
-                '/js/sw.js',
-            );
-        });
-
-        it('reads the tap URL from the saved tap base', async () => {
-            away();
-            nav.registration.scope = `${ORIGIN}/puter/`;
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => ({ url: 'chat/1' }), {
-                serviceWorker: '/puter/puter-sw.js',
-            });
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(
-                nav.registration.showNotification.mock.calls[0][1].data.puter
-                    .url,
-            ).toBe(`${ORIGIN}/chat/1`);
-        });
-
-        it('reads the tap URL from the worker`s scope', async () => {
-            away();
-            nav.registration.scope = `${ORIGIN}/app/`;
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(
-                nav.registration.showNotification.mock.calls[0][1].data.puter
-                    .url,
-            ).toBe(`${ORIGIN}/app/`);
-        });
-
-        it('hands the notification to push-sw.js, which may hold it back', async () => {
-            away();
-            const posted = [];
-            nav.registration.active = {
-                scriptURL: SCRIPT,
-                postMessage: (message, [port]) => {
-                    posted.push(message);
-                    port.postMessage({ shown: false });
-                },
-            };
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => ({ actions: [{ action: 'accept', title: 'Accept' }] }));
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(posted).toEqual([
-                {
-                    type: 'puter-push-show',
-                    title: 'Hi',
-                    options: expect.objectContaining({ tag: 'n1', actions: [{ action: 'accept', title: 'Accept' }] }),
-                },
-            ]);
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('shows it itself when an older push-sw.js never answers', async () => {
-            vi.useFakeTimers();
-            away();
-            nav.registration.active = {
-                scriptURL: SCRIPT,
-                postMessage: vi.fn(),
-            };
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            const delivered = feed.deliver({
-                uid: 'n1',
-                channel: 'chat',
-                title: 'Hi',
-            });
-            await vi.advanceTimersByTimeAsync(2_000);
-            await delivered;
-            expect(nav.registration.active.postMessage).toHaveBeenCalled();
-            expect(nav.registration.showNotification).toHaveBeenCalledTimes(1);
-        });
-
-        it('shows nothing while push is off here for the user', async () => {
-            store.delete(OPT_IN);
-            away();
-            const { module, feed } = makeModule();
+        it('never says it shows its own notification', async () => {
+            page({ visibilityState: 'hidden', focused: false });
+            const { module } = makeModule();
             await module.onPush('chat', () => {});
             await flush();
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('shows nothing after disable()', async () => {
-            away();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await flush();
-            await module.disable();
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('shows nothing while the page has focus', async () => {
-            page();
-            const { module, feed } = makeModule();
-            await module.onPush('chat', () => {});
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-
-        it('shows nothing inside the Puter desktop, which shows its own banner', async () => {
-            page({ focused: false });
-            const { module, feed } = makeModule({ env: 'app' });
-            await module.onPush('chat', () => {});
-            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
-            expect(nav.registration.showNotification).not.toHaveBeenCalled();
-        });
-    });
-
-    describe('receipts', () => {
-        const answer = (module) => {
             const ack = vi.fn();
             module._noteReceived('n1');
             module._answerReceipt({ uid: 'n1' }, ack);
-            return ack.mock.calls[0][0];
-        };
-
-        it('says the page shows its own notification while its push feed runs', async () => {
-            store.set(OPT_IN, true);
-            withBrowser(makeNav());
-            const { module } = makeModule();
-            expect(answer(module).showsOwn).toBe(false);
-            const listener = await module.onPush('chat', () => {});
-            await flush();
-            expect(answer(module).showsOwn).toBe(true);
-            await listener.off();
-            expect(answer(module).showsOwn).toBe(false);
-        });
-
-        it('says it does not while push is off here, so pushes reach other devices', async () => {
-            withBrowser(makeNav({ existing: makeSubscription() }));
-            mockRequest.mockResolvedValue({ removed: true });
-            const { module } = makeModule();
-            await module.onPush('chat', () => {});
-            await flush();
-            expect(answer(module).showsOwn).toBe(false);
-
-            store.set(OPT_IN, true);
-            const { module: optedIn } = makeModule();
-            await optedIn.onPush('chat', () => {});
-            await flush();
-            expect(answer(optedIn).showsOwn).toBe(true);
-            await optedIn.disable();
-            expect(answer(optedIn).showsOwn).toBe(false);
-        });
-
-        it('hears another tab turn push off or on', async () => {
-            store.set(OPT_IN, true);
-            withBrowser(makeNav({ existing: makeSubscription() }));
-            server((route) =>
-                route === '/push/web/subscriptions'
-                    ? { status: 'active', device: { uid: 'd1' } }
-                    : { removed: true },
-            );
-            const { module: hidden } = makeModule();
-            await hidden.onPush('chat', () => {});
-            await vi.waitFor(() => expect(answer(hidden).showsOwn).toBe(true));
-
-            const { module: other } = makeModule();
-            await other.disable();
-            await vi.waitFor(() => expect(answer(hidden).showsOwn).toBe(false));
-
-            await other.enable();
-            await vi.waitFor(() => expect(answer(hidden).showsOwn).toBe(true));
-        });
-
-        it('says it does not without a registered worker or permission', async () => {
-            store.set(OPT_IN, true);
-            const nav = makeNav();
-            nav.serviceWorker.getRegistration.mockResolvedValue(undefined);
-            withBrowser(nav);
-            const { module } = makeModule();
-            await module.onPush('chat', () => {});
-            await flush();
-            expect(answer(module).showsOwn).toBe(false);
-
-            withBrowser(makeNav(), 'denied');
-            const { module: denied } = makeModule();
-            await denied.onPush('chat', () => {});
-            await flush();
-            expect(answer(denied).showsOwn).toBe(false);
+            expect(ack).toHaveBeenCalledWith({
+                received: true,
+                visibilityState: 'hidden',
+                focused: false,
+            });
         });
     });
 });

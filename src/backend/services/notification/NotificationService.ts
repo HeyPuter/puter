@@ -23,10 +23,14 @@ import { handlerDepthOf, type Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import type { NotifEventContext } from '../events/registry.js';
 import { PuterService } from '../types.js';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
+    NOTIF_HANDLED_EVENT,
+    NOTIF_HANDLED_PER_MINUTE,
     NotificationSocketAdapter,
     notificationAckTimeoutMs,
     notificationsFoldInEnabled,
+    type NotifSocket,
     type ReceiptScope,
 } from './notificationSocket.js';
 import {
@@ -404,6 +408,11 @@ export class NotificationService extends PuterService {
         return this.#socket().receipt(scope);
     }
 
+    /** Installs the `notif.handled` verb on one connection. */
+    attachSocket(socket: NotifSocket, actor: Actor): void {
+        this.#socket().attachSocket(socket, actor);
+    }
+
     /**
      * Drop notifications past the retention window, in batches, and report how
      * many went. Deleting is all there is to it: nothing is pushed, because a
@@ -439,6 +448,12 @@ export class NotificationService extends PuterService {
             ackTimeoutMs: () => notificationAckTimeoutMs(this.config),
             heldInPeerRegion: (userId, appUid) =>
                 this.#heldInPeerRegion(userId, appUid),
+            allowHandled: (userId) =>
+                checkRateLimit(
+                    `socket:${NOTIF_HANDLED_EVENT}:${userId}`,
+                    NOTIF_HANDLED_PER_MINUTE,
+                    60_000,
+                ),
         });
         return this.#adapter;
     }

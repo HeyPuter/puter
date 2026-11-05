@@ -4,7 +4,7 @@ description: Send a notification from your app to its user, or to the other side
 platforms: [websites, apps]
 ---
 
-Sends a notification to the user your app runs for, or with `to` to the other side of a [key-value share](/KV/share/). It goes to your app, not the Puter desktop's notifications panel. Every open page of your app gets it live, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). When no open page shows it to the user within 5 seconds, it also goes out as a push to the browsers where the user [turned pushes on](/Notifications/enable/) for your app. [When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed) has the exact rule.
+Sends a notification to the user your app runs for, or with `to` to the other side of a [key-value share](/KV/share/). It goes to your app, not the Puter desktop's notifications panel. Every open page of your app gets it live, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). When no open page is visible and focused as it arrives, it also goes out as a push to the browsers where the user [turned pushes on](/Notifications/enable/) for your app. [When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed) has the exact rule.
 
 Only an app can send notifications, meaning an app running on Puter or a website using Puter.js. Every notification carries your app's name. On a website with nobody signed in, the call asks the user to sign in first, as other Puter.js calls do.
 

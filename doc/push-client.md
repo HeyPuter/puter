@@ -1,6 +1,6 @@
 # Browser push client
 
-Puter's desktop shows pushes through `/sw.js`. Core registers it, and shows Settings → Notifications, only when the `pushEnabled` gui param is `true`; core never sets it. A backend extension that delivers pushes sets it with `services.homepage.setGuiParam('pushEnabled', true)` and can load its own code into the worker with `services.homepage.registerServiceWorkerScript(path)`.
+Puter's desktop shows pushes through `/sw.js`. Core shows Settings → Notifications only when the `pushEnabled` gui param is `true`; core never sets it. The worker is registered only when push is turned on in the browser, and a load removes one left without a subscription. A backend extension that delivers pushes sets it with `services.homepage.setGuiParam('pushEnabled', true)` and can load its own code into the worker with `services.homepage.registerServiceWorkerScript(path)`.
 
 Core subscribes the browser to a push service only when the server also publishes `pushWebPushKey` (see [Built-in Web Push client](#built-in-web-push-client)), and it has no `/push/*` routes of its own. The device, app, preference and subscription endpoints below come from that extension. On a deployment without one, such as most self-hosted servers, they answer core's plain 404 (`code: 'not_found'`), which `puter.notifications` reports as `push_unavailable` and the Notifications tab shows as unavailable. A device the extension can't find is `device_not_found`.
 
@@ -22,12 +22,13 @@ When the browser replaces the subscription (`pushsubscriptionchange`), `sw.js` p
 
 Before a notification is pushed, the server asks the open clients whether they received it live. It sends `notif.receipt` with `{ uid }` on the user's sockets for the app that sent it, or on the desktop's sockets for Puter's own notifications. The SDK remembers the uids its page received through `onNotification()`, `onPush()` or the desktop's feed, and answers once its page has that notification, or with `{ received: false }` when it never gets it. The server waits up to 5 seconds (`notificationAckTimeoutMs`).
 
-An answer carries `visibilityState`, `focused` and `showsOwn`, the last being whether the page shows the notification itself. A website page shows it itself when it is hidden or unfocused, has an `onPush()` handler and notification permission, and no other tab of the same site is focused. Inside the desktop, the desktop shows it, and an app's `onPush()` result is never shown as a browser notification.
+An answer carries `visibilityState` and `focused` as they were when the page received the notification. Pages never show a browser notification themselves; pushes do.
 
-- An answer from a page that is visible and focused, or that shows the notification itself, stops the push.
-- Otherwise the notification is pushed. A website's pushes go only to the browsers that subscribed through its own worker, never to Puter's `/sw.js`. An app inside the desktop pushes through `/sw.js`, which shows the app's name and icon.
-- A hidden desktop tab shows no banner, so answers only from hidden desktop tabs don't stop a push of Puter's own notifications.
-- A client that can't answer, such as an older puter.js, holds the push back while it is connected.
+- An answer from a page that was visible and focused stops the push (`handled` on `notif.delivery.settled`). An older client that doesn't send `focused` counts while visible.
+- Otherwise the notification is pushed, to every browser the user subscribed. A website's pushes go only to the browsers that subscribed through its own worker, never to Puter's `/sw.js`. An app inside the desktop pushes through `/sw.js`, which shows the app's name and icon.
+- A client that can't answer, such as an older puter.js, doesn't hold the push back.
+
+The ask reaches only the sockets in the asking region. So that other regions hear about a page too, a page that receives a notification live while visible and focused also sends `notif.handled` with `{ uid }` on the socket it came on. Core relays it as the node-local `notif.handled` event with the socket's user and app, at most 60 a minute per user; an extension that delivers pushes decides what to do with it.
 
 ## Registering
 

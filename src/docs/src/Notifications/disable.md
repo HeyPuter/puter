@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 Turns push notifications off for your app. Notifications still reach your app live while it's open.
 
-On a website, it ends this browser's push subscription for your app and removes it from Puter. Only the subscription Puter made is removed, so a subscription another push service made on your site stays as it is. Pages of your site in this browser, including ones open in other tabs, stop showing notifications themselves while they're in the background, so a notification goes out as a push to the user's other browsers instead. The browser's permission isn't changed, so a later [`enable()`](/Notifications/enable/) turns pushes back on without a prompt.
+On a website, it ends this browser's push subscription for your app and removes it from Puter. Only the subscription Puter made is removed, so a subscription another push service made on your site stays as it is. The browser's permission isn't changed, so a later [`enable()`](/Notifications/enable/) turns pushes back on without a prompt.
 
 The choice sticks. Page loads don't turn pushes back on, because [`onPush()`](/Notifications/onPush/) only keeps a subscription current after [`enable()`](/Notifications/enable/). Call [`enable()`](/Notifications/enable/) from a click to turn them on again.
 
