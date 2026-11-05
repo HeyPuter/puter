@@ -138,7 +138,7 @@ runs, in milliseconds since the epoch. A run usually starts within a minute of
 it.
 
 The handler gets `context` as `ctx`. The `context` is read once, when the
-schedule is created, can't be changed later, and can be at most 4 KB. So it
+schedule is created, and can be at most 4 KB. So it
 holds only the task's id, and the handler reads the task when it runs. A task
 renamed while it's snoozed comes back with its new name.
 
@@ -185,8 +185,8 @@ A few details:
 - Two attempts that overlap, such as a run still going past its 30 seconds
   when its retry starts, can both pass the check. Both write the same values,
   and the `group` covers the notification.
-- The same check skips a run for a snooze the user has since cancelled or
-  moved, as the next sections show.
+- The same check skips a run for a snooze the user has since cancelled, as
+  the next section shows.
 
 Publish the handler again after the change. A deploy script runs in a new
 process each time, so its SDK hasn't seen what's published. Call
@@ -236,31 +236,43 @@ removed.
 
 ## Change the Snooze Time
 
-A schedule can't be edited. To move a snooze, create a new schedule and
-remove the old one. This version of `snooze()` does both, so it works for a
-new snooze and for moving one:
+To move a snooze, change its schedule's time with
+[`puter.events.updateSchedule()`](/Events/updateSchedule/). The schedule keeps
+its id, so the task's `snoozeId` stays valid. This version of `snooze()` moves
+a snooze that's still waiting, and creates a new schedule otherwise:
 
 ```js
 async function snooze (taskId, until) {
     const key = `task:${taskId}`;
     const previous = await puter.kv.get(key);
 
-    const schedule = await puter.events.onSchedule({
+    let schedule = null;
+    if (previous?.snoozeId) {
+        try {
+            schedule = await puter.events.updateSchedule(previous.snoozeId, { at: until });
+        } catch (error) {
+            // It already ran, or was removed
+            if (error.code !== 'events_schedule_not_found') throw error;
+        }
+    }
+    schedule ??= await puter.events.onSchedule({
         at: until,
         handlerName: 'unsnooze',
         context: { taskId },
     });
+
     await puter.kv.update(key, {
         snoozedUntil: schedule.startAt,
         snoozeId: schedule.scheduleId,
     });
-
-    if (previous?.snoozeId) await endSchedule(previous.snoozeId);
 }
 ```
 
-The task points at the new schedule before the old one is removed. If the old
-one runs anyway, it finds a different `snoozeId` and does nothing.
+A schedule that already ran, or was removed, rejects with
+`events_schedule_not_found`, so `snooze()` creates a new one. A run that
+already started when you move it still finishes. It finds the task's
+`snoozeId` and brings the task back, and the moved run later finds `snoozeId`
+cleared and does nothing.
 
 ## Repeat a Few Times, Then Stop
 
@@ -392,17 +404,25 @@ async function snooze (taskId, until) {
     const key = `task:${taskId}`;
     const previous = await puter.kv.get(key);
 
-    const schedule = await puter.events.onSchedule({
+    let schedule = null;
+    if (previous?.snoozeId) {
+        try {
+            schedule = await puter.events.updateSchedule(previous.snoozeId, { at: until });
+        } catch (error) {
+            // It already ran, or was removed
+            if (error.code !== 'events_schedule_not_found') throw error;
+        }
+    }
+    schedule ??= await puter.events.onSchedule({
         at: until,
         handlerName: 'unsnooze',
         context: { taskId },
     });
+
     await puter.kv.update(key, {
         snoozedUntil: schedule.startAt,
         snoozeId: schedule.scheduleId,
     });
-
-    if (previous?.snoozeId) await endSchedule(previous.snoozeId);
 }
 
 async function unsnoozeNow (taskId) {

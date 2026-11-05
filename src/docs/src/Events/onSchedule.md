@@ -14,7 +14,7 @@ The handler is either inline code you pass as `handler`, or a handler published 
 
 To run a handler when the user's data changes instead, use [`puter.events.onPersistent()`](/Events/onPersistent/).
 
-[Change Data at a Set Time](/recipes/change-data-at-a-set-time/) walks through a one-time schedule with `at`, including how to cancel and move it.
+To change the timing or `context` later, use [`updateSchedule()`](/Events/updateSchedule/). [Change Data at a Set Time](/recipes/change-data-at-a-set-time/) walks through a one-time schedule with `at`, including how to cancel and move it.
 
 Only an app can create a schedule, meaning an app running on Puter or a website using Puter.js. The schedule belongs to the user the app runs for, and to that app. On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
 
@@ -40,7 +40,7 @@ Give exactly one of `every`, `cron` or `at`.
 - `handlerName` (String): The published handler each run calls. Required unless you pass `handler`.
 - `handlerScope` (String): Where `handlerName` is looked up, `'app'` or `'user'`. Defaults to `'app'`, the handlers the app's owner published. `'user'` binds to a handler the signed-in user's scope holds, published with `handlers.publish(name, handler, { scope: 'user' })`.
 - `handlerHash` (String): The SHA-256 hex digest of the handler source, in place of `handler`, to check it against `handlerName`.
-- `context` (Object): Values the handler needs, passed to every run as a frozen `ctx`. Up to 4 KB serialized. It's read once, at this call. Replace it or the timing with [`updateSchedule()`](/Events/updateSchedule/).
+- `context` (Object): Values the handler needs, passed to every run as a frozen `ctx`. Up to 4 KB serialized. It's read once, at this call. To replace it, use [`updateSchedule()`](/Events/updateSchedule/).
 
 ### Times
 
@@ -107,7 +107,7 @@ A schedule can't run more often than your plan's minimum interval, which is 1 mi
 
 The plan also limits how many schedules the user can hold for your app and in total, and how many runs per hour all of them can add up to. Over those limits, the call fails with `events_schedule_limit` or `events_schedule_budget`. With `maxRuns` on a `cron` schedule, the last run has to fall inside those same 10,000 runs or 400 days, or the call fails with `events_schedule_invalid`. See [Rate Limits and Quotas](/rate-limits-and-quotas/#schedules) for the numbers.
 
-The plan's limits are checked when a schedule is created. A schedule keeps running if the user later moves to a plan with lower limits. Schedules created after that are held to the new plan.
+The plan's limits are checked when a schedule is created, and when [`updateSchedule()`](/Events/updateSchedule/) changes its timing. A schedule keeps running if the user later moves to a plan with lower limits. Schedules created after that are held to the new plan.
 
 ## When a schedule runs
 
@@ -119,7 +119,7 @@ A run can start later than 60 seconds after its slot when it's being retried, wh
 
 Puter starts one attempt at a time for each schedule, and the next slot waits until the current run finishes or is given up. A handler that's still running when its 30 seconds are up can overlap its own retry, which has the same `event.id`.
 
-When a schedule falls behind, for example while a run was being retried, it doesn't make up every slot it missed. It runs the latest slot that's due, once, and `event.missed` counts the slots it skipped. A recurring schedule that resumes after a suspension waits for its next slot, and that run's `missed` counts the slots it skipped while it was suspended.
+When a schedule falls behind, for example while a run was being retried, it doesn't make up every slot it missed. It runs the latest slot that's due, once, and `event.missed` counts the slots it skipped. A recurring schedule that resumes after a suspension waits for its next slot, and that run's `missed` counts the slots it skipped while it was suspended. An `at` schedule whose time passed while it was suspended runs once when it resumes, as [Suspended and ended schedules](#suspended-and-ended-schedules) describes.
 
 ## Delivery guarantees
 
@@ -191,7 +191,7 @@ A schedule can stop running without being removed. It's then suspended, and [`li
 
 A suspended schedule isn't billed. One that stays suspended for 30 days ends.
 
-An `at` schedule whose time passed while suspended runs once when it resumes, including after a `no_credit` suspension. The event's `scheduledFor` is the original scheduled time, and `firedAt` is when the handler was invoked. Compare `event.scheduledFor` with `Date.now()` in the handler if a late run is unwanted.
+An `at` schedule whose time passed while it was suspended, for any reason, runs once when it resumes. Its `event.scheduledFor` is the original time and `event.firedAt` is when the run started, so a handler that shouldn't act that late can compare them and return.
 
 An ended schedule never runs again. It has `state: 'ended'` and an `endReason`, and stays in [`listSchedules()`](/Events/listSchedules/) for 7 days, after which it is deleted:
 
@@ -212,7 +212,7 @@ When schedules end with `permission_revoked`, the user's app gets an `app.events
 
 A `Promise` that resolves to the schedule. All times are in milliseconds since the epoch.
 
-- `scheduleId` (String): Its id, which [`getSchedule()`](/Events/getSchedule/) and [`removeSchedule()`](/Events/removeSchedule/) take.
+- `scheduleId` (String): Its id, which [`getSchedule()`](/Events/getSchedule/), [`updateSchedule()`](/Events/updateSchedule/) and [`removeSchedule()`](/Events/removeSchedule/) take.
 - `kind` (String): `'recurring'` for `every` and `cron`, `'once'` for `at`, and `'deferred'` for a notification sent later with [`notify()`](/Notifications/notify/#send-it-later).
 - `appUid` (String): The app that created it.
 - `handlerName` (String | null): The handler each run calls, or `null` once the schedule has ended. For a schedule created with an inline `handler`, it's the name Puter gave the handler, which starts with `@`.
@@ -316,6 +316,9 @@ const reminder = await puter.events.onSchedule({
     handlerName: 'remind',
     context: { todoId: 'todo-42' },
 });
+
+// Move it to two hours from now
+await puter.events.updateSchedule(reminder.scheduleId, { at: Date.now() + 2 * 60 * 60 * 1000 });
 
 // Changed your mind
 await reminder.off();

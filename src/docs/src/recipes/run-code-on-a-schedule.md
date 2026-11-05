@@ -96,8 +96,8 @@ await puter.events.onSchedule({
 });
 ```
 
-A schedule keeps running the code it was created with. To change it, remove the
-schedule and create a new one, or publish a named handler into the user scope
+A schedule keeps running the code it was created with. To change the code,
+remove the schedule and create a new one, or publish a named handler into the user scope
 with `scope: 'user'` and bind schedules to it with `handlerScope: 'user'`. The
 handler counts toward the user's [limits](/rate-limits-and-quotas/#handlers) and
 bills to the user like their own workers, and creating the schedule needs credit
@@ -271,20 +271,26 @@ the epoch. A run usually starts within a minute of it.
 
 ## Let the User Change the Time
 
-A schedule can't be edited. To move the summary to another time or time zone,
-remove the schedule and create a new one:
+To move the summary to another time or time zone, change the schedule with
+[`puter.events.updateSchedule()`](/Events/updateSchedule/). It keeps its id and
+handler. New timing replaces the old timing as a whole, so pass `cron` and `tz`
+together:
 
 ```js
 async function changeSummaryTime (hour, timeZone) {
-    const existing = await findSchedule();
-    if (existing) await puter.events.removeSchedule(existing.scheduleId);
-
     options.cron = `0 ${hour} * * 1-5`;
     options.tz = timeZone;
-    await puter.events.onSchedule(options);
+
+    const existing = await findSchedule();
+    if (existing) {
+        await puter.events.updateSchedule(existing.scheduleId, { cron: options.cron, tz: options.tz });
+    } else {
+        await puter.events.onSchedule(options);
+    }
 }
 ```
 
+Without a schedule, as after the user turned the summary off, it creates one.
 To turn the summary off, call
 [`puter.events.removeSchedule()`](/Events/removeSchedule/) with the
 `scheduleId` from `findSchedule()`.
@@ -364,12 +370,15 @@ async function startMorningSummary () {
 }
 
 async function changeSummaryTime (hour, timeZone) {
-    const existing = await findSchedule();
-    if (existing) await puter.events.removeSchedule(existing.scheduleId);
-
     options.cron = `0 ${hour} * * 1-5`;
     options.tz = timeZone;
-    await puter.events.onSchedule(options);
+
+    const existing = await findSchedule();
+    if (existing) {
+        await puter.events.updateSchedule(existing.scheduleId, { cron: options.cron, tz: options.tz });
+    } else {
+        await puter.events.onSchedule(options);
+    }
 }
 
 const allowed = await puter.perms.request('backgroundEvents');

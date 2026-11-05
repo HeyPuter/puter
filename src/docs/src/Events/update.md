@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Changes the `context` of a subscription created with [`puter.events.onPersistent()`](/Events/onPersistent/). The subscription keeps its `subId`, its handler, and any events it hasn't delivered yet, and later deliveries in the events worker run with the new `context` as `ctx`. Ending the subscription and subscribing again would give it a new `subId` and drop its undelivered events.
+Changes the `context` of a subscription created with [`puter.events.onPersistent()`](/Events/onPersistent/). The subscription keeps its `subId`, its handler, and any events it hasn't delivered yet, and later deliveries in the events worker run with the new `context` as `ctx`. Ending the subscription and subscribing again would give it a new `subId` and drop its undelivered events. To change a [schedule's](/Events/onSchedule/) context, use [`updateSchedule()`](/Events/updateSchedule/).
 
 An app can change only the subscriptions it created. Outside an app, you can change any of yours. A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, can't change any.
 

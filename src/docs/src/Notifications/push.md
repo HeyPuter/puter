@@ -8,8 +8,6 @@ A push notification reaches the user when they aren't looking at your app. It sh
 
 A website on its own domain needs three steps, and an app inside the Puter desktop needs one. [Where pushes work](#where-pushes-work) lists what each browser and device needs.
 
-Dismissing a notification closes it on another device while a page of the app has a live notification listener there, or the next time a page starts one. Startup checks up to 50 displayed notifications. Puter sends no close-only Web Push because subscriptions use `userVisibleOnly`, which requires pushes to show a notification. See [`dismiss()`](/Notifications/dismiss/) and [`on('dismiss')`](/Notifications/on/).
-
 ## When a notification is pushed
 
 Every open page of your app gets each notification live, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). Puter then asks those pages whether they received it. If a page answers within 5 seconds that it's visible and focused, or that it shows the notification itself, nothing is pushed. Otherwise Puter pushes it. A page answers only while it has an [`onNotification()`](/Notifications/onNotification/) or [`onPush()`](/Notifications/onPush/) listener.
@@ -172,6 +170,12 @@ To notify another user, share data with them with `notify: true` and send throug
 
 On a website, a tap on a push, or on a notification a page of your site showed itself, focuses an open page of your site and calls its [`on('click')`](/Notifications/on/) handlers. With no page open, it opens the handler's `url`, or else the notification's `target`, and the new page's first [`on('click')`](/Notifications/on/) handler gets the click. A tap reaches one page, once: when an open page doesn't answer within about half a second, the tap opens its URL instead, and the slow page doesn't get it, unless that page is already at the tap's URL. If that page wasn't loaded through your worker, such as one opened before the worker was installed, the URL opens in a new tab. Inside the Puter desktop, a tap opens your app and hands the click to [`on('click')`](/Notifications/on/).
 
+A push can also carry up to two buttons, which your [`onPush()`](/Notifications/onPush/) handler returns as `actions`. The pressed button's id reaches [`on('click')`](/Notifications/on/) as `action`. [Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/) shows how.
+
+## When the user reads it elsewhere
+
+When the user reads a notification in your app, call [`dismiss()`](/Notifications/dismiss/). The push closes on the user's other devices where a page of your app is open, and on the rest the next time a page of your app opens there. Puter doesn't send a push only to close one. [Closing it on other devices](/Notifications/dismiss/#closing-it-on-other-devices) has the rule.
+
 ## Groups and sensitive notifications
 
 A notification with a `group` replaces your earlier one in the same group, on the device and in your app, and alerts the user again. A group can name a chat, a thread or a person, such as `dm:ana@example.com`. [`notify()`](/Notifications/notify/#groups) has the rule.
@@ -248,7 +252,7 @@ While the app is open, [`onPush()`](/Notifications/onPush/) and [`onNotification
 
 ## App icon badges
 
-An installed web app can set a count on its app icon through the browser's [Badging API](https://developer.chrome.com/docs/capabilities/web-apis/badging-api). This works only where the browser supports badging, typically for installed apps. Send the count in the notification's `data`, then call `navigator.setAppBadge?.(count)` in your [`onPush()`](/Notifications/onPush/) handler. The handler can call it in either the page or the service worker:
+An installed web app can show a count on its icon with the browser's [Badging API](https://developer.chrome.com/docs/capabilities/web-apis/badging-api), where the browser supports it. Puter.js has no call for it. Send the count in the notification's `data`, and set it with `navigator.setAppBadge()` in your [`onPush()`](/Notifications/onPush/) handler, which runs in both the page and the service worker:
 
 ```js
 await puter.notifications.onPush('messages', async (n) => {
@@ -257,29 +261,14 @@ await puter.notifications.onPush('messages', async (n) => {
         try {
             await navigator.setAppBadge?.(count);
         } catch {
-            // Badging can fail independently of showing a notification.
+            // The browser refused the badge. The notification still shows.
         }
     }
     return { title: n.title, body: n.text ?? '' };
 });
 ```
 
-Clear the count when the app opens with `navigator.clearAppBadge?.()`. You can also clear it from [`on('dismiss')`](/Notifications/on/) if a dismissal means your app has no unread items:
-
-```js
-async function clearBadge () {
-    try {
-        await navigator.clearAppBadge?.();
-    } catch {
-        // The browser may refuse the badge update.
-    }
-}
-
-await clearBadge();
-puter.notifications.on('dismiss', () => { void clearBadge(); });
-```
-
-The handler result's `badge` field is the small icon image URL on the notification. It isn't a count. Numbers in that field are ignored and the browser uses its default badge.
+The `badge` field a handler returns is the URL of a small image on the notification, not a count. [Show Unread Counts on Your App Icon](/recipes/show-unread-counts-on-your-app-icon/) also clears the count when the user reads the messages.
 
 ## Where pushes work
 

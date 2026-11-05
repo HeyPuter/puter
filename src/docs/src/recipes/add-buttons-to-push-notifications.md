@@ -1,49 +1,100 @@
 ---
 title: Add Buttons to Push Notifications
-description: "Learn how to add buttons to push notifications, so users can respond to invitations as soon as your app opens."
+description: "Learn how to add buttons to push notifications, so users can answer an invitation right from the notification on their phone or computer."
 tags: [notifications]
 order: 70
 ---
 
-An invitation can offer Accept and Decline buttons on its push notification. Pressing either opens or focuses your app, where your code saves the response. With [`puter.notifications`](/Notifications/), your app adds the buttons in its push handler and reads the pressed button's id in its click handler.
+An invitation is quicker to answer when its notification has Accept and Decline buttons. With [`puter.notifications`](/Notifications/), your push handler adds the buttons, and your click handler gets the id of the button the user pressed. Pressing a button opens or focuses your app, so the response is saved by your page.
 
-This recipe assumes your website has [push notifications set up](/Notifications/push/#a-website-on-its-own-domain), with the user's permission and a service worker. Buttons are shown on your website's notifications where the browser supports them.
+This recipe assumes your website already has push notifications set up, with a service worker and the user's permission. [Reach a User When Your App Is Closed](/recipes/reach-a-user-when-your-app-is-closed/) sets that up.
 
-## Show the Buttons and Save the Response
+## Add the Buttons
 
-Register [`on('click')`](/Notifications/on/) early on every page load so it can receive the click that opened your app. Register [`onPush()`](/Notifications/onPush/) for the `invites` channel, then send an invitation with [`notify()`](/Notifications/notify/):
+On every page load, register an [`onPush()`](/Notifications/onPush/) handler for the `invites` channel that returns the buttons as `actions`. Each button has an `action` id and a `title` label:
 
 ```js
-puter.notifications.on('click', ({ uid, target, data, action }) => {
-    if (data?.kind !== 'invite' || typeof data.eventId !== 'string') return;
+await puter.notifications.onPush('invites', (n) => ({
+    title: n.title,
+    body: n.text ?? '',
+    actions: [
+        { action: 'accept', title: 'Accept' },
+        { action: 'decline', title: 'Decline' },
+    ],
+}));
+```
+
+The handler also runs in your service worker when a push arrives, so it uses only its argument. A notification shows at most two buttons, and some browsers show none. [`onPush()`](/Notifications/onPush/#parameters) lists the rules for `actions`.
+
+## Send an Invitation
+
+Send the invitation with [`notify()`](/Notifications/notify/), with the handler's key as `channel`. Put the id of what it's about in `data`, so the click handler knows what the user answered:
+
+```js
+await puter.notifications.notify({
+    title: 'Lunch on Friday?',
+    text: 'Ana invited you to lunch at noon.',
+    channel: 'invites',
+    target: '/events/friday-lunch',
+    data: { eventId: 'friday-lunch' },
+});
+```
+
+This sends the invitation to the user your app runs for. To invite another user, send it through a share, as [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/) shows.
+
+## Save the Response
+
+Add an [`on('click')`](/Notifications/on/) handler early on every page load, so it also gets the click that opened your app. The pressed button's id comes as `action`. A tap on the notification body, which is all a browser without buttons offers, gives `action: null`, so that case opens the invitation's page for the user to answer there:
+
+```js
+puter.notifications.on('click', async ({ uid, action, target, data }) => {
     if (action !== 'accept' && action !== 'decline') {
         location.assign(target ?? '/');
         return;
     }
-    void puter.kv.set(`rsvp:${data.eventId}`, action)
-        .then(() => puter.notifications.dismiss(uid))
-        .catch(console.error);
-});
 
-await puter.notifications.onPush('invites', (n) => {
-    if (n.data?.kind !== 'invite') return;
-    return {
-        actions: [
-            { action: 'accept', title: 'Accept' },
-            { action: 'decline', title: 'Decline' },
-        ],
-    };
-});
-
-await puter.notifications.notify({
-    title: 'RSVP for Friday lunch',
-    text: 'Would you like to join?',
-    channel: 'invites',
-    target: '/events/friday-lunch',
-    data: { kind: 'invite', eventId: 'friday-lunch' },
+    try {
+        await puter.kv.set(`rsvp:${data.eventId}`, action);
+        await puter.notifications.dismiss(uid);
+    } catch (error) {
+        console.error('Could not save the response', error);
+    }
 });
 ```
 
-This sends an invitation to the current user. The page saves their response with [`puter.kv.set()`](/KV/set/) and calls [`dismiss()`](/Notifications/dismiss/) after saving succeeds. Replace that save with your app's RSVP operation when the response also needs to reach an organizer. The push handler is self-contained so it also runs when your app is closed.
+The page saves the response with [`puter.kv.set()`](/KV/set/), then calls [`dismiss()`](/Notifications/dismiss/), which closes the invitation on the user's other devices too. [Mark Notifications as Read](/recipes/mark-notifications-as-read/) covers dismissing in more detail.
 
-The body tap has `action: null` and opens the event page, where your app can show its RSVP form. Browsers without button support show only the notification body, so this route also lets those users respond. The first two valid buttons are kept, as described in [`onPush()`](/Notifications/onPush/). Pressing a button runs the response code in the page after it opens or gains focus.
+## Full Code
+
+```js
+await puter.notifications.onPush('invites', (n) => ({
+    title: n.title,
+    body: n.text ?? '',
+    actions: [
+        { action: 'accept', title: 'Accept' },
+        { action: 'decline', title: 'Decline' },
+    ],
+}));
+
+puter.notifications.on('click', async ({ uid, action, target, data }) => {
+    if (action !== 'accept' && action !== 'decline') {
+        location.assign(target ?? '/');
+        return;
+    }
+
+    try {
+        await puter.kv.set(`rsvp:${data.eventId}`, action);
+        await puter.notifications.dismiss(uid);
+    } catch (error) {
+        console.error('Could not save the response', error);
+    }
+});
+
+await puter.notifications.notify({
+    title: 'Lunch on Friday?',
+    text: 'Ana invited you to lunch at noon.',
+    channel: 'invites',
+    target: '/events/friday-lunch',
+    data: { eventId: 'friday-lunch' },
+});
+```

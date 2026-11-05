@@ -15,7 +15,7 @@ Clicks reach your app in two ways:
 
 A click that arrives before your first `click` handler is added, such as the one that opened your app, goes to that first handler, once. Handlers added after it don't get it, so add your handler early during startup. On a website, a page a tap opened drops the click when no `click` handler is added within 10 seconds of the page loading.
 
-For `dismiss`, the handler receives `{ uid }` when a notification is dismissed on any connected page or device, including through [`dismiss()`](/Notifications/dismiss/) on this page. Registering this event starts the app's live notification feed and needs [Events](/Events/) enabled. On a website with nobody signed in, it waits for sign-in. The SDK also closes the matching browser notification. Startup and reconnect checks close notifications already dismissed without calling the handler.
+For `dismiss`, the handler runs when one of your app's notifications is dismissed with [`dismiss()`](/Notifications/dismiss/), on this page or on any page of your app on any of the user's devices. Use it to remove the notification from your app's own list. Adding a `dismiss` handler starts a live notification listener, which closes the dismissed notification on this device as [Closing it on other devices](/Notifications/dismiss/#closing-it-on-other-devices) describes. On a website with nobody signed in, the handler starts once the user signs in.
 
 To remove a handler, call [`puter.notifications.off(eventName, handler)`](/Notifications/on/).
 
@@ -33,14 +33,16 @@ puter.notifications.off('dismiss', handler)
 Either `click` or `dismiss`.
 
 #### `handler` (Function) (required)
-For `dismiss`, called with `uid` (String), the dismissed notification's id.
-
-For `click`, called with:
+For `click`, called with an object with:
 
 - `uid` (String): The notification's id.
-- `action` (String | null): The id of the button the user pressed, from the `actions` returned by [`onPush()`](/Notifications/onPush/). A tap on the notification body gives `null`, including in browsers that show no buttons. Pressing a button opens or focuses your page before the handler acts on it.
+- `action` (String | null): The id of the button the user pressed, from the `actions` your [`onPush()`](/Notifications/onPush/) handler returned. It's `null` for a tap on the notification body, which is all a browser without buttons offers.
 - `target` (String | null): The `target` the notification was sent with. On a website, it's `null` for a tap on a [sensitive](/Notifications/notify/#parameters) notification.
 - `data` (any): The `data` it was sent with, or `null`. On a website, it's also `null` for a tap on a sensitive notification.
+
+For `dismiss`, called with an object with:
+
+- `uid` (String): The dismissed notification's id.
 
 ## Return value
 It returns `puter.notifications`, so calls can be chained.
@@ -63,6 +65,17 @@ It returns `puter.notifications`, so calls can be chained.
 </body>
 </html>
 ```
+
+<strong class="example-title">Handle a button press</strong>
+
+```js
+puter.notifications.on('click', async ({ uid, action, data }) => {
+    if (action === 'accept') await puter.kv.set(`rsvp:${data.eventId}`, 'yes');
+    await puter.notifications.dismiss(uid);
+});
+```
+
+[Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/) shows the whole setup.
 
 <strong class="example-title">Remove a dismissed notification from your app</strong>
 

@@ -40,15 +40,11 @@ It rejects with an error carrying `message` and `code`:
 
 | `code` | Meaning |
 | --- | --- |
-| `notifications_failed` | The push request failed without a readable error code. |
-| `push_device_removed` | The user removed this browser in Puter, and the fresh subscription was also refused. |
-| `bad_request` | The browser's subscription isn't in a format or from a push service this server accepts. |
-| `forbidden` | The call isn't from a signed-in browser session of the app. |
-| `origin_mismatch` | The request's origin doesn't belong to the app making the call. |
 | `user_gesture_required` | The browser hasn't asked for notification permission yet, and the call wasn't made from a user gesture, such as a click. |
 | `push_unavailable` | This server has no push notification service, as on most self-hosted servers. |
 | `push_disabled` | This server has push notifications turned off. |
 | `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click, then call [`enable()`](/Notifications/enable/) again. |
+| `push_device_removed` | The user removed this browser in Puter, and the fresh subscription was also refused. |
 | `push_worker_unavailable` | The service worker couldn't be registered or didn't start, for example because nothing is served at its path. |
 | `push_worker_conflict` | Another service worker controls the scope. Add the `importScripts()` line to that worker and pass its path as `serviceWorker`. |
 | `push_subscription_conflict` | The worker already has a push subscription from another service, such as Firebase or OneSignal. Give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. A subscription Puter made earlier, even with a key Puter has since changed, is replaced instead. |
@@ -57,8 +53,12 @@ It rejects with an error carrying `message` and `code`:
 | `push_endpoint_revoked` | Another Puter account turned your app off on this browser's subscription, and a fresh subscription couldn't replace it. |
 | `push_challenge_failed` | Puter couldn't reach the browser's push service to send the confirmation. Try again later. |
 | `push_verification_canceled` | [`disable()`](/Notifications/disable/) was called before this call finished. |
+| `bad_request` | The browser's subscription isn't in a format or from a push service this server accepts. |
+| `forbidden` | The call isn't from a signed-in browser session of the app. |
+| `origin_mismatch` | The request's origin doesn't belong to the app making the call. |
 | `too_many_requests` | Pushes were turned on too many times in a short time. Try again later. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
+| `notifications_failed` | The server sent a response the SDK couldn't read. |
 
 ## Examples
 

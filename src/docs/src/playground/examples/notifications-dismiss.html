@@ -1,0 +1,18 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Every open page of the app hears about dismissals, on any device
+            puter.notifications.on('dismiss', ({ uid }) => {
+                puter.print(`dismissed ${uid}<br>`);
+            });
+
+            // (2) Send one, then dismiss it
+            const uid = await puter.notifications.notify({ title: 'New message from Ana' });
+            const dismissed = await puter.notifications.dismiss(uid);
+            puter.print(`dismiss() resolved ${dismissed}<br>`);
+        })();
+    </script>
+</body>
+</html>

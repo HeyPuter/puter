@@ -27,7 +27,7 @@ puter.notifications.notify(notification)
 - `group` (String): A later notification with the same `group` replaces this one, as [Groups](#groups) describes. Up to 128 letters, digits and `. _ : @ -`.
 - `channel` (String): What kind of notification it is, such as `messages` or `reminders`. The [`onPush()`](/Notifications/onPush/) handler registered with this key decides what its push shows. Up to 32 lowercase letters, digits and `-`.
 - `sensitive` (Boolean): Pushes, and the notification a page of your app shows itself, name only your app, such as "New notification from Chat" for an app named Chat, instead of showing the title and text. On a website, a sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens your site's root, or your service worker's folder when your pages are inside it, and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. A listener added with [`onNotification()`](/Notifications/onNotification/) still gets the whole notification.
-- `priority` (String): `'normal'` (default) or `'high'`. High priority asks the push service to deliver right away even when the device is idle, for things like an incoming call. Pair it with a short `ttl` so a missed call doesn't ring late. Each user and app gets 60 high-priority pushes per hour. Further pushes use normal priority, and so do pushes when the budget can't be checked. Priority doesn't change how the notification looks. To keep it on screen until the user acts, return `requireInteraction` from your [`onPush()`](/Notifications/onPush/) handler.
+- `priority` (String): `'normal'` (default) or `'high'`. A high-priority push is delivered right away, even to a phone or computer that's idle, so use it for things like an incoming call. Pair it with a short `ttl` so a missed call doesn't ring late. Each user gets at most 60 high-priority pushes an hour from your app, and pushes past that go out at normal priority. Priority doesn't change how the notification looks. To keep it on screen until the user acts, return `requireInteraction` from your [`onPush()`](/Notifications/onPush/) handler. [Notify Users of Incoming Calls](/recipes/notify-users-of-incoming-calls/) shows the whole setup.
 - `ttl` (Number): How many seconds a push may wait for a device that's offline, from 1 to 86400. Defaults to 3600. It doesn't change how long the notification is kept.
 - `to` (Object): Send it to the other side of a key-value share instead, as `{ handle }` with the share's handle. See [Notify the other side of a share](#notify-the-other-side-of-a-share).
 - `sendAt` (Number | String | Date): Send it at this time instead of now, as a `Date`, an ISO-8601 string with a zone, a date alone (midnight UTC), or whole milliseconds since the epoch. Rounded up to the next whole second, and at most 366 days ahead. A time within 5 seconds, or in the past, sends it now. See [Send it later](#send-it-later).
@@ -111,9 +111,7 @@ A notification with a `group` replaces the newest notification your app sent the
 
 When the earlier notification was shown or dismissed, the call creates a new notification instead, and so does a call without a `group`. A tap on a push that Puter shows, such as one for an app inside the Puter desktop, dismisses its notification.
 
-Mark the newest notification in the group shown with [`markShown()`](/Notifications/markShown/) or dismissed with [`dismiss()`](/Notifications/dismiss/) to make the next send with that group a new notification. `markShown()` doesn't close a notification already on screen. `dismiss()` closes it on devices where a page of your app is open, or the next time one opens there.
-
-For an immediate notification to your app's own user, [`notify()`](/Notifications/notify/) resolves with its `uid`. Notifications delivered to [`onNotification()`](/Notifications/onNotification/) and [`on('click')`](/Notifications/on/) events also carry `uid`.
+To make the next send with that group a new notification, mark the newest one shown with [`markShown()`](/Notifications/markShown/), or dismiss it with [`dismiss()`](/Notifications/dismiss/), which also closes it on the user's devices.
 
 A replacement counts against the 30 notifications a minute but not the 1,000 a day. When it goes out as a push, it counts against the push limits like any other push.
 
@@ -162,5 +160,18 @@ await puter.notifications.notify({
     text: 'Open the app to see them.',
     sensitive: true,
     target: '/results',
+});
+```
+
+<strong class="example-title">Ring for an incoming call</strong>
+
+```js
+await puter.notifications.notify({
+    title: 'Ana is calling',
+    channel: 'calls',
+    group: 'call:ana',
+    priority: 'high',
+    ttl: 30,
+    data: { callId: 'call_123' },
 });
 ```

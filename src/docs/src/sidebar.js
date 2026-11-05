@@ -652,6 +652,14 @@ let sidebar = [
                 path: '/Notifications/onPush',
             },
             {
+                title: '<code>on()</code>',
+                page_title: '<code>puter.notifications.on()</code>',
+                title_tag: 'puter.notifications.on()',
+                icon: '/assets/img/function.svg',
+                source: '/Notifications/on.md',
+                path: '/Notifications/on',
+            },
+            {
                 title: '<code>enable()</code>',
                 page_title: '<code>puter.notifications.enable()</code>',
                 title_tag: 'puter.notifications.enable()',
@@ -674,14 +682,6 @@ let sidebar = [
                 icon: '/assets/img/function.svg',
                 source: '/Notifications/status.md',
                 path: '/Notifications/status',
-            },
-            {
-                title: '<code>on()</code>',
-                page_title: '<code>puter.notifications.on()</code>',
-                title_tag: 'puter.notifications.on()',
-                icon: '/assets/img/function.svg',
-                source: '/Notifications/on.md',
-                path: '/Notifications/on',
             },
             {
                 title: '<code>requestPermission()</code>',

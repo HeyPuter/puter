@@ -264,7 +264,7 @@ These Events features are supported out of the box when using Puter.js:
 - **[`puter.events.onSchedule()`](/Events/onSchedule/)** - Run a handler at an interval, on a cron expression, or once at a set time
 - **[`puter.events.listSchedules()`](/Events/listSchedules/)** - List the schedules you hold
 - **[`puter.events.getSchedule()`](/Events/getSchedule/)** - Read one schedule
-- **[`puter.events.updateSchedule()`](/Events/updateSchedule/)** - Change a schedule or stored notification
+- **[`puter.events.updateSchedule()`](/Events/updateSchedule/)** - Move a schedule or change its context, or edit a stored notification
 - **[`puter.events.removeSchedule()`](/Events/removeSchedule/)** - End a schedule
 - **[`puter.events.fetch()`](/Events/fetch/)** - Read the notifications you missed while nothing was listening
 - **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers persistent subscriptions and schedules run, for the app or for one user
@@ -290,6 +290,8 @@ You can see various Puter.js Events features in action from the following exampl
 - Schedules
   - [List Schedules](/playground/events-list-schedules/)
   - [Read a Schedule](/playground/events-get-schedule/)
+  - [Move a Reminder](/playground/events-update-reminder/)
+  - [Move a Schedule to Another Time](/playground/events-update-cron/)
   - [Remove a Schedule](/playground/events-remove-schedule/)
   - [Run Code Once at a Set Time](/playground/events-schedule-inline/)
   - [Run Code on Weekday Mornings](/playground/events-schedule-cron-tz/)
