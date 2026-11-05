@@ -1,3 +1,5 @@
+import { isOrgSeat } from '../UI/Dashboard/orgSeat.js';
+
 export const toolbarChannel = 'puter-toolbar';
 
 export function isToolbarParent (origin, guiOrigin, domain) {
@@ -19,7 +21,7 @@ export function readSavedAccounts (storage = localStorage) {
 }
 
 export function shouldShowUpgrade (user) {
-    return !user.subscription?.active && !user.team?.uid;
+    return !user.subscription?.active && !isOrgSeat(user);
 }
 
 const MIN_PANEL_WIDTH = 280;
