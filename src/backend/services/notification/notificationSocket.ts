@@ -67,6 +67,64 @@ export const DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS = 5_000;
  */
 export const NOTIF_RECEIPT_EVENT = 'notif.receipt';
 
+/** Path a peer region answers receipt asks on. */
+export const NOTIF_RECEIPT_PEER_PATH = '/broadcast/notif/receipt';
+
+/** One region's answer to a receipt ask, which never goes further. */
+export interface RegionReceipt {
+    /** The region holds a socket for the pair and asked it. */
+    held: boolean;
+    /** Sockets that answered, with or without the notification. */
+    responses: number;
+    timedOut: boolean;
+    others: boolean;
+    complete: boolean;
+    responders: NotifDeliveryResponder[];
+}
+
+/** What one region asks another about a live notification. */
+export interface PeerReceiptAsk {
+    userId: number;
+    appUid: string | null;
+    uid: string;
+    timeoutMs: number;
+}
+
+const PEER_ASK_MAX_ID_LENGTH = 128;
+
+/** A peer's ask, checked and with its wait clamped; null when malformed. */
+export const parsePeerReceiptAsk = (body: unknown): PeerReceiptAsk | null => {
+    const ask = (body && typeof body === 'object' ? body : {}) as Record<
+        string,
+        unknown
+    >;
+    const { userId, uid, timeoutMs } = ask;
+    const idOk = (value: unknown): value is string =>
+        typeof value === 'string' &&
+        value.length > 0 &&
+        value.length <= PEER_ASK_MAX_ID_LENGTH;
+    const appUid = idOk(ask.appUid) ? ask.appUid : null;
+    if (
+        typeof userId !== 'number' ||
+        !Number.isSafeInteger(userId) ||
+        userId <= 0 ||
+        !idOk(uid) ||
+        (ask.appUid != null && appUid === null) ||
+        typeof timeoutMs !== 'number' ||
+        !Number.isFinite(timeoutMs)
+    )
+        return null;
+    return {
+        userId,
+        appUid,
+        uid,
+        timeoutMs: Math.min(
+            Math.max(Math.floor(timeoutMs), 1),
+            DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS,
+        ),
+    };
+};
+
 /** One unread as the replay payload carries it. */
 export interface UnreadNotification {
     uid: string;
@@ -128,6 +186,12 @@ const responderOf = (response: unknown): NotifDeliveryResponder | null => {
     };
 };
 
+const respondersOf = (responses: unknown[]): NotifDeliveryResponder[] =>
+    responses.flatMap((response) => {
+        const responder = responderOf(response);
+        return responder ? [responder] : [];
+    });
+
 interface AdapterDeps {
     event: EventClient;
     socket: SocketService;
@@ -138,6 +202,8 @@ interface AdapterDeps {
         userId: number,
         appUid: string | null,
     ) => Promise<boolean>;
+    /** Whether another node of this region may hold a socket for the pair. */
+    heldInRegion: (userId: number, appUid: string | null) => Promise<boolean>;
 }
 
 type SettledDelivery = EventMap['notif.delivery.settled'];
@@ -237,10 +303,7 @@ export class NotificationSocketAdapter {
                 ),
                 this.#deps.heldInPeerRegion(userId, appUid),
             ]);
-            const responders = asked.responses.flatMap((response) => {
-                const responder = responderOf(response);
-                return responder ? [responder] : [];
-            });
+            const responders = respondersOf(asked.responses);
             const settled: SettledDelivery = {
                 ...(sendId ? { sendId } : {}),
                 uid,
@@ -264,6 +327,42 @@ export class NotificationSocketAdapter {
             console.warn('[notification] receipt failed', err);
             return null;
         }
+    }
+
+    /**
+     * Answers a peer region's receipt ask from this region's sockets alone,
+     * without settling anything: the settle belongs to the region that asked.
+     */
+    async askHere(ask: PeerReceiptAsk): Promise<RegionReceipt> {
+        const { userId, appUid, uid, timeoutMs } = ask;
+        const room = appUid ? appSocketRoom(userId, appUid) : userId;
+        if (
+            !this.#deps.socket.has({ room }) &&
+            !(await this.#deps.heldInRegion(userId, appUid))
+        ) {
+            return {
+                held: false,
+                responses: 0,
+                timedOut: false,
+                others: false,
+                complete: true,
+                responders: [],
+            };
+        }
+        const asked = await this.#deps.socket.askWithAck(
+            { room },
+            NOTIF_RECEIPT_EVENT,
+            { uid },
+            { timeoutMs },
+        );
+        return {
+            held: true,
+            responses: asked.responses.length,
+            timedOut: asked.timedOut,
+            others: asked.others,
+            complete: asked.complete,
+            responders: respondersOf(asked.responses),
+        };
     }
 
     /** Whether this region holds a socket for the recipient right now. */

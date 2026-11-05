@@ -18,7 +18,16 @@
  */
 
 import type { Request, Response } from 'express';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { BroadcastController } from './BroadcastController.js';
@@ -240,10 +249,12 @@ describe('BroadcastController.webhook', () => {
         // Strip the service off the in-memory controller registry to
         // exercise the "service not registered" guard. Restored after the
         // assertion so neighboring tests stay valid.
-        const original = (controller as unknown as { services: { broadcast?: unknown } })
-            .services.broadcast;
-        (controller as unknown as { services: { broadcast?: unknown } }).services.broadcast =
-            undefined;
+        const original = (
+            controller as unknown as { services: { broadcast?: unknown } }
+        ).services.broadcast;
+        (
+            controller as unknown as { services: { broadcast?: unknown } }
+        ).services.broadcast = undefined;
         try {
             const { res, captured } = makeRes();
             await controller.webhook(
@@ -259,8 +270,163 @@ describe('BroadcastController.webhook', () => {
                 error: { message: expect.stringContaining('Broadcast') },
             });
         } finally {
-            (controller as unknown as { services: { broadcast?: unknown } }).services.broadcast =
-                original;
+            (
+                controller as unknown as { services: { broadcast?: unknown } }
+            ).services.broadcast = original;
         }
+    });
+});
+
+// -- /broadcast/notif/receipt ----------------------------------------
+
+describe('BroadcastController.notifReceipt', () => {
+    const PEER_ID = 'peer-b';
+    const PEER_SECRET = 'peer-b-secret';
+    let signedServer: PuterServer;
+    let signedController: BroadcastController;
+    let nonce = 5_000;
+
+    beforeAll(async () => {
+        signedServer = await setupTestServer({
+            broadcast: {
+                webhook: { peerId: 'self-node', secret: 'self-secret' },
+                peers: [
+                    {
+                        peerId: PEER_ID,
+                        webhook: true,
+                        webhook_url: 'http://peer-b.invalid/broadcast/webhook',
+                        webhook_secret: PEER_SECRET,
+                    },
+                ],
+                outbound_flush_ms: 60_000,
+            },
+        } as never);
+        signedController = signedServer.controllers
+            .broadcast as unknown as BroadcastController;
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    afterAll(async () => {
+        await signedServer?.shutdown();
+    });
+
+    const signed = (body: unknown, secret = PEER_SECRET) => {
+        const raw = JSON.stringify(body);
+        const timestamp = Math.floor(Date.now() / 1000);
+        const n = ++nonce;
+        return makeReq({
+            body,
+            rawBody: Buffer.from(raw),
+            headers: {
+                'x-broadcast-peer-id': PEER_ID,
+                'x-broadcast-timestamp': String(timestamp),
+                'x-broadcast-nonce': String(n),
+                'x-broadcast-signature': createHmac('sha256', secret)
+                    .update(`${timestamp}.${n}.${raw}`)
+                    .digest('hex'),
+            },
+        });
+    };
+
+    it('answers a signed ask from this region, with its wait clamped', async () => {
+        const answer = vi.spyOn(
+            signedServer.services.notification,
+            'answerPeerReceipt',
+        );
+        const { res, captured } = makeRes();
+
+        await signedController.notifReceipt(
+            signed({
+                userId: 7,
+                appUid: null,
+                uid: 'n-1',
+                timeoutMs: 60_000.5,
+                extra: 'dropped',
+            }),
+            res,
+        );
+
+        expect(captured.statusCode).toBe(200);
+        expect(answer).toHaveBeenCalledWith({
+            userId: 7,
+            appUid: null,
+            uid: 'n-1',
+            timeoutMs: 5_000,
+        });
+        expect(captured.body).toEqual({
+            ok: true,
+            receipt: expect.objectContaining({ responders: [] }),
+        });
+    });
+
+    it('refuses an ask with a bad signature and answers nothing', async () => {
+        const answer = vi.spyOn(
+            signedServer.services.notification,
+            'answerPeerReceipt',
+        );
+        const { res, captured } = makeRes();
+
+        await signedController.notifReceipt(
+            signed(
+                { userId: 7, appUid: null, uid: 'n-1', timeoutMs: 100 },
+                'not-the-secret',
+            ),
+            res,
+        );
+
+        expect(captured.statusCode).toBe(403);
+        expect(answer).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['a user id that is not a number', { userId: '7' }],
+        ['a user id below one', { userId: 0 }],
+        ['a missing uid', { uid: undefined }],
+        ['an oversized uid', { uid: 'x'.repeat(129) }],
+        ['an app uid that is not a string', { appUid: 3 }],
+        ['a wait that is not a number', { timeoutMs: '100' }],
+    ])('refuses %s', async (_name, change) => {
+        const answer = vi.spyOn(
+            signedServer.services.notification,
+            'answerPeerReceipt',
+        );
+        const { res, captured } = makeRes();
+
+        await signedController.notifReceipt(
+            signed({
+                userId: 7,
+                appUid: null,
+                uid: 'n-1',
+                timeoutMs: 100,
+                ...change,
+            }),
+            res,
+        );
+
+        expect(captured.statusCode).toBe(400);
+        expect(answer).not.toHaveBeenCalled();
+    });
+
+    it('raises a wait below one millisecond to one', async () => {
+        const answer = vi.spyOn(
+            signedServer.services.notification,
+            'answerPeerReceipt',
+        );
+        const { res } = makeRes();
+
+        await signedController.notifReceipt(
+            signed({ userId: 7, appUid: 'app-x', uid: 'n-1', timeoutMs: -5 }),
+            res,
+        );
+
+        expect(answer).toHaveBeenCalledWith({
+            userId: 7,
+            appUid: 'app-x',
+            uid: 'n-1',
+            timeoutMs: 1,
+        });
     });
 });

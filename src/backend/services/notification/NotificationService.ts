@@ -27,7 +27,9 @@ import {
     NotificationSocketAdapter,
     notificationAckTimeoutMs,
     notificationsFoldInEnabled,
+    type PeerReceiptAsk,
     type ReceiptScope,
+    type RegionReceipt,
 } from './notificationSocket.js';
 import {
     findNotificationType,
@@ -404,6 +406,11 @@ export class NotificationService extends PuterService {
         return this.#socket().receipt(scope);
     }
 
+    /** A peer region's receipt ask, answered from this region's sockets. */
+    answerPeerReceipt(ask: PeerReceiptAsk): Promise<RegionReceipt> {
+        return this.#socket().askHere(ask);
+    }
+
     /**
      * Drop notifications past the retention window, in batches, and report how
      * many went. Deleting is all there is to it: nothing is pushed, because a
@@ -439,6 +446,8 @@ export class NotificationService extends PuterService {
             ackTimeoutMs: () => notificationAckTimeoutMs(this.config),
             heldInPeerRegion: (userId, appUid) =>
                 this.#heldInPeerRegion(userId, appUid),
+            heldInRegion: (userId, appUid) =>
+                this.#heldInRegion(userId, appUid),
         });
         return this.#adapter;
     }
@@ -455,6 +464,16 @@ export class NotificationService extends PuterService {
         } catch {
             return false;
         }
+    }
+
+    /** Without presence kept here, any node may hold one. */
+    async #heldInRegion(
+        userId: number,
+        appUid: string | null,
+    ): Promise<boolean> {
+        const eventForward = this.services.eventForward;
+        if (!eventForward?.active) return true;
+        return eventForward.heldInRegion(userId, appUid);
     }
 
     /**

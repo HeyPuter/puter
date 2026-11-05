@@ -22,6 +22,7 @@ import { Controller, Post } from '../../core/http/decorators.js';
 import { schedulesUnavailable } from '../../core/schedules.js';
 import type { BroadcastService } from '../../services/broadcast/BroadcastService.js';
 import type { ForwardBatch } from '../../services/events/forwardQueue.js';
+import { parsePeerReceiptAsk } from '../../services/notification/notificationSocket.js';
 import { PuterController } from '../types.js';
 
 /**
@@ -144,6 +145,47 @@ export class BroadcastController extends PuterController {
         if (!schedules) throw schedulesUnavailable();
         const reply = await schedules.receivePeerChanges(req.body);
         res.status(200).json({ ok: true, ...reply });
+    }
+
+    /**
+     * A peer region asking whether this region's pages got a live notification.
+     * Answered from this region's sockets only; it is never asked further.
+     */
+    @Post('/notif/receipt', { subdomain: '*' })
+    async notifReceipt(req: Request, res: Response): Promise<void> {
+        const broadcast = this.services.broadcast as unknown as
+            BroadcastService | undefined;
+        if (!broadcast) {
+            res.status(503).json({
+                error: { message: 'Broadcast service not registered' },
+            });
+            return;
+        }
+
+        const verified = await broadcast.verifySignedRequest(
+            req.rawBody,
+            broadcastHeaders(req),
+        );
+        if (!verified.ok) {
+            res.status(verified.status ?? 400).json({
+                error: { message: verified.message ?? 'Bad request' },
+            });
+            return;
+        }
+        if (verified.info?.ignored) {
+            res.status(200).json({ ok: true, ...verified.info });
+            return;
+        }
+
+        const ask = parsePeerReceiptAsk(req.body);
+        if (!ask) {
+            res.status(400).json({
+                error: { message: 'Invalid receipt ask' },
+            });
+            return;
+        }
+        const receipt = await this.services.notification.answerPeerReceipt(ask);
+        res.status(200).json({ ok: true, receipt });
     }
 }
 
