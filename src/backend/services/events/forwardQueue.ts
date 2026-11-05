@@ -18,6 +18,8 @@
  */
 
 import type { EventKey, KvOp } from '../../clients/event/types.js';
+import { settleWithin } from '../../util/concurrency.js';
+import { FINAL_FLUSH_TIMEOUT_MS } from '../../util/gracefulShutdown.js';
 import type { DeliverableEvent } from './registry.js';
 
 /**
@@ -215,7 +217,7 @@ interface PeerQueue {
     items: ForwardItem[];
     bytes: number;
     timer: ReturnType<typeof setTimeout> | null;
-    flushing: boolean;
+    flushing: Promise<void> | null;
 }
 
 export class PeerForwardQueue {
@@ -283,19 +285,27 @@ export class PeerForwardQueue {
     }
 
     /** Ship whatever is held for one peer. */
-    async flush(peerId: string): Promise<void> {
+    flush(peerId: string): Promise<void> {
         const queue = this.#peers.get(peerId);
-        if (!queue || queue.flushing || queue.items.length === 0) return;
+        if (!queue) return Promise.resolve();
+        if (queue.flushing) return queue.flushing;
+        if (queue.items.length === 0) return Promise.resolve();
         if (queue.timer) {
             clearTimeout(queue.timer);
             queue.timer = null;
         }
 
-        queue.flushing = true;
+        queue.flushing = this.#send(peerId, queue);
+        return queue.flushing;
+    }
+
+    async #send(peerId: string, queue: PeerQueue): Promise<void> {
         const batch = queue.items;
         queue.items = [];
         queue.bytes = 0;
         try {
+            // Register the in-flight promise before a send can throw synchronously.
+            await Promise.resolve();
             await this.#options.send(peerId, batch);
         } catch (err) {
             // A lost batch is a lost at-most-once delivery, and a `single`
@@ -303,7 +313,7 @@ export class PeerForwardQueue {
             // hand the client an event whose moment has passed.
             console.warn(`[events] forward to ${peerId} failed`, err);
         } finally {
-            queue.flushing = false;
+            queue.flushing = null;
             // Anything that arrived mid-flush gets the next window.
             if (queue.items.length > 0 && !queue.timer && !this.#stopped) {
                 queue.timer = setTimeout(() => {
@@ -316,7 +326,16 @@ export class PeerForwardQueue {
     }
 
     async flushAll(): Promise<void> {
-        await Promise.all([...this.#peers.keys()].map((id) => this.flush(id)));
+        const deadline = Date.now() + FINAL_FLUSH_TIMEOUT_MS;
+        const work = Promise.allSettled(
+            [...this.#peers.entries()].map(async ([id, queue]) => {
+                await queue.flushing;
+                if (Date.now() < deadline) await this.flush(id);
+            }),
+        );
+        if (!(await settleWithin(work, FINAL_FLUSH_TIMEOUT_MS))) {
+            console.warn('[events] final flush timed out');
+        }
     }
 
     stop(): void {
@@ -334,7 +353,7 @@ export class PeerForwardQueue {
             items: [],
             bytes: 0,
             timer: null,
-            flushing: false,
+            flushing: null,
         };
         this.#peers.set(peerId, queue);
         return queue;
@@ -360,7 +379,7 @@ const isGapMarker = (item: ForwardItem): boolean =>
  */
 const shed = (queue: PeerQueue, count: number): ForwardItem[] => {
     const dropped: ForwardItem[] = [];
-    for (let i = 0; i < queue.items.length && dropped.length < count;) {
+    for (let i = 0; i < queue.items.length && dropped.length < count; ) {
         if (isGapMarker(queue.items[i])) {
             i++;
             continue;
@@ -383,7 +402,7 @@ const shed = (queue: PeerQueue, count: number): ForwardItem[] => {
 const shedBytes = (queue: PeerQueue, maxBytesHeld: number): ForwardItem[] => {
     const dropped: ForwardItem[] = [];
     let remaining = queue.bytes;
-    for (let i = 0; i < queue.items.length && remaining > maxBytesHeld;) {
+    for (let i = 0; i < queue.items.length && remaining > maxBytesHeld; ) {
         if (isGapMarker(queue.items[i])) {
             i++;
             continue;

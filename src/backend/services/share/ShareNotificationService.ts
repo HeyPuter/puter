@@ -20,7 +20,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Actor } from '../../core/actor';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
-import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import {
+    runWithConcurrencyLimitSettled,
+    settleWithin,
+} from '../../util/concurrency.js';
+import { FINAL_FLUSH_TIMEOUT_MS } from '../../util/gracefulShutdown.js';
 import { PuterService } from '../types';
 import {
     digestItemPaths,
@@ -178,6 +182,7 @@ export class ShareNotificationService extends PuterService {
      * queued sends live in KV, where any node's flush can pick them up.
      */
     #digestTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    #digestFlushes = new Map<string, Promise<void>>();
 
     /** The recovery sweep; see `onServerStart`. */
     #digestSweep: ReturnType<typeof setInterval> | null = null;
@@ -199,12 +204,46 @@ export class ShareNotificationService extends PuterService {
 
     /** Send what's still waiting while the transport is alive to send it. */
     override async onServerPrepareShutdown(): Promise<void> {
+        await this.#drainDigests();
+    }
+
+    override async onServerShutdown(): Promise<void> {
+        await this.#drainDigests();
+    }
+
+    async #drainDigests(): Promise<void> {
         if (this.#digestSweep) clearInterval(this.#digestSweep);
         this.#digestSweep = null;
-        const keys = [...this.#digestTimers.keys()];
+        const keys = new Set([
+            ...this.#digestTimers.keys(),
+            ...this.#digestFlushes.keys(),
+        ]);
         for (const [, timer] of this.#digestTimers) clearTimeout(timer);
         this.#digestTimers.clear();
-        await Promise.all(keys.map((key) => this.#flushDigest(key)));
+        const active = [...this.#digestFlushes.values()];
+        const deadline = Date.now() + FINAL_FLUSH_TIMEOUT_MS;
+        const drain = async () => {
+            try {
+                await Promise.allSettled(active);
+                if (Date.now() >= deadline) return;
+                for (const [key, timer] of this.#digestTimers) {
+                    keys.add(key);
+                    clearTimeout(timer);
+                }
+                this.#digestTimers.clear();
+                await Promise.allSettled(
+                    [...keys].map((key) => this.#flushDigest(key)),
+                );
+            } catch (err) {
+                console.warn(
+                    '[share-notify] shutdown digest flush failed:',
+                    err,
+                );
+            }
+        };
+        if (!(await settleWithin(drain(), FINAL_FLUSH_TIMEOUT_MS))) {
+            console.warn('[share-notify] final flush timed out');
+        }
     }
 
     /** The recovery sweep, for tests that can't wait out an interval. */
@@ -878,25 +917,37 @@ export class ShareNotificationService extends PuterService {
      * everything queued), and across regions the KV `take` is the real claim,
      * handing each entry to exactly one flusher.
      */
-    async #flushDigest(key: string): Promise<void> {
-        await withRedisLock(
-            this.clients.redis,
-            `share:digest:lock:${key}`,
-            () => this.#flushDigestLocked(key),
-            {
-                ttlMs: DIGEST_LOCK_SECONDS * 1000,
-                // No lock beats no mail; `take` still prevents double sends.
-                onUnavailable: 'run',
-                onBusy: () => {
-                    console.log(
-                        '[share-notify] another flush holds the lock:',
-                        {
-                            key,
-                        },
-                    );
+    #flushDigest(key: string): Promise<void> {
+        const active = this.#digestFlushes.get(key);
+        if (active) return active;
+        const flushing = this.#sendDigest(key);
+        this.#digestFlushes.set(key, flushing);
+        return flushing;
+    }
+
+    async #sendDigest(key: string): Promise<void> {
+        try {
+            await withRedisLock(
+                this.clients.redis,
+                `share:digest:lock:${key}`,
+                () => this.#flushDigestLocked(key),
+                {
+                    ttlMs: DIGEST_LOCK_SECONDS * 1000,
+                    // No lock beats no mail; `take` still prevents double sends.
+                    onUnavailable: 'run',
+                    onBusy: () => {
+                        console.log(
+                            '[share-notify] another flush holds the lock:',
+                            { key },
+                        );
+                    },
                 },
-            },
-        );
+            );
+        } catch (err) {
+            console.warn('[share-notify] digest flush failed:', err);
+        } finally {
+            this.#digestFlushes.delete(key);
+        }
     }
 
     async #flushDigestLocked(key: string): Promise<void> {
