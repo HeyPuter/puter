@@ -5,7 +5,7 @@ let sidebar = require('./src/sidebar');
 const redirects = require('./src/redirects');
 const menuItems = require('./src/menu.js');
 const examples = require('./src/examples');
-const { encode } =  require('html-entities');
+const { encode, decode } =  require('html-entities');
 const { JSDOM } = require('jsdom');
 const esbuild = require('esbuild');
 const MiniSearch = require('minisearch');
@@ -45,17 +45,43 @@ const site = 'https://docs.puter.com';
 let usedPlaygroundExamples = new Set();
 let anyErrors = false;
 
+// Heading ids already used on the page being parsed. Reset before each parse.
+let usedHeadingSlugs = new Set();
+
 marked.use({
+    hooks: {
+        preprocess (markdown) {
+            usedHeadingSlugs = new Set();
+            return markdown;
+        },
+    },
     renderer: {
         // Add a link to each subheading
         heading (text, level) {
-            const slug = text.toLowerCase().replace(/[^\w]+/g, '-');
+            // `text` is rendered HTML, so drop tags and entities before slugging.
+            const baseSlug = decode(removeTags(text))
+                .toLowerCase()
+                .replace(/[^\w]+/g, '-')
+                .replace(/^-+|-+$/g, '') || 'section';
+            // A repeated heading gets a numbered id, so each anchor is unique.
+            let slug = baseSlug;
+            for ( let i = 1; usedHeadingSlugs.has(slug); i++ ) {
+                slug = `${baseSlug}-${i}`;
+            }
+            usedHeadingSlugs.add(slug);
 
             return `
             <h${level} class="anchored-heading" id="${slug}">
               <a class="anchor" href="#${slug}"></a>
               ${text}
             </h${level}>`;
+        },
+
+        // Wrap each table so a wide one scrolls sideways instead of making
+        // the page wider than a phone screen. Same markup as marked's default.
+        table (header, body) {
+            if ( body ) body = `<tbody>${body}</tbody>`;
+            return `<div class="table-scroll"><table>\n<thead>\n${header}</thead>\n${body}</table>\n</div>\n`;
         },
 
         code (code, infostring, escaped) {
