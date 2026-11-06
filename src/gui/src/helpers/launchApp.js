@@ -657,6 +657,23 @@ const runLaunch = async (options) => {
         // ...and finally append utm_source=puter.com to the URL
         iframe_url.searchParams.append('utm_source', 'puter.com');
 
+        // Closed by the user while the launch was on its way: they called it off.
+        if ( newTab?.closed ) {
+            endLaunchTransaction(transaction, 'new-tab-closed');
+            return {
+                launchResult: {
+                    launched: false,
+                    requestedAppName,
+                    openedAppName: null,
+                    appInstanceID: null,
+                    appUid: launch_app_uid ?? null,
+                    redirectedToFallback: privateLaunchRedirectDepth > 0,
+                    deniedPrivateAccess: false,
+                    privateAccess: privateAccessDecision ?? undefined,
+                },
+            };
+        }
+
         if ( newTab ) {
             // Marks the opened item (the uid isn't a credential), so the SDK
             // can tell it's coming before the rest arrives.

@@ -171,6 +171,18 @@ describe('launch_app with a new tab', () => {
         expect(offerAppTabLaunch).not.toHaveBeenCalled();
     });
 
+    it('calls the launch off when the user closed the tab meanwhile', async () => {
+        const tab = { location: { href: '' }, close: vi.fn(), closed: true };
+        const outcome = await launch_app({ name: 'notes', app_obj: { ...app }, newTab: tab });
+
+        expect(outcome.launchResult.launched).toBe(false);
+        expect(tab.location.href).toBe('');
+        expect(offerAppTabLaunch).not.toHaveBeenCalled();
+        expect(window.launch_apps.recent).toEqual([]);
+        expect($.ajax).not.toHaveBeenCalled();
+        expect(UIAlert).not.toHaveBeenCalled();
+    });
+
     it.each([
         ['the app token is unavailable', { ...app }, () => {
             fetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
