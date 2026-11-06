@@ -5188,6 +5188,8 @@ const TabFiles = {
             },
             // Custom open handler for Dashboard (avoids window_nav_history issues)
             onOpen: (el) => _this.openRow(el),
+            // Like opening the row, Open With opens the app in a new tab.
+            openWithInNewTab: true,
             onShowProperties: ({ name, path: item_path, uid }) => {
                 // Dashboard uses a responsive modal instead of the desktop UIWindow.
                 UIItemPropertiesModal({

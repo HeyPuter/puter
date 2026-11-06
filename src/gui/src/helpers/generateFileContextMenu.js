@@ -44,6 +44,7 @@ import { is_default_app } from './defaultApp.js';
  * @param {Array} options.suggested_apps - Optional pre-loaded suggested apps
  * @param {string} options.associated_app_name - Optional associated app
  * @param {Function} options.onOpen - Optional custom open handler (used by Dashboard)
+ * @param {boolean} options.openWithInNewTab - Open the "Open With" apps in a new browser tab instead of an in-page window (used by Dashboard)
  * @param {Function} options.onShowProperties - Optional custom properties handler (used by Dashboard); receives {name, path, uid, element}
  * @param {Function} options.onShare - Optional custom share handler (used by Dashboard); receives {name, path, uid, element}
  * @param {Function} options.onPublishWebsite - Optional custom publish-as-website handler (used by Dashboard); receives {uid, name, path}
@@ -118,7 +119,9 @@ const generate_file_context_menu = async function (options) {
     // Open With
     // -------------------------------------------
     if ( !is_trashed && !is_trash && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
-        const openWithItems = await generateOpenWithItems(el_item, fsentry, options.suggested_apps);
+        const openWithItems = await generateOpenWithItems(el_item, fsentry, options.suggested_apps, {
+            inNewTab: !! options.openWithInNewTab,
+        });
         menu_items.push({
             html: i18n('open_with'),
             items: openWithItems,
@@ -504,7 +507,7 @@ const generate_file_context_menu = async function (options) {
  * @param {Array} suggested_apps - Optional pre-loaded suggested apps
  * @returns {Promise<Array>} Array of menu items for "Open With" submenu
  */
-async function generateOpenWithItems (el_item, fsentry, suggested_apps) {
+async function generateOpenWithItems (el_item, fsentry, suggested_apps, { inNewTab = false } = {}) {
     let items = [];
 
     // Try to find suitable apps if not provided
@@ -530,15 +533,21 @@ async function generateOpenWithItems (el_item, fsentry, suggested_apps) {
                 icon: `<img src="${html_encode(suggested_app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
                 onClick: async function () {
                     var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
-                    if (
+                    const asks_to_make_default =
                         ! is_default_app(window.user_preferences[`default_apps${extension}`], suggested_app)
                         &&
                         (
                             (!window.user_preferences[`default_apps${extension}`] && index > 0)
                             ||
                             (window.user_preferences[`default_apps${extension}`])
-                        )
-                    ) {
+                        );
+                    // A tab has to be opened while a click still counts as a
+                    // user gesture, or the popup blocker refuses it: this one,
+                    // or the answer to the prompt below. Refused, the app
+                    // opens in-page. Without 'noopener': the app asks this
+                    // tab for its token (see launch_app).
+                    let newTab = inNewTab && ! asks_to_make_default ? window.open('', '_blank') : null;
+                    if ( asks_to_make_default ) {
                         const alert_resp = await UIAlert({
                             message: `${i18n('change_always_open_with')} ${html_encode(suggested_app.title)}?`,
                             body_icon: suggested_app.icon,
@@ -557,12 +566,14 @@ async function generateOpenWithItems (el_item, fsentry, suggested_apps) {
                             window.user_preferences[`default_apps${extension}`] = suggested_app.uuid;
                             window.mutate_user_preferences(window.user_preferences);
                         }
+                        if ( inNewTab ) newTab = window.open('', '_blank');
                     }
                     launch_app({
                         name: suggested_app.name,
                         file_path: $(el_item).attr('data-path'),
                         window_title: $(el_item).attr('data-name'),
                         file_uid: $(el_item).attr('data-uid'),
+                        ...(newTab ? { newTab } : {}),
                     });
                 },
             });
