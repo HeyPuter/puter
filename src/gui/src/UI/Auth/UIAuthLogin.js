@@ -224,6 +224,9 @@ export function pushLoginScreen (flow, options = {}) {
             $password.get(0)?.select?.();
             return;
         }
+        // Dismissed while the request was out: the caller already heard no,
+        // so this browser stays signed in as it was.
+        if ( flow.isClosed() ) return;
 
         if ( data?.next_step === 'otp' ) {
             // The second factor is a screen of its own; Back returns here.

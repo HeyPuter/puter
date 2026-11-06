@@ -97,6 +97,17 @@ describe('login screen', () => {
         expect(activeAuthFlow().isBusy()).toBe(false);
     });
 
+    it('stays signed in as before when dismissed while the login is out', async () => {
+        const calls = captureAjax();
+        const result = UIAuthLogin();
+        submitLogin();
+        $('.dashboard-dialog-close').trigger('click');
+        await expect(result).resolves.toBe(false);
+        calls[0].success({ token: 't', user: { username: 'other' } });
+        await tick();
+        expect(window.update_auth_data).not.toHaveBeenCalled();
+    });
+
     it('encodes a prefilled username', () => {
         void UIAuthLogin({ email_or_username: '"><img src=x onerror=alert(1)>' });
         expect($('.auth-dialog img[src="x"]')).toHaveLength(0);
