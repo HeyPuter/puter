@@ -23,6 +23,7 @@ import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget }
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
+import { openAppInNewTab } from '../../helpers/dashboardAppLaunch.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 import { intlLocale } from '../../i18n/intlLocale.js';
 
@@ -393,7 +394,7 @@ const TabHome = {
             if (targetLink && targetLink !== '') {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if (appName) {
-                window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
+                openAppInNewTab(appName);
             }
         });
 
