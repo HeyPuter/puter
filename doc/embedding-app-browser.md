@@ -27,11 +27,13 @@ alone does not populate the main GUI origin's storage; the main GUI session must
 already exist.
 
 The route's `Content-Security-Policy: frame-ancestors` allows the GUI origin and
-the embedding page's origin when it is a subdomain of `config.domain` with the
-scheme and port from `config.origin`, and not under one of the user-content
-hosting domains (`static_hosting_domain`, `private_app_hosting_domain`, and their
-`_alt` variants). For example, `https://puter.com` permits
-`https://spreadsheet.puter.com`, and `http://puter.localhost:4100` permits
+the embedding page's origin when it is exactly one label under `config.domain`
+with the scheme and port from `config.origin`. Subdomains the server answers
+itself (`api`, `dav`, `js`, `www`, the native-app hosts, and the host of
+`api_base_url`) and the user-content hosting domains (`static_hosting_domain`,
+`private_app_hosting_domain`, and their `_alt` variants) are refused. For
+example, `https://puter.com` permits `https://spreadsheet.puter.com` but not
+`https://api.puter.com`, and `http://puter.localhost:4100` permits
 `http://spreadsheet.puter.localhost:4100` but not
 `http://someone.site.puter.localhost:4100`. The embedding page is read from the
 iframe request's referrer, so the host must not suppress it (the browser default
