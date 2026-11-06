@@ -81,6 +81,27 @@ export const authFlowOptions = (options = {}) => ({
 });
 
 /**
+ * Leaves for `url` once signed in. A URL that differs from this page's only
+ * in its hash (a dashboard `#tab`) would just scroll, never reload, so the
+ * page reloads at it instead.
+ *
+ * @param {string} url
+ */
+export const navigateAfterSignIn = (url) => {
+    window.onbeforeunload = null;
+    const target = new URL(url, window.location.href);
+    const here = new URL(window.location.href);
+    target.hash = '';
+    here.hash = '';
+    if ( target.href !== here.href ) {
+        window.location.replace(url);
+        return;
+    }
+    history.replaceState(history.state, '', new URL(url, window.location.href).href);
+    window.location.reload();
+};
+
+/**
  * @typedef {object} AuthFlow
  * @property {AuthFlowOptions} options
  * @property {jQuery} $overlay

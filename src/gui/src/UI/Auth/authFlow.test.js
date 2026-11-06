@@ -20,7 +20,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetAuthGlobals, tick } from './authTestSetup.js';
 
-const { default: openAuthFlow, activeAuthFlow, authFlowOptions, joinAuthFlow } = await import('./authFlow.js');
+const { default: openAuthFlow, activeAuthFlow, authFlowOptions, joinAuthFlow, navigateAfterSignIn } = await import('./authFlow.js');
 
 const key = (target, k) => target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
 const backdropClick = () => {
@@ -230,5 +230,43 @@ describe('authFlowOptions', () => {
 
     it('keeps an explicit empty redirect', () => {
         expect(authFlowOptions({ redirect_url: '' }).redirect_url).toBe('');
+    });
+});
+
+describe('navigateAfterSignIn', () => {
+    const withLocation = (href, run) => {
+        const original = window.location;
+        const replace = vi.fn();
+        const reload = vi.fn();
+        delete window.location;
+        window.location = { href, replace, reload };
+        const spy = vi.spyOn(history, 'replaceState').mockImplementation(() => {});
+        let states;
+        try {
+            run();
+        } finally {
+            window.location = original;
+            states = spy.mock.calls.map((call) => call[2]);
+            spy.mockRestore();
+        }
+        return { replace, reload, states };
+    };
+
+    it('goes to another page by replacing this one', () => {
+        const { replace, reload } = withLocation('https://puter.test/action/login', () => {
+            navigateAfterSignIn('/');
+        });
+        expect(replace).toHaveBeenCalledWith('/');
+        expect(reload).not.toHaveBeenCalled();
+    });
+
+    // Replacing with a hash-only change would scroll, never reload.
+    it('reloads when only the hash would change, as on a dashboard tab', () => {
+        const { replace, reload, states } = withLocation('https://puter.test/#files', () => {
+            navigateAfterSignIn('https://puter.test/#files');
+        });
+        expect(replace).not.toHaveBeenCalled();
+        expect(reload).toHaveBeenCalledOnce();
+        expect(states).toEqual(['https://puter.test/#files']);
     });
 });

@@ -30,6 +30,7 @@ import UIWindowPhoneVerificationRequired from '../UIWindowPhoneVerificationRequi
 import openAuthFlow, {
     authHeadHtml,
     joinAuthFlow,
+    navigateAfterSignIn,
     setAuthStatus,
     setFormBusy,
     submitButtonHtml,
@@ -445,8 +446,7 @@ export function pushSignupScreen (flow, options = {}) {
         }
 
         if ( reload_on_success ) {
-            window.onbeforeunload = null;
-            window.location.replace(signupRedirectUrl(flow.options.redirect_url));
+            navigateAfterSignIn(signupRedirectUrl(flow.options.redirect_url));
             return;
         }
         flow.finish(email_verified);

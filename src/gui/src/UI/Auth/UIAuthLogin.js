@@ -24,6 +24,7 @@ import { bindPasswordReveal, formFieldHtml } from '../Dashboard/UIDashboardFormD
 import openAuthFlow, {
     authHeadHtml,
     joinAuthFlow,
+    navigateAfterSignIn,
     setAuthStatus,
     setFormBusy,
     submitButtonHtml,
@@ -245,10 +246,9 @@ export function pushLoginScreen (flow, options = {}) {
         }
 
         if ( flow.options.reload_on_success ) {
-            window.onbeforeunload = null;
             // A clean URL, so no credentials stay in it. The card stays up,
             // busy, while the page goes.
-            window.location.replace(flow.options.redirect_url || window.location.origin + window.location.pathname);
+            navigateAfterSignIn(flow.options.redirect_url || window.location.origin + window.location.pathname);
             return;
         }
         flow.finish(true);
