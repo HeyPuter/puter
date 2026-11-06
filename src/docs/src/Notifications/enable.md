@@ -4,7 +4,9 @@ description: Turn on push notifications for your app in this browser.
 platforms: [websites, apps]
 ---
 
-Turns on push notifications for your app in the browser the user is in. Call it from a click. It asks for the browser's permission before anything else, because browsers only show that prompt from a user gesture.
+Turns on push notifications for your app in the browser the user is in. Call it from a click, before any other `await`. It asks for the browser's permission before anything else, because browsers only show that prompt from a user gesture.
+
+On a website, when the call isn't made from a click, or comes after a sign-in window, another popup, or a few seconds of other work in the same click, it first shows a Puter dialog. The browser's prompt opens when the user clicks **Continue** there. If they click **Cancel**, the call resolves `false`.
 
 On a website, the browser asks on your own origin, and pushes arrive through your service worker (see [`onPush()`](/Notifications/onPush/)). Puter then sends a confirmation push to that browser, which shows once as "Notifications are on". Turning pushes on this way also allows pushes from your app, so the user answers only the browser's prompt.
 
@@ -34,13 +36,12 @@ puter.notifications.enable(options)
 - `serviceWorker` (String): The path of the worker that imports `push-sw.js`. Defaults to `/puter-sw.js`. Pass the same path to [`onPush()`](/Notifications/onPush/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). Only used on a website.
 
 ## Return value
-A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications or the browser can't receive pushes, such as a private window or an iPhone page that isn't opened from the Home Screen. [Where pushes work](/Notifications/push/#where-pushes-work) lists what each browser needs.
+A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications, canceled Puter's dialog, or the browser can't receive pushes, such as a private window or an iPhone page that isn't opened from the Home Screen. [Where pushes work](/Notifications/push/#where-pushes-work) lists what each browser needs.
 
 It rejects with an error carrying `message` and `code`:
 
 | `code` | Meaning |
 | --- | --- |
-| `user_gesture_required` | The browser hasn't asked for notification permission yet, and the call wasn't made from a user gesture, such as a click. |
 | `push_unavailable` | This server has no push notification service, as on most self-hosted servers. |
 | `push_disabled` | This server has push notifications turned off. |
 | `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click, then call [`enable()`](/Notifications/enable/) again. |

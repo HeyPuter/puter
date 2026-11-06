@@ -2135,14 +2135,14 @@ describe('enable', () => {
         );
     });
 
-    it('rejects user_gesture_required outside a click, without prompting', async () => {
+    it('rejects user_gesture_required outside a click in the Puter GUI, without prompting', async () => {
         withBrowser(makeNav(), 'default');
         Object.defineProperty(globalThis.navigator, 'userActivation', {
             value: { isActive: false },
             configurable: true,
         });
         try {
-            const { module } = makeModule();
+            const { module } = makeModule({ env: 'gui' });
             await expect(module.enable()).rejects.toMatchObject({
                 code: 'user_gesture_required',
             });
