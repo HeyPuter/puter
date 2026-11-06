@@ -169,6 +169,21 @@ describe('shared app browser', () => {
         expect($('.myapps-add-modal')).toHaveLength(0);
     });
 
+    it('shows only the guest apps, without reading the user\'s apps or layout', async () => {
+        const kvGet = vi.spyOn(puter.kv, 'get');
+        await mount({ guestApps: [
+            { name: 'camera', title: 'Camera', uuid: 'app-camera', index_url: 'https://camera.test/' },
+            { name: 'notes', title: 'Notes' },
+        ] });
+        expect(browser._apps.map(app => app.name)).toEqual(['camera', 'notes']);
+        expect(browser._apps[0]).toMatchObject({ uid: 'app-camera', index_url: 'https://camera.test/' });
+        expect($('.myapps-group-tile')).toHaveLength(0);
+        expect(fetch).not.toHaveBeenCalled();
+        expect(kvGet).not.toHaveBeenCalled();
+        $('.myapps-tile[data-app-name="notes"]').trigger('click');
+        expect(onLaunch).toHaveBeenCalledWith({ appName: 'notes', targetLink: '' });
+    });
+
     it('renders an empty list and an API failure without offering authentication', async () => {
         installed = [];
         recommended = [];

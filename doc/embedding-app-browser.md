@@ -19,17 +19,22 @@ the desktop and dashboard send `utm_campaign=desktop` and `utm_campaign=dashboar
 
 ## Session and framing
 
-Only show the iframe after the user has signed in. The embed reads the existing
-GUI session from local storage on its own origin. If that storage holds no
+The embed reads the existing GUI session from local storage on its own origin. If that storage holds no
 session, the embed gets the session from the GUI origin's session cookie through
 `/get-gui-token`. This matters in Safari, which gives a framed origin separate
 local storage under each top-level origin, so even a sibling subdomain's iframe
 can't see the GUI's stored token. The session cookie is still sent, because the
 host is on the same site. The embed doesn't write that token back to storage. It
 does not create accounts, show a login dialog, or accept a token from its parent.
-A missing session or failed load displays an unavailable/error state. Being
-signed in on a subdomain alone does not create a session on the main GUI origin;
-the main GUI session must already exist.
+Being signed in on a subdomain alone does not create a session on the main GUI
+origin.
+
+Without a session, the embed shows the recommended apps (`RecommendedAppsService`)
+that the server put in the page, and nothing else: no installed apps, folders, or
+saved order, and no puter.js. Selecting one opens it at the same URL a signed-in
+launch uses, with no opener and no token on offer, so the app signs in on its own.
+Apps that need the desktop open `/app/<name>`. If the page carries no recommended
+apps, or a load fails, the embed displays an unavailable/error state.
 
 The route's `Content-Security-Policy: frame-ancestors` allows the GUI origin and
 the embedding page's origin when it is exactly one label under `config.domain`
@@ -53,13 +58,14 @@ and popups to escape the sandbox.
 
 ## Host integration
 
-Create the iframe when “More apps” is opened, and remove it on close so reopening
+The iframe can be shown whether or not the user is signed in. Create it when
+“More apps” is opened, and remove it on close so reopening
 loads current apps and preferences. The host owns the modal and close control;
 there is no parent messaging API and no app list or credential is sent to it.
 The app browser fills its iframe and responds to its size.
 
 This example assumes `puterOrigin` comes from the host app's deployment settings
-and the caller has already established the GUI session. Translate the button and
+Translate the button and
 frame labels using the host app's localization system.
 
 ```html
@@ -96,12 +102,14 @@ frame labels using the host app's localization system.
 ## Implementation and checks
 
 `createAppBrowser` in `src/gui/src/UI/Dashboard/AppBrowser.js` owns the shared UI
-and data behavior. `TabApps.js` injects desktop actions. `appsEmbed.js` supplies
-new-tab launching through `launchAppInTab` in `src/gui/src/helpers/appTabLaunch.js`,
-which builds the same app URL as `launch_app`, and loads only the embed entry, its
-SDK, and shared styles.
+and data behavior; its `guestApps` option is the signed-out list. `TabApps.js`
+injects desktop actions. `appsEmbed.js` supplies new-tab launching through
+`launchAppInTab` (signed in) and `guestAppLaunchUrl` (signed out) in
+`src/gui/src/helpers/appTabLaunch.js`, which build the same app URL as
+`launch_app`, and loads only the embed entry, its SDK, and shared styles.
 The normal GUI webpack build emits `bundle.min.js` and `apps-embed.min.js`.
-No puter.js API or app-list endpoint changes are needed.
+The `/embed/apps` route puts the recommended list in the page's config as
+`guestApps`. No puter.js API or app-list endpoint changes are needed.
 
 Run the GUI component/browser tests (with the SDK bundle built and Playwright
 Chromium installed), and the backend route tests:

@@ -23,7 +23,7 @@ import { loadLocale } from './i18n/embedI18n.js';
 import { createAppBrowser } from './UI/Dashboard/AppBrowser.js';
 import { appTileLink } from './UI/Dashboard/appLink.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
-import { launchAppInTab } from './helpers/appTabLaunch.js';
+import { guestAppLaunchUrl, launchAppInTab } from './helpers/appTabLaunch.js';
 
 window.$ = window.jQuery = jQuery;
 window.html_encode = value => encode(String(value ?? ''), { mode: 'nonAsciiPrintable' });
@@ -51,11 +51,24 @@ const launching = new Set();
 /**
  * Opens a tile's app in a new tab at its own URL, as the dashboard does.
  * Website shortcuts, and apps that need the desktop, open their tile link.
+ * Without a session there is no token to hand the app, so its tab is opened
+ * cut off from the embed and the app signs in on its own.
  */
 function launchTile ({ appName, targetLink }) {
     const href = appTileLink({ appName, targetLink }, window.location.origin);
     if ( targetLink || !appName ) {
         if ( href ) window.open(href, '_blank', 'noopener,noreferrer');
+        return;
+    }
+    if ( ! window.auth_token ) {
+        const app = config.guestApps.find(guestApp => guestApp.name === appName);
+        const url = app && guestAppLaunchUrl({
+            app,
+            guiOrigin: window.location.origin,
+            apiOrigin: config.apiOrigin,
+            locale: window.locale,
+        });
+        window.open(url || href, '_blank', 'noopener');
         return;
     }
     if ( launching.has(appName) ) return;
@@ -98,23 +111,32 @@ async function readSession () {
     return (await response.json())?.token || null;
 }
 
+/**
+ * Signed in, the user's own apps through the SDK. Without a session, the
+ * recommended apps the page was rendered with, and no SDK.
+ */
 async function mount () {
     window.auth_token = await readSession();
-    if ( ! window.auth_token ) throw new Error('Missing session');
+    const guestApps = window.auth_token ? undefined : config.guestApps;
+    if ( !window.auth_token && !guestApps?.length ) throw new Error('No apps to show without a session');
 
-    await Promise.all([new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = config.sdkUrl;
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-    }), localeReady]);
-    puter.setAPIOrigin(config.apiOrigin);
+    if ( ! guestApps ) {
+        await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = config.sdkUrl;
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+        puter.setAPIOrigin(config.apiOrigin);
+    }
+    await localeReady;
     installAppIconFallback();
 
     const browser = createAppBrowser({
         editable: false,
         onLaunch: launchTile,
+        guestApps,
     });
     const $root = $(root);
     $root.html(`<section class="dashboard-section dashboard-section-apps active">${browser.html()}</section>`);

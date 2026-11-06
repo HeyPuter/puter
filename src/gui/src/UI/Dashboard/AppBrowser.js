@@ -53,10 +53,12 @@ const KV_READ_FAILED = Symbol('kv read failed');
 
 /**
  * Shared browser with per-mount state. The dashboard injects desktop actions;
- * embeds supply onLaunch and disable editing.
- * @param {{ editable?: boolean, onLaunch?: (app: { appName: string, targetLink?: string }) => void, actions?: Object }} options
+ * embeds supply onLaunch and disable editing. `guestApps`, for a visitor
+ * without a session, is the whole list: no installed apps or saved layout are
+ * read.
+ * @param {{ editable?: boolean, onLaunch?: (app: { appName: string, targetLink?: string }) => void, actions?: Object, guestApps?: Object[] }} options
  */
-export function createAppBrowser ({ editable = true, onLaunch, actions = {} } = {}) {
+export function createAppBrowser ({ editable = true, onLaunch, actions = {}, guestApps } = {}) {
     const { showContextMenu, showAlert, launchApp, revokeAppSessions, beginTileLaunch, settleTileLaunch } = actions;
 
     /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
@@ -3297,6 +3299,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {} } = 
         // Only `recommended` is used here. At dashboard open this rides Home's
         // in-flight request; later refetches ask the server to skip `recent`.
         async _fetchLaunchApps () {
+            if ( guestApps ) return { recommended: guestApps };
             const homeRequest = this._joinHomeLaunchApps ? window.launch_apps_request : null;
             this._joinHomeLaunchApps = false;
             if ( homeRequest ) {
@@ -3377,15 +3380,16 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {} } = 
                     return { apps: all, complete: true };
                 };
 
+                const readKv = key => guestApps ? null : puter.kv.get(key).catch(() => KV_READ_FAILED);
                 const [installedResult, fetchedLaunchData, savedOrderRaw, removedAppsRaw, groupsRaw] = await Promise.all([
-                    fetchAllInstalledApps(),
+                    guestApps ? { apps: [], complete: true } : fetchAllInstalledApps(),
                     // The recommended list only adds tiles: if it fails (network,
                     // a proxy's HTML error page), the installed apps still show,
                     // with the last list that did load. null marks the failure.
                     this._fetchLaunchApps(),
-                    puter.kv.get(APPS_ORDER_KV_KEY).catch(() => KV_READ_FAILED),
-                    puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => KV_READ_FAILED),
-                    puter.kv.get(APP_GROUPS_KV_KEY).catch(() => KV_READ_FAILED),
+                    readKv(APPS_ORDER_KV_KEY),
+                    readKv(REMOVED_APPS_KV_KEY),
+                    readKv(APP_GROUPS_KV_KEY),
                 ]);
 
                 const installedApps = installedResult.apps;

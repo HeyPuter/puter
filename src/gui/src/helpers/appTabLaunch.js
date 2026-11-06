@@ -88,6 +88,26 @@ export const offerAppTabLaunch = ({ appInstanceID, tab, origin, token, item }) =
     });
 };
 
+/** Apps that only open inside the desktop, at the GUI's `/app/<name>`. */
+const needsDesktop = app => app.index_url?.startsWith(BUILTIN_PREFIX)
+    || app.godmode === true || app.godmode === 1
+    || app.privateAccess?.hasAccess === false;
+
+/** The app's URL for a tab launch, with the params that name the launch. */
+const tabLaunchUrl = ({ app, name, guiOrigin, apiOrigin, locale }) => {
+    const appInstanceID = uuidv4();
+    const appDomain = new URL(guiOrigin).hostname;
+    const url = appLaunchUrl({ app, name, appInstanceID, guiOrigin, appDomain });
+    appendLaunchContext(url, {
+        appDomain,
+        pageUrl: guiOrigin,
+        apiOrigin,
+        locale,
+        surface: 'app_browser_embed',
+    });
+    return { url, appInstanceID };
+};
+
 /**
  * Opens an app in `tab` at its own URL, the way launch_app's `newTab` does,
  * for pages without the desktop (the app browser embed). Resolves false,
@@ -107,29 +127,33 @@ export const offerAppTabLaunch = ({ appInstanceID, tab, origin, token, item }) =
  */
 export const launchAppInTab = async ({ name, tab, guiOrigin, apiOrigin, authToken, locale }) => {
     const app = await puter.apps.get(name);
-    if ( app.index_url?.startsWith(BUILTIN_PREFIX)
-        || app.godmode === true || app.godmode === 1
-        || app.privateAccess?.hasAccess === false ) {
-        return false;
-    }
+    if ( needsDesktop(app) ) return false;
 
     const appUid = app.uid ?? app.uuid;
     const { token } = await fetchUserAppTokenForLaunch({ appUid, apiOrigin, authToken });
     if ( !token || tab.closed ) return false;
 
-    const appInstanceID = uuidv4();
-    const appDomain = new URL(guiOrigin).hostname;
-    const url = appLaunchUrl({ app, name, appInstanceID, guiOrigin, appDomain });
-    appendLaunchContext(url, {
-        appDomain,
-        pageUrl: guiOrigin,
-        apiOrigin,
-        locale,
-        surface: 'app_browser_embed',
-    });
-
+    const { url, appInstanceID } = tabLaunchUrl({ app, name, guiOrigin, apiOrigin, locale });
     offerAppTabLaunch({ appInstanceID, tab, origin: url.origin, token, item: null });
     tab.location.href = url.href;
     reportAppOpen({ appUid, apiOrigin, authToken });
     return true;
+};
+
+/**
+ * Where a visitor without a session opens an app: the same URL a signed-in
+ * launch uses, with no token on offer, so the app signs in on its own. Apps
+ * that need the desktop get null, for the caller's `/app/<name>` link.
+ *
+ * @param {object} options
+ * @param {{ name: string, uuid?: string, uid?: string, index_url?: string | null, godmode?: boolean }} options.app
+ *   - an entry of the recommended list
+ * @param {string} options.guiOrigin
+ * @param {string} options.apiOrigin
+ * @param {string} options.locale
+ * @returns {string | null}
+ */
+export const guestAppLaunchUrl = ({ app, guiOrigin, apiOrigin, locale }) => {
+    if ( needsDesktop(app) ) return null;
+    return tabLaunchUrl({ app, name: app.name, guiOrigin, apiOrigin, locale }).url.href;
 };
