@@ -109,7 +109,10 @@ const runVerificationGates = async (user, show_email, reload_on_success, page) =
     let email_verified = true;
     const emailGate = async () => {
         if ( ! show_email ) return;
+        // Its ✕ would close it without an answer, leaving the caller
+        // waiting on a card that is already gone.
         email_verified = await UIWindowEmailConfirmationRequired({
+            show_close_button: false,
             stay_on_top: true,
             has_head: true,
             reload_on_success,

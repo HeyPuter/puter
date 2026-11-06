@@ -230,6 +230,10 @@ describe('signup form', () => {
         expect($('.auth-dialog-overlay.dashboard-dialog-show')).toHaveLength(0);
         // email → phone (retried until passed) → card, which the phone's card fallback cleared.
         expect(gates.email).toHaveBeenCalledOnce();
+        // Closing a check without an answer would strand the caller.
+        for ( const gate of [gates.email, gates.phone] ) {
+            expect(gate.mock.calls[0][0].show_close_button).toBe(false);
+        }
         expect(gates.phone).toHaveBeenCalledTimes(2);
         expect(gates.card).not.toHaveBeenCalled();
     });
