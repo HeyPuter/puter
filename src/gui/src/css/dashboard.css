@@ -11344,6 +11344,7 @@ body.dashboard-mode .notifications-close-all {
     }
 
     .auth-dialog-page .auth-body > * {
+        box-sizing: border-box;
         width: 100%;
         max-width: 400px;
         margin-left: auto;
@@ -11358,6 +11359,7 @@ body.dashboard-mode .notifications-close-all {
 }
 
 .embedded-in-popup .auth-dialog-page .auth-body > * {
+    box-sizing: border-box;
     width: 100%;
     max-width: 400px;
     margin-left: auto;
