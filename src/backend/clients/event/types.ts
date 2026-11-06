@@ -117,7 +117,7 @@ export type EventMap = {
         model_used: string;
         service_used: string;
         intended_service: string;
-        model_details: {
+        model_details?: {
             id: string;
             provider: string;
             input_cost_key: string;

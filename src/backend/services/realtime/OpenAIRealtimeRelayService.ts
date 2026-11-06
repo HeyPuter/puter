@@ -17,11 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
 import express from 'express';
 import type { AnyTokenPayload } from '../auth/types.js';
+import type { EventMap } from '../../clients/event/types.js';
 import WebSocket, { WebSocketServer, type RawData } from 'ws';
 import type { Actor } from '../../core/actor.js';
 import {
@@ -201,6 +202,8 @@ const RECONNECT_NOTICE_INTERVAL_MS = 60_000;
 const TRANSCRIPTION_DONE =
     'conversation.item.input_audio_transcription.completed';
 const METERING_DRIVER = 'openai-realtime';
+// Text awaiting a prompt check; past this it is checked without a response.
+const MAX_PENDING_PROMPT_CHARS = 64 * 1024;
 // Provider organization IDs, as OpenAI puts them in some error messages.
 const ORG_ID = /\borg-[A-Za-z0-9]{8,}/g;
 
@@ -475,6 +478,50 @@ const clientEventRefusal = (event: RealtimeEvent): string | null => {
         return 'MCP tools are not supported';
     }
     return null;
+};
+
+type PromptMessage = { role: string; content: string };
+
+const itemPromptMessages = (item: unknown): PromptMessage[] => {
+    if (!isRecord(item)) return [];
+    if (item.type === 'function_call_output') {
+        return typeof item.output === 'string' && item.output
+            ? [{ role: 'tool', content: item.output }]
+            : [];
+    }
+    if (item.type !== 'message' || !Array.isArray(item.content)) return [];
+    const role = typeof item.role === 'string' ? item.role : 'user';
+    return item.content.flatMap((part) => {
+        if (!isRecord(part)) return [];
+        const text = part.text ?? part.transcript;
+        return typeof text === 'string' && text
+            ? [{ role, content: text }]
+            : [];
+    });
+};
+
+/** The text a client event adds to the model's context, as chat messages. */
+export const promptMessagesOf = (event: unknown): PromptMessage[] => {
+    if (!isRecord(event)) return [];
+    if (event.type === 'conversation.item.create') {
+        return itemPromptMessages(event.item);
+    }
+    const config =
+        event.type === 'session.update'
+            ? event.session
+            : event.type === 'response.create'
+              ? event.response
+              : undefined;
+    if (!isRecord(config)) return [];
+    const messages: PromptMessage[] =
+        typeof config.instructions === 'string' && config.instructions
+            ? [{ role: 'system', content: config.instructions }]
+            : [];
+    if (Array.isArray(config.input)) {
+        for (const item of config.input)
+            messages.push(...itemPromptMessages(item));
+    }
+    return messages;
 };
 
 /** Whichever of two pricings of the same usage costs more. */
@@ -900,6 +947,14 @@ export class OpenAIRealtimeRelayService extends PuterService {
         let requested = 0;
         // Credit holds of responses whose usage isn't recorded yet.
         const responseHolds = new Map<string, Promise<CreditHold | null>>();
+        // Text sent since the last prompt check, checked when the next
+        // response starts. Each started response maps to the completion id
+        // its check logged, or null if the check refused it.
+        const checkPrompts =
+            this.clients.event.hasListeners('ai.prompt.validate');
+        let promptMessages: PromptMessage[] = [];
+        let promptChars = 0;
+        const responseCompletions = new Map<string, Promise<string | null>>();
         // Committed input items awaiting usage, each with the transcription
         // model in force at commit and the credit held for it.
         const pendingTranscriptions = new Map<
@@ -1062,13 +1117,15 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     identity?.type === 'app-under-user'
                         ? identity.session
                         : undefined;
-                if (!(
-                    sessionUids?.has(sessionUid ?? '') ||
-                    sessionUids?.has(parentUid ?? '') ||
-                    (tokenUid &&
-                        identity?.type === 'access-token' &&
-                        identity.token_uid === tokenUid)
-                ))
+                if (
+                    !(
+                        sessionUids?.has(sessionUid ?? '') ||
+                        sessionUids?.has(parentUid ?? '') ||
+                        (tokenUid &&
+                            identity?.type === 'access-token' &&
+                            identity.token_uid === tokenUid)
+                    )
+                )
                     return;
                 if (token) {
                     kv.del(realtimeAuthKey(token));
@@ -1430,6 +1487,82 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
         };
 
+        // Runs the host's prompt check on the pending text, which also logs
+        // it. A refusal closes the session.
+        const checkPrompt = async (): Promise<string | null> => {
+            const completionId = randomUUID().replaceAll('-', '').slice(0, 25);
+            const check: EventMap['ai.prompt.validate'] = {
+                username: actor!.user?.username || '',
+                actor,
+                completionId,
+                allow: true,
+                intended_service: METERING_DRIVER,
+                parameters: { model: billingModel, messages: promptMessages },
+            };
+            promptMessages = [];
+            promptChars = 0;
+            try {
+                await this.clients.event.emitAndWait(
+                    'ai.prompt.validate',
+                    check,
+                    {},
+                );
+            } catch (err) {
+                console.warn('[realtime] prompt check failed', err);
+            }
+            if (check.allow !== false) return completionId;
+            reject('permission_denied', 'Prompt blocked by policy');
+            return null;
+        };
+        const notePrompt = (event: RealtimeEvent) => {
+            for (const message of promptMessagesOf(event)) {
+                if (
+                    promptChars + message.content.length >
+                    MAX_PENDING_PROMPT_CHARS
+                )
+                    void checkPrompt();
+                promptMessages.push(message);
+                promptChars += message.content.length;
+            }
+        };
+        // Adds a response's cost to the row its prompt check logged.
+        const logResponseCost = async (
+            id: string,
+            rows: UsageInput[],
+            usage: unknown,
+        ) => {
+            const completion = responseCompletions.get(id);
+            if (!completion) return;
+            responseCompletions.delete(id);
+            const completionId = await completion;
+            if (!completionId) return;
+            const input = { tokens: 0, ucents: 0 };
+            const output = { tokens: 0, ucents: 0 };
+            for (const row of rows) {
+                const side = row.usageType.endsWith('_output') ? output : input;
+                side.tokens += row.usageAmount;
+                side.ucents += row.costOverride ?? 0;
+            }
+            this.clients.event.emit(
+                'ai.prompt.cost-calculated',
+                {
+                    completionId,
+                    username: actor!.user?.username || '',
+                    usage,
+                    input_tokens: input.tokens,
+                    output_tokens: output.tokens,
+                    input_ucents: input.ucents,
+                    output_ucents: output.ucents,
+                    total_ucents: input.ucents + output.ucents,
+                    costs_currency: 'usd-cents',
+                    model_used: billingModel,
+                    service_used: 'openai',
+                    intended_service: METERING_DRIVER,
+                },
+                {},
+            );
+        };
+
         // One transcription item's credit at `name`'s price and cost factor,
         // or null when the account can't cover it. Reservations run one at a
         // time, so a session's own holds don't race each other's balance check.
@@ -1565,6 +1698,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     if (typeof id !== 'string') break;
                     inFlightIds.add(id);
                     holdResponse(id);
+                    if (checkPrompts)
+                        responseCompletions.set(id, checkPrompt());
                     if (closed) {
                         upstream?.send(
                             JSON.stringify({
@@ -1575,18 +1710,15 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     }
                     break;
                 }
-                case 'response.done':
+                case 'response.done': {
                     inFlight = Math.max(0, inFlight - 1);
+                    const usage = event.response?.usage ?? undefined;
+                    const rows = realtimeUsageRows(billingModel, usage);
+                    meter(rows, takeHold(event.response?.id));
                     if (typeof event.response?.id === 'string') {
                         inFlightIds.delete(event.response.id);
+                        void logResponseCost(event.response.id, rows, usage);
                     }
-                    meter(
-                        realtimeUsageRows(
-                            billingModel,
-                            event.response?.usage ?? undefined,
-                        ),
-                        takeHold(event.response?.id),
-                    );
                     if (inFlight === 0) {
                         onIdle?.();
                         if (
@@ -1598,6 +1730,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                             endUpstream();
                     }
                     break;
+                }
                 case 'input_audio_buffer.speech_started': {
                     // Detected speech is committed when it stops, from where
                     // the provider says it began.
@@ -1839,6 +1972,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 pending.shift();
                 pendingBytes -= (next.data as Buffer).length;
                 if (event.type === 'response.create') requested++;
+                if (checkPrompts) notePrompt(event);
                 sendUpstream(next.data, next.isBinary);
             }
             return undefined;

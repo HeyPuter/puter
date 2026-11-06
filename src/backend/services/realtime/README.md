@@ -105,11 +105,13 @@ excludes outstanding holds and accepts fractional positive credit. Admission of
 new billable work continues to use the atomic hold path, which includes every
 outstanding reservation.
 
-Text, transcripts and raw audio are forwarded without new content logging.
-The relay does not invoke `ai.prompt.validate`. A realtime adapter needs the host
-listeners' chat payload and denial contracts before that hook can safely apply
-to instructions and conversation text. Raw audio and generated transcripts need
-separate policy decisions.
+When the host listens for `ai.prompt.validate`, each response that starts runs
+it on the text the client sent since the previous check: session and response
+instructions, message text and transcripts, and function call output, as chat
+messages. The response's cost follows as `ai.prompt.cost-calculated` under the
+same completion id. A refusal closes the session with `permission_denied`; the
+response may already be streaming by then. Pending text past 64 KiB is checked
+on its own. Audio is not checked.
 
 Credential checks run in batches of at most 16 with no overlapping sweeps.
 Session and access-token revocation events close affected sockets and invalidate
