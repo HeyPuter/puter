@@ -10711,13 +10711,27 @@ body.dashboard-mode .notifications-close-all {
 /* Back and ✕ float over the top corners; the logo sits between them. */
 .auth-dialog-bar {
     position: absolute;
-    top: 10px;
-    left: 10px;
-    right: 10px;
+    top: 0;
+    left: 0;
+    right: 0;
     z-index: 1;
     display: flex;
     justify-content: space-between;
+    padding: 10px;
     pointer-events: none;
+    transition: background-color 0.15s, box-shadow 0.15s;
+}
+
+/* Scrolled, the screen passes under an opaque bar rather than under the
+   bare buttons. */
+.auth-dialog-scrolled .auth-dialog-bar:has(> button:not([hidden])) {
+    background: var(--dashboard-card-background);
+    box-shadow: 0 1px 0 var(--dashboard-border);
+    pointer-events: auto;
+}
+
+.auth-dialog .auth-body {
+    scroll-padding-top: 52px;
 }
 
 .auth-dialog-bar > button {

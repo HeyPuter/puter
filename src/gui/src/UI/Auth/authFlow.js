@@ -189,8 +189,18 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
         (el_field ?? $dialog.get(0))?.focus({ preventScroll: true });
     };
 
+    // Back and ✕ float over the top of the screen. Once it scrolls, the bar
+    // under them turns opaque, so what passes beneath neither shows through
+    // nor takes their taps.
+    const syncScrolled = () => {
+        const el_body = top()?.$el.find('.auth-body').get(0);
+        $dialog.toggleClass('auth-dialog-scrolled', !! el_body && el_body.scrollTop > 0);
+    };
+    $dialog.get(0).addEventListener('scroll', syncScrolled, { capture: true, passive: true });
+
     const refresh = () => {
         const screen = top();
+        syncScrolled();
         $back.prop('hidden', ! (stack.length > 1 || screen?.onBack));
         $back.prop('disabled', busy);
         const el_title = screen?.$el.find('.auth-title').get(0);

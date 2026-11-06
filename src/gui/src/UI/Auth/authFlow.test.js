@@ -135,6 +135,25 @@ describe('openAuthFlow', () => {
         expect(flow.goTo('nope')).toBe(false);
     });
 
+    it('marks the card scrolled while the showing screen is, so the bar covers what passes under it', () => {
+        const flow = openAuthFlow();
+        const scroll = (screen, top) => {
+            const el = $(`[data-screen="${screen}"] .auth-body`).get(0);
+            el.scrollTop = top;
+            el.dispatchEvent(new Event('scroll'));
+        };
+        flow.push({ name: 'a', html: '<div class="auth-body"></div>' });
+        expect($('.auth-dialog').hasClass('auth-dialog-scrolled')).toBe(false);
+        scroll('a', 40);
+        expect($('.auth-dialog').hasClass('auth-dialog-scrolled')).toBe(true);
+        flow.push({ name: 'b', html: '<div class="auth-body"></div>' });
+        expect($('.auth-dialog').hasClass('auth-dialog-scrolled')).toBe(false);
+        flow.back();
+        expect($('.auth-dialog').hasClass('auth-dialog-scrolled')).toBe(true);
+        scroll('a', 0);
+        expect($('.auth-dialog').hasClass('auth-dialog-scrolled')).toBe(false);
+    });
+
     it('offers Back on a first screen that asks for it', () => {
         const flow = openAuthFlow({ page: true });
         const back = vi.fn();
