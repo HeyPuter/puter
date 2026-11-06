@@ -2735,6 +2735,11 @@ export class UIModule extends EventListener {
             return;
         }
 
+        // The GUI that opened this tab may be about to hand over a token.
+        if ( puter.openerLaunchToken_ ) {
+            return puter.openerLaunchToken_.then(() => this.authenticateWithPuter());
+        }
+
         // if authToken is already present, resolve immediately
         if ( this.authToken ) {
             return new Promise((resolve) => {

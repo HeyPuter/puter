@@ -23,10 +23,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../UI/UIWindow.js', () => ({ default: vi.fn() }));
 vi.mock('../UI/UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('./pushSync.js', () => ({ syncBrowserPush: vi.fn() }));
+vi.mock('./appTabLaunchToken.js', () => ({ offerAppTabLaunchToken: vi.fn() }));
 
 globalThis.def = globalThis.def ?? (value => value);
 
 const { default: UIWindow } = await import('../UI/UIWindow.js');
+const { offerAppTabLaunchToken } = await import('./appTabLaunchToken.js');
 const { default: launch_app } = await import('./launchApp.js');
 
 const app = {
@@ -65,7 +67,7 @@ afterEach(() => {
 });
 
 describe('launch_app with a new tab', () => {
-    it('sends the tab to index_url with the params an in-page iframe gets', async () => {
+    it('sends the tab to index_url with the params an in-page iframe gets, minus the token', async () => {
         const tab = { location: { href: '' }, close: vi.fn() };
         const outcome = await launch_app({ name: 'notes', app_obj: { ...app }, newTab: tab });
 
@@ -76,12 +78,18 @@ describe('launch_app with a new tab', () => {
             'puter.app_instance_id': 'instance-1',
             'puter.app.id': 'app-123',
             'puter.app.name': 'notes',
-            'puter.auth.token': 'app-token',
             'puter.domain': 'puter.app',
             'puter.api_origin': 'https://api.puter.test',
             'puter.locale': 'en',
             'puter.args': '{}',
             'utm_source': 'puter.com',
+        });
+        expect(url.searchParams.has('puter.auth.token')).toBe(false);
+        expect(offerAppTabLaunchToken).toHaveBeenCalledWith({
+            appInstanceID: 'instance-1',
+            tab,
+            origin: 'https://notes.example.com',
+            token: 'app-token',
         });
         expect(outcome.launchResult).toMatchObject({ launched: true, openedAppName: 'notes' });
         expect(UIWindow).not.toHaveBeenCalled();
@@ -100,5 +108,24 @@ describe('launch_app with a new tab', () => {
 
         expect(outcome.launchResult.launched).toBe(false);
         expect(tab.location.href).toBe('');
+        expect(offerAppTabLaunchToken).not.toHaveBeenCalled();
+    });
+
+    it('closes the tab and opens a built-in app in-page', async () => {
+        const tab = { location: { href: '' }, close: vi.fn() };
+        const builtin = { ...app, index_url: 'https://builtins.namespaces.puter.com/dev-center' };
+        window.gui_origin = 'https://puter.test';
+        // Everything after the window opens isn't what this test is about.
+        UIWindow.mockImplementation(() => {
+            throw new Error('in-page window');
+        });
+        await expect(launch_app({ name: 'notes', app_obj: builtin, newTab: tab }))
+            .rejects.toThrow('in-page window');
+
+        expect(tab.close).toHaveBeenCalledOnce();
+        expect(tab.location.href).toBe('');
+        expect(UIWindow).toHaveBeenCalledWith(expect.objectContaining({
+            iframe_url: expect.stringContaining('puter.auth.token=app-token'),
+        }));
     });
 });

@@ -28,6 +28,10 @@ import { confirmUrlFileAccess } from './confirmUrlFileAccess.js';
 import { mintGodmodeToken, reusableGodmodeToken, trackGodmodeToken } from './godmodeTokens.js';
 import { withoutNotificationClick } from './notificationTap.js';
 import { syncBrowserPush } from './pushSync.js';
+import { offerAppTabLaunchToken } from './appTabLaunchToken.js';
+
+// This can be any trusted URL that won't be used for other apps
+const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -147,9 +151,10 @@ const fetchUserAppTokenForLaunch = async ({ appUid } = {}) => {
  *
  * @param {*} options.name - The name of the app to launch.
  * @param {Window} [options.newTab] - A tab the caller opened (synchronously,
- *   so popup blockers allow it) to send the app's URL to, instead of opening
- *   an in-page window. Explorer can't run outside the desktop, so it closes
- *   the tab and opens in-page.
+ *   so popup blockers allow it, and without `noopener`, so the app can ask it
+ *   for its token) to send the app's URL to, instead of opening an in-page
+ *   window. Explorer and built-in apps are part of the desktop, so for them
+ *   the tab is closed and the app opens in-page.
  */
 const launch_app = async (options) => {
     let transaction;
@@ -204,12 +209,6 @@ const launch_app = async (options) => {
         window_options.parent_instance_id = options.parent_instance_id;
     }
 
-    if ( options.newTab && (options.name === 'explorer' || options.name === 'trash') ) {
-        options.newTab.close();
-        options.newTab = undefined;
-    }
-    const newTab = options.newTab;
-
     // If the app object is not provided, get it from the server
     let app_info;
 
@@ -229,6 +228,13 @@ const launch_app = async (options) => {
     // For backward compatibility reasons we need to make sure that both `uuid` and `uid` are set
     app_info.uuid = app_info.uuid ?? app_info.uid;
     app_info.uid = app_info.uid ?? app_info.uuid;
+
+    if ( options.newTab && (options.name === 'explorer' || options.name === 'trash'
+        || app_info.index_url?.startsWith(BUILTIN_PREFIX)) ) {
+        options.newTab.close();
+        options.newTab = undefined;
+    }
+    const newTab = options.newTab;
 
     // If no `options.name` is provided, use the app name from the app_info
     options.name = options.name ?? app_info.name;
@@ -497,9 +503,6 @@ const launch_app = async (options) => {
         //-----------------------------------
         let iframe_url;
 
-        // This can be any trusted URL that won't be used for other apps
-        const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
-
         if ( ! app_info.index_url ) {
             iframe_url = new URL(`https://${options.name}.${ window.app_domain }/index.html`);
         } else if ( app_info.index_url.startsWith(BUILTIN_PREFIX) ) {
@@ -578,7 +581,11 @@ const launch_app = async (options) => {
         }
 
         if ( launch_token ) {
-            iframe_url.searchParams.append('puter.auth.token', launch_token);
+            // A tab's URL would land the token in browser history; the tab
+            // asks for it instead (offered below).
+            if ( ! newTab ) {
+                iframe_url.searchParams.append('puter.auth.token', launch_token);
+            }
             if ( is_godmode ) {
                 iframe_url.searchParams.append('puter.auth.username', window.user.username);
             }
@@ -648,6 +655,12 @@ const launch_app = async (options) => {
         iframe_url.searchParams.append('utm_source', 'puter.com');
 
         if ( newTab ) {
+            offerAppTabLaunchToken({
+                appInstanceID: uuid,
+                tab: newTab,
+                origin: iframe_url.origin,
+                token: launch_token,
+            });
             newTab.location.href = iframe_url.href;
             record_app_open(app_info);
             endLaunchTransaction(transaction, 'opened-in-new-tab');

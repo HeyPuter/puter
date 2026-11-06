@@ -8,6 +8,7 @@ import { isFramedDocument } from './lib/appModeGate.js';
 import {
     isGodmodeTokenPayload,
     isUserSessionTokenPayload,
+    requestLaunchTokenFromOpener,
     urlWithoutQueryParam,
 } from './lib/launchToken.js';
 import path from 'path-browserify';
@@ -257,6 +258,15 @@ export class Puter {
         // sharing one slot.
         resolvers: [],
     };
+
+    /**
+     * Pending while a tab the GUI opened for this app waits for its launch
+     * token; sign-in waits on it instead of opening a popup. Null otherwise.
+     *
+     * @internal
+     * @type {Promise<void> | null}
+     */
+    openerLaunchToken_ = null;
 
     // Holds the unique app instance ID that is provided by the host environment
     appInstanceID;
@@ -760,6 +770,19 @@ export class Puter {
             }
 
             this.initSubmodules();
+
+            // A top-level tab the GUI opened for an app launch. Its URL params
+            // aren't trusted here (see isFramedDocument), so the token comes
+            // from the GUI tab that opened it instead.
+            if (this.appInstanceID) {
+                this.openerLaunchToken_ = requestLaunchTokenFromOpener({
+                    guiOrigin: this.defaultGUIOrigin,
+                    appInstanceID: this.appInstanceID,
+                }).then((token) => {
+                    this.openerLaunchToken_ = null;
+                    if (token) this.setAuthToken(token);
+                });
+            }
 
             // Print a CTA for developers to publish their app on the Puter App Store
             this.printDevCTA();

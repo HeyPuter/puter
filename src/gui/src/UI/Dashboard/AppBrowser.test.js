@@ -120,7 +120,7 @@ describe('shared app browser', () => {
     });
 
     it('opens dashboard launches in a new tab through desktop actions', async () => {
-        const tab = { opener: window, close: vi.fn() };
+        const tab = { close: vi.fn() };
         vi.spyOn(window, 'open').mockReturnValue(tab);
         const actions = {
             launchApp: vi.fn(async () => ({ launchResult: { launched: true } })),
@@ -129,7 +129,6 @@ describe('shared app browser', () => {
         $('.myapps-search').val('editor').trigger('input');
         $('.myapps-tile[data-app-name="editor"]').trigger('click');
         expect(window.open).toHaveBeenCalledWith('', '_blank');
-        expect(tab.opener).toBeNull();
         expect(actions.launchApp).toHaveBeenCalledWith({ name: 'editor', newTab: tab });
         await vi.waitFor(() => expect(browser._launchingApps.size).toBe(0));
         expect(tab.close).not.toHaveBeenCalled();
@@ -137,7 +136,7 @@ describe('shared app browser', () => {
     });
 
     it('closes the new tab when the launch does not go through', async () => {
-        const tab = { opener: window, close: vi.fn() };
+        const tab = { close: vi.fn() };
         vi.spyOn(window, 'open').mockReturnValue(tab);
         const actions = {
             launchApp: vi.fn(async () => ({ launchResult: { launched: false } })),

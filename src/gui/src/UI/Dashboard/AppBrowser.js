@@ -1132,11 +1132,10 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {} } = 
                     // same query params an in-page window's iframe gets. The tab
                     // is opened now, inside the click, because popup blockers
                     // refuse one opened after the launch's fetches.
+                    // Without 'noopener': the app's SDK asks this tab for its
+                    // token through the opener, then clears it.
                     const tab = window.open('', '_blank');
                     if ( ! tab ) return;
-                    // Done by hand because 'noopener' would leave us no tab to
-                    // navigate.
-                    tab.opener = null;
                     self._launchingApps.add(appName);
                     let launched = false;
                     launchApp({ name: appName, newTab: tab })

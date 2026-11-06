@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     isGodmodeTokenPayload,
     isUserSessionTokenPayload,
+    requestLaunchTokenFromOpener,
     urlWithoutQueryParam,
 } from './launchToken.js';
 
@@ -115,5 +116,78 @@ describe('isGodmodeTokenPayload', () => {
         expect(isGodmodeTokenPayload({ t: 'gui' })).toBe(false);
         expect(isGodmodeTokenPayload({ godmode_app_uid: '' })).toBe(false);
         expect(isGodmodeTokenPayload(null)).toBe(false);
+    });
+});
+
+describe('requestLaunchTokenFromOpener', () => {
+    const GUI = 'https://puter.com';
+
+    /** A top-level tab whose opener answers with `reply` (or not at all). */
+    const makeScope = ({ reply } = {}) => {
+        const listeners = new Set();
+        const scope = {
+            addEventListener: (_type, fn) => listeners.add(fn),
+            removeEventListener: (_type, fn) => listeners.delete(fn),
+            listeners,
+        };
+        scope.emit = (event) => {
+            for (const fn of [...listeners]) fn(event);
+        };
+        scope.opener = {
+            postMessage: vi.fn((data, targetOrigin) => {
+                if (reply) queueMicrotask(() => reply(scope, data, targetOrigin));
+            }),
+        };
+        return scope;
+    };
+
+    it('takes the token the GUI opener sends for this instance, then cuts the opener off', async () => {
+        const scope = makeScope({
+            reply: (s, data) => s.emit({
+                origin: GUI,
+                source: opener,
+                data: { msg: 'puter.launchToken', appInstanceID: data.appInstanceID, token: 'tok' },
+            }),
+        });
+        const opener = scope.opener;
+        const token = await requestLaunchTokenFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope });
+        expect(token).toBe('tok');
+        expect(opener.postMessage).toHaveBeenCalledWith(
+            { msg: 'puter.requestLaunchToken', env: 'app-tab', appInstanceID: 'i-1' },
+            GUI,
+        );
+        expect(scope.opener).toBeNull();
+        expect(scope.listeners.size).toBe(0);
+    });
+
+    it('ignores replies from another origin, another window, or another instance', async () => {
+        vi.useFakeTimers();
+        try {
+            const scope = makeScope();
+            const opener = scope.opener;
+            const pending = requestLaunchTokenFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope, timeoutMs: 1000 });
+            const data = { msg: 'puter.launchToken', appInstanceID: 'i-1', token: 'bad' };
+            scope.emit({ origin: 'https://evil.example', source: opener, data });
+            scope.emit({ origin: GUI, source: {}, data });
+            scope.emit({ origin: GUI, source: opener, data: { ...data, appInstanceID: 'i-2' } });
+            vi.advanceTimersByTime(1000);
+            expect(await pending).toBeNull();
+            expect(scope.opener).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('resolves null without asking when there is no opener', async () => {
+        const scope = makeScope();
+        scope.opener = null;
+        expect(await requestLaunchTokenFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+    });
+
+    it('resolves null without waiting when the GUI tab was closed', async () => {
+        const scope = makeScope();
+        scope.opener.closed = true;
+        expect(await requestLaunchTokenFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+        expect(scope.listeners.size).toBe(0);
     });
 });

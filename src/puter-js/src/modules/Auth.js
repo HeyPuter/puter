@@ -160,6 +160,14 @@ export class AuthModule extends PuterModule {
             });
         }
 
+        // A tab the GUI opened is signed in by the token the GUI hands over.
+        if (puter.openerLaunchToken_) {
+            return puter.openerLaunchToken_.then(() =>
+                puter.authToken
+                    ? { success: true, token: puter.authToken }
+                    : this.signIn(options));
+        }
+
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
             const msg_id = signinsession;
