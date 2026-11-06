@@ -186,16 +186,18 @@ describe('requestLaunchFromOpener', () => {
         }
     });
 
-    it('resolves null without asking when there is no opener', async () => {
+    // Synchronously, so there is no pending launch for callers to wait on.
+    it('returns null without asking when there is no opener', () => {
         const scope = makeScope();
         scope.opener = null;
-        expect(await requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+        expect(requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
     });
 
-    it('resolves null without waiting when the GUI tab was closed', async () => {
+    it('returns null without waiting when the GUI tab was closed', () => {
         const scope = makeScope();
         scope.opener.closed = true;
-        expect(await requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+        expect(requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+        expect(scope.opener.postMessage).not.toHaveBeenCalled();
         expect(scope.listeners.size).toBe(0);
     });
 });

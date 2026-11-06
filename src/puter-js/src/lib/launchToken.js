@@ -93,7 +93,8 @@ const launchItemParams = (item) => {
  * @param {string} options.appInstanceID
  * @param {typeof globalThis} [options.scope] - Global to use; injectable for tests.
  * @param {number} [options.timeoutMs]
- * @returns {Promise<OpenerLaunch | null>} null when no answer came
+ * @returns {Promise<OpenerLaunch | null> | null} null when there is no GUI
+ *   opener to ask, or (resolved) when no answer came
  */
 export const requestLaunchFromOpener = ({
     guiOrigin,
@@ -108,8 +109,9 @@ export const requestLaunchFromOpener = ({
         opener = null;
     }
     // `closed` is readable cross-origin: a GUI tab that's gone can't answer.
+    // Synchronous, so a caller has nothing to wait on (a reloaded tab, say).
     if (!opener || opener.closed || !guiOrigin || !appInstanceID) {
-        return Promise.resolve(null);
+        return null;
     }
 
     return new Promise((resolve) => {

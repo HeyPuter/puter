@@ -785,11 +785,14 @@ export class Puter {
             // aren't trusted here (see isFramedDocument), and secrets stay out
             // of its URL, so the token and opened item come from the GUI tab
             // that opened it instead.
-            if (this.appInstanceID) {
-                this.openerLaunch_ = requestLaunchFromOpener({
+            const openerLaunch = this.appInstanceID
+                ? requestLaunchFromOpener({
                     guiOrigin: this.defaultGUIOrigin,
                     appInstanceID: this.appInstanceID,
-                }).then((launch) => {
+                })
+                : null;
+            if (openerLaunch) {
+                this.openerLaunch_ = openerLaunch.then((launch) => {
                     this.openerLaunch_ = null;
                     if (launch?.item) {
                         this.openerLaunchItem_ = new URLSearchParams(
