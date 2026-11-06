@@ -98,6 +98,7 @@ describe('login screen', () => {
     });
 
     it('stays signed in as before when dismissed while the login is out', async () => {
+        window.auth_token = 'current-token';
         const calls = captureAjax();
         const result = UIAuthLogin();
         submitLogin();
@@ -106,6 +107,21 @@ describe('login screen', () => {
         calls[0].success({ token: 't', user: { username: 'other' } });
         await tick();
         expect(window.update_auth_data).not.toHaveBeenCalled();
+        // The server answered by moving the session cookie; it comes back.
+        expect(fetch).toHaveBeenCalledWith('https://puter.test/session/sync-cookie', expect.objectContaining({
+            headers: { Authorization: 'Bearer current-token' },
+        }));
+    });
+
+    it('leaves the session cookie alone when a dismissed login only asked for a code', async () => {
+        window.auth_token = 'current-token';
+        const calls = captureAjax();
+        void UIAuthLogin();
+        submitLogin();
+        $('.dashboard-dialog-close').trigger('click');
+        calls[0].success({ proceed: true, next_step: 'otp', otp_jwt_token: 'c' });
+        await tick();
+        expect(fetch.mock.calls.some(([url]) => String(url).endsWith('/session/sync-cookie'))).toBe(false);
     });
 
     it('encodes a prefilled username', () => {
@@ -293,6 +309,33 @@ describe('password login with a second factor', () => {
         expect(screen().find('.dashboard-form-status').text()).toBe('Storage is full');
         expect($('.login-btn').prop('disabled')).toBe(false);
         expect(activeAuthFlow().isBusy()).toBe(false);
+    });
+
+    it('stays signed in as before when dismissed while the code is out', async () => {
+        window.auth_token = 'current-token';
+        let answer;
+        fetch.mockImplementation(async (url) => {
+            if ( String(url).endsWith('/providers') ) return reply(200, { providers: [] });
+            if ( String(url).endsWith('/login/otp') ) return new Promise((resolve) => {
+                answer = resolve;
+            });
+            return reply(204, null);
+        });
+        const calls = captureAjax();
+        const result = UIAuthLogin({ reload_on_success: false });
+        submitLogin();
+        const submitted = calls[0].success({ proceed: true, next_step: 'otp', otp_jwt_token: 'c' });
+        await vi.waitFor(() => expect(screen().attr('data-screen')).toBe('two-factor'));
+        enterOtp('001234');
+        await vi.waitFor(() => expect(answer).toBeTypeOf('function'));
+        $('.dashboard-dialog-close').trigger('click');
+        await expect(result).resolves.toBe(false);
+        answer(reply(200, completed));
+        await submitted;
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith('https://puter.test/session/sync-cookie', expect.objectContaining({
+            headers: { Authorization: 'Bearer current-token' },
+        })));
+        expect(window.update_auth_data).not.toHaveBeenCalled();
     });
 
     it('returns to the enabled password form when the user goes back', async () => {

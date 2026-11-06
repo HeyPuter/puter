@@ -57,6 +57,7 @@ export const resetAuthGlobals = () => {
     window.custom_headers = undefined;
     window.turnstile = undefined;
     window.logged_in_users = [];
+    window.auth_token = undefined;
     window.update_auth_data = vi.fn(async () => {});
     globalThis.fetch = vi.fn(async () => reply(200, { providers: [] }));
 };

@@ -30,6 +30,7 @@
 import { isAttestedOrigin } from '../../helpers/attestedOrigin.js';
 import { authLogoHeader, wireAuthLogoHeader } from '../../helpers/authLogoHeader.js';
 import { get_auth_redirect_url } from '../../helpers/authRedirect.js';
+import { syncSessionCookie } from '../../util/sessionAuth.js';
 import { isTouchPrimaryDevice } from '../Dashboard/ContextMenu/ContextMenu.js';
 import mountDashboardOverlay from '../Dashboard/dashboardOverlay.js';
 import { ICONS, SVG } from '../Dashboard/UIDashboardDialog.js';
@@ -99,6 +100,16 @@ export const navigateAfterSignIn = (url) => {
     }
     history.replaceState(history.state, '', new URL(url, window.location.href).href);
     window.location.reload();
+};
+
+/**
+ * Hands the session cookie back to the account this page is signed in as.
+ * A sign-in the server completes after the user dismissed the card has
+ * already moved the cookie to the other account, and the endpoints that
+ * read the cookie (password, 2FA) would act on that one.
+ */
+export const keepCurrentSession = () => {
+    void syncSessionCookie({ origin: window.gui_origin || window.location.origin, authToken: window.auth_token });
 };
 
 /**

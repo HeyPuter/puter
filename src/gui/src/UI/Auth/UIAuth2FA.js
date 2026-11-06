@@ -22,7 +22,7 @@
 // (a password, or an identity provider) was answered with.
 
 import { SVG } from '../Dashboard/UIDashboardDialog.js';
-import openAuthFlow, { setAuthStatus } from './authFlow.js';
+import openAuthFlow, { keepCurrentSession, setAuthStatus } from './authFlow.js';
 
 const CODE_LENGTH = 6;
 const RECOVERY_CODE_LENGTH = 8;
@@ -103,6 +103,10 @@ const pushRecoveryScreen = (flow, token, onVerified) => {
         setAuthStatus($screen, i18n('verifying', [], false), { kind: 'info' });
         const result = await verifySecondFactor('recovery-code', token, value);
         verifying = false;
+        if ( flow.isClosed() ) {
+            if ( result.ok ) keepCurrentSession();
+            return;
+        }
         if ( result.ok ) {
             onVerified(result.data);
             return;
@@ -177,6 +181,11 @@ export function pushTwoFactorScreen (flow, token, { onBack } = {}) {
             setAuthStatus($screen, i18n('verifying', [], false), { kind: 'info' });
             const result = await verifySecondFactor('otp', token, value);
             verifying = false;
+            // Dismissed while the code was out: stay signed in as before.
+            if ( flow.isClosed() ) {
+                if ( result.ok ) keepCurrentSession();
+                return;
+            }
             if ( result.ok ) {
                 verified(result.data);
                 return;

@@ -24,6 +24,7 @@ import { bindPasswordReveal, formFieldHtml } from '../Dashboard/UIDashboardFormD
 import openAuthFlow, {
     authHeadHtml,
     joinAuthFlow,
+    keepCurrentSession,
     navigateAfterSignIn,
     setAuthStatus,
     setFormBusy,
@@ -226,7 +227,10 @@ export function pushLoginScreen (flow, options = {}) {
         }
         // Dismissed while the request was out: the caller already heard no,
         // so this browser stays signed in as it was.
-        if ( flow.isClosed() ) return;
+        if ( flow.isClosed() ) {
+            if ( data?.token ) keepCurrentSession();
+            return;
+        }
 
         if ( data?.next_step === 'otp' ) {
             // The second factor is a screen of its own; Back returns here.
