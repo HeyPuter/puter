@@ -6,9 +6,14 @@ as the dashboard's Apps tab, without the desktop or dashboard navigation.
 It supports search, paging, saved folders, and saved ordering. It uses the same
 installed-app and recommendation data as the dashboard, including the user's
 removed recommendations. Editing, adding, reordering, renaming, and uninstalling
-are disabled. Selecting an app opens a new browser tab with no opener; the host
-page stays open. Normal apps use `/app/<name>` on the GUI origin, and website
-shortcuts use their external destination.
+are disabled. Selecting an app opens it in a new browser tab at its own URL, the
+same way the dashboard does, and the host page stays open. The app's token isn't
+put in the URL: the app's SDK asks the embed for it once the tab loads, so the
+embed must still be open then. If the iframe is removed first, the app falls back
+to its normal sign-in. Apps that need the desktop (built-in and godmode apps,
+private apps the user can't open, or a failed token request) open `/app/<name>`
+on the GUI origin, cut off from the embed. Website shortcuts open their external
+destination with no opener.
 
 ## Session and framing
 
@@ -83,7 +88,9 @@ frame labels using the host app's localization system.
 
 `createAppBrowser` in `src/gui/src/UI/Dashboard/AppBrowser.js` owns the shared UI
 and data behavior. `TabApps.js` injects desktop actions. `appsEmbed.js` supplies
-new-tab launching and loads only the embed entry, its SDK, and shared styles.
+new-tab launching through `launchAppInTab` in `src/gui/src/helpers/appTabLaunch.js`,
+which builds the same app URL as `launch_app`, and loads only the embed entry, its
+SDK, and shared styles.
 The normal GUI webpack build emits `bundle.min.js` and `apps-embed.min.js`.
 No puter.js API or app-list endpoint changes are needed.
 

@@ -29,9 +29,8 @@ import { mintGodmodeToken, reusableGodmodeToken, trackGodmodeToken } from './god
 import { withoutNotificationClick } from './notificationTap.js';
 import { syncBrowserPush } from './pushSync.js';
 import { offerAppTabLaunch } from './appTabLaunch.js';
-
-// This can be any trusted URL that won't be used for other apps
-const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
+import { BUILTIN_PREFIX, appLaunchUrl, appendLaunchContext } from './appLaunchUrl.js';
+import { fetchUserAppTokenForLaunch, reportAppOpen } from './appLaunchApi.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -81,69 +80,7 @@ const record_app_open = (app_info) => {
     window.launch_apps.recent = [...new Map(window.launch_apps.recent.map(v => [v.name, v])).values()];
     window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);
 
-    $.ajax({
-        url: `${window.api_origin }/rao`,
-        type: 'POST',
-        data: JSON.stringify({
-            original_client_socket_id: window.socket?.id,
-            app_uid: app_info.uid ?? app_info.uuid,
-        }),
-        async: true,
-        contentType: 'application/json',
-        headers: {
-            'Authorization': `Bearer ${window.auth_token}`,
-        },
-    });
-};
-
-const fetchUserAppTokenForLaunch = async ({ appUid } = {}) => {
-    if ( ! appUid ) {
-        return {
-            token: null,
-            reason: 'missing-app-uid',
-        };
-    }
-
-    try {
-        const response = await fetch(`${window.api_origin }/auth/get-user-app-token`, {
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${ window.auth_token}`,
-            },
-            body: JSON.stringify({ app_uid: appUid }),
-            method: 'POST',
-        });
-
-        let responseBody;
-        try {
-            responseBody = await response.json();
-        } catch ( error ) {
-            responseBody = null;
-        }
-
-        if ( response.ok && responseBody?.token ) {
-            return {
-                token: responseBody.token,
-            };
-        }
-
-        return {
-            token: null,
-            reason: 'token-request-failed',
-            status: response.status,
-            responseCode: responseBody?.code ?? responseBody?.error?.code,
-            responseMessage: responseBody?.message ?? responseBody?.error?.message,
-            responseBody,
-            attempts: 1,
-        };
-    } catch ( error ) {
-        return {
-            token: null,
-            reason: 'network-error',
-            error,
-            attempts: 1,
-        };
-    }
+    reportAppOpen({ appUid: app_info.uid ?? app_info.uuid, socketId: window.socket?.id });
 };
 
 /** The `puter.item.*` params held back from a tab's URL, or null when none. */
@@ -499,23 +436,13 @@ const runLaunch = async (options) => {
         //-----------------------------------
         // iframe_url
         //-----------------------------------
-        let iframe_url;
-
-        if ( ! app_info.index_url ) {
-            iframe_url = new URL(`https://${options.name}.${ window.app_domain }/index.html`);
-        } else if ( app_info.index_url.startsWith(BUILTIN_PREFIX) ) {
-            const name = app_info.index_url.slice(BUILTIN_PREFIX.length);
-            iframe_url = new URL(`${window.gui_origin}/builtin/${name}`);
-        } else {
-            iframe_url = new URL(app_info.index_url);
-        }
-
-        // add app_instance_id to URL
-        iframe_url.searchParams.append('puter.app_instance_id', uuid);
-
-        // add app_id to URL
-        iframe_url.searchParams.append('puter.app.id', app_info.uuid);
-        iframe_url.searchParams.append('puter.app.name', app_info.name);
+        const iframe_url = appLaunchUrl({
+            app: app_info,
+            name: options.name,
+            appInstanceID: uuid,
+            guiOrigin: window.gui_origin,
+            appDomain: window.app_domain,
+        });
 
         // add parent_app_instance_id to URL
         if ( options.parent_instance_id ) {
@@ -619,43 +546,14 @@ const runLaunch = async (options) => {
             return { launchResult: tokenFailureLaunchResult };
         }
 
-        iframe_url.searchParams.append('puter.domain', window.app_domain);
-
-        // get URL parts
-        const url = new URL(window.location.href);
-
-        iframe_url.searchParams.append('puter.origin', url.origin);
-        iframe_url.searchParams.append('puter.hostname', url.hostname);
-        iframe_url.searchParams.append('puter.port', url.port);
-        iframe_url.searchParams.append('puter.protocol', url.protocol.slice(0, -1));
-
-        if ( window.api_origin )
-        {
-            iframe_url.searchParams.append('puter.api_origin', window.api_origin);
-        }
-
-        // Add options.params to URL
-        if ( options.params ) {
-            for ( const property in options.params ) {
-                iframe_url.searchParams.append(property, options.params[property]);
-            }
-        }
-
-        // Add locale to URL
-        iframe_url.searchParams.append('puter.locale', window.locale);
-
-        // Newer IPC dialogs this GUI can answer, comma-separated. The SDK
-        // consults this before posting a message an older GUI has no handler
-        // for: such a message is never replied to, and a reply timeout can't
-        // stand in for the check because legitimate replies only arrive when
-        // the user closes the dialog.
-        iframe_url.searchParams.append('puter.gui_features', 'feedback-dialog,enable-push,custom-domains,push-status,disable-push');
-
-        // Add options.args to URL
-        iframe_url.searchParams.append('puter.args', JSON.stringify(withoutNotificationClick(options.args) ?? {}));
-
-        // ...and finally append utm_source=puter.com to the URL
-        iframe_url.searchParams.append('utm_source', 'puter.com');
+        appendLaunchContext(iframe_url, {
+            appDomain: window.app_domain,
+            pageUrl: window.location.href,
+            apiOrigin: window.api_origin,
+            params: options.params,
+            locale: window.locale,
+            args: withoutNotificationClick(options.args),
+        });
 
         // Closed by the user while the launch was on its way: they called it off.
         if ( newTab?.closed ) {

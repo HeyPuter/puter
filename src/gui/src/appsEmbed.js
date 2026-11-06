@@ -23,6 +23,7 @@ import { loadLocale } from './i18n/embedI18n.js';
 import { createAppBrowser } from './UI/Dashboard/AppBrowser.js';
 import { appTileLink } from './UI/Dashboard/appLink.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
+import { launchAppInTab } from './helpers/appTabLaunch.js';
 
 window.$ = window.jQuery = jQuery;
 window.html_encode = value => encode(String(value ?? ''), { mode: 'nonAsciiPrintable' });
@@ -44,6 +45,45 @@ try {
     window.locale = JSON.parse(localStorage.getItem('user_preferences') || '{}')?.language || 'en';
 } catch { /* Corrupt preferences must not prevent loading apps. */ }
 const localeReady = loadLocale(window.locale);
+// Apps whose launch is still fetching; a second click would open a second tab.
+const launching = new Set();
+
+/**
+ * Opens a tile's app in a new tab at its own URL, as the dashboard does.
+ * Website shortcuts, and apps that need the desktop, open their tile link.
+ */
+function launchTile ({ appName, targetLink }) {
+    const href = appTileLink({ appName, targetLink }, window.location.origin);
+    if ( targetLink || !appName ) {
+        if ( href ) window.open(href, '_blank', 'noopener,noreferrer');
+        return;
+    }
+    if ( launching.has(appName) ) return;
+    // Opened inside the click so popup blockers allow it, and without
+    // 'noopener' so the app's SDK can ask this page for its token.
+    const tab = window.open('', '_blank');
+    if ( ! tab ) return;
+    launching.add(appName);
+    launchAppInTab({
+        name: appName,
+        tab,
+        guiOrigin: window.location.origin,
+        apiOrigin: config.apiOrigin,
+        authToken: window.auth_token,
+        locale: window.locale,
+    })
+        .catch((err) => {
+            console.error(`Failed to launch ${appName}:`, err);
+            return false;
+        })
+        .then((opened) => {
+            if ( opened || tab.closed ) return;
+            // The desktop's /app/<name> landing handles access and errors.
+            tab.opener = null;
+            tab.location.href = href;
+        })
+        .finally(() => launching.delete(appName));
+}
 
 async function mount () {
     window.auth_token = localStorage.getItem('auth_token_v2');
@@ -61,10 +101,7 @@ async function mount () {
 
     const browser = createAppBrowser({
         editable: false,
-        onLaunch: app => {
-            const href = appTileLink(app, window.location.origin);
-            if ( href ) window.open(href, '_blank', 'noopener,noreferrer');
-        },
+        onLaunch: launchTile,
     });
     const $root = $(root);
     $root.html(`<section class="dashboard-section dashboard-section-apps active">${browser.html()}</section>`);
