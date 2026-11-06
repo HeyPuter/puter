@@ -11059,6 +11059,16 @@ body.dashboard-mode .notifications-close-all {
 
 .auth-dialog .signup-bonus-notice {
     margin: 0 0 16px;
+    border: 1px solid var(--dashboard-success-border);
+    border-radius: 8px;
+    background: var(--dashboard-success-background);
+    color: var(--dashboard-success-text);
+}
+
+.auth-dialog .signup-bonus-notice-invalid {
+    border-color: var(--dashboard-danger-border);
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
 }
 
 .auth-dialog .signup-oidc-only-notice {
