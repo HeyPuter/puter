@@ -279,6 +279,8 @@ const runLaunch = async (options) => {
             return fallbackLaunchOutcome ?? { launchResult: redirectedLaunchResult };
         }
 
+        // The alert shows on this page, which a blank tab in front would hide.
+        newTab?.close();
         // Unencoded: UIAlert encodes its message itself.
         const deniedAppTitle = app_info.title ?? app_info.name ?? options.name;
         await UIAlert(deniedAppTitle
@@ -595,6 +597,8 @@ const runLaunch = async (options) => {
                 tokenResult,
             });
 
+            // The alert shows on this page, which a blank tab in front would hide.
+            newTab?.close();
             const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name;
             await UIAlert(tokenErrorAppTitle
                 ? i18n('app_launch_failed_retry', { app: tokenErrorAppTitle }, false)

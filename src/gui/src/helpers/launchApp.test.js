@@ -28,6 +28,7 @@ vi.mock('./appTabLaunch.js', () => ({ offerAppTabLaunch: vi.fn() }));
 globalThis.def = globalThis.def ?? (value => value);
 
 const { default: UIWindow } = await import('../UI/UIWindow.js');
+const { default: UIAlert } = await import('../UI/UIAlert.js');
 const { offerAppTabLaunch } = await import('./appTabLaunch.js');
 const { default: launch_app } = await import('./launchApp.js');
 
@@ -142,8 +143,32 @@ describe('launch_app with a new tab', () => {
 
         expect(outcome.launchResult.launched).toBe(false);
         expect(tab.location.href).toBe('');
-        expect(tab.close).toHaveBeenCalledOnce();
+        expect(tab.close).toHaveBeenCalled();
         expect(offerAppTabLaunch).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['the app token is unavailable', { ...app }, () => {
+            fetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+        }],
+        ['access to a private app is denied', {
+            ...app,
+            privateAccess: { hasAccess: false },
+        }, () => {}],
+    ])('closes the tab before alerting that %s', async (_label, app_obj, arrange) => {
+        arrange();
+        const tab = { location: { href: '' }, close: vi.fn() };
+        let tabClosedAtAlert;
+        UIAlert.mockImplementation(async () => {
+            tabClosedAtAlert = tab.close.mock.calls.length > 0;
+        });
+        const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const outcome = await launch_app({ name: 'notes', app_obj, newTab: tab });
+        log.mockRestore();
+
+        expect(outcome.launchResult.launched).toBe(false);
+        expect(UIAlert).toHaveBeenCalledOnce();
+        expect(tabClosedAtAlert).toBe(true);
     });
 
     it('closes the tab and opens a built-in app in-page', async () => {
