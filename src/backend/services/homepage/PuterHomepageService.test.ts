@@ -63,19 +63,11 @@ describe('app browser embed shell', () => {
         const html = service.renderAppBrowserEmbed();
         const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
         expect(JSON.parse(configJson)).toEqual({
-            apiOrigin: 'https://api.deployment.test', domain: 'deployment.test', sdkUrl,
+            apiOrigin: 'https://api.deployment.test', sdkUrl,
         });
         expect(html).toContain('/dist/apps-embed.min.js');
         expect(html).not.toContain('/dist/bundle.min.js');
         expect(html).not.toContain('gui(');
-    });
-
-    it('renders the toolbar entry without the desktop shell', () => {
-        const html = makeService({ domain: 'deployment.test' }).renderAppBrowserEmbed('toolbar');
-        expect(html).toContain('id="puter-toolbar"');
-        expect(html).toContain('/css/toolbar-embed.css');
-        expect(html).toContain('/dist/toolbar-embed.min.js');
-        expect(html).not.toContain('/dist/bundle.min.js');
     });
 
     it('escapes configured values without breaking its JSON bootstrap', () => {

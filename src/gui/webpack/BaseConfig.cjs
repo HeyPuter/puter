@@ -93,8 +93,6 @@ module.exports = async (options = {}) => {
             ...entries,
         ],
         'apps-embed': './src/appsEmbed.js',
-        'toolbar-embed': './src/toolbarEmbed.js',
-        'toolbar-host': './src/toolbarHost.js',
     };
     config.output = {
         path: path.resolve(__dirname, '../dist'),

@@ -58,11 +58,9 @@ export function appMetaDescription(text: string): string {
 }
 
 /**
- * `frame-ancestors` for the embed routes. A wildcard over `*.<domain>` would
- * also admit user-hosted sites whenever the hosting domains sit under it, so
- * the embedding page is named exactly, from the request's referrer. A nested
- * embed (the toolbar's app browser) has the GUI as its parent; the GUI frame
- * above it was already held to that page's own exact-origin policy.
+ * `frame-ancestors` for the app browser embed. A wildcard over `*.<domain>`
+ * would also admit user-hosted sites whenever the hosting domains sit under
+ * it, so the embedding page is named exactly, from the request's referrer.
  */
 export function embedFrameAncestors(
     config: Pick<
@@ -82,10 +80,6 @@ export function embedFrameAncestors(
         parent = new URL(referer ?? '');
     } catch {
         return "'self'";
-    }
-    if (parent.origin === gui.origin) {
-        const port = gui.port ? `:${gui.port}` : '';
-        return `'self' ${gui.protocol}//*.${config.domain}${port}`;
     }
     const host = parent.hostname.toLowerCase();
     const hostingDomains = [
@@ -153,22 +147,20 @@ export class HomepageController extends PuterController {
 
         router.get('/', {}, (req, res) => sendShell(req, res));
 
-        for (const embed of ['apps', 'toolbar'] as const) {
-            router.get(`/embed/${embed}`, {}, (req, res) => {
-                // SDK bootstrap parameters must not change this page's account or API origin.
-                if (Object.keys(req.query).length) {
-                    res.redirect(`/embed/${embed}`);
-                    return;
-                }
-                res.removeHeader('X-Frame-Options');
-                res.setHeader(
-                    'Content-Security-Policy',
-                    `frame-ancestors ${embedFrameAncestors(this.config, req.get('referer'))}`,
-                );
-                res.setHeader('Cache-Control', 'no-store');
-                res.send(homepage.renderAppBrowserEmbed(embed));
-            });
-        }
+        router.get('/embed/apps', {}, (req, res) => {
+            // SDK bootstrap parameters must not change this page's account or API origin.
+            if (Object.keys(req.query).length) {
+                res.redirect('/embed/apps');
+                return;
+            }
+            res.removeHeader('X-Frame-Options');
+            res.setHeader(
+                'Content-Security-Policy',
+                `frame-ancestors ${embedFrameAncestors(this.config, req.get('referer'))}`,
+            );
+            res.setHeader('Cache-Control', 'no-store');
+            res.send(homepage.renderAppBrowserEmbed());
+        });
 
         router.get('/settings', {}, (req, res) => sendShell(req, res));
         router.get('/settings/*splat', {}, (req, res) => sendShell(req, res));

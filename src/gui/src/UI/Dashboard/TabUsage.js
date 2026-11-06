@@ -21,7 +21,6 @@ import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './cr
 import { isOrgSeat } from './orgSeat.js';
 import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
-import { openRequestedUpgrade } from '../../helpers/upgradeLink.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
 // render credits or fall back to dollars.
@@ -193,7 +192,6 @@ function setupPlanButton ($el_window, retryDelay = 250) {
         }
         return;
     }
-    openRequestedUpgrade();
     const hasSubscription = window.user?.subscription?.active;
     $planBtn
         .text(i18n(hasSubscription ? 'manage_plan' : 'billing.upgrade', [], false))

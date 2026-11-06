@@ -167,10 +167,9 @@ export class PuterHomepageService extends PuterService {
         this.#guiParams[key] = val;
     }
 
-    renderAppBrowserEmbed(mode: 'apps' | 'toolbar' = 'apps'): string {
+    renderAppBrowserEmbed(): string {
         const configJson = JSON.stringify({
             apiOrigin: this.config.api_base_url,
-            domain: this.config.domain,
             sdkUrl:
                 this.config.env === 'dev'
                     ? '/sdk/puter.dev.js'
@@ -187,12 +186,12 @@ export class PuterHomepageService extends PuterService {
     <title>${encode(String(this.config.gui_params?.title ?? 'Puter'))}</title>
     <link rel="stylesheet" href="/css/normalize.css">
     <link rel="stylesheet" href="/css/dashboard.css">
-    <link rel="stylesheet" href="/css/${mode}-embed.css">
+    <link rel="stylesheet" href="/css/apps-embed.css">
 </head>
 <body>
-    <main id="${mode === 'apps' ? 'app-browser' : 'puter-toolbar'}" class="dashboard"></main>
+    <main id="app-browser" class="dashboard"></main>
     <script type="application/json" id="app-browser-config">${configJson}</script>
-    <script defer src="/dist/${mode}-embed.min.js"></script>
+    <script defer src="/dist/apps-embed.min.js"></script>
 </body>
 </html>`;
     }

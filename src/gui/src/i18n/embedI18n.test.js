@@ -12,7 +12,7 @@ describe('embed translations', () => {
         expect(i18n('close')).toBe('Close');
         await loadLocale('de');
         expect(i18n('close')).toBe('Schließen');
-        expect(i18n('toolbar_apps')).toBe('Your apps');
+        expect(i18n('app_browser_unavailable')).toBe('Apps are unavailable. Please reopen this browser from your app.');
     });
 
     it('keeps English for unknown or unsafe language values', async () => {
