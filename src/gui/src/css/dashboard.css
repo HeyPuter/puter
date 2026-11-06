@@ -11278,6 +11278,11 @@ body.dashboard-mode .notifications-close-all {
 /* Phones (and any popup): a page fills the screen, content centered in it,
    rather than a card on a page. */
 @media (max-width: 600px) {
+    /* A bottom sheet spans the screen, like every other dashboard sheet. */
+    .dashboard-dialog.auth-dialog {
+        width: 100%;
+    }
+
     .dashboard-dialog-overlay.auth-dialog-page {
         align-items: stretch;
         background: var(--dashboard-card-background);
