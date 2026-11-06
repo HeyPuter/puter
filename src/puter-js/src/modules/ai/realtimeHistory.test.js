@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConvoHistory } from './convoHistory.js';
+import { RealtimeHistory } from './realtimeHistory.js';
 
 const user = (id, content) => ({
     type: 'conversation.item.added',
@@ -10,9 +10,9 @@ const texts = (history) =>
         .replay(40, 48 * 1024)
         .entries.map(({ item }) => item.content[0].text);
 
-describe('ConvoHistory', () => {
+describe('RealtimeHistory', () => {
     it('cuts text without word breaks at the played share', () => {
-        const history = new ConvoHistory(() => false);
+        const history = new RealtimeHistory(() => false);
         history.observe({
             type: 'response.output_item.added',
             response_id: 'r',
@@ -40,7 +40,7 @@ describe('ConvoHistory', () => {
     });
 
     it('keeps a known transcript when a later copy of the item lacks it', () => {
-        const history = new ConvoHistory(() => false);
+        const history = new RealtimeHistory(() => false);
         history.observe(user('u', [{ type: 'input_audio', transcript: null }]));
         expect(texts(history)).toEqual([]);
         history.observe({
@@ -57,7 +57,7 @@ describe('ConvoHistory', () => {
     });
 
     it('keeps a bounded number of the newest items', () => {
-        const history = new ConvoHistory(() => false);
+        const history = new RealtimeHistory(() => false);
         for (let i = 0; i < 100; i++)
             history.observe(
                 user(`u${i}`, [{ type: 'input_text', text: `${i}` }]),
@@ -67,7 +67,7 @@ describe('ConvoHistory', () => {
     });
 
     it('stops at the first item over the byte budget instead of leaving a gap', () => {
-        const history = new ConvoHistory(() => false);
+        const history = new RealtimeHistory(() => false);
         history.observe(user('u1', [{ type: 'input_text', text: 'old' }]));
         history.observe(
             user('u2', [{ type: 'input_text', text: 'x'.repeat(50_000) }]),
@@ -79,7 +79,7 @@ describe('ConvoHistory', () => {
     it.each(['x'.repeat(49 * 1024), '😀'.repeat(13 * 1024)])(
         'reports an oversized newest item without truncating it',
         (text) => {
-            const history = new ConvoHistory(() => false);
+            const history = new RealtimeHistory(() => false);
             history.observe(
                 user('old', [{ type: 'input_text', text: 'tiny' }]),
             );
@@ -96,7 +96,7 @@ describe('ConvoHistory', () => {
     );
 
     it('waits on every unanswered call since the last user message', () => {
-        const history = new ConvoHistory(() => false);
+        const history = new RealtimeHistory(() => false);
         const call = (id, status = 'completed') =>
             history.observe({
                 type: 'response.output_item.done',
@@ -133,7 +133,7 @@ describe('ConvoHistory', () => {
     });
 
     it('reports the new session copies of replayed items until they are done', () => {
-        const history = new ConvoHistory(() => false);
+        const history = new RealtimeHistory(() => false);
         history.observe(user('old', [{ type: 'input_text', text: 'hi' }]));
         history.replayed(history.replay(40, 48 * 1024).entries);
         const copy = user('new', [{ type: 'input_text', text: 'hi' }]);

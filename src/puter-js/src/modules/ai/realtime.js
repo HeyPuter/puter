@@ -4,17 +4,17 @@ import {
     CLOSE_MESSAGE_TOO_LARGE,
     RealtimeSession,
     createRealtimeSocket,
-} from './convoTransport.js';
+} from './realtimeTransport.js';
 import { RealtimeEvents } from './realtimeEvents.js';
-import { ConvoMicrophone, ConvoSpeaker } from './convoMedia.js';
-import { ConvoHistory } from './convoHistory.js';
+import { RealtimeMicrophone, RealtimeSpeaker } from './realtimeMedia.js';
+import { RealtimeHistory } from './realtimeHistory.js';
 
-/** @typedef {import('./types.js').ConvoOptions} ConvoOptions */
-/** @typedef {import('./types.js').ConvoSessionOptions} ConvoSessionOptions */
-/** @typedef {import('./types.js').ConvoPlaybackPosition} ConvoPlaybackPosition */
+/** @typedef {import('./types.js').RealtimeOptions} RealtimeOptions */
+/** @typedef {import('./types.js').RealtimeSessionOptions} RealtimeSessionOptions */
+/** @typedef {import('./types.js').RealtimePlaybackPosition} RealtimePlaybackPosition */
 /** @typedef {import('./types.js').RealtimeServerEvent} RealtimeServerEvent */
 /** @typedef {import('./types.js').RealtimeClientEvent} RealtimeClientEvent */
-/** @typedef {{ code: string; message: string }} ConvoError */
+/** @typedef {{ code: string; message: string }} RealtimeError */
 /**
  * A pending reconnect notice. A replacement session opens right away and takes
  * over once the conversation is idle.
@@ -29,7 +29,7 @@ import { ConvoHistory } from './convoHistory.js';
  *     probe: RealtimeSession | null;
  *     created: RealtimeServerEvent | null;
  *     stopProbe: (() => void) | null;
- * }} ConvoHandover
+ * }} RealtimeHandover
  * @internal
  */
 
@@ -106,7 +106,7 @@ const encoder = new TextEncoder();
 /**
  * @param {string} code
  * @param {string} message
- * @returns {ConvoError}
+ * @returns {RealtimeError}
  */
 const failure = (code, message) => ({ code, message });
 
@@ -138,7 +138,7 @@ function mergeSession(base, patch) {
 }
 
 /**
- * @param {ConvoOptions} options
+ * @param {RealtimeOptions} options
  * @param {boolean} [allowModel]
  * @returns {void}
  */
@@ -261,12 +261,12 @@ function encodeEvent(event) {
 /**
  * A prepared realtime conversation with optional media helpers.
  *
- * @extends {RealtimeEvents<import('./types.js').ConvoEventMap>}
+ * @extends {RealtimeEvents<import('./types.js').RealtimeEventMap>}
  */
 export class Conversation extends RealtimeEvents {
     /** @type {import('../../index.js').Puter} */
     #puter;
-    /** @type {ConvoOptions} */
+    /** @type {RealtimeOptions} */
     #options;
     /** @type {'prepared' | 'connecting' | 'connected' | 'closed'} */
     #state = 'prepared';
@@ -285,7 +285,7 @@ export class Conversation extends RealtimeEvents {
      *     type: string;
      *     matches: (event: RealtimeServerEvent) => boolean;
      *     resolve: (event: RealtimeServerEvent) => void;
-     *     reject: (error: ConvoError) => void;
+     *     reject: (error: RealtimeError) => void;
      *     timer: ReturnType<typeof setTimeout>;
      *     eventId?: string;
      *     anyError?: boolean;
@@ -313,7 +313,7 @@ export class Conversation extends RealtimeEvents {
     /**
      * @type {{
      *     resolve: () => void;
-     *     reject: (error: ConvoError) => void;
+     *     reject: (error: RealtimeError) => void;
      * }[]}
      */
     #reconnectWaiters = [];
@@ -330,8 +330,8 @@ export class Conversation extends RealtimeEvents {
      */
     #interruption = null;
     #cancelled = new Set();
-    #history = new ConvoHistory((id) => this.#cancelled.has(id));
-    /** @type {ConvoHandover | null} */
+    #history = new RealtimeHistory((id) => this.#cancelled.has(id));
+    /** @type {RealtimeHandover | null} */
     #handover = null;
     // Speech started and its audio isn't committed or cleared yet.
     #speaking = false;
@@ -358,17 +358,17 @@ export class Conversation extends RealtimeEvents {
     /** @type {Set<string>} */
     #committedItems = new Set();
     // Replayed `conversation.item.create` event IDs on the current session.
-    /** @type {Map<string, import('./convoHistory.js').ReplayEntry>} */
+    /** @type {Map<string, import('./realtimeHistory.js').ReplayEntry>} */
     #replayEvents = new Map();
     #replayReported = false;
-    /** @type {ConvoMicrophone} */
+    /** @type {RealtimeMicrophone} */
     microphone;
-    /** @type {ConvoSpeaker} */
+    /** @type {RealtimeSpeaker} */
     speaker;
 
     /**
      * @param {import('../../index.js').Puter} puter
-     * @param {ConvoOptions} options
+     * @param {RealtimeOptions} options
      * @internal
      */
     constructor(puter, options) {
@@ -380,8 +380,8 @@ export class Conversation extends RealtimeEvents {
             model: options.model ?? DEFAULT_MODEL,
         };
         this.#turnDetection = this.#options.turnDetection !== false;
-        this.microphone = new ConvoMicrophone(this);
-        this.speaker = new ConvoSpeaker(this);
+        this.microphone = new RealtimeMicrophone(this);
+        this.speaker = new RealtimeSpeaker(this);
     }
 
     /** @returns {'prepared' | 'connecting' | 'connected' | 'closed'} */
@@ -807,7 +807,7 @@ export class Conversation extends RealtimeEvents {
      * restarting, is retried with backoff while the current session keeps
      * working; any other refusal ends the attempts.
      *
-     * @param {ConvoHandover} handover
+     * @param {RealtimeHandover} handover
      * @returns {Promise<void>}
      */
     async #openReplacement(handover) {
@@ -887,7 +887,7 @@ export class Conversation extends RealtimeEvents {
     }
 
     /**
-     * @param {ConvoHandover} handover
+     * @param {RealtimeHandover} handover
      * @param {string} [code]
      * @returns {void}
      */
@@ -1011,7 +1011,7 @@ export class Conversation extends RealtimeEvents {
     }
 
     /**
-     * @param {ConvoSessionOptions} options
+     * @param {RealtimeSessionOptions} options
      * @returns {Promise<void>}
      */
     async configure(options) {
@@ -1025,7 +1025,7 @@ export class Conversation extends RealtimeEvents {
      * new session needs. A partial update leaves settings made through native
      * events alone.
      *
-     * @param {ConvoSessionOptions} options
+     * @param {RealtimeSessionOptions} options
      * @param {boolean} [full]
      * @param {number} [ackMs]
      * @returns {Promise<void>}
@@ -1168,7 +1168,7 @@ export class Conversation extends RealtimeEvents {
      * Stops local playback immediately and waits for cancellation and
      * truncation.
      *
-     * @param {ConvoPlaybackPosition} [position]
+     * @param {RealtimePlaybackPosition} [position]
      * @returns {Promise<void>}
      */
     interrupt(position) {
@@ -1181,7 +1181,7 @@ export class Conversation extends RealtimeEvents {
     }
 
     /**
-     * @param {ConvoPlaybackPosition | undefined} position
+     * @param {RealtimePlaybackPosition | undefined} position
      * @param {'manual' | 'speech'} source
      * @returns {Promise<void>}
      */
@@ -1323,7 +1323,7 @@ export class Conversation extends RealtimeEvents {
     }
 
     /**
-     * @param {ConvoError} error
+     * @param {RealtimeError} error
      * @returns {void}
      * @internal
      */
@@ -1347,7 +1347,7 @@ export class Conversation extends RealtimeEvents {
             promptIfUpgradeRequired(
                 error,
                 {
-                    method: 'puter.ai.convo',
+                    method: 'puter.ai.realtime',
                     subscriptionMessage:
                         'Realtime conversations require a subscription.',
                 },
@@ -1404,7 +1404,7 @@ export class Conversation extends RealtimeEvents {
             }
         }
         if (event.type === RECONNECT_NOTICE && !this.#handover) {
-            /** @type {ConvoHandover} */
+            /** @type {RealtimeHandover} */
             const handover = {
                 reason:
                     typeof event.reason === 'string' && event.reason
@@ -1707,7 +1707,7 @@ export class Conversation extends RealtimeEvents {
 
     /** @returns {string} */
     #eventId() {
-        return `puter_convo_${++this.#sequence}`;
+        return `puter_realtime_${++this.#sequence}`;
     }
     /**
      * Sends events together or not at all. `limit` caps the socket's send
@@ -1830,7 +1830,7 @@ export class Conversation extends RealtimeEvents {
         return this.#wait(type, matches, event.event_id, false, timeoutMs);
     }
     /**
-     * @param {ConvoError} error
+     * @param {RealtimeError} error
      * @returns {void}
      */
     #rejectPending(error) {
@@ -1847,10 +1847,10 @@ export class Conversation extends RealtimeEvents {
  * connection.
  *
  * @this {import('./index.js').AIModule}
- * @param {ConvoOptions} [options]
+ * @param {RealtimeOptions} [options]
  * @returns {Promise<Conversation>}
  */
-export async function convo(options = {}) {
+export async function realtime(options = {}) {
     validateOptions(options, true);
     const settings = {
         ...options,

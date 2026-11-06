@@ -6,7 +6,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import type { AddressInfo } from 'node:net';
 import { loadNodePuter, closeNodePuter } from '../harness/nodeSdkLoader';
 import type { EnvManifest, PuterSDK } from '../harness/types';
-import type { Conversation } from '../../../types/modules/ai/convo';
+import type { Conversation } from '../../../types/modules/ai/realtime';
 import type { RealtimeServerEvent } from '../../../types/modules/ai/types';
 import {
     setupPuterTestEnv,
@@ -14,7 +14,7 @@ import {
 } from '@heyputer/backend/testUtil.ts';
 import type { IConfig } from '@heyputer/backend/types.ts';
 
-describe('convo built SDK and browser media', () => {
+describe('realtime built SDK and browser media', () => {
     let env: PuterTestEnv;
     let upstream: WebSocketServer;
     let puter: PuterSDK;
@@ -220,7 +220,7 @@ describe('convo built SDK and browser media', () => {
     it('resolves the original built SDK connect after an initial provider restart', async () => {
         upstreamRefusals = 1;
         const before = connections.length;
-        const conversation = await puter.ai.convo({ output: ['text'] });
+        const conversation = await puter.ai.realtime({ output: ['text'] });
         try {
             const ready = conversation.connect();
             expect(conversation.connect()).toBe(ready);
@@ -234,7 +234,7 @@ describe('convo built SDK and browser media', () => {
     });
 
     it('prepares, configures, sends, interrupts and truncates using the built SDK', async () => {
-        const conversation = await puter.ai.convo({
+        const conversation = await puter.ai.realtime({
             output: ['text'],
             turnDetection: false,
         });
@@ -283,13 +283,13 @@ describe('convo built SDK and browser media', () => {
             new URL('../../../dist/puter.js', import.meta.url),
             'utf8',
         );
-        await page.route('**/__convo_test__', (route) =>
+        await page.route('**/__realtime_test__', (route) =>
             route.fulfill({
                 contentType: 'text/html',
                 body: '<!doctype html><title>Conversation media test</title>',
             }),
         );
-        await page.goto(`${env.apiOrigin}/__convo_test__`);
+        await page.goto(`${env.apiOrigin}/__realtime_test__`);
         await page.evaluate(
             ({ origin, apiOrigin }) => {
                 Object.assign(globalThis, {
@@ -315,7 +315,7 @@ describe('convo built SDK and browser media', () => {
             };
             let c;
             try {
-                c = await sdk.ai.convo();
+                c = await sdk.ai.realtime();
             } catch (error) {
                 throw new Error(`prepare: ${JSON.stringify(error)}`);
             }
@@ -432,7 +432,7 @@ describe('convo built SDK and browser media', () => {
             { ...manifest, apiOrigin: proxyOrigin },
             env.users.user.token,
         );
-        const conversation = await dropping.ai.convo({ output: ['text'] });
+        const conversation = await dropping.ai.realtime({ output: ['text'] });
         const log = watch(conversation);
         try {
             await conversation.connect();
@@ -481,7 +481,7 @@ describe('convo built SDK and browser media', () => {
             { ...manifest, apiOrigin: proxyOrigin },
             env.users.user.token,
         );
-        const conversation = await dropping.ai.convo({ output: ['text'] });
+        const conversation = await dropping.ai.realtime({ output: ['text'] });
         const log = watch(conversation);
         const auth = vi.spyOn(env.server.services.auth, 'authenticate');
         const warn = vi.spyOn(console, 'warn');
@@ -524,7 +524,7 @@ describe('convo built SDK and browser media', () => {
             { ...manifest, apiOrigin: proxyOrigin },
             env.users.user.token,
         );
-        const conversation = await dropping.ai.convo({ output: ['text'] });
+        const conversation = await dropping.ai.realtime({ output: ['text'] });
         const log = watch(conversation);
         try {
             await conversation.connect();
@@ -564,7 +564,7 @@ describe('convo built SDK and browser media', () => {
     });
 
     it('moves to a new session when a restart is announced, restoring context', async () => {
-        const conversation = await puter.ai.convo({ output: ['text'] });
+        const conversation = await puter.ai.realtime({ output: ['text'] });
         const log = watch(conversation);
         try {
             await conversation.connect();
@@ -609,7 +609,7 @@ describe('convo built SDK and browser media', () => {
     });
 
     it('closes with invalid_event when Puter refuses a native event', async () => {
-        const conversation = await puter.ai.convo({ output: ['text'] });
+        const conversation = await puter.ai.realtime({ output: ['text'] });
         const log = watch(conversation);
         try {
             await conversation.connect();
@@ -646,13 +646,13 @@ describe('convo built SDK and browser media', () => {
         });
         const page = await browser.newPage();
         try {
-            await page.route('**/__convo_mic_test__', (route) =>
+            await page.route('**/__realtime_mic_test__', (route) =>
                 route.fulfill({
                     contentType: 'text/html',
                     body: '<!doctype html><title>Microphone reconnect test</title>',
                 }),
             );
-            await page.goto(`${env.apiOrigin}/__convo_mic_test__`);
+            await page.goto(`${env.apiOrigin}/__realtime_mic_test__`);
             // Through the proxy, so the test can drop the connection.
             await page.evaluate(
                 ({ origin, apiOrigin }) => {
@@ -695,7 +695,7 @@ describe('convo built SDK and browser media', () => {
                     tracks.push(...stream.getTracks());
                     return stream;
                 };
-                const c = await g.puter.ai.convo({ output: ['text'] });
+                const c = await g.puter.ai.realtime({ output: ['text'] });
                 const events: string[] = [];
                 c.on('*', (event) => events.push(event.type));
                 await c.connect();
@@ -800,7 +800,7 @@ describe('convo built SDK and browser media', () => {
             { ...manifest, apiOrigin: proxyOrigin },
             env.users.user.token,
         );
-        const conversation = await draining.ai.convo({ output: ['text'] });
+        const conversation = await draining.ai.realtime({ output: ['text'] });
         const log = watch(conversation);
         try {
             await conversation.connect();

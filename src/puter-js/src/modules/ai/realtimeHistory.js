@@ -4,7 +4,7 @@
  * An item `conversation.item.create` accepts: a text message, a function call
  * or a function call's output.
  *
- * @typedef {Record<string, unknown> & { type: string }} ConvoReplayItem
+ * @typedef {Record<string, unknown> & { type: string }} RealtimeReplayItem
  */
 
 /**
@@ -29,7 +29,7 @@
  * @property {string} [output]
  */
 
-/** @typedef {{ record: HistoryRecord; item: ConvoReplayItem }} ReplayEntry */
+/** @typedef {{ record: HistoryRecord; item: RealtimeReplayItem }} ReplayEntry */
 
 const ITEM_EVENTS = new Set([
     'conversation.item.added',
@@ -99,7 +99,7 @@ function partText(part) {
  *
  * @internal
  */
-export class ConvoHistory {
+export class RealtimeHistory {
     /** @type {HistoryRecord[]} */
     #records = [];
     /** @type {Map<string, HistoryRecord>} */
@@ -426,7 +426,7 @@ export class ConvoHistory {
      * The `conversation.item.create` item that recreates `record`, or `null`.
      *
      * @param {HistoryRecord} record
-     * @returns {ConvoReplayItem | null}
+     * @returns {RealtimeReplayItem | null}
      */
     #replayItem(record) {
         if (!record.final) return null;

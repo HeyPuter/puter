@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { ConvoMicrophone, ConvoSpeaker } from './convoMedia.js';
+import { RealtimeMicrophone, RealtimeSpeaker } from './realtimeMedia.js';
 
 class FakeContext {
     static instances = [];
@@ -43,7 +43,7 @@ class FakeWorklet {
     connect = vi.fn();
     disconnect = vi.fn();
 }
-const makeConvo = () => ({
+const makeConversation = () => ({
     state: 'connected',
     assertConnected() {
         if (this.state !== 'connected') throw { code: 'session_closed' };
@@ -73,7 +73,7 @@ afterEach(async () => {
 });
 
 it('captures PCM, acknowledges bounded worklet chunks, mutes and releases tracks', async () => {
-    const c = makeConvo();
+    const c = makeConversation();
     const audioTrack = track();
     vi.stubGlobal('navigator', {
         mediaDevices: {
@@ -83,7 +83,7 @@ it('captures PCM, acknowledges bounded worklet chunks, mutes and releases tracks
             })),
         },
     });
-    const mic = new ConvoMicrophone(c);
+    const mic = new RealtimeMicrophone(c);
     helpers.push(mic);
     const pending = mic.start();
     expect(mic.start()).toBe(pending);
@@ -115,7 +115,7 @@ it('releases a stream when permission resolves after stop', async () => {
                 }),
         },
     });
-    const mic = new ConvoMicrophone(makeConvo());
+    const mic = new RealtimeMicrophone(makeConversation());
     helpers.push(mic);
     const pending = mic.start();
     mic.stop();
@@ -134,7 +134,7 @@ it('settles start() when stopped during the permission prompt', async () => {
                 }),
         },
     });
-    const mic = new ConvoMicrophone(makeConvo());
+    const mic = new RealtimeMicrophone(makeConversation());
     helpers.push(mic);
     const pending = mic.start();
     mic.stop();
@@ -154,7 +154,7 @@ it('reports browser playback failures with SDK error codes', async () => {
             }
         },
     );
-    const speaker = new ConvoSpeaker(makeConvo());
+    const speaker = new RealtimeSpeaker(makeConversation());
     helpers.push(speaker);
     await expect(speaker.start()).rejects.toEqual({
         code: 'media_error',
@@ -162,14 +162,14 @@ it('reports browser playback failures with SDK error codes', async () => {
     });
 });
 /** A started microphone over fake browser media. */
-const startedMic = async (c = makeConvo()) => {
+const startedMic = async (c = makeConversation()) => {
     const audioTrack = track();
     const getUserMedia = vi.fn(async () => ({
         getTracks: () => [audioTrack],
         getAudioTracks: () => [audioTrack],
     }));
     vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
-    const mic = new ConvoMicrophone(c);
+    const mic = new RealtimeMicrophone(c);
     helpers.push(mic);
     await mic.start();
     const port = FakeWorklet.instances.at(-1).port;
@@ -269,7 +269,7 @@ it('captures at the device rate', async () => {
         return new FakeContext();
     });
     vi.stubGlobal('AudioContext', ContextSpy);
-    const mic = new ConvoMicrophone(makeConvo());
+    const mic = new RealtimeMicrophone(makeConversation());
     helpers.push(mic);
     await mic.start();
     expect(ContextSpy).toHaveBeenCalledWith(undefined);
@@ -284,7 +284,7 @@ it('reports a denied permission', async () => {
             },
         },
     });
-    const mic = new ConvoMicrophone(makeConvo());
+    const mic = new RealtimeMicrophone(makeConversation());
     helpers.push(mic);
     await expect(mic.start()).rejects.toMatchObject({
         code: 'permission_denied',
@@ -292,7 +292,7 @@ it('reports a denied permission', async () => {
 });
 it('rejects unsupported capture environments', async () => {
     vi.stubGlobal('navigator', {});
-    const mic = new ConvoMicrophone(makeConvo());
+    const mic = new RealtimeMicrophone(makeConversation());
     helpers.push(mic);
     await expect(mic.start()).rejects.toMatchObject({
         code: 'unsupported_environment',
@@ -310,7 +310,7 @@ it('waits on the permission prompt but times out a stuck audio context', async (
                 }),
         },
     });
-    const mic = new ConvoMicrophone(makeConvo());
+    const mic = new RealtimeMicrophone(makeConversation());
     helpers.push(mic);
     const result = expect(mic.start()).rejects.toMatchObject({
         code: 'media_timeout',
@@ -323,7 +323,7 @@ it('waits on the permission prompt but times out a stuck audio context', async (
     expect(audioTrack.stop).toHaveBeenCalled();
 });
 it('tracks played position and clears playback immediately', async () => {
-    const speaker = new ConvoSpeaker(makeConvo());
+    const speaker = new RealtimeSpeaker(makeConversation());
     helpers.push(speaker);
     await speaker.start();
     speaker.enqueue(new Int16Array(2400), {
@@ -348,8 +348,8 @@ it('tracks played position and clears playback immediately', async () => {
     expect(context.close).toHaveBeenCalled();
 });
 it('bounds scheduled playback without interrupting the reply', async () => {
-    const c = makeConvo();
-    const speaker = new ConvoSpeaker(c);
+    const c = makeConversation();
+    const speaker = new RealtimeSpeaker(c);
     helpers.push(speaker);
     await speaker.start({ bargeIn: false });
     const delta = {
@@ -371,7 +371,7 @@ it('bounds scheduled playback without interrupting the reply', async () => {
     expect(speaker.bargeIn).toBe(false);
 });
 it('subtracts output latency and covers gaps between chunks', async () => {
-    const speaker = new ConvoSpeaker(makeConvo());
+    const speaker = new RealtimeSpeaker(makeConversation());
     helpers.push(speaker);
     await speaker.start();
     const context = FakeContext.instances[0];
@@ -396,8 +396,8 @@ it('subtracts output latency and covers gaps between chunks', async () => {
 });
 
 it('reports playing until the last scheduled chunk ends', async () => {
-    const c = makeConvo();
-    const speaker = new ConvoSpeaker(c);
+    const c = makeConversation();
+    const speaker = new RealtimeSpeaker(c);
     helpers.push(speaker);
     await speaker.start();
     const context = FakeContext.instances[0];
@@ -429,7 +429,7 @@ it('reports playing until the last scheduled chunk ends', async () => {
 });
 
 it('lists every item not fully heard, in play order', async () => {
-    const speaker = new ConvoSpeaker(makeConvo());
+    const speaker = new RealtimeSpeaker(makeConversation());
     helpers.push(speaker);
     await speaker.start();
     const context = FakeContext.instances[0];
@@ -469,7 +469,7 @@ it('a late canceled permission request does not stop a newer capture', async () 
                     : Promise.resolve({ getTracks: () => [newTrack] }),
         },
     });
-    const mic = new ConvoMicrophone(makeConvo());
+    const mic = new RealtimeMicrophone(makeConversation());
     helpers.push(mic);
     const oldStart = mic.start();
     mic.stop();

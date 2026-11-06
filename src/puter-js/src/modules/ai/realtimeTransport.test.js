@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RealtimeSession } from './convoTransport.js';
+import { RealtimeSession } from './realtimeTransport.js';
 
 /** Just enough of a WebSocket to drive the session's listeners. */
 const fakeSocket = () => {
