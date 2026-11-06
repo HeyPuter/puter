@@ -367,6 +367,10 @@ describe('PuterServer host header validation', () => {
     it.each([
         ['a user-hosted site', 'http://someone.site.puter.localhost:PORT/'],
         ['a private app host', 'http://someone.app.puter.localhost:PORT/'],
+        ['the API host', 'http://api.puter.localhost:PORT/'],
+        ['the WebDAV host', 'http://dav.puter.localhost:PORT/'],
+        ['a native app host', 'http://editor.puter.localhost:PORT/'],
+        ['a nested subdomain', 'http://a.spreadsheet.puter.localhost:PORT/'],
         ['another site', 'http://evil.test:PORT/'],
         ['another port', 'http://spreadsheet.puter.localhost:1/'],
         ['a suppressed referrer', undefined],
@@ -379,8 +383,12 @@ describe('PuterServer host header validation', () => {
         expect(res.headers['content-security-policy']).toBe("frame-ancestors 'self'");
     });
 
-    it('strips SDK bootstrap query parameters from the embed route', async () => {
-        const res = await request('/embed/apps?puter.app_instance_id=other&puter.api_origin=https://other.test', {
+    it.each([
+        ['plain', ''],
+        // Past the parser's 1000-pair limit, so `req.query` comes back empty.
+        ['padded', '&'.repeat(1000)],
+    ])('strips %s SDK bootstrap query parameters from the embed route', async (_label, padding) => {
+        const res = await request(`/embed/apps?${padding}puter.app_instance_id=other&puter.api_origin=https://other.test`, {
             host: `puter.localhost:${port}`,
         });
         expect(res.status).toBe(302);

@@ -111,6 +111,10 @@ export const subdomainLabelOf = (
     return label && !label.includes('.') ? label : undefined;
 };
 
+/** Whether core itself answers `<name>.<domain>` (`www` redirects to the root). */
+export const isReservedSubdomain = (name: string): boolean =>
+    name === 'www' || RESERVED_SUBDOMAINS.has(name);
+
 /**
  * Record a claim on `<name>.<domain>`. Throws on a malformed or uppercase
  * label, a subdomain core already handles, or a name that is already claimed.
@@ -123,7 +127,7 @@ export const addClaimedSubdomain = (
     if (typeof name !== 'string' || !SUBDOMAIN_LABEL.test(name)) {
         throw new Error(`Invalid subdomain label: ${JSON.stringify(name)}`);
     }
-    if (name === 'www' || RESERVED_SUBDOMAINS.has(name)) {
+    if (isReservedSubdomain(name)) {
         throw new Error(`Subdomain '${name}' is reserved`);
     }
     if (claims.has(name)) {

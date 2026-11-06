@@ -22,6 +22,10 @@ import path from 'node:path';
 import { PuterController } from '../types.js';
 import { toAppShellView } from '../../util/appShellView.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
+import {
+    isReservedSubdomain,
+    subdomainLabelOf,
+} from '../../core/http/middleware/hostRedirects.js';
 import type { IConfig } from '../../types';
 import type {
     PuterHomepageService,
@@ -59,14 +63,17 @@ export function appMetaDescription(text: string): string {
 
 /**
  * `frame-ancestors` for the app browser embed. A wildcard over `*.<domain>`
- * would also admit user-hosted sites whenever the hosting domains sit under
- * it, so the embedding page is named exactly, from the request's referrer.
+ * would also admit user-hosted sites whenever the hosting domains sit under it,
+ * so the embedding page is named exactly, from the request's referrer. Only a
+ * single label under `<domain>` qualifies, and not one this server answers
+ * itself (the API, WebDAV, SDK and native-app hosts).
  */
 export function embedFrameAncestors(
     config: Pick<
         IConfig,
         | 'origin'
         | 'domain'
+        | 'api_base_url'
         | 'static_hosting_domain'
         | 'static_hosting_domain_alt'
         | 'private_app_hosting_domain'
@@ -82,6 +89,7 @@ export function embedFrameAncestors(
         return "'self'";
     }
     const host = parent.hostname.toLowerCase();
+    const label = subdomainLabelOf(host, config.domain);
     const hostingDomains = [
         config.static_hosting_domain,
         config.static_hosting_domain_alt,
@@ -93,7 +101,9 @@ export function embedFrameAncestors(
     const allowed =
         parent.protocol === gui.protocol &&
         parent.port === gui.port &&
-        host.endsWith(`.${config.domain.toLowerCase()}`) &&
+        label !== undefined &&
+        !isReservedSubdomain(label) &&
+        host !== new URL(config.api_base_url).hostname &&
         !hostingDomains.some((d) => host === d || host.endsWith(`.${d}`));
     return allowed ? `'self' ${parent.origin}` : "'self'";
 }
@@ -149,7 +159,8 @@ export class HomepageController extends PuterController {
 
         router.get('/embed/apps', {}, (req, res) => {
             // SDK bootstrap parameters must not change this page's account or API origin.
-            if (Object.keys(req.query).length) {
+            // Checked on the raw URL; `req.query` drops pairs past the parser's limit.
+            if (req.originalUrl.includes('?')) {
                 res.redirect('/embed/apps');
                 return;
             }
