@@ -11237,8 +11237,8 @@ body.dashboard-mode .notifications-close-all {
     font-weight: 600;
 }
 
-.auth-dialog .login-2fa-recovery-input,
-.auth-dialog .login-2fa-recovery-input:focus {
+.auth-dialog .dashboard-dialog-input.login-2fa-recovery-input,
+.auth-dialog .dashboard-dialog-input.login-2fa-recovery-input:focus {
     height: 50px;
     text-align: center;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
