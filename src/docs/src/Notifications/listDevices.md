@@ -4,9 +4,11 @@ description: List the devices registered for the user's push notifications. For 
 platforms: [websites, apps]
 ---
 
+Lists the browsers and devices that receive the user's push notifications, newest first, up to 50.
+
 <div class="info">This is for Puter's own apps. It needs a signed-in Puter session, and it rejects an app's token with <code>forbidden</code>.</div>
 
-Lists the browsers and devices that receive the user's push notifications, newest first, up to 50. It includes the browsers registered for Puter itself and for each app.
+The list includes the browsers registered for Puter itself and for each app.
 
 ## Syntax
 ```js
@@ -30,4 +32,6 @@ A `Promise` that resolves to an array of devices:
 
 The push token itself is never returned.
 
-It rejects with `push_unavailable` if this deployment has no push notification service, as on most self-hosted servers.
+## Errors
+
+The promise rejects with `push_unavailable` if this deployment has no push notification service, as on most self-hosted servers.

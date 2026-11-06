@@ -4,9 +4,11 @@ description: The subject strings Events subscriptions watch, and the events they
 platforms: [websites, apps, nodejs, workers]
 ---
 
+A subject is the string that says what a subscription watches.
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-A subject is the string that says what a subscription watches. [`onLocal()`](/Events/onLocal/) and [`onPersistent()`](/Events/onPersistent/) take the same subjects and deliver the same events.
+[`onLocal()`](/Events/onLocal/) and [`onPersistent()`](/Events/onPersistent/) take the same subjects and deliver the same events.
 
 ## Syntax
 
@@ -149,30 +151,30 @@ The handler is called with `{ event }`. A file change carries:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `id` | String | Unique id for the event. |
-| `subject` | String | The node it happened to, as `fs:<uid>:<op>`. Not the subject you subscribed with. |
-| `op` | String | `add` (a create, or a copy's destination), `write`, `move` (a move or a rename), or `remove`. |
-| `uid` | String | The uid of the node that changed. |
-| `path` | String | The path of the node that changed. In another user's files, it's a [masked path](/FS/listShared/), `/<owner>/<uid>/<name>/…`, where `<uid>` and `<name>` are those of the node the subscription is attached to. |
-| `from` | String | On a `move`, the path the node left, masked the same way. Only present when the subscription was watching that location. |
-| `self` | Boolean | `true` when the account holding the subscription made the change. Mail filed into the account's `~/.mail` folder is always `false`, including mail the account sent to itself. |
-| `viaWorker` | Boolean | `true` when the change came from server-side code running as an account, such as a worker using `me.puter` or an [events handler](/Events/handlers/) running in the events worker. A worker using `user.puter` acts as the user who called it, so its changes are that user's own, with `viaWorker` set to `false`. A handler running in a client writes as that client, also with `viaWorker` set to `false`. To skip your own changes, check `self && !viaWorker`, which still lets through the ones a worker made as your account. |
-| `ts` | Number | When it happened, in milliseconds since the epoch. |
-| `seq` | Number | Position within one dispatch, when a change goes to several subscriptions. |
+| `id` | `String` | Unique id for the event. |
+| `subject` | `String` | The node it happened to, as `fs:<uid>:<op>`. Not the subject you subscribed with. |
+| `op` | `String` | `add` (a create, or a copy's destination), `write`, `move` (a move or a rename), or `remove`. |
+| `uid` | `String` | The uid of the node that changed. |
+| `path` | `String` | The path of the node that changed. In another user's files, it's a [masked path](/FS/listShared/), `/<owner>/<uid>/<name>/…`, where `<uid>` and `<name>` are those of the node the subscription is attached to. |
+| `from` | `String` | On a `move`, the path the node left, masked the same way. Only present when the subscription was watching that location. |
+| `self` | `Boolean` | `true` when the account holding the subscription made the change. Mail filed into the account's `~/.mail` folder is always `false`, including mail the account sent to itself. |
+| `viaWorker` | `Boolean` | `true` when the change came from server-side code running as an account, such as a worker using `me.puter` or an [events handler](/Events/handlers/) running in the events worker. A worker using `user.puter` acts as the user who called it, so its changes are that user's own, with `viaWorker` set to `false`. A handler running in a client writes as that client, also with `viaWorker` set to `false`. To skip your own changes, check `self && !viaWorker`, which still lets through the ones a worker made as your account. |
+| `ts` | `Number` | When it happened, in milliseconds since the epoch. |
+| `seq` | `Number` | Position within one dispatch, when a change goes to several subscriptions. |
 
 A key-value change carries `key` instead of `uid` and `path`, and different ops:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `id` | String | Unique id for the event. |
-| `subject` | String | `kv:<appId>:<key>`, naming the key that changed. Through a share, `kv:<handle>:<key>`. |
-| `op` | String | `set` for a write, `del` for a removal, `expire` when only the key's lifetime changed. |
-| `key` | String | The key that changed. Through a share, relative to the handle. |
-| `value` | Any | The new value, or `null` on a `del`. Only with `includeValue`, and only within the [limits above](#getting-the-new-value). Never on an `expire`. |
-| `self` | Boolean | As above. |
-| `viaWorker` | Boolean | As above. |
-| `ts` | Number | As above. |
-| `seq` | Number | As above. |
+| `id` | `String` | Unique id for the event. |
+| `subject` | `String` | `kv:<appId>:<key>`, naming the key that changed. Through a share, `kv:<handle>:<key>`. |
+| `op` | `String` | `set` for a write, `del` for a removal, `expire` when only the key's lifetime changed. |
+| `key` | `String` | The key that changed. Through a share, relative to the handle. |
+| `value` | `Any` | The new value, or `null` on a `del`. Only with `includeValue`, and only within the [limits above](#getting-the-new-value). Never on an `expire`. |
+| `self` | `Boolean` | As above. |
+| `viaWorker` | `Boolean` | As above. |
+| `ts` | `Number` | As above. |
+| `seq` | `Number` | As above. |
 
 A posted notification carries the fields listed on [`fetch()`](/Events/fetch/#return-value). An app message's live dismissal carries `op: 'dismiss'` and its `uid`, with no `notification` content. Dismissals follow the same audience rules. The notification SDK exposes them through [`on('dismiss')`](/Notifications/on/).
 

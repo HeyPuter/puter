@@ -4,7 +4,9 @@ description: Get the value stored in a key from the user's own key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Returns the value stored at a key, or `null` if the key doesn't exist or has expired. Pass an array of keys to read several in one request.
+Returns the value stored at a key, or `null` if the key doesn't exist or has expired.
+
+Pass an array of keys to read several in one request.
 
 ## Syntax
 
@@ -31,8 +33,10 @@ Up to **1,000** keys to read in one request. More than that rejects with `bad_re
 
 The last argument. It takes these properties:
 
-- `handle` (String): Reads data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `read` or `write` access. A key the owner's app keeps private reads as `null`. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Reads another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `handle` | `String` | Reads data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `read` or `write` access. A key the owner's app keeps private reads as `null`. See [Sharing with other users](/KV/#sharing-with-other-users). |
+| `appUuid` | `String` | Reads another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`. |
 
 ## Return value
 
@@ -54,7 +58,7 @@ With `handle`, the promise can reject with these codes:
 
 ## Examples
 
-<strong class="example-title">Retrieve the value of key 'name'</strong>
+### Retrieve the value of key 'name'
 
 ```html;kv-get
 <html>
@@ -75,7 +79,7 @@ With `handle`, the promise can reject with these codes:
 </html>
 ```
 
-<strong class="example-title">Read several keys in one request</strong>
+### Read several keys in one request
 
 ```html
 <html>

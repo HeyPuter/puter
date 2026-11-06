@@ -200,6 +200,7 @@ These apply to reference pages and recipes alike.
 - **Describe behavior directly.** No quoted inner-voice phrases. Write "`isNew` is `true` when the person did not have access before", not "this tells 'I just gave this to someone' from 'they already had it'".
 - **Keep references easy to follow.** Name what a list or code block belongs to in the sentence directly above it. Name a thing once and keep that name. Introduce an actor as "a user" before giving them a role: "A user can create a team. The user who creates the team becomes its owner."
 - **Sentence mechanics.** Never start a sentence with inline code: write "To store data, use the [`set()`](/KV/set/) method." Link every inline mention of an API to its page, every time. No em dashes, and no colons or semicolons mid-sentence; a colon that introduces a code block is fine.
+- **No `##` or `###` headings inside tabs.** The table of contents lists every `##` and `###` heading on the page, including the ones in a hidden tab (an `example-content` block switched by the `example-group` pills), so its links lead to content the reader can't see. Put the heading above the tabs, or use `####` inside a tab, which the table of contents skips.
 - **Show the correct way.** No "don't" and no wrong-way-first examples, in recipes and playground examples alike. Mention a wrong approach only when developers already hit it in practice, and state how it fails as a fact: "`add()` reads a plain object as a path map, so the call rejects with …".
 
 ### Recipes

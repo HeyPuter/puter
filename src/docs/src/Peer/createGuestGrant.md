@@ -5,9 +5,11 @@ platforms: [websites, apps]
 ---
 
 
-Creates a **guest grant**: a short-lived token that lets people without a Puter session use the Puter-managed TURN relays. Hand it to the people you invite alongside the invite code, and they pass it to [`puter.peer.connect()`](/Peer/connect/) as `turnGrant`.
+Creates a **guest grant**, a short-lived token that lets people without a Puter session use the Puter-managed TURN relays.
 
-Without a grant, a guest can still join a session — but only over direct connections. Relay credentials are what make a connection work when one side is behind a NAT or firewall that blocks direct traffic, and minting them requires an account. The grant is how your account vouches for the guest.
+Hand it to the people you invite alongside the invite code, and they pass it to [`puter.peer.connect()`](/Peer/connect/) as `turnGrant`.
+
+Without a grant, a guest can still join a session, but only over direct connections. Relay credentials are what make a connection work when one side is behind a NAT or firewall that blocks direct traffic, and minting them requires an account. The grant is how your account vouches for the guest.
 
 <div class="info">
 
@@ -32,9 +34,13 @@ A `Promise` that resolves to an object with:
 - `grant` (`String`) The grant to give your guests.
 - `expiresAt` (`Number`) When the grant stops being accepted, in seconds since the epoch. Past this point, redeeming it fails with `peer_grant_expired` and you issue a new one.
 
-Rejects if the caller isn't authenticated, or if the deployment doesn't offer guest relay access.
+## Errors
 
-## Example
+The promise rejects if the caller isn't authenticated, or if the deployment doesn't offer guest relay access.
+
+## Examples
+
+### Host a session guests can join
 
 ```html
 <html>

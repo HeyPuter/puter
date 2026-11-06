@@ -22,7 +22,9 @@ None
 
 A `Promise` that resolves with nothing once the user is signed out and, on a website, this browser's push subscription for your app is ended. It doesn't reject.
 
-## Example
+## Examples
+
+### Sign the user out
 
 ```html;auth-sign-out
 <html>

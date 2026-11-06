@@ -4,7 +4,9 @@ description: Create apps in the Puter desktop environment.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Creates a Puter app with the given name. The app will be created in the user's apps, and will be accessible to this app. The app will be created with no permissions, and will not be able to access any data until permissions are granted to it.
+Creates a Puter app with the given name.
+
+The app will be created in the user's apps, and will be accessible to this app. The app will be created with no permissions, and will not be able to access any data until permissions are granted to it.
 
 ## Syntax
 
@@ -39,17 +41,19 @@ The title of the app. If this parameter is not provided, the app will be created
 
 An object containing the options for the app to create. The object can contain the following properties:
 
-- `name` (String) (required): The name of the app to create. App names are unique across all Puter accounts. If any app already has this name, the promise will be rejected.
-- `indexURL` (String) (required): The URL of the app's index page. This URL must be accessible to the user. If this parameter is not provided, the promise will be rejected.
-- `title` (String) (optional): The human-readable title of the app. If this parameter is not provided, the app will be created with `name` as its title.
-- `description` (String) (optional): The description of the app aimed at the end user.
-- `icon` (String) (optional): The new icon of the app.
-- `maximizeOnStart` (Boolean) (optional): Whether the app should be maximized when it is started. Defaults to `false`.
-- `filetypeAssociations` (Array<String>) (optional): An array of strings representing the filetypes that the app can open. Defaults to `[]`. File extentions and MIME types are supported; For example, `[".txt", ".md", "application/pdf"]` would allow the app to open `.txt`, `.md`, and PDF files. At most 200 entries, each at most 60 characters.
-- `dedupeName` (Boolean) (optional) - Whether to deduplicate the app name if it already exists. Defaults to `false`.
-- `background` (Boolean) (optional) - Whether the app should run in the background. Defaults to `false`.
-- `feedbackEnabled` (Boolean) (optional) - Whether users can send feedback to you through [`puter.ui.showFeedbackDialog()`](/UI/showFeedbackDialog/). Defaults to `false`.
-- `metadata` (Object) (optional) - An object containing custom metadata for the app. This can be used to store arbitrary key-value pairs associated with the app. At most 16 KiB when serialized as JSON.
+| Option | Type | Description |
+|--------|------|-------------|
+| `name` | `String` | Required. The name of the app to create. App names are unique across all Puter accounts. If any app already has this name, the promise will be rejected. |
+| `indexURL` | `String` | Required. The URL of the app's index page. This URL must be accessible to the user. If it's missing, the promise will be rejected. |
+| `title` | `String` | The human-readable title of the app. If it's missing, the app will be created with `name` as its title. |
+| `description` | `String` | The description of the app aimed at the end user. |
+| `icon` | `String` | The new icon of the app. |
+| `filetypeAssociations` | `Array<String>` | An array of strings representing the filetypes that the app can open. Defaults to `[]`. File extensions and MIME types are supported. For example, `[".txt", ".md", "application/pdf"]` would allow the app to open `.txt`, `.md`, and PDF files. At most 200 entries, each at most 60 characters. |
+| `maximizeOnStart` | `Boolean` | Whether the app should be maximized when it is started. Defaults to `false`. |
+| `background` | `Boolean` | Whether the app should run in the background. Defaults to `false`. |
+| `feedbackEnabled` | `Boolean` | Whether users can send feedback to you through [`puter.ui.showFeedbackDialog()`](/UI/showFeedbackDialog/). Defaults to `false`. |
+| `metadata` | `Object` | An object containing custom metadata for the app. This can be used to store arbitrary key-value pairs associated with the app. At most 16 KiB when serialized as JSON. |
+| `dedupeName` | `Boolean` | Whether to deduplicate the app name if it already exists. Defaults to `false`. |
 
 ## Return value
 
@@ -57,7 +61,7 @@ A `Promise` that will resolve to the [`CreateAppResult`](/Objects/createappresul
 
 ## Examples
 
-<strong class="example-title">Create an app pointing to example.com</strong>
+### Create an app pointing to example.com
 
 ```html;app-create
 <html>

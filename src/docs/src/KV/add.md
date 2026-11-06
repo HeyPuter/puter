@@ -4,7 +4,9 @@ description: Add values to an existing key or nested path in the user's own key-
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Adds values to the list stored at a key. When you pass an array, its elements are appended to that list. When you pass an object, each of its keys is a path, and its value is added to the list at that path. A missing or expired key starts from an empty list, or for a path map, an object holding an empty list at each path.
+Adds values to the list stored at a key.
+
+When you pass an array, its elements are appended to that list. When you pass an object, each of its keys is a path, and its value is added to the list at that path. A missing or expired key starts from an empty list, or for a path map, an object holding an empty list at each path.
 
 ## Syntax
 
@@ -42,8 +44,10 @@ A plain object is read as a path map, never appended as an element. To append an
 
 The last argument. It takes these properties:
 
-- `handle` (String): Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `handle` | `String` | Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users). |
+| `appUuid` | `String` | Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`. |
 
 Pass `optConfig` after `value`, as in `puter.kv.add('tags', ['new'], { handle })`. An object in the place of `value` is read as a path map.
 
@@ -77,7 +81,7 @@ A rejection carries an `Error` with a stable `code`:
 
 ## Examples
 
-<strong class="example-title">Append to an array stored at a key</strong>
+### Append to an array stored at a key
 
 ```html;kv-add-array
 <html>
@@ -100,7 +104,7 @@ A rejection carries an `Error` with a stable `code`:
 </html>
 ```
 
-<strong class="example-title">Add values to an array inside an object</strong>
+### Add values to an array inside an object
 
 ```html;kv-add
 <html>

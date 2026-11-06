@@ -4,7 +4,9 @@ description: Executes a function when one or more items have been opened.
 platforms: [apps]
 ---
 
-Specify a function to execute when the one or more items have been opened. Items can be opened via a variety of methods such as: drag and dropping onto the app, double-clicking on an item, right-clicking on an item and choosing an app from the 'Open With...' submenu.
+Sets a function to run when one or more items are opened in your app.
+
+Items can be opened in several ways, such as dragging and dropping them onto the app, double-clicking an item, or right-clicking an item and choosing the app from the 'Open With...' submenu.
 
 **Deprecated** This handler also fires when items are dropped onto the app. New code should handle the `drop` event for drag-and-drop instead.
 
@@ -20,6 +22,8 @@ puter.ui.onItemsOpened(handler)
 A function to execute after items are opened by user action.
 
 ## Examples
+
+### Show the items opened in the app
 
 ```html
 <html>

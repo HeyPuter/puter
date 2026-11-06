@@ -46,6 +46,8 @@ if (file === undefined) {
 
 ## Examples
 
+### Save a file to a picked location
+
 ```html
 <html>
 <body>

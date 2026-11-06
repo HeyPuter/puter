@@ -4,9 +4,11 @@ description: Subscribe to changes with a subscription that keeps running when yo
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Creates a subscription that outlives this connection.
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Creates a subscription that outlives this connection. It's stored on the account, keeps matching while your app is closed, and runs a handler in an [events worker](/Events/workers/). The handler is either inline code you pass as `handler`, which is published into the signed-in user's own [user scope](/Events/handlers/#user-scope) of your app, or a handler published under a name with [`puter.events.handlers.publish()`](/Events/handlers/). Each event also reaches every connected client. Compare [`puter.events.onLocal()`](/Events/onLocal/), which ends with the page.
+It's stored on the account, keeps matching while your app is closed, and runs a handler in an [events worker](/Events/workers/). The handler is either inline code you pass as `handler`, which is published into the signed-in user's own [user scope](/Events/handlers/#user-scope) of your app, or a handler published under a name with [`puter.events.handlers.publish()`](/Events/handlers/). Each event also reaches every connected client. Compare [`puter.events.onLocal()`](/Events/onLocal/), which ends with the page.
 
 The subscription is live right away in the region where it was created. Right after this call resolves, changes made in other regions can take a moment longer to reach it, usually well under a second.
 
@@ -23,17 +25,78 @@ puter.events.onPersistent(options)
 
 #### `options` (Object) (required)
 
-- `subject` (String) (required): What to watch, in the same form [`onLocal()`](/Events/onLocal/) takes, such as `fs:~/Documents` or `kv:<handle>:*`.
-- `handlerName` (String): The published handler to run in an [events worker](/Events/workers/). Up to 128 characters. A subscription made outside an app has no events worker, so its handler runs only in connected clients.
-- `handlerScope` (String): Where `handlerName` is looked up, `'app'` or `'user'`. Defaults to `'app'`, the handlers the app's owner published. `'user'` binds to a handler in the signed-in user's own scope, published with `handlers.publish(name, handler, { scope: 'user' })`.
-- `queue` (Boolean): Handles events like a work queue. Each event goes to one consumer at a time, and it's offered again if a run never finishes or hits a temporary error. Requires `handlerName` or an inline `handler`. Defaults to `false`. See [Choosing a mode](#choosing-a-mode).
-- `handler` (Function | String | Object): The handler code, as a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Without `handlerName`, the source is sent and published into the signed-in user's own user scope, and it runs for this user's events only. With `handlerName`, only its hash is sent, and the subscription is created only if it matches what's published under that name. A function also runs in this client for each delivery it receives (see [Where the handler runs](#where-the-handler-runs)).
-- `context` (Object): Values the handler needs, passed to it as a frozen `ctx`. Up to 4 KB serialized. See [Context is captured once](#context-is-captured-once-up-to-4-kb).
-- `expiresAt` (Number | String): When the subscription ends on its own, as unix seconds or an ISO-8601 string. Must be in the future.
-- `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value`. See [Getting the new value](/Events/subjects/#getting-the-new-value) for when it's left out. Other subjects are refused with `invalid_include_value`.
-- `onError` (Function): Called with `{ message, code }` when this client stops running `handler` because its connection can't be restored (`reauth_required` after a sign-out, `events_connection_failed` otherwise). The subscription itself keeps going in the events worker, and this client takes deliveries again once it reconnects. Only used with a function `handler`. Without it, the stop is logged to the console.
-- `delivery` (String): Deprecated. Use `queue` instead. The value `'single'` is the same as `queue: true`, and `'broadcast'` is the default.
-- `targets` (Array): Deprecated and ignored.
+| Option | Type | Description |
+|--------|------|-------------|
+| `subject` | `String` | Required. What to watch, in the same form [`onLocal()`](/Events/onLocal/) takes, such as `fs:~/Documents` or `kv:<handle>:*`. |
+| `handler` | `Function \| String \| Object` | The handler code, as a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Without `handlerName`, the source is sent and published into the signed-in user's own user scope, and it runs for this user's events only. With `handlerName`, only its hash is sent, and the subscription is created only if it matches what's published under that name. A function also runs in this client for each delivery it receives (see [Where the handler runs](#where-the-handler-runs)). |
+| `handlerName` | `String` | The published handler to run in an [events worker](/Events/workers/). Up to 128 characters. A subscription made outside an app has no events worker, so its handler runs only in connected clients. |
+| `context` | `Object` | Values the handler needs, passed to it as a frozen `ctx`. Up to 4 KB serialized. See [Context is captured once](#context-is-captured-once-up-to-4-kb). |
+| `queue` | `Boolean` | Handles events like a work queue. Each event goes to one consumer at a time, and it's offered again if a run never finishes or hits a temporary error. Requires `handlerName` or an inline `handler`. Defaults to `false`. See [Choosing a mode](#choosing-a-mode). |
+| `includeValue` | `Boolean` | For a `kv:` subject, include the key's new value as `event.value`. See [Getting the new value](/Events/subjects/#getting-the-new-value) for when it's left out. Other subjects are refused with `invalid_include_value`. |
+| `expiresAt` | `Number \| String` | When the subscription ends on its own, as unix seconds or an ISO-8601 string. Must be in the future. |
+| `handlerScope` | `String` | Where `handlerName` is looked up, `'app'` or `'user'`. Defaults to `'app'`, the handlers the app's owner published. With `'user'`, it binds to a handler in the signed-in user's own scope, published with `handlers.publish(name, handler, { scope: 'user' })`. |
+| `onError` | `Function` | Called with `{ message, code }` when this client stops running `handler` because its connection can't be restored (`reauth_required` after a sign-out, `events_connection_failed` otherwise). The subscription itself keeps going in the events worker, and this client takes deliveries again once it reconnects. Only used with a function `handler`. Without it, the stop is logged to the console. |
+| `delivery` | `String` | Deprecated. Use `queue` instead. The value `'single'` is the same as `queue: true`, and `'broadcast'` is the default. |
+| `targets` | `Array` | Deprecated and ignored. |
+
+## Return value
+
+A `Promise` that resolves to the subscription:
+
+- `subId` (String): Its id, which [`puter.events.update()`](/Events/update/) and [`puter.events.unsubscribe()`](/Events/unsubscribe/) take. It never changes.
+- `subject` (String): For `kv:` and `notif:`, the subject in full form, so `kv:cart` comes back as `kv:<appId>:cart`. For `fs:`, as you passed it, except a relative path comes back resolved the same way [`onLocal()`](/Events/onLocal/) returns it.
+- `anchor`, `match`, `op`: As [`onLocal()`](/Events/onLocal/#return-value) returns them.
+- `queue` (Boolean), `handlerName` (String | null), `includeValue` (Boolean). An inline handler comes back as its server-assigned `handlerName`, which starts with `@`.
+- `handlerScope` (String): `'user'` when the subscription is bound to a handler in the user's own scope. Absent otherwise.
+- `appUid` (String | null): The app that created it, or `null` if it was created outside an app.
+- `contextKeys` (Array | null), `contextHash` (String | null): The key names and a hash of the stored context, never its values.
+- `createdAt`, `expiresAt` (Number | null): Unix seconds.
+- `suspendedAt` (Number | null), `suspendedReason` (String | null): Set when the subscription is [suspended](#suspended-subscriptions).
+- `off()` (Function): Ends the subscription and stops running its handler here. Same as [`puter.events.unsubscribe(subId)`](/Events/unsubscribe/).
+
+## Errors
+
+The promise rejects with `{ message, code }`:
+
+| `code` | Meaning |
+| --- | --- |
+| `events_handler_conflict` | The inline handler couldn't be confirmed after a concurrent publish. Try again. |
+| `events_handler_hash_mismatch` | The published handler isn't the source passed as `handler`. |
+| `events_handler_not_found` | Nothing is published under `handlerName` in that scope, or source was supplied to check a named handler outside an app. |
+| `events_handler_hash_unavailable` | This environment has no `crypto.subtle`, so `handler` can't be hashed. Pass `handlerName` alone. |
+| `events_handler_invalid` | `handler` isn't a function, a nonempty source string, or `{ file }`. |
+| `invalid_subject` | The subject is empty, not a string, or can't be parsed, or it's a `notif:` subject and this server has notification events turned off. |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
+| `events_user_handlers_disabled` | Publishing into a user scope isn't turned on for this server. |
+| `events_handler_forbidden` | The call can't publish into a user scope: it came from a scoped access token, a temporary account, or on behalf of a different app. |
+| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. Arrives as HTTP 402. |
+| `forbidden` | The user already holds as many [worker units](/rate-limits-and-quotas/#worker-units) as their plan allows, so a new user scope can't be created. |
+| `events_handler_limit` | The user scope already holds the [maximum number of handlers](/rate-limits-and-quotas/#handlers). |
+| `events_handler_too_large` | The handler is over 64 KB. |
+| `events_worker_too_large` | The user scope's handlers would exceed 1 MB combined. |
+| `events_handler_name_invalid` | `handlerName` has characters that aren't allowed, or starts with `@`, which is reserved for inline handlers. |
+| `events_handler_free_variable` | The handler uses an outside variable. The message names it. |
+| `events_handler_invalid` | `handler` isn't a function, a source string, or `{ file }`. |
+| `events_handler_hash_unavailable` | This environment has no `crypto.subtle`, so `handler` can't be hashed. Pass `handlerName` alone. |
+| `events_handler_not_found` | Nothing is published under `handlerName` in that scope of this app. |
+| `events_handler_hash_mismatch` | The published handler isn't the source you passed as `handler`. |
+| `events_handler_required` | `queue: true` without a `handlerName` or an inline `handler`. |
+| `events_background_consent_required` | An app subscribed with a handler, and the user hasn't granted `events:background`. |
+| `events_context_too_large` | The serialized `context` is over 4 KB. |
+| `events_context_invalid` | `context` isn't JSON-serializable. |
+| `bad_request` | `queue` isn't a boolean, `delivery` isn't `'broadcast'` or `'single'`, the two disagree, or `handlerName` isn't a string or is over 128 characters. |
+| `invalid_expires_at` | `expiresAt` isn't a future time. |
+| `invalid_include_value` | `includeValue` isn't a boolean, or the subject isn't `kv:`. |
+| `invalid_subject_op`, `invalid_subject_audience`, `invalid_subject_pattern`, `invalid_kv_pattern`, `invalid_kv_handle_key`, `events_cross_app_disabled`, `events_kv_handles_disabled`, `forbidden` | As on [`onLocal()`](/Events/onLocal/#errors). |
+| `subject_does_not_exist` | The subject doesn't exist, or this account can't read it. |
+| `events_subscription_limit` | The account or app is at its [persistent subscription limit](/rate-limits-and-quotas/#events). |
+| `events_value_too_large` | A field is longer than can be stored, such as an app id over 40 characters. |
+| `events_durable_requires_account` | Temporary (anonymous) accounts only get session subscriptions. Scoped access tokens, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, get no persistent subscriptions either, whether the account or an app created them. |
+| `too_many_requests` | Over the subscribe rate limit. |
+| `events_disabled` | Events aren't enabled on this server. |
+| `events_failed` | The server sent a response the SDK couldn't read. |
+
+With a `{ file }` handler, errors from [`puter.fs.read()`](/FS/read/) also pass through.
 
 ## Background delivery needs consent
 
@@ -163,68 +226,11 @@ Clients connect to the nearest region. Events reach a client wherever it's conne
 - Undelivered events are held in the region where the change happened. If that region goes down, only what it was holding is lost.
 - Order is kept within a region and is best effort across regions. Without `queue`, coalescing (250 ms) also runs per region, so two quick writes can arrive as one event nearby and as two farther away.
 
-## Return value
-
-A `Promise` that resolves to the subscription:
-
-- `subId` (String): Its id, which [`puter.events.update()`](/Events/update/) and [`puter.events.unsubscribe()`](/Events/unsubscribe/) take. It never changes.
-- `subject` (String): For `kv:` and `notif:`, the subject in full form, so `kv:cart` comes back as `kv:<appId>:cart`. For `fs:`, as you passed it, except a relative path comes back resolved the same way [`onLocal()`](/Events/onLocal/) returns it.
-- `anchor`, `match`, `op`: As [`onLocal()`](/Events/onLocal/#return-value) returns them.
-- `queue` (Boolean), `handlerName` (String | null), `includeValue` (Boolean). An inline handler comes back as its server-assigned `handlerName`, which starts with `@`.
-- `handlerScope` (String): `'user'` when the subscription is bound to a handler in the user's own scope. Absent otherwise.
-- `appUid` (String | null): The app that created it, or `null` if it was created outside an app.
-- `contextKeys` (Array | null), `contextHash` (String | null): The key names and a hash of the stored context, never its values.
-- `createdAt`, `expiresAt` (Number | null): Unix seconds.
-- `suspendedAt` (Number | null), `suspendedReason` (String | null): Set when the subscription is [suspended](#suspended-subscriptions).
-- `off()` (Function): Ends the subscription and stops running its handler here. Same as [`puter.events.unsubscribe(subId)`](/Events/unsubscribe/).
-
-The promise rejects with `{ message, code }`:
-
-| `code` | Meaning |
-| --- | --- |
-| `events_handler_conflict` | The inline handler couldn't be confirmed after a concurrent publish. Try again. |
-| `events_handler_hash_mismatch` | The published handler isn't the source passed as `handler`. |
-| `events_handler_not_found` | Nothing is published under `handlerName` in that scope, or source was supplied to check a named handler outside an app. |
-| `events_handler_hash_unavailable` | This environment has no `crypto.subtle`, so `handler` can't be hashed. Pass `handlerName` alone. |
-| `events_handler_invalid` | `handler` isn't a function, a nonempty source string, or `{ file }`. |
-| `invalid_subject` | The subject is empty, not a string, or can't be parsed, or it's a `notif:` subject and this server has notification events turned off. |
-| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
-| `events_user_handlers_disabled` | Publishing into a user scope isn't turned on for this server. |
-| `events_handler_forbidden` | The call can't publish into a user scope: it came from a scoped access token, a temporary account, or on behalf of a different app. |
-| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. Arrives as HTTP 402. |
-| `forbidden` | The user already holds as many [worker units](/rate-limits-and-quotas/#worker-units) as their plan allows, so a new user scope can't be created. |
-| `events_handler_limit` | The user scope already holds the [maximum number of handlers](/rate-limits-and-quotas/#handlers). |
-| `events_handler_too_large` | The handler is over 64 KB. |
-| `events_worker_too_large` | The user scope's handlers would exceed 1 MB combined. |
-| `events_handler_name_invalid` | `handlerName` has characters that aren't allowed, or starts with `@`, which is reserved for inline handlers. |
-| `events_handler_free_variable` | The handler uses an outside variable. The message names it. |
-| `events_handler_invalid` | `handler` isn't a function, a source string, or `{ file }`. |
-| `events_handler_hash_unavailable` | This environment has no `crypto.subtle`, so `handler` can't be hashed. Pass `handlerName` alone. |
-| `events_handler_not_found` | Nothing is published under `handlerName` in that scope of this app. |
-| `events_handler_hash_mismatch` | The published handler isn't the source you passed as `handler`. |
-| `events_handler_required` | `queue: true` without a `handlerName` or an inline `handler`. |
-| `events_background_consent_required` | An app subscribed with a handler, and the user hasn't granted `events:background`. |
-| `events_context_too_large` | The serialized `context` is over 4 KB. |
-| `events_context_invalid` | `context` isn't JSON-serializable. |
-| `bad_request` | `queue` isn't a boolean, `delivery` isn't `'broadcast'` or `'single'`, the two disagree, or `handlerName` isn't a string or is over 128 characters. |
-| `invalid_expires_at` | `expiresAt` isn't a future time. |
-| `invalid_include_value` | `includeValue` isn't a boolean, or the subject isn't `kv:`. |
-| `invalid_subject_op`, `invalid_subject_audience`, `invalid_subject_pattern`, `invalid_kv_pattern`, `invalid_kv_handle_key`, `events_cross_app_disabled`, `events_kv_handles_disabled`, `forbidden` | As on [`onLocal()`](/Events/onLocal/#return-value). |
-| `subject_does_not_exist` | The subject doesn't exist, or this account can't read it. |
-| `events_subscription_limit` | The account or app is at its [persistent subscription limit](/rate-limits-and-quotas/#events). |
-| `events_value_too_large` | A field is longer than can be stored, such as an app id over 40 characters. |
-| `events_durable_requires_account` | Temporary (anonymous) accounts only get session subscriptions. Scoped access tokens, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, get no persistent subscriptions either, whether the account or an app created them. |
-| `too_many_requests` | Over the subscribe rate limit. |
-| `events_disabled` | Events aren't enabled on this server. |
-| `events_failed` | The server sent a response the SDK couldn't read. |
-
-With a `{ file }` handler, errors from [`puter.fs.read()`](/FS/read/) also pass through.
-
 ## Examples
 
 The first example is the inline form, which any app can use for the signed-in user. The others bind to a handler the app's owner published, so they run in your own app or from Node.js signed in as its developer.
 
-<strong class="example-title">Watch a folder with an inline handler</strong>
+### Watch a folder with an inline handler
 
 ```js
 await puter.perms.request('backgroundEvents');
@@ -242,7 +248,7 @@ await puter.events.unsubscribe(sub.subId);
 
 The handler is stored in the user's scope under `sub.handlerName`, and keeps running for this user until the subscription ends. After the subscription ends, Puter removes the handler about a day later, once nothing is bound to it. You can remove it sooner, as [Clean Up Background Work](/recipes/clean-up-background-work/#remove-a-user-scope) shows.
 
-<strong class="example-title">Watch a folder with a handler the app's owner published</strong>
+### Watch a folder with a handler the app's owner published
 
 Publish once as the developer to ship one shared handler to every user.
 
@@ -267,7 +273,7 @@ const sub = await puter.events.onPersistent({
 await puter.events.unsubscribe(sub.subId);
 ```
 
-<strong class="example-title">Bind to the exact source you wrote against</strong>
+### Bind to the exact source you wrote against
 
 ```js
 const handler = ({ event, ctx }) => console.log(ctx.label, event.path);

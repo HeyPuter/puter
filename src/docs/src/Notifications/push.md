@@ -118,7 +118,7 @@ document.getElementById('enable').addEventListener('click', async () => {
 });
 ```
 
-[`enable()`](/Notifications/enable/#return-value) lists every error it rejects with. When nobody is signed in, it opens the Puter sign-in after the browser's prompt. Sign the user in first, from its own button, so the sign-in window isn't blocked as a popup.
+[`enable()`](/Notifications/enable/#errors) lists every error it rejects with. When nobody is signed in, it opens the Puter sign-in after the browser's prompt. Sign the user in first, from its own button, so the sign-in window isn't blocked as a popup.
 
 To turn pushes off in this browser again, call [`disable()`](/Notifications/disable/). Page loads don't turn pushes back on after [`disable()`](/Notifications/disable/), after the user turns your app off or removes this browser in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/). Signing out also ends this browser's push subscription for your app and removes it from Puter. Signing in as a different user does the same, so pushes stay off in this browser until the new user calls [`enable()`](/Notifications/enable/). Only the subscription Puter made is removed. A subscription another push service made on your site, under any service worker, stays as it is.
 

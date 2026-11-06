@@ -4,7 +4,9 @@ description: Generate a temporary URL that lets anyone read one file from the us
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Generates a URL that can be used to read a file. To stop it from working before it expires, revoke it with [`revokeReadURL()`](/FS/revokeReadURL/).
+Generates a URL that can be used to read a file.
+
+To stop it from working before it expires, revoke it with [`revokeReadURL()`](/FS/revokeReadURL/).
 
 ## Syntax
 
@@ -27,7 +29,9 @@ How long the URL stays valid, in [jsonwebtoken](https://github.com/auth0/node-js
 
 A promise that resolves to a URL string that can be used to read the file.
 
-## Example
+## Examples
+
+### Get a read URL for a file
 
 ```javascript
 const url = await puter.fs.getReadURL("~/myfile.txt");

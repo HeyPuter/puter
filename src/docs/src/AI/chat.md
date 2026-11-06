@@ -29,24 +29,24 @@ An object containing the following properties:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `model` | String | The model you want to use for the completion. If not specified, defaults to `gpt-5.4-nano`. More than 500 models are available from providers including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page. |
-| `stream` | Boolean | A boolean indicating whether you want to stream the completion. Defaults to `false`. |
-| `max_tokens` | Number | The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used. |
-| `temperature` | Number | A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the model's own temperature is used. See [Model-specific features](#model-specific-features). |
-| `reasoning_effort` / `reasoning.effort` | String | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. OpenAI models, Moonshot's Kimi K3.1 Pro models, Meta's Muse Spark models, `gemini-4-argon`, `gemini-3.1-flash-lite` and `gemini-3-flash-preview` only. See [Model-specific features](#model-specific-features). |
-| `thinking` | Object \| null | Extended-thinking control: `{ type: "adaptive" \| "enabled" \| "disabled" \| "between_tools", budgetTokens?, display? }`. Pass `null` to send no thinking configuration at all (the model's own default); leaving it unset falls back to the legacy derivation from `reasoning_effort`. `budgetTokens` only applies to `type: "enabled"`. |
-| `verbosity` / `text.verbosity` | String | Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only. |
-| `tools` | Array | Function definitions the AI can call. See [Function Calling](#function-calling) for details. |
-| `toolChoice` | String \| Object | Which tool, if any, the model must call. Pass `"auto"` (the model decides), `"none"` (never call a tool), `"required"` (call at least one), or an object naming a specific tool: `{ type: "tool", name: "..." }`. Requires `tools`. |
-| `parallelToolCalls` | Boolean | Whether the model may call more than one tool in a single turn. Left unset, tool calls run one at a time. |
-| `streamToolInput` | Boolean | Streaming only. When `true`, a tool call's arguments arrive incrementally as `tool_use_start` / `tool_input_delta` chunks instead of a single `tool_use` chunk once the call completes. |
-| `normalize` | Boolean | Controls the format of the non-streaming response. See [Response normalization](#response-normalization). |
-| `compaction` | Boolean \| Object | Opt into inline context compaction for long conversations. See [Compaction](#compaction). |
-| `signal` | AbortSignal | Abort the request, including while waiting for the next streamed chunk. Cancellation rejects with the signal reason (normally an `AbortError`). |
-| `provider` | String | Pin the request to a specific provider, for example `openrouter` or `infron`. Without it, Puter selects a provider for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given provider serves. See [Providers](#providers). |
-| `fallback` | Boolean | Set to `false` to fail the request when the first provider tried fails, instead of retrying it on another provider that serves the same model. Defaults to `true`. See [Providers](#providers). |
-| `outputFormat` | Object | Constrains the response to a JSON schema: `{ type: "json_schema", schema, name?, strict? }`. |
-| `stopSequences` | Array of String | Up to the model's limit of strings; generation stops the moment one of them appears in the output. |
+| `model` | `String` | The model you want to use for the completion. If not specified, defaults to `gpt-5.4-nano`. More than 500 models are available from providers including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page. |
+| `stream` | `Boolean` | A boolean indicating whether you want to stream the completion. Defaults to `false`. |
+| `max_tokens` | `Number` | The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used. |
+| `temperature` | `Number` | A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the model's own temperature is used. See [Model-specific features](#model-specific-features). |
+| `reasoning_effort` / `reasoning.effort` | `String` | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. OpenAI models, Moonshot's Kimi K3.1 Pro models, Meta's Muse Spark models, `gemini-4-argon`, `gemini-3.1-flash-lite` and `gemini-3-flash-preview` only. See [Model-specific features](#model-specific-features). |
+| `thinking` | `Object \| null` | Extended-thinking control: `{ type: "adaptive" \| "enabled" \| "disabled" \| "between_tools", budgetTokens?, display? }`. Pass `null` to send no thinking configuration at all (the model's own default); leaving it unset falls back to the legacy derivation from `reasoning_effort`. `budgetTokens` only applies to `type: "enabled"`. |
+| `verbosity` / `text.verbosity` | `String` | Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only. |
+| `tools` | `Array` | Function definitions the AI can call. See [Function Calling](#function-calling) for details. |
+| `toolChoice` | `String \| Object` | Which tool, if any, the model must call. Pass `"auto"` (the model decides), `"none"` (never call a tool), `"required"` (call at least one), or an object naming a specific tool: `{ type: "tool", name: "..." }`. Requires `tools`. |
+| `parallelToolCalls` | `Boolean` | Whether the model may call more than one tool in a single turn. Left unset, tool calls run one at a time. |
+| `streamToolInput` | `Boolean` | Streaming only. When `true`, a tool call's arguments arrive incrementally as `tool_use_start` / `tool_input_delta` chunks instead of a single `tool_use` chunk once the call completes. |
+| `normalize` | `Boolean` | Controls the format of the non-streaming response. See [Response normalization](#response-normalization). |
+| `compaction` | `Boolean \| Object` | Opt into inline context compaction for long conversations. See [Compaction](#compaction). |
+| `signal` | `AbortSignal` | Abort the request, including while waiting for the next streamed chunk. Cancellation rejects with the signal reason (normally an `AbortError`). |
+| `provider` | `String` | Pin the request to a specific provider, for example `openrouter` or `infron`. Without it, Puter selects a provider for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given provider serves. See [Providers](#providers). |
+| `fallback` | `Boolean` | Set to `false` to fail the request when the first provider tried fails, instead of retrying it on another provider that serves the same model. Defaults to `true`. See [Providers](#providers). |
+| `outputFormat` | `Object` | Constrains the response to a JSON schema: `{ type: "json_schema", schema, name?, strict? }`. |
+| `stopSequences` | `Array<String>` | Up to the model's limit of strings; generation stops the moment one of them appears in the output. |
 
 Some models accept additional options or handle these options differently. See [Model-specific features](#model-specific-features).
 

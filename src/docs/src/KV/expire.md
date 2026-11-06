@@ -29,8 +29,10 @@ The number of seconds until the key is removed. A value of `0` or less expires t
 
 The last argument. It takes these properties:
 
-- `handle` (String): Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `handle` | `String` | Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users). |
+| `appUuid` | `String` | Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`. |
 
 ## Return value
 
@@ -56,7 +58,7 @@ To remove a key's TTL instead of setting one, use [`puter.kv.set()`](/KV/set/) o
 
 ## Examples
 
-<strong class="example-title">Retrieve the value of a key after a 1-second expiration</strong>
+### Retrieve the value of a key after a 1-second expiration
 
 ```html;kv-expire
 <html>

@@ -5,7 +5,9 @@ platforms: [websites, apps]
 ---
 
 
-Fetches TURN relay credentials ahead of time so that peer connections can start faster. This is optional because `puter.peer.serve()` and `puter.peer.connect()` call it automatically when needed.
+Fetches TURN relay credentials ahead of time so that peer connections can start faster.
+
+Calling it is optional, because [`puter.peer.serve()`](/Peer/serve/) and [`puter.peer.connect()`](/Peer/connect/) call it automatically when needed.
 
 ## Syntax
 
@@ -16,11 +18,13 @@ await puter.peer.ensureTurnRelays(options);
 
 ## Parameters
 
-#### `options` (optional)
+#### `options` (Object) (optional)
 
-`options` is an object with the following properties:
+An object with the following properties:
 
-- `turnGrant` (`String`) A grant from [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/), to preload relays as a guest with no Puter session. Credentials are minted against the account that issued the grant.
+| Option | Type | Description |
+|--------|------|-------------|
+| `turnGrant` | `String` | A grant from [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/), to preload relays as a guest with no Puter session. Credentials are minted against the account that issued the grant. |
 
 ## Return value
 

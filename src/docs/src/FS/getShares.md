@@ -35,8 +35,10 @@ The path to the file or directory. If `path` is not absolute, it will be resolve
 
 An object with the following properties:
 
-- `path` (String) - The item. Required when passing options as the only argument.
-- `uid` (String) - The item, by UID. Can be used instead of `path`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `path` | `String` | The item. Required when passing options as the only argument. |
+| `uid` | `String` | The item, by UID. Can be used instead of `path`. |
 
 ## Return value
 
@@ -56,11 +58,18 @@ It also includes **invitations** — shares aimed at an email address with no co
 
 `recipientEmail` is set only for the item's **owner** and for whoever **sent** that invitation; for anyone else the invitation is listed without it. Someone else's invitation is not yours to cancel either, so nothing is lost with the address. An app never sees it, whoever it acts for.
 
+## Errors
+
 If you cannot see the item at all, this rejects the same way a missing file would — it will not confirm that the item exists.
+
+## Related
+
+- [`puter.fs.share()`](/FS/share/) - Grant access
+- [`puter.fs.unshare()`](/FS/unshare/) - Withdraw access
 
 ## Examples
 
-<strong class="example-title">See who can reach a file</strong>
+### See who can reach a file
 
 ```html;fs-getShares
 <html>
@@ -81,7 +90,7 @@ If you cannot see the item at all, this rejects the same way a missing file woul
 </html>
 ```
 
-<strong class="example-title">Withdraw everyone's access</strong>
+### Withdraw everyone's access
 
 ```js
 const shares = await puter.fs.getShares('report.txt');
@@ -89,8 +98,3 @@ for (const share of shares) {
     await puter.fs.unshare('report.txt', share.holder);
 }
 ```
-
-## Related
-
-- [`puter.fs.share()`](/FS/share/) - Grant access
-- [`puter.fs.unshare()`](/FS/unshare/) - Withdraw access

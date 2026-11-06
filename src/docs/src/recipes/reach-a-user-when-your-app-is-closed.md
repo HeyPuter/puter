@@ -66,7 +66,7 @@ enableButton.addEventListener('click', async () => {
 });
 ```
 
-The call rejects with `push_revoked` when the user turned your app off in Puter's settings. That choice stands until they allow your app again, which [`puter.notifications.requestPermission()`](/Notifications/requestPermission/) asks for with Puter's own prompt. After that, [`puter.notifications.enable()`](/Notifications/enable/) goes through. The other errors, such as a second service worker for the same scope, are listed on [`puter.notifications.enable()`](/Notifications/enable/#return-value).
+The call rejects with `push_revoked` when the user turned your app off in Puter's settings. That choice stands until they allow your app again, which [`puter.notifications.requestPermission()`](/Notifications/requestPermission/) asks for with Puter's own prompt. After that, [`puter.notifications.enable()`](/Notifications/enable/) goes through. The other errors, such as a second service worker for the same scope, are listed on [`puter.notifications.enable()`](/Notifications/enable/#errors).
 
 The [`puter.notifications.status()`](/Notifications/status/) method says whether pushes are on in this browser without asking anything, so the page shows the button only when it's `'off'`. When it's `'blocked'`, the user has to allow notifications in the browser's settings. On later visits, [`puter.notifications.onPush()`](/Notifications/onPush/) keeps the browser's registration current without asking again. After the user turns pushes off with [`puter.notifications.disable()`](/Notifications/disable/) or signs out, [`status()`](/Notifications/status/) is `'off'` again.
 

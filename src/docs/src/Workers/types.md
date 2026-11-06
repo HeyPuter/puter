@@ -4,7 +4,9 @@ description: Type-checking and autocomplete for Puter Workers via @heyputer/work
 platforms: [workers]
 ---
 
-The [`@heyputer/worker-types`](https://www.npmjs.com/package/@heyputer/worker-types) package adds TypeScript type definitions for the worker runtime — the `router`, `me`, `my`, `myself`, `puter_auth`, and `puter_endpoint` globals — plus typed route handlers with automatic `params` inference from path literals.
+The [`@heyputer/worker-types`](https://www.npmjs.com/package/@heyputer/worker-types) package adds TypeScript type definitions for the worker runtime, plus typed route handlers with automatic `params` inference from path literals.
+
+The definitions cover the `router`, `me`, `my`, `myself`, `puter_auth`, and `puter_endpoint` globals.
 
 It's purely a development-time aid: it adds nothing to your deployed worker bundle.
 

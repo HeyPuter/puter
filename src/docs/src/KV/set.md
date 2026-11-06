@@ -47,10 +47,12 @@ Every `set()` replaces the whole entry, TTL included, so a later `set()` without
 
 The last argument. It takes these properties:
 
-- `disableSharing` (Boolean): Makes the entry private to your app. See [Private entries](#private-entries).
-- `onlyIfAbsent` (Boolean): Writes the key only when it has no live entry. See [Writing only if absent](#writing-only-if-absent). The batch form rejects it with `invalid_request`.
-- `handle` (String): Writes into data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix and can be at most 768 bytes, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Writes to another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/).
+| Option | Type | Description |
+|--------|------|-------------|
+| `onlyIfAbsent` | `Boolean` | Writes the key only when it has no live entry. See [Writing only if absent](#writing-only-if-absent). The batch form rejects it with `invalid_request`. |
+| `disableSharing` | `Boolean` | Makes the entry private to your app. See [Private entries](#private-entries). |
+| `handle` | `String` | Writes into data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix and can be at most 768 bytes, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users). |
+| `appUuid` | `String` | Writes to another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). |
 
 The `handle` option can't be combined with `appUuid` or `disableSharing`.
 
@@ -61,20 +63,6 @@ An array of `{ key, value, expireAt? }` objects, written in one request. Pass it
 ## Return value
 
 A `Promise` that resolves to `true` when the key was written. With `onlyIfAbsent`, it resolves to `false` when a live entry already held the key and nothing was written.
-
-## Private entries
-
-An entry written with `disableSharing: true` is private to your app. No other app can read, list, change, or delete it, even one the user let reach your app's data with [`puter.perms.request('appData', …)`](/Perms/appData/). Use it for anything another app should never see, such as a cached access token. A user approving such a request can't see what your store holds.
-
-A private entry is also hidden from users you share its prefix with through [`puter.kv.share()`](/KV/share/). They can't read, list, or watch it. Deleting it through the share resolves the same way deleting a missing key does and leaves the entry in place. Any other write to it through the share is refused with `kv_handle_access_denied`. So a holder with write access can tell that the key exists, but can't read its value.
-
-Your own app reads and writes the entry normally. Writing the key again without the flag makes it shareable again, since `set()` replaces the whole entry. In the batch form, `disableSharing` marks every entry in the batch.
-
-## Writing only if absent
-
-With `onlyIfAbsent: true`, `set()` writes the key only when it has no live entry. An expired entry counts as absent. When a live entry holds the key, nothing is written and the promise resolves to `false`.
-
-Two writes at nearly the same time from different places may both succeed and both resolve to `true`, and the later write wins. Use it to create something once where a rare double create is harmless, such as claiming a room id or setting up a new document. It isn't a lock, and it can't hand out unique numbers. For a log of changes, give each change its own key, such as `chg:<timestamp>-<writer>-<random>`, and order the changes by timestamp instead of using a shared counter. A counter kept with [`puter.kv.incr()`](/KV/incr/) has the same limit.
 
 ## Errors
 
@@ -94,9 +82,23 @@ The promise rejects with `{ message, code }`:
 | `kv_handle_key_invalid` | With `handle`, a key is empty or longer than 768 bytes. |
 | `kv_handles_disabled` | Shares can't be used this way on this deployment. |
 
+## Private entries
+
+An entry written with `disableSharing: true` is private to your app. No other app can read, list, change, or delete it, even one the user let reach your app's data with [`puter.perms.request('appData', …)`](/Perms/appData/). Use it for anything another app should never see, such as a cached access token. A user approving such a request can't see what your store holds.
+
+A private entry is also hidden from users you share its prefix with through [`puter.kv.share()`](/KV/share/). They can't read, list, or watch it. Deleting it through the share resolves the same way deleting a missing key does and leaves the entry in place. Any other write to it through the share is refused with `kv_handle_access_denied`. So a holder with write access can tell that the key exists, but can't read its value.
+
+Your own app reads and writes the entry normally. Writing the key again without the flag makes it shareable again, since `set()` replaces the whole entry. In the batch form, `disableSharing` marks every entry in the batch.
+
+## Writing only if absent
+
+With `onlyIfAbsent: true`, `set()` writes the key only when it has no live entry. An expired entry counts as absent. When a live entry holds the key, nothing is written and the promise resolves to `false`.
+
+Two writes at nearly the same time from different places may both succeed and both resolve to `true`, and the later write wins. Use it to create something once where a rare double create is harmless, such as claiming a room id or setting up a new document. It isn't a lock, and it can't hand out unique numbers. For a log of changes, give each change its own key, such as `chg:<timestamp>-<writer>-<random>`, and order the changes by timestamp instead of using a shared counter. A counter kept with [`puter.kv.incr()`](/KV/incr/) has the same limit.
+
 ## Examples
 
-<strong class="example-title">Create a new key-value pair</strong>
+### Create a new key-value pair
 
 ```html;kv-set
 <html>
@@ -111,7 +113,7 @@ The promise rejects with `{ message, code }`:
 </html>
 ```
 
-<strong class="example-title">Set multiple key-value pairs at once</strong>
+### Set multiple key-value pairs at once
 
 ```html
 <html>
@@ -130,14 +132,14 @@ The promise rejects with `{ message, code }`:
 </html>
 ```
 
-<strong class="example-title">Claim a name only if nobody has it yet</strong>
+### Claim a name only if nobody has it yet
 
 ```js
 const claimed = await puter.kv.set('room:lobby', { createdAt: Date.now() }, { onlyIfAbsent: true });
 puter.print(claimed ? 'Room created' : 'That room already exists');
 ```
 
-<strong class="example-title">Store a value no other app can ever read</strong>
+### Store a value no other app can ever read
 
 ```html
 <html>

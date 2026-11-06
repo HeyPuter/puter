@@ -4,7 +4,9 @@ description: Remove all key-value pairs from the user's own store for your app.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Removes every key-value pair from the user's key-value store for the current app. It's also available as `puter.kv.clear()`.
+Removes every key-value pair from the user's key-value store for the current app.
+
+It's also available as `puter.kv.clear()`.
 
 ## Syntax
 
@@ -30,6 +32,8 @@ Flushing works only on your app's own store. To clear a prefix someone shared wi
 | `forbidden` | An app passed another app's `appUuid`. |
 
 ## Examples
+
+### Remove every key
 
 ```html;kv-flush
 <html>
