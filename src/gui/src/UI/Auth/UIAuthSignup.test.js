@@ -221,6 +221,25 @@ describe('signup form', () => {
         expect(gates.card).not.toHaveBeenCalled();
     });
 
+    it.each([
+        [true, { cover_page: true, has_head: false }],
+        [false, {}],
+    ])('covers the page with the account checks when signup was a page (%s)', async (page, window_options) => {
+        gates.email.mockResolvedValue(true);
+        gates.phone.mockResolvedValue(true);
+        gates.card.mockResolvedValue(true);
+        const calls = captureAjax();
+        const result = UIAuthSignup({ page, reload_on_success: false, send_confirmation_code: true });
+        fillForm();
+        $('.signup-form').trigger('submit');
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+        calls[0].success({ token: 't', user: { requires_phone_verification: true, requires_card_verification: true } });
+        await result;
+        for ( const gate of [gates.email, gates.phone, gates.card] ) {
+            expect(gate.mock.calls[0][0].window_options).toEqual(window_options);
+        }
+    });
+
     it('keeps an app landing after a signup that reloads', () => {
         expect(signupRedirectUrl('/x')).toBe('/x');
         expect(signupRedirectUrl(undefined)).toBe('/');

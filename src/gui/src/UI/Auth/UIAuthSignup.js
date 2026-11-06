@@ -99,9 +99,12 @@ const showSignupBlocked = (message) => {
  * @param {object} user The new account, as the signup answered.
  * @param {boolean} show_email Ask for the emailed code here.
  * @param {boolean} reload_on_success
+ * @param {boolean} page Signup was a page, so the checks cover it too
+ *   rather than float over whatever was under it.
  * @returns {Promise<boolean>} Whether the email was confirmed (true when not asked).
  */
-const runVerificationGates = async (user, show_email, reload_on_success) => {
+const runVerificationGates = async (user, show_email, reload_on_success, page) => {
+    const window_options = page ? { cover_page: true, has_head: false } : {};
     let email_verified = true;
     const emailGate = async () => {
         if ( ! show_email ) return;
@@ -109,7 +112,7 @@ const runVerificationGates = async (user, show_email, reload_on_success) => {
             stay_on_top: true,
             has_head: true,
             reload_on_success,
-            window_options: {},
+            window_options,
         });
     };
     // A user the SMS path keeps failing may take the card fallback instead;
@@ -124,7 +127,7 @@ const runVerificationGates = async (user, show_email, reload_on_success) => {
                 show_close_button: false,
                 stay_on_top: true,
                 has_head: true,
-                window_options: {},
+                window_options,
             });
         } while ( ! phone_ok );
         card_cleared_by_fallback = phone_ok === 'card';
@@ -137,7 +140,7 @@ const runVerificationGates = async (user, show_email, reload_on_success) => {
                 show_close_button: false,
                 stay_on_top: true,
                 has_head: true,
-                window_options: {},
+                window_options,
             });
         } while ( ! card_ok );
     };
@@ -438,7 +441,7 @@ export function pushSignupScreen (flow, options = {}) {
         if ( data.user?.requires_phone_verification || data.user?.requires_card_verification || show_email ) {
             // The checks are windows of their own; the card makes way for them.
             flow.close();
-            email_verified = await runVerificationGates(data.user, show_email, reload_on_success);
+            email_verified = await runVerificationGates(data.user, show_email, reload_on_success, flow.page);
         }
 
         if ( reload_on_success ) {
