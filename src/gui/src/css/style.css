@@ -2260,13 +2260,6 @@ label {
     color: #611a15;
 }
 
-.signup-oidc-only-notice {
-    text-align: center;
-    margin: 0 0 10px;
-    font-size: 14px;
-    color: #5f6368;
-}
-
 /* -- Logo strip above the login / signup forms -- */
 .auth-logo-header {
     display: flex;

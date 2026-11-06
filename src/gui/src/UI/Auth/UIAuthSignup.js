@@ -194,7 +194,6 @@ export function pushSignupScreen (flow, options = {}) {
     // them, and an identity provider's refusal shows here too.
     h += '<div class="dashboard-form-status auth-screen-status" role="status" aria-live="polite"></div>';
     h += '<div class="signup-bonus-notice" hidden></div>';
-    h += `<p class="signup-oidc-only-notice" hidden>${i18n('signup_oidc_only')}</p>`;
     h += '<div class="auth-providers oidc-providers-wrapper" hidden>';
     h += '<div class="auth-provider-list"></div>';
     h += '</div>';
@@ -269,7 +268,6 @@ export function pushSignupScreen (flow, options = {}) {
         $form.prop('hidden', true);
         $screen.find('.signup-with-email-wrapper').prop('hidden', true);
         $screen.find('.oidc-providers-wrapper').prop('hidden', false);
-        $screen.find('.signup-oidc-only-notice').prop('hidden', false);
     };
 
     // Turnstile renders into the form once its script has loaded.

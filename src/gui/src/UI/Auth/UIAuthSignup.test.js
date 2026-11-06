@@ -71,15 +71,13 @@ describe('signup when only OIDC signups are open', () => {
         await open();
         expect($('.signup-with-email-wrapper').prop('hidden')).toBe(false);
         expect($('.signup-form').prop('hidden')).toBe(true);
-        expect($('.signup-oidc-only-notice').prop('hidden')).toBe(true);
         $('.signup-with-email-btn').trigger('click');
         expect($('.signup-form').prop('hidden')).toBe(false);
     });
 
-    it('drops the email form and says why', async () => {
+    it('drops the email form', async () => {
         providers({ providers: ['google'], signupOidcOnly: true });
         await open();
-        expect($('.signup-oidc-only-notice').prop('hidden')).toBe(false);
         expect($('.signup-form').prop('hidden')).toBe(true);
         expect($('.signup-with-email-wrapper').prop('hidden')).toBe(true);
     });
@@ -94,7 +92,6 @@ describe('signup when only OIDC signups are open', () => {
         await vi.waitFor(() => expect(calls).toHaveLength(1));
         calls[0].error({ responseText: JSON.stringify({ code: 'signup_oidc_only', message: 'closed' }) });
         await tick();
-        expect($('.signup-oidc-only-notice').prop('hidden')).toBe(false);
         expect($('.signup-form').prop('hidden')).toBe(true);
     });
 

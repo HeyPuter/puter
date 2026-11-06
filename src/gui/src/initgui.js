@@ -1874,9 +1874,13 @@ window.initgui = async function (options) {
 
     //--------------------------------------------------------------------------------------
     // Desktop background (early)
-    // Set before action=login/signup so OIDC error redirects show the background behind the form.
+    // Set before action=login/signup so the signed-in dialog has the desktop behind it.
+    // Skipped for the full-page form, which it would only flash behind before covering.
     // -------------------------------------------------------------------------------------
-    if (!window.is_fullpage_mode && !window.embedded_in_popup) {
+    const authActionIsPage =
+        action === 'password-recovery' ||
+        (!window.is_auth() && (action === 'login' || action === 'signup'));
+    if (!window.is_fullpage_mode && !window.embedded_in_popup && !authActionIsPage) {
         window.refresh_desktop_background();
     }
 
@@ -2426,12 +2430,23 @@ window.initgui = async function (options) {
             window.update_sites_cache();
         }
     }
+    // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
+    // real account even on a first visit — never a temp user. So does a share
+    // link: a share only ever reaches a real account, so a temporary one could
+    // never see what it points at.
+    const is_app_landing_page = window.url_paths[0] === 'app' && !!window.url_paths[1];
+    const is_share_link = window.url_query_params.has('shared');
+    const needsSignIn =
+        !window.is_auth() &&
+        (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link);
+
     // -------------------------------------------------------------------------------------
     // Desktop Background
     // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background
-    // because it's not visible anyway and it's a waste of bandwidth
+    // because it's not visible anyway and it's a waste of bandwidth. Same behind the sign-in page.
     // -------------------------------------------------------------------------------------
-    if (!window.is_fullpage_mode && !window.embedded_in_popup) {
+    const showsSignInPage = needsSignIn && window.logged_in_users.length === 0;
+    if (!window.is_fullpage_mode && !window.embedded_in_popup && !showsSignInPage) {
         window.refresh_desktop_background();
     }
     // -------------------------------------------------------------------------------------
@@ -2442,16 +2457,7 @@ window.initgui = async function (options) {
     // then failed to authenticate.
     if (!window.is_auth()) reveal_anonymous_markup(true);
 
-    // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
-    // real account even on a first visit — never a temp user. So does a share
-    // link: a share only ever reaches a real account, so a temporary one could
-    // never see what it points at.
-    const is_app_landing_page = window.url_paths[0] === 'app' && !!window.url_paths[1];
-    const is_share_link = window.url_query_params.has('shared');
-    if (
-        !window.is_auth() &&
-        (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link)
-    ) {
+    if (needsSignIn) {
         // `npm start --server=<remote>` serves this GUI locally while pointing
         // `gui_origin` at a remote Puter. There is nothing here to log into:
         // `/login` accepts only its own origin, because it answers with a full

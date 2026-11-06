@@ -10692,9 +10692,11 @@ body.dashboard-mode .notifications-close-all {
     z-index: 99999998;
 }
 
-/* As a page there is nothing behind the card to go back to. */
+/* As a page there is nothing behind the card to go back to. It covers the
+   screen at once rather than fading in over whatever was there. */
 .dashboard-dialog-overlay.auth-dialog-page {
     background: var(--dashboard-sidebar-background);
+    transition: none;
 }
 
 .dashboard-dialog.auth-dialog {
@@ -11069,13 +11071,6 @@ body.dashboard-mode .notifications-close-all {
     border-color: var(--dashboard-danger-border);
     background: var(--dashboard-danger-background);
     color: var(--dashboard-danger-text);
-}
-
-.auth-dialog .signup-oidc-only-notice {
-    margin: 0 0 12px;
-    font-size: 13px;
-    line-height: 1.5;
-    color: var(--dashboard-text-secondary);
 }
 
 .auth-dialog .oidc-providers-wrapper {
