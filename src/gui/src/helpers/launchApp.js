@@ -67,6 +67,31 @@ const endLaunchTransaction = (transaction, outcome) => {
     }
 };
 
+/**
+ * Moves the app to the front of the recent apps and records the open with
+ * the server (`/rao`).
+ */
+const record_app_open = (app_info) => {
+    window.launch_apps.recent.unshift(app_info);
+    // dedupe by name, then cap at window.launch_recent_apps_count
+    window.launch_apps.recent = [...new Map(window.launch_apps.recent.map(v => [v.name, v])).values()];
+    window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);
+
+    $.ajax({
+        url: `${window.api_origin }/rao`,
+        type: 'POST',
+        data: JSON.stringify({
+            original_client_socket_id: window.socket?.id,
+            app_uid: app_info.uid ?? app_info.uuid,
+        }),
+        async: true,
+        contentType: 'application/json',
+        headers: {
+            'Authorization': `Bearer ${window.auth_token}`,
+        },
+    });
+};
+
 const fetchUserAppTokenForLaunch = async ({ appUid } = {}) => {
     if ( ! appUid ) {
         return {
@@ -121,6 +146,10 @@ const fetchUserAppTokenForLaunch = async ({ appUid } = {}) => {
  * Launches an app.
  *
  * @param {*} options.name - The name of the app to launch.
+ * @param {Window} [options.newTab] - A tab the caller opened (synchronously,
+ *   so popup blockers allow it) to send the app's URL to, instead of opening
+ *   an in-page window. Explorer can't run outside the desktop, so it closes
+ *   the tab and opens in-page.
  */
 const launch_app = async (options) => {
     let transaction;
@@ -174,6 +203,12 @@ const launch_app = async (options) => {
     if ( options.parent_instance_id ) {
         window_options.parent_instance_id = options.parent_instance_id;
     }
+
+    if ( options.newTab && (options.name === 'explorer' || options.name === 'trash') ) {
+        options.newTab.close();
+        options.newTab = undefined;
+    }
+    const newTab = options.newTab;
 
     // If the app object is not provided, get it from the server
     let app_info;
@@ -442,17 +477,20 @@ const launch_app = async (options) => {
     // All other apps
     //------------------------------------
     else {
-        process = new PortalProcess({
-            uuid,
-            name: app_info.name,
-            parent: options.parent_instance_id,
-            meta: {
-                launch_options: options,
-                app_info: app_info,
-            },
-        });
-        const svc_process = globalThis.services.get('process');
-        svc_process.register(process);
+        // A new tab is outside the desktop: no process for it to track.
+        if ( ! newTab ) {
+            process = new PortalProcess({
+                uuid,
+                name: app_info.name,
+                parent: options.parent_instance_id,
+                meta: {
+                    launch_options: options,
+                    app_info: app_info,
+                },
+            });
+            const svc_process = globalThis.services.get('process');
+            svc_process.register(process);
+        }
 
         //-----------------------------------
         // iframe_url
@@ -522,10 +560,13 @@ const launch_app = async (options) => {
                 ?? await mintGodmodeToken(launch_app_uid);
             if ( godmode_token.ok ) {
                 launch_token = godmode_token.token;
-                trackGodmodeToken(
-                    uuid, launch_app_uid, godmode_token.token,
-                    godmode_token.expiresAt, godmode_token.mintedAt, iframe_url.href,
-                );
+                // Renewal is posted to the app's window, which a tab doesn't have.
+                if ( ! newTab ) {
+                    trackGodmodeToken(
+                        uuid, launch_app_uid, godmode_token.token,
+                        godmode_token.expiresAt, godmode_token.mintedAt, iframe_url.href,
+                    );
+                }
             } else {
                 tokenResult = { token: null, reason: 'godmode-token-request-failed', ...godmode_token };
             }
@@ -605,6 +646,24 @@ const launch_app = async (options) => {
 
         // ...and finally append utm_source=puter.com to the URL
         iframe_url.searchParams.append('utm_source', 'puter.com');
+
+        if ( newTab ) {
+            newTab.location.href = iframe_url.href;
+            record_app_open(app_info);
+            endLaunchTransaction(transaction, 'opened-in-new-tab');
+            return {
+                launchResult: {
+                    launched: true,
+                    requestedAppName,
+                    openedAppName: options.name,
+                    appInstanceID: uuid,
+                    appUid: launch_app_uid ?? null,
+                    redirectedToFallback: privateLaunchRedirectDepth > 0,
+                    deniedPrivateAccess: false,
+                    privateAccess: privateAccessDecision ?? undefined,
+                },
+            };
+        }
 
         // register app_instance_uid
         window.app_instance_ids.add(uuid);
@@ -763,31 +822,8 @@ const launch_app = async (options) => {
             void syncBrowserPush({ appUid: launch_app_uid });
         }
 
-        // send post request to /rao to record app open
         if ( options.name !== 'explorer' ) {
-            // add the app to the beginning of the array
-            window.launch_apps.recent.unshift(app_info);
-
-            // dedupe the array by uuid, uid, and id
-            window.launch_apps.recent = [...new Map(window.launch_apps.recent.map(v => [v.name, v])).values()];
-
-            // limit to window.launch_recent_apps_count
-            window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);
-
-            // send post request to /rao to record app open
-            $.ajax({
-                url: `${window.api_origin }/rao`,
-                type: 'POST',
-                data: JSON.stringify({
-                    original_client_socket_id: window.socket?.id,
-                    app_uid: app_info.uid ?? app_info.uuid,
-                }),
-                async: true,
-                contentType: 'application/json',
-                headers: {
-                    'Authorization': `Bearer ${window.auth_token}`,
-                },
-            });
+            record_app_open(app_info);
         }
     }
 

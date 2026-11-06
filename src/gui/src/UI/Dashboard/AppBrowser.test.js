@@ -51,6 +51,7 @@ afterEach(() => {
     $(document).off('keydown.myapps-group');
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
 });
 
 async function mount (options = {}) {
@@ -118,21 +119,33 @@ describe('shared app browser', () => {
         expect(other._launchingApps).not.toBe(browser._launchingApps);
     });
 
-    it('keeps dashboard launches routed through desktop actions', async () => {
+    it('opens dashboard launches in a new tab through desktop actions', async () => {
+        const tab = { opener: window, close: vi.fn() };
+        vi.spyOn(window, 'open').mockReturnValue(tab);
         const actions = {
-            launchApp: vi.fn(async () => {}),
-            beginTileLaunch: vi.fn(),
-            settleTileLaunch: vi.fn(),
+            launchApp: vi.fn(async () => ({ launchResult: { launched: true } })),
         };
         await mount({ editable: true, onLaunch: undefined, actions });
         $('.myapps-search').val('editor').trigger('input');
         $('.myapps-tile[data-app-name="editor"]').trigger('click');
-        expect(actions.launchApp).toHaveBeenCalledWith({
-            name: 'editor', maximized: true,
-            window_options: { morph_from_dashboard_tile: true },
-        });
-        await vi.waitFor(() => expect(actions.settleTileLaunch).toHaveBeenCalledOnce());
-        expect(browser._launchingApps.size).toBe(0);
+        expect(window.open).toHaveBeenCalledWith('', '_blank');
+        expect(tab.opener).toBeNull();
+        expect(actions.launchApp).toHaveBeenCalledWith({ name: 'editor', newTab: tab });
+        await vi.waitFor(() => expect(browser._launchingApps.size).toBe(0));
+        expect(tab.close).not.toHaveBeenCalled();
+        expect($('.window')).toHaveLength(0);
+    });
+
+    it('closes the new tab when the launch does not go through', async () => {
+        const tab = { opener: window, close: vi.fn() };
+        vi.spyOn(window, 'open').mockReturnValue(tab);
+        const actions = {
+            launchApp: vi.fn(async () => ({ launchResult: { launched: false } })),
+        };
+        await mount({ editable: true, onLaunch: undefined, actions });
+        $('.myapps-search').val('editor').trigger('input');
+        $('.myapps-tile[data-app-name="editor"]').trigger('click');
+        await vi.waitFor(() => expect(tab.close).toHaveBeenCalledOnce());
     });
 
     it('launches the app store from the dashboard add-app dialog', async () => {
