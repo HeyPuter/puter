@@ -167,6 +167,35 @@ export class PuterHomepageService extends PuterService {
         this.#guiParams[key] = val;
     }
 
+    renderAppBrowserEmbed(): string {
+        const configJson = JSON.stringify({
+            apiOrigin: this.config.api_base_url,
+            sdkUrl:
+                this.config.env === 'dev'
+                    ? '/sdk/puter.dev.js'
+                    : (this.config.gui_puterjs_bundle ??
+                      'https://js.puter.com/v2/'),
+        }).replace(/</g, '\\u003c');
+
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>${encode(String(this.config.gui_params?.title ?? 'Puter'))}</title>
+    <link rel="stylesheet" href="/css/normalize.css">
+    <link rel="stylesheet" href="/css/dashboard.css">
+    <link rel="stylesheet" href="/css/apps-embed.css">
+</head>
+<body>
+    <main id="app-browser" class="dashboard"></main>
+    <script type="application/json" id="app-browser-config">${configJson}</script>
+    <script defer src="/dist/apps-embed.min.js"></script>
+</body>
+</html>`;
+    }
+
     /** `scriptPath` is a same-origin absolute path, like `/ext/push/worker.js`. */
     registerServiceWorkerScript(scriptPath: string): void {
         if (

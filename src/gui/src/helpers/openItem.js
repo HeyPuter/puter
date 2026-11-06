@@ -29,7 +29,7 @@ import { is_window_on_screen, user_facing_windows } from './windowVisibility.js'
 // Files whose app launch is still in flight, by file uid. Between the click
 // and the window's creation there is nothing in the DOM to restore, so a
 // re-click during that stretch would mint a duplicate instance — mark the
-// launch and swallow re-clicks instead (same idea as TabApps._launchingApps).
+// launch and swallow re-clicks instead (same idea as _launchingApps in AppBrowser.js).
 // Entries carry a timestamp so a launch that dies without settling (an
 // unexpected throw before launch_app is reached) can't swallow clicks forever.
 const launching_file_uids = new Map();

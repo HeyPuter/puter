@@ -1,0 +1,31 @@
+html,
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--dashboard-text);
+    background: var(--dashboard-background);
+}
+
+#app-browser {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+#app-browser .dashboard-section-apps {
+    width: 100%;
+}
+
+/* The dashboard's narrow-screen padding clears its hamburger button, which embeds don't have. */
+#app-browser .myapps-search-wrap {
+    padding-top: 16px;
+    padding-bottom: 16px;
+    margin-bottom: 8px;
+}
+
+#app-browser .myapps-group-name[readonly] {
+    cursor: default;
+}

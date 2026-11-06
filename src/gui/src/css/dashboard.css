@@ -950,7 +950,7 @@ input.myapps-search::-webkit-search-decoration {
     appearance: none;
 }
 
-/* Frozen while reorder mode is on (see TabApps._setReorderMode). */
+/* Frozen while reorder mode is on (see _setReorderMode in AppBrowser.js). */
 input.myapps-search:disabled {
     opacity: 0.55;
 }
@@ -1016,7 +1016,7 @@ input.myapps-search:disabled {
 }
 
 .myapps-container {
-    /* Pager geometry is inherited from .myapps-tab; TabApps.js reads it here
+    /* Pager geometry is inherited from .myapps-tab; AppBrowser.js reads it here
        (computeLayout) to size pages. */
     flex: 1;
     min-height: 0;
@@ -1294,7 +1294,7 @@ input.myapps-search:disabled {
 
 /* Uninstall: the tile shrinks away in place, then the surviving tiles
    FLIP-slide into the closed-up grid (see showUninstallModal). Duration is
-   mirrored by TILE_REMOVE_ANIM_MS in TabApps.js. */
+   mirrored by TILE_REMOVE_ANIM_MS in AppBrowser.js. */
 .myapps-tile.myapps-tile-removing {
     transition: transform 0.18s ease-in, opacity 0.18s ease-in;
     transform: scale(0.5);
@@ -1414,7 +1414,7 @@ input.myapps-search:disabled {
 }
 
 /* Pending: the well fills over the dwell the drop is waiting out
-   (DRAG_MERGE_DWELL_MS in TabApps.js) — for the ordinary gesture (carry the
+   (DRAG_MERGE_DWELL_MS in AppBrowser.js) — for the ordinary gesture (carry the
    icon over, stop) the fill IS the countdown, so leaving before it completes
    is an informed choice rather than a surprise. */
 body.myapps-reordering .myapps-tile-merge-pending::before {
@@ -1491,7 +1491,7 @@ body.myapps-reordering .myapps-tile.myapps-tile-merge-armed .myapps-tile-icon {
     opacity: 0;
     transform: scale(0.92);
     transform-origin: center;
-    /* Mirrors GROUP_PANEL_OPEN_MS / GROUP_PANEL_CLOSE_MS in TabApps.js; the
+    /* Mirrors GROUP_PANEL_OPEN_MS / GROUP_PANEL_CLOSE_MS in AppBrowser.js; the
        curve is the window morph's, so a folder opening and an app opening
        feel like the same gesture at two scales. */
     transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease;
@@ -4597,7 +4597,7 @@ select.share-modal-row-mode:focus {
 /* A tile installed by a deep-link landing, not yet arrived: rendered in
    place — layout, page count, and the wayfinding flip all see it — but held
    invisible for the intro's arrival beat to reveal (see _spliceDeepLinkApp /
-   _revealArrivingTile in TabApps.js). */
+   _revealArrivingTile in AppBrowser.js). */
 .myapps-tile-installing {
     opacity: 0;
     transform: scale(0.55);
@@ -4605,7 +4605,7 @@ select.share-modal-row-mode:focus {
 }
 
 /* The arrival itself: an INSTALLATION, staged over 1400ms (mirrored by
-   DEEP_LINK_INSTALL_ARRIVE_MS in TabApps.js) with the grammar users know
+   DEEP_LINK_INSTALL_ARRIVE_MS in AppBrowser.js) with the grammar users know
    from every app store:
      1. the slot opens — the folder well's own surface — and the icon
         materializes into it DIM (grayscale, translucent, slightly small):
@@ -4750,7 +4750,7 @@ body.myapps-reordering .myapps-tile {
     touch-action: none;
 }
 
-/* -- Reorder mode (touch; see TabApps._setReorderMode) --
+/* -- Reorder mode (touch; see _setReorderMode in AppBrowser.js) --
    touch-action must be locked down BEFORE the finger goes down — the browser
    reads it at gesture start, so the mid-drag body.myapps-reordering rule
    above can't stop a touch the scroller has already claimed. While the mode
@@ -9092,7 +9092,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 
 /* Running dot: marks Apps-tab tiles whose app has a live window (visible or
    minimized), macOS-dock style — sits centered in the gap between the 56px
-   icon and the label. Kept/removed by updateRunningDots in TabApps.js. */
+   icon and the label. Kept/removed by updateRunningDots in AppBrowser.js. */
 .myapps-tile {
     position: relative;
 }

@@ -336,6 +336,58 @@ describe('PuterServer host header validation', () => {
         expect(api.headers['x-frame-options']).toBeUndefined();
     });
 
+    it('allows deployment subdomains to frame the app browser embed', async () => {
+        const parent = `http://spreadsheet.puter.localhost:${port}`;
+        for (const path of ['/embed/apps', '/embed/apps/']) {
+            const res = await request(path, {
+                host: `puter.localhost:${port}`,
+                referer: `${parent}/sheet/1`,
+            });
+            expect(res.status).toBe(200);
+            expect(res.headers['x-frame-options']).toBeUndefined();
+            expect(res.headers['content-security-policy']).toBe(
+                `frame-ancestors 'self' ${parent}`,
+            );
+            expect(res.headers['cache-control']).toBe('no-store');
+            expect(res.body).toContain('/dist/apps-embed.min.js');
+            expect(res.body).not.toContain('/dist/bundle.min.js');
+            expect(res.body).toContain(`http://api.puter.localhost:${port}`);
+        }
+        const gui = await request('/embed/apps', {
+            host: `puter.localhost:${port}`,
+            referer: `http://puter.localhost:${port}/dashboard`,
+        });
+        expect(gui.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        const dashboard = await request('/dashboard', { host: `puter.localhost:${port}` });
+        expect(dashboard.headers['x-frame-options']).toBe('SAMEORIGIN');
+        const api = await request('/embed/apps', { host: `api.puter.localhost:${port}` });
+        expect(api.status).toBe(404);
+    });
+
+    it.each([
+        ['a user-hosted site', 'http://someone.site.puter.localhost:PORT/'],
+        ['a private app host', 'http://someone.app.puter.localhost:PORT/'],
+        ['another site', 'http://evil.test:PORT/'],
+        ['another port', 'http://spreadsheet.puter.localhost:1/'],
+        ['a suppressed referrer', undefined],
+    ])('keeps the embed same-origin only when framed by %s', async (_label, referer) => {
+        const res = await request('/embed/apps', {
+            host: `puter.localhost:${port}`,
+            ...(referer ? { referer: referer.replace('PORT', String(port)) } : {}),
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+    });
+
+    it('strips SDK bootstrap query parameters from the embed route', async () => {
+        const res = await request('/embed/apps?puter.app_instance_id=other&puter.api_origin=https://other.test', {
+            host: `puter.localhost:${port}`,
+        });
+        expect(res.status).toBe(302);
+        expect(res.headers.location).toBe('/embed/apps');
+        expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+    });
+
     it('blocks a request the ip.validate listeners veto', async () => {
         const handler = (_key: unknown, data: unknown) => {
             (data as { allow: boolean }).allow = false;

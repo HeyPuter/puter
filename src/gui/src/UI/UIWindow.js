@@ -704,12 +704,12 @@ async function UIWindow (options) {
         attach_dashboard_app_drawer(el_window, options);
     }
 
-    // Let the Apps tab refresh its tiles' running dots (see TabApps).
+    // Let the Apps tab refresh its tiles' running dots (see AppBrowser.js).
     if ( window.is_dashboard_mode && options.app ) {
         document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
     }
 
-    // A launch from a dashboard Apps-tab tile (TabApps passes
+    // A launch from a dashboard Apps-tab tile (AppBrowser.js passes
     // morph_from_dashboard_tile) morphs the tile's icon into the opening
     // window — the reverse of hideWindow's minimize morph. The window is
     // already appended, displayed, and at its final (maximized) geometry
@@ -2882,7 +2882,7 @@ function delete_window_element (el_window) {
         window.window_counter = 0;
     }
     // Every close path funnels through here — after the element is gone,
-    // let the Apps tab turn the app tile's running dot off (see TabApps).
+    // let the Apps tab turn the app tile's running dot off (see AppBrowser.js).
     if ( window.is_dashboard_mode && was_app ) {
         document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
     }
@@ -4664,7 +4664,7 @@ function dashboard_rendered_app_icon (app_name) {
 // -- Drawer intro exposure decay --
 // The drawer's opening flash (see attach_dashboard_app_drawer) is pedagogy:
 // it teaches that the app's controls live in the tongue. Like the
-// dashboard's deep-link intro (TabApps.js), the lesson decays — after this
+// dashboard's deep-link intro (AppBrowser.js), the lesson decays — after this
 // many deliveries, new windows keep the bare tongue and the flash stops
 // occluding the app's top edge. A delivery is counted once per window:
 // either the flash played while the user could see it, or the user opened
@@ -4969,7 +4969,7 @@ function attach_dashboard_app_drawer (el_window, options) {
  * Tiles whose click feedback has played (or is playing) for the launch
  * currently in flight. A fresh app launch has a server round-trip between
  * the click and the window's creation; so the click is acknowledged
- * instantly, TabApps plays the icon half of the open morph immediately
+ * instantly, AppBrowser.js plays the icon half of the open morph immediately
  * (begin_dashboard_tile_launch) and the mark here tells the window's half
  * not to replay it when the window finally opens (morph_window_from_tile).
  */

@@ -22,6 +22,7 @@ const en = {
     english_name: 'English',
     code: 'en',
     dictionary: {
+        app_browser_unavailable: 'Apps are unavailable. Please reopen this browser from your app.',
         about: 'About',
         account: 'Account',
         account_password: 'Verify Account Password',
