@@ -672,6 +672,8 @@ const runLaunch = async (options) => {
             });
             newTab.location.href = iframe_url.href;
             record_app_open(app_info);
+            // A tab never signals over IPC, so it has no interactive span to count.
+            transaction?.annotate({ 'launch.ipc_tracked': false });
             endLaunchTransaction(transaction, 'opened-in-new-tab');
             return {
                 launchResult: {

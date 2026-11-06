@@ -40,12 +40,25 @@ const app = {
 };
 
 let register;
+let transactions;
 
 beforeEach(() => {
     register = vi.fn();
     globalThis.i18n = key => key;
     globalThis.$ = { ajax: vi.fn() };
-    window.Transaction = class { start () {} annotate () {} end () {} };
+    transactions = [];
+    window.Transaction = class {
+        constructor (name, attributes) {
+            this.name = name;
+            this.attributes = { ...attributes };
+            transactions.push(this);
+        }
+        start () {}
+        annotate (attributes) {
+            Object.assign(this.attributes, attributes);
+        }
+        end () {}
+    };
     window.uuidv4 = () => 'instance-1';
     window.icons = {};
     window.app_domain = 'puter.app';
@@ -99,6 +112,17 @@ describe('launch_app with a new tab', () => {
         expect(window.app_instance_ids.size).toBe(0);
         expect(window.launch_apps.recent[0].name).toBe('notes');
         expect($.ajax).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://api.puter.test/rao' }));
+    });
+
+    it('counts the launch as one with no interactive span to wait for', async () => {
+        const tab = { location: { href: '' }, close: vi.fn() };
+        await launch_app({ name: 'notes', app_obj: { ...app }, newTab: tab });
+
+        const ready = transactions.find(t => t.name === 'app-is-ready');
+        expect(ready.attributes).toMatchObject({
+            'launch.ipc_tracked': false,
+            outcome: 'opened-in-new-tab',
+        });
     });
 
     it('hands the opened file over with the token, keeping its signed URLs out of the tab URL', async () => {
