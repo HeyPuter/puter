@@ -20,11 +20,16 @@ the desktop and dashboard send `utm_campaign=desktop` and `utm_campaign=dashboar
 ## Session and framing
 
 Only show the iframe after the user has signed in. The embed reads the existing
-GUI session from local storage on its own origin. It does not create accounts,
-show a login dialog, or accept a token from its parent. A missing session or
-failed load displays an unavailable/error state. Being signed in on a subdomain
-alone does not populate the main GUI origin's storage; the main GUI session must
-already exist.
+GUI session from local storage on its own origin. If that storage holds no
+session, the embed gets the session from the GUI origin's session cookie through
+`/get-gui-token`. This matters in Safari, which gives a framed origin separate
+local storage under each top-level origin, so even a sibling subdomain's iframe
+can't see the GUI's stored token. The session cookie is still sent, because the
+host is on the same site. The embed doesn't write that token back to storage. It
+does not create accounts, show a login dialog, or accept a token from its parent.
+A missing session or failed load displays an unavailable/error state. Being
+signed in on a subdomain alone does not create a session on the main GUI origin;
+the main GUI session must already exist.
 
 The route's `Content-Security-Policy: frame-ancestors` allows the GUI origin and
 the embedding page's origin when it is exactly one label under `config.domain`
