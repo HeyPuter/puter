@@ -245,6 +245,8 @@ export function pushLoginScreen (flow, options = {}) {
             await window.update_auth_data(data.token, data.user);
         } catch ( err ) {
             unlock();
+            // Back from a verified code, whose screen would otherwise stay up, busy.
+            if ( $screen.prop('hidden') ) flow.goTo('login');
             setAuthStatus($screen, err?.message || i18n('something_went_wrong', [], false));
             return;
         }

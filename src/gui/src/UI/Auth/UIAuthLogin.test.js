@@ -278,6 +278,23 @@ describe('password login with a second factor', () => {
         expect(JSON.parse(fetch.mock.calls.at(-1)[1].body).token).toBe('password-challenge');
     });
 
+    it('shows a failure to finish signing in on the login screen, not a stuck code screen', async () => {
+        fetch.mockImplementation(async (url) => (String(url).endsWith('/providers') ? reply(200, { providers: [] }) : reply(200, completed)));
+        window.update_auth_data = vi.fn(async () => {
+            throw new Error('Storage is full');
+        });
+        const calls = captureAjax();
+        void UIAuthLogin({ reload_on_success: false });
+        submitLogin();
+        calls[0].success({ proceed: true, next_step: 'otp', otp_jwt_token: 'c' });
+        await vi.waitFor(() => expect(screen().attr('data-screen')).toBe('two-factor'));
+        enterOtp('001234');
+        await vi.waitFor(() => expect(screen().attr('data-screen')).toBe('login'));
+        expect(screen().find('.dashboard-form-status').text()).toBe('Storage is full');
+        expect($('.login-btn').prop('disabled')).toBe(false);
+        expect(activeAuthFlow().isBusy()).toBe(false);
+    });
+
     it('returns to the enabled password form when the user goes back', async () => {
         const calls = captureAjax();
         const result = UIAuthLogin({ reload_on_success: false });
