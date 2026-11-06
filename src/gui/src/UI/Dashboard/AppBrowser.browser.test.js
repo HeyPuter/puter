@@ -264,6 +264,23 @@ describe('embedded app browser', () => {
         }
     });
 
+    it.each([429, 503])('does not show the signed-out list when the session lookup fails with %i', async status => {
+        guestApps = [{ name: 'notes', title: 'Notes', uuid: 'uid-notes', index_url: `http://notes.puter.localhost:${port}/index`, icon: null }];
+        const context = await browser.newContext();
+        try {
+            const page = await context.newPage();
+            page.setDefaultTimeout(6000);
+            await page.route('**/get-gui-token', route => route.fulfill({ status }));
+            await page.goto(`${origin}/embed/apps`);
+            await page.getByRole('status').waitFor();
+            expect(await page.getByRole('status').textContent()).toContain('Apps are unavailable');
+            expect(await page.locator('.myapps-tile').count()).toBe(0);
+        } finally {
+            guestApps = [];
+            await context.close();
+        }
+    });
+
     it('shows an unavailable state if the SDK cannot load', async () => {
         const context = await browser.newContext({ storageState: {
             cookies: [], origins: [{ origin, localStorage: [{ name: 'auth_token_v2', value: sessionToken }] }],

@@ -107,7 +107,10 @@ async function readSession () {
     const stored = localStorage.getItem('auth_token_v2');
     if ( stored ) return stored;
     const response = await fetch('/get-gui-token', { credentials: 'include' });
-    if ( ! response.ok ) return null;
+    // Only a 401 means there is no session; a rate limit or server error
+    // must not pass a signed-in user off as signed out.
+    if ( response.status === 401 ) return null;
+    if ( ! response.ok ) throw new Error(`Session lookup responded ${response.status}`);
     return (await response.json())?.token || null;
 }
 
