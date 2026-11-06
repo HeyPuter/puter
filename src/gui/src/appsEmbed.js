@@ -85,8 +85,21 @@ function launchTile ({ appName, targetLink }) {
         .finally(() => launching.delete(appName));
 }
 
+/**
+ * The GUI session, from local storage or else the session cookie. Safari keys a
+ * frame's local storage by the top-level origin, so under a sibling subdomain
+ * the GUI's stored token is out of reach while its cookie is still sent.
+ */
+async function readSession () {
+    const stored = localStorage.getItem('auth_token_v2');
+    if ( stored ) return stored;
+    const response = await fetch('/get-gui-token', { credentials: 'include' });
+    if ( ! response.ok ) return null;
+    return (await response.json())?.token || null;
+}
+
 async function mount () {
-    window.auth_token = localStorage.getItem('auth_token_v2');
+    window.auth_token = await readSession();
     if ( ! window.auth_token ) throw new Error('Missing session');
 
     await Promise.all([new Promise((resolve, reject) => {

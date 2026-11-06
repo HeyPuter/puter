@@ -15,6 +15,7 @@ let port;
 const requests = [];
 const guiRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const sessionToken = 'app-browser-test-session';
+const sessionCookie = 'app-browser-test-cookie';
 const appRows = Array.from({ length: 105 }, (_, i) => ({
     name: `app-${i}`, title: `App ${i}`, icon: null,
 }));
@@ -54,6 +55,10 @@ beforeAll(async () => {
         if ( req.headers.authorization !== `Bearer ${sessionToken}` ) return res.sendStatus(401);
         const offset = (Number(req.query.page) - 1) * 100;
         res.json(appRows.slice(offset, offset + 100));
+    });
+    app.get('/get-gui-token', (req, res) => {
+        if ( ! req.headers.cookie?.includes(`puter_auth_token=${sessionCookie}`) ) return res.sendStatus(401);
+        res.json({ token: sessionToken });
     });
     app.get('/get-launch-apps', (_req, res) => res.json({ recommended: [{ name: 'removed', title: 'Removed' }] }));
     app.get('/cache/last-change-timestamp', (_req, res) => res.json({ timestamp: 0 }));
@@ -162,6 +167,27 @@ describe('embedded app browser', () => {
             }
         }, 30000,
     );
+
+    it('falls back to the session cookie when its local storage holds no session', async () => {
+        // Safari gives the frame its own empty storage under a sibling subdomain.
+        const context = await browser.newContext({ storageState: {
+            cookies: [{
+                name: 'puter_auth_token', value: sessionCookie, domain: 'puter.localhost', path: '/',
+                expires: -1, httpOnly: true, secure: false, sameSite: 'Lax',
+            }],
+            origins: [],
+        } });
+        try {
+            const page = await context.newPage();
+            page.setDefaultTimeout(6000);
+            await page.goto(`http://spreadsheet.puter.localhost:${port}/host`);
+            const frame = page.frameLocator('iframe');
+            await frame.locator('.myapps-group-tile').waitFor();
+            expect(await frame.locator('[data-app-name="app-104"]').count()).toBe(1);
+        } finally {
+            await context.close();
+        }
+    });
 
     it('opens the desktop landing, cut off from the embed, for an app it can\'t launch itself', async () => {
         const context = await browser.newContext({ storageState: {
