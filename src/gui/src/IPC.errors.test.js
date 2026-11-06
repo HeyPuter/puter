@@ -23,7 +23,7 @@ vi.mock('./UI/UIWindowEmailConfirmationRequired.js', stub);
 vi.mock('./UI/UIWindowFontPicker.js', stub);
 vi.mock('./UI/UIPermissionDialog.js', stub);
 vi.mock('./UI/UIWindowSaveAccount.js', stub);
-vi.mock('./UI/UIWindowSignup.js', stub);
+vi.mock('./UI/Auth/UIAuthSignup.js', stub);
 vi.mock('./UI/UINotification.js', stub);
 vi.mock('./helpers/godmodeTokens.js', () => ({ renewGodmodeToken: vi.fn() }));
 vi.mock('./helpers/watchItems.js', () => ({ addItemWatcher: vi.fn() }));

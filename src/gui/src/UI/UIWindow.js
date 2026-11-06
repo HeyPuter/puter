@@ -21,7 +21,7 @@ import UIAlert from './UIAlert.js';
 import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
 import UITaskbarItem from './UITaskbarItem.js';
-import UIWindowLogin from './UIWindowLogin.js';
+import UIAuthLogin from './Auth/UIAuthLogin.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
@@ -1288,7 +1288,7 @@ async function UIWindow (options) {
         // directory content
         // --------------------------------------------------------
         //auth
-        if ( !window.is_auth() && !(await UIWindowLogin()) )
+        if ( !window.is_auth() && !(await UIAuthLogin()) )
         {
             return;
         }

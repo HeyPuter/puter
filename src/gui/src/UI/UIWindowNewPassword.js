@@ -19,7 +19,7 @@
 
 import UIWindow from './UIWindow.js';
 import UIAlert from './UIAlert.js';
-import UIWindowLogin from './UIWindowLogin.js';
+import UIAuthLogin from './Auth/UIAuthLogin.js';
 import check_password_strength from '../helpers/checkPasswordStrength.js';
 
 async function UIWindowNewPassword (options) {
@@ -183,11 +183,9 @@ async function UIWindowNewPassword (options) {
                             close_on_backdrop_click: false,
                         },
                     });
-                    await UIWindowLogin({
+                    await UIAuthLogin({
                         reload_on_success: true,
-                        window_options: {
-                            has_head: false,
-                        },
+                        dismissable: false,
                     });
                 },
                 error: function (err) {

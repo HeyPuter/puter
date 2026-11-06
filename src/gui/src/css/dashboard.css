@@ -10681,6 +10681,714 @@ body.dashboard-mode .notifications-close-all {
     }
 }
 
+/* ======================================
+   Auth dialog (login, signup, account picker, password recovery, 2FA)
+   ====================================== */
+
+/* Above every window (phones pin them all at 9999999) and the toolbar, and
+   under the stay-on-top band (99999999 and up) where the account checks a
+   new signup has to pass open as windows. */
+.dashboard-dialog-overlay.auth-dialog-overlay {
+    z-index: 99999998;
+}
+
+/* As a page there is nothing behind the card to go back to. */
+.dashboard-dialog-overlay.auth-dialog-page {
+    background: var(--dashboard-sidebar-background);
+}
+
+.dashboard-dialog.auth-dialog {
+    position: relative;
+    width: min(400px, 100%);
+    color: var(--dashboard-text-primary);
+    text-align: left;
+}
+
+.auth-dialog [hidden] {
+    display: none !important;
+}
+
+/* Back and ✕ float over the top corners; the logo sits between them. */
+.auth-dialog-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    padding: 10px;
+    pointer-events: none;
+    transition: background-color 0.15s, box-shadow 0.15s;
+}
+
+/* Scrolled, the screen passes under an opaque bar rather than under the
+   bare buttons. */
+.auth-dialog-scrolled .auth-dialog-bar:has(> button:not([hidden])) {
+    background: var(--dashboard-card-background);
+    box-shadow: 0 1px 0 var(--dashboard-border);
+    pointer-events: auto;
+}
+
+.auth-dialog .auth-body {
+    scroll-padding-top: 52px;
+}
+
+.auth-dialog-bar > button {
+    pointer-events: auto;
+}
+
+.auth-dialog-bar .dashboard-dialog-close {
+    margin-left: auto;
+}
+
+.auth-dialog-back {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.auth-dialog-back svg {
+    width: 20px;
+    height: 20px;
+}
+
+.auth-dialog-back:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+@media (hover: hover) {
+    .auth-dialog-back:not(:disabled):hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+
+.auth-dialog-back:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+@media (pointer: coarse) {
+    .auth-dialog-back {
+        position: relative;
+    }
+
+    .auth-dialog-back::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+}
+
+.auth-screen {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.auth-dialog .dashboard-dialog-body.auth-body {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 28px 28px 24px;
+}
+
+.auth-dialog .auth-footer {
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    font-size: 13px;
+}
+
+.auth-footer-sep {
+    color: var(--dashboard-text-muted);
+}
+
+/* Logo strip, title, and the opener notice of a sign-in popup. */
+.auth-head {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 22px;
+    text-align: center;
+}
+
+.auth-dialog .auth-logo {
+    width: 28px;
+    height: 28px;
+    padding: 12px;
+    border-radius: 12px;
+}
+
+.auth-dialog .auth-logo-link {
+    display: block;
+    border-radius: 12px;
+}
+
+.auth-dialog .auth-logo-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.auth-dialog .auth-opener-logo {
+    width: 52px;
+    height: 52px;
+    border-radius: 12px;
+}
+
+.auth-dialog .auth-opener-logo-fallback,
+.auth-dialog .auth-opener-logo-img {
+    border-radius: 12px;
+}
+
+.auth-dialog .auth-opener-logo-fallback {
+    padding: 12px;
+}
+
+.auth-dialog .auth-logo-connector {
+    width: 54px;
+}
+
+.auth-title {
+    margin: 4px 0 0;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--dashboard-text-primary);
+    text-shadow: none;
+    overflow-wrap: anywhere;
+}
+
+.auth-subtitle,
+.auth-dialog .auth-opener-notice {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--dashboard-text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.auth-dialog .auth-opener-notice strong {
+    color: var(--dashboard-text-primary);
+}
+
+.auth-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+
+.auth-badge svg {
+    width: 26px;
+    height: 26px;
+}
+
+/* Forms */
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.dashboard-dialog-btn.auth-submit {
+    width: 100%;
+    height: 40px;
+    margin-top: 4px;
+}
+
+.auth-status-success {
+    border-color: var(--dashboard-success-border, transparent);
+    background: var(--dashboard-success-background, transparent);
+    color: var(--dashboard-success-text);
+}
+
+.auth-status-help p {
+    margin: 0 0 6px;
+}
+
+.auth-status-help ul {
+    margin: 0;
+    padding-left: 1.4em;
+}
+
+.auth-forgot-row,
+.auth-link-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: -6px;
+}
+
+.auth-link-row {
+    justify-content: center;
+    margin-top: 0;
+}
+
+.auth-link {
+    display: inline;
+    padding: 2px 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--dashboard-link);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .auth-link:hover {
+        text-decoration: underline;
+    }
+}
+
+.auth-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+@media (pointer: coarse) {
+    .auth-link {
+        min-height: 44px;
+        padding: 0 4px;
+        font-size: 14px;
+    }
+
+    .auth-forgot-row {
+        margin-top: -12px;
+    }
+}
+
+/* Identity providers */
+.auth-providers {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 18px;
+}
+
+.auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+}
+
+.auth-divider::before,
+.auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--dashboard-border);
+}
+
+.auth-provider-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dashboard-dialog-btn.auth-provider-btn {
+    width: 100%;
+    height: 40px;
+    gap: 10px;
+    font-weight: 500;
+    font-size: 14px;
+}
+
+@media (hover: hover) {
+    .dashboard-dialog-btn.auth-provider-btn:hover {
+        background: var(--dashboard-sidebar-background);
+    }
+}
+
+/* The dark sidebar shade is the dark card's own. */
+@media (hover: hover) and (prefers-color-scheme: dark) {
+    .dashboard-dialog-btn.auth-provider-btn:hover {
+        background: var(--dashboard-hover);
+    }
+}
+
+.auth-provider-icon {
+    display: flex;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+}
+
+.auth-provider-icon img,
+.auth-provider-icon svg {
+    width: 20px !important;
+    height: 20px !important;
+}
+
+/* Signup */
+.auth-dialog .auth-screen-status {
+    margin: 0 0 16px;
+}
+
+.auth-dialog .auth-screen-status:empty {
+    margin: 0;
+}
+
+.auth-dialog .signup-bonus-notice {
+    margin: 0 0 16px;
+    border: 1px solid var(--dashboard-success-border);
+    border-radius: 8px;
+    background: var(--dashboard-success-background);
+    color: var(--dashboard-success-text);
+}
+
+.auth-dialog .signup-bonus-notice-invalid {
+    border-color: var(--dashboard-danger-border);
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+}
+
+.auth-dialog .signup-oidc-only-notice {
+    margin: 0 0 12px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--dashboard-text-secondary);
+}
+
+.auth-dialog .oidc-providers-wrapper {
+    margin-top: 0;
+}
+
+.signup-with-email-wrapper {
+    margin-top: 8px;
+}
+
+/* The email form under the provider buttons. */
+.oidc-providers-wrapper:not([hidden]) ~ .signup-form {
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.auth-dialog .signup-terms {
+    margin: 18px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--dashboard-text-muted);
+    text-align: center;
+}
+
+.auth-dialog .signup-terms a {
+    color: var(--dashboard-link);
+}
+
+.auth-turnstile {
+    display: flex;
+    justify-content: center;
+}
+
+.auth-turnstile:has(.cf-turnstile:empty) {
+    display: none;
+}
+
+.cf-turnstile.captcha-completed {
+    border: 2px solid #4caf50;
+    border-radius: 4px;
+    padding: 2px;
+}
+
+/* Account picker */
+.auth-accounts {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.auth-account {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 58px;
+    padding: 10px 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+@media (hover: hover) {
+    .auth-account:not(:disabled):hover {
+        border-color: var(--select-color);
+        background: var(--select-tint-weak);
+    }
+}
+
+.auth-account:focus-visible {
+    outline: none;
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.auth-account:disabled {
+    cursor: default;
+}
+
+.auth-account:disabled:not(.dashboard-form-busy) {
+    opacity: 0.55;
+}
+
+.auth-account-avatar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--select-tint);
+    color: var(--select-text);
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.auth-account-avatar img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.auth-account-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.auth-account-name,
+.auth-account-detail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.auth-account-name {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.auth-account-detail {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+}
+
+.auth-account-chevron {
+    display: flex;
+    flex-shrink: 0;
+    color: var(--dashboard-text-muted);
+}
+
+.auth-account-chevron svg {
+    width: 16px;
+    height: 16px;
+}
+
+.auth-account.dashboard-form-busy .auth-account-chevron {
+    display: none;
+}
+
+.auth-account .auth-account-spinner {
+    margin-right: 0;
+    color: var(--select-color);
+}
+
+/* Second factor */
+.login-2fa-code-inputs {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+
+.auth-dialog .login-2fa-code-inputs .dashboard-dialog-input,
+.auth-dialog .login-2fa-code-inputs .dashboard-dialog-input:focus {
+    width: 46px;
+    height: 54px;
+    padding: 0;
+    text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.auth-dialog .dashboard-dialog-input.login-2fa-recovery-input,
+.auth-dialog .dashboard-dialog-input.login-2fa-recovery-input:focus {
+    height: 50px;
+    text-align: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 2px;
+}
+
+.auth-dialog .login-2fa-code-inputs .login-2fa-wrong {
+    border-color: var(--dashboard-danger-text);
+    animation: auth-shake 0.4s ease;
+}
+
+@keyframes auth-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-4px); }
+    40% { transform: translateX(4px); }
+    60% { transform: translateX(-3px); }
+    80% { transform: translateX(2px); }
+}
+
+@media (max-width: 380px) {
+    .login-2fa-code-inputs {
+        gap: 6px;
+    }
+
+    .auth-dialog .login-2fa-code-inputs .dashboard-dialog-input,
+    .auth-dialog .login-2fa-code-inputs .dashboard-dialog-input:focus {
+        width: 40px;
+        height: 48px;
+        font-size: 20px;
+    }
+}
+
+/* Recovery email sent */
+.auth-done {
+    padding: 4px 0 0;
+}
+
+/* Wait on the work in flight rather than act twice. */
+.auth-dialog-busy .auth-link,
+.auth-dialog-busy .auth-provider-btn {
+    pointer-events: none;
+    opacity: 0.6;
+}
+
+/* Phones (and any popup): a page fills the screen, content centered in it,
+   rather than a card on a page. */
+@media (max-width: 600px) {
+    /* A bottom sheet spans the screen, like every other dashboard sheet. */
+    .dashboard-dialog.auth-dialog {
+        width: 100%;
+    }
+
+    .dashboard-dialog-overlay.auth-dialog-page {
+        align-items: stretch;
+        background: var(--dashboard-card-background);
+    }
+
+    .auth-dialog-page .dashboard-dialog.auth-dialog {
+        width: 100%;
+        height: 100%;
+        max-height: none;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        transform: none;
+    }
+
+    .auth-dialog .dashboard-dialog-body.auth-body {
+        padding: 24px 20px 20px;
+    }
+
+    /* Two links side by side, not stacked like a dialog's buttons. */
+    .auth-dialog .auth-footer {
+        flex-direction: row;
+    }
+}
+
+.embedded-in-popup .dashboard-dialog-overlay.auth-dialog-page {
+    align-items: stretch;
+    padding: 0;
+    background: var(--dashboard-card-background);
+}
+
+.embedded-in-popup .auth-dialog-page .dashboard-dialog.auth-dialog {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    transform: none;
+}
+
+/* Filling the screen, the content keeps a readable width and sits in the
+   middle of the height it doesn't need. */
+@media (max-width: 600px) {
+    .auth-dialog-page .auth-body::before,
+    .auth-dialog-page .auth-body::after {
+        content: '';
+        flex: 1 1 0;
+    }
+
+    .auth-dialog-page .auth-body > * {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 400px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+}
+
+.embedded-in-popup .auth-dialog-page .auth-body::before,
+.embedded-in-popup .auth-dialog-page .auth-body::after {
+    content: '';
+    flex: 1 1 0;
+}
+
+.embedded-in-popup .auth-dialog-page .auth-body > * {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .auth-dialog .login-2fa-code-inputs .login-2fa-wrong {
+        animation: none;
+    }
+}
+
 /* A person's profile picture, laid over their initial once it loads. The
    element selector outranks each avatar's own color, dark mode included. */
 span[data-avatar-user].has-picture {
