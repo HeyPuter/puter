@@ -113,6 +113,16 @@ export const requestLaunchFromOpener = ({
     if (!opener || opener.closed || !guiOrigin || !appInstanceID) {
         return null;
     }
+    // An opener of this page's own origin is the app itself (a pop-out, say),
+    // not the GUI, and is the app's to keep. A cross-origin one throws here.
+    try {
+        const origin = scope.location.origin;
+        if (origin !== guiOrigin && opener.location.origin === origin) {
+            return null;
+        }
+    } catch {
+        // Possibly the GUI: ask it.
+    }
 
     return new Promise((resolve) => {
         let timer = null;

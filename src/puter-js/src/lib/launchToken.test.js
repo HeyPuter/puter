@@ -186,6 +186,28 @@ describe('requestLaunchFromOpener', () => {
         }
     });
 
+    it('leaves alone a page this app opened from its own origin', () => {
+        const scope = makeScope();
+        scope.location = { origin: 'https://app.example' };
+        scope.opener.location = { origin: 'https://app.example' };
+        const opener = scope.opener;
+        expect(requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+        expect(opener.postMessage).not.toHaveBeenCalled();
+        expect(scope.opener).toBe(opener);
+    });
+
+    it('asks a cross-origin opener, as the GUI is', () => {
+        const scope = makeScope();
+        scope.location = { origin: 'https://app.example' };
+        Object.defineProperty(scope.opener, 'location', {
+            get () {
+                throw new DOMException('Blocked a frame', 'SecurityError');
+            },
+        });
+        expect(requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeInstanceOf(Promise);
+        expect(scope.opener.postMessage).toHaveBeenCalledOnce();
+    });
+
     // Synchronously, so there is no pending launch for callers to wait on.
     it('returns null without asking when there is no opener', () => {
         const scope = makeScope();
