@@ -54,6 +54,7 @@ describe('appendLaunchContext', () => {
             params: { extra: 'x' },
             locale: 'en',
             args: { a: 1 },
+            surface: 'dashboard',
         });
         expect(Object.fromEntries(url.searchParams)).toMatchObject({
             'puter.domain': 'puter.test',
@@ -66,6 +67,8 @@ describe('appendLaunchContext', () => {
             'puter.locale': 'en',
             'puter.args': '{"a":1}',
             'utm_source': 'puter.com',
+            'utm_medium': 'referral',
+            'utm_campaign': 'dashboard',
         });
     });
 });

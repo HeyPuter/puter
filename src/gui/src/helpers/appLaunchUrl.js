@@ -32,6 +32,13 @@ export const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
 const GUI_FEATURES = 'feedback-dialog,enable-push,custom-domains,push-status,disable-push';
 
 /**
+ * Where an app was launched from, sent to the app as `utm_campaign` so its
+ * analytics can tell the GUI's launch surfaces apart.
+ *
+ * @typedef {'desktop' | 'dashboard' | 'app_browser_embed'} LaunchSurface
+ */
+
+/**
  * The app's index URL with the params that name the launch.
  *
  * @param {object} options
@@ -69,8 +76,9 @@ export const appLaunchUrl = ({ app, name = app.name, appInstanceID, guiOrigin, a
  * @param {Record<string, string>} [options.params] - extra params from the caller
  * @param {string} options.locale
  * @param {unknown} [options.args]
+ * @param {LaunchSurface} options.surface
  */
-export const appendLaunchContext = (url, { appDomain, pageUrl, apiOrigin, params, locale, args }) => {
+export const appendLaunchContext = (url, { appDomain, pageUrl, apiOrigin, params, locale, args, surface }) => {
     url.searchParams.append('puter.domain', appDomain);
 
     const page = new URL(pageUrl);
@@ -89,4 +97,6 @@ export const appendLaunchContext = (url, { appDomain, pageUrl, apiOrigin, params
     url.searchParams.append('puter.gui_features', GUI_FEATURES);
     url.searchParams.append('puter.args', JSON.stringify(args ?? {}));
     url.searchParams.append('utm_source', 'puter.com');
+    url.searchParams.append('utm_medium', 'referral');
+    url.searchParams.append('utm_campaign', surface);
 };

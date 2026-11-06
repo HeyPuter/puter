@@ -147,6 +147,7 @@ describe('embedded app browser', () => {
                 expect(appUrl.searchParams.get('puter.app.name')).toBe('app-104');
                 expect(appUrl.searchParams.get('puter.origin')).toBe(origin);
                 expect(appUrl.searchParams.has('puter.auth.token')).toBe(false);
+                expect(appUrl.searchParams.get('utm_campaign')).toBe('app_browser_embed');
                 expect(page.url()).toBe(parentUrl);
                 await popup.waitForFunction(() => window.puter?.authToken === 'token-for-uid-app-104');
                 expect(await popup.evaluate(() => window.opener)).toBeNull();

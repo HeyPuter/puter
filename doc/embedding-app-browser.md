@@ -14,6 +14,8 @@ to its normal sign-in. Apps that need the desktop (built-in and godmode apps,
 private apps the user can't open, or a failed token request) open `/app/<name>`
 on the GUI origin, cut off from the embed. Website shortcuts open their external
 destination with no opener.
+Apps opened from the embed carry `utm_source=puter.com&utm_medium=referral&utm_campaign=app_browser_embed`;
+the desktop and dashboard send `utm_campaign=desktop` and `utm_campaign=dashboard`.
 
 ## Session and framing
 

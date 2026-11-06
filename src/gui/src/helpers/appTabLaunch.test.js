@@ -119,6 +119,9 @@ describe('launchAppInTab', () => {
             'puter.api_origin': 'https://api.puter.test',
             'puter.locale': 'fr',
             'puter.args': '{}',
+            'utm_source': 'puter.com',
+            'utm_medium': 'referral',
+            'utm_campaign': 'app_browser_embed',
         });
         expect(url.searchParams.has('puter.auth.token')).toBe(false);
         expect(fetch).toHaveBeenCalledWith('https://api.puter.test/auth/get-user-app-token', expect.objectContaining({

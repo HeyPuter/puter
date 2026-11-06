@@ -553,6 +553,7 @@ const runLaunch = async (options) => {
             params: options.params,
             locale: window.locale,
             args: withoutNotificationClick(options.args),
+            surface: window.is_dashboard_mode ? 'dashboard' : 'desktop',
         });
 
         // Closed by the user while the launch was on its way: they called it off.

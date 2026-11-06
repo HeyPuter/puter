@@ -120,7 +120,13 @@ export const launchAppInTab = async ({ name, tab, guiOrigin, apiOrigin, authToke
     const appInstanceID = uuidv4();
     const appDomain = new URL(guiOrigin).hostname;
     const url = appLaunchUrl({ app, name, appInstanceID, guiOrigin, appDomain });
-    appendLaunchContext(url, { appDomain, pageUrl: guiOrigin, apiOrigin, locale });
+    appendLaunchContext(url, {
+        appDomain,
+        pageUrl: guiOrigin,
+        apiOrigin,
+        locale,
+        surface: 'app_browser_embed',
+    });
 
     offerAppTabLaunch({ appInstanceID, tab, origin: url.origin, token, item: null });
     tab.location.href = url.href;
