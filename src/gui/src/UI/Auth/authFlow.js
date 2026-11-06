@@ -265,6 +265,10 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
         },
         setBusy (value) {
             busy = !! value;
+            // Busy screens lock their fields, and a disabled field drops focus
+            // to the page, where the desktop's shortcuts would take the keys.
+            const el_dialog = $dialog.get(0);
+            if ( busy && el_dialog.contains(document.activeElement) ) el_dialog.focus({ preventScroll: true });
             $dialog.toggleClass('auth-dialog-busy', busy).attr('aria-busy', busy ? 'true' : null);
             refresh();
         },

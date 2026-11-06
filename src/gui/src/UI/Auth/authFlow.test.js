@@ -111,6 +111,16 @@ describe('openAuthFlow', () => {
         expect(seen).not.toHaveBeenCalled();
     });
 
+    it('keeps focus in the card while busy, since a locked field would drop it to the page', () => {
+        const flow = openAuthFlow();
+        flow.push({ name: 'a', html: '<input>' });
+        const el_input = $('.auth-dialog input').get(0);
+        el_input.focus();
+        flow.setBusy(true);
+        el_input.disabled = true;
+        expect(document.activeElement).toBe($('.auth-dialog').get(0));
+    });
+
     it('stacks screens, keeping what was typed, with Back and goTo', () => {
         const flow = openAuthFlow();
         flow.push({ name: 'login', html: '<input class="typed">' });
