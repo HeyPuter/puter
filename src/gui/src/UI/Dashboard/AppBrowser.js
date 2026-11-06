@@ -23,7 +23,8 @@ import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KE
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
 import { appTileLink } from './appLink.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
-import { is_window_on_screen, user_facing_windows } from '../../helpers/windowVisibility.js';
+import { user_facing_windows } from '../../helpers/windowVisibility.js';
+import { focusExistingAppWindow } from '../../helpers/focusAppWindow.js';
 import {
     APP_GROUPS_KV_KEY,
     MAX_GROUP_APPS,
@@ -256,32 +257,6 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {} } = 
         h += `<span class="myapps-tile-label">${label}</span>`;
         h += '</div>';
         return h;
-    }
-
-    // One instance per app when opened from the dashboard: un-hide a minimized
-    // instance / focus a visible one instead of launching a duplicate. Returns
-    // whether an existing window took the request.
-    //
-    // "Un-hide" covers a window hidden outright as well as a minimized one — an
-    // app can hide itself with puter.ui.hideWindow(), and with no taskbar in
-    // dashboard mode its tile is the only way back to it. Focusing it instead
-    // would leave the tile dead (and hand the keyboard to a window nobody can
-    // see); showWindow() tells the two cases apart.
-    //
-    // Only the user's own instances count (user_facing_windows): an instance
-    // another app launched in the background is that app's private helper, so the
-    // tile must not reopen it — the click launches a fresh instance and the helper
-    // stays hidden, still serving whoever launched it.
-    function focusExistingAppWindow (appName) {
-        const $existing = $(user_facing_windows($(`.window[data-app="${html_encode(appName)}"]`)));
-        if ( ! $existing.length ) return false;
-        const $on_screen = $existing.filter((_, el) => is_window_on_screen(el)).last();
-        if ( $on_screen.length ) {
-            $on_screen.focusWindow();
-            return true;
-        }
-        $existing.last().showWindow();
-        return true;
     }
 
     // The label a folder shows: its own name, or the default one if a rename
