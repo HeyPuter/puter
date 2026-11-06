@@ -31,6 +31,7 @@ import update_username_in_gui from './helpers/updateUsernameInGui.js';
 import { notifyItemWatchers } from './helpers/watchItems.js';
 import { select_uploaded_items } from './helpers/uploadSelection.js';
 import { templateMenuItem } from './helpers/templateMenuItem.js';
+import { uuidv4 } from './helpers/uuidv4.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
@@ -259,10 +260,7 @@ window.usage_bar_color = (percent) => {
  * let id = window.uuidv4(); // Generate a new UUID
  *
  */
-window.uuidv4 = () => {
-    return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
-        (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
-};
+window.uuidv4 = uuidv4;
 
 /**
  * Checks if the provided string is a valid email format.

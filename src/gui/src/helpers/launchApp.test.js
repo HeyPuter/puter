@@ -76,6 +76,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    delete window.is_dashboard_mode;
     vi.unstubAllGlobals();
     vi.clearAllMocks();
 });
@@ -112,6 +113,22 @@ describe('launch_app with a new tab', () => {
         expect(window.app_instance_ids.size).toBe(0);
         expect(window.launch_apps.recent[0].name).toBe('notes');
         expect($.ajax).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://api.puter.test/rao' }));
+    });
+
+    it.each([
+        [false, 'desktop'],
+        [true, 'dashboard'],
+    ])('tags the launch with the surface it came from (dashboard mode: %s)', async (dashboardMode, campaign) => {
+        window.is_dashboard_mode = dashboardMode;
+        const tab = { location: { href: '' }, close: vi.fn() };
+        await launch_app({ name: 'notes', app_obj: { ...app }, newTab: tab });
+
+        const url = new URL(tab.location.href);
+        expect(Object.fromEntries(url.searchParams)).toMatchObject({
+            'utm_source': 'puter.com',
+            'utm_medium': 'referral',
+            'utm_campaign': campaign,
+        });
     });
 
     it('counts the launch as one with no interactive span to wait for', async () => {

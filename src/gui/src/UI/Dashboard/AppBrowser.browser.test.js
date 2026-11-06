@@ -23,6 +23,8 @@ const kv = {
     dashboard_app_groups: JSON.stringify([{ id: 'work', name: 'Work', apps: ['app-1', 'app-2'] }]),
     dashboard_removed_apps: JSON.stringify(['removed']),
 };
+// What puter.apps.get returns for an app; set per test.
+let appRead = name => ({ uid: `uid-${name}`, name, index_url: `http://${name}.puter.localhost:${port}/index` });
 
 beforeAll(async () => {
     directory = await mkdtemp(path.join(tmpdir(), 'puter-app-browser-'));
@@ -57,9 +59,21 @@ beforeAll(async () => {
     app.get('/cache/last-change-timestamp', (_req, res) => res.json({ timestamp: 0 }));
     app.post('/drivers/call', (req, res) => {
         if ( req.body.auth_token !== sessionToken ) return res.sendStatus(401);
+        if ( req.body.interface === 'puter-apps' ) {
+            return res.json({ success: true, result: appRead(req.body.args.id.name) });
+        }
         res.json({ success: true, result: kv[req.body.args?.key] ?? null });
     });
+    app.post('/auth/get-user-app-token', (req, res) => {
+        if ( req.headers.authorization !== `Bearer ${sessionToken}` ) return res.sendStatus(401);
+        res.json({ token: `token-for-${req.body.app_uid}` });
+    });
+    app.post('/rao', (_req, res) => res.json({}));
     app.get('/app/:name', (_req, res) => res.send('<title>Opened app</title>'));
+    // An app's own page, which signs in with the token the embed hands it.
+    app.get('/index', (_req, res) => res.send(`<title>App</title>
+        <script>window.PUTER_ORIGIN = '${origin}'; window.PUTER_API_ORIGIN = '${origin}';</script>
+        <script src="/sdk.js"></script>`));
     app.get('/host', (_req, res) => res.send(`<!DOCTYPE html><html><body style="margin:0">
         <iframe title="More apps" src="${origin}/embed/apps" style="border:0;width:100vw;height:100vh"></iframe>
     </body></html>`));
@@ -127,17 +141,49 @@ describe('embedded app browser', () => {
                 const popupPromise = context.waitForEvent('page');
                 await frame.locator('.myapps-tile').click();
                 const popup = await popupPromise;
-                await popup.waitForLoadState();
-                expect(popup.url()).toBe(`${origin}/app/app-104`);
+                await popup.waitForURL(/\/index\?/);
+                const appUrl = new URL(popup.url());
+                expect(appUrl.origin).toBe(`http://app-104.puter.localhost:${port}`);
+                expect(appUrl.searchParams.get('puter.app.name')).toBe('app-104');
+                expect(appUrl.searchParams.get('puter.origin')).toBe(origin);
+                expect(appUrl.searchParams.has('puter.auth.token')).toBe(false);
+                expect(appUrl.searchParams.get('utm_campaign')).toBe('app_browser_embed');
                 expect(page.url()).toBe(parentUrl);
+                await popup.waitForFunction(() => window.puter?.authToken === 'token-for-uid-app-104');
                 expect(await popup.evaluate(() => window.opener)).toBeNull();
-                expect(requests.filter(req => req.path === '/drivers/call').every(req => req.body.method === 'get')).toBe(true);
+                // The app's own SDK reports its open too; this is the embed's.
+                const embedOpens = requests.filter(req => req.path === '/rao' && req.auth === `Bearer ${sessionToken}`);
+                expect(embedOpens.map(req => req.body.app_uid)).toEqual(['uid-app-104']);
+                expect(requests.filter(req => req.path === '/drivers/call' && req.body.interface !== 'puter-apps')
+                    .every(req => req.body.method === 'get')).toBe(true);
                 expect(errors).toEqual([]);
             } finally {
                 await context.close();
             }
         }, 30000,
     );
+
+    it('opens the desktop landing, cut off from the embed, for an app it can\'t launch itself', async () => {
+        const context = await browser.newContext({ storageState: {
+            cookies: [], origins: [{ origin, localStorage: [{ name: 'auth_token_v2', value: sessionToken }] }],
+        } });
+        const previousRead = appRead;
+        appRead = name => ({ ...previousRead(name), privateAccess: { hasAccess: false } });
+        try {
+            const page = await context.newPage();
+            page.setDefaultTimeout(6000);
+            await page.goto(`${origin}/embed/apps`);
+            await page.locator('.myapps-search').fill('App 104');
+            const popupPromise = context.waitForEvent('page');
+            await page.locator('.myapps-tile').click();
+            const popup = await popupPromise;
+            await popup.waitForURL(`${origin}/app/app-104`);
+            expect(await popup.evaluate(() => window.opener)).toBeNull();
+        } finally {
+            appRead = previousRead;
+            await context.close();
+        }
+    });
 
     it('does not start login or load the SDK when the existing session is absent', async () => {
         const page = await browser.newPage();

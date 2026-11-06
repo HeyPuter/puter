@@ -17,6 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { BUILTIN_PREFIX, appLaunchUrl, appendLaunchContext } from './appLaunchUrl.js';
+import { fetchUserAppTokenForLaunch, reportAppOpen } from './appLaunchApi.js';
+import { uuidv4 } from './uuidv4.js';
+
 /**
  * Launch data for apps opened in their own browser tab: the app's token and
  * the item it was opened with (whose signed URLs don't expire). Both stay out
@@ -82,4 +86,50 @@ export const offerAppTabLaunch = ({ appInstanceID, tab, origin, token, item }) =
         item,
         timer: setTimeout(() => withdraw(appInstanceID), OFFER_TTL_MS),
     });
+};
+
+/**
+ * Opens an app in `tab` at its own URL, the way launch_app's `newTab` does,
+ * for pages without the desktop (the app browser embed). Resolves false,
+ * leaving the tab as it is, for a launch that needs the desktop: a built-in
+ * or godmode app, a private app the user can't open, or a token that
+ * couldn't be fetched. Also false when the user closed the tab meanwhile.
+ *
+ * @param {object} options
+ * @param {string} options.name - the app's name
+ * @param {Window} options.tab - opened by the caller, inside the click and
+ *   without `noopener`, so the app can ask it for its token
+ * @param {string} options.guiOrigin
+ * @param {string} options.apiOrigin
+ * @param {string} options.authToken - the GUI session token
+ * @param {string} options.locale
+ * @returns {Promise<boolean>} whether the tab was sent to the app
+ */
+export const launchAppInTab = async ({ name, tab, guiOrigin, apiOrigin, authToken, locale }) => {
+    const app = await puter.apps.get(name);
+    if ( app.index_url?.startsWith(BUILTIN_PREFIX)
+        || app.godmode === true || app.godmode === 1
+        || app.privateAccess?.hasAccess === false ) {
+        return false;
+    }
+
+    const appUid = app.uid ?? app.uuid;
+    const { token } = await fetchUserAppTokenForLaunch({ appUid, apiOrigin, authToken });
+    if ( !token || tab.closed ) return false;
+
+    const appInstanceID = uuidv4();
+    const appDomain = new URL(guiOrigin).hostname;
+    const url = appLaunchUrl({ app, name, appInstanceID, guiOrigin, appDomain });
+    appendLaunchContext(url, {
+        appDomain,
+        pageUrl: guiOrigin,
+        apiOrigin,
+        locale,
+        surface: 'app_browser_embed',
+    });
+
+    offerAppTabLaunch({ appInstanceID, tab, origin: url.origin, token, item: null });
+    tab.location.href = url.href;
+    reportAppOpen({ appUid, apiOrigin, authToken });
+    return true;
 };
