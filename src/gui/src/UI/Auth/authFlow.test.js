@@ -121,6 +121,20 @@ describe('openAuthFlow', () => {
         expect(document.activeElement).toBe($('.auth-dialog').get(0));
     });
 
+    it('keeps focus in the card when the backdrop is pressed', async () => {
+        const flow = openAuthFlow();
+        flow.push({ name: 'a', html: '<input>' });
+        const press = new MouseEvent('mousedown', { bubbles: true, cancelable: true, detail: 1 });
+        $('.auth-dialog-overlay').get(0).dispatchEvent(press);
+        expect(press.defaultPrevented).toBe(true);
+        $('.auth-dialog-overlay').get(0).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+        expect(flow.isClosed()).toBe(false);
+
+        const inside = new MouseEvent('mousedown', { bubbles: true, cancelable: true, detail: 1 });
+        $('.auth-dialog input').get(0).dispatchEvent(inside);
+        expect(inside.defaultPrevented).toBe(false);
+    });
+
     it('stacks screens, keeping what was typed, with Back and goTo', () => {
         const flow = openAuthFlow();
         flow.push({ name: 'login', html: '<input class="typed">' });

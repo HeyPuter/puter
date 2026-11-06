@@ -303,6 +303,11 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
         e.preventDefault();
         if ( dismissable && ! busy ) $dialog.find('.dashboard-dialog-close').trigger('click');
     });
+    // A press on the backdrop (or a page's background) would move focus to
+    // the page, and with it the keys; it stays where it was.
+    $overlay.on('mousedown', function (e) {
+        if ( e.target === this ) e.preventDefault();
+    });
 
     active_flow = flow;
     return flow;
