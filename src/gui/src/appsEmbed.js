@@ -104,7 +104,10 @@ function launchTile ({ appName, targetLink }) {
  * the GUI's stored token is out of reach while its cookie is still sent.
  */
 async function readSession () {
-    const stored = localStorage.getItem('auth_token_v2');
+    let stored = null;
+    try {
+        stored = localStorage.getItem('auth_token_v2');
+    } catch { /* Storage the browser refuses holds no session; the cookie may. */ }
     if ( stored ) return stored;
     const response = await fetch('/get-gui-token', { credentials: 'include' });
     // Only a 401 means there is no session; a rate limit or server error

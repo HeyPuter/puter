@@ -264,6 +264,25 @@ describe('embedded app browser', () => {
         }
     });
 
+    it('shows the recommended apps when the browser refuses access to storage', async () => {
+        guestApps = [{ name: 'notes', title: 'Notes', uuid: 'uid-notes', index_url: `http://notes.puter.localhost:${port}/index`, icon: null }];
+        const context = await browser.newContext();
+        try {
+            await context.addInitScript(() => {
+                Object.defineProperty(window, 'localStorage', {
+                    get () { throw new DOMException('Access is denied for this document.', 'SecurityError'); },
+                });
+            });
+            const page = await context.newPage();
+            page.setDefaultTimeout(6000);
+            await page.goto(`${origin}/embed/apps`);
+            await page.locator('[data-app-name="notes"]').waitFor();
+        } finally {
+            guestApps = [];
+            await context.close();
+        }
+    });
+
     it.each([429, 503])('does not show the signed-out list when the session lookup fails with %i', async status => {
         guestApps = [{ name: 'notes', title: 'Notes', uuid: 'uid-notes', index_url: `http://notes.puter.localhost:${port}/index`, icon: null }];
         const context = await browser.newContext();
