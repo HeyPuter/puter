@@ -20,7 +20,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetAuthGlobals, tick } from './authTestSetup.js';
 
-const { default: openAuthFlow, activeAuthFlow, authFlowOptions, joinAuthFlow, navigateAfterSignIn } = await import('./authFlow.js');
+const { default: openAuthFlow, activeAuthFlow, authFlowOptions, authHeadHtml, joinAuthFlow, navigateAfterSignIn } = await import('./authFlow.js');
 
 const key = (target, k) => target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
 const backdropClick = () => {
@@ -234,6 +234,21 @@ describe('openAuthFlow', () => {
         $('.second').get(0).blur();
         joinAuthFlow();
         expect($('.auth-dialog').get(0).contains(document.activeElement)).toBe(true);
+    });
+});
+
+describe('authHeadHtml', () => {
+    it('makes the logo a keyboard-reachable way out only on a cover page', () => {
+        const page = openAuthFlow({ page: true });
+        const $page_head = $(authHeadHtml(page, 'Log in'));
+        expect($page_head.find('a.auth-logo-link').attr('href')).toBe('/');
+        expect($page_head.find('.auth-logo').attr('alt')).toBe('Puter');
+        page.finish(false);
+
+        const dialog = openAuthFlow();
+        const $dialog_head = $(authHeadHtml(dialog, 'Log in'));
+        expect($dialog_head.find('a')).toHaveLength(0);
+        expect($dialog_head.find('.auth-logo').attr('alt')).toBe('');
     });
 });
 

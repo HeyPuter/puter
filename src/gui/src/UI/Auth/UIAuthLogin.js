@@ -141,7 +141,7 @@ export function pushLoginScreen (flow, options = {}) {
     const $user = $form.find('[name="email_or_username"]');
     const $password = $form.find('[name="password"]');
 
-    wireAuthHead(flow, $screen);
+    wireAuthHead($screen);
     bindPasswordReveal($form);
     if ( options.authError ) setAuthStatus($screen, options.authError);
 

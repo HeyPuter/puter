@@ -97,7 +97,7 @@ export function pushAccountPickerScreen (flow) {
 
     // Nothing to type here; focus lands on the card, not on an account.
     const $screen = flow.push({ name: 'accounts', html: h, autofocus: false });
-    wireAuthHead(flow, $screen);
+    wireAuthHead($screen);
     paintPictures($screen, accounts);
 
     $screen.find('.auth-to-login').on('click', () => {

@@ -380,7 +380,7 @@ export const authHeadHtml = (flow, title) => {
     let h = '<div class="auth-head">';
     h += authLogoHeader({
         logoSrc: window.icons['logo-white.svg'],
-        logoClickable: logoLeavesPage(flow),
+        logoHref: logoHref(flow),
         openerOrigin: opener,
         openerFallbackSrc: window.icons['website.svg'],
     });
@@ -392,22 +392,25 @@ export const authHeadHtml = (flow, title) => {
     return h;
 };
 
-/** On a cover page, the logo is a way out to the dashboard (or the desktop). */
-const logoLeavesPage = (flow) => flow.page && ! window.embedded_in_popup;
+/**
+ * On a cover page, the logo is a way out: desktop users stay on the desktop,
+ * everyone else goes to the root dashboard.
+ *
+ * @param {AuthFlow} flow
+ * @returns {string} Empty where the logo leads nowhere.
+ */
+const logoHref = (flow) => {
+    if ( ! flow.page || window.embedded_in_popup ) return '';
+    return window.location.pathname === '/desktop' ? '/desktop' : '/';
+};
 
 /**
  * Wires a screen's head once it is on the page.
  *
- * @param {AuthFlow} flow
  * @param {jQuery} $screen
  */
-export const wireAuthHead = (flow, $screen) => {
+export const wireAuthHead = ($screen) => {
     wireAuthLogoHeader($screen.get(0));
-    if ( ! logoLeavesPage(flow) ) return;
-    $screen.find('.auth-logo').on('click', () => {
-        // Keep desktop users on the desktop; everyone else goes to the root dashboard.
-        window.location.href = window.location.pathname === '/desktop' ? '/desktop' : '/';
-    });
 };
 
 /**

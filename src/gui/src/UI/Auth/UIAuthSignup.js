@@ -248,7 +248,7 @@ export function pushSignupScreen (flow, options = {}) {
     let turnstile_widget = null;
     let offers_providers = false;
 
-    wireAuthHead(flow, $screen);
+    wireAuthHead($screen);
     bindPasswordReveal($form);
     if ( options.authError ) setAuthStatus($screen, options.authError);
 

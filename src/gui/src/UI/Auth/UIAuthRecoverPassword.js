@@ -79,7 +79,7 @@ export function pushRecoverPasswordScreen (flow, { email_or_username = '' } = {}
     const $screen = flow.push({ name: 'recover-password', html: h });
     const $form = $screen.find('.pass-recovery-form');
     const $input = $form.find('[name="email_or_username"]');
-    wireAuthHead(flow, $screen);
+    wireAuthHead($screen);
 
     $screen.find('.auth-to-login').on('click', () => {
         if ( flow.isBusy() ) return;

@@ -10840,6 +10840,16 @@ body.dashboard-mode .notifications-close-all {
     border-radius: 12px;
 }
 
+.auth-dialog .auth-logo-link {
+    display: block;
+    border-radius: 12px;
+}
+
+.auth-dialog .auth-logo-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
 .auth-dialog .auth-opener-logo {
     width: 52px;
     height: 52px;
