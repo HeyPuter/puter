@@ -320,7 +320,7 @@ export const transformToV2 = (source) => {
     if ( svc['onlyoffice-app'] ) out.onlyoffice = svc['onlyoffice-app'];
 
     // Cloudflare Turnstile: v2 GUI renders the challenge widget when
-    // `gui_params.turnstileSiteKey` is set (see initgui.js / UIWindowSignup).
+    // `gui_params.turnstileSiteKey` is set (see initgui.js / UI/Auth/UIAuthSignup.js).
     // Preserve the full block at `turnstile` for whenever the backend verifier
     // is ported, and surface the site key into gui_params so the widget works.
     if ( svc['cloudflare-turnstile'] ) {
