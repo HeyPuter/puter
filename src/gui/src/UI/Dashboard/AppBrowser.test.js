@@ -134,6 +134,26 @@ describe('shared app browser', () => {
         expect($('.window')).toHaveLength(0);
     });
 
+    it('launches in-page when the browser refuses the tab', async () => {
+        vi.spyOn(window, 'open').mockReturnValue(null);
+        const actions = {
+            launchApp: vi.fn(async () => ({ launchResult: { launched: true } })),
+            beginTileLaunch: vi.fn(),
+            settleTileLaunch: vi.fn(),
+        };
+        await mount({ editable: true, onLaunch: undefined, actions });
+        $('.myapps-search').val('editor').trigger('input');
+        const tile = $('.myapps-tile[data-app-name="editor"]').get(0);
+        $(tile).trigger('click');
+        expect(actions.launchApp).toHaveBeenCalledWith({
+            name: 'editor', maximized: true,
+            window_options: { morph_from_dashboard_tile: true },
+        });
+        expect(actions.beginTileLaunch).toHaveBeenCalledWith(tile);
+        await vi.waitFor(() => expect(actions.settleTileLaunch).toHaveBeenCalledWith(tile));
+        expect(browser._launchingApps.size).toBe(0);
+    });
+
     it('launches the app store from the dashboard add-app dialog', async () => {
         const actions = {
             launchApp: vi.fn(async () => {}),
