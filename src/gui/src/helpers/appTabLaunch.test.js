@@ -19,21 +19,22 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { offerAppTabLaunchToken } from './appTabLaunchToken.js';
+import { offerAppTabLaunch } from './appTabLaunch.js';
 
 const ORIGIN = 'https://notes.example.com';
+const ITEM = { 'puter.item.uid': 'file-1', 'puter.item.read_url': 'https://api.puter.test/file?signature=r' };
 let nextId = 0;
 
 const offer = () => {
     const appInstanceID = `instance-${++nextId}`;
     const tab = { postMessage: vi.fn() };
-    offerAppTabLaunchToken({ appInstanceID, tab, origin: ORIGIN, token: 'app-token' });
+    offerAppTabLaunch({ appInstanceID, tab, origin: ORIGIN, token: 'app-token', item: ITEM });
     return { appInstanceID, tab };
 };
 
 const request = ({ appInstanceID, source, origin = ORIGIN }) => {
     window.dispatchEvent(new MessageEvent('message', {
-        data: { msg: 'puter.requestLaunchToken', env: 'app-tab', appInstanceID },
+        data: { msg: 'puter.requestLaunch', env: 'app-tab', appInstanceID },
         origin,
         source,
     }));
@@ -43,16 +44,17 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-describe('offerAppTabLaunchToken', () => {
+describe('offerAppTabLaunch', () => {
     it('answers the tab it was offered to, at its origin, once', () => {
         const { appInstanceID, tab } = offer();
         request({ appInstanceID, source: tab });
         request({ appInstanceID, source: tab });
         expect(tab.postMessage).toHaveBeenCalledOnce();
         expect(tab.postMessage).toHaveBeenCalledWith({
-            msg: 'puter.launchToken',
+            msg: 'puter.launch',
             appInstanceID,
             token: 'app-token',
+            item: ITEM,
         }, ORIGIN);
     });
 

@@ -293,6 +293,12 @@ const getGUIOrigin = (origin) => {
     }
 };
 
+/** Whether `params` carry a launch item: its name, uid and read URL. */
+const hasLaunchItemParams = (params) =>
+    params.has('puter.item.name') &&
+    params.has('puter.item.uid') &&
+    params.has('puter.item.read_url');
+
 const MAX_REQUESTED_PERMISSIONS = 16;
 
 // Short on purpose: a request usually spends a user gesture while it waits.
@@ -1076,13 +1082,17 @@ export class UIModule extends EventListener {
      */
     /**
      * The item the app was launched with, read from the `puter.item.*` URL
-     * params the host appends, or null when there is none.
+     * params the host appends (or, in a tab the GUI opened, the same params
+     * it handed over), or null when there is none.
      *
      * @returns {FSItem|null}
      */
-    #launchItemFromURL () {
-        const URLParams = new URLSearchParams(globalThis.location.search);
-        if ( !URLParams.has('puter.item.name') || !URLParams.has('puter.item.uid') || !URLParams.has('puter.item.read_url') ) {
+    #launchItem () {
+        let URLParams = new URLSearchParams(globalThis.location.search);
+        if ( !hasLaunchItemParams(URLParams) && puter.openerLaunchItem_ ) {
+            URLParams = puter.openerLaunchItem_;
+        }
+        if ( ! hasLaunchItemParams(URLParams) ) {
             return null;
         }
         let fpath = URLParams.get('puter.item.path');
@@ -1104,6 +1114,26 @@ export class UIModule extends EventListener {
         });
     }
 
+    /**
+     * Calls `callback` with the launch item, once a tab the GUI opened has
+     * received it. Nothing when the app wasn't launched with one.
+     *
+     * @param {(items: FSItem[]) => void} callback
+     */
+    #withLaunchItem (callback) {
+        const deliver = () => {
+            const launchItem = this.#launchItem();
+            if ( launchItem ) {
+                callback([launchItem]);
+            }
+        };
+        if ( puter.openerLaunch_ ) {
+            puter.openerLaunch_.then(deliver);
+        } else {
+            deliver();
+        }
+    }
+
     onItemsOpened (callback) {
         // DEPRECATED - this is also called when items are dropped on the app, which in new versions should be handled
         // with the 'drop' event.
@@ -1113,10 +1143,7 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onItemsOpened) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onItemsOpened ) {
-            const launchItem = this.#launchItemFromURL();
-            if ( launchItem ) {
-                callback([launchItem]);
-            }
+            this.#withLaunchItem(callback);
         }
 
         this.#onItemsOpened = callback;
@@ -1132,9 +1159,12 @@ export class UIModule extends EventListener {
      */
     wasLaunchedWithItems () {
         const URLParams = new URLSearchParams(globalThis.location.search);
-        return URLParams.has('puter.item.name') &&
-            URLParams.has('puter.item.uid') &&
-            URLParams.has('puter.item.read_url');
+        if ( hasLaunchItemParams(URLParams) || puter.openerLaunchItem_ ) {
+            return true;
+        }
+        // A tab the GUI opened marks an opened item with its uid alone; the
+        // rest is still on its way from the GUI.
+        return !!puter.openerLaunch_ && URLParams.has('puter.item.uid');
     };
 
     /**
@@ -1151,10 +1181,7 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onLaunchedWithItems) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onLaunchedWithItems ) {
-            const launchItem = this.#launchItemFromURL();
-            if ( launchItem ) {
-                callback([launchItem]);
-            }
+            this.#withLaunchItem(callback);
         }
 
         this.#onLaunchedWithItems = callback;
@@ -2736,8 +2763,8 @@ export class UIModule extends EventListener {
         }
 
         // The GUI that opened this tab may be about to hand over a token.
-        if ( puter.openerLaunchToken_ ) {
-            return puter.openerLaunchToken_.then(() => this.authenticateWithPuter());
+        if ( puter.openerLaunch_ ) {
+            return puter.openerLaunch_.then(() => this.authenticateWithPuter());
         }
 
         // if authToken is already present, resolve immediately

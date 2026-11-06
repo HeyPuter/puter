@@ -28,7 +28,7 @@ import { confirmUrlFileAccess } from './confirmUrlFileAccess.js';
 import { mintGodmodeToken, reusableGodmodeToken, trackGodmodeToken } from './godmodeTokens.js';
 import { withoutNotificationClick } from './notificationTap.js';
 import { syncBrowserPush } from './pushSync.js';
-import { offerAppTabLaunchToken } from './appTabLaunchToken.js';
+import { offerAppTabLaunch } from './appTabLaunch.js';
 
 // This can be any trusted URL that won't be used for other apps
 const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
@@ -146,17 +146,13 @@ const fetchUserAppTokenForLaunch = async ({ appUid } = {}) => {
     }
 };
 
-/**
- * Launches an app.
- *
- * @param {*} options.name - The name of the app to launch.
- * @param {Window} [options.newTab] - A tab the caller opened (synchronously,
- *   so popup blockers allow it, and without `noopener`, so the app can ask it
- *   for its token) to send the app's URL to, instead of opening an in-page
- *   window. Explorer and built-in apps are part of the desktop, so for them
- *   the tab is closed and the app opens in-page.
- */
-const launch_app = async (options) => {
+/** The `puter.item.*` params held back from a tab's URL, or null when none. */
+const heldBackItem = (item_params) => {
+    const item = Object.fromEntries(item_params);
+    return Object.keys(item).length ? item : null;
+};
+
+const runLaunch = async (options) => {
     let transaction;
     // Ends once the app signals over IPC, i.e. when it can actually be used.
     // Only apps built on the SDK ever signal, so this one is deliberately
@@ -249,7 +245,7 @@ const launch_app = async (options) => {
         const fallbackArgs = privateAccessDecision.fallbackArgs ?? {};
 
         if ( fallbackAppName && privateLaunchRedirectDepth < 1 && fallbackAppName !== options.name ) {
-            const fallbackLaunchOutcome = await launch_app({
+            const fallbackLaunchOutcome = await runLaunch({
                 ...options,
                 name: fallbackAppName,
                 args: fallbackArgs,
@@ -538,17 +534,20 @@ const launch_app = async (options) => {
             iframe_url.searchParams.append('puter.source_app.name', options.source_app_name);
         }
 
+        // A tab's URL would land the item's signed read/write URLs (which
+        // don't expire) in browser history, so a tab gets them with its token.
+        const item_params = newTab ? new URLSearchParams() : iframe_url.searchParams;
         if ( file_signature ) {
             append_signed_item_params(
-                iframe_url.searchParams,
+                item_params,
                 file_signature,
                 options.file_path ? privacy_aware_path(options.file_path) : file_signature.path,
             );
         }
         else if ( options.readURL ) {
-            iframe_url.searchParams.append('puter.item.name', options.filename);
-            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path));
-            iframe_url.searchParams.append('puter.item.read_url', options.readURL);
+            item_params.append('puter.item.name', options.filename);
+            item_params.append('puter.item.path', privacy_aware_path(options.file_path));
+            item_params.append('puter.item.read_url', options.readURL);
         }
 
         const is_godmode = app_info.godmode === true || app_info.godmode === 1;
@@ -655,11 +654,17 @@ const launch_app = async (options) => {
         iframe_url.searchParams.append('utm_source', 'puter.com');
 
         if ( newTab ) {
-            offerAppTabLaunchToken({
+            // Marks the opened item (the uid isn't a credential), so the SDK
+            // can tell it's coming before the rest arrives.
+            if ( item_params.has('puter.item.uid') ) {
+                iframe_url.searchParams.append('puter.item.uid', item_params.get('puter.item.uid'));
+            }
+            offerAppTabLaunch({
                 appInstanceID: uuid,
                 tab: newTab,
                 origin: iframe_url.origin,
                 token: launch_token,
+                item: heldBackItem(item_params),
             });
             newTab.location.href = iframe_url.href;
             record_app_open(app_info);
@@ -913,6 +918,29 @@ const launch_app = async (options) => {
     endLaunchTransaction(transaction, 'launched');
 
     return process;
+};
+
+/**
+ * Launches an app.
+ *
+ * @param {*} options.name - The name of the app to launch.
+ * @param {Window} [options.newTab] - A tab the caller opened (synchronously,
+ *   so popup blockers allow it, and without `noopener`, so the app can ask it
+ *   for its token and opened item) to send the app's URL to, instead of
+ *   opening an in-page window. The launch owns the tab: it is closed when the
+ *   launch fails. Explorer and built-in apps are part of the desktop, so for
+ *   them the tab is closed and the app opens in-page.
+ */
+const launch_app = async (options) => {
+    const tab = options.newTab;
+    try {
+        const outcome = await runLaunch(options);
+        if ( tab && getLaunchResult(outcome)?.launched === false ) tab.close();
+        return outcome;
+    } catch ( err ) {
+        tab?.close();
+        throw err;
+    }
 };
 
 export default launch_app;

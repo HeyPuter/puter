@@ -18,15 +18,25 @@
  */
 
 /**
- * Launch tokens for apps opened in their own browser tab. The token stays out
- * of the tab's URL (and so out of its history); the app's SDK asks this tab
- * for it once it loads (see requestLaunchTokenFromOpener in puter.js).
+ * Launch data for apps opened in their own browser tab: the app's token and
+ * the item it was opened with (whose signed URLs don't expire). Both stay out
+ * of the tab's URL, and so out of its history; the app's SDK asks this tab for
+ * them once it loads (see requestLaunchFromOpener in puter.js).
  */
 
 // Long enough for a slow app to load; after that the app signs in on its own.
 const OFFER_TTL_MS = 2 * 60 * 1000;
 
-/** @type {Map<string, { tab: Window, origin: string, token: string, timer: ReturnType<typeof setTimeout> }>} */
+/**
+ * @typedef {object} AppTabLaunch
+ * @property {string} appInstanceID
+ * @property {Window} tab - the tab the app was opened in
+ * @property {string} origin - origin of the URL the tab was sent to
+ * @property {string} token
+ * @property {Record<string, string> | null} item - the opened item's `puter.item.*` params
+ */
+
+/** @type {Map<string, AppTabLaunch & { timer: ReturnType<typeof setTimeout> }>} */
 const offers = new Map();
 let listening = false;
 
@@ -39,35 +49,37 @@ const withdraw = (appInstanceID) => {
 
 const onMessage = (event) => {
     const data = event.data;
-    if ( data?.msg !== 'puter.requestLaunchToken' || typeof data.appInstanceID !== 'string' ) return;
+    if ( data?.msg !== 'puter.requestLaunch' || typeof data.appInstanceID !== 'string' ) return;
     const offer = offers.get(data.appInstanceID);
     // Only the tab this launch opened, still showing the app it was opened
-    // for, gets the token — and only once.
+    // for, gets the launch data — and only once.
     if ( !offer || event.source !== offer.tab || event.origin !== offer.origin ) return;
     withdraw(data.appInstanceID);
     offer.tab.postMessage({
-        msg: 'puter.launchToken',
+        msg: 'puter.launch',
         appInstanceID: data.appInstanceID,
         token: offer.token,
+        item: offer.item,
     }, offer.origin);
 };
 
 /**
- * Holds `token` for the app instance running in `tab` until the app asks for
- * it from `origin`, the origin of the URL the tab was sent to.
+ * Holds an app tab's launch data until the app asks for it from `origin`.
  *
- * @param {{ appInstanceID: string, tab: Window, origin: string, token: string }} offer
+ * @param {AppTabLaunch} offer
  */
-export const offerAppTabLaunchToken = ({ appInstanceID, tab, origin, token }) => {
+export const offerAppTabLaunch = ({ appInstanceID, tab, origin, token, item }) => {
     if ( ! listening ) {
         window.addEventListener('message', onMessage);
         listening = true;
     }
     withdraw(appInstanceID);
     offers.set(appInstanceID, {
+        appInstanceID,
         tab,
         origin,
         token,
+        item,
         timer: setTimeout(() => withdraw(appInstanceID), OFFER_TTL_MS),
     });
 };

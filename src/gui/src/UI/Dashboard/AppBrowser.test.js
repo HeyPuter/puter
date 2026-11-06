@@ -131,20 +131,7 @@ describe('shared app browser', () => {
         expect(window.open).toHaveBeenCalledWith('', '_blank');
         expect(actions.launchApp).toHaveBeenCalledWith({ name: 'editor', newTab: tab });
         await vi.waitFor(() => expect(browser._launchingApps.size).toBe(0));
-        expect(tab.close).not.toHaveBeenCalled();
         expect($('.window')).toHaveLength(0);
-    });
-
-    it('closes the new tab when the launch does not go through', async () => {
-        const tab = { close: vi.fn() };
-        vi.spyOn(window, 'open').mockReturnValue(tab);
-        const actions = {
-            launchApp: vi.fn(async () => ({ launchResult: { launched: false } })),
-        };
-        await mount({ editable: true, onLaunch: undefined, actions });
-        $('.myapps-search').val('editor').trigger('input');
-        $('.myapps-tile[data-app-name="editor"]').trigger('click');
-        await vi.waitFor(() => expect(tab.close).toHaveBeenCalledOnce());
     });
 
     it('launches the app store from the dashboard add-app dialog', async () => {

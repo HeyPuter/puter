@@ -356,4 +356,33 @@ describe('launch items', () => {
 
         expect(launched).not.toHaveBeenCalled();
     });
+
+    it('waits for the item a tab the GUI opened is handed', async () => {
+        vi.stubGlobal('location', { search: '?puter.item.uid=uid-1' });
+        let handOver;
+        globalThis.puter.openerLaunch_ = new Promise((resolve) => {
+            handOver = resolve;
+        });
+        const ui = makeUI();
+        const launched = vi.fn();
+        ui.onLaunchedWithItems(launched);
+        expect(ui.wasLaunchedWithItems()).toBe(true);
+        expect(launched).not.toHaveBeenCalled();
+
+        globalThis.puter.openerLaunchItem_ = new URLSearchParams(launchSearch().slice(1));
+        globalThis.puter.openerLaunch_ = null;
+        handOver();
+        await vi.waitFor(() => expect(launched).toHaveBeenCalledOnce());
+        expect(launched.mock.calls[0][0][0].readURL).toBe('https://api.test/file?uid=uid-1');
+        expect(ui.wasLaunchedWithItems()).toBe(true);
+    });
+
+    it('ignores an item uid alone in the URL when nothing is being handed over', () => {
+        vi.stubGlobal('location', { search: '?puter.item.uid=uid-1' });
+        const ui = makeUI();
+        const launched = vi.fn();
+        ui.onLaunchedWithItems(launched);
+        expect(ui.wasLaunchedWithItems()).toBe(false);
+        expect(launched).not.toHaveBeenCalled();
+    });
 });

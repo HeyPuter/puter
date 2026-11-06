@@ -57,27 +57,49 @@ export const isUserSessionTokenPayload = (payload) => {
 };
 
 // How long a tab waits for the GUI that opened it before signing in on its own.
-export const OPENER_LAUNCH_TOKEN_TIMEOUT_MS = 5000;
+export const OPENER_LAUNCH_TIMEOUT_MS = 5000;
 
 /**
- * Asks the Puter GUI tab that opened this one for the token of the app launch
- * it opened the tab for, so the token never has to travel in the tab's URL.
- * Only a reply from the opener itself at `guiOrigin` counts: a crafted link
- * can name an instance id but can't make the GUI answer for it. Whatever the
- * outcome, the opener is then cut off so the app can't reach the GUI tab.
+ * What the GUI hands a tab it opened for an app launch.
+ *
+ * @typedef {object} OpenerLaunch
+ * @property {string | null} token - the app's token
+ * @property {Record<string, string> | null} item - `puter.item.*` params of
+ *   the item the app was opened with, as a framed launch has in its URL
+ */
+
+/** Keeps only `puter.item.*` string params. */
+const launchItemParams = (item) => {
+    if (!item || typeof item !== 'object') return null;
+    const params = Object.fromEntries(
+        Object.entries(item).filter(
+            ([key, value]) =>
+                key.startsWith('puter.item.') && typeof value === 'string',
+        ),
+    );
+    return Object.keys(params).length ? params : null;
+};
+
+/**
+ * Asks the Puter GUI tab that opened this one for the launch it opened the
+ * tab for (the app's token and opened item), so neither has to travel in the
+ * tab's URL. Only a reply from the opener itself at `guiOrigin` counts: a
+ * crafted link can name an instance id but can't make the GUI answer for it.
+ * Whatever the outcome, the opener is then cut off so the app can't reach the
+ * GUI tab.
  *
  * @param {object} options
  * @param {string} options.guiOrigin - the configured GUI origin, never one from the URL
  * @param {string} options.appInstanceID
  * @param {typeof globalThis} [options.scope] - Global to use; injectable for tests.
  * @param {number} [options.timeoutMs]
- * @returns {Promise<string | null>} the token, or null when none came
+ * @returns {Promise<OpenerLaunch | null>} null when no answer came
  */
-export const requestLaunchTokenFromOpener = ({
+export const requestLaunchFromOpener = ({
     guiOrigin,
     appInstanceID,
     scope = globalThis,
-    timeoutMs = OPENER_LAUNCH_TOKEN_TIMEOUT_MS,
+    timeoutMs = OPENER_LAUNCH_TIMEOUT_MS,
 }) => {
     let opener = null;
     try {
@@ -92,7 +114,7 @@ export const requestLaunchTokenFromOpener = ({
 
     return new Promise((resolve) => {
         let timer = null;
-        const finish = (token) => {
+        const finish = (launch) => {
             scope.removeEventListener('message', onMessage);
             clearTimeout(timer);
             try {
@@ -100,14 +122,17 @@ export const requestLaunchTokenFromOpener = ({
             } catch {
                 // Nothing more to protect if it can't be cleared.
             }
-            resolve(token);
+            resolve(launch);
         };
         const onMessage = (event) => {
             if (event.origin !== guiOrigin || event.source !== opener) return;
-            if (event.data?.msg !== 'puter.launchToken') return;
+            if (event.data?.msg !== 'puter.launch') return;
             if (event.data.appInstanceID !== appInstanceID) return;
             const token = event.data.token;
-            finish(typeof token === 'string' && token ? token : null);
+            finish({
+                token: typeof token === 'string' && token ? token : null,
+                item: launchItemParams(event.data.item),
+            });
         };
         scope.addEventListener('message', onMessage);
         timer = setTimeout(() => finish(null), timeoutMs);
@@ -115,11 +140,7 @@ export const requestLaunchTokenFromOpener = ({
             // Delivered only if the opener is at guiOrigin. `env` keeps the
             // GUI's app IPC from treating this as a message from a framed app.
             opener.postMessage(
-                {
-                    msg: 'puter.requestLaunchToken',
-                    env: 'app-tab',
-                    appInstanceID,
-                },
+                { msg: 'puter.requestLaunch', env: 'app-tab', appInstanceID },
                 guiOrigin,
             );
         } catch {

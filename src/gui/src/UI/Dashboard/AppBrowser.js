@@ -1137,17 +1137,13 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {} } = 
                     const tab = window.open('', '_blank');
                     if ( ! tab ) return;
                     self._launchingApps.add(appName);
-                    let launched = false;
+                    // The launch owns the tab from here, and closes it on failure.
                     launchApp({ name: appName, newTab: tab })
-                        .then((outcome) => {
-                            launched = outcome?.launchResult?.launched !== false;
-                        })
                         .catch((err) => {
                             console.error(`Failed to launch ${appName}:`, err);
                             showAlert(i18n('something_went_wrong', [], false));
                         })
                         .finally(() => {
-                            if ( ! launched ) tab.close();
                             self._launchingApps.delete(appName);
                             closeFolder();
                         });

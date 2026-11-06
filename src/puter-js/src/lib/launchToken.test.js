@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
     isGodmodeTokenPayload,
     isUserSessionTokenPayload,
-    requestLaunchTokenFromOpener,
+    requestLaunchFromOpener,
     urlWithoutQueryParam,
 } from './launchToken.js';
 
@@ -119,7 +119,7 @@ describe('isGodmodeTokenPayload', () => {
     });
 });
 
-describe('requestLaunchTokenFromOpener', () => {
+describe('requestLaunchFromOpener', () => {
     const GUI = 'https://puter.com';
 
     /** A top-level tab whose opener answers with `reply` (or not at all). */
@@ -141,19 +141,27 @@ describe('requestLaunchTokenFromOpener', () => {
         return scope;
     };
 
-    it('takes the token the GUI opener sends for this instance, then cuts the opener off', async () => {
+    it('takes the launch the GUI opener sends for this instance, then cuts the opener off', async () => {
         const scope = makeScope({
             reply: (s, data) => s.emit({
                 origin: GUI,
                 source: opener,
-                data: { msg: 'puter.launchToken', appInstanceID: data.appInstanceID, token: 'tok' },
+                data: {
+                    msg: 'puter.launch',
+                    appInstanceID: data.appInstanceID,
+                    token: 'tok',
+                    item: { 'puter.item.uid': 'f-1', 'puter.item.read_url': 'r', other: 'x', 'puter.item.size': 5 },
+                },
             }),
         });
         const opener = scope.opener;
-        const token = await requestLaunchTokenFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope });
-        expect(token).toBe('tok');
+        const launch = await requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope });
+        expect(launch).toEqual({
+            token: 'tok',
+            item: { 'puter.item.uid': 'f-1', 'puter.item.read_url': 'r' },
+        });
         expect(opener.postMessage).toHaveBeenCalledWith(
-            { msg: 'puter.requestLaunchToken', env: 'app-tab', appInstanceID: 'i-1' },
+            { msg: 'puter.requestLaunch', env: 'app-tab', appInstanceID: 'i-1' },
             GUI,
         );
         expect(scope.opener).toBeNull();
@@ -165,8 +173,8 @@ describe('requestLaunchTokenFromOpener', () => {
         try {
             const scope = makeScope();
             const opener = scope.opener;
-            const pending = requestLaunchTokenFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope, timeoutMs: 1000 });
-            const data = { msg: 'puter.launchToken', appInstanceID: 'i-1', token: 'bad' };
+            const pending = requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope, timeoutMs: 1000 });
+            const data = { msg: 'puter.launch', appInstanceID: 'i-1', token: 'bad' };
             scope.emit({ origin: 'https://evil.example', source: opener, data });
             scope.emit({ origin: GUI, source: {}, data });
             scope.emit({ origin: GUI, source: opener, data: { ...data, appInstanceID: 'i-2' } });
@@ -181,13 +189,13 @@ describe('requestLaunchTokenFromOpener', () => {
     it('resolves null without asking when there is no opener', async () => {
         const scope = makeScope();
         scope.opener = null;
-        expect(await requestLaunchTokenFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+        expect(await requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
     });
 
     it('resolves null without waiting when the GUI tab was closed', async () => {
         const scope = makeScope();
         scope.opener.closed = true;
-        expect(await requestLaunchTokenFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
+        expect(await requestLaunchFromOpener({ guiOrigin: GUI, appInstanceID: 'i-1', scope })).toBeNull();
         expect(scope.listeners.size).toBe(0);
     });
 });

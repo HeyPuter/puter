@@ -8,7 +8,7 @@ import { isFramedDocument } from './lib/appModeGate.js';
 import {
     isGodmodeTokenPayload,
     isUserSessionTokenPayload,
-    requestLaunchTokenFromOpener,
+    requestLaunchFromOpener,
     urlWithoutQueryParam,
 } from './lib/launchToken.js';
 import path from 'path-browserify';
@@ -261,12 +261,22 @@ export class Puter {
 
     /**
      * Pending while a tab the GUI opened for this app waits for its launch
-     * token; sign-in waits on it instead of opening a popup. Null otherwise.
+     * (token and opened item); sign-in and the launched-with-items handlers
+     * wait on it. Null otherwise.
      *
      * @internal
      * @type {Promise<void> | null}
      */
-    openerLaunchToken_ = null;
+    openerLaunch_ = null;
+
+    /**
+     * `puter.item.*` params of the item the GUI opened this tab with, standing
+     * in for the URL params a framed launch carries.
+     *
+     * @internal
+     * @type {URLSearchParams | null}
+     */
+    openerLaunchItem_ = null;
 
     // Holds the unique app instance ID that is provided by the host environment
     appInstanceID;
@@ -772,15 +782,21 @@ export class Puter {
             this.initSubmodules();
 
             // A top-level tab the GUI opened for an app launch. Its URL params
-            // aren't trusted here (see isFramedDocument), so the token comes
-            // from the GUI tab that opened it instead.
+            // aren't trusted here (see isFramedDocument), and secrets stay out
+            // of its URL, so the token and opened item come from the GUI tab
+            // that opened it instead.
             if (this.appInstanceID) {
-                this.openerLaunchToken_ = requestLaunchTokenFromOpener({
+                this.openerLaunch_ = requestLaunchFromOpener({
                     guiOrigin: this.defaultGUIOrigin,
                     appInstanceID: this.appInstanceID,
-                }).then((token) => {
-                    this.openerLaunchToken_ = null;
-                    if (token) this.setAuthToken(token);
+                }).then((launch) => {
+                    this.openerLaunch_ = null;
+                    if (launch?.item) {
+                        this.openerLaunchItem_ = new URLSearchParams(
+                            launch.item,
+                        );
+                    }
+                    if (launch?.token) this.setAuthToken(launch.token);
                 });
             }
 

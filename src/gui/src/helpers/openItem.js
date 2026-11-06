@@ -44,7 +44,14 @@ const file_launch_in_flight = (uid) => {
     return true;
 };
 
-const open_item = async function (options) {
+const runOpen = async function (options) {
+    // The tab goes to the first launch that takes it; open_item closes it if
+    // nothing does.
+    const take_tab = () => {
+        const tab = options.newTab;
+        options.newTab = undefined;
+        return tab;
+    };
     let el_item = options.item;
     const $el_parent_window = $(el_item).closest('.window');
     const parent_win_id = $($el_parent_window).attr('data-id');
@@ -65,7 +72,7 @@ const open_item = async function (options) {
     //----------------------------------------------------------------
     const app_name = $(el_item).attr('data-app');
     if ( app_name ) {
-        launch_app({ name: app_name });
+        launch_app({ name: app_name, newTab: take_tab() });
         return;
     }
 
@@ -78,7 +85,7 @@ const open_item = async function (options) {
             const text = typeof content === 'string' ? content : await content.text();
             const data = JSON.parse(text);
             if ( data.app ) {
-                launch_app({ name: data.app });
+                launch_app({ name: data.app, newTab: take_tab() });
                 return;
             }
         } catch (e) {
@@ -160,7 +167,14 @@ const open_item = async function (options) {
 
             // If we have a valid URL, open it
             if ( url && (url.startsWith('http://') || url.startsWith('https://')) ) {
-                window.open(url, '_blank', 'noopener,noreferrer');
+                const tab = take_tab();
+                if ( tab ) {
+                    // A link the user saved, not an app: it gets no way back here.
+                    tab.opener = null;
+                    tab.location.href = url;
+                } else {
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                }
             } else {
                 // Show a more detailed error message
                 UIAlert(`Could not determine the URL for this web shortcut.
@@ -269,13 +283,15 @@ Please try recreating the link.`);
     // The user's own windows only: a file opened in an instance another app
     // launched in the background is not a window the row can switch to, so the
     // click launches the file the normal way instead of surfacing that one.
+    // Opening in a tab only swallows the re-click: the tab is where the
+    // file goes, whatever windows have it open in the page.
     else if ( window.is_dashboard_mode && !associated_app_name && target_file_uid
-        && (user_facing_windows($(`.window[data-file_uid="${html_encode(target_file_uid)}"]`)).length
+        && ((!options.newTab && user_facing_windows($(`.window[data-file_uid="${html_encode(target_file_uid)}"]`)).length)
             || file_launch_in_flight(target_file_uid)) ) {
         const $win = $(user_facing_windows($(`.window[data-file_uid="${html_encode(target_file_uid)}"]`))).last();
         // No window yet means the first click's launch is still in
         // flight — swallow the re-click instead of duplicating it.
-        if ( $win.length ) {
+        if ( $win.length && !options.newTab ) {
             if ( is_window_on_screen($win.get(0)) ) {
                 $win.focusWindow();
             } else {
@@ -290,6 +306,7 @@ Please try recreating the link.`);
         launch_app({
             name: associated_app_name,
             maximized: options.maximized ?? window.is_dashboard_mode,
+            newTab: take_tab(),
         });
     }
     //----------------------------------------------------------------
@@ -342,6 +359,7 @@ Please try recreating the link.`);
                 window_title: path.basename(item_path),
                 maximized: options.maximized ?? window.is_dashboard_mode,
                 file_uid: file_uid,
+                newTab: take_tab(),
             });
             if ( target_file_uid ) launch_promise.finally(() => launching_file_uids.delete(target_file_uid));
             return;
@@ -378,8 +396,10 @@ Please try recreating the link.`);
         // download
         //---------------------------------------------
         if ( suggested_apps.length === 0 ) {
-            // Not launching after all — lift the in-flight guard.
+            // Not launching after all — lift the in-flight guard, and don't
+            // leave a blank tab open behind the prompt.
             if ( target_file_uid ) launching_file_uids.delete(target_file_uid);
+            take_tab()?.close();
             //---------------------------------------------
             // If .zip file, unzip it
             //---------------------------------------------
@@ -424,9 +444,29 @@ Please try recreating the link.`);
                 file_uid: fsuid,
                 maximized: options.maximized ?? window.is_dashboard_mode,
                 file_signature: open_item_meta.signature,
+                newTab: take_tab(),
             });
             if ( target_file_uid ) launch_promise.finally(() => launching_file_uids.delete(target_file_uid));
         }
+    }
+};
+
+/**
+ * Opens an item: enters a folder, or opens a file or app.
+ *
+ * @param {object} options
+ * @param {HTMLElement} options.item - the item's element
+ * @param {Window} [options.newTab] - a blank tab the caller opened inside the
+ *   user's gesture; an app the item opens in goes there instead of an in-page
+ *   window (see launch_app). Closed when the item opens no app.
+ * @param {boolean} [options.maximized]
+ * @param {boolean} [options.new_window]
+ */
+const open_item = async function (options) {
+    try {
+        return await runOpen(options);
+    } finally {
+        options.newTab?.close();
     }
 };
 

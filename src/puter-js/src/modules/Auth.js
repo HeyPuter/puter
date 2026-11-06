@@ -161,8 +161,8 @@ export class AuthModule extends PuterModule {
         }
 
         // A tab the GUI opened is signed in by the token the GUI hands over.
-        if (puter.openerLaunchToken_) {
-            return puter.openerLaunchToken_.then(() =>
+        if (puter.openerLaunch_) {
+            return puter.openerLaunch_.then(() =>
                 puter.authToken
                     ? { success: true, token: puter.authToken }
                     : this.signIn(options));
