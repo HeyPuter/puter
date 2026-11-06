@@ -183,6 +183,9 @@ export function pushSignupScreen (flow, options = {}) {
 
     let h = '<div class="dashboard-dialog-body auth-body">';
     h += authHeadHtml(flow, i18n('create_free_account', [], false));
+    // Above the provider buttons, not in the form: the form hides behind
+    // them, and an identity provider's refusal shows here too.
+    h += '<div class="dashboard-form-status auth-screen-status" role="status" aria-live="polite"></div>';
     h += '<div class="signup-bonus-notice" hidden></div>';
     h += `<p class="signup-oidc-only-notice" hidden>${i18n('signup_oidc_only')}</p>`;
     h += '<div class="auth-providers oidc-providers-wrapper" hidden>';
@@ -192,7 +195,6 @@ export function pushSignupScreen (flow, options = {}) {
     h += `<button type="button" class="dashboard-dialog-btn auth-provider-btn signup-with-email-btn">${i18n('sign_up_with_email')}</button>`;
     h += '</div>';
     h += '<form class="auth-form signup-form" novalidate>';
-    h += '<div class="dashboard-form-status" role="status" aria-live="polite"></div>';
     h += formFieldHtml({
         name: 'username',
         label: i18n('username'),

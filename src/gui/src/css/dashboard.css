@@ -11018,6 +11018,14 @@ body.dashboard-mode .notifications-close-all {
 }
 
 /* Signup */
+.auth-dialog .auth-screen-status {
+    margin: 0 0 16px;
+}
+
+.auth-dialog .auth-screen-status:empty {
+    margin: 0;
+}
+
 .auth-dialog .signup-bonus-notice {
     margin: 0 0 16px;
 }

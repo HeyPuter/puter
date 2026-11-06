@@ -98,6 +98,16 @@ describe('signup when only OIDC signups are open', () => {
         expect($('.signup-form').prop('hidden')).toBe(true);
     });
 
+    it.each([false, true])('keeps an error it opened with in view (OIDC only: %s)', async (signupOidcOnly) => {
+        providers({ providers: ['google'], signupOidcOnly });
+        void UIAuthSignup({ authError: 'Your account could not be created.' });
+        await vi.waitFor(() => expect($('.oidc-google-btn')).toHaveLength(1));
+        expect($('.signup-form').prop('hidden')).toBe(true);
+        const $status = screen().find('.dashboard-form-status');
+        expect($status.text()).toBe('Your account could not be created.');
+        expect($status.closest('[hidden]')).toHaveLength(0);
+    });
+
     it('leaves a form the user already typed into', async () => {
         let answer;
         globalThis.fetch = vi.fn(() => new Promise((resolve) => {
