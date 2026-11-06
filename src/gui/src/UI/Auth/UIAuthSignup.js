@@ -419,8 +419,8 @@ export function pushSignupScreen (flow, options = {}) {
                 });
             });
         } catch ( err ) {
-            flow.setBusy(false);
             setFormBusy($form, false);
+            flow.setBusy(false);
             resetTurnstile();
             handleError(err);
             return;
@@ -429,8 +429,8 @@ export function pushSignupScreen (flow, options = {}) {
         try {
             await window.update_auth_data(data.token, data.user);
         } catch ( err ) {
-            flow.setBusy(false);
             setFormBusy($form, false);
+            flow.setBusy(false);
             fail(err?.message || i18n('signup_error', [], false));
             return;
         }

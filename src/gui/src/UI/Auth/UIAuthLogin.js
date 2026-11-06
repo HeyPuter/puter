@@ -166,9 +166,10 @@ export function pushLoginScreen (flow, options = {}) {
         if ( ! flow.goTo('signup') ) pushSignupScreen(flow);
     });
 
+    // The form first, so the end of busy can hand focus back to a field.
     const unlock = () => {
-        flow.setBusy(false);
         setFormBusy($form, false);
+        flow.setBusy(false);
     };
 
     $form.on('submit', async (e) => {

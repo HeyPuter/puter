@@ -116,7 +116,8 @@ export const navigateAfterSignIn = (url) => {
  * @property {(name: string) => boolean} goTo Returns to an earlier screen by
  *   name, if there is one.
  * @property {(busy: boolean) => void} setBusy While busy, only ✕ dismisses
- *   the flow and Back is disabled.
+ *   the flow and Back is disabled. Ending it returns focus to where it was,
+ *   once that control is enabled again.
  * @property {() => boolean} isBusy
  * @property {() => void} close Takes the card down without settling.
  * @property {(value: unknown) => void} settle
@@ -172,6 +173,8 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
         resolve = r;
     });
     let busy = false;
+    /** @type {HTMLElement | null} */
+    let el_busy_return = null;
     let settled = false;
     let torn_down = false;
     /** @type {Array<AuthScreen & { $el: jQuery, el_return?: Element | null }>} */
@@ -285,13 +288,27 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
             return true;
         },
         setBusy (value) {
+            const was_busy = busy;
             busy = !! value;
             // Busy screens lock their fields, and a disabled field drops focus
             // to the page, where the desktop's shortcuts would take the keys.
             const el_dialog = $dialog.get(0);
-            if ( busy && el_dialog.contains(document.activeElement) ) el_dialog.focus({ preventScroll: true });
+            const el_active = document.activeElement;
+            if ( busy && ! was_busy ) {
+                el_busy_return = el_active !== el_dialog && el_dialog.contains(el_active) ? el_active : null;
+            }
+            if ( busy && el_dialog.contains(el_active) ) el_dialog.focus({ preventScroll: true });
             $dialog.toggleClass('auth-dialog-busy', busy).attr('aria-busy', busy ? 'true' : null);
             refresh();
+            if ( busy || ! was_busy ) return;
+            // A failed request hands the keys back to where the user was, so
+            // Enter can retry. A screen that already moved focus keeps it.
+            const el_return = el_busy_return;
+            el_busy_return = null;
+            if ( el_return && document.activeElement === el_dialog && el_dialog.contains(el_return)
+                && ! el_return.disabled && ! el_return.closest('[hidden]') ) {
+                el_return.focus({ preventScroll: true });
+            }
         },
         isBusy: () => busy,
         close () {

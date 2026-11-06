@@ -121,6 +121,24 @@ describe('openAuthFlow', () => {
         expect(document.activeElement).toBe($('.auth-dialog').get(0));
     });
 
+    it('hands focus back to where it was once busy ends, so Enter can retry', () => {
+        const flow = openAuthFlow();
+        flow.push({ name: 'a', html: '<input class="one"><input class="two">' });
+        const el_two = $('.auth-dialog .two').get(0);
+        el_two.focus();
+        flow.setBusy(true);
+        el_two.disabled = true;
+        el_two.disabled = false;
+        flow.setBusy(false);
+        expect(document.activeElement).toBe(el_two);
+
+        // A screen that moved focus on its own keeps it there.
+        flow.setBusy(true);
+        $('.auth-dialog .one').get(0).focus();
+        flow.setBusy(false);
+        expect(document.activeElement).toBe($('.auth-dialog .one').get(0));
+    });
+
     it('keeps focus in the card when the backdrop is pressed', async () => {
         const flow = openAuthFlow();
         flow.push({ name: 'a', html: '<input>' });

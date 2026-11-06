@@ -192,6 +192,19 @@ describe('signup form', () => {
         expect($('.signup-btn').prop('disabled')).toBe(false);
     });
 
+    it('puts focus back in the form after the server refuses, so Enter can retry', async () => {
+        const calls = captureAjax();
+        void UIAuthSignup();
+        fillForm();
+        $('[name="confirm_password"]').get(0).focus();
+        $('.signup-form').trigger('submit');
+        await vi.waitFor(() => expect(calls).toHaveLength(1));
+        calls[0].error({ responseText: '{"message":"This username is not available."}' });
+        await tick();
+        expect(screen().find('.dashboard-form-status').text()).toBe('This username is not available.');
+        expect(document.activeElement).toBe($('[name="confirm_password"]').get(0));
+    });
+
     it('covers the page when signups are blocked here', async () => {
         const calls = captureAjax();
         void UIAuthSignup();
