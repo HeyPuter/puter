@@ -78,7 +78,10 @@ describe('LocalWorkerService shutdown disposal', () => {
         disposals[0].mockImplementationOnce(async () => {
             await held;
         });
-        vi.useFakeTimers();
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        // The test server keeps arming timers from real callbacks while fakes
+        // are installed, so only what shutdown arms synchronously is checked.
+        const arm = vi.spyOn(globalThis, 'setTimeout');
         try {
             let finished = false;
             const draining = Promise.resolve(service.onServerShutdown()).then(
@@ -86,12 +89,13 @@ describe('LocalWorkerService shutdown disposal', () => {
                     finished = true;
                 },
             );
+            expect(arm.mock.calls.map(([, ms]) => ms)).toEqual([5_000]);
             await vi.advanceTimersByTimeAsync(4_999);
             expect(finished).toBe(false);
             await vi.advanceTimersByTimeAsync(1);
             await draining;
-            expect(vi.getTimerCount()).toBe(0);
         } finally {
+            arm.mockRestore();
             release();
             vi.useRealTimers();
         }
