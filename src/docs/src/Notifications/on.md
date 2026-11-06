@@ -49,7 +49,7 @@ It returns `puter.notifications`, so calls can be chained.
 
 ## Examples
 
-<strong class="example-title">Route a click to the right screen</strong>
+### Route a click to the right screen
 
 ```html
 <html>
@@ -66,7 +66,7 @@ It returns `puter.notifications`, so calls can be chained.
 </html>
 ```
 
-<strong class="example-title">Handle a button press</strong>
+### Handle a button press
 
 ```js
 puter.notifications.on('click', async ({ uid, action, data }) => {
@@ -77,7 +77,7 @@ puter.notifications.on('click', async ({ uid, action, data }) => {
 
 [Add Buttons to Push Notifications](/recipes/add-buttons-to-push-notifications/) shows the whole setup.
 
-<strong class="example-title">Remove a dismissed notification from your app</strong>
+### Remove a dismissed notification from your app
 
 ```js
 puter.notifications.on('dismiss', ({ uid }) => {

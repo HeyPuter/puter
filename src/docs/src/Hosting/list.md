@@ -4,7 +4,9 @@ description: List all subdomains in your Puter account.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Returns an array of all subdomains in the user's subdomains that this app has access to. If the user has no subdomains, the array will be empty.
+Returns an array of all subdomains in the user's subdomains that this app has access to.
+
+If the user has no subdomains, the array will be empty.
 
 ## Syntax
 ```js
@@ -18,11 +20,13 @@ puter.hosting.list(options)
 
 An object with the following optional properties:
 
-- `limit` (Number): Maximum number of subdomains to return in a single call.
-- `offset` (Number): Skips the given number of subdomains. Prefer `cursor` for paging through large lists.
-- `cursor` (String | null): Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one.
-- `includeTotal` (Boolean): If `true`, the paginated result includes a `total` count.
-- `stream` (Boolean): If `true`, the method returns an async iterator of page objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `limit` | `Number` | Maximum number of subdomains to return in a single call. |
+| `cursor` | `String \| null` | Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one. |
+| `stream` | `Boolean` | If `true`, the method returns an async iterator of page objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`. |
+| `includeTotal` | `Boolean` | If `true`, the paginated result includes a `total` count. |
+| `offset` | `Number` | Skips the given number of subdomains. Prefer `cursor` for paging through large lists. |
 
 ## Return value
 A `Promise` that will resolve to an array of all [`Subdomain`](/Objects/subdomain/) objects belonging to the user that this app has access to.
@@ -49,7 +53,7 @@ Worker-backed subdomains are never included in the results — pages and `total`
 
 ## Examples
 
-<strong class="example-title">Create 3 random websites and then list them</strong>
+### Create 3 random websites and then list them
 
 ```html;hosting-list
 <html>

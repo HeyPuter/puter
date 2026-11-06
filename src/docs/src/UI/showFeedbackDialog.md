@@ -4,7 +4,9 @@ description: Opens a dialog the user can use to send feedback to your app.
 platforms: [ websites, apps]
 ---
 
-Opens a dialog the user can use to send you — the app's developer — feedback about your app. The message is delivered by Puter: it is stored and emailed to the email address on your Puter account. The feedback never passes through your app's code, and the dialog tells the user what is shared with you: their username, plus their email address (as the email's reply-to, so you can respond) when their email is verified.
+Opens a dialog where the user can send you, the app's developer, feedback about your app.
+
+The message is delivered by Puter: it is stored and emailed to the email address on your Puter account. The feedback never passes through your app's code, and the dialog tells the user what is shared with you: their username, plus their email address (as the email's reply-to, so you can respond) when their email is verified.
 
 Inside Puter, the dialog is rendered by the desktop environment. On a website, a puter.com popup hosts the dialog (signing the user in first if needed).
 
@@ -30,6 +32,8 @@ A `Promise` that resolves to `true` if the user submitted feedback, and `false` 
 On a website that is cross-origin isolated (COOP severs the popup's connection to your page), the promise resolves `false` even though the popup stays open and the user may still submit their feedback there. Treat `false` as "not confirmed", not "not sent".
 
 ## Examples
+
+### Open the feedback dialog from a button
 
 ```html;ui-show-feedback-dialog
 <html>

@@ -4,7 +4,9 @@ description: List files and directories in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Reads the contents of a directory, returning an array of items (files and directories) within it. This method is useful for listing all items in a specified directory in the Puter cloud storage.
+Reads the contents of a directory, returning an array of items (files and directories) within it.
+
+This method is useful for listing all items in a specified directory in the Puter cloud storage.
 
 ## Syntax
 
@@ -25,17 +27,19 @@ If `path` is not absolute, it will be resolved relative to the app's root direct
 
 An object with the following properties:
 
-- `path` (String) - The path to the directory to read. Required when passing options as the only argument.
-- `uid` (String) (optional) - The UID of the directory to read.
-- `limit` (Number) (optional) - Maximum number of entries to return.
-- `offset` (Number) (optional) - Skips the given number of entries. Prefer `cursor` for paging through large directories. On a `recursive` listing, `offset` is ignored when a `cursor` is passed; start with `offset`, then follow the returned `cursor`.
-- `sortBy` (String) (optional) - Sort field: `name`, `modified`, `type`, or `size`. Default is `name`. With `recursive`, sorting by `name` orders by full path, so each directory's contents stay together; the other fields sort across the whole subtree.
-- `sortOrder` (String) (optional) - `asc` or `desc`. Default is `asc`.
-- `recursive` (Boolean) (optional) - If `true`, the contents of subdirectories are listed too. Defaults to `false`.
-- `depth` (Number) (optional) - How many levels to descend when `recursive` is `true`. Defaults to `10`, which is also the maximum.
-- `cursor` (String | null) (optional) - Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one. The cursor pins the sort, so later pages must not request a different `sortBy`/`sortOrder`.
-- `includeTotal` (Boolean) (optional) - If `true`, the paginated result includes a `total` count of all entries in the directory.
-- `stream` (Boolean) (optional) - If `true`, the method returns an async iterator of page objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `path` | `String` | The path to the directory to read. Required when passing options as the only argument. |
+| `recursive` | `Boolean` | If `true`, the contents of subdirectories are listed too. Defaults to `false`. |
+| `depth` | `Number` | How many levels to descend when `recursive` is `true`. Defaults to `10`, which is also the maximum. |
+| `sortBy` | `String` | Sort field. One of `name`, `modified`, `type`, or `size`. Default is `name`. With `recursive`, sorting by `name` orders by full path, so each directory's contents stay together. The other fields sort across the whole subtree. |
+| `sortOrder` | `String` | Either `asc` or `desc`. Default is `asc`. |
+| `limit` | `Number` | Maximum number of entries to return. |
+| `cursor` | `String \| null` | Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one. The cursor pins the sort, so later pages must not request a different `sortBy` or `sortOrder`. |
+| `offset` | `Number` | Skips the given number of entries. Prefer `cursor` for paging through large directories. On a `recursive` listing, `offset` is ignored when a `cursor` is passed. Start with `offset`, then follow the returned `cursor`. |
+| `includeTotal` | `Boolean` | If `true`, the paginated result includes a `total` count of all entries in the directory. |
+| `stream` | `Boolean` | If `true`, the method returns an async iterator of page objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`. |
+| `uid` | `String` | The UID of the directory to read. |
 
 ## Return value
 
@@ -63,7 +67,7 @@ for await (const page of puter.fs.readdir({ path: './large-dir', stream: true })
 
 ## Examples
 
-<strong class="example-title">Read a directory</strong>
+### Read a directory
 
 ```html;fs-readdir
 <html>

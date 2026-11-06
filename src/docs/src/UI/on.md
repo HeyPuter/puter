@@ -4,7 +4,9 @@ description: Listens to broadcast events from Puter.
 platforms: [apps]
 ---
 
-Listen to broadcast events from Puter. If the broadcast was received before attaching the handler, then the handler is called immediately with the most recent value.
+Listens for broadcast events from Puter.
+
+If the broadcast was received before you attached the handler, the handler is called immediately with the most recent value.
 
 
 ## Syntax
@@ -56,6 +58,8 @@ Sent when another app requests a connection to your app. The value passed to `ha
 ```
 
 ## Examples
+
+### Listen for language changes
 
 ```html
 <html>

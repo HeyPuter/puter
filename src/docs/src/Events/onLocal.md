@@ -4,9 +4,11 @@ description: Subscribe to changes on a file, directory, key-value key, or notifi
 platforms: [websites, apps, nodejs]
 ---
 
+Subscribes to a subject and calls `handler` each time something matching it changes.
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Subscribes to a subject and calls `handler` each time something matching it changes. The subscription belongs to this client's connection. Nothing is stored, nothing runs while the page is closed, and the subscription ends when the connection does. Changes from other devices and regions reach it too. A change made in another region usually arrives a few hundred milliseconds later than a local one. See [Subjects and events](/Events/subjects/) for the subject syntax and the event shape.
+The subscription belongs to this client's connection. Nothing is stored, nothing runs while the page is closed, and the subscription ends when the connection does. Changes from other devices and regions reach it too. A change made in another region usually arrives a few hundred milliseconds later than a local one. See [Subjects and events](/Events/subjects/) for the subject syntax and the event shape.
 
 In a Puter worker, a subscription only lasts for one invocation. To react to changes from a worker, use [`onPersistent()`](/Events/onPersistent/) with a published handler.
 
@@ -28,9 +30,11 @@ Called with `{ event }` for each delivery. See [The event](/Events/subjects/#the
 
 #### `options` (Object) (optional)
 
-- `onError` (Function): Called with `{ message, code }` once the subscription is over. That happens when it can't be restored after a disconnect (see [Reconnects](#reconnects)), or when the server ends it, with `code: 'subscription_ended'` and a `reason` (see [Subscriptions the server ends](#subscriptions-the-server-ends)). The handler isn't called after that. Call `onLocal()` again to resume. Without `onError`, the error is logged to the console.
-- `timeout` (Number): How long to wait for the server to confirm the subscription, in milliseconds. Defaults to `30000`.
-- `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value`. See [Getting the new value](/Events/subjects/#getting-the-new-value) for when it's left out. Other subjects are refused with `invalid_include_value`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `onError` | `Function` | Called with `{ message, code }` once the subscription is over. That happens when it can't be restored after a disconnect (see [Reconnects](#reconnects)), or when the server ends it, with `code: 'subscription_ended'` and a `reason` (see [Subscriptions the server ends](#subscriptions-the-server-ends)). The handler isn't called after that. Call `onLocal()` again to resume. Without `onError`, the error is logged to the console. |
+| `includeValue` | `Boolean` | For a `kv:` subject, include the key's new value as `event.value`. See [Getting the new value](/Events/subjects/#getting-the-new-value) for when it's left out. Other subjects are refused with `invalid_include_value`. |
+| `timeout` | `Number` | How long to wait for the server to confirm the subscription, in milliseconds. Defaults to `30000`. |
 
 ## Return value
 
@@ -46,6 +50,8 @@ A `Promise` that resolves, once the server confirms the subscription, to a subsc
 - `op` (String | null): The one operation this subscription is limited to, or `null` for all.
 - `includeValue` (Boolean): Whether `kv:` deliveries carry the new value.
 - `off` (Function): Ends the subscription. See [`subscription.off()`](/Events/off/).
+
+## Errors
 
 The promise rejects with `{ message, code }`:
 
@@ -98,7 +104,7 @@ If the connection is down when this happens, or drops before `onError` is called
 
 ## Examples
 
-<strong class="example-title">Watch a directory and print what changes</strong>
+### Watch a directory and print what changes
 
 ```html;events-watch-folder
 <html>
@@ -130,7 +136,7 @@ If the connection is down when this happens, or drops before `onError` is called
 </html>
 ```
 
-<strong class="example-title">React to a file that does not exist yet</strong>
+### React to a file that does not exist yet
 
 ```html;events-watch-missing
 <html>
@@ -163,7 +169,7 @@ If the connection is down when this happens, or drops before `onError` is called
 </html>
 ```
 
-<strong class="example-title">Watch this app's key-value store</strong>
+### Watch this app's key-value store
 
 ```html;events-watch-kv
 <html>

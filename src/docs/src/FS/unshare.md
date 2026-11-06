@@ -39,9 +39,11 @@ Pass **yourself** to leave a share someone else gave you. Pass `{ team: uid }` t
 
 An object with the following properties:
 
-- `path` (String) - The item. Required when passing options as the only argument.
-- `uid` (String) - The item, by UID. Can be used instead of `path`.
-- `recipient` (String | Object) - Whose access to withdraw.
+| Option | Type | Description |
+|--------|------|-------------|
+| `path` | `String` | The item. Required when passing options as the only argument. |
+| `recipient` | `String \| Object` | Whose access to withdraw. |
+| `uid` | `String` | The item, by UID. Can be used instead of `path`. |
 
 ## Return value
 
@@ -68,9 +70,14 @@ Withdrawing someone's access also withdraws whatever **they** re-shared of that 
 
 Passing an email address that was **invited** but has not yet joined cancels the invitation. Nothing was granted, so nothing is revoked from anyone — the pending share simply stops waiting.
 
+## Related
+
+- [`puter.fs.share()`](/FS/share/) - Grant access
+- [`puter.fs.getShares()`](/FS/getShares/) - See who can reach an item
+
 ## Examples
 
-<strong class="example-title">Stop sharing a file</strong>
+### Stop sharing a file
 
 ```html;fs-unshare
 <html>
@@ -89,14 +96,9 @@ Passing an email address that was **invited** but has not yet joined cancels the
 </html>
 ```
 
-<strong class="example-title">Leave a share someone gave you</strong>
+### Leave a share someone gave you
 
 ```js
 const me = await puter.auth.getUser();
 await puter.fs.unshare('/alice/report.txt', me.username);
 ```
-
-## Related
-
-- [`puter.fs.share()`](/FS/share/) - Grant access
-- [`puter.fs.getShares()`](/FS/getShares/) - See who can reach an item

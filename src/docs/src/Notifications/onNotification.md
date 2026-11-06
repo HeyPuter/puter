@@ -4,7 +4,9 @@ description: Receive your app's notifications while it's open, including the one
 platforms: [websites, apps]
 ---
 
-Calls `handler` for each of your app's notifications while the app is open. It first hands over the notifications your app already has, oldest first, then each new one as it's sent. When the connection drops, it reads back the ones sent or replaced meanwhile once the connection returns. Each notification reaches a listener once. Notifications sent within 250 ms of each other reach a live listener as one, the last of them, and [`puter.events.fetch()`](/Events/fetch/) still returns all of them. A notification [replaced through its `group`](/Notifications/notify/#groups) keeps its `uid` and reaches the listener again, once per replacement, with the new content and `replaced: true`.
+Calls `handler` for each of your app's notifications while the app is open.
+
+It first hands over the notifications your app already has, oldest first, then each new one as it's sent. When the connection drops, it reads back the ones sent or replaced meanwhile once the connection returns. Each notification reaches a listener once. Notifications sent within 250 ms of each other reach a live listener as one, the last of them, and [`puter.events.fetch()`](/Events/fetch/) still returns all of them. A notification [replaced through its `group`](/Notifications/notify/#groups) keeps its `uid` and reaches the listener again, once per replacement, with the new content and `replaced: true`.
 
 It receives only notifications your app sent, never the user's other notifications. It has to run as an app, meaning an app on Puter or a website using Puter.js. With an account session and no app, such as Node.js with an account token, it rejects with `app_required`. On a website with nobody signed in, it asks the user to sign in first.
 
@@ -42,9 +44,11 @@ A handler that throws or rejects is logged to the console, and the listener keep
 
 #### `options` (Object) (optional)
 
-- `catchUp` (Boolean): Hand over the notifications your app already has before the new ones. Defaults to `true`. With `false`, only notifications sent after the call are handed over.
-- `since` (Number): Milliseconds since the epoch. Notifications read back, when catching up or after a reconnect, are handed over only if they were sent in or after that second. Pass the `createdAt` of the last one you handled. That one can come again, so skip it by `uid`. Live notifications are always handed over.
-- `onError` (Function): Called with `{ message, code }` when the listener stops on its own. That happens when the connection couldn't be restored, when reading what was missed after a reconnect failed, or when the signed-in account or app changed (`code: 'auth_changed'`). The listener has already stopped by then, and nothing more is handed over. Call [`onNotification()`](/Notifications/onNotification/) again to resume. It's also called, without stopping the listener, with `code: 'catch_up_truncated'` if reading back had to stop early. Without `onError`, errors are logged to the console.
+| Option | Type | Description |
+|--------|------|-------------|
+| `catchUp` | `Boolean` | Hand over the notifications your app already has before the new ones. Defaults to `true`. With `false`, only notifications sent after the call are handed over. |
+| `since` | `Number` | Milliseconds since the epoch. Notifications read back, when catching up or after a reconnect, are handed over only if they were sent in or after that second. Pass the `createdAt` of the last one you handled. That one can come again, so skip it by `uid`. Live notifications are always handed over. |
+| `onError` | `Function` | Called with `{ message, code }` when the listener stops on its own. That happens when the connection couldn't be restored, when reading what was missed after a reconnect failed, or when the signed-in account or app changed (`code: 'auth_changed'`). The listener has already stopped by then, and nothing more is handed over. Call [`onNotification()`](/Notifications/onNotification/) again to resume. It's also called, without stopping the listener, with `code: 'catch_up_truncated'` if reading back had to stop early. Without `onError`, errors are logged to the console. |
 
 ## Return value
 
@@ -52,7 +56,9 @@ A `Promise` that resolves, once the listener is live and caught up, to an object
 
 - `off()` (Function): Stops the listener. Returns a `Promise`. Calling it again does nothing.
 
-It rejects with an error carrying `message` and `code`:
+## Errors
+
+The promise rejects with an error carrying `message` and `code`:
 
 | `code` | Meaning |
 | --- | --- |
@@ -64,7 +70,7 @@ It rejects with an error carrying `message` and `code`:
 
 ## Examples
 
-<strong class="example-title">Show new notifications as they arrive</strong>
+### Show new notifications as they arrive
 
 ```html
 <html>

@@ -4,7 +4,9 @@ description: Turn on push notifications for your app in this browser.
 platforms: [websites, apps]
 ---
 
-Turns on push notifications for your app in the browser the user is in. Call it from a click, before any other `await`. It asks for the browser's permission before anything else, because browsers only show that prompt from a user gesture.
+Turns on push notifications for your app in the browser the user is in.
+
+Call it from a click, before any other `await`. It asks for the browser's permission before anything else, because browsers only show that prompt from a user gesture.
 
 On a website, when the call isn't made from a click, or comes after a sign-in window, another popup, or a few seconds of other work in the same click, it first shows a Puter dialog. The browser's prompt opens when the user clicks **Continue** there. If they click **Cancel**, the call resolves `false`.
 
@@ -33,12 +35,17 @@ puter.notifications.enable(options)
 ## Parameters
 
 #### `options` (Object) (optional)
-- `serviceWorker` (String): The path of the worker that imports `push-sw.js`. Defaults to `/puter-sw.js`. Pass the same path to [`onPush()`](/Notifications/onPush/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). Only used on a website.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `serviceWorker` | `String` | The path of the worker that imports `push-sw.js`. Defaults to `/puter-sw.js`. Pass the same path to [`onPush()`](/Notifications/onPush/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). Only used on a website. |
 
 ## Return value
 A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications, canceled Puter's dialog, or the browser can't receive pushes, such as a private window or an iPhone page that isn't opened from the Home Screen. [Where pushes work](/Notifications/push/#where-pushes-work) lists what each browser needs.
 
-It rejects with an error carrying `message` and `code`:
+## Errors
+
+The promise rejects with an error carrying `message` and `code`:
 
 | `code` | Meaning |
 | --- | --- |
@@ -63,7 +70,7 @@ It rejects with an error carrying `message` and `code`:
 
 ## Examples
 
-<strong class="example-title">Turn on pushes from a button</strong>
+### Turn on pushes from a button
 
 ```html
 <html>

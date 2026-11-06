@@ -4,7 +4,9 @@ description: Displays a context menu at the current cursor position.
 platforms: [ websites, apps]
 ---
 
-Displays a context menu at the current cursor position. Context menus provide a convenient way to show contextual actions that users can perform.
+Displays a context menu at the current cursor position.
+
+Context menus provide a convenient way to show contextual actions that users can perform.
 
 ## Syntax
 ```js
@@ -16,26 +18,32 @@ puter.ui.contextMenu(options)
 #### `options` (required)
 An object that configures the context menu.
 
-* `items` (Array): An array of menu items and separators. Each item can be either:
-  - **Menu Item Object**: An object with the following properties:
+| Option | Type | Description |
+|--------|------|-------------|
+| `items` | `Array` | Required. An array of menu items and separators. The format of each item is described below the table. |
+| `x` | `Number` | X position of the menu, in pixels. Defaults to the cursor position. |
+| `y` | `Number` | Y position of the menu, in pixels. Defaults to the cursor position. |
+| `theme` | `String` | Forces the menu's color theme, either `'dark'` or `'light'`. When unset, the menu follows the system color-scheme preference. |
+
+The `x`, `y`, and `theme` options only apply when running standalone (`puter.env === 'web'`). Inside the Puter desktop (`puter.env === 'app'`) the menu is rendered by the desktop, which places it at the cursor and uses its own theme.
+
+Each item in `items` can be either:
+
+- **Menu Item Object**: An object with the following properties:
     - `label` (String): The text to display for the menu item.
     - `action` (Function, optional): The function to execute when the menu item is clicked. Not required for items with submenus.
     - `icon` (String, optional): The icon to display next to the menu item label. Must be a base64-encoded image data URI starting with `data:image`. Strings not starting with `data:image` will be ignored.
     - `icon_active` (String, optional): The icon to display when the menu item is hovered or active. Must be a base64-encoded image data URI starting with `data:image`. Strings not starting with `data:image` will be ignored.
     - `disabled` (Boolean, optional): If set to `true`, the menu item will be disabled and unclickable. Default is `false`.
     - `items` (Array, optional): An array of submenu items. Creates a submenu when specified.
-  - **Separator**: A string `'-'` to create a visual separator between menu items.
+- **Separator**: A string `'-'` to create a visual separator between menu items.
 
-* `theme` (String, optional): Forces the menu's color theme — `'dark'` or `'light'`. When unset, the menu follows the system color-scheme preference.
-* `x` (Number, optional): X position of the menu, in pixels. Defaults to the cursor position.
-* `y` (Number, optional): Y position of the menu, in pixels. Defaults to the cursor position.
-
-`theme`, `x`, and `y` only apply when running standalone (`puter.env === 'web'`). Inside the Puter desktop (`puter.env === 'app'`) the menu is rendered by the desktop, which places it at the cursor and uses its own theme.
-
-## Return value 
+## Return value
 This method does not return a value. The context menu is displayed immediately and menu item actions are executed when clicked.
 
 ## Examples
+
+### Show a context menu on right-click
 
 ```html;ui-context-menu
 <html>

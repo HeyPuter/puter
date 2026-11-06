@@ -4,7 +4,9 @@ description: Write data to files in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Writes data to a specified file path. This method is useful for creating new files or modifying existing ones in the Puter cloud storage.
+Writes data to a specified file path.
+
+This method is useful for creating new files or modifying existing ones in the Puter cloud storage.
 
 ## Syntax
 
@@ -30,9 +32,11 @@ The data to write to the file. If omitted, an empty file is created.
 
 The options for the `write` operation. The following options are supported:
 
-- `overwrite` (boolean) - Whether to overwrite the file if it already exists. Defaults to `true`.
-- `dedupeName` (boolean) - Whether to deduplicate the file name if it already exists. Defaults to `false`.
-- `createMissingParents` (boolean) - Whether to create missing parent directories. Defaults to `false`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `createMissingParents` | `Boolean` | Whether to create missing parent directories. Defaults to `false`. |
+| `overwrite` | `Boolean` | Whether to overwrite the file if it already exists. Defaults to `true`. |
+| `dedupeName` | `Boolean` | Whether to deduplicate the file name if it already exists. Defaults to `false`. |
 
 #### `file` (File)
 
@@ -44,7 +48,7 @@ Returns a `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of t
 
 ## Examples
 
-<strong class="example-title">Create a new file containing "Hello, world!"</strong>
+### Create a new file containing "Hello, world!"
 
 ```html;fs-write
 <html>
@@ -60,7 +64,7 @@ Returns a `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of t
 </html>
 ```
 
-<strong class="example-title">Create a new file with input coming from a file input</strong>
+### Create a new file with input coming from a file input
 
 ```html;fs-write-from-input
 <html>
@@ -81,7 +85,7 @@ Returns a `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of t
 </html>
 ```
 
-<strong class="example-title">Create a file with duplicate name handling</strong>
+### Create a file with duplicate name handling
 
 ```html;fs-write-dedupe
 <html>
@@ -101,7 +105,7 @@ Returns a `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of t
 </html>
 ```
 
-<strong class="example-title">Create a new file with missing parent directories</strong>
+### Create a new file with missing parent directories
 
 ```html;fs-write-create-missing-parents
 <html>

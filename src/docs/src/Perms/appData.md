@@ -4,7 +4,9 @@ description: Request permission to use another app's data — its key-value stor
 platforms: [websites, apps]
 ---
 
-Request permission for your app to use another app's data belonging to the signed-in user: that app's key-value namespace, its `AppData` directory, or both. A calendar might read a contacts app's entries to show birthdays, and add an invite the user can later cancel from either app.
+Request permission for your app to use another app's data belonging to the signed-in user: that app's key-value namespace, its `AppData` directory, or both.
+
+A calendar might read a contacts app's entries to show birthdays, and add an invite the user can later cancel from either app.
 
 The user is prompted once and sees exactly which apps and which kinds of access are involved. If the permission has already been granted the user is not prompted and `true` is returned. If the user declines, `false` is returned.
 
@@ -22,7 +24,7 @@ puter.perms.request('appData', { app, scopes })
 
 See [`puter.perms.request()`](/Perms/request/) for the other resources it takes, and [`puter.perms.check()`](/Perms/check/) to ask whether the access is already granted without prompting.
 
-## Details
+## Parameters
 
 #### `app` (String | Object) (required)
 The app whose data you want to use. Either its uid (`app-…`), its registered name, or an object carrying one: `{ uid: 'app-…' }` or `{ name: 'contacts' }`.
@@ -52,11 +54,31 @@ A `Promise` that resolves to:
 - `true` - If your app may now use that data
 - `false` - If the user declined
 
+## Errors
+
 The promise rejects if the named app does not exist, or if a scope is misspelled.
+
+## Keeping your own data private
+
+Another app can only reach your data if the user grants it, but the user cannot see what a key-value namespace holds before answering. If your app stores something no other app should ever read — a cached OAuth token, a licence key — mark it private when you write it:
+
+```js
+await puter.kv.set('googleRefreshToken', token, { disableSharing: true });
+```
+
+A private entry is invisible to every other app: reads return nothing, listings omit it, writes and deletes are refused, and subscriptions are never told it changed — regardless of what the user has granted. Your own app reads and writes it normally, and writing the key again without the flag makes it shareable once more.
+
+To keep *all* of your app's data out of this feature, set `share_app_data` to `false` in your app's metadata. Requests naming your app are then refused and the user is never prompted.
+
+## Notes
+
+Granted access is scoped to the user who granted it, and only to the two stores above — it does not extend to that app's source, settings, or anything outside their per-user data.
+
+Access ends automatically when the target app is deleted. Grants are also withdrawn if the app is later re-created under the same identifier, so a new owner of that identifier does not inherit consent the user gave its predecessor.
 
 ## Examples
 
-<strong class="example-title">Read another app's data</strong>
+### Read another app's data
 
 ```html
 <html>
@@ -80,7 +102,7 @@ The promise rejects if the named app does not exist, or if a scope is misspelled
 </html>
 ```
 
-<strong class="example-title">Add an entry, and be able to remove it later</strong>
+### Add an entry, and be able to remove it later
 
 ```html
 <html>
@@ -108,7 +130,7 @@ The promise rejects if the named app does not exist, or if a scope is misspelled
 </html>
 ```
 
-<strong class="example-title">Read another app's files</strong>
+### Read another app's files
 
 ```html
 <html>
@@ -129,21 +151,3 @@ The promise rejects if the named app does not exist, or if a scope is misspelled
 </body>
 </html>
 ```
-
-## Keeping your own data private
-
-Another app can only reach your data if the user grants it, but the user cannot see what a key-value namespace holds before answering. If your app stores something no other app should ever read — a cached OAuth token, a licence key — mark it private when you write it:
-
-```js
-await puter.kv.set('googleRefreshToken', token, { disableSharing: true });
-```
-
-A private entry is invisible to every other app: reads return nothing, listings omit it, writes and deletes are refused, and subscriptions are never told it changed — regardless of what the user has granted. Your own app reads and writes it normally, and writing the key again without the flag makes it shareable once more.
-
-To keep *all* of your app's data out of this feature, set `share_app_data` to `false` in your app's metadata. Requests naming your app are then refused and the user is never prompted.
-
-## Notes
-
-Granted access is scoped to the user who granted it, and only to the two stores above — it does not extend to that app's source, settings, or anything outside their per-user data.
-
-Access ends automatically when the target app is deleted. Grants are also withdrawn if the app is later re-created under the same identifier, so a new owner of that identifier does not inherit consent the user gave its predecessor.

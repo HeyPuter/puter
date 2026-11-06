@@ -4,7 +4,9 @@ description: Rename files or directories in the user's own Puter file system.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Renames a file or directory to a new name. This method allows you to change the name of a file or directory in the Puter cloud storage.
+Renames a file or directory to a new name.
+
+This method allows you to change the name of a file or directory in the Puter cloud storage.
 
 ## Syntax
 
@@ -28,9 +30,11 @@ The new name of the file or directory.
 
 The options for the `rename` operation. The following options are supported:
 
-- `path` (String) - Path to the file or directory to rename. Required when passing options as the only argument.
-- `uid` (String) - The UID of the file or directory to rename. Can be used instead of `path`.
-- `newName` (String) - The new name for the file or directory. Required when passing options as the only argument.
+| Option | Type | Description |
+|--------|------|-------------|
+| `path` | `String` | Path to the file or directory to rename. Required when passing options as the only argument. |
+| `newName` | `String` | The new name for the file or directory. Required when passing options as the only argument. |
+| `uid` | `String` | The UID of the file or directory to rename. Can be used instead of `path`. |
 
 ## Return value
 
@@ -38,7 +42,7 @@ Returns a promise that resolves to the [`FSItem`](/Objects/fsitem) object of the
 
 ## Examples
 
-<strong class="example-title">Rename a file</strong>
+### Rename a file
 
 ```html;fs-rename
 <html>

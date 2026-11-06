@@ -4,7 +4,9 @@ description: Delete a subdomain from your account.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Deletes a subdomain from your account. The subdomain will no longer be served by the hosting service. If the subdomain has a directory, it will be disconnected from the subdomain. The associated directory will not be deleted.
+Deletes a subdomain from your account.
+
+The subdomain will no longer be served by the hosting service. If the subdomain has a directory, it will be disconnected from the subdomain. The associated directory will not be deleted.
 
 ## Syntax
 
@@ -20,11 +22,15 @@ A string containing the name of the subdomain you want to delete.
 
 ## Return value
 
-A `Promise` that will resolve to an object of the form `{ success: true, uid: <subdomain-uid> }` when the subdomain has been deleted. If a subdomain with the given name does not exist, the promise will be rejected with an error.
+A `Promise` that will resolve to an object of the form `{ success: true, uid: <subdomain-uid> }` when the subdomain has been deleted.
+
+## Errors
+
+If a subdomain with the given name does not exist, the promise will be rejected with an error.
 
 ## Examples
 
-<strong class="example-title">Create a random website then delete it</strong>
+### Create a random website then delete it
 
 ```html;hosting-delete
 <html>

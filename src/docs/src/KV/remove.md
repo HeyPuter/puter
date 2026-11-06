@@ -4,7 +4,9 @@ description: Remove values at one or more paths from a key in the user's own key
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Removes values from the value stored at a key, by path. Paths can point at nested fields and array elements.
+Removes values from the value stored at a key, by path.
+
+Paths can point at nested fields and array elements.
 
 ## Syntax
 
@@ -31,8 +33,10 @@ Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `s
 
 The last argument. It takes these properties:
 
-- `handle` (String): Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `handle` | `String` | Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users). |
+| `appUuid` | `String` | Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`. |
 
 ## Return value
 
@@ -60,7 +64,7 @@ A rejection carries an `Error` with a stable `code`:
 
 ## Examples
 
-<strong class="example-title">Remove nested fields from an object</strong>
+### Remove nested fields from an object
 
 ```html;kv-remove
 <html>

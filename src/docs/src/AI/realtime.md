@@ -4,7 +4,9 @@ description: Connect to OpenAI realtime conversations through Puter without pute
 platforms: [websites, apps, nodejs, workers]
 ---
 
-The Realtime WebSocket API lets your client send and receive native OpenAI realtime JSON events through Puter. Puter authenticates the user and charges their account for usage.
+The Realtime WebSocket API lets your client send and receive native OpenAI realtime JSON events through Puter.
+
+Puter authenticates the user and charges their account for usage.
 
 **Beta:** This API is incomplete. Its methods, options, events, and behavior may change abruptly, including breaking changes without notice.
 

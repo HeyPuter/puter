@@ -25,7 +25,7 @@ A `Promise` that resolves to a [`SpaceInfo`](/Objects/spaceinfo/) object with th
 
 ## Examples
 
-<strong class="example-title">Show how much storage the user has used</strong>
+### Show how much storage the user has used
 
 ```html
 <html>

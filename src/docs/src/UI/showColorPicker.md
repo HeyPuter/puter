@@ -15,6 +15,8 @@ puter.ui.showColorPicker(options)
 
 ## Examples
 
+### Change the background to the picked color
+
 ```html;ui-show-color-picker
 <html>
 <body>

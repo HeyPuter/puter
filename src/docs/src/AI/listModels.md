@@ -43,12 +43,14 @@ Example model entry:
 ]
 ```
 
+<div class="info">Successful results are cached for 60 seconds per provider.</div>
+
+## Errors
+
 Network and server failures reject the promise; they do not resolve to an empty
 catalogue. Network failures use `{ message, code: "network_error" }`, invalid
 catalogue responses use `invalid_response`, idle timeouts use `request_timeout`,
 and server errors pass through unchanged.
-
-<div class="info">Successful results are cached for 60 seconds per provider.</div>
 
 ## Model variants
 
@@ -63,6 +65,8 @@ Some models have variants. A variant is the same model with a different price, r
 The model ID without a suffix is the standard variant. Not every model has variants. `:flex` and `:priority` are the provider's service tiers. To use a variant, pass its full ID as the `model` option. Options and response shape are the same as the base model. Price, context window, and max output length can differ. The model's page lists its variants and their limits.
 
 ## Examples
+
+### List all models
 
 ```html;ai-list-models
 <html>

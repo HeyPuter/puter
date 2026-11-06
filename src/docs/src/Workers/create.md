@@ -36,9 +36,17 @@ When your code is itself running as a Puter app, you may only name an app that *
 #### `options` (Object)(Optional)
 An alternative to `appName` for controlling the worker's sandbox.
 
-- `sandbox` (Boolean)(Optional) - Whether to give the worker its own isolated sandbox app. When `true`, a dedicated `sandbox-<workerName>` app is created (or reused) to own the worker. The default depends on how you're authenticated:
-  - **Deploying as an app** (your code runs inside a Puter app): defaults to `false`. The worker runs as your app.
-  - **Deploying with a user token** (the GUI, a root access token): defaults to `true`. Most people deploying workers this way never need to think about it.
+| Option | Type | Description |
+|--------|------|-------------|
+| `sandbox` | `Boolean` | Whether to give the worker its own isolated sandbox app. When `true`, a dedicated `sandbox-<workerName>` app is created (or reused) to own the worker. The default depends on how you're authenticated. When deploying as an app (your code runs inside a Puter app), it defaults to `false` and the worker runs as your app. When deploying with a user token (the GUI, a root access token), it defaults to `true`. Most people deploying workers this way never need to think about it. |
+
+## Return value
+
+A `Promise` that resolves to a [`WorkerDeployment`](/Objects/workerdeployment) object on success.
+
+## Errors
+
+On failure, throws an `Error` with the reason.
 
 ## Worker identity and shared state
 
@@ -64,15 +72,26 @@ The app a worker runs as also owns what the worker sends. Notifications and push
 
 Changing a worker's binding does not migrate its data. A worker redeployed with a different `sandbox` setting or `appName` starts against a different namespace, and anything it wrote under the old identity stays where it was.
 
-## Return Value
+## Updating a worker
 
-A `Promise` that resolves to a [`WorkerDeployment`](/Objects/workerdeployment) object on success.
+A worker keeps the same name and URL for its whole lifetime. You create it once with `create()`; after that, you **update it by overwriting its source file**, not by creating a new worker.
 
-On failure, throws an `Error` with the reason.
+[`puter.workers.get()`](/Workers/get/) returns the worker's [`file_path`](/Objects/workerinfo), so you can write your new code back to it:
+
+```js
+// Look up the deployed worker's source file
+const info = await puter.workers.get('my-api');
+
+// Overwrite it with your new code — this redeploys the worker
+// at the same name and URL
+await puter.fs.write(info.file_path, updatedWorkerCode);
+```
+
+The worker redeploys from that file, so `https://my-api.puter.work` keeps serving — now running your updated code. Anything already calling the worker keeps working without changes.
 
 ## Examples
 
-<strong class="example-title">Basic Syntax</strong>
+### Basic Syntax
 
 ```js
 // Create a new worker from a file in your Puter account
@@ -85,7 +104,7 @@ puter.workers.create('my-api', 'api-server.js')
     });
 ```
 
-<strong class="example-title">Complete Example</strong>
+### Complete Example
 
 ```html;workers-create
 <html>
@@ -122,20 +141,3 @@ puter.workers.create('my-api', 'api-server.js')
 </body>
 </html>
 ```
-
-## Updating a worker
-
-A worker keeps the same name and URL for its whole lifetime. You create it once with `create()`; after that, you **update it by overwriting its source file**, not by creating a new worker.
-
-[`puter.workers.get()`](/Workers/get/) returns the worker's [`file_path`](/Objects/workerinfo), so you can write your new code back to it:
-
-```js
-// Look up the deployed worker's source file
-const info = await puter.workers.get('my-api');
-
-// Overwrite it with your new code — this redeploys the worker
-// at the same name and URL
-await puter.fs.write(info.file_path, updatedWorkerCode);
-```
-
-The worker redeploys from that file, so `https://my-api.puter.work` keeps serving — now running your updated code. Anything already calling the worker keeps working without changes.

@@ -4,7 +4,9 @@ description: Prepare an OpenAI realtime conversation with optional audio and tex
 platforms: [websites, apps, nodejs, workers]
 ---
 
-The conversation API prepares a realtime session, verifies Puter sign-in, and lets you connect when your app is ready. Realtime conversations require a paid Puter plan; usage is billed to the signed-in user. Native OpenAI events and convenience methods use the same session. Microphone capture and speaker playback start when your app requests them.
+Prepares a realtime OpenAI conversation that your app can connect to when it's ready.
+
+Preparing the conversation verifies Puter sign-in. Realtime conversations require a paid Puter plan, and usage is billed to the signed-in user. Native OpenAI events and convenience methods use the same session. Microphone capture and speaker playback start when your app requests them.
 
 In Node.js, the SDK requires a global `WebSocket`, available in Node.js 22 or later.
 
@@ -21,15 +23,17 @@ await conversation.connect();
 
 ## Parameters
 
+#### `options` (Object) (Optional)
+
 The options object accepts these fields.
 
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `model` | String | `gpt-realtime-2.1-mini` | Also accepts `gpt-realtime-2.1`, `gpt-realtime-2`, `gpt-realtime-1.5`, `gpt-realtime`, and `gpt-realtime-mini`. |
-| `instructions` | String | Provider default | Session instructions, up to 8192 characters. |
-| `output` | Array of Strings | `['audio']` | Accepts `['text']`, `['audio']`, or both. Audio includes a transcript. Requesting both uses audio output and emits transcript deltas through the `text` event. |
-| `voice` | String | Provider default | OpenAI voice identifier, up to 128 characters. |
-| `turnDetection` | Boolean | `true` | Whether the provider detects the end of spoken turns automatically. Set to `false` for manual audio commits. |
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | The realtime model. Defaults to `gpt-realtime-2.1-mini`. Also accepts `gpt-realtime-2.1`, `gpt-realtime-2`, `gpt-realtime-1.5`, `gpt-realtime`, and `gpt-realtime-mini`. |
+| `instructions` | `String` | Session instructions, up to 8192 characters. Defaults to the provider's default. |
+| `output` | `Array<String>` | Accepts `['text']`, `['audio']`, or both. Defaults to `['audio']`. Audio includes a transcript. Requesting both uses audio output and emits transcript deltas through the `text` event. |
+| `voice` | `String` | OpenAI voice identifier, up to 128 characters. Defaults to the provider's default. |
+| `turnDetection` | `Boolean` | Whether the provider detects the end of spoken turns automatically. Defaults to `true`. Set to `false` for manual audio commits. |
 
 ## Return value
 
@@ -64,6 +68,14 @@ The conversation makes up to ten attempts over about a minute. In a browser that
 
 Native event definitions are listed in the [OpenAI realtime reference](https://developers.openai.com/api/reference/resources/realtime/server-events). Native events retain their provider fields. Sending native events preserves direct control of the session. Puter refuses `conversation.item.retrieve` events and MCP tools (`"type": "mcp"`) in `session.update` and `response.create` events. Sending one fires an `error` event with code `invalid_event`, and the conversation closes with code 1008. Audio helpers expect the session to use PCM16 at 24 kHz.
 
+## Errors and limits
+
+Failures use objects containing `code` and `message`. Preparation can reject with `invalid_argument`, `model_not_found`, `auth_required`, `auth_canceled`, or `auth_failed`. Connection can reject with `subscription_required` or `insufficient_funds`, which also show the Puter upgrade prompt. Connection and asynchronous operations can reject with provider errors, `session_closed`, `connection_lost`, `operation_timeout`, or `operation_in_progress`. Sending before readiness, or while reconnecting, throws `session_not_ready`.
+
+Invalid input throws `invalid_argument`, `invalid_event`, or `input_too_large`. A full SDK send queue throws `queue_full`. Media helpers report `unsupported_environment`, `permission_denied`, `media_error`, `media_timeout`, or `queue_full`. Runtime media errors and `context_restore_failed` arrive through the `error` event. Provider errors also arrive as native `error` events with a nested `error` object.
+
+Each native event is capped at 64 KiB. The SDK bounds JSON traversal, outgoing queues, acknowledgment waits, microphone work, and playback. All numeric limits are listed on [rate limits and quotas](/rate-limits-and-quotas/).
+
 ## Convenience events
 
 The conversation emits these events alongside native events.
@@ -97,15 +109,9 @@ The optional microphone and speaker helpers require a browser with Web Audio sup
 
 Both start methods require a connected session. Capture and playback are independent, so custom audio input can use the built-in speaker, and built-in capture can use custom playback.
 
-## Errors and limits
-
-Failures use objects containing `code` and `message`. Preparation can reject with `invalid_argument`, `model_not_found`, `auth_required`, `auth_canceled`, or `auth_failed`. Connection can reject with `subscription_required` or `insufficient_funds`, which also show the Puter upgrade prompt. Connection and asynchronous operations can reject with provider errors, `session_closed`, `connection_lost`, `operation_timeout`, or `operation_in_progress`. Sending before readiness, or while reconnecting, throws `session_not_ready`.
-
-Invalid input throws `invalid_argument`, `invalid_event`, or `input_too_large`. A full SDK send queue throws `queue_full`. Media helpers report `unsupported_environment`, `permission_denied`, `media_error`, `media_timeout`, or `queue_full`. Runtime media errors and `context_restore_failed` arrive through the `error` event. Provider errors also arrive as native `error` events with a nested `error` object.
-
-Each native event is capped at 64 KiB. The SDK bounds JSON traversal, outgoing queues, acknowledgment waits, microphone work, and playback. All numeric limits are listed on [rate limits and quotas](/rate-limits-and-quotas/).
-
 ## Examples
+
+### Have a text conversation
 
 A text conversation uses convenience methods for input and streamed output.
 
@@ -122,6 +128,8 @@ conversation.on('error', (event) => console.error(event));
 await conversation.connect();
 conversation.sendText('Say hello in three words.');
 ```
+
+### Have a voice conversation
 
 A voice conversation enables the microphone and speaker after connection.
 

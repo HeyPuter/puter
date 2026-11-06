@@ -22,7 +22,9 @@ The notification's `uid`. For an immediate notification to your app's own user, 
 
 A `Promise` that resolves to `true` when the notification is marked shown. It resolves to `false` when it was already marked shown, doesn't exist, or isn't one of your app's notifications for this user.
 
-It rejects with an error carrying `message` and `code`:
+## Errors
+
+The promise rejects with an error carrying `message` and `code`:
 
 | `code` | Meaning |
 | --- | --- |
@@ -33,7 +35,7 @@ It rejects with an error carrying `message` and `code`:
 
 ## Examples
 
-<strong class="example-title">Start a new notification in a group</strong>
+### Start a new notification in a group
 
 ```html;notifications-mark-shown
 <html>
