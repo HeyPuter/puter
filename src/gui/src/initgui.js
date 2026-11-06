@@ -33,17 +33,17 @@ import UIWindowPasswordChangeRequired from './UI/UIWindowPasswordChangeRequired.
 import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationRequired.js';
 import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
-import UIWindowLogin from './UI/UIWindowLogin.js';
-import UIWindowLogin2FA from './UI/UIWindowLogin2FA.js';
+import UIAuthLogin from './UI/Auth/UIAuthLogin.js';
+import UIAuth2FA from './UI/Auth/UIAuth2FA.js';
 import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
 import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
-import UIWindowSessionList from './UI/UIWindowSessionList.js';
-import UIWindowSignup from './UI/UIWindowSignup.js';
-import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
+import UIAuthAccountPicker from './UI/Auth/UIAuthAccountPicker.js';
+import UIAuthSignup from './UI/Auth/UIAuthSignup.js';
+import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
@@ -140,7 +140,7 @@ const follow_share_recipient = async (action) => {
     });
     if ( choice !== 'sign_in' ) return false;
     // Reloads on success; closing it carries on as the current account.
-    return Boolean(await UIWindowLogin({
+    return Boolean(await UIAuthLogin({
         reload_on_success: true,
         send_confirmation_code: true,
     }));
@@ -1521,7 +1521,7 @@ window.initgui = async function (options) {
     window.gui_action = action;
 
     if (action === 'oidc-2fa') {
-        const result = oidcChallenge?.token && await UIWindowLogin2FA(oidcChallenge.token);
+        const result = oidcChallenge?.token && await UIAuth2FA(oidcChallenge.token);
         if (result?.redirectUrl) {
             const target = new URL(result.redirectUrl, window.location.origin);
             if (target.origin === window.location.origin) {
@@ -1736,14 +1736,10 @@ window.initgui = async function (options) {
         ) {
             // show signup window
             if (
-                await UIWindowSignup({
+                await UIAuthSignup({
                     reload_on_success: false,
                     send_confirmation_code: true,
-                    show_close_button: false,
-                    window_options: {
-                        has_head: false,
-                        cover_page: true,
-                    },
+                    page: true,
                 })
             ) {
                 // Completing signup in a sign-in popup is the user asking to
@@ -1802,11 +1798,9 @@ window.initgui = async function (options) {
             } else {
                 // Show session list so user can pick which account to use
                 showed_account_picker = true;
-                picked_a_user_for_sdk_login = await UIWindowSessionList({
+                picked_a_user_for_sdk_login = await UIAuthAccountPicker({
                     reload_on_success: false,
-                    draggable_body: false,
-                    has_head: false,
-                    cover_page: true,
+                    page: true,
                 });
 
                 if (picked_a_user_for_sdk_login) {
@@ -1912,20 +1906,15 @@ window.initgui = async function (options) {
             ? { authError: authErrorDisplayMessage() }
             : {};
         if (!window.is_auth()) {
-            opts.window_options = { cover_page: true, has_head: false };
+            opts.page = true;
         }
-        await UIWindowLogin(Object.keys(opts).length ? opts : undefined);
+        await UIAuthLogin(opts);
     }
     //--------------------------------------------------------------------------------------
     // Action: Password recovery
     //--------------------------------------------------------------------------------------
     else if (action === 'password-recovery') {
-        await UIWindowRecoverPassword({
-            window_options: {
-                cover_page: true,
-                has_head: false,
-            },
-        });
+        await UIAuthRecoverPassword({ page: true });
     }
     //--------------------------------------------------------------------------------------
     // Action: Signup
@@ -1935,10 +1924,10 @@ window.initgui = async function (options) {
             ? { authError: authErrorDisplayMessage() }
             : {};
         if (!window.is_auth()) {
-            opts.window_options = { cover_page: true, has_head: false };
+            opts.page = true;
         }
         opts.send_confirmation_code = true;
-        await UIWindowSignup(Object.keys(opts).length ? opts : undefined);
+        await UIAuthSignup(opts);
     }
     // Which URL parameter (if any) is carrying a token to sign in with —
     // `auth_token`, or `token` when returning from a remote backend's AuthMe.
@@ -1965,11 +1954,9 @@ window.initgui = async function (options) {
                 window.url_query_params.get('request_auth'))
         ) {
             showed_account_picker = true;
-            picked_a_user_for_sdk_login = await UIWindowSessionList({
+            picked_a_user_for_sdk_login = await UIAuthAccountPicker({
                 reload_on_success: false,
-                draggable_body: false,
-                has_head: false,
-                cover_page: true,
+                page: true,
             });
             if (picked_a_user_for_sdk_login) {
                 window.popup_signin_consent = true;
@@ -2509,26 +2496,24 @@ window.initgui = async function (options) {
         const needs_action = action === 'authme' || action === 'copyauth';
         const reload_on_success = needs_action;
         if (window.logged_in_users.length > 0) {
-            // dashboard mode skips the wallpaper (fullpage), but the session list
-            // has no cover page — restore the wallpaper so it isn't on a blank page
+            // dashboard mode skips the wallpaper (fullpage), but the account
+            // picker is a dialog, not a page — restore the wallpaper so it
+            // isn't on a blank page
             if (window.is_dashboard_mode) {
                 window.refresh_desktop_background();
             }
-            await UIWindowSessionList({
+            await UIAuthAccountPicker({
                 redirect_url: needs_action ? window.location.href : undefined,
             });
         } else {
             const resp = await fetch(`${window.gui_origin}/whoarewe`);
             const whoarewe = await resp.json();
-            await UIWindowLogin({
+            await UIAuthLogin({
                 reload_on_success: !window.embedded_in_popup,
                 send_confirmation_code: true,
                 show_signup_button: !whoarewe.disable_user_signup,
                 redirect_url: needs_action ? window.location.href : undefined,
-                window_options: {
-                    cover_page: true,
-                    has_head: false,
-                },
+                page: true,
             });
         }
         if (!reload_on_success && window.is_auth()) {
@@ -2717,13 +2702,10 @@ window.initgui = async function (options) {
                         // hide Turnstile challenge
                         $('.captcha-modal').hide();
 
-                        await UIWindowSignup({
+                        await UIAuthSignup({
                             reload_on_success: !window.embedded_in_popup,
                             send_confirmation_code: true,
-                            window_options: {
-                                has_head: false,
-                                cover_page: true,
-                            },
+                            page: true,
                         });
 
                         // Popup-only: it posts to `window.opener` and closes the
@@ -3087,14 +3069,6 @@ $(window).on('resize', function () {
     $('.window-login').css({
         left: (window.desktop_width - width) / 2,
         top: top / ratio,
-    });
-
-    // Re-center the create account window
-    const top2 = $('.window-signup').position()?.top;
-    const width2 = $('.window-signup').width();
-    $('.window-signup').css({
-        left: (window.desktop_width - width2) / 2,
-        top: top2 / ratio,
     });
 });
 

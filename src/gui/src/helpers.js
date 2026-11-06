@@ -36,7 +36,7 @@ import mime from './lib/mime.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
 import UIItem from './UI/UIItem.js';
-import UIWindowLogin from './UI/UIWindowLogin.js';
+import UIAuthLogin from './UI/Auth/UIAuthLogin.js';
 import UIWindowProgress from './UI/UIWindowProgress.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 
@@ -67,7 +67,7 @@ window.is_auth = () => {
  *   1. Snapshot enough state to land back where we were after sign-in.
  *   2. Clear the token key (and the retired one, if a value lingers).
  *   3. Show a soft modal explaining what happened.
- *   4. Re-open UIWindowLogin, forwarding `auth_id` so temp users can
+ *   4. Re-open the login dialog, forwarding `auth_id` so temp users can
  *      re-attach to the same identity.
  *
  * Idempotent: parallel 401s while the modal is already open are dropped.
@@ -106,12 +106,12 @@ window.handleReauthRequired = async (signal = {}) => {
             });
         } catch ( e ) {
             // If the alert surface isn't available (very early in boot),
-            // fall through to UIWindowLogin directly.
+            // fall through to the login dialog directly.
         }
 
         // Open the login window, forwarding auth_id.
         try {
-            const login = await UIWindowLogin({
+            const login = await UIAuthLogin({
                 reload_on_success: true,
                 auth_id: signal.auth_id,
                 reauth_reason: signal.reason,
@@ -1077,15 +1077,10 @@ window.show_save_account_notice_if_needed = function (message) {
                     });
 
                 } else if ( alert_resp === 'login' ) {
-                    let login_result = await UIWindowLogin({
+                    let login_result = await UIAuthLogin({
                         show_signup_button: false,
                         reload_on_success: true,
                         send_confirmation_code: false,
-                        window_options: {
-                            show_in_taskbar: false,
-                            backdrop: true,
-                            close_on_backdrop_click: false,
-                        },
                     });
                     // FIXME: Report login error.
                 }

@@ -85,7 +85,7 @@ test.describe('popup sign-in cannot be driven from a link', () => {
         );
 
         // The user is asked, rather than the popup deciding for them.
-        await expect(popup.locator('.window-session-list')).toBeVisible({
+        await expect(popup.locator('.auth-dialog [data-screen="accounts"]')).toBeVisible({
             timeout: 60_000,
         });
         expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
@@ -106,7 +106,7 @@ test.describe('popup sign-in cannot be driven from a link', () => {
                 '&opener_origin=https%3A%2F%2Fconsole.puter.com',
         );
 
-        await expect(popup.locator('.window-session-list')).toBeVisible({
+        await expect(popup.locator('.auth-dialog [data-screen="accounts"]')).toBeVisible({
             timeout: 60_000,
         });
         await page.waitForTimeout(5000);
@@ -129,7 +129,7 @@ test.describe('popup sign-in cannot be driven from a link', () => {
                 `&signin_session=${session}&msg_id=90`,
         );
 
-        await expect(popup.locator('.window-session-list')).toBeVisible({
+        await expect(popup.locator('.auth-dialog [data-screen="accounts"]')).toBeVisible({
             timeout: 60_000,
         });
         expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
@@ -149,7 +149,7 @@ test.describe('popup sign-in cannot be driven from a link', () => {
                 `&signin_session=${session}&msg_id=92`,
         );
 
-        await expect(popup.locator('.window-session-list')).toBeVisible({
+        await expect(popup.locator('.auth-dialog [data-screen="accounts"]')).toBeVisible({
             timeout: 60_000,
         });
         expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
@@ -170,7 +170,7 @@ test.describe('popup sign-in cannot be driven from a link', () => {
                 `&signin_session=${session}&msg_id=91`,
         );
 
-        await expect(popup.locator('.window-session-list')).toBeVisible({
+        await expect(popup.locator('.auth-dialog [data-screen="accounts"]')).toBeVisible({
             timeout: 60_000,
         });
         await popup.close();

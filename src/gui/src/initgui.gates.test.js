@@ -134,7 +134,7 @@ describe('the permission popup and browser push', () => {
 });
 
 describe('the account pickers in a popup', () => {
-    const PICKER = 'picked_a_user_for_sdk_login = await UIWindowSessionList(';
+    const PICKER = 'picked_a_user_for_sdk_login = await UIAuthAccountPicker(';
 
     it('record that they were shown', () => {
         // A dismissed picker has to outrank an existing relationship, so the

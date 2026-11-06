@@ -27,7 +27,7 @@ import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIWindowDesktopBGSettings from './UIWindowDesktopBGSettings.js';
 import UIWindowMyWebsites from './UIWindowMyWebsites.js';
 import UIWindowFeedback from './UIWindowFeedback.js';
-import UIWindowLogin from './UIWindowLogin.js';
+import UIAuthLogin from './Auth/UIAuthLogin.js';
 import UIWindowQR from './UIWindowQR.js';
 
 import UIWindowProgress from './UIWindowProgress.js';
@@ -1901,9 +1901,9 @@ async function UIDesktop (options) {
                 await open_path_target(stat.path ?? shared_path, stat);
                 return;
             }
-            await UIWindowLogin({
+            await UIAuthLogin({
                 reload_on_success: true,
-                window_options: { cover_page: true, has_head: false },
+                page: true,
             });
             // Dismissed without signing in: drop the link rather than loop.
             if ( window.user?.is_temp ) clear_shared_param();
@@ -2235,12 +2235,9 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
             html: i18n('add_another_account'),
             // icon: l_user.username === user.username ? '✓' : '',
             onClick: async function (val) {
-                await UIWindowLogin({
+                await UIAuthLogin({
                     reload_on_success: true,
                     send_confirmation_code: false,
-                    window_options: {
-                        has_head: true,
-                    },
                 });
             },
         });
@@ -2423,16 +2420,12 @@ $(document).on('click', '.user-options-login-btn', async function (e) {
         });
         if ( saved )
         {
-            UIWindowLogin({ show_signup_button: false, reload_on_success: true });
+            UIAuthLogin({ show_signup_button: false, reload_on_success: true });
         }
     } else if ( alert_resp === 'login' ) {
-        UIWindowLogin({
+        UIAuthLogin({
             show_signup_button: false,
             reload_on_success: true,
-            window_options: {
-                backdrop: true,
-                close_on_backdrop_click: false,
-            },
         });
     }
 });

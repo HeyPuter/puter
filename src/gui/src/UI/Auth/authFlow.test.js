@@ -1,0 +1,178 @@
+// @vitest-environment jsdom
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetAuthGlobals, tick } from './authTestSetup.js';
+
+const { default: openAuthFlow, activeAuthFlow, authFlowOptions, joinAuthFlow } = await import('./authFlow.js');
+
+const key = (target, k) => target.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true }));
+const backdropClick = () => {
+    const el = $('.auth-dialog-overlay').last().get(0);
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, detail: 1 }));
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+};
+
+beforeEach(() => {
+    resetAuthGlobals();
+    activeAuthFlow()?.finish(false);
+});
+
+describe('openAuthFlow', () => {
+    it('mounts one card over everything, not a window', async () => {
+        const flow = openAuthFlow();
+        flow.push({ name: 'a', html: '<h1 class="auth-title">A</h1>' });
+        await tick();
+        expect($('.auth-dialog-overlay.dashboard-dialog-overlay')).toHaveLength(1);
+        expect($('.window')).toHaveLength(0);
+        expect($('.auth-dialog').attr('aria-labelledby')).toBe($('.auth-title').attr('id'));
+    });
+
+    it('shows as a page, without ✕, for cover pages and every popup', () => {
+        openAuthFlow({ page: true }).finish(false);
+        window.embedded_in_popup = true;
+        const flow = openAuthFlow();
+        expect(flow.page).toBe(true);
+        expect($('.auth-dialog-overlay').last().hasClass('auth-dialog-page')).toBe(true);
+    });
+
+    it('lets ✕ and Escape dismiss a dialog, settling false', async () => {
+        const flow = openAuthFlow();
+        flow.push({ name: 'a', html: '<input>' });
+        key($('.auth-dialog input').get(0), 'Escape');
+        await expect(flow.result).resolves.toBe(false);
+        expect(activeAuthFlow()).toBeNull();
+
+        const second = openAuthFlow();
+        second.push({ name: 'a', html: '' });
+        $('.dashboard-dialog-close').last().trigger('click');
+        await expect(second.result).resolves.toBe(false);
+    });
+
+    it('keeps a page up: no ✕, Escape and backdrop do nothing', async () => {
+        const flow = openAuthFlow({ page: true });
+        flow.push({ name: 'a', html: '<input>' });
+        await tick();
+        expect($('.dashboard-dialog-close')).toHaveLength(0);
+        key($('.auth-dialog input').get(0), 'Escape');
+        backdropClick();
+        expect(flow.isClosed()).toBe(false);
+    });
+
+    it('ignores the backdrop unless asked, so a stray click keeps typed credentials', async () => {
+        const kept = openAuthFlow();
+        kept.push({ name: 'a', html: '' });
+        await tick();
+        backdropClick();
+        expect(kept.isClosed()).toBe(false);
+        kept.finish(false);
+
+        const closing = openAuthFlow({ closeOnBackdrop: true });
+        closing.push({ name: 'a', html: '' });
+        await tick();
+        backdropClick();
+        await expect(closing.result).resolves.toBe(false);
+    });
+
+    it('holds Escape while busy; only ✕ dismisses then', async () => {
+        const flow = openAuthFlow();
+        flow.push({ name: 'a', html: '<input>' });
+        flow.setBusy(true);
+        key($('.auth-dialog input').get(0), 'Escape');
+        expect(flow.isClosed()).toBe(false);
+        $('.dashboard-dialog-close').trigger('click');
+        await expect(flow.result).resolves.toBe(false);
+    });
+
+    it('keeps typed keys from reaching the desktop shortcuts on the document', () => {
+        const flow = openAuthFlow({ page: true });
+        flow.push({ name: 'a', html: '<input>' });
+        const seen = vi.fn();
+        document.addEventListener('keydown', seen);
+        key($('.auth-dialog input').get(0), 'Delete');
+        key($('.auth-dialog input').get(0), 'Enter');
+        document.removeEventListener('keydown', seen);
+        expect(seen).not.toHaveBeenCalled();
+    });
+
+    it('stacks screens, keeping what was typed, with Back and goTo', () => {
+        const flow = openAuthFlow();
+        flow.push({ name: 'login', html: '<input class="typed">' });
+        $('.typed').val('kept');
+        expect($('.auth-dialog-back').prop('hidden')).toBe(true);
+
+        const left = vi.fn();
+        flow.push({ name: 'signup', html: '<p>signup</p>', onLeave: left });
+        expect($('[data-screen="login"]').prop('hidden')).toBe(true);
+        expect($('.auth-dialog-back').prop('hidden')).toBe(false);
+
+        flow.back();
+        expect(left).toHaveBeenCalledOnce();
+        expect($('[data-screen="signup"]')).toHaveLength(0);
+        expect($('[data-screen="login"]').prop('hidden')).toBe(false);
+        expect($('.typed').val()).toBe('kept');
+
+        flow.push({ name: 'signup', html: '' });
+        flow.push({ name: 'recover', html: '' });
+        expect(flow.goTo('login')).toBe(true);
+        expect($('.auth-screen')).toHaveLength(1);
+        expect(flow.goTo('nope')).toBe(false);
+    });
+
+    it('offers Back on a first screen that asks for it', () => {
+        const flow = openAuthFlow({ page: true });
+        const back = vi.fn();
+        flow.push({ name: 'only', html: '', onBack: back });
+        expect($('.auth-dialog-back').prop('hidden')).toBe(false);
+        $('.auth-dialog-back').trigger('click');
+        expect(back).toHaveBeenCalledOnce();
+    });
+
+    it('tells waiting screens when the flow closes', () => {
+        const flow = openAuthFlow();
+        const left = vi.fn();
+        flow.push({ name: 'a', html: '', onLeave: left });
+        flow.finish(true);
+        expect(left).toHaveBeenCalledOnce();
+    });
+
+    it('lets a second prompt join the open flow instead of stacking another card', async () => {
+        expect(joinAuthFlow()).toBeNull();
+        const flow = openAuthFlow();
+        flow.push({ name: 'a', html: '' });
+        const joined = joinAuthFlow();
+        expect($('.auth-dialog')).toHaveLength(1);
+        flow.finish(true);
+        await expect(joined).resolves.toBe(true);
+    });
+});
+
+describe('authFlowOptions', () => {
+    it('defaults to reloading on success, to the page the flow started on', () => {
+        const options = authFlowOptions();
+        expect(options.reload_on_success).toBe(true);
+        expect(options.redirect_url).toBe(window.location.href);
+        expect(options.show_signup_button).toBe(true);
+        expect(options.send_confirmation_code).toBe(false);
+    });
+
+    it('keeps an explicit empty redirect', () => {
+        expect(authFlowOptions({ redirect_url: '' }).redirect_url).toBe('');
+    });
+});

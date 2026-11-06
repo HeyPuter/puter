@@ -2662,32 +2662,6 @@ label {
     -webkit-font-smoothing: antialiased;
 }
 
-.session-entry {
-    cursor: pointer;
-    padding: 20px;
-    border: 1px solid #CCC;
-    border-radius: 3px;
-    margin-bottom: 10px;
-    background-color: white;
-    font-weight: 500;
-    color: #394d5c;
-}
-
-.session-entry:hover {
-    border-color: #00a6ff;
-}
-
-.login-c2a-session-list, .signup-c2a-session-list {
-    cursor: pointer;
-    font-size: 15px;
-    color: #636363;
-}
-
-.login-c2a-session-list:hover, .signup-c2a-session-list:hover {
-    text-decoration: underline;
-    ;
-}
-
 /*****************************************************
  * Taskbar
  *****************************************************/
@@ -6139,13 +6113,6 @@ html.dark-mode .usage-table-fade-overlay {
     border-radius: 0;
 }
 
-.device-phone .window.window-login-2fa {
-    left: 50% !important;
-    transform: translate(-50%) !important;
-    height: initial !important;
-    max-width: calc(100% - 30px);
-}
-
 .device-phone .window.window-explorer {
     transform: none;
     width: 100%;
@@ -6162,15 +6129,6 @@ html.dark-mode .usage-table-fade-overlay {
     left: 0 !important;
     height: 100dvh;
     top: 0 !important;
-    border-radius: 0;
-}
-
-.device-phone .window-signup {
-    transform: none;
-    width: 100%;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
     border-radius: 0;
 }
 
@@ -6404,17 +6362,6 @@ html.dark-mode .usage-table-fade-overlay {
     height: 20px;
 }
 
-.window-recover-password.window-cover-page .window-body{
-    background-color: white !important;
-}
-.window-recover-password .window-body{
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    height: 100%;
-    width: 100%;
-}
 /* -------------------------------------------------------------------------
    Permission Request Dialog (UIPermissionDialog)
    Standalone top-layer <dialog>; follows the OS light/dark scheme.

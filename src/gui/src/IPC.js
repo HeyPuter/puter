@@ -36,7 +36,7 @@ import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
 import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
-import UIWindowSignup from './UI/UIWindowSignup.js';
+import UIAuthSignup from './UI/Auth/UIAuthSignup.js';
 import UINotification from './UI/UINotification.js';
 
 import { renewGodmodeToken } from './helpers/godmodeTokens.js';
@@ -611,7 +611,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     else if ( event.data.msg === 'showOpenFilePicker' ) {
         // Auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) )
         {
             return;
         }
@@ -677,7 +677,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     else if ( event.data.msg === 'showDirectoryPicker' ) {
         // Auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) )
         {
             return;
         }
@@ -783,7 +783,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     else if ( event.data.msg === 'mouseMoved' ) {
         // Auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) )
         {
             return;
         }
@@ -818,7 +818,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     else if ( event.data.msg === 'contextMenu' ) {
         // Auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) )
         {
             return;
         }
@@ -1384,7 +1384,7 @@ const ipc_listener = async (event, handled) => {
 
         // auth
         try {
-            if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+            if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) )
             {
                 respond(false);
                 return;
@@ -1490,7 +1490,7 @@ const ipc_listener = async (event, handled) => {
         try {
             // auth
             try {
-                if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+                if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) )
                 {
                     respond(false);
                     return;
@@ -1543,7 +1543,7 @@ const ipc_listener = async (event, handled) => {
         enable_push_dialog_guard.markOpened();
         try {
             try {
-                if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+                if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) )
                 {
                     respond('unavailable');
                     return;
@@ -1592,7 +1592,7 @@ const ipc_listener = async (event, handled) => {
         custom_domain_dialog_guard.markOpened();
         try {
             try {
-                if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) ) {
+                if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) ) {
                     respond(null);
                     return;
                 }
@@ -1624,7 +1624,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     else if ( event.data.msg === 'showFontPicker' ) {
         // auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) )
         {
             return;
         }
@@ -1657,7 +1657,7 @@ const ipc_listener = async (event, handled) => {
     //--------------------------------------------------------
     else if ( event.data.msg === 'showColorPicker' ) {
         // Auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) )
         {
             return;
         }
@@ -1699,7 +1699,7 @@ const ipc_listener = async (event, handled) => {
         }
 
         //auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+        if ( !window.is_auth() && !(await UIAuthSignup({ referrer: app_name })) )
         {
             return;
         }

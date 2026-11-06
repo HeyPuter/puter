@@ -23,7 +23,7 @@ import UIWindow from '../UIWindow.js';
 import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
-import UIWindowLogin from '../UIWindowLogin.js';
+import UIAuthLogin from '../Auth/UIAuthLogin.js';
 import UIWindowFeedback from '../UIWindowFeedback.js';
 import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
 import { clear_shared_param } from '../../helpers/parseSharedPath.js';
@@ -514,9 +514,9 @@ async function UIDashboard (options) {
 
     if ( sharedLinkNeedsLogin ) {
         // Not awaited: the dashboard is already up underneath the cover page.
-        UIWindowLogin({
+        UIAuthLogin({
             reload_on_success: true,
-            window_options: { cover_page: true, has_head: false },
+            page: true,
         }).then(() => {
             // Dismissed without signing in: drop the link rather than loop.
             if ( window.user?.is_temp ) clear_shared_param();
@@ -875,21 +875,10 @@ async function UIDashboard (options) {
             items.push({
                 html: i18n('add_another_account'),
                 onClick: async function () {
-                    await UIWindowLogin({
+                    await UIAuthLogin({
                         reload_on_success: true,
                         send_confirmation_code: false,
-                        window_options: {
-                            has_head: false,
-                            backdrop: true,
-                            close_on_backdrop_click: true,
-                            parent_center: true,
-                            // Phones/tablets pin every .window to one z-index
-                            // (style.css), which puts the fullpage dashboard
-                            // above this dialog's backdrop wrapper; stay_on_top
-                            // lifts the dialog into the 99999999+ band like
-                            // every other backdropped dashboard dialog.
-                            stay_on_top: true,
-                        },
+                        closeOnBackdrop: true,
                     });
                 },
             });
