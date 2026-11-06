@@ -191,9 +191,26 @@ export class PuterHomepageService extends PuterService {
 <body>
     <main id="app-browser" class="dashboard"></main>
     <script type="application/json" id="app-browser-config">${configJson}</script>
-    <script defer src="/dist/apps-embed.min.js"></script>
+    <script defer src="${encode(this.#appBrowserEmbedScript())}"></script>
 </body>
 </html>`;
+    }
+
+    /**
+     * The embed's script is built beside the GUI bundle, so it is served from
+     * wherever `gui_bundle` is (a CDN in production), with the same query.
+     */
+    #appBrowserEmbedScript(): string {
+        const base = 'http://relative.invalid';
+        const bundle = new URL(
+            this.config.gui_bundle ?? '/dist/bundle.min.js',
+            base,
+        );
+        const script = new URL('apps-embed.min.js', bundle);
+        script.search = bundle.search;
+        return script.origin === base
+            ? `${script.pathname}${script.search}`
+            : script.href;
     }
 
     /** `scriptPath` is a same-origin absolute path, like `/ext/push/worker.js`. */
