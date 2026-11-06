@@ -160,6 +160,14 @@ export class AuthModule extends PuterModule {
             });
         }
 
+        // A tab the GUI opened is signed in by the token the GUI hands over.
+        if (puter.openerLaunch_) {
+            return puter.openerLaunch_.then(() =>
+                puter.authToken
+                    ? { success: true, token: puter.authToken }
+                    : this.signIn(options));
+        }
+
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
             const msg_id = signinsession;
@@ -389,6 +397,10 @@ export class AuthModule extends PuterModule {
      * }}
      */
     getUser = function (...args) {
+        // A tab the GUI opened gets its token moments after loading.
+        if (!puter.authToken && puter.openerLaunch_) {
+            return puter.openerLaunch_.then(() => puter.auth.getUser(...args));
+        }
         if (!puter.authToken) {
             // Fake the server response for backwards compatibility
             // We already know this will fail
@@ -442,6 +454,9 @@ export class AuthModule extends PuterModule {
      */
     async getProfile(username) {
         try {
+            if (!this.authToken && this.puter.openerLaunch_) {
+                await this.puter.openerLaunch_;
+            }
             if (username === undefined) {
                 if (!this.authToken) return null;
             } else if (
@@ -550,6 +565,9 @@ export class AuthModule extends PuterModule {
      * @returns {Promise<User>}
      */
     async whoami() {
+        if (!this.authToken && this.puter.openerLaunch_) {
+            await this.puter.openerLaunch_;
+        }
         if (!this.authToken) {
             // Fake the server response for backwards compatibility
             // We already know this will fail

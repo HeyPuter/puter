@@ -28,6 +28,10 @@ import { confirmUrlFileAccess } from './confirmUrlFileAccess.js';
 import { mintGodmodeToken, reusableGodmodeToken, trackGodmodeToken } from './godmodeTokens.js';
 import { withoutNotificationClick } from './notificationTap.js';
 import { syncBrowserPush } from './pushSync.js';
+import { offerAppTabLaunch } from './appTabLaunch.js';
+
+// This can be any trusted URL that won't be used for other apps
+const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -65,6 +69,31 @@ const endLaunchTransaction = (transaction, outcome) => {
         if ( outcome ) transaction.annotate({ outcome });
         transaction.end();
     }
+};
+
+/**
+ * Moves the app to the front of the recent apps and records the open with
+ * the server (`/rao`).
+ */
+const record_app_open = (app_info) => {
+    window.launch_apps.recent.unshift(app_info);
+    // dedupe by name, then cap at window.launch_recent_apps_count
+    window.launch_apps.recent = [...new Map(window.launch_apps.recent.map(v => [v.name, v])).values()];
+    window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);
+
+    $.ajax({
+        url: `${window.api_origin }/rao`,
+        type: 'POST',
+        data: JSON.stringify({
+            original_client_socket_id: window.socket?.id,
+            app_uid: app_info.uid ?? app_info.uuid,
+        }),
+        async: true,
+        contentType: 'application/json',
+        headers: {
+            'Authorization': `Bearer ${window.auth_token}`,
+        },
+    });
 };
 
 const fetchUserAppTokenForLaunch = async ({ appUid } = {}) => {
@@ -117,12 +146,13 @@ const fetchUserAppTokenForLaunch = async ({ appUid } = {}) => {
     }
 };
 
-/**
- * Launches an app.
- *
- * @param {*} options.name - The name of the app to launch.
- */
-const launch_app = async (options) => {
+/** The `puter.item.*` params held back from a tab's URL, or null when none. */
+const heldBackItem = (item_params) => {
+    const item = Object.fromEntries(item_params);
+    return Object.keys(item).length ? item : null;
+};
+
+const runLaunch = async (options) => {
     let transaction;
     // Ends once the app signals over IPC, i.e. when it can actually be used.
     // Only apps built on the SDK ever signal, so this one is deliberately
@@ -195,6 +225,13 @@ const launch_app = async (options) => {
     app_info.uuid = app_info.uuid ?? app_info.uid;
     app_info.uid = app_info.uid ?? app_info.uuid;
 
+    if ( options.newTab && (options.name === 'explorer' || options.name === 'trash'
+        || app_info.index_url?.startsWith(BUILTIN_PREFIX)) ) {
+        options.newTab.close();
+        options.newTab = undefined;
+    }
+    const newTab = options.newTab;
+
     // If no `options.name` is provided, use the app name from the app_info
     options.name = options.name ?? app_info.name;
     const resolvedAppName = { 'launch.app': options.name ?? 'unknown' };
@@ -208,7 +245,7 @@ const launch_app = async (options) => {
         const fallbackArgs = privateAccessDecision.fallbackArgs ?? {};
 
         if ( fallbackAppName && privateLaunchRedirectDepth < 1 && fallbackAppName !== options.name ) {
-            const fallbackLaunchOutcome = await launch_app({
+            const fallbackLaunchOutcome = await runLaunch({
                 ...options,
                 name: fallbackAppName,
                 args: fallbackArgs,
@@ -242,6 +279,8 @@ const launch_app = async (options) => {
             return fallbackLaunchOutcome ?? { launchResult: redirectedLaunchResult };
         }
 
+        // The alert shows on this page, which a blank tab in front would hide.
+        newTab?.close();
         // Unencoded: UIAlert encodes its message itself.
         const deniedAppTitle = app_info.title ?? app_info.name ?? options.name;
         await UIAlert(deniedAppTitle
@@ -442,25 +481,25 @@ const launch_app = async (options) => {
     // All other apps
     //------------------------------------
     else {
-        process = new PortalProcess({
-            uuid,
-            name: app_info.name,
-            parent: options.parent_instance_id,
-            meta: {
-                launch_options: options,
-                app_info: app_info,
-            },
-        });
-        const svc_process = globalThis.services.get('process');
-        svc_process.register(process);
+        // A new tab is outside the desktop: no process for it to track.
+        if ( ! newTab ) {
+            process = new PortalProcess({
+                uuid,
+                name: app_info.name,
+                parent: options.parent_instance_id,
+                meta: {
+                    launch_options: options,
+                    app_info: app_info,
+                },
+            });
+            const svc_process = globalThis.services.get('process');
+            svc_process.register(process);
+        }
 
         //-----------------------------------
         // iframe_url
         //-----------------------------------
         let iframe_url;
-
-        // This can be any trusted URL that won't be used for other apps
-        const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
 
         if ( ! app_info.index_url ) {
             iframe_url = new URL(`https://${options.name}.${ window.app_domain }/index.html`);
@@ -497,17 +536,20 @@ const launch_app = async (options) => {
             iframe_url.searchParams.append('puter.source_app.name', options.source_app_name);
         }
 
+        // A tab's URL would land the item's signed read/write URLs (which
+        // don't expire) in browser history, so a tab gets them with its token.
+        const item_params = newTab ? new URLSearchParams() : iframe_url.searchParams;
         if ( file_signature ) {
             append_signed_item_params(
-                iframe_url.searchParams,
+                item_params,
                 file_signature,
                 options.file_path ? privacy_aware_path(options.file_path) : file_signature.path,
             );
         }
         else if ( options.readURL ) {
-            iframe_url.searchParams.append('puter.item.name', options.filename);
-            iframe_url.searchParams.append('puter.item.path', privacy_aware_path(options.file_path));
-            iframe_url.searchParams.append('puter.item.read_url', options.readURL);
+            item_params.append('puter.item.name', options.filename);
+            item_params.append('puter.item.path', privacy_aware_path(options.file_path));
+            item_params.append('puter.item.read_url', options.readURL);
         }
 
         const is_godmode = app_info.godmode === true || app_info.godmode === 1;
@@ -522,10 +564,13 @@ const launch_app = async (options) => {
                 ?? await mintGodmodeToken(launch_app_uid);
             if ( godmode_token.ok ) {
                 launch_token = godmode_token.token;
-                trackGodmodeToken(
-                    uuid, launch_app_uid, godmode_token.token,
-                    godmode_token.expiresAt, godmode_token.mintedAt, iframe_url.href,
-                );
+                // Renewal is posted to the app's window, which a tab doesn't have.
+                if ( ! newTab ) {
+                    trackGodmodeToken(
+                        uuid, launch_app_uid, godmode_token.token,
+                        godmode_token.expiresAt, godmode_token.mintedAt, iframe_url.href,
+                    );
+                }
             } else {
                 tokenResult = { token: null, reason: 'godmode-token-request-failed', ...godmode_token };
             }
@@ -537,7 +582,11 @@ const launch_app = async (options) => {
         }
 
         if ( launch_token ) {
-            iframe_url.searchParams.append('puter.auth.token', launch_token);
+            // A tab's URL would land the token in browser history; the tab
+            // asks for it instead (offered below).
+            if ( ! newTab ) {
+                iframe_url.searchParams.append('puter.auth.token', launch_token);
+            }
             if ( is_godmode ) {
                 iframe_url.searchParams.append('puter.auth.username', window.user.username);
             }
@@ -548,6 +597,8 @@ const launch_app = async (options) => {
                 tokenResult,
             });
 
+            // The alert shows on this page, which a blank tab in front would hide.
+            newTab?.close();
             const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name;
             await UIAlert(tokenErrorAppTitle
                 ? i18n('app_launch_failed_retry', { app: tokenErrorAppTitle }, false)
@@ -605,6 +656,55 @@ const launch_app = async (options) => {
 
         // ...and finally append utm_source=puter.com to the URL
         iframe_url.searchParams.append('utm_source', 'puter.com');
+
+        // Closed by the user while the launch was on its way: they called it off.
+        if ( newTab?.closed ) {
+            endLaunchTransaction(transaction, 'new-tab-closed');
+            return {
+                launchResult: {
+                    launched: false,
+                    requestedAppName,
+                    openedAppName: null,
+                    appInstanceID: null,
+                    appUid: launch_app_uid ?? null,
+                    redirectedToFallback: privateLaunchRedirectDepth > 0,
+                    deniedPrivateAccess: false,
+                    privateAccess: privateAccessDecision ?? undefined,
+                },
+            };
+        }
+
+        if ( newTab ) {
+            // Marks the opened item (the uid isn't a credential), so the SDK
+            // can tell it's coming before the rest arrives.
+            if ( item_params.has('puter.item.uid') ) {
+                iframe_url.searchParams.append('puter.item.uid', item_params.get('puter.item.uid'));
+            }
+            offerAppTabLaunch({
+                appInstanceID: uuid,
+                tab: newTab,
+                origin: iframe_url.origin,
+                token: launch_token,
+                item: heldBackItem(item_params),
+            });
+            newTab.location.href = iframe_url.href;
+            record_app_open(app_info);
+            // A tab never signals over IPC, so it has no interactive span to count.
+            transaction?.annotate({ 'launch.ipc_tracked': false });
+            endLaunchTransaction(transaction, 'opened-in-new-tab');
+            return {
+                launchResult: {
+                    launched: true,
+                    requestedAppName,
+                    openedAppName: options.name,
+                    appInstanceID: uuid,
+                    appUid: launch_app_uid ?? null,
+                    redirectedToFallback: privateLaunchRedirectDepth > 0,
+                    deniedPrivateAccess: false,
+                    privateAccess: privateAccessDecision ?? undefined,
+                },
+            };
+        }
 
         // register app_instance_uid
         window.app_instance_ids.add(uuid);
@@ -763,31 +863,8 @@ const launch_app = async (options) => {
             void syncBrowserPush({ appUid: launch_app_uid });
         }
 
-        // send post request to /rao to record app open
         if ( options.name !== 'explorer' ) {
-            // add the app to the beginning of the array
-            window.launch_apps.recent.unshift(app_info);
-
-            // dedupe the array by uuid, uid, and id
-            window.launch_apps.recent = [...new Map(window.launch_apps.recent.map(v => [v.name, v])).values()];
-
-            // limit to window.launch_recent_apps_count
-            window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);
-
-            // send post request to /rao to record app open
-            $.ajax({
-                url: `${window.api_origin }/rao`,
-                type: 'POST',
-                data: JSON.stringify({
-                    original_client_socket_id: window.socket?.id,
-                    app_uid: app_info.uid ?? app_info.uuid,
-                }),
-                async: true,
-                contentType: 'application/json',
-                headers: {
-                    'Authorization': `Bearer ${window.auth_token}`,
-                },
-            });
+            record_app_open(app_info);
         }
     }
 
@@ -864,6 +941,29 @@ const launch_app = async (options) => {
     endLaunchTransaction(transaction, 'launched');
 
     return process;
+};
+
+/**
+ * Launches an app.
+ *
+ * @param {*} options.name - The name of the app to launch.
+ * @param {Window} [options.newTab] - A tab the caller opened (synchronously,
+ *   so popup blockers allow it, and without `noopener`, so the app can ask it
+ *   for its token and opened item) to send the app's URL to, instead of
+ *   opening an in-page window. The launch owns the tab: it is closed when the
+ *   launch fails. Explorer and built-in apps are part of the desktop, so for
+ *   them the tab is closed and the app opens in-page.
+ */
+const launch_app = async (options) => {
+    const tab = options.newTab;
+    try {
+        const outcome = await runLaunch(options);
+        if ( tab && getLaunchResult(outcome)?.launched === false ) tab.close();
+        return outcome;
+    } catch ( err ) {
+        tab?.close();
+        throw err;
+    }
 };
 
 export default launch_app;

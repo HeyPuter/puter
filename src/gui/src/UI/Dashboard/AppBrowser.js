@@ -1069,7 +1069,8 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {} } = 
             // Handle app tile clicks. External apps carry a target link (their
             // index_url) and open the app's website directly in a new browser tab
             // (an external site can't be reliably iframed); everything else
-            // launches the app as a maximized window in this same page.
+            // launches the app in a new tab at its index_url, or as a maximized
+            // window in this same page when the browser refuses the tab.
             $el_window.on('click', '.myapps-tile', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1116,8 +1117,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {} } = 
                 }
                 // Launching from inside a folder closes it once the app is up —
                 // the folder was the way in, not the destination (iOS shuts it
-                // behind the opening app). Deferred to the launch's settle so the
-                // tile is still there for the window's morph to grow out of.
+                // behind the opening app).
                 const fromFolder = !! this.closest('.myapps-group-panel-grid');
                 const closeFolder = () => {
                     if ( fromFolder ) self._closeGroup($el_window);
@@ -1126,38 +1126,42 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {} } = 
                     window.open(targetLink, '_blank', 'noopener,noreferrer');
                     closeFolder();
                 } else if ( appName ) {
-                    // One instance per app when launched from here: un-hide a
-                    // minimized instance / focus a visible one rather than
-                    // launching a duplicate.
-                    if ( focusExistingAppWindow(appName) ) {
+                    // A second click while the first launch's fetches are still in
+                    // flight would open a second tab for the same click intent.
+                    if ( self._launchingApps.has(appName) ) return;
+                    // The app opens in a new tab at its index_url, carrying the
+                    // same query params an in-page window's iframe gets. The tab
+                    // is opened now, inside the click, because popup blockers
+                    // refuse one opened after the launch's fetches.
+                    // Without 'noopener': the app's SDK asks this tab for its
+                    // token through the opener, then clears it.
+                    const tab = window.open('', '_blank');
+                    // Refused, the app opens in-page: one instance per app, so
+                    // an open window is surfaced rather than duplicated.
+                    if ( !tab && focusExistingAppWindow(appName) ) {
                         closeFolder();
                         return;
                     }
-                    // A second click while the first launch's fetches are still in
-                    // flight has no window to find yet — swallow it instead of
-                    // spawning a duplicate instance.
-                    if ( self._launchingApps.has(appName) ) return;
                     self._launchingApps.add(appName);
                     const tile = this;
-                    // Acknowledge the click NOW: the icon's half of the open
-                    // morph starts immediately, while the app's fetches are
-                    // still in flight; the window's half claims it when the
-                    // window opens (morph_from_dashboard_tile → see UIWindow),
-                    // and settle puts the icon back if it never does (launch
-                    // failed, or the morph fell back to the plain fade).
-                    beginTileLaunch(tile);
-                    launchApp({
-                        name: appName,
-                        maximized: true,
-                        window_options: { morph_from_dashboard_tile: true },
-                    })
+                    // In-page, the icon's half of the open morph starts now and
+                    // the window's half claims it when it opens (see UIWindow).
+                    if ( ! tab ) beginTileLaunch(tile);
+                    // The launch owns the tab from here, and closes it on failure.
+                    launchApp(tab
+                        ? { name: appName, newTab: tab }
+                        : {
+                            name: appName,
+                            maximized: true,
+                            window_options: { morph_from_dashboard_tile: true },
+                        })
                         .catch((err) => {
                             console.error(`Failed to launch ${appName}:`, err);
                             showAlert(i18n('something_went_wrong', [], false));
                         })
                         .finally(() => {
                             self._launchingApps.delete(appName);
-                            settleTileLaunch(tile);
+                            if ( ! tab ) settleTileLaunch(tile);
                             closeFolder();
                         });
                 }

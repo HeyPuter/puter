@@ -8,6 +8,7 @@ import { isFramedDocument } from './lib/appModeGate.js';
 import {
     isGodmodeTokenPayload,
     isUserSessionTokenPayload,
+    requestLaunchFromOpener,
     urlWithoutQueryParam,
 } from './lib/launchToken.js';
 import path from 'path-browserify';
@@ -257,6 +258,25 @@ export class Puter {
         // sharing one slot.
         resolvers: [],
     };
+
+    /**
+     * Pending while a tab the GUI opened for this app waits for its launch
+     * (token and opened item); sign-in and the launched-with-items handlers
+     * wait on it. Null otherwise.
+     *
+     * @internal
+     * @type {Promise<void> | null}
+     */
+    openerLaunch_ = null;
+
+    /**
+     * `puter.item.*` params of the item the GUI opened this tab with, standing
+     * in for the URL params a framed launch carries.
+     *
+     * @internal
+     * @type {URLSearchParams | null}
+     */
+    openerLaunchItem_ = null;
 
     // Holds the unique app instance ID that is provided by the host environment
     appInstanceID;
@@ -760,6 +780,28 @@ export class Puter {
             }
 
             this.initSubmodules();
+
+            // A top-level tab the GUI opened for an app launch. Its URL params
+            // aren't trusted here (see isFramedDocument), and secrets stay out
+            // of its URL, so the token and opened item come from the GUI tab
+            // that opened it instead.
+            const openerLaunch = this.appInstanceID
+                ? requestLaunchFromOpener({
+                    guiOrigin: this.defaultGUIOrigin,
+                    appInstanceID: this.appInstanceID,
+                })
+                : null;
+            if (openerLaunch) {
+                this.openerLaunch_ = openerLaunch.then((launch) => {
+                    this.openerLaunch_ = null;
+                    if (launch?.item) {
+                        this.openerLaunchItem_ = new URLSearchParams(
+                            launch.item,
+                        );
+                    }
+                    if (launch?.token) this.setAuthToken(launch.token);
+                });
+            }
 
             // Print a CTA for developers to publish their app on the Puter App Store
             this.printDevCTA();

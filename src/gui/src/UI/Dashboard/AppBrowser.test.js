@@ -51,6 +51,7 @@ afterEach(() => {
     $(document).off('keydown.myapps-group');
     document.body.innerHTML = '';
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
 });
 
 async function mount (options = {}) {
@@ -118,20 +119,38 @@ describe('shared app browser', () => {
         expect(other._launchingApps).not.toBe(browser._launchingApps);
     });
 
-    it('keeps dashboard launches routed through desktop actions', async () => {
+    it('opens dashboard launches in a new tab through desktop actions', async () => {
+        const tab = { close: vi.fn() };
+        vi.spyOn(window, 'open').mockReturnValue(tab);
         const actions = {
-            launchApp: vi.fn(async () => {}),
+            launchApp: vi.fn(async () => ({ launchResult: { launched: true } })),
+        };
+        await mount({ editable: true, onLaunch: undefined, actions });
+        $('.myapps-search').val('editor').trigger('input');
+        $('.myapps-tile[data-app-name="editor"]').trigger('click');
+        expect(window.open).toHaveBeenCalledWith('', '_blank');
+        expect(actions.launchApp).toHaveBeenCalledWith({ name: 'editor', newTab: tab });
+        await vi.waitFor(() => expect(browser._launchingApps.size).toBe(0));
+        expect($('.window')).toHaveLength(0);
+    });
+
+    it('launches in-page when the browser refuses the tab', async () => {
+        vi.spyOn(window, 'open').mockReturnValue(null);
+        const actions = {
+            launchApp: vi.fn(async () => ({ launchResult: { launched: true } })),
             beginTileLaunch: vi.fn(),
             settleTileLaunch: vi.fn(),
         };
         await mount({ editable: true, onLaunch: undefined, actions });
         $('.myapps-search').val('editor').trigger('input');
-        $('.myapps-tile[data-app-name="editor"]').trigger('click');
+        const tile = $('.myapps-tile[data-app-name="editor"]').get(0);
+        $(tile).trigger('click');
         expect(actions.launchApp).toHaveBeenCalledWith({
             name: 'editor', maximized: true,
             window_options: { morph_from_dashboard_tile: true },
         });
-        await vi.waitFor(() => expect(actions.settleTileLaunch).toHaveBeenCalledOnce());
+        expect(actions.beginTileLaunch).toHaveBeenCalledWith(tile);
+        await vi.waitFor(() => expect(actions.settleTileLaunch).toHaveBeenCalledWith(tile));
         expect(browser._launchingApps.size).toBe(0);
     });
 

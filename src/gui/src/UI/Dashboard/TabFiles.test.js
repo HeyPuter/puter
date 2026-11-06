@@ -27,6 +27,11 @@ vi.mock('../UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../UIWindowProgress.js', () => ({ default: vi.fn() }));
 vi.mock('../UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('../../helpers/generateFileContextMenu.js', () => ({ default: vi.fn(async () => []) }));
+// Loaded for its imports' side effects (i18n among them); only opening is stubbed.
+vi.mock('../../helpers/openItem.js', async (importOriginal) => ({
+    ...(await importOriginal()),
+    default: vi.fn(),
+}));
 vi.mock('../../helpers/itemIcon.js', async (importOriginal) => {
     const actual = await importOriginal();
     return { default: vi.fn(actual.default) };
@@ -42,6 +47,7 @@ window.icons = {};
 
 const { default: TabFiles, failedUploadsMessage, rebasePath, typeSelectTarget } = await import('./TabFiles.js');
 const { default: generateFileContextMenu } = await import('../../helpers/generateFileContextMenu.js');
+const { default: open_item } = await import('../../helpers/openItem.js');
 const { default: itemIcon } = await import('../../helpers/itemIcon.js');
 
 const TRASH = '/alice/Trash';
@@ -1250,6 +1256,50 @@ describe('TabFiles opening a folder being renamed', () => {
         vi.useRealTimers();
 
         expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Documents/Photos');
+    });
+});
+
+describe('TabFiles opening a file', () => {
+    beforeEach(() => {
+        window.trash_path = TRASH;
+    });
+    afterEach(() => {
+        vi.restoreAllMocks();
+        open_item.mockClear();
+    });
+
+    it('opens it in a new tab', async () => {
+        const tab = { close: vi.fn() };
+        vi.spyOn(window, 'open').mockReturnValue(tab);
+        mountListing(['notes.txt'], '/alice/Documents');
+        const row = $('.files .row')[0];
+
+        await TabFiles.openRow(row);
+
+        expect(window.open).toHaveBeenCalledWith('', '_blank');
+        expect(open_item).toHaveBeenCalledWith({ item: row, newTab: tab });
+    });
+
+    it('opens no tab for a file in the Trash, which only explains why it can\'t open', async () => {
+        vi.spyOn(window, 'open');
+        mountListing(['notes.txt']);
+        const row = $('.files .row')[0];
+
+        await TabFiles.openRow(row);
+
+        expect(window.open).not.toHaveBeenCalled();
+        expect(open_item).toHaveBeenCalledWith({ item: row });
+    });
+
+    it('opens a tab for a shortcut in the Trash whose file is not', async () => {
+        vi.spyOn(window, 'open').mockReturnValue({ close: vi.fn() });
+        mountListing(['notes.txt']);
+        const row = $('.files .row')[0];
+        row.setAttribute('data-shortcut_to_path', '/alice/Documents/notes.txt');
+
+        await TabFiles.openRow(row);
+
+        expect(window.open).toHaveBeenCalledOnce();
     });
 });
 
