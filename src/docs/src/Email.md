@@ -88,6 +88,6 @@ router.post('/notify', async ({ request, user }) => {
 
 ## Functions
 
+- **[`puter.email.sendTransactional()`](/Email/sendTransactional/)** - Send a transactional email from your app
 - **[`puter.email.list()`](/Email/list/)** - List the messages in the user's mailbox, newest first
 - **[`puter.email.get()`](/Email/get/)** - Fetch and parse one message, attachments included
-- **[`puter.email.sendTransactional()`](/Email/sendTransactional/)** - Send a transactional email from your app

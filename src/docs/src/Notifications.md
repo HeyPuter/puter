@@ -138,15 +138,15 @@ Your app's notifications are events on the `notif:app-user` [subject](/Events/su
 ## Functions
 
 - **[`puter.notifications.notify()`](/Notifications/notify/)** - Send a notification to the user, or to the other side of a key-value share
-- **[`puter.notifications.markShown()`](/Notifications/markShown/)** - Mark a notification as shown, so the next one in its group is new
-- **[`puter.notifications.dismiss()`](/Notifications/dismiss/)** - Dismiss a notification and close it on the user's other devices
-- **[`puter.notifications.cancel()`](/Notifications/cancel/)** - Cancel a notification stored to send later
 - **[`puter.notifications.onNotification()`](/Notifications/onNotification/)** - Receive your app's notifications, including the ones sent while it was closed
-- **[`puter.notifications.onPush()`](/Notifications/onPush/)** - Say what a push shows for one channel, and handle its notifications while the page is open
 - **[`puter.notifications.on()`](/Notifications/on/)** - React when one of your notifications is clicked or dismissed
+- **[`puter.notifications.dismiss()`](/Notifications/dismiss/)** - Dismiss a notification and close it on the user's other devices
+- **[`puter.notifications.markShown()`](/Notifications/markShown/)** - Mark a notification as shown, so the next one in its group is new
+- **[`puter.notifications.cancel()`](/Notifications/cancel/)** - Cancel a notification stored to send later
 - **[`puter.notifications.enable()`](/Notifications/enable/)** - Turn on pushes for your app in this browser
-- **[`puter.notifications.disable()`](/Notifications/disable/)** - Turn off pushes for your app
+- **[`puter.notifications.onPush()`](/Notifications/onPush/)** - Say what a push shows for one channel, and handle its notifications while the page is open
 - **[`puter.notifications.status()`](/Notifications/status/)** - Check whether pushes reach this browser, without asking
+- **[`puter.notifications.disable()`](/Notifications/disable/)** - Turn off pushes for your app
 - **[`puter.notifications.requestPermission()`](/Notifications/requestPermission/)** - Ask the user to allow pushes from your app
 - **[`puter.notifications.hasPermission()`](/Notifications/hasPermission/)** - Check whether the user allows pushes from your app, without asking
 - **[`puter.notifications.enablePush()`](/Notifications/enablePush/)** - Turn on pushes through Puter in this browser
