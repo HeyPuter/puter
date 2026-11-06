@@ -70,6 +70,21 @@ describe('app browser embed shell', () => {
         expect(html).not.toContain('gui(');
     });
 
+    it.each([
+        [{}, '/dist/apps-embed.min.js'],
+        [
+            { gui_bundle: 'https://gui-cdn.deployment.test/bundle.min.js' },
+            'https://gui-cdn.deployment.test/apps-embed.min.js',
+        ],
+        [
+            { gui_bundle: '/static/bundle.min.js?v=42' },
+            '/static/apps-embed.min.js?v=42',
+        ],
+    ])('loads its script from beside the GUI bundle %j', (config, script) => {
+        const html = makeService(config).renderAppBrowserEmbed();
+        expect(html).toContain(`<script defer src="${script}"></script>`);
+    });
+
     it('escapes configured values without breaking its JSON bootstrap', () => {
         const sdkUrl = '/sdk.js?value=</script><script>unexpected()</script>';
         const html = makeService({
