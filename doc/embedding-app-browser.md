@@ -19,8 +19,8 @@ the desktop and dashboard send `utm_campaign=desktop` and `utm_campaign=dashboar
 
 ## Session and framing
 
-The embed reads the existing GUI session from local storage on its own origin. If that storage holds no
-session, the embed gets the session from the GUI origin's session cookie through
+The embed reads the existing GUI session from local storage on its own origin.
+If that storage holds no session, the embed gets the session from the GUI origin's session cookie through
 `/get-gui-token`. This matters in Safari, which gives a framed origin separate
 local storage under each top-level origin, so even a sibling subdomain's iframe
 can't see the GUI's stored token. The session cookie is still sent, because the
@@ -59,14 +59,14 @@ and popups to escape the sandbox.
 ## Host integration
 
 The iframe can be shown whether or not the user is signed in. Create it when
-“More apps” is opened, and remove it on close so reopening
-loads current apps and preferences. The host owns the modal and close control;
+“More apps” is opened, and remove it on close so reopening loads current apps
+and preferences. The host owns the modal and close control;
 there is no parent messaging API and no app list or credential is sent to it.
 The app browser fills its iframe and responds to its size.
 
-This example assumes `puterOrigin` comes from the host app's deployment settings
-Translate the button and
-frame labels using the host app's localization system.
+This example assumes `puterOrigin` comes from the host app's deployment
+settings. Translate the button and frame labels using the host app's
+localization system.
 
 ```html
 <button id="more-apps" type="button">More apps</button>
