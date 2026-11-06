@@ -24,6 +24,8 @@ const kv = {
     dashboard_app_groups: JSON.stringify([{ id: 'work', name: 'Work', apps: ['app-1', 'app-2'] }]),
     dashboard_removed_apps: JSON.stringify(['removed']),
 };
+// The recommended apps the page carries for a visitor without a session; set per test.
+let guestApps = [];
 // What puter.apps.get returns for an app; set per test.
 let appRead = name => ({ uid: `uid-${name}`, name, index_url: `http://${name}.puter.localhost:${port}/index` });
 
@@ -88,7 +90,7 @@ beforeAll(async () => {
             <link rel="stylesheet" href="/css/normalize.css"><link rel="stylesheet" href="/css/dashboard.css">
             <link rel="stylesheet" href="/css/apps-embed.css"></head><body>
             <main id="app-browser" class="dashboard"></main>
-            <script type="application/json" id="app-browser-config">${JSON.stringify({ apiOrigin: origin, sdkUrl: '/sdk.js' })}</script>
+            <script type="application/json" id="app-browser-config">${JSON.stringify({ apiOrigin: origin, sdkUrl: '/sdk.js', guestApps })}</script>
             <script defer src="/dist/apps-embed.min.js"></script></body></html>`);
     });
     server = await new Promise(resolve => {
@@ -220,6 +222,81 @@ describe('embedded app browser', () => {
             expect(requests.some(req => ['/sdk.js', '/installedApps', '/login', '/signup'].includes(req.path))).toBe(false);
         } finally {
             await page.close();
+        }
+    });
+
+    it('shows the recommended apps without a session and opens them cut off from the embed', async () => {
+        guestApps = [
+            { name: 'notes', title: 'Notes', uuid: 'uid-notes', index_url: `http://notes.puter.localhost:${port}/index`, icon: null },
+            { name: 'editor', title: 'Editor', uuid: 'uid-editor', index_url: 'https://builtins.namespaces.puter.com/editor', icon: null },
+        ];
+        const context = await browser.newContext();
+        requests.length = 0;
+        try {
+            const page = await context.newPage();
+            page.setDefaultTimeout(6000);
+            const errors = [];
+            page.on('pageerror', error => errors.push(error.message));
+            await page.goto(`http://spreadsheet.puter.localhost:${port}/host`);
+            const frame = page.frameLocator('iframe');
+            await frame.locator('[data-app-name="notes"]').waitFor();
+            expect(await frame.locator('.myapps-tile').count()).toBe(2);
+            expect(requests.some(req => ['/sdk.js', '/installedApps', '/get-launch-apps', '/drivers/call'].includes(req.path))).toBe(false);
+
+            let popupPromise = context.waitForEvent('page');
+            await frame.locator('[data-app-name="notes"]').click();
+            let popup = await popupPromise;
+            await popup.waitForURL(/\/index\?/);
+            const appUrl = new URL(popup.url());
+            expect(appUrl.origin).toBe(`http://notes.puter.localhost:${port}`);
+            expect(appUrl.searchParams.get('utm_campaign')).toBe('app_browser_embed');
+            expect(await popup.evaluate(() => window.opener)).toBeNull();
+
+            popupPromise = context.waitForEvent('page');
+            await frame.locator('[data-app-name="editor"]').click();
+            popup = await popupPromise;
+            await popup.waitForURL(`${origin}/app/editor`);
+            expect(requests.some(req => ['/auth/get-user-app-token', '/rao'].includes(req.path))).toBe(false);
+            expect(errors).toEqual([]);
+        } finally {
+            guestApps = [];
+            await context.close();
+        }
+    });
+
+    it('shows the recommended apps when the browser refuses access to storage', async () => {
+        guestApps = [{ name: 'notes', title: 'Notes', uuid: 'uid-notes', index_url: `http://notes.puter.localhost:${port}/index`, icon: null }];
+        const context = await browser.newContext();
+        try {
+            await context.addInitScript(() => {
+                Object.defineProperty(window, 'localStorage', {
+                    get () { throw new DOMException('Access is denied for this document.', 'SecurityError'); },
+                });
+            });
+            const page = await context.newPage();
+            page.setDefaultTimeout(6000);
+            await page.goto(`${origin}/embed/apps`);
+            await page.locator('[data-app-name="notes"]').waitFor();
+        } finally {
+            guestApps = [];
+            await context.close();
+        }
+    });
+
+    it.each([429, 503])('does not show the signed-out list when the session lookup fails with %i', async status => {
+        guestApps = [{ name: 'notes', title: 'Notes', uuid: 'uid-notes', index_url: `http://notes.puter.localhost:${port}/index`, icon: null }];
+        const context = await browser.newContext();
+        try {
+            const page = await context.newPage();
+            page.setDefaultTimeout(6000);
+            await page.route('**/get-gui-token', route => route.fulfill({ status }));
+            await page.goto(`${origin}/embed/apps`);
+            await page.getByRole('status').waitFor();
+            expect(await page.getByRole('status').textContent()).toContain('Apps are unavailable');
+            expect(await page.locator('.myapps-tile').count()).toBe(0);
+        } finally {
+            guestApps = [];
+            await context.close();
         }
     });
 

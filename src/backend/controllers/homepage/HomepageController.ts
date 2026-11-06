@@ -157,7 +157,7 @@ export class HomepageController extends PuterController {
 
         router.get('/', {}, (req, res) => sendShell(req, res));
 
-        router.get('/embed/apps', {}, (req, res) => {
+        router.get('/embed/apps', {}, async (req, res) => {
             // SDK bootstrap parameters must not change this page's account or API origin.
             // Checked on the raw URL; `req.query` drops pairs past the parser's limit.
             if (req.originalUrl.includes('?')) {
@@ -170,7 +170,12 @@ export class HomepageController extends PuterController {
                 `frame-ancestors ${embedFrameAncestors(this.config, req.get('referer'))}`,
             );
             res.setHeader('Cache-Control', 'no-store');
-            res.send(homepage.renderAppBrowserEmbed());
+            // Shown to visitors without a session; a signed-in embed fetches
+            // its own list, so a failure here only costs signed-out visitors.
+            const guestApps = await this.services.recommendedApps
+                .getRecommendedApps()
+                .catch((): Array<Record<string, unknown>> => []);
+            res.send(homepage.renderAppBrowserEmbed({ guestApps }));
         });
 
         router.get('/settings', {}, (req, res) => sendShell(req, res));

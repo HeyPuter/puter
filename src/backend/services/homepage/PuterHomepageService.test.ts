@@ -63,7 +63,7 @@ describe('app browser embed shell', () => {
         const html = service.renderAppBrowserEmbed();
         const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
         expect(JSON.parse(configJson)).toEqual({
-            apiOrigin: 'https://api.deployment.test', sdkUrl,
+            apiOrigin: 'https://api.deployment.test', sdkUrl, guestApps: [],
         });
         expect(html).toContain('/dist/apps-embed.min.js');
         expect(html).not.toContain('/dist/bundle.min.js');
@@ -94,6 +94,16 @@ describe('app browser embed shell', () => {
         expect(html).not.toContain('<script>unexpected()');
         const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
         expect(JSON.parse(configJson).sdkUrl).toBe(sdkUrl);
+    });
+
+    it('carries the apps shown without a session, escaped', () => {
+        const guestApps = [
+            { name: 'notes', title: '</script><script>unexpected()</script>' },
+        ];
+        const html = makeService({}).renderAppBrowserEmbed({ guestApps });
+        expect(html).not.toContain('<script>unexpected()');
+        const configJson = html.match(/id="app-browser-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson).guestApps).toEqual(guestApps);
     });
 });
 

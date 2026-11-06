@@ -19,7 +19,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { launchAppInTab, offerAppTabLaunch } from './appTabLaunch.js';
+import { guestAppLaunchUrl, launchAppInTab, offerAppTabLaunch } from './appTabLaunch.js';
 
 const ORIGIN = 'https://notes.example.com';
 const ITEM = { 'puter.item.uid': 'file-1', 'puter.item.read_url': 'https://api.puter.test/file?signature=r' };
@@ -163,5 +163,32 @@ describe('launchAppInTab', () => {
         expect(await launch(tab)).toBe(false);
         expect(tab.location.href).toBe('');
         expect($.ajax).not.toHaveBeenCalled();
+    });
+});
+
+describe('guestAppLaunchUrl', () => {
+    const launch = app => guestAppLaunchUrl({
+        app,
+        guiOrigin: 'https://puter.test',
+        apiOrigin: 'https://api.puter.test',
+        locale: 'fr',
+    });
+
+    it('opens the app at its own URL with the embed\'s launch params and no token', () => {
+        const url = new URL(launch({ name: 'notes', uuid: 'app-notes', index_url: 'https://notes.example.com/index.html' }));
+        expect(url.origin + url.pathname).toBe('https://notes.example.com/index.html');
+        expect(url.searchParams.get('puter.app.id')).toBe('app-notes');
+        expect(url.searchParams.get('puter.app.name')).toBe('notes');
+        expect(url.searchParams.get('puter.origin')).toBe('https://puter.test');
+        expect(url.searchParams.get('puter.locale')).toBe('fr');
+        expect(url.searchParams.get('utm_campaign')).toBe('app_browser_embed');
+        expect([...url.searchParams.keys()].some(key => key.includes('token'))).toBe(false);
+    });
+
+    it.each([
+        ['a built-in app', { index_url: 'https://builtins.namespaces.puter.com/editor' }],
+        ['a godmode app', { index_url: 'https://notes.example.com/', godmode: true }],
+    ])('leaves %s to the desktop', (_label, app) => {
+        expect(launch({ name: 'notes', uuid: 'app-notes', ...app })).toBeNull();
     });
 });

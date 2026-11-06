@@ -352,6 +352,10 @@ describe('PuterServer host header validation', () => {
             expect(res.body).toContain('/dist/apps-embed.min.js');
             expect(res.body).not.toContain('/dist/bundle.min.js');
             expect(res.body).toContain(`http://api.puter.localhost:${port}`);
+            const config = JSON.parse(
+                res.body.match(/id="app-browser-config">(.*?)<\/script>/)[1],
+            );
+            expect(Array.isArray(config.guestApps)).toBe(true);
         }
         const gui = await request('/embed/apps', {
             host: `puter.localhost:${port}`,

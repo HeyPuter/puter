@@ -167,7 +167,10 @@ export class PuterHomepageService extends PuterService {
         this.#guiParams[key] = val;
     }
 
-    renderAppBrowserEmbed(): string {
+    /** `guestApps` is what the embed shows a visitor without a session. */
+    renderAppBrowserEmbed({
+        guestApps = [],
+    }: { guestApps?: Array<Record<string, unknown>> } = {}): string {
         const configJson = JSON.stringify({
             apiOrigin: this.config.api_base_url,
             sdkUrl:
@@ -175,6 +178,7 @@ export class PuterHomepageService extends PuterService {
                     ? '/sdk/puter.dev.js'
                     : (this.config.gui_puterjs_bundle ??
                       'https://js.puter.com/v2/'),
+            guestApps,
         }).replace(/</g, '\\u003c');
 
         return `<!DOCTYPE html>
