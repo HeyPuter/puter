@@ -1925,6 +1925,60 @@ span.header-sort-icon img {
     background: transparent;
 }
 
+/* Dark mode: same surfaces as the dashboard's dark cards. The translucent
+   background is also set in the backdrop-filter @supports block below. */
+@media (prefers-color-scheme: dark) {
+    .context-menu {
+        color: #d4d4d4;
+        background-color: rgb(38 38 38 / 85%);
+        border-color: #3d3d3d;
+        box-shadow: 0px 3px 20px #00000066;
+    }
+
+    .context-menu .context-menu-divider>hr {
+        border-top-color: #ffffff26;
+    }
+
+    .context-menu .has-open-context-menu-submenu {
+        background-color: #3a3a3a;
+    }
+
+    /* `color: initial` resolves to black, unreadable on the dark surface. */
+    .context-menu .context-menu-item-active-blurred {
+        background-color: #404650;
+        color: inherit;
+    }
+
+    .context-menu .context-menu-item-disabled, .context-menu .context-menu-item-disabled:hover {
+        color: inherit;
+    }
+
+    /* The resting chevron is black; the active one is already white. */
+    .context-menu .submenu-arrow:not(.submenu-arrow-active) {
+        filter: invert(1);
+    }
+
+    /* Full-color icons (file types, app icons) keep their colors; only
+       monochrome dark glyphs are inverted. */
+    .context-menu .context-menu-item .ctx-item-icon-monochrome {
+        filter: invert(1);
+    }
+
+    .context-menu.context-menu-sheet {
+        background-color: rgba(38, 38, 38, 0.96) !important;
+        box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.5) !important;
+    }
+
+    .context-menu.context-menu-sheet .context-menu-item-active:not(.context-menu-divider) {
+        background-color: rgba(10, 132, 255, 0.24) !important;
+        color: #d4d4d4 !important;
+    }
+
+    .context-menu.context-menu-sheet .context-menu-divider > hr {
+        border-top-color: rgba(235, 235, 245, 0.18);
+    }
+}
+
 .draggable-count-badge {
     background-color: red;
     border: 2px solid white;
@@ -3923,6 +3977,12 @@ fieldset[name=number-code] {
     .context-menu {
         background-color: rgb(255 255 255 / 92%);
         backdrop-filter: blur(3px);
+    }
+
+    @media (prefers-color-scheme: dark) {
+        .context-menu {
+            background-color: rgb(38 38 38 / 92%);
+        }
     }
 
     .popover:not(.device-phone .popover) {
