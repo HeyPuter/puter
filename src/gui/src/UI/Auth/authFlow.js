@@ -314,7 +314,9 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
 export const joinAuthFlow = () => {
     const open = activeAuthFlow();
     if ( ! open ) return null;
-    open.focus();
+    // Bring focus back to the card, without taking it from a field the
+    // user is typing in there.
+    if ( ! open.$dialog.get(0).contains(document.activeElement) ) open.focus();
     return open.result;
 };
 

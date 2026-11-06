@@ -180,6 +180,19 @@ describe('openAuthFlow', () => {
         flow.finish(true);
         await expect(joined).resolves.toBe(true);
     });
+
+    it('leaves the field being typed in when a second prompt joins', () => {
+        const flow = openAuthFlow();
+        flow.push({ name: 'a', html: '<input class="first"><input class="second">' });
+        $('.second').get(0).focus();
+        joinAuthFlow();
+        expect(document.activeElement).toBe($('.second').get(0));
+
+        // Focus that wandered off the card is brought back to it.
+        $('.second').get(0).blur();
+        joinAuthFlow();
+        expect($('.auth-dialog').get(0).contains(document.activeElement)).toBe(true);
+    });
 });
 
 describe('authFlowOptions', () => {
