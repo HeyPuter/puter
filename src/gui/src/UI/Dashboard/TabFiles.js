@@ -4400,8 +4400,11 @@ const TabFiles = {
         // the awaits below; open_item closes it if the file opens no app.
         // Without 'noopener': the app asks this tab for its token (see
         // launch_app). Blocked (e.g. the second file of a multi-select
-        // Enter), the file opens in-page.
-        const newTab = isDir ? null : window.open('', '_blank');
+        // Enter), the file opens in-page. A file in the Trash opens nothing
+        // (open_item only says why), so it gets no tab to flash open and shut.
+        const target = row.getAttribute('data-shortcut_to_path') || row.getAttribute('data-path') || '';
+        const inTrash = target.startsWith(`${window.trash_path}/`);
+        const newTab = isDir || inTrash ? null : window.open('', '_blank');
         // Not for ever: the rename settles in rename_file's last step, which
         // a failure after the rename itself (refreshing websites) never reaches.
         if ( row._pendingRename ) await Promise.race([row._pendingRename, new Promise(resolve => setTimeout(resolve, 5000))]);
