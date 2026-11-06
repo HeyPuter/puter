@@ -86,7 +86,7 @@ The handler runs in the page as each notification arrives, and in your service w
 
 ### 3. Let the user turn pushes on
 
-Call [`enable()`](/Notifications/enable/) from a click. Browsers only show their permission prompt from a user gesture.
+Call [`enable()`](/Notifications/enable/) from a click. Browsers only show their permission prompt from a user gesture. Called without one, it shows a Puter dialog first, and the browser's prompt opens from its **Continue** button.
 
 ```js
 document.getElementById('enable').addEventListener('click', async () => {
@@ -331,6 +331,7 @@ The browser can be allowed to show notifications while the operating system hide
 | What you see | Likely cause |
 | --- | --- |
 | [`enable()`](/Notifications/enable/) resolves `false` | The user blocked notifications for your site, the page is in a private window, the browser has no Web Push, or on iOS the page isn't opened from the Home Screen. The user unblocks your site in the browser's site settings. |
+| The browser's prompt doesn't show | Chrome stops showing it for a week after the user closes it three times. With quieter messaging on, Chrome shows a bell icon in the address bar instead. The user can allow notifications in the browser's site settings. |
 | It rejects with `push_worker_unavailable` | `/puter-sw.js` isn't on your origin, returns a `404`, isn't served as JavaScript, is redirected, or throws when it loads. Open its URL in a tab to check. |
 | It rejects with `push_subscribe_failed` | The browser couldn't reach its push service. In Brave, turn on Google services for push messaging. |
 | It rejects with `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click first. |
