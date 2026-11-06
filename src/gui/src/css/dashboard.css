@@ -11028,6 +11028,13 @@ body.dashboard-mode .notifications-close-all {
     }
 }
 
+/* The dark sidebar shade is the dark card's own. */
+@media (hover: hover) and (prefers-color-scheme: dark) {
+    .dashboard-dialog-btn.auth-provider-btn:hover {
+        background: var(--dashboard-hover);
+    }
+}
+
 .auth-provider-icon {
     display: flex;
     flex-shrink: 0;
