@@ -643,8 +643,11 @@ window.update_auth_data = async (auth_token, user) => {
             });
         } catch (e) {
             console.error('Failed to sync session cookie:', e);
+            // Sign-in waits on this with its card still up, above every
+            // ordinary window.
             await UIAlert({
                 message: `Failed to sync session cookie: ${ e.message}`,
+                stay_on_top: true,
             });
         }
     }
