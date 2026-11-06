@@ -1542,18 +1542,22 @@ describe('AppStore detailed stats', () => {
     let db;
 
     const APP_UID = `app-stats-${Date.now()}`;
-    const nowSeconds = Math.floor(Date.now() / 1000);
+    // The windows come from the clock, so it is pinned: mid-week and
+    // mid-month, and minutes clear of midnight in any time zone.
+    const NOW = new Date('2026-06-17T12:07:30Z');
+    const nowSeconds = Math.floor(NOW.getTime() / 1000);
 
     beforeAll(async () => {
         server = await setupTestServer();
         appStore = server.stores.app;
         db = server.clients.db;
         await clearAppCache(server.clients.redis);
+        vi.useFakeTimers({ toFake: ['Date'], now: NOW });
 
-        // Two users; the repeat shares a timestamp so it is always same-hour.
+        // Two users in one hour. Windows end at now, exclusive.
         for (const [userId, offset] of [
-            [1, 0],
-            [1, 0],
+            [1, 60],
+            [1, 60],
             [2, 120],
         ]) {
             await db.write(
@@ -1564,6 +1568,7 @@ describe('AppStore detailed stats', () => {
     });
 
     afterAll(async () => {
+        vi.useRealTimers();
         await server?.shutdown();
     });
 

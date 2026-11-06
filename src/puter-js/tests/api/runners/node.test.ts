@@ -35,7 +35,7 @@ describe('puter.js API suites (node)', () => {
 
     afterAll(async () => {
         if (coverageEnabled()) {
-            await writeCoverageShard('node', collectNodeCoverage());
+            await writeCoverageShard('node', [collectNodeCoverage()]);
         }
         await env?.shutdown();
     });

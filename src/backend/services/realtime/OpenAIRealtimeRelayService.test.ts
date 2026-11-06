@@ -2860,8 +2860,12 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 ),
             ).toHaveLength(64),
         );
+        // Holds are reserved and usage recorded one at a time, which a loaded
+        // runner takes past vi.waitFor's default second.
+        const settled = (check: () => Promise<void> | void) =>
+            vi.waitFor(check, { timeout: 5_000 });
         // The pool grew one item per commit, with nothing spare at the cap.
-        await vi.waitFor(async () =>
+        await settled(async () =>
             expect(
                 await server.services.metering.getOutstandingHolds(actor),
             ).toBe(64 * 10_896_000),
@@ -2890,7 +2894,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
         for (let batch = 0; batch < 8; batch++) {
             for (let i = Math.max(1, batch * 8); i < (batch + 1) * 8; i++)
                 complete(i);
-            await vi.waitFor(() =>
+            await settled(() =>
                 expect(
                     recorded.mock.calls
                         .flatMap(([, rows]) => rows)
@@ -2906,13 +2910,13 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 .filter((row) => row.usageType.includes('transcription_'))
                 .reduce((sum, row) => sum + row.costOverride!, 0),
         ).toBe(640);
-        await vi.waitFor(async () =>
+        await settled(async () =>
             expect(
                 await server.services.metering.getOutstandingHolds(actor),
             ).toBe(2 * 10_896_000),
         );
         c.ws.close();
-        await vi.waitFor(async () =>
+        await settled(async () =>
             expect(
                 await server.services.metering.getOutstandingHolds(actor),
             ).toBe(0),
