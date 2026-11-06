@@ -201,6 +201,9 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
 
     const { $overlay, $dialog, close: closeOverlay, isClosed } = mountDashboardOverlay({
         html: h,
+        // A page already fills the screen. Resizing it under iOS's own pan to
+        // the focused field makes the form jump up and down as the keyboard opens.
+        fitKeyboard: ! as_page,
         canDismiss: (via) => dismissable
             && (via === 'close' || (! busy && (via !== 'backdrop' || closeOnBackdrop))),
         onDismiss: () => {
