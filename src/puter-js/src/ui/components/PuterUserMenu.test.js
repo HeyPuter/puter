@@ -5,7 +5,10 @@ import PuterUserMenu, { canFrameAppBrowser } from './PuterUserMenu.js';
 
 const USER = { username: 'jelveh', uuid: '0b1c9a52-3f0e-4c7a-9a65-2f6d1e8b7c40' };
 const OTHER = { username: 'sam', uuid: '7d2e4f10-8a3b-4c5d-9e6f-0a1b2c3d4e5f' };
+const TEMP = { username: 'quiet_otter_42', uuid: '5c4b3a29-1807-4f6e-9d5c-4b3a29180716', is_temp: true };
 const PICTURE = 'data:image/png;base64,iVBORw0KGgo=';
+// Where a trigger sits in the toolbar; jsdom lays nothing out.
+const TRIGGER_RECT = { left: 800, right: 836, top: 10, bottom: 46, width: 36, height: 36, x: 800, y: 10 };
 
 /** The SDK instance the component reads, holding one signed-in state at a time. */
 const fakePuter = ({ token = null, user = null, picture = null } = {}) => {
@@ -55,24 +58,19 @@ const shown = (el, selector) => {
     return Boolean(node) && !node.closest('[hidden]');
 };
 const frameOf = el => part(el, '.apps-body iframe');
+const appsOpen = el => shown(el, '.apps-panel');
 
 beforeAll(() => {
     if ( ! customElements.get('puter-user-menu') ) customElements.define('puter-user-menu', PuterUserMenu);
 });
 
 beforeEach(() => {
-    HTMLDialogElement.prototype.showModal = function () {
-        this.setAttribute('open', '');
-    };
-    HTMLDialogElement.prototype.close = function () {
-        if ( ! this.hasAttribute('open') ) return;
-        this.removeAttribute('open');
-        this.dispatchEvent(new Event('close'));
-    };
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(TRIGGER_RECT);
 });
 
 afterEach(() => {
     document.body.innerHTML = '';
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
 });
 
@@ -110,21 +108,37 @@ describe('<puter-user-menu>', () => {
         expect(shown(el, '.apps-button')).toBe(true);
 
         part(el, '.apps-button').click();
+        expect(appsOpen(el)).toBe(true);
         expect(frameOf(el).src).toBe('https://puter.com/embed/apps');
         expect(frameOf(el).getAttribute('referrerpolicy')).toBe('origin');
     });
 
-    it('signs in from the button and reports it', async () => {
+    it('treats a temporary account as signed out', async () => {
+        const sdk = fakePuter({ token: 'temp-token', user: TEMP, picture: PICTURE });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        expect(shown(el, '.sign-in')).toBe(true);
+        expect(shown(el, '.avatar')).toBe(false);
+        expect(sdk.auth.getProfilePicture).not.toHaveBeenCalled();
+        part(el, '.apps-button').click();
+        expect(frameOf(el).src).toBe('https://puter.com/embed/apps');
+    });
+
+    it('signs in from the button and reports the user', async () => {
         const sdk = fakePuter();
-        sdk.auth.signIn.mockResolvedValue({ success: true });
+        sdk.auth.signIn.mockImplementation(async () => {
+            sdk.signInAs('app-token', USER);
+            return { success: true };
+        });
         vi.stubGlobal('puter', sdk);
         const el = await mount();
         const signins = [];
-        el.addEventListener('signin', () => signins.push(true));
+        el.addEventListener('signin', event => signins.push(event.detail));
         part(el, '.sign-in').click();
         expect(sdk.auth.signIn).toHaveBeenCalledTimes(1);
         await settle();
-        expect(signins).toHaveLength(1);
+        expect(signins).toEqual([{ user: USER }]);
+        expect(shown(el, '.avatar')).toBe(true);
     });
 
     it('shows the signed-in user and names them to the app browser', async () => {
@@ -137,11 +151,55 @@ describe('<puter-user-menu>', () => {
 
         part(el, '.avatar').click();
         expect(shown(el, '.menu')).toBe(true);
+        expect(part(el, '.avatar').getAttribute('aria-expanded')).toBe('true');
         expect(part(el, '.menu-user').textContent).toBe('jelveh');
 
         part(el, '.apps-button').click();
+        expect(shown(el, '.menu')).toBe(false);
+        expect(appsOpen(el)).toBe(true);
+        expect(part(el, '.apps-button').getAttribute('aria-expanded')).toBe('true');
         expect(frameOf(el).src).toBe(`https://puter.com/embed/apps#user=${USER.uuid}`);
-        expect(part(el, '.apps-dialog').open).toBe(true);
+    });
+
+    it('hangs the panel under its button with the caret pointing at it', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount();
+        part(el, '.apps-button').click();
+        const panel = part(el, '.apps-panel');
+        expect(panel.style.top).toBe('56px');
+        expect(panel.style.getPropertyValue('--panel-top')).toBe('56px');
+        expect(panel.style.left).not.toBe('');
+        expect(panel.style.getPropertyValue('--caret-x')).not.toBe('');
+    });
+
+    it('closes the panel when its button is laid out of view', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount();
+        HTMLElement.prototype.getBoundingClientRect.mockReturnValue({ left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 });
+        part(el, '.apps-button').click();
+        expect(appsOpen(el)).toBe(false);
+    });
+
+    it('shows a spinner until the app browser loads', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount();
+        part(el, '.apps-button').click();
+        expect(part(el, '.apps-body').classList.contains('is-loading')).toBe(true);
+        frameOf(el).dispatchEvent(new Event('load'));
+        expect(part(el, '.apps-body').classList.contains('is-loading')).toBe(false);
+    });
+
+    it('keeps the app browser between opens', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount();
+        part(el, '.apps-button').click();
+        const frame = frameOf(el);
+        part(el, '.apps-close').click();
+        expect(appsOpen(el)).toBe(false);
+        expect(el.shadowRoot.activeElement).toBe(part(el, '.apps-button'));
+        part(el, '.apps-button').click();
+        expect(appsOpen(el)).toBe(true);
+        expect(frameOf(el)).toBe(frame);
     });
 
     it('shows the profile picture over the initial when there is one', async () => {
@@ -161,14 +219,15 @@ describe('<puter-user-menu>', () => {
         expect(frameOf(el).src).toBe('https://puter.com/embed/apps');
     });
 
-    it('closes the app browser and reloads when the sign-in changes', async () => {
+    it('drops the app browser and reloads when the sign-in changes', async () => {
         const sdk = fakePuter({ token: 'app-token', user: USER });
         vi.stubGlobal('puter', sdk);
         const el = await mount();
         part(el, '.apps-button').click();
+        part(el, '.apps-close').click();
 
         sdk.signInAs('other-token', OTHER);
-        expect(part(el, '.apps-dialog').open).toBe(false);
+        expect(appsOpen(el)).toBe(false);
         expect(frameOf(el)).toBeNull();
         await settle();
         expect(part(el, '.avatar').textContent).toBe('S');
@@ -181,9 +240,10 @@ describe('<puter-user-menu>', () => {
         vi.stubGlobal('puter', sdk);
         const el = await mount();
         part(el, '.apps-button').click();
+        const frame = frameOf(el);
         sdk.signInAs('app-token', USER);
-        expect(part(el, '.apps-dialog').open).toBe(true);
-        expect(frameOf(el)).not.toBeNull();
+        expect(appsOpen(el)).toBe(true);
+        expect(frameOf(el)).toBe(frame);
     });
 
     it('ignores a user that arrives after the token changed', async () => {
@@ -226,11 +286,38 @@ describe('<puter-user-menu>', () => {
         expect(shown(el, '.apps-button')).toBe(false);
     });
 
+    it('follows the OS theme unless told otherwise, in the app browser too', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount();
+        part(el, '.apps-button').click();
+        expect(frameOf(el).style.colorScheme).toBe('light');
+
+        el.setAttribute('theme', 'dark');
+        await settle();
+        expect(el.classList.contains('puter-theme-dark')).toBe(true);
+        expect(frameOf(el).style.colorScheme).toBe('dark');
+    });
+
+    it('opens a new app browser in the forced theme', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount({ theme: 'dark' });
+        part(el, '.apps-button').click();
+        expect(frameOf(el).style.colorScheme).toBe('dark');
+    });
+
+    it('exposes parts for the host to style', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount();
+        const parts = [...el.shadowRoot.querySelectorAll('[part]')].map(node => node.getAttribute('part'));
+        expect(parts.sort()).toEqual(['apps-button', 'apps-panel', 'avatar', 'menu', 'sign-in']);
+    });
+
     it('uses label attributes, including ones changed later', async () => {
         vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
         const el = await mount({ 'apps-label': 'Applis', 'sign-out-label': 'Déconnexion', 'account-label': 'Compte' });
         expect(part(el, '.apps-button').getAttribute('aria-label')).toBe('Applis');
         expect(part(el, '.apps-title').textContent).toBe('Applis');
+        expect(part(el, '.apps-panel').getAttribute('aria-label')).toBe('Applis');
         expect(part(el, '.sign-out').textContent).toBe('Déconnexion');
         expect(part(el, '.avatar').getAttribute('aria-label')).toBe('Compte: jelveh');
 
@@ -242,21 +329,36 @@ describe('<puter-user-menu>', () => {
         expect(part(el, '.apps-title').textContent).toBe('Apps');
     });
 
-    it('closes the menu on Escape and returns focus to the avatar', async () => {
-        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
-        const el = await mount();
-        part(el, '.avatar').click();
-        part(el, '.menu').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        expect(shown(el, '.menu')).toBe(false);
-        expect(el.shadowRoot.activeElement).toBe(part(el, '.avatar'));
-    });
+    it.each([['.avatar', '.menu'], ['.apps-button', '.apps-panel']])(
+        'closes %s\'s panel on Escape and returns focus to it', async (trigger, panel) => {
+            vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+            const el = await mount();
+            part(el, trigger).click();
+            part(el, panel).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, composed: true }));
+            expect(shown(el, panel)).toBe(false);
+            expect(el.shadowRoot.activeElement).toBe(part(el, trigger));
+        },
+    );
 
-    it('closes the menu on a press outside it', async () => {
+    it.each([['.avatar', '.menu'], ['.apps-button', '.apps-panel']])(
+        'closes %s\'s panel on a press outside it, and not on one inside', async (trigger, panel) => {
+            vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+            const el = await mount();
+            part(el, trigger).click();
+            part(el, panel).dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+            expect(shown(el, panel)).toBe(true);
+            document.body.dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+            expect(shown(el, panel)).toBe(false);
+        },
+    );
+
+    it('toggles a panel closed from its own button', async () => {
         vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
         const el = await mount();
-        part(el, '.avatar').click();
-        document.body.dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
-        expect(shown(el, '.menu')).toBe(false);
+        part(el, '.apps-button').click();
+        part(el, '.apps-button').click();
+        expect(appsOpen(el)).toBe(false);
+        expect(frameOf(el)).not.toBeNull();
     });
 
     it('stops following the sign-in once removed', async () => {
@@ -267,5 +369,6 @@ describe('<puter-user-menu>', () => {
         el.remove();
         expect(sdk.listenerCount()).toBe(0);
         expect(frameOf(el)).toBeNull();
+        expect(appsOpen(el)).toBe(false);
     });
 });

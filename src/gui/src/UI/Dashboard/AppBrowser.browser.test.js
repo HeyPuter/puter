@@ -446,6 +446,22 @@ describe('embedded app browser', () => {
                 expect(await iframe.getAttribute('src')).toBe(`${origin}/embed/apps#user=${sessionUser}`);
                 await page.frameLocator('puter-user-menu iframe').locator('[data-app-name="app-104"]').waitFor();
 
+                // The panel hangs under its button, inside the viewport.
+                const button = await page.locator('puter-user-menu .apps-button').boundingBox();
+                const panel = await page.locator('puter-user-menu .apps-panel').boundingBox();
+                const viewport = page.viewportSize();
+                expect(panel.y).toBeGreaterThan(button.y + button.height);
+                expect(panel.x).toBeGreaterThanOrEqual(0);
+                expect(panel.x + panel.width).toBeLessThanOrEqual(viewport.width);
+
+                // Closing keeps the embed, so reopening shows the same page.
+                const embed = page.frames().find(frame => frame.url().startsWith(`${origin}/embed/apps`));
+                await embed.evaluate(() => { window.keptAcrossOpens = true; });
+                await page.locator('puter-user-menu .apps-close').click();
+                await page.locator('puter-user-menu .apps-panel').waitFor({ state: 'hidden' });
+                await page.locator('puter-user-menu .apps-button').click();
+                expect(await embed.evaluate(() => window.keptAcrossOpens)).toBe(true);
+
                 await page.evaluate(() => puter.auth.signOut());
                 await iframe.waitFor({ state: 'detached' });
                 await page.locator('puter-user-menu .sign-in').waitFor();

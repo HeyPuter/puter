@@ -339,30 +339,35 @@ el.open();
 
 The account button and Puter's app browser for a first-party app on a Puter subdomain (`notes.puter.com`). It is internal and left out of the public docs, because the app browser only works one subdomain under the Puter origin. It follows the page's own puter.js sign-in, never the Puter session's.
 
-- Signed out, it shows **Sign in**, which calls `puter.auth.signIn()`.
+- Signed out, it shows **Sign in**, which calls `puter.auth.signIn()`. A temporary account counts as signed out.
 - Signed in, it shows the user's profile picture, or the username's initial when there is none. Clicking it opens a menu with the username and **Sign out**, which calls `puter.auth.signOut()`.
-- On a page exactly one label under the Puter origin, with the same scheme and port, an **Apps** button opens the app browser (`/embed/apps`) in a modal. It names the signed-in user as `#user=<uuid>`, so the app browser shows the Puter session's apps only to that user (see `doc/embedding-app-browser.md`). Elsewhere the button is hidden, because the server refuses the framing.
-- Any change to the page's sign-in closes the app browser, so it never stays open for the previous user.
+- On a page exactly one label under the Puter origin, with the same scheme and port, an **Apps** button opens the app browser (`/embed/apps`) in a panel under the button. It names the signed-in user as `#user=<uuid>`, so the app browser shows the Puter session's apps only to that user (see `doc/embedding-app-browser.md`). Elsewhere the button is hidden, because the server refuses the framing.
+- The menu and the Apps panel hang under their button with a caret pointing at it, and close on Escape, a press outside them, or their button. They're in the browser's top layer where it has one, so a host's `transform`, `overflow` or `z-index` can't clip or cover them. On screens up to 600px wide, the Apps panel spans the width below the button.
+- Closing the Apps panel keeps the app browser, so reopening it keeps its scroll and search. Any change to the page's sign-in discards it, so it never stays loaded for the previous user.
 - It renders nothing outside a top-level page (`puter.env !== 'web'`), such as inside the Puter desktop.
 
 **Attributes**
 
 | Attribute | Default | Description |
 |-----------|---------|-------------|
-| `apps-label` | `Apps` | Apps button label, modal title and iframe title |
+| `apps-label` | `Apps` | Apps button label, panel title and iframe title |
 | `sign-in-label` | `Sign in` | Sign-in button text |
 | `sign-out-label` | `Sign out` | Sign-out menu item text |
-| `close-label` | `Close` | The modal's close button label |
+| `close-label` | `Close` | The Apps panel's close button label |
 | `account-label` | `Account` | Account button label, read as `Account: <username>` |
-| `theme` | follows the OS | `light` or `dark` |
+| `theme` | follows the OS | `light` or `dark`, for the component and the app browser in it |
 
-Changing a label attribute updates the component in place.
+Changing an attribute updates the component in place.
+
+**Parts**
+
+`apps-button`, `avatar`, `sign-in`, `menu` and `apps-panel`, for styling from the host page with `puter-user-menu::part(avatar) { ... }`.
 
 **Events**
 
 | Event | Detail | When |
 |-------|--------|------|
-| `signin` | none | Sign in finished |
+| `signin` | `{ user }`, the signed-in user or `null` | Sign in finished |
 | `signout` | none | The user signed out from the menu |
 
 **Example**
@@ -381,7 +386,7 @@ Changing a label attribute updates the component in place.
 
 ## Styling
 
-All components render inside Shadow DOM and match puter.com's native GUI appearance. Styles are encapsulated and cannot be overridden from outside the component.
+All components render inside Shadow DOM and match puter.com's native GUI appearance. Styles are encapsulated and cannot be overridden from outside the component, except through the parts `<puter-user-menu>` exposes.
 
 ## Dark mode
 
