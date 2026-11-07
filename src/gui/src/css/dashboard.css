@@ -11371,7 +11371,7 @@ body.dashboard-mode .notifications-close-all {
 
 .auth-dialog .signup-terms {
     margin: 18px 0 0;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.5;
     color: var(--dashboard-text-muted);
     text-align: center;
