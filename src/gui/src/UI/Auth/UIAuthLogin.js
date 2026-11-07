@@ -153,6 +153,7 @@ export function pushLoginScreen (flow, options = {}) {
 
     renderProviderButtons($screen.find('.auth-provider-list'), {
         kind: 'login',
+        flow,
         referrer: () => flow.options.referrer ?? window.referrerStr ?? window.openerOrigin,
     }).then((offered) => {
         if ( offered ) $screen.find('.auth-providers').prop('hidden', false);

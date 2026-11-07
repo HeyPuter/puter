@@ -36,11 +36,13 @@ import openAuthFlow, {
     submitButtonHtml,
     wireAuthHead,
 } from './authFlow.js';
-import { renderProviderButtons } from './authProviders.js';
+import { mayOfferProviders, renderProviderButtons } from './authProviders.js';
 import { pushLoginScreen } from './UIAuthLogin.js';
 
 const SIGNUP_TIMEOUT_MS = 30000;
 const TURNSTILE_POLL_MS = 100;
+// How long the email form waits for the provider lookup before showing anyway.
+const PROVIDERS_WAIT_MS = 1500;
 
 /**
  * @typedef {object} SignupScreenOptions
@@ -187,6 +189,9 @@ export const signupRedirectUrl = (redirect_url) => {
 export function pushSignupScreen (flow, options = {}) {
     const id = `auth-signup-${window.uuidv4?.() ?? Date.now()}`;
     const turnstile_key = window.gui_params?.turnstileSiteKey;
+    // The email form stays hidden until the providers are known, so it
+    // doesn't show and then fold away behind "Sign up with email".
+    let awaiting_providers = mayOfferProviders() && ! options.username && ! options.email;
 
     let h = '<div class="dashboard-dialog-body auth-body">';
     h += authHeadHtml(flow, i18n('create_free_account', [], false));
@@ -200,7 +205,7 @@ export function pushSignupScreen (flow, options = {}) {
     h += '<div class="signup-with-email-wrapper" hidden>';
     h += `<button type="button" class="dashboard-dialog-btn auth-provider-btn signup-with-email-btn">${i18n('sign_up_with_email')}</button>`;
     h += '</div>';
-    h += '<form class="auth-form signup-form" novalidate>';
+    h += `<form class="auth-form signup-form" novalidate${awaiting_providers ? ' hidden' : ''}>`;
     h += formFieldHtml({
         name: 'username',
         label: i18n('username'),
@@ -307,11 +312,32 @@ export function pushSignupScreen (flow, options = {}) {
         })();
     }
 
+    // With focus on the card itself, nothing on the screen was focusable yet.
+    const focusWasParked = () => document.activeElement === flow.$dialog.get(0);
+    const stopAwaitingProviders = () => {
+        const was_awaiting = awaiting_providers;
+        awaiting_providers = false;
+        clearTimeout(form_fallback);
+        return was_awaiting;
+    };
+    const revealForm = () => {
+        if ( ! stopAwaitingProviders() || flow.isClosed() ) return;
+        showForm();
+        if ( focusWasParked() ) flow.focus();
+    };
+    const form_fallback = awaiting_providers ? setTimeout(revealForm, PROVIDERS_WAIT_MS) : undefined;
+
     renderProviderButtons($screen.find('.auth-provider-list'), {
         kind: 'signup',
+        flow,
         referrer: () => flow.options.referrer ?? window.referrerStr,
     }).then((offered) => {
-        if ( ! offered || flow.isClosed() ) return;
+        if ( ! offered ) {
+            revealForm();
+            return;
+        }
+        stopAwaitingProviders();
+        if ( flow.isClosed() ) return;
         offers_providers = true;
         $screen.find('.oidc-providers-wrapper').prop('hidden', false);
         if ( offered.signupOidcOnly ) {
@@ -327,7 +353,7 @@ export function pushSignupScreen (flow, options = {}) {
         const had_focus = $form.get(0).contains(document.activeElement);
         $form.prop('hidden', true);
         $screen.find('.signup-with-email-wrapper').prop('hidden', false);
-        if ( had_focus ) flow.focus();
+        if ( had_focus || focusWasParked() ) flow.focus();
     });
 
     $screen.find('.signup-with-email-btn').on('click', () => {
