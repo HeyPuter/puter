@@ -90,7 +90,7 @@ test.describe('popups a first-party page shows framed', () => {
         const savedName = `popup-frame-${Date.now()}.txt`;
         await runFromClick(page, `puter.ui.showSaveFilePicker("saved in a frame", ${JSON.stringify(savedName)})`);
         await frameReady(page);
-        await frame(page).locator('.savefiledialog-filename').fill(savedName);
+        await expect(frame(page).locator('.savefiledialog-filename')).toHaveValue(savedName);
         await frame(page).locator('.savefiledialog-save-btn').click();
         const saved = await result(page);
         expect(saved.value).toMatchObject({ name: savedName });

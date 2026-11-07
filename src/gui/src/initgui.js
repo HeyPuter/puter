@@ -659,6 +659,7 @@ const postAuthActions = async (action) => {
                     title: 'Save',
                     is_dir: true,
                     is_saveFileDialog: true,
+                    saveFileDialog_default_filename: event.data.suggestedName ?? '',
                     is_resizable: false,
                     has_head: false,
                     cover_page: true,
