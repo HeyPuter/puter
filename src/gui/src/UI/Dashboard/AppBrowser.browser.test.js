@@ -415,10 +415,10 @@ describe('embedded app browser', () => {
     });
 
     describe('opened from the SDK\'s user menu', () => {
-        const menuContext = async (appToken) => {
+        const menuContext = async (appToken, options = {}) => {
             guestApps = [{ name: 'notes', title: 'Notes', uuid: 'uid-notes', index_url: `http://notes.puter.localhost:${port}/index`, icon: null }];
             const host = `http://spreadsheet.puter.localhost:${port}`;
-            return browser.newContext({ storageState: {
+            return browser.newContext({ ...options, storageState: {
                 cookies: [],
                 origins: [
                     { origin, localStorage: [{ name: 'auth_token_v2', value: sessionToken }] },
@@ -556,6 +556,26 @@ describe('embedded app browser', () => {
                 await expect.poll(background).toBe('rgb(255, 255, 255)');
                 await frame.locator('[data-app-name="app-104"]').waitFor();
                 expect(await page.locator('puter-user-menu .apps-panel').isVisible()).toBe(true);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
+        it('leaves no hover shading on the Apps button once a tap closes it', async () => {
+            const context = await menuContext('app-token-session-user', {
+                viewport: { width: 390, height: 700 }, hasTouch: true, isMobile: true,
+            });
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                const button = page.locator('puter-user-menu .apps-button');
+                await button.tap();
+                await page.locator('puter-user-menu .apps-panel').waitFor();
+                await button.tap();
+                await page.locator('puter-user-menu .apps-panel').waitFor({ state: 'hidden' });
+                expect(await button.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
             } finally {
                 guestApps = [];
                 await context.close();

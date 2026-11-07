@@ -222,7 +222,6 @@ class PuterUserMenu extends PuterWebComponent {
                 color: #414650;
                 fill: currentColor;
             }
-            .apps-button:hover,
             .apps-button[aria-expanded="true"] { background-color: rgba(0, 0, 0, .06); }
             .avatar {
                 position: relative;
@@ -330,7 +329,7 @@ class PuterUserMenu extends PuterWebComponent {
                 font-size: 14px;
                 text-align: left;
             }
-            .menu-item:hover, .menu-item:focus-visible {
+            .menu-item:focus-visible {
                 outline: none;
                 background-color: #f0f0f0;
             }
@@ -370,7 +369,6 @@ class PuterUserMenu extends PuterWebComponent {
                 background: transparent;
                 color: #555;
             }
-            .apps-close:hover { background-color: #f0f0f0; color: #222; }
             .apps-body {
                 position: relative;
                 flex: 1 1 auto;
@@ -420,7 +418,6 @@ class PuterUserMenu extends PuterWebComponent {
             }
 
             :host(.puter-theme-dark) .apps-button { color: #e6e6e6; }
-            :host(.puter-theme-dark) .apps-button:hover,
             :host(.puter-theme-dark) .apps-button[aria-expanded="true"] { background-color: rgba(255, 255, 255, .1); }
             :host(.puter-theme-dark) .panel {
                 border-color: #3a3a3a;
@@ -435,13 +432,21 @@ class PuterUserMenu extends PuterWebComponent {
             :host(.puter-theme-dark) .menu-user,
             :host(.puter-theme-dark) .apps-title,
             :host(.puter-theme-dark) .menu-item { color: #e6e6e6; }
-            :host(.puter-theme-dark) .menu-item:hover,
-            :host(.puter-theme-dark) .menu-item:focus-visible,
-            :host(.puter-theme-dark) .apps-close:hover { background-color: #3a3a3a; color: #fff; }
+            :host(.puter-theme-dark) .menu-item:focus-visible { background-color: #3a3a3a; color: #fff; }
             :host(.puter-theme-dark) .apps-close { color: #ccc; }
             :host(.puter-theme-dark) .apps-spinner {
                 border-color: rgba(255, 255, 255, .15);
                 border-top-color: #ccc;
+            }
+
+            /* A tap leaves :hover on touch screens, which would shade a closed button. */
+            @media (hover: hover) {
+                .apps-button:hover { background-color: rgba(0, 0, 0, .06); }
+                .menu-item:hover { background-color: #f0f0f0; }
+                .apps-close:hover { background-color: #f0f0f0; color: #222; }
+                :host(.puter-theme-dark) .apps-button:hover { background-color: rgba(255, 255, 255, .1); }
+                :host(.puter-theme-dark) .menu-item:hover,
+                :host(.puter-theme-dark) .apps-close:hover { background-color: #3a3a3a; color: #fff; }
             }
         `;
     }
