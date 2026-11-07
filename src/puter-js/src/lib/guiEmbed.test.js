@@ -251,6 +251,67 @@ describe('showPopupFrame', () => {
         expect(dialog.isConnected).toBe(false);
     });
 
+    it('opens itself again when the embed reloads into a refused frame, once per ready', async () => {
+        vi.useFakeTimers();
+        const result = show();
+        const iframe = popupFrame();
+        const dialog = iframe.closest('dialog');
+        const srcSet = vi.spyOn(iframe, 'src', 'set');
+        const load = () => iframe.dispatchEvent(new Event('load'));
+        fromPopup({ msg: 'puterPopupFrame', state: 'loading' });
+        load();
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+
+        // A reload the embed starts itself loads a document that never posts.
+        load();
+        expect(dialog.classList.contains('is-loading')).toBe(true);
+        vi.advanceTimersByTime(1000);
+        expect(srcSet).toHaveBeenCalledTimes(1);
+        expect(srcSet.mock.calls[0][0]).toBe(iframe.src);
+        expect(dialog.classList.contains('is-loading')).toBe(true);
+
+        // The page's own reload boots, before or after its load event.
+        fromPopup({ msg: 'puterPopupFrame', state: 'loading' });
+        load();
+        vi.advanceTimersByTime(1000);
+        expect(srcSet).toHaveBeenCalledTimes(1);
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        expect(dialog.classList.contains('is-loading')).toBe(false);
+
+        // Ready again, so a later refusal is retried too, but not twice running.
+        load();
+        vi.advanceTimersByTime(1000);
+        expect(srcSet).toHaveBeenCalledTimes(2);
+        load();
+        vi.advanceTimersByTime(1000);
+        await expect(result).resolves.toBeNull();
+        expect(srcSet).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps showing an embed that was ready before its load event fired', () => {
+        vi.useFakeTimers();
+        show();
+        const iframe = popupFrame();
+        const dialog = iframe.closest('dialog');
+        const srcSet = vi.spyOn(iframe, 'src', 'set');
+        const load = () => iframe.dispatchEvent(new Event('load'));
+        fromPopup({ msg: 'puterPopupFrame', state: 'loading' });
+        load();
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        load();
+        vi.advanceTimersByTime(1000);
+        expect(srcSet).toHaveBeenCalledTimes(1);
+
+        // The page's reload shows its UI while a slow image still loads.
+        fromPopup({ msg: 'puterPopupFrame', state: 'loading' });
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        load();
+        vi.advanceTimersByTime(5000);
+        expect(dialog.classList.contains('is-loading')).toBe(false);
+        expect(srcSet).toHaveBeenCalledTimes(1);
+        expect(dialog.isConnected).toBe(true);
+    });
+
     it('finishes as closed when the popup closes itself', async () => {
         const result = show();
         fromPopup({ msg: 'puterPopupFrame', state: 'ready' });

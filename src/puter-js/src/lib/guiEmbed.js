@@ -153,6 +153,13 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     let ready = false;
     let timer = null;
     let loadingTimer = null;
+    // Each embed document posts `loading` once; these tell a document that
+    // never did (one the server refused) from one that did.
+    let loads = 0;
+    let boots = 0;
+    let wasReady = false;
+    let restarted = false;
+    let restartTimer = null;
     const restoreFocus = document.activeElement;
     const wait = (ms) => {
         clearTimeout(timer);
@@ -163,6 +170,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         settled = true;
         clearTimeout(timer);
         clearTimeout(loadingTimer);
+        clearTimeout(restartTimer);
         window.removeEventListener('message', onWindowMessage);
         dialog.remove();
         if ( shown ) restoreFocus?.focus?.({ preventScroll: true });
@@ -181,10 +189,13 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
             onMessage(data, finish);
         } else if ( data.state === 'loading' ) {
             heard = true;
+            boots++;
             wait(READY_TIMEOUT_MS);
         } else if ( data.state === 'ready' ) {
             heard = true;
             ready = true;
+            wasReady = true;
+            restarted = false;
             clearTimeout(timer);
             clearTimeout(loadingTimer);
             dialog.classList.remove('is-loading');
@@ -194,9 +205,33 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
             finish(null);
         }
     };
+    // A reload or navigation the embed starts itself names the embed, not
+    // this page, as its referrer, so the server refuses to let it frame. This
+    // page opens the embed again, once, which it allows.
+    const restart = () => {
+        if ( restarted ) {
+            finish(null);
+            return;
+        }
+        restarted = true;
+        ready = false;
+        loads = boots;
+        dialog.classList.add('is-loading');
+        frame.src = url.href;
+    };
     window.addEventListener('message', onWindowMessage);
     frame.addEventListener('load', () => {
+        loads++;
         if ( ! heard ) wait(LOAD_GRACE_MS);
+        if ( ! wasReady || boots >= loads ) return;
+        // Most likely refused: the spinner covers the error page meanwhile.
+        ready = false;
+        dialog.classList.add('is-loading');
+        const expected = loads;
+        clearTimeout(restartTimer);
+        restartTimer = setTimeout(() => {
+            if ( boots < expected ) restart();
+        }, LOAD_GRACE_MS);
     });
     // Once ready, Escape outside the frame would close the dialog with the
     // embed's own dialog still open inside it; the embed owns dismissal.

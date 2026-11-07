@@ -186,7 +186,10 @@ shows the frame in a box the size of the popup window, over a scrim, hidden
 until `ready` and behind the loading spinner after 200ms. On screens up to
 600px wide the box fills the screen. A frame that is refused, never answers, or
 reports `unavailable` falls back to the popup, opened through a consent dialog
-when the click that asked for it has expired.
+when the click that asked for it has expired. A reload or navigation the frame
+starts itself (logging out, a sign-out in another tab) names the frame as its
+referrer, so the server refuses it; the page then shows its spinner and opens
+the frame again, once per `ready`.
 
 - **Sign-in** (`puter.auth.signIn()`) has no host-user binding: it is how the
   page gets a user. The box has a close button, which rejects with
