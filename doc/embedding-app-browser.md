@@ -69,6 +69,11 @@ and popups to escape the sandbox.
 
 ## Host integration
 
+A first-party app that signs in with puter.js can place `<puter-user-menu>` from
+the SDK in its header instead (see `src/puter-js/src/ui/components.md`). It opens
+this embed with the signed-in user named and closes it when the app's sign-in
+changes. The rest of this section is for a host that builds the iframe itself.
+
 The iframe can be shown whether or not the user is signed in. Create it when
 “More apps” is opened, naming the signed-in user in its fragment, and remove it
 on close so reopening loads current apps and preferences. Remove it when the

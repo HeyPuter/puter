@@ -11,6 +11,7 @@ import PuterSpinner from './components/PuterSpinner.js';
 import PuterMenubar from './components/PuterMenubar.js';
 import PuterColorPicker from './components/PuterColorPicker.js';
 import PuterFontPicker from './components/PuterFontPicker.js';
+import PuterUserMenu from './components/PuterUserMenu.js';
 
 const components = [
     ['puter-alert', PuterAlert],
@@ -21,6 +22,7 @@ const components = [
     ['puter-menubar', PuterMenubar],
     ['puter-color-picker', PuterColorPicker],
     ['puter-font-picker', PuterFontPicker],
+    ['puter-user-menu', PuterUserMenu],
 ];
 
 export function registerComponents () {

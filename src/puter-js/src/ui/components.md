@@ -37,6 +37,7 @@ All components use **Shadow DOM** so their styles won't leak into your page. The
 | [`<puter-spinner>`](#puter-spinner) | Loading overlay | `puter.ui.showSpinner()` / `hideSpinner()` |
 | [`<puter-color-picker>`](#puter-color-picker) | Color picker dialog | `puter.ui.showColorPicker()` |
 | [`<puter-font-picker>`](#puter-font-picker) | Font picker dialog | `puter.ui.showFontPicker()` |
+| [`<puter-user-menu>`](#puter-user-menu) | Account button and Puter's app browser, for first-party apps | none |
 
 ---
 
@@ -334,13 +335,57 @@ el.open();
 
 ---
 
+### `<puter-user-menu>`
+
+The account button and Puter's app browser for a first-party app on a Puter subdomain (`notes.puter.com`). It is internal and left out of the public docs, because the app browser only works one subdomain under the Puter origin. It follows the page's own puter.js sign-in, never the Puter session's.
+
+- Signed out, it shows **Sign in**, which calls `puter.auth.signIn()`.
+- Signed in, it shows the user's profile picture, or the username's initial when there is none. Clicking it opens a menu with the username and **Sign out**, which calls `puter.auth.signOut()`.
+- On a page exactly one label under the Puter origin, with the same scheme and port, an **Apps** button opens the app browser (`/embed/apps`) in a modal. It names the signed-in user as `#user=<uuid>`, so the app browser shows the Puter session's apps only to that user (see `doc/embedding-app-browser.md`). Elsewhere the button is hidden, because the server refuses the framing.
+- Any change to the page's sign-in closes the app browser, so it never stays open for the previous user.
+- It renders nothing outside a top-level page (`puter.env !== 'web'`), such as inside the Puter desktop.
+
+**Attributes**
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `apps-label` | `Apps` | Apps button label, modal title and iframe title |
+| `sign-in-label` | `Sign in` | Sign-in button text |
+| `sign-out-label` | `Sign out` | Sign-out menu item text |
+| `close-label` | `Close` | The modal's close button label |
+| `account-label` | `Account` | Account button label, read as `Account: <username>` |
+| `theme` | follows the OS | `light` or `dark` |
+
+Changing a label attribute updates the component in place.
+
+**Events**
+
+| Event | Detail | When |
+|-------|--------|------|
+| `signin` | none | Sign in finished |
+| `signout` | none | The user signed out from the menu |
+
+**Example**
+```html
+<header>
+    <h1>Notes</h1>
+    <puter-user-menu sign-in-label="Se connecter" sign-out-label="Se déconnecter"></puter-user-menu>
+</header>
+<script>
+    document.querySelector('puter-user-menu')
+        .addEventListener('signout', () => clearNotes());
+</script>
+```
+
+---
+
 ## Styling
 
 All components render inside Shadow DOM and match puter.com's native GUI appearance. Styles are encapsulated and cannot be overridden from outside the component.
 
 ## Dark mode
 
-By default, components that ship dark-mode styles auto-adapt to the OS setting (`prefers-color-scheme: dark`): `<puter-notification>`, `<puter-context-menu>`, `<puter-menubar>`, `<puter-color-picker>`, `<puter-font-picker>`.
+By default, components that ship dark-mode styles auto-adapt to the OS setting (`prefers-color-scheme: dark`): `<puter-notification>`, `<puter-context-menu>`, `<puter-menubar>`, `<puter-color-picker>`, `<puter-font-picker>`, `<puter-user-menu>`.
 
 To force a specific theme regardless of the OS preference, set the `theme` attribute on the component:
 

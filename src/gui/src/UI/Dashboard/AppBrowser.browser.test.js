@@ -64,9 +64,24 @@ beforeAll(async () => {
         if ( ! req.headers.cookie?.includes(`puter_auth_token=${sessionCookie}`) ) return res.sendStatus(401);
         res.json({ token: sessionToken });
     });
+    // The GUI session's token and the tokens of apps signed in on a sibling subdomain.
+    const whoamiByToken = {
+        [sessionToken]: { uuid: sessionUser, username: 'session-user' },
+        'app-token-session-user': { uuid: sessionUser, username: 'session-user' },
+        'app-token-other-user': { uuid: otherUser, username: 'other-user' },
+    };
+    // The SDK on a sibling subdomain sends credentialed cross-origin requests.
+    app.use(['/whoami', '/profile', '/rao'], (req, res, next) => {
+        if ( req.headers.origin ) res.set('Access-Control-Allow-Origin', req.headers.origin);
+        res.set('Access-Control-Allow-Credentials', 'true');
+        res.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+        if ( req.method === 'OPTIONS' ) return res.sendStatus(204);
+        next();
+    });
     app.get('/whoami', (req, res) => {
-        if ( req.headers.authorization !== `Bearer ${sessionToken}` ) return res.sendStatus(401);
-        res.json({ uuid: sessionUser, username: 'session-user' });
+        const user = whoamiByToken[req.headers.authorization?.replace(/^Bearer /, '')];
+        if ( ! user ) return res.sendStatus(401);
+        res.json(user);
     });
     app.get('/get-launch-apps', (_req, res) => res.json({ recommended: [{ name: 'removed', title: 'Removed' }] }));
     app.get('/cache/last-change-timestamp', (_req, res) => res.json({ timestamp: 0 }));
@@ -91,6 +106,11 @@ beforeAll(async () => {
     app.get('/host', (req, res) => res.send(`<!DOCTYPE html><html><body style="margin:0">
         <iframe title="More apps" src="${origin}/embed/apps${req.query.user ? `#user=${req.query.user}` : ''}" style="border:0;width:100vw;height:100vh"></iframe>
     </body></html>`));
+    // An app on a sibling subdomain, signed in with puter.js, with the SDK's user menu.
+    app.get('/menu-host', (_req, res) => res.send(`<!DOCTYPE html><html><head>
+        <script>window.PUTER_ORIGIN = '${origin}'; window.PUTER_API_ORIGIN = '${origin}';</script>
+        <script src="${origin}/sdk.js"></script></head>
+        <body><header><puter-user-menu></puter-user-menu></header></body></html>`));
     app.get('/embed/apps', (_req, res) => {
         res.setHeader('Content-Security-Policy', `frame-ancestors 'self' http://*.puter.localhost:${port}`);
         res.send(`<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -387,6 +407,71 @@ describe('embedded app browser', () => {
                 await page.evaluate(user => { window.location.hash = `user=${user}`; }, otherUser);
                 await page.locator('[data-app-name="notes"]').waitFor();
                 expect(await page.locator('[data-app-name="app-104"]').count()).toBe(0);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+    });
+
+    describe('opened from the SDK\'s user menu', () => {
+        const menuContext = async (appToken) => {
+            guestApps = [{ name: 'notes', title: 'Notes', uuid: 'uid-notes', index_url: `http://notes.puter.localhost:${port}/index`, icon: null }];
+            const host = `http://spreadsheet.puter.localhost:${port}`;
+            return browser.newContext({ storageState: {
+                cookies: [],
+                origins: [
+                    { origin, localStorage: [{ name: 'auth_token_v2', value: sessionToken }] },
+                    { origin: host, localStorage: appToken ? [
+                        { name: 'puter.auth.token.v2', value: appToken },
+                        { name: 'puter.auth.token.origin.v2', value: origin },
+                    ] : [] },
+                ],
+            } });
+        };
+
+        it('shows the user\'s apps to the same user and the signed-out list once the app signs out', async () => {
+            const context = await menuContext('app-token-session-user');
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                const errors = [];
+                page.on('pageerror', error => errors.push(error.message));
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu .avatar').waitFor();
+                expect(await page.locator('puter-user-menu .avatar').textContent()).toBe('S');
+
+                await page.locator('puter-user-menu .apps-button').click();
+                const iframe = page.locator('puter-user-menu iframe');
+                expect(await iframe.getAttribute('src')).toBe(`${origin}/embed/apps#user=${sessionUser}`);
+                await page.frameLocator('puter-user-menu iframe').locator('[data-app-name="app-104"]').waitFor();
+
+                await page.evaluate(() => puter.auth.signOut());
+                await iframe.waitFor({ state: 'detached' });
+                await page.locator('puter-user-menu .sign-in').waitFor();
+                await page.locator('puter-user-menu .apps-button').click();
+                expect(await iframe.getAttribute('src')).toBe(`${origin}/embed/apps`);
+                const frame = page.frameLocator('puter-user-menu iframe');
+                await frame.locator('[data-app-name="notes"]').waitFor();
+                expect(await frame.locator('[data-app-name="app-104"]').count()).toBe(0);
+                expect(errors).toEqual([]);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
+        it('shows the signed-out list to an app signed in as another user', async () => {
+            const context = await menuContext('app-token-other-user');
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu .avatar').waitFor();
+                await page.locator('puter-user-menu .apps-button').click();
+                const frame = page.frameLocator('puter-user-menu iframe');
+                await frame.locator('[data-app-name="notes"]').waitFor();
+                expect(await frame.locator('[data-app-name="app-104"]').count()).toBe(0);
             } finally {
                 guestApps = [];
                 await context.close();
