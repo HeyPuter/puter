@@ -74,6 +74,64 @@ describe('showFeedbackEmbed', () => {
         expect(document.activeElement).toBe(trigger);
     });
 
+    it('shows a loading scrim over the page while a slow session check runs, then the dialog', async () => {
+        vi.useFakeTimers();
+        const trigger = document.createElement('button');
+        document.body.append(trigger);
+        trigger.focus();
+        const result = showFeedbackEmbed({ guiOrigin: GUI_ORIGIN, userUuid: USER });
+        const dialog = frame().closest('dialog');
+        fromEmbed({ msg: 'feedbackEmbed', state: 'loading' });
+        await vi.advanceTimersByTimeAsync(199);
+        expect(dialog.open).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(dialog.open).toBe(true);
+        expect(dialog.classList.contains('is-loading')).toBe(true);
+        expect(dialog.querySelector('[role="status"]')).not.toBeNull();
+
+        fromEmbed({ msg: 'feedbackEmbed', state: 'ready' });
+        expect(dialog.classList.contains('is-loading')).toBe(false);
+        expect(document.activeElement).toBe(frame());
+        fromEmbed({ msg: 'feedbackDialogClosed', sent: true });
+        await expect(result).resolves.toEqual({ sent: true });
+        expect(document.activeElement).toBe(trigger);
+    });
+
+    it('never shows the loading scrim when the embed is ready quickly', async () => {
+        vi.useFakeTimers();
+        showFeedbackEmbed({ guiOrigin: GUI_ORIGIN, userUuid: USER });
+        const dialog = frame().closest('dialog');
+        fromEmbed({ msg: 'feedbackEmbed', state: 'ready' });
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(dialog.open).toBe(true);
+        expect(dialog.classList.contains('is-loading')).toBe(false);
+    });
+
+    it('takes the loading scrim down for the popup when the embed turns out unavailable', async () => {
+        vi.useFakeTimers();
+        const trigger = document.createElement('button');
+        document.body.append(trigger);
+        trigger.focus();
+        const result = showFeedbackEmbed({ guiOrigin: GUI_ORIGIN, userUuid: USER });
+        await vi.advanceTimersByTimeAsync(200);
+        fromEmbed({ msg: 'feedbackEmbed', state: 'unavailable' });
+        await expect(result).resolves.toBeNull();
+        expect(document.querySelector('dialog')).toBeNull();
+        expect(document.activeElement).toBe(trigger);
+    });
+
+    it.each([
+        ['Escape', (dialog) => dialog.dispatchEvent(new Event('cancel', { cancelable: true }))],
+        ['a click on the scrim', (dialog) => dialog.querySelector('[role="status"]').click()],
+    ])('lets %s cancel while loading, without falling back to the popup', async (_label, cancel) => {
+        vi.useFakeTimers();
+        const result = showFeedbackEmbed({ guiOrigin: GUI_ORIGIN, userUuid: USER });
+        await vi.advanceTimersByTimeAsync(200);
+        cancel(frame().closest('dialog'));
+        await expect(result).resolves.toEqual({ sent: false });
+        expect(document.querySelector('dialog')).toBeNull();
+    });
+
     it('resolves null without showing anything when the embed is unavailable', async () => {
         const result = showFeedbackEmbed({ guiOrigin: GUI_ORIGIN, userUuid: USER });
         const dialog = frame().closest('dialog');

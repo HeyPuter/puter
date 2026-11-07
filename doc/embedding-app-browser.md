@@ -149,7 +149,8 @@ so the dialog's own scrim covers the host.
 
 puter.js uses it on a page one label under the GUI origin when the page is
 signed in, framing it in a modal `<dialog>` that stays hidden until the embed
-is ready. The embed posts `{ msg: 'feedbackEmbed', state }` to its parent
+is ready. A session check that takes longer than 200ms shows a loading scrim
+with a spinner in its place; Escape or a click on it cancels. The embed posts `{ msg: 'feedbackEmbed', state }` to its parent
 (`loading`, then `ready` or `unavailable`) and finally
 `{ msg: 'feedbackDialogClosed', sent }`. It reports `unavailable` without the
 named user's session, or while that user's email still needs confirming, and
