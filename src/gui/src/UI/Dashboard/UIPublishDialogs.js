@@ -179,6 +179,8 @@ const open_publish_dialog = async (kind_name, { name, path, ...opts }) => {
                 message: t(kind.published),
                 html: copyRowHtml({ value: published.url, label: t('publish_address'), compact: true, after: openLinkHtml(published.url) })
                     + (domain ? extra.doneHtml(domain) : ''),
+                // The DNS records are shown only here.
+                keepOnBackdrop: !! domain,
             });
         },
     });

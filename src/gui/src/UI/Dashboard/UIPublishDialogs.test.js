@@ -258,6 +258,20 @@ describe('publish website on a custom domain', () => {
             .toEqual(['www', 'my-site.puter.site']);
     });
 
+    it('keeps the records up through a stray click outside the card', async () => {
+        serveDomains({ routes: { 'POST ': () => json(201, pendingDomain()) } });
+        await openWebsite();
+        turnOnDomain();
+        domainField().val('www.example.com');
+        await submitWith('my-site');
+
+        const $backdrop = $('.dashboard-dialog-overlay');
+        $backdrop.trigger('mousedown').trigger('click');
+        await flush();
+        expect($backdrop.hasClass('dashboard-dialog-show')).toBe(true);
+        expect($('.dashboard-dns-record')).toHaveLength(1);
+    });
+
     it('checks the domain again and shows its address once connected', async () => {
         serveDomains({
             routes: {
