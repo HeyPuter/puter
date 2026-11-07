@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Conversation, convo } from './convo.js';
+import { Conversation, realtime } from './realtime.js';
 
 class FakeWebSocket extends EventTarget {
     static instances = [];
@@ -283,14 +283,14 @@ describe('conversation preparation', () => {
         'rejects invalid options before opening a socket (%j)',
         async (options) => {
             await expect(
-                convo.call({ puter: owner() }, options),
+                realtime.call({ puter: owner() }, options),
             ).rejects.toMatchObject({ code: expect.any(String) });
             expect(FakeWebSocket.instances).toHaveLength(0);
         },
     );
     it('requires authentication outside a browser', async () => {
         await expect(
-            convo.call({ puter: { ...owner(), authToken: null } }),
+            realtime.call({ puter: { ...owner(), authToken: null } }),
         ).rejects.toMatchObject({ code: 'auth_required' });
     });
     it('reports canceled browser authentication', async () => {
@@ -304,7 +304,7 @@ describe('conversation preparation', () => {
                 },
             },
         };
-        await expect(convo.call({ puter })).rejects.toMatchObject({
+        await expect(realtime.call({ puter })).rejects.toMatchObject({
             code: 'auth_canceled',
         });
     });
@@ -988,7 +988,7 @@ it('preflights both events of a text turn before sending either', async () => {
     socket().bufferedAmount =
         192 * 1024 -
         new TextEncoder().encode(
-            JSON.stringify({ ...item, event_id: 'puter_convo_99' }),
+            JSON.stringify({ ...item, event_id: 'puter_realtime_99' }),
         ).byteLength;
     expect(() => c.sendText(text)).toThrow(
         expect.objectContaining({ code: 'queue_full' }),

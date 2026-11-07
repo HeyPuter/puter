@@ -1,11 +1,11 @@
 # OpenAI Realtime relay
 
 The relay serves `/puterai/openai/v1/realtime` on the API host. The SDK exposes
-it through [`puter.ai.convo()`](../../../docs/src/AI/convo.md).
+it through [`puter.ai.realtime()`](../../../docs/src/AI/realtime.md).
 
 **Beta:** This API is incomplete. Its methods, options, events, and behavior may change abruptly, including breaking changes without notice.
 
-Direct clients are documented in the [Realtime WebSocket API reference](../../../docs/src/AI/realtime.md).
+Direct clients are documented in the [Realtime WebSocket API reference](../../../docs/src/AI/realtime-websocket.md).
 
 ## Transport
 
@@ -27,7 +27,7 @@ The socket opens before authentication completes. Authentication and model
 failures arrive as OpenAI-shaped error events followed by a close frame.
 
 ```js
-const conversation = await puter.ai.convo({ output: ['text'] });
+const conversation = await puter.ai.realtime({ output: ['text'] });
 conversation.on('error', (event) => console.error(event));
 conversation.on('text', ({ delta }) => console.log(delta));
 conversation.on('turn.done', () => conversation.close());

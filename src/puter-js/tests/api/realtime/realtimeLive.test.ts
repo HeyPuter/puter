@@ -2,7 +2,7 @@ import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { closeNodePuter, loadNodePuter } from '../harness/nodeSdkLoader';
 import type { EnvManifest, PuterSDK } from '../harness/types';
-import type { Conversation } from '../../../types/modules/ai/convo';
+import type { Conversation } from '../../../types/modules/ai/realtime';
 import type { RealtimeServerEvent } from '../../../types/modules/ai/types';
 import { optionalEnv } from '@heyputer/backend/drivers/integrationTestUtil.ts';
 import {
@@ -146,7 +146,7 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
                 'batchIncrementUsages',
             );
             const startedAt = performance.now();
-            const session = await puter.ai.convo({
+            const session = await puter.ai.realtime({
                 ...(model ? { model } : {}),
                 output: ['text'],
                 instructions: 'Reply with exactly realtime-ok',
@@ -188,7 +188,7 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
                         .map((result) => result.value),
                 );
                 process.stdout.write(
-                    `[live convo] model=${model ?? 'default'} ready=${Math.round(readyAt - startedAt)}ms firstText=${Math.round(firstDeltaAt! - readyAt)}ms reply=${JSON.stringify(text)} metering=recorded\n`,
+                    `[live realtime] model=${model ?? 'default'} ready=${Math.round(readyAt - startedAt)}ms firstText=${Math.round(firstDeltaAt! - readyAt)}ms reply=${JSON.stringify(text)} metering=recorded\n`,
                 );
             } finally {
                 session.close();
@@ -199,7 +199,7 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
         45_000,
     );
     it('restores tool and text context on a new provider session after a restart notice', async () => {
-        const session = await puter.ai.convo({
+        const session = await puter.ai.realtime({
             output: ['text'],
             instructions: 'Answer in one short sentence.',
         });
@@ -272,7 +272,7 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
             expect(text.toLowerCase()).toContain('pineapple');
             expect(errors).toEqual([]);
             process.stdout.write(
-                `[live convo] context restored after reconnect, reply=${JSON.stringify(text)}\n`,
+                `[live realtime] context restored after reconnect, reply=${JSON.stringify(text)}\n`,
             );
         } finally {
             session.close();
@@ -281,7 +281,7 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
     }, 60_000);
 
     it('receives live PCM audio and interrupts the current response', async () => {
-        const c = await puter.ai.convo({
+        const c = await puter.ai.realtime({
             output: ['audio'],
             instructions: 'Count slowly from one to fifty.',
         });
@@ -301,7 +301,7 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
             const response = await done;
             expect(response.response).toMatchObject({ status: 'cancelled' });
             process.stdout.write(
-                '[live convo] PCM audio received, response canceled, playback history truncated\n',
+                '[live realtime] PCM audio received, response canceled, playback history truncated\n',
             );
         } finally {
             c.close();

@@ -1,6 +1,6 @@
-/** @typedef {import('./convo.js').Conversation} Conversation */
-/** @typedef {import('./types.js').ConvoPlaybackPosition} ConvoPlaybackPosition */
-/** @typedef {import('./types.js').ConvoSpeakerOptions} ConvoSpeakerOptions */
+/** @typedef {import('./realtime.js').Conversation} Conversation */
+/** @typedef {import('./types.js').RealtimePlaybackPosition} RealtimePlaybackPosition */
+/** @typedef {import('./types.js').RealtimeSpeakerOptions} RealtimeSpeakerOptions */
 /** @typedef {import('./types.js').RealtimeServerEvent} RealtimeServerEvent */
 
 const SAMPLE_RATE = 24000;
@@ -69,7 +69,7 @@ function audioContext(sampleRate) {
 // The worklet owns resampling. Chunks the main thread hasn't taken within
 // about half a second are dropped rather than queued.
 const CAPTURE_WORKLET = `
-class PuterConvoCapture extends AudioWorkletProcessor {
+class PuterRealtimeCapture extends AudioWorkletProcessor {
     constructor() {
         super();
         this.samples = new Int16Array(480);
@@ -108,13 +108,13 @@ class PuterConvoCapture extends AudioWorkletProcessor {
         return true;
     }
 }
-registerProcessor('puter-convo-capture', PuterConvoCapture);
+registerProcessor('puter-realtime-capture', PuterRealtimeCapture);
 `;
 
 /** Optional browser microphone capture. */
-export class ConvoMicrophone {
+export class RealtimeMicrophone {
     /** @type {Conversation} */
-    #convo;
+    #conversation;
     /** @type {MediaStream | null} */
     #stream = null;
     /** @type {AudioContext | null} */
@@ -131,11 +131,11 @@ export class ConvoMicrophone {
     #cancelStart = null;
 
     /**
-     * @param {Conversation} convo
+     * @param {Conversation} conversation
      * @internal
      */
-    constructor(convo) {
-        this.#convo = convo;
+    constructor(conversation) {
+        this.#conversation = conversation;
     }
 
     /**
@@ -145,7 +145,7 @@ export class ConvoMicrophone {
      */
     start() {
         try {
-            this.#convo.assertConnected();
+            this.#conversation.assertConnected();
         } catch (error) {
             return Promise.reject(error);
         }
@@ -184,7 +184,8 @@ export class ConvoMicrophone {
         this.#context = context;
         // A reconnect keeps capture running; chunks are dropped meanwhile.
         const current = () =>
-            generation === this.#generation && this.#convo.state !== 'closed';
+            generation === this.#generation &&
+            this.#conversation.state !== 'closed';
         const permission = navigator.mediaDevices
             .getUserMedia({
                 audio: {
@@ -228,27 +229,27 @@ export class ConvoMicrophone {
         }
         if (!current())
             throw { code: 'session_closed', message: 'Capture was stopped' };
-        this.#node = new AudioWorkletNode(context, 'puter-convo-capture');
+        this.#node = new AudioWorkletNode(context, 'puter-realtime-capture');
         this.#source = context.createMediaStreamSource(stream);
         const node = this.#node;
         node.port.onmessage = ({ data }) => {
             if (!current()) return;
             node.port.postMessage('ack');
-            if (this.#muted || this.#convo.state !== 'connected') return;
+            if (this.#muted || this.#conversation.state !== 'connected') return;
             try {
-                this.#convo.appendAudio(data.pcm);
+                this.#conversation.appendAudio(data.pcm);
             } catch (error) {
                 // A congested socket, or one closing before the conversation
                 // knows it, drops the chunk instead of ending capture: a
                 // reconnect resumes it and a final close stops it.
                 if (DROPPED_CHUNK_ERRORS.has(error?.code)) return;
                 this.stop();
-                this.#convo.reportMediaError(error);
+                this.#conversation.reportMediaError(error);
             }
         };
         node.onprocessorerror = () => {
             this.stop();
-            this.#convo.reportMediaError({
+            this.#conversation.reportMediaError({
                 code: 'media_error',
                 message: 'Microphone processor failed',
             });
@@ -298,9 +299,9 @@ export class ConvoMicrophone {
 }
 
 /** Optional bounded browser PCM playback. */
-export class ConvoSpeaker {
+export class RealtimeSpeaker {
     /** @type {Conversation} */
-    #convo;
+    #conversation;
     /** @type {AudioContext | null} */
     #context = null;
     /** @type {Promise<void> | null} */
@@ -317,7 +318,7 @@ export class ConvoSpeaker {
      * }>}
      */
     #sources = new Set();
-    /** @type {(ConvoPlaybackPosition & { responseId: string }) | null} */
+    /** @type {(RealtimePlaybackPosition & { responseId: string }) | null} */
     #last = null;
     #nextAt = 0;
     #bargeIn = true;
@@ -325,11 +326,11 @@ export class ConvoSpeaker {
     #overflowed = '';
 
     /**
-     * @param {Conversation} convo
+     * @param {Conversation} conversation
      * @internal
      */
-    constructor(convo) {
-        this.#convo = convo;
+    constructor(conversation) {
+        this.#conversation = conversation;
     }
     /**
      * @returns {boolean}
@@ -365,12 +366,12 @@ export class ConvoSpeaker {
     /**
      * Starts playback without requesting microphone access.
      *
-     * @param {ConvoSpeakerOptions} [options]
+     * @param {RealtimeSpeakerOptions} [options]
      * @returns {Promise<void>}
      */
     start(options = {}) {
         try {
-            this.#convo.assertConnected();
+            this.#conversation.assertConnected();
         } catch (error) {
             return Promise.reject(error);
         }
@@ -424,7 +425,7 @@ export class ConvoSpeaker {
             const responseId = String(event.response_id ?? '');
             if (this.#overflowed !== responseId) {
                 this.#overflowed = responseId;
-                this.#convo.reportMediaError({
+                this.#conversation.reportMediaError({
                     code: 'queue_full',
                     message: `Playback exceeds ${MAX_SCHEDULED_SECONDS} seconds`,
                 });
@@ -471,7 +472,7 @@ export class ConvoSpeaker {
                     this.#last.playedMs,
                     (offset + duration) * 1000,
                 );
-            if (!this.#sources.size) this.#convo.playbackEnded();
+            if (!this.#sources.size) this.#conversation.playbackEnded();
         };
         this.#nextAt = source.end;
         node.start(start);
@@ -483,7 +484,7 @@ export class ConvoSpeaker {
      * is scheduled, it is the end of what played for `responseId`.
      *
      * @param {string} [responseId] The response still generating, if any.
-     * @returns {ConvoPlaybackPosition | undefined}
+     * @returns {RealtimePlaybackPosition | undefined}
      * @internal
      */
     playbackPosition(responseId) {
@@ -503,7 +504,7 @@ export class ConvoSpeaker {
      * Each item with scheduled audio the listener hasn't fully heard, in play
      * order, with how much of it was heard.
      *
-     * @returns {ConvoPlaybackPosition[]}
+     * @returns {RealtimePlaybackPosition[]}
      * @internal
      */
     unheard() {
@@ -511,7 +512,7 @@ export class ConvoSpeaker {
         const heard =
             (context?.currentTime ?? 0) -
             (context?.outputLatency || context?.baseLatency || 0);
-        /** @type {Map<string, ConvoPlaybackPosition>} */
+        /** @type {Map<string, RealtimePlaybackPosition>} */
         const items = new Map();
         for (const source of this.#sources) {
             if (source.end <= heard || items.has(source.itemId)) continue;
@@ -540,7 +541,7 @@ export class ConvoSpeaker {
         this.#sources.clear();
         this.#last = null;
         this.#nextAt = 0;
-        if (playing) this.#convo.playbackEnded();
+        if (playing) this.#conversation.playbackEnded();
     }
 
     /**

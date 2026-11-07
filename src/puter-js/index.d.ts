@@ -44,17 +44,17 @@ export type {
     ListTTSEnginesOptions,
     ListTTSVoicesOptions,
     OcrAnnotationFormat,
-    ConvoOptions,
-    ConvoTextEvent,
-    ConvoAudioEvent,
-    ConvoTranscriptEvent,
-    ConvoInterruptedEvent,
-    ConvoTurnDoneEvent,
-    ConvoErrorEvent,
-    ConvoEventMap,
-    ConvoSessionOptions,
-    ConvoPlaybackPosition,
-    ConvoSpeakerOptions,
+    RealtimeOptions,
+    RealtimeTextEvent,
+    RealtimeAudioEvent,
+    RealtimeTranscriptEvent,
+    RealtimeInterruptedEvent,
+    RealtimeTurnDoneEvent,
+    RealtimeErrorEvent,
+    RealtimeEventMap,
+    RealtimeSessionOptions,
+    RealtimePlaybackPosition,
+    RealtimeSpeakerOptions,
     RealtimeServerEvent,
     RealtimeClientEvent,
     Speech2SpeechOptions,
@@ -391,5 +391,5 @@ export type Teams = InstanceType<import('./types/modules/teams/index.js').TeamsC
 export type UI = InstanceType<import('./types/modules/UI.js').UIConstructor>;
 export type WorkersHandler = InstanceType<import('./types/modules/Workers.js').WorkersConstructor>;
 
-export type { Conversation, ConvoError } from './types/modules/ai/convo.js';
-export type { ConvoMicrophone, ConvoSpeaker } from './types/modules/ai/convoMedia.js';
+export type { Conversation, RealtimeError } from './types/modules/ai/realtime.js';
+export type { RealtimeMicrophone, RealtimeSpeaker } from './types/modules/ai/realtimeMedia.js';
