@@ -167,22 +167,21 @@ class PuterUserMenu extends PuterWebComponent {
         // A tab Puter opened for an app gets its token moments after loading.
         if ( puter.openerLaunch_ ) await puter.openerLaunch_.catch(() => {});
         const token = puter.authToken;
-        let user = null;
-        let picture = null;
-        if ( token ) {
-            user = puter.whoami ?? await Promise.resolve(puter.whoamiCache_).catch(() => null);
-            if ( user && typeof user === 'object' && !user.is_temp ) {
-                picture = await puter.auth.getProfilePicture().catch(() => null);
-            }
-        }
+        const user = token ? await Promise.resolve(puter.whoami ?? puter.whoamiCache_).catch(() => null) : null;
         if ( generation !== this.#generation ) return;
         // Answers for a token since replaced; the newer token loads again.
         const current = token === puter.authToken;
         this.#token = puter.authToken;
         this.#apiOrigin = puter.APIOrigin;
         this.#user = current && user && typeof user === 'object' ? user : null;
-        this.#picture = current && typeof picture === 'string' ? picture : null;
         this.#ready = true;
+        this._renderState();
+
+        // The picture follows, so a slow profile doesn't hold up the account.
+        if ( !this.#user || this.#user.is_temp ) return;
+        const picture = await puter.auth.getProfilePicture().catch(() => null);
+        if ( generation !== this.#generation || token !== puter.authToken || typeof picture !== 'string' ) return;
+        this.#picture = picture;
         this._renderState();
     }
 

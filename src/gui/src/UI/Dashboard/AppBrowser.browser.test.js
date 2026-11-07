@@ -562,6 +562,31 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('shows the account before its picture arrives', async () => {
+            const context = await menuContext('app-token-session-user');
+            let respond;
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.route('**/profile', route => { respond = () => route.fulfill({
+                    status: 200,
+                    headers: { 'Access-Control-Allow-Origin': `http://spreadsheet.puter.localhost:${port}`, 'Access-Control-Allow-Credentials': 'true' },
+                    contentType: 'application/json',
+                    body: JSON.stringify({ picture: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' }),
+                }); });
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu .avatar').waitFor({ timeout: 2000 });
+                expect(await page.locator('puter-user-menu .avatar').textContent()).toBe('S');
+                expect(await page.locator('puter-user-menu .apps-button').isVisible()).toBe(true);
+                await expect.poll(() => typeof respond).toBe('function');
+                await respond();
+                await page.locator('puter-user-menu .avatar img').waitFor();
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
         it('names the user an app signs in as after loading', async () => {
             const context = await menuContext(null);
             try {

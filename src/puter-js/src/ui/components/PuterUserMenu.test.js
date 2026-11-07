@@ -213,6 +213,36 @@ describe('<puter-user-menu>', () => {
         expect(part(el, '.avatar').textContent).toBe('J');
     });
 
+    it('shows the account while its picture is still loading', async () => {
+        const sdk = fakePuter({ token: 'app-token', user: USER });
+        let resolvePicture;
+        sdk.auth.getProfilePicture.mockImplementation(() => new Promise(resolve => { resolvePicture = resolve; }));
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        expect(shown(el, '.avatar')).toBe(true);
+        expect(shown(el, '.apps-button')).toBe(true);
+        expect(part(el, '.avatar').textContent).toBe('J');
+        expect(part(el, '.avatar img')).toBeNull();
+
+        resolvePicture(PICTURE);
+        await settle();
+        expect(part(el, '.avatar img').getAttribute('src')).toBe(PICTURE);
+    });
+
+    it('drops a picture that arrives after the sign-in changed', async () => {
+        const sdk = fakePuter({ token: 'app-token', user: USER });
+        let resolvePicture;
+        sdk.auth.getProfilePicture.mockImplementationOnce(() => new Promise(resolve => { resolvePicture = resolve; }));
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        sdk.signInAs('other-token', OTHER);
+        await settle();
+        resolvePicture(PICTURE);
+        await settle();
+        expect(part(el, '.avatar').textContent).toBe('S');
+        expect(part(el, '.avatar img')).toBeNull();
+    });
+
     it('sends no user when the signed-in user is unknown', async () => {
         vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: null }));
         const el = await mount();
