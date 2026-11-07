@@ -350,7 +350,10 @@ export class AppFeedbackService extends PuterService {
                     dev_center_link: `${this.config.origin}/app/dev-center`,
                     message,
                 },
-                senderEmail ? { replyTo: senderEmail } : {},
+                {
+                    stream: 'notify',
+                    ...(senderEmail ? { replyTo: senderEmail } : {}),
+                },
             );
         } catch (e) {
             // Release the claimed slot — the mail never went out.

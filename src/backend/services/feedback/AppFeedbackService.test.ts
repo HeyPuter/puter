@@ -544,7 +544,7 @@ describe('AppFeedbackService owner email', () => {
                 app_title: app.title,
                 message: 'hello dev',
             }),
-            expect.objectContaining({ replyTo: sender.email }),
+            { replyTo: sender.email, stream: 'notify' },
         );
         expect(Boolean((await feedbackRows(userId))[0].email_sent)).toBe(true);
     });
@@ -598,9 +598,7 @@ describe('AppFeedbackService owner email', () => {
         expect(send).toHaveBeenCalledTimes(1);
         const [, , values, options] = send.mock.calls[0];
         expect((values as Record<string, unknown>).sender_email).toBeNull();
-        expect(
-            (options as { replyTo?: string } | undefined)?.replyTo,
-        ).toBeUndefined();
+        expect(options).toEqual({ stream: 'notify' });
         // Delivery still happens; only the reply path is withheld.
         expect(Boolean((await feedbackRows(userId))[0].email_sent)).toBe(true);
     });

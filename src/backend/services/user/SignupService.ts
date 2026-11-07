@@ -41,6 +41,17 @@ import {
 } from '../../util/userProvisioning.js';
 import { PuterService } from '../types.js';
 
+const EMAIL_STREAM_NAME = /^[a-z0-9][a-z0-9:_-]{0,63}$/;
+
+const emailStreamName = (value: unknown): string | null => {
+    if (value == null) return null;
+    if (typeof value === 'string' && EMAIL_STREAM_NAME.test(value)) {
+        return value;
+    }
+    console.warn('[signup] ignored email_stream:', value);
+    return null;
+};
+
 /** What `puter.signup.validate` and the bonus hooks decided about a signup. */
 export type SignupGateOutcome =
     | {
@@ -51,6 +62,8 @@ export type SignupGateOutcome =
           requiresCardVerification: boolean;
           /** Card and phone come before email (see `isEmailGateLast`). */
           emailGateLast: boolean;
+          /** Stream the confirmation email is sent on; `null` for the default. */
+          emailStream: string | null;
       }
     | { verdict: 'bonus_code_invalid' }
     | {
@@ -83,6 +96,12 @@ export interface SignupInput {
     isTemp: boolean;
     fingerprint: string | null;
     bonusCode: string | null;
+}
+
+export interface SignupResult {
+    user: UserRow;
+    /** Whether the transport accepted a confirmation email sent at signup. */
+    confirmationEmailSent?: boolean;
 }
 
 /** The trusted client address; `req.ip` honors `trust proxy`. */
@@ -238,6 +257,7 @@ export class SignupService extends PuterService {
             email_gate_last: false,
             message: null as string | null,
             code: null as string | null,
+            email_stream: null as string | null,
             ...(input.fingerprint !== undefined ? { fingerprint } : {}),
             // Signup-time reputation, persisted on the user row.
             reputation: null as number | null,
@@ -314,6 +334,7 @@ export class SignupService extends PuterService {
             emailGateLast:
                 Boolean(validateEvent.email_gate_last) &&
                 (requiresPhoneVerification || requiresCardVerification),
+            emailStream: emailStreamName(validateEvent.email_stream),
         };
     }
 
@@ -321,7 +342,7 @@ export class SignupService extends PuterService {
      * A form or temp signup. Returns the account to sign in; throws the 4xx a
      * refused signup answers with.
      */
-    async signup(input: SignupInput): Promise<UserRow> {
+    async signup(input: SignupInput): Promise<SignupResult> {
         const { req, body, isTemp, fingerprint, bonusCode } = input;
 
         // Runs before the duplicate checks so a disabled endpoint doesn't
@@ -572,10 +593,21 @@ export class SignupService extends PuterService {
         }
 
         const emailGateLast = !isTemp && gate.emailGateLast;
-        if (emailGateLast) user = await this.#markEmailGateLast(user);
+        const metadataPatch = {
+            ...(emailGateLast ? { emailGateLast: true } : {}),
+            ...(gate.emailStream ? { emailStream: gate.emailStream } : {}),
+        };
+        if (Object.keys(metadataPatch).length > 0) {
+            await this.stores.user.updateMetadata(user.id, metadataPatch);
+            user = {
+                ...user,
+                metadata: { ...user.metadata, ...metadataPatch },
+            };
+        }
 
+        let confirmationEmailSent: boolean | undefined;
         if (!isTemp && user.requires_email_confirmation && !emailGateLast) {
-            await this.sendConfirmationEmail(
+            confirmationEmailSent = await this.sendConfirmationEmail(
                 user,
                 'signup',
                 (body.send_confirmation_code ?? true)
@@ -592,7 +624,12 @@ export class SignupService extends PuterService {
             isTemp: user.password === null && user.email === null,
             saveAccount: !isTemp,
         });
-        return user;
+        return {
+            user,
+            ...(confirmationEmailSent !== undefined
+                ? { confirmationEmailSent }
+                : {}),
+        };
     }
 
     /**
@@ -649,10 +686,10 @@ export class SignupService extends PuterService {
         }
     }
 
-    /** Record that this account clears card and phone before email. */
-    async #markEmailGateLast(user: UserRow): Promise<UserRow> {
-        await this.stores.user.updateMetadata(user.id, { emailGateLast: true });
-        return { ...user, metadata: { ...user.metadata, emailGateLast: true } };
+    /** The stream this account's confirmation emails are sent on. */
+    confirmationStream(user: UserRow): string {
+        const stored = user.metadata?.emailStream;
+        return typeof stored === 'string' ? stored : 'signup';
     }
 
     /**
@@ -685,13 +722,15 @@ export class SignupService extends PuterService {
     /**
      * Send the confirmation code (or link) for the account's address. A lost
      * message is alarmed rather than thrown: the account exists either way.
+     * Resolves to whether the transport accepted the message.
      */
     async sendConfirmationEmail(
         user: UserRow,
         stage: 'signup' | 'resend' | 'deferred',
         message: { code: string } | { token: string },
-    ): Promise<void> {
-        if (!this.clients.email || !user.email) return;
+    ): Promise<boolean> {
+        if (!this.clients.email || !user.email) return false;
+        const stream = this.confirmationStream(user);
         try {
             const sent =
                 'code' in message
@@ -699,6 +738,7 @@ export class SignupService extends PuterService {
                           user.email,
                           'email_verification_code',
                           { code: message.code },
+                          { stream },
                       )
                     : await this.clients.email.send(
                           user.email,
@@ -706,11 +746,17 @@ export class SignupService extends PuterService {
                           {
                               link: `${this.config.origin ?? ''}/confirm-email-by-token?token=${message.token}&user_uuid=${user.uuid}`,
                           },
+                          { stream },
                       );
             // `null` = dropped for want of a transport; silent otherwise.
-            if (sent === null) this.#confirmationEmailFailed(stage, user, null);
+            if (sent === null) {
+                this.#confirmationEmailFailed(stage, user, null);
+                return false;
+            }
+            return true;
         } catch (e) {
             this.#confirmationEmailFailed(stage, user, e);
+            return false;
         }
     }
 

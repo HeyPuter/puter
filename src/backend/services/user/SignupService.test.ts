@@ -20,6 +20,7 @@
 import type { Request } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.js';
+import type { UserRow } from '../../stores/user/UserStore.js';
 import { setupTestServer } from '../../testUtil.js';
 
 let server: PuterServer;
@@ -193,20 +194,21 @@ describe('SignupService.runSignupGate', () => {
 describe('SignupService.signup', () => {
     it('provisions a form signup and announces it with the form-only fields', async () => {
         const username = `su_${slug()}`;
-        const { result: user, seen } = await capture(
-            'puter.signup.success',
-            () =>
-                server.services.signup.signup({
-                    req,
-                    body: {
-                        username,
-                        email: `${username}@example.com`,
-                        password: 'correct horse battery',
-                    },
-                    isTemp: false,
-                    fingerprint: null,
-                    bonusCode: null,
-                }),
+        const {
+            result: { user },
+            seen,
+        } = await capture('puter.signup.success', () =>
+            server.services.signup.signup({
+                req,
+                body: {
+                    username,
+                    email: `${username}@example.com`,
+                    password: 'correct horse battery',
+                },
+                isTemp: false,
+                fingerprint: null,
+                bonusCode: null,
+            }),
         );
 
         expect(user.username).toBe(username);
@@ -238,7 +240,7 @@ describe('SignupService email gate last', () => {
         server.clients.event.on('puter.signup.validate', require);
         const username = `egl_${slug()}`;
         try {
-            const user = await server.services.signup.signup({
+            const { user } = await server.services.signup.signup({
                 req,
                 body: {
                     username,
@@ -284,6 +286,7 @@ describe('SignupService email gate last', () => {
                 `${user.username}@example.com`,
                 'email_verification_code',
                 { code: stored!.email_confirm_code },
+                { stream: 'signup' },
             );
         } finally {
             restore();
@@ -303,6 +306,141 @@ describe('SignupService email gate last', () => {
         } finally {
             restore();
         }
+    });
+});
+
+describe('SignupService confirmation stream', () => {
+    /** Signs up with a listener setting `email_stream`, then runs `check`. */
+    const signupWithStream = async (
+        emailStream: unknown,
+        check: (signedUp: {
+            stored: UserRow;
+            send: ReturnType<typeof vi.fn>;
+        }) => Promise<void>,
+        extra = {},
+    ) => {
+        const send = vi.fn(async () => true);
+        const clients = server.clients as unknown as { email: unknown };
+        const realEmail = clients.email;
+        clients.email = { send };
+        const name = (_k: string, data: unknown) => {
+            Object.assign(data as Record<string, unknown>, {
+                email_stream: emailStream,
+                ...extra,
+            });
+        };
+        server.clients.event.on('puter.signup.validate', name);
+        const username = `str_${slug()}`;
+        try {
+            const { user } = await server.services.signup.signup({
+                req,
+                body: {
+                    username,
+                    email: `${username}@example.com`,
+                    password: 'correct horse battery',
+                },
+                isTemp: false,
+                fingerprint: null,
+                bonusCode: null,
+            });
+            const stored = await server.stores.user.getById(user.id, {
+                force: true,
+            });
+            await check({ stored: stored!, send });
+        } finally {
+            server.clients.event.off('puter.signup.validate', name);
+            clients.email = realEmail;
+        }
+    };
+
+    it('sends the confirmation on the stream a listener names and remembers it', async () => {
+        await signupWithStream('review:2', async ({ stored, send }) => {
+            expect(send).toHaveBeenCalledWith(
+                stored.email,
+                'email_verification_code',
+                { code: stored.email_confirm_code },
+                { stream: 'review:2' },
+            );
+            expect(stored.metadata?.emailStream).toBe('review:2');
+            expect(server.services.signup.confirmationStream(stored)).toBe(
+                'review:2',
+            );
+
+            await server.services.signup.sendConfirmationEmail(
+                stored,
+                'resend',
+                { code: '111111' },
+            );
+            expect(send).toHaveBeenLastCalledWith(
+                stored.email,
+                'email_verification_code',
+                { code: '111111' },
+                { stream: 'review:2' },
+            );
+        });
+    });
+
+    it('ignores a stream name that is not a short lowercase token, and says so', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            for (const bad of [
+                'Upper',
+                'has space',
+                7,
+                '-lead',
+                'x'.repeat(65),
+            ]) {
+                await signupWithStream(bad, async ({ stored, send }) => {
+                    expect(send).toHaveBeenCalledWith(
+                        stored.email,
+                        'email_verification_code',
+                        { code: stored.email_confirm_code },
+                        { stream: 'signup' },
+                    );
+                    expect(stored.metadata?.emailStream).toBeUndefined();
+                });
+                expect(warn).toHaveBeenCalledWith(
+                    '[signup] ignored email_stream:',
+                    bad,
+                );
+            }
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    it('records the gate order and the stream together', async () => {
+        await signupWithStream(
+            'held',
+            async ({ stored, send }) => {
+                expect(stored.metadata).toMatchObject({
+                    emailGateLast: true,
+                    emailStream: 'held',
+                });
+                expect(send).not.toHaveBeenCalled();
+                await server.stores.user.update(stored.id, {
+                    requires_phone_verification: 0,
+                });
+                await server.services.signup.sendDeferredConfirmationEmail(
+                    stored.id,
+                );
+                expect(send).toHaveBeenCalledWith(
+                    stored.email,
+                    'email_verification_code',
+                    { code: stored.email_confirm_code },
+                    { stream: 'held' },
+                );
+            },
+            { requires_phone_verification: true, email_gate_last: true },
+        );
+    });
+
+    it('falls back to the signup stream for an account without one', () => {
+        expect(
+            server.services.signup.confirmationStream({
+                metadata: {},
+            } as unknown as UserRow),
+        ).toBe('signup');
     });
 });
 

@@ -247,6 +247,12 @@ export type EventMap = {
         requires_phone_verification?: boolean;
         /** Set by the abuse harness — require card verification post-signup. */
         requires_card_verification?: boolean;
+        /**
+         * The email stream the confirmation message is sent on: lowercase
+         * letters, digits, `:`, `_` and `-`, up to 64 characters, starting with
+         * a letter or digit. Any other value is ignored.
+         */
+        email_stream?: string | null;
         [key: string]: unknown;
     };
     'puter.signup.success': {

@@ -326,6 +326,20 @@ Used for password resets, email confirmation, and notifications. Without it thos
 
 To require email confirmation before login, also set `"strict_email_verification_required": true`.
 
+Account and notification mail is sent on a named stream: `auth` (password, address and 2FA changes), `signup` (address confirmation; a `puter.signup.validate` listener may name another: lowercase letters, digits, `:`, `_` and `-`, up to 64 characters, starting with a letter or digit) and `notify` (share and app feedback mail). Add `"streams"` inside `"email"` to configure one, for instance to let your mail provider route or report each kind of mail separately:
+
+```json
+"streams": {
+    "notify": {
+        "from": "\"Puter\" <notify@puter.example.com>",
+        "headers": { "X-Example-Stream": "notify" },
+        "tagsHeader": "X-Example-Tags"
+    }
+}
+```
+
+`headers` are added to every message on the stream, `from` replaces the default sender, and `tagsHeader` names the header that carries a message's tags as `name=value` pairs joined by `, `. A stream that is not listed adds nothing: the message goes out with the default from address and the caller's headers. `streams` is never handed to the transport.
+
 To read the mail yourself instead of sending it, point the transport at a local SMTP sink — [MailHog](https://github.com/mailhog/MailHog) catches everything and serves it at `http://localhost:8025`. Publish both ports; a container that only exposes them is unreachable from the host:
 
 ```sh

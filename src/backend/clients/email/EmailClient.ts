@@ -69,13 +69,52 @@ export interface SendMailOptions {
     attachments?: EmailAttachment[];
     /** Extra message headers (e.g. List-Unsubscribe), passed to the transport. */
     headers?: Record<string, string>;
+    /** Names the `email.streams` entry whose from address and headers apply. */
+    stream?: string;
+    /** Rendered into the stream's `tagsHeader`; ignored when it has none. */
+    tags?: Record<string, string>;
 }
+
+/** Options a templated {@link EmailClient.send} forwards to `sendRaw`. */
+export type SendTemplateOptions = Pick<
+    SendMailOptions,
+    'replyTo' | 'stream' | 'headers' | 'tags'
+>;
+
+const TAG_PART = /^[A-Za-z0-9_.:-]{1,128}$/;
 
 interface CompiledTemplate {
     subject: ReturnType<typeof template>;
     html: ReturnType<typeof template>;
     text?: ReturnType<typeof template>;
 }
+
+/** Pairs whose key or value falls outside `TAG_PART` are dropped. */
+const renderTags = (tags: Record<string, string> | undefined): string =>
+    Object.entries(tags ?? {})
+        .filter(([name, value]) => TAG_PART.test(name) && TAG_PART.test(value))
+        .map(([name, value]) => `${name}=${value}`)
+        .join(', ');
+
+const hasHeader = (
+    headers: Record<string, string> | undefined,
+    name: string,
+): boolean =>
+    Object.keys(headers ?? {}).some(
+        (key) => key.toLowerCase() === name.toLowerCase(),
+    );
+
+// Header names are case-insensitive: `x-a` from `over` replaces `X-A` in `base`.
+const mergeHeaders = (
+    base: Record<string, string> | undefined,
+    over: Record<string, string> | undefined,
+): Record<string, string> => {
+    const merged: Record<string, string> = {};
+    for (const [key, value] of Object.entries(base ?? {})) {
+        if (!hasHeader(over, key)) merged[key] = value;
+    }
+    return { ...merged, ...over };
+};
 
 // -- EmailClient ------------------------------------------------------
 
@@ -111,7 +150,8 @@ export class EmailClient extends PuterClient {
             return;
         }
 
-        this.transport = nodemailer.createTransport(emailConf);
+        const { streams: _streams, from: _from, ...transportConf } = emailConf;
+        this.transport = nodemailer.createTransport(transportConf);
         console.log('[email] transport configured');
     }
 
@@ -125,7 +165,8 @@ export class EmailClient extends PuterClient {
     /**
      * Render a template and send it to `to`. `options.replyTo` sets the
      * Reply-To header (e.g. so a recipient can respond to the originator of the
-     * message rather than the no-reply From address).
+     * message rather than the no-reply From address); the other options are
+     * passed to {@link sendRaw}.
      *
      * Returns the transport's send result, or `null` when none is configured —
      * {@link sendRaw} drops the message instead of throwing. A caller that
@@ -135,7 +176,7 @@ export class EmailClient extends PuterClient {
         to: string,
         template: T,
         values: Record<string, unknown> = {},
-        options: { replyTo?: string } = {},
+        options: SendTemplateOptions = {},
     ) {
         const compiled = this.compiledTemplates[template];
         if (!compiled) {
@@ -143,12 +184,14 @@ export class EmailClient extends PuterClient {
         }
 
         return await this.sendRaw({
-            from: this.defaultFrom(),
             to,
             subject: compiled.subject(values),
             html: compiled.html(values),
             ...(compiled.text ? { text: compiled.text(values) } : {}),
             ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+            ...(options.stream ? { stream: options.stream } : {}),
+            ...(options.headers ? { headers: options.headers } : {}),
+            ...(options.tags ? { tags: options.tags } : {}),
         });
     }
 
@@ -159,19 +202,36 @@ export class EmailClient extends PuterClient {
      * Returns the transport's send result, or `null` when no transport is
      * configured (the send is a no-op in that case — callers that must not
      * silently drop mail should check `config.email` before composing, or the
-     * `null` return after).
+     * `null` return after). A configured `stream` supplies the from address
+     * when the caller gives none, and headers the caller's own override.
      */
     async sendRaw(options: SendMailOptions) {
+        const { stream: streamName, tags, ...message } = options;
         if (!this.transport) {
             console.warn(
                 '[email] attempted to send email without transport. If you need to send email, configure an SMTP transport in your config file (see docs for details). Email content:',
-                options,
+                message,
             );
             return null;
         }
+        const stream = streamName
+            ? this.config.email?.streams?.[streamName]
+            : undefined;
+        let headers = mergeHeaders(stream?.headers, message.headers);
+        const tagsValue = stream?.tagsHeader ? renderTags(tags) : '';
+        if (
+            stream?.tagsHeader &&
+            tagsValue &&
+            !hasHeader(message.headers, stream.tagsHeader)
+        ) {
+            headers = mergeHeaders(headers, {
+                [stream.tagsHeader]: tagsValue,
+            });
+        }
         return await this.transport.sendMail({
-            ...options,
-            from: options.from ?? this.defaultFrom(),
+            ...message,
+            ...(Object.keys(headers).length > 0 ? { headers } : {}),
+            from: message.from ?? stream?.from ?? this.defaultFrom(),
         });
     }
 

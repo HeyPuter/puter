@@ -254,6 +254,16 @@
             "user": "",
             "pass": ""
         }
+        // Each send names a stream: "auth", "signup" or "notify". A stream
+        // listed here adds its headers to every message on it, and its "from"
+        // when the sender gives none. Tags are written to "tagsHeader".
+        // "streams": {
+        //     "notify": {
+        //         "from": "\"Puter\" <notify@puter.example.com>",
+        //         "headers": { "X-Example-Stream": "notify" },
+        //         "tagsHeader": "X-Example-Tags"
+        //     }
+        // }
     },
 
     // ── Inbound mail (separate process) ─────────────────────────────────
