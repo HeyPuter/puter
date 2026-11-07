@@ -294,6 +294,28 @@ describe('publish website on a custom domain', () => {
         expect($('.dashboard-publish-domain-check')).toHaveLength(0);
     });
 
+    it('announces a check in the status region already on screen', async () => {
+        serveDomains({
+            routes: {
+                'POST ': () => json(201, pendingDomain()),
+                'GET /d1': () => json(200, pendingDomain()),
+            },
+        });
+        await openWebsite();
+        turnOnDomain();
+        domainField().val('www.example.com');
+        await submitWith('my-site');
+        const el_status = $('.dashboard-publish-domain-status').get(0);
+
+        $('.dashboard-publish-domain-check').trigger('click');
+        await flush();
+
+        expect($('.dashboard-publish-domain-status').get(0)).toBe(el_status);
+        expect(el_status.textContent).toBe('custom_domain_status_pending');
+        // The redrawn records are not read out again.
+        expect($('.dashboard-dns-record').closest('[aria-live]').attr('aria-live')).toBe('off');
+    });
+
     it('runs one domain action at a time on the done screen', async () => {
         let answer_check;
         serveDomains({

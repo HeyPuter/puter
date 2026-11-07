@@ -127,7 +127,6 @@ export const domainSummaryHtml = (domain) => {
             + '</button>'
             + '</div>';
     }
-    h += '<p class="dashboard-publish-domain-status" role="status" aria-live="polite"></p>';
     return h;
 };
 
@@ -305,7 +304,7 @@ export const setupPublishDomain = (dialog, { onChange }) => {
             .toggleClass('dashboard-publish-domain-status-error', error);
     };
     const render_done = (focus_selector) => {
-        const $section = $dialog.find('.dashboard-publish-domain');
+        const $section = $dialog.find('.dashboard-publish-domain-summary');
         $section.html(domainSummaryHtml(shown));
         const el = $section.find(focus_selector).get(0)
             ?? $section.find('.dashboard-copy-value').get(0)
@@ -414,7 +413,12 @@ export const setupPublishDomain = (dialog, { onChange }) => {
         },
         doneHtml (domain) {
             shown = domain;
-            return `<section class="dashboard-publish-domain">${domainSummaryHtml(domain)}</section>`;
+            // The summary is redrawn after each check; the status line stays,
+            // so screen readers announce what changed and not the records again.
+            return '<section class="dashboard-publish-domain">'
+                + `<div class="dashboard-publish-domain-summary" aria-live="off">${domainSummaryHtml(domain)}</div>`
+                + '<p class="dashboard-publish-domain-status" role="status" aria-live="polite"></p>'
+                + '</section>';
         },
         claiming: () => addable() && claim_for !== null && claim_for === typed(),
     };

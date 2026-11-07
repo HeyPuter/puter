@@ -10841,6 +10841,12 @@ body.dashboard-mode .notifications-close-all {
     border-top: 1px solid var(--dashboard-border);
 }
 
+.dashboard-publish-domain-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
 .dashboard-publish-domain-head {
     display: flex;
     align-items: center;
