@@ -569,6 +569,9 @@ const postAuthActions = async (action) => {
                 msg,
                 original_msg_id: msg_id,
             }, '*');
+            // Escape closes only the picker window, which would leave the
+            // page's frame open over an empty desktop.
+            if ( window.embedded_in_frame ) window.close();
         };
 
         if ( action === 'show-open-file-picker' ) {

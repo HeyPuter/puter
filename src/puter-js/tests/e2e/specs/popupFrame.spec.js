@@ -100,6 +100,14 @@ test.describe('popups a first-party page shows framed', () => {
         await frame(page).getByRole('button', { name: 'Cancel' }).click();
         expect(await result(page)).toEqual({ ok: true, value: null });
 
+        // Escape closes the picker, and the frame goes with it.
+        await runFromClick(page, 'puter.ui.showOpenFilePicker().undefinedOnCancel');
+        await frameReady(page);
+        await frame(page).locator('.window-filedialog').click({ position: { x: 5, y: 5 } });
+        await page.keyboard.press('Escape');
+        expect(await result(page)).toEqual({ ok: true, value: null });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+
         expect(popups).toHaveLength(0);
     });
 
@@ -121,8 +129,9 @@ test.describe('popups a first-party page shows framed', () => {
         await frameReady(page);
         await frame(page).locator('.auth-dialog [data-screen="accounts"] button').first().click();
         await result(page);
-        // Name another user as the page's own.
-        await page.evaluate(() => {
+        // Name another user as the page's own, once sign-in's own whoami has landed.
+        await page.evaluate(async () => {
+            await puter.whoamiCache_;
             puter.whoami = { uuid: '00000000-0000-4000-8000-000000000000' };
         });
 
