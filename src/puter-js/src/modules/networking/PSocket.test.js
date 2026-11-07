@@ -306,6 +306,36 @@ describe('PSocket write', () => {
         expect(Array.from(stream.written[0])).toEqual([1, 2, 3]);
     });
 
+    it('emits drain after pre-open queued writes flush, following open', async () => {
+        const stream = makeStream();
+        mockGetEpoxyClient.mockResolvedValue(makeClient(stream));
+
+        const socket = new PSocket('example.com', 80);
+        const onOpen = vi.fn();
+        const onDrain = vi.fn();
+        socket.on('open', onOpen);
+        socket.on('drain', onDrain);
+        socket.write('backlog');
+
+        await until(() => expect(onDrain).toHaveBeenCalledTimes(1));
+        expect(onOpen).toHaveBeenCalledTimes(1);
+        expect(onOpen.mock.invocationCallOrder[0])
+            .toBeLessThan(onDrain.mock.invocationCallOrder[0]);
+        expect(new TextDecoder().decode(stream.written[0])).toBe('backlog');
+    });
+
+    it('does not emit drain when no writes were queued', async () => {
+        const { events, socket } = await connected();
+        const onDrain = vi.fn();
+        socket.on('drain', onDrain);
+        socket.write(new Uint8Array([1]));
+
+        await until(() => expect(events.open).toHaveBeenCalledTimes(1));
+        // A direct write never queues, so nothing announces a queue drain.
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(onDrain).not.toHaveBeenCalled();
+    });
+
     it('writes an ArrayBuffer', async () => {
         const { socket, stream } = await connected();
 
@@ -681,5 +711,20 @@ describe('PTLSSocket', () => {
         socket.addListener('open', onOpen);
 
         await until(() => expect(onOpen).toHaveBeenCalledTimes(1));
+    });
+
+    it('off() removes a handler registered through the plain-name alias', async () => {
+        const stream = makeStream();
+        mockGetEpoxyClient.mockResolvedValue(makeClient(stream));
+
+        const socket = new PTLSSocket('example.com', 443);
+        const removed = vi.fn();
+        const kept = vi.fn();
+        socket.on('open', removed);
+        socket.on('tlsopen', kept);
+        socket.off('open', removed);
+
+        await until(() => expect(kept).toHaveBeenCalledTimes(1));
+        expect(removed).not.toHaveBeenCalled();
     });
 });

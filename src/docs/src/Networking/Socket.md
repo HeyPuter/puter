@@ -46,7 +46,7 @@ An alternative way to listen to socket events.
 
 ##### Parameters
 
-- `event` (`SocketEvent`) The event name to listen for. One of: `"open"`, `"data"`, `"close"`, `"error"`.
+- `event` (`SocketEvent`) The event name to listen for. One of: `"open"`, `"data"`, `"drain"`, `"close"`, `"error"`.
 - `handler` (`Function`) The callback function to invoke when the event occurs. The callback parameters depend on the event type (see [Events](#events)).
 
 ## Events
@@ -76,6 +76,14 @@ Fired when the socket is closed.
 
 - `callback` (Function) The callback to fire when the socket is closed.
   - `hadError` (`boolean`) Indicates whether the socket was closed due to an error. If true, there was an error.
+
+#### `socket.on("drain", callback)`
+
+Fired when the write queue empties after writes were queued, meaning more data can be written without buffering. On a TLS socket the event is also `"drain"`.
+
+##### Parameters
+
+- `callback` (Function) The callback to fire when queued writes have flushed.
 
 #### `socket.on("error", callback)`
 
