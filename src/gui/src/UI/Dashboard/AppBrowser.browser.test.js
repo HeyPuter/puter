@@ -493,6 +493,26 @@ describe('embedded app browser', () => {
                 await context.close();
             }
         });
+
+        it('names the user an app signs in as after loading', async () => {
+            const context = await menuContext(null);
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu .sign-in').waitFor();
+                // What `puter.auth.signIn()` does with the token its popup hands back.
+                await page.evaluate(() => puter.setAuthToken('app-token-session-user'));
+                await page.locator('puter-user-menu .avatar').waitFor();
+                await expect.poll(() => page.locator('puter-user-menu .avatar').textContent()).toBe('S');
+                await page.locator('puter-user-menu .apps-button').click();
+                expect(await page.locator('puter-user-menu iframe').getAttribute('src')).toBe(`${origin}/embed/apps#user=${sessionUser}`);
+                await page.frameLocator('puter-user-menu iframe').locator('[data-app-name="app-104"]').waitFor();
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
     });
 
     it('shows an unavailable state if the SDK cannot load', async () => {

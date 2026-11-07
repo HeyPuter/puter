@@ -29,11 +29,13 @@ const fakePuter = ({ token = null, user = null, picture = null } = {}) => {
             signIn: vi.fn(() => new Promise(() => {})),
             signOut: vi.fn(async () => sdk.signInAs(null)),
         },
+        // In the SDK's order: listeners hear of the token before its whoami starts.
         signInAs (nextToken, nextUser = null, nextPicture = null) {
             sdk.authToken = nextToken;
-            sdk.whoamiCache_ = Promise.resolve(nextUser);
+            sdk.whoamiCache_ = null;
             currentPicture = nextPicture;
             for ( const listener of listeners ) listener();
+            sdk.whoamiCache_ = Promise.resolve(nextUser);
         },
         listenerCount: () => listeners.size,
     };

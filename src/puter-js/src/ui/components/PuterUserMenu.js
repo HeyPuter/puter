@@ -150,6 +150,8 @@ class PuterUserMenu extends PuterWebComponent {
         this.#apiOrigin = puter.APIOrigin;
         this._renderState();
 
+        // `setAuthToken` announces a token before it starts that token's whoami.
+        await null;
         // A tab Puter opened for an app gets its token moments after loading.
         if ( puter.openerLaunch_ ) await puter.openerLaunch_.catch(() => {});
         const token = puter.authToken;
