@@ -635,10 +635,17 @@ export class UIModule extends EventListener {
                     return;
                 }
             }
+            let consent = null;
             try {
-                PuterDialog.show({
-                    onContinue: () => launched(this.#openPickerPopup(url, title)),
-                    onCancel: () => this.#settleCallback(msgId, PICKER_CANCELLED),
+                consent = PuterDialog.show({
+                    onContinue: () => {
+                        launched(this.#openPickerPopup(url, title));
+                        consent?.remove();
+                    },
+                    onCancel: () => {
+                        consent?.remove();
+                        this.#settleCallback(msgId, PICKER_CANCELLED);
+                    },
                 });
             } catch {
                 // No dialog either; as with a blocked popup, the picker never opens.

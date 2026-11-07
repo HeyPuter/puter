@@ -161,14 +161,15 @@ describe('pickers on a signed-in first-party page', () => {
         document.querySelector('puter-dialog').shadowRoot.querySelector('#launch-auth-popup').click();
         expect(window.open).toHaveBeenCalledTimes(1);
         expect(window.open.mock.calls[0][2]).toContain('width=700, height=400');
+        expect(document.querySelector('puter-dialog')).toBeNull();
 
         const cancelled = makeUI().showDirectoryPicker();
         await vi.waitFor(() => expect(pickerFrame()).not.toBeNull());
         fromFrame({ msg: 'puterPopupFrame', state: 'unavailable' });
-        await vi.waitFor(() => expect(document.querySelectorAll('puter-dialog')).toHaveLength(2));
-        const dialogs = document.querySelectorAll('puter-dialog');
-        dialogs[dialogs.length - 1].shadowRoot.querySelector('#launch-auth-popup-cancel').click();
+        await vi.waitFor(() => expect(document.querySelector('puter-dialog')).not.toBeNull());
+        document.querySelector('puter-dialog').shadowRoot.querySelector('#launch-auth-popup-cancel').click();
         await expect(cancelled.undefinedOnCancel).resolves.toBeUndefined();
+        expect(document.querySelector('puter-dialog')).toBeNull();
         expect(await settled(result)).toBe(PENDING);
         expect(await settled(result.undefinedOnCancel)).toBe(PENDING);
     });
