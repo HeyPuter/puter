@@ -2312,7 +2312,8 @@ export class UIModule extends EventListener {
         if ( this.#feedbackEmbedOpen ) return { sent: false };
         this.#feedbackEmbedOpen = true;
         try {
-            const user = await puter.auth.getUser().catch(() => null);
+            const known = await Promise.resolve(puter.whoami ?? puter.whoamiCache_).catch(() => null);
+            const user = known?.uuid ? known : await puter.auth.getUser().catch(() => null);
             if ( typeof user?.uuid !== 'string' || ! user.uuid ) return null;
             return await showFeedbackEmbed({ guiOrigin: puter.defaultGUIOrigin, userUuid: user.uuid });
         } finally {

@@ -56,6 +56,16 @@ describe('ui.showFeedbackDialog on a first-party page', () => {
         expect(window.open).not.toHaveBeenCalled();
     });
 
+    it('names the user puter.js already knows, without asking the API again', async () => {
+        globalThis.puter.whoamiCache_ = Promise.resolve({ uuid: USER });
+        const result = makeUI().showFeedbackDialog();
+        await vi.waitFor(() => expect(embedFrame()).not.toBeNull());
+        expect(new URLSearchParams(new URL(embedFrame().src).hash.slice(1)).get('user')).toBe(USER);
+        expect(globalThis.puter.auth.getUser).not.toHaveBeenCalled();
+        fromEmbed({ msg: 'feedbackDialogClosed', sent: false });
+        await expect(result).resolves.toBe(false);
+    });
+
     it('uses the popup when the embed cannot serve the user', async () => {
         const result = makeUI().showFeedbackDialog();
         await vi.waitFor(() => expect(embedFrame()).not.toBeNull());
