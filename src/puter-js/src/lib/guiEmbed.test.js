@@ -221,6 +221,7 @@ describe('showPopupFrame', () => {
         expect(url.search).toBe('');
         expect(Object.fromEntries(new URLSearchParams(url.hash.slice(1)))).toEqual({ msg_id: '3', user: USER });
         expect(popupFrame().getAttribute('referrerpolicy')).toBe('origin');
+        expect(popupFrame().closest('dialog').getAttribute('aria-label')).toBe('Open file');
         expect(framed).toBe(popupFrame().contentWindow);
         expect(popupFrame().closest('dialog').open).toBe(false);
     });

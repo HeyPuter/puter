@@ -107,6 +107,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
 
     const dialog = document.createElement('dialog');
     dialog.className = className;
+    dialog.setAttribute('aria-label', title);
     dialog.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;background:transparent;overflow:hidden;';
     const style = document.createElement('style');
     style.textContent = embedStyle(className) + (box ? BOX_STYLE : '');
