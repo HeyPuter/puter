@@ -46,6 +46,8 @@ import UIAuthSignup from './UI/Auth/UIAuthSignup.js';
 import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
+import { embedHostUser } from './helpers/embedHostUser.js';
+import { framedPopupAction, framedPopupParams, startPopupFrame } from './helpers/popupFrame.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
@@ -93,6 +95,7 @@ import { ThemeService } from './services/ThemeService.js';
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
 import {
+    defersTokenToOpener,
     deliversTokenAtBoot,
     relationshipIsConsent,
     relaysTokenAtBoot,
@@ -1154,9 +1157,16 @@ if (jQuery) {
 {
     const pathname = window.location.pathname;
     const search_params = new URLSearchParams(window.location.search);
-    if (['true', '1'].includes(search_params.get('embedded_in_popup'))) {
+    // A popup a first-party page frames at `/embed/<action>` boots as one.
+    if (['true', '1'].includes(search_params.get('embedded_in_popup')) || framedPopupAction(pathname)) {
         window.embedded_in_popup = true;
     }
+    // Called by the bootstrap in index.js, which can't import.
+    window.start_popup_frame = (hostOrigin) => {
+        if (!framedPopupAction(pathname)) return;
+        window.tell_popup_frame = startPopupFrame(window, hostOrigin);
+        window.embedded_in_frame = !!window.tell_popup_frame;
+    };
     // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
     const in_iframe = window.location !== window.parent.location;
     const needs_desktop_at_root =
@@ -1411,8 +1421,16 @@ window.initgui = async function (options) {
     const url_paths = parse_url_paths(window.location.pathname);
     window.url_paths = url_paths;
 
-    // GET query params provided
-    window.url_query_params = new URLSearchParams(window.location.search);
+    // A framed popup without a framing page to answer (opened on its own, or
+    // framed by a page the server refused) has nothing to do.
+    const framed_action = framedPopupAction(window.location.pathname);
+    if (framed_action && !window.embedded_in_frame) return;
+
+    // GET query params provided. A framed popup takes the popup's parameters
+    // from its fragment; its route refuses a query string.
+    window.url_query_params = framed_action
+        ? framedPopupParams(window.location.hash)
+        : new URLSearchParams(window.location.search);
     window.signup_bonus_code = readSignupBonusCode(window.url_query_params);
 
     // Install device signal helpers; collection is lazy. The fingerprint is
@@ -1506,7 +1524,9 @@ window.initgui = async function (options) {
     // Extract 'action' from URL
     //--------------------------------------------------------------------------------------
     let action;
-    if (
+    if (framed_action) {
+        action = framed_action;
+    } else if (
         window.url_paths[0]?.toLocaleLowerCase() === 'action' &&
         window.url_paths[1]
     ) {
@@ -1643,7 +1663,9 @@ window.initgui = async function (options) {
             action,
         );
         try {
-            window.openerOrigin = await resolveOpenerOrigin({
+            // A framed popup's opener is the page the server read from the
+            // referrer and pinned with frame-ancestors.
+            window.openerOrigin = window.embedded_in_frame ? window.gui_params.embed_host_origin : await resolveOpenerOrigin({
                 relaysToken: relaysTokenAtBoot(
                     action,
                     window.url_query_params.get('cross_origin_isolated') ===
@@ -1699,6 +1721,26 @@ window.initgui = async function (options) {
 
         // this is the referrer in terms of user acquisition
         window.referrerStr = window.openerOrigin;
+
+        // A framed picker shows only the Puter session of the user the
+        // framing page is signed in as; for anyone else the page uses the
+        // popup, which can sign in and switch accounts.
+        if (window.embedded_in_frame && defersTokenToOpener(action)) {
+            const host_user = embedHostUser(window.location.hash);
+            let session_user = null;
+            if (host_user && window.is_auth()) {
+                try {
+                    whoami = await puter.os.user({ query: 'icon_size=64' });
+                    session_user = String(whoami?.uuid ?? '').toLowerCase();
+                } catch (e) {
+                    whoami = undefined;
+                }
+            }
+            if (!host_user || session_user !== host_user) {
+                window.tell_popup_frame('unavailable');
+                return;
+            }
+        }
 
         // Tell a request-permission opener that this popup can reach it. Sent
         // here, before any sign-in gate, because the SDK reads its absence as

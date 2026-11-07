@@ -409,6 +409,53 @@ describe('PuterServer host header validation', () => {
     });
 
     it.each([
+        'sign-in',
+        'show-open-file-picker',
+        'show-save-file-picker',
+        'show-directory-picker',
+    ])('lets a deployment subdomain frame the %s popup and names it to the GUI', async (action) => {
+        const parent = `http://spreadsheet.puter.localhost:${port}`;
+        const guiParams = (body: string) =>
+            JSON.parse(body.match(/gui\((\{.*\})\);/)[1]);
+        const res = await request(`/embed/${action}`, {
+            host: `puter.localhost:${port}`,
+            referer: `${parent}/sheet/1`,
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBeUndefined();
+        expect(res.headers['content-security-policy']).toBe(
+            `frame-ancestors 'self' ${parent}`,
+        );
+        expect(res.headers['cache-control']).toBe('no-store');
+        expect(guiParams(res.body).embed_host_origin).toBe(parent);
+
+        const hosted = await request(`/embed/${action}`, {
+            host: `puter.localhost:${port}`,
+            referer: `http://someone.site.puter.localhost:${port}/`,
+        });
+        expect(hosted.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        expect(guiParams(hosted.body).embed_host_origin).toBeNull();
+
+        const redirected = await request(`/embed/${action}?auth_token=x&embedded_in_popup=true`, {
+            host: `puter.localhost:${port}`,
+            referer: `${parent}/sheet/1`,
+        });
+        expect(redirected.status).toBe(302);
+        expect(redirected.headers.location).toBe(`/embed/${action}`);
+        expect(redirected.headers['x-frame-options']).toBe('SAMEORIGIN');
+    });
+
+    it('names no framing page to the popups it serves in a window', async () => {
+        const res = await request('/action/sign-in?embedded_in_popup=true', {
+            host: `puter.localhost:${port}`,
+            referer: `http://spreadsheet.puter.localhost:${port}/`,
+        });
+        expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+        expect(res.headers['content-security-policy']).toBeUndefined();
+        expect(res.body).not.toContain('embed_host_origin');
+    });
+
+    it.each([
         ['a user-hosted site', 'http://someone.site.puter.localhost:PORT/'],
         ['a private app host', 'http://someone.app.puter.localhost:PORT/'],
         ['the API host', 'http://api.puter.localhost:PORT/'],

@@ -2,7 +2,8 @@ import EventListener from '../lib/EventListener.js';
 import { PuterJSError } from '../lib/PuterJSError.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
-import { canFrameGuiEmbed, showFeedbackEmbed } from '../lib/guiEmbed.js';
+import { canFrameGuiEmbed, showFeedbackEmbed, showPopupFrame } from '../lib/guiEmbed.js';
+import { hasUserActivation } from '../lib/auth-popup.js';
 import { checkPermissions } from './perms/lib/holds.js';
 
 
@@ -580,6 +581,114 @@ export class UIModule extends EventListener {
         puter.trackOpenedWindow_?.(popup);
         // Null when the browser blocked the popup.
         if ( popup ) this.#pickerPopups.add(popup);
+    }
+
+    /** Opens a picker's popup window, centered, at the pickers' size. */
+    #openPickerPopup (url, title) {
+        const w = 700;
+        const h = 400;
+        const left = (screen.width / 2) - (w / 2);
+        const top = (screen.height / 2) - (h / 2);
+        return window.open(
+            url,
+            title,
+            `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
+        );
+    }
+
+    /**
+     * Shows a picker on a `web` page. A first-party page one label under the
+     * Puter origin that is signed in gets it in a frame over the page; every
+     * other page, or a frame that can't serve this user, gets the popup.
+     * `onWindow` sees the window that will ask for and answer the picker, and
+     * may return a function that stops listening to it.
+     *
+     * @param {Object} opts
+     * @param {'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker'} opts.action
+     * @param {number} opts.msgId
+     * @param {string} opts.url - the popup's URL
+     * @param {string} opts.title - the popup's window name, and the frame's accessible name
+     * @param {Record<string, string>} [opts.fragment] - the popup parameters the frame needs besides `msg_id`
+     * @param {(win: Window | null) => (() => void) | void} [opts.onWindow]
+     */
+    #showWebPicker ({ action, msgId, url, title, fragment = {}, onWindow }) {
+        if ( ! this.#canFramePicker() ) {
+            // window.open() returns synchronously and the popup cannot post
+            // back until this function yields, so there is no race.
+            const popup = this.#openPickerPopup(url, title);
+            onWindow?.(popup);
+            this.#trackPickerPopup(popup);
+            return;
+        }
+        void (async () => {
+            if ( await this.#showPickerFrame({ action, msgId, title, fragment, onWindow }) ) return;
+            // The click that asked for the picker may have expired by now, so
+            // without it the user opens the popup from a consent dialog.
+            const launched = (popup) => {
+                onWindow?.(popup);
+                this.#trackPickerPopup(popup);
+            };
+            if ( hasUserActivation() ) {
+                const popup = this.#openPickerPopup(url, title);
+                if ( popup ) {
+                    launched(popup);
+                    return;
+                }
+            }
+            try {
+                PuterDialog.show({
+                    onContinue: () => launched(this.#openPickerPopup(url, title)),
+                    onCancel: () => this.#settleCallback(msgId, PICKER_CANCELLED),
+                });
+            } catch {
+                // No dialog either; as with a blocked popup, the picker never opens.
+            }
+        })();
+    }
+
+    /** Whether a picker can show framed: a signed-in first-party page. */
+    #canFramePicker () {
+        return this.env === 'web' &&
+            !globalThis.crossOriginIsolated &&
+            !!globalThis.document?.body &&
+            canFrameGuiEmbed(globalThis.location?.href, puter.defaultGUIOrigin) &&
+            !!puter.auth?.isSignedIn?.();
+    }
+
+    /**
+     * The picker in a frame over the page, for the page's signed-in user. The
+     * GUI answers it as it would the popup, through the module's message
+     * handler. Resolves false when the popup has to take over.
+     *
+     * @returns {Promise<boolean>}
+     */
+    async #showPickerFrame ({ action, msgId, title, fragment, onWindow }) {
+        const known = await Promise.resolve(puter.whoami ?? puter.whoamiCache_).catch(() => null);
+        const user = known?.uuid ? known : await puter.auth.getUser().catch(() => null);
+        if ( typeof user?.uuid !== 'string' || ! user.uuid ) return false;
+        let frame = null;
+        let stopListening;
+        // The frame only serves this page's own user, so the token it sends
+        // with the answer isn't adopted; the page keeps the one it has.
+        const closed = await showPopupFrame({
+            guiOrigin: puter.defaultGUIOrigin,
+            action,
+            fragment: { ...fragment, msg_id: String(msgId), user: user.uuid },
+            title,
+            closed: () => true,
+            onMessage: () => {},
+            onFrame: (win) => {
+                frame = win;
+                this.#pickerPopups.add(win);
+                stopListening = onWindow?.(win);
+            },
+        });
+        this.#pickerPopups.delete(frame);
+        stopListening?.();
+        if ( ! closed ) return false;
+        // Gone without an answer: dismissed, so it settles as a cancel.
+        this.#settleCallback(msgId, PICKER_CANCELLED);
+        return true;
     }
 
     // Whether a message on the window may drive this module.
@@ -1382,20 +1491,12 @@ export class UIModule extends EventListener {
                     env: this.env,
                 }, '*');
             } else {
-                let w = 700;
-                let h = 400;
-                let title = 'Puter: Open Directory';
-                var left = (screen.width / 2) - (w / 2);
-                var top = (screen.height / 2) - (h / 2);
-                // Track the window we opened so the message listener accepts
-                // its reply. window.open() returns synchronously and the popup
-                // cannot post back until this function yields, so there is no
-                // race.
-                this.#trackPickerPopup(window.open(
-                    `${puter.defaultGUIOrigin}/action/show-directory-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options)}`,
-                    title,
-                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-                ));
+                this.#showWebPicker({
+                    action: 'show-directory-picker',
+                    msgId: msg_id,
+                    url: `${puter.defaultGUIOrigin}/action/show-directory-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options)}`,
+                    title: 'Puter: Open Directory',
+                });
             }
 
             this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
@@ -1432,16 +1533,13 @@ export class UIModule extends EventListener {
                     env: this.env,
                 }, '*');
             } else {
-                let w = 700;
-                let h = 400;
-                let title = 'Puter: Open File';
-                var left = (screen.width / 2) - (w / 2);
-                var top = (screen.height / 2) - (h / 2);
-                this.#trackPickerPopup(window.open(
-                    `${puter.defaultGUIOrigin}/action/show-open-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options ?? {})}`,
-                    title,
-                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-                ));
+                this.#showWebPicker({
+                    action: 'show-open-file-picker',
+                    msgId: msg_id,
+                    url: `${puter.defaultGUIOrigin}/action/show-open-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&options=${JSON.stringify(options ?? {})}`,
+                    title: 'Puter: Open File',
+                    fragment: { options: JSON.stringify(options ?? {}) },
+                });
             }
             this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
@@ -1639,47 +1737,41 @@ export class UIModule extends EventListener {
                 // Create an object URL for the Blob
                 let objectUrl = URL.createObjectURL(blob);
 
-                let w = 700;
-                let h = 400;
-                let title = 'Puter: Save File';
-                var left = (screen.width / 2) - (w / 2);
-                var top = (screen.height / 2) - (h / 2);
-
-                // Open the picker popup first so we can bind the data handler to the
-                // exact window we opened. window.open() returns synchronously and the
-                // popup cannot post back until this function yields, so there is no race.
-                const popup = window.open(
-                    `${puter.defaultGUIOrigin}/action/show-save-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&blobUrl=${encodeURIComponent(objectUrl)}`,
-                    title,
-                    `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
-                );
-
-                // Only hand the file content to the trusted Puter GUI popup we just
-                // opened. Without this, any framing parent or sibling iframe could post
+                // Only hand the file content to the Puter GUI window that shows
+                // the picker (its popup, or its frame on a first-party page).
+                // Without this, any framing parent or sibling iframe could post
                 // { msg: 'sendMeFileData' } and receive the content the page meant to save.
-                const onSendMeFileData = (e) => {
-                    if ( e.data?.msg !== 'sendMeFileData' ) return;
-                    // Reject anything that isn't our popup on the trusted GUI origin.
-                    if ( e.origin !== puter.defaultGUIOrigin ) return;
-                    if ( ! popup || e.source !== popup ) return;
+                const sendFileDataTo = (picker) => {
+                    const onSendMeFileData = (e) => {
+                        if ( e.data?.msg !== 'sendMeFileData' ) return;
+                        // Reject anything that isn't our picker on the trusted GUI origin.
+                        if ( e.origin !== puter.defaultGUIOrigin ) return;
+                        if ( ! picker || e.source !== picker ) return;
 
-                    // Send the file data to the popup, targeting the trusted origin only.
-                    e.source.postMessage({
-                        msg: 'showSaveFilePickerPopup',
-                        content: url ? undefined : content,
-                        url: url ? url.toString() : undefined,
-                        suggestedName: suggestedName ?? '',
-                        env: this.env,
-                        uuid: msg_id,
-                    }, puter.defaultGUIOrigin);
+                        // Send the file data to the picker, targeting the trusted origin only.
+                        e.source.postMessage({
+                            msg: 'showSaveFilePickerPopup',
+                            content: url ? undefined : content,
+                            url: url ? url.toString() : undefined,
+                            suggestedName: suggestedName ?? '',
+                            env: this.env,
+                            uuid: msg_id,
+                        }, puter.defaultGUIOrigin);
 
-                    // The trusted popup has the data; remove this exact listener.
-                    window.removeEventListener('message', onSendMeFileData);
+                        // The trusted picker has the data; remove this exact listener.
+                        window.removeEventListener('message', onSendMeFileData);
+                    };
+                    window.addEventListener('message', onSendMeFileData);
+                    return () => window.removeEventListener('message', onSendMeFileData);
                 };
-                window.addEventListener('message', onSendMeFileData);
 
-                // Same window, for the picker's own reply on the main listener.
-                this.#trackPickerPopup(popup);
+                this.#showWebPicker({
+                    action: 'show-save-file-picker',
+                    msgId: msg_id,
+                    url: `${puter.defaultGUIOrigin}/action/show-save-file-picker?embedded_in_popup=true&msg_id=${msg_id}&appInstanceID=${this.appInstanceID}&env=${this.env}&blobUrl=${encodeURIComponent(objectUrl)}`,
+                    title: 'Puter: Save File',
+                    onWindow: sendFileDataTo,
+                });
             }
             this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });

@@ -31,7 +31,19 @@ import type {
     PuterHomepageService,
     PageMeta,
     LaunchOptions,
+    PopupFrame,
 } from '../../services/homepage/PuterHomepageService';
+
+/**
+ * GUI popups a first-party page can show in a frame at `/embed/<action>`,
+ * instead of opening `/action/<action>` in a window.
+ */
+export const FRAMED_POPUP_ACTIONS = [
+    'sign-in',
+    'show-open-file-picker',
+    'show-save-file-picker',
+    'show-directory-picker',
+] as const;
 
 /** Longest description/og:description/twitter:description on `/app/<name>`. */
 export const APP_META_DESCRIPTION_MAX = 150;
@@ -153,6 +165,7 @@ export class HomepageController extends PuterController {
             res: express.Response,
             metaOverrides: Partial<PageMeta> = {},
             launch: LaunchOptions = {},
+            popupFrame?: PopupFrame,
         ) => {
             const meta = { ...defaultMeta(req), ...metaOverrides };
             const actor =
@@ -161,7 +174,7 @@ export class HomepageController extends PuterController {
                         actor?: Parameters<typeof homepage.send>[0]['actor'];
                     }
                 ).actor ?? null;
-            await homepage.send({ req, res, actor }, meta, launch);
+            await homepage.send({ req, res, actor }, meta, launch, popupFrame);
         };
 
         // -- Root + path-aliased shell routes ------------------------
@@ -215,6 +228,27 @@ export class HomepageController extends PuterController {
                 }),
             );
         });
+
+        // The GUI runs the popup's own boot, answering the framing page
+        // instead of an opener.
+        for (const action of FRAMED_POPUP_ACTIONS) {
+            const embedPath = `/embed/${action}`;
+            router.get(embedPath, {}, async (req, res) => {
+                if (!prepareEmbed(req, res, embedPath)) return;
+                await sendShell(
+                    req,
+                    res,
+                    {},
+                    {},
+                    {
+                        hostOrigin: embedHostOrigin(
+                            this.config,
+                            req.get('referer'),
+                        ),
+                    },
+                );
+            });
+        }
 
         router.get('/settings', {}, (req, res) => sendShell(req, res));
         router.get('/settings/*splat', {}, (req, res) => sendShell(req, res));

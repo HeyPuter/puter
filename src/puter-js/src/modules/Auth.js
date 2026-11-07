@@ -3,6 +3,7 @@ import { fetchUrl } from '../lib/networkUtils.js';
 import { PuterModule } from '../lib/PuterModule.js';
 import PuterDialog from './PuterDialog.js';
 import { hasOpaqueOrigin } from '../lib/auth-popup.js';
+import { canFrameGuiEmbed, showPopupFrame } from '../lib/guiEmbed.js';
 
 /**
  * Puter user details, as returned by `getUser()`.
@@ -121,6 +122,10 @@ export class AuthModule extends PuterModule {
      * one, a consent dialog is shown first so the popup can be opened from the
      * user's click on it. Resolves once the user has signed in.
      *
+     * On a page one label under the Puter origin, the sign-in shows in a frame
+     * over the page instead, and continues in the popup when the user picks a
+     * federated provider or the frame can't be shown.
+     *
      * Rejects with `{ error: 'popup_blocked' }` if the browser blocked the
      * popup, `{ error: 'auth_window_closed' }` if the user closed it, `{ error:
      * 'not_available_in_app' }` when called from an app — an app's token comes
@@ -168,6 +173,83 @@ export class AuthModule extends PuterModule {
                     : this.signIn(options));
         }
 
+        if (this.#canSignInInFrame(options)) {
+            return this.#signInInFrame(options).then((result) =>
+                result ?? this.#signInWithPopup(options));
+        }
+        return this.#signInWithPopup(options);
+    };
+
+    /**
+     * Whether this page can show the sign-in framed: a first-party page one
+     * label under the GUI origin. A temporary account is only offered in the
+     * popup, which sees whether this browser has visited Puter before; a
+     * framed page's storage may be keyed to the framing page instead.
+     */
+    #canSignInInFrame (options) {
+        return !options.attempt_temp_user_creation &&
+            !globalThis.crossOriginIsolated &&
+            !!globalThis.document?.body &&
+            canFrameGuiEmbed(globalThis.location?.href, puter.defaultGUIOrigin);
+    }
+
+    /** Runs `puter.onAuth`, if set, with the user just signed in. */
+    #notifyAuth () {
+        if (typeof puter.onAuth !== 'function') return;
+        void (async () => {
+            try {
+                const user = await puter.whoamiCache_;
+                puter.onAuth(user ?? (await puter.getUser()));
+            } catch (error) {
+                console.error(error);
+            }
+        })();
+    }
+
+    /**
+     * The sign-in in a frame over the page. Settles as the popup would, or
+     * resolves null when the popup has to take over.
+     *
+     * @returns {Promise<SignInResult | null>}
+     */
+    async #signInInFrame (options) {
+        const msg_id = crypto.randomUUID();
+        this.pendingSignInMessageIds_.add(msg_id);
+        const fragment = { msg_id };
+        if (options.request_auth) fragment.request_auth = 'true';
+        let outcome;
+        try {
+            outcome = await showPopupFrame({
+                guiOrigin: puter.defaultGUIOrigin,
+                action: 'sign-in',
+                fragment,
+                title: 'Sign in to Puter',
+                closeLabel: 'Close',
+                closed: () => ({ closed: true }),
+                onMessage: (data, finish) => {
+                    if (data.msg !== 'puter.token' || data.msg_id != msg_id) return;
+                    finish({ reply: data });
+                },
+            });
+        } finally {
+            this.pendingSignInMessageIds_.delete(msg_id);
+        }
+        if (!outcome) return null;
+        if (outcome.closed) {
+            throw {
+                error: 'auth_window_closed',
+                msg: 'Authentication window was closed by the user without completing the process.',
+            };
+        }
+        const { msg: _msg, msg_id: _msgId, ...result } = outcome.reply;
+        if (!result.success) throw result;
+        puter.setAuthToken(result.token);
+        this.#notifyAuth();
+        return result;
+    }
+
+    /** The sign-in in a popup window. */
+    #signInWithPopup (options) {
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
             const msg_id = signinsession;
@@ -196,17 +278,7 @@ export class AuthModule extends PuterModule {
                 consentDialog = null;
             };
 
-            const notifyAuth = () => {
-                if (typeof puter.onAuth !== 'function') return;
-                void (async () => {
-                    try {
-                        const user = await puter.whoamiCache_;
-                        puter.onAuth(user ?? (await puter.getUser()));
-                    } catch (error) {
-                        console.error(error);
-                    }
-                })();
-            };
+            const notifyAuth = () => this.#notifyAuth();
 
             if (window.crossOriginIsolated) {
                 (async () => {
@@ -366,7 +438,7 @@ export class AuthModule extends PuterModule {
                 rejectBlocked();
             }
         });
-    };
+    }
 
     /**
      * Whether the user is currently signed in.

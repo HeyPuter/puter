@@ -60,6 +60,10 @@ window.gui = async (options) => {
     window.co_isolation_enabled = options.co_isolation_enabled;
     window.teams_ui = options.teams_ui ?? false;
 
+    // A popup a first-party page frames answers it before the SDK loads, so
+    // the page knows the frame wasn't refused.
+    window.start_popup_frame?.(options.embed_host_origin);
+
     // DEV: Load the initgui.js file if we are in development mode
     if ( !window.gui_env || window.gui_env === 'dev' ) {
         await window.loadScript('/sdk/puter.dev.js');

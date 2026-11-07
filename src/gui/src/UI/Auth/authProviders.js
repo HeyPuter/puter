@@ -134,6 +134,12 @@ export async function renderProviderButtons ($list, { kind, referrer, flow }) {
     }
     $list.html(h);
     $list.on('click', '.auth-provider-btn', function () {
+        // A provider won't load in a frame, so a framed sign-in continues in
+        // the popup the framing page opens instead.
+        if ( window.embedded_in_frame ) {
+            window.tell_popup_frame('unavailable');
+            return;
+        }
         window.location.href = providerStartUrl($(this).attr('data-provider'), kind, referrer());
     });
     return { providers: ordered, signupOidcOnly: data.signupOidcOnly === true };

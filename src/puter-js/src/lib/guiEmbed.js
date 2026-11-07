@@ -11,18 +11,36 @@ const READY_TIMEOUT_MS = 15_000;
 // A session check slower than this shows a loading scrim over the page.
 const LOADING_DELAY_MS = 200;
 
-// The loading scrim matches the embed's own, which fades in over it once ready.
-const STYLE = `
-dialog.puter-feedback-embed::backdrop{background:transparent}
-dialog.puter-feedback-embed:focus{outline:none}
-.puter-feedback-embed-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .16s ease-in-out}
-.puter-feedback-embed.is-loading .puter-feedback-embed-loading{opacity:1;pointer-events:auto}
-.puter-feedback-embed.is-loading iframe{visibility:hidden}
-.puter-feedback-embed-loading span{width:28px;height:28px;box-sizing:border-box;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:puter-feedback-embed-spin .7s linear infinite}
-@keyframes puter-feedback-embed-spin{to{transform:rotate(360deg)}}
-@media (prefers-color-scheme:dark){.puter-feedback-embed-loading{background:rgba(0,0,0,.66)}}
-@media (prefers-reduced-motion:reduce){.puter-feedback-embed-loading{transition:none}.puter-feedback-embed-loading span{animation-duration:1.6s}}
+// The loading scrim matches the feedback embed's own, which fades in over it
+// once ready. A popup frame keeps it as the scrim behind its box.
+const embedStyle = (cls) => `
+dialog.${cls}::backdrop{background:transparent}
+dialog.${cls}:focus{outline:none}
+.${cls}-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .16s ease-in-out}
+.${cls}.is-loading .${cls}-loading{opacity:1;pointer-events:auto}
+.${cls}.is-loading iframe{visibility:hidden}
+.${cls}-loading span{width:28px;height:28px;box-sizing:border-box;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:${cls}-spin .7s linear infinite}
+@keyframes ${cls}-spin{to{transform:rotate(360deg)}}
+@media (prefers-color-scheme:dark){.${cls}-loading{background:rgba(0,0,0,.66)}}
+@media (prefers-reduced-motion:reduce){.${cls}-loading{transition:none}.${cls}-loading span{animation-duration:1.6s}}
 `;
+
+// A popup frame sits in a box the size of the popup window it replaces, over
+// the scrim, and fills the screen on a phone as the popup's tab would.
+const BOX_STYLE = `
+.puter-popup-frame .puter-popup-frame-loading{opacity:1;pointer-events:auto}
+.puter-popup-frame:not(.is-loading) .puter-popup-frame-loading span{display:none}
+.puter-popup-frame.is-loading .puter-popup-frame-box{visibility:hidden}
+.puter-popup-frame-box{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);box-sizing:border-box;width:min(var(--puter-popup-frame-width),calc(100% - 32px));height:min(var(--puter-popup-frame-height),calc(100% - 32px));border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 24px 64px rgba(0,0,0,.35)}
+.puter-popup-frame-close{position:absolute;top:10px;right:10px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:transparent;color:#6b7280;cursor:pointer}
+.puter-popup-frame-close:hover{background:rgba(127,127,127,.15)}
+.puter-popup-frame-close:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
+.puter-popup-frame-close svg{width:16px;height:16px}
+@media (prefers-color-scheme:dark){.puter-popup-frame-close{color:#9ca3af}}
+@media (max-width:600px){.puter-popup-frame-box{width:100%;height:100%;border-radius:0}}
+`;
+
+const CLOSE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>';
 
 /**
  * Whether a page at `pageUrl` may frame an embed served by `guiOrigin`:
@@ -49,19 +67,28 @@ export const canFrameGuiEmbed = (pageUrl, guiOrigin) => {
 };
 
 /**
- * Shows the app feedback dialog from `/embed/feedback` in a modal frame over
- * the page, as the user named, behind a loading scrim while a slow session
- * check runs. Resolves `{ sent }` once the dialog closes or the user cancels
- * the loading scrim, or null when the embed can't serve this user (no
- * matching Puter session, an email to confirm, or a refused frame), so the
- * caller can use the popup instead. Never rejects.
+ * Mounts `/embed/<path>` in a modal frame, hidden until the embed reports
+ * `ready` and behind a loading scrim once its start takes longer than
+ * LOADING_DELAY_MS. Resolves what `onMessage` finishes with, what `dismissed`
+ * returns when the user cancels, or null when the frame is refused, never
+ * answers, or reports itself unavailable. Never rejects.
  *
+ * @template T
  * @param {Object} opts
  * @param {string} opts.guiOrigin
- * @param {string} opts.userUuid - the page's signed-in user
- * @returns {Promise<{ sent: boolean } | null>}
+ * @param {string} opts.path - under the GUI origin, such as `/embed/feedback`
+ * @param {Record<string, string>} opts.fragment - what the embed reads from its fragment
+ * @param {string} opts.className - the dialog's class, prefixing its parts'
+ * @param {string} opts.title - the frame's accessible name
+ * @param {string} opts.stateMsg - `msg` of the embed's loading, ready and unavailable messages
+ * @param {{ width: number, height: number }} [opts.box] - shows the frame in a box this size over a scrim; without it the frame covers the page and the embed draws its own scrim
+ * @param {string} [opts.closeLabel] - puts a close button on the box, which dismisses it
+ * @param {() => T} opts.dismissed - the result of a dismissal: Escape or a click on the loading scrim, or the close button
+ * @param {(data: Record<string, unknown>, finish: (result: T | null) => void) => void} opts.onMessage - every other message from the embed
+ * @param {(frame: Window) => void} [opts.onFrame] - the frame's window, once it exists
+ * @returns {Promise<T | null>}
  */
-export const showFeedbackEmbed = ({ guiOrigin, userUuid }) => new Promise((resolve) => {
+const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, box, closeLabel, dismissed, onMessage, onFrame }) => new Promise((resolve) => {
     let origin;
     try {
         origin = new URL(guiOrigin).origin;
@@ -69,28 +96,50 @@ export const showFeedbackEmbed = ({ guiOrigin, userUuid }) => new Promise((resol
         resolve(null);
         return;
     }
-    const url = new URL('/embed/feedback', origin);
-    url.hash = new URLSearchParams({ user: userUuid }).toString();
+    const url = new URL(path, origin);
+    url.hash = new URLSearchParams(fragment).toString();
 
     const dialog = document.createElement('dialog');
-    dialog.className = 'puter-feedback-embed';
+    dialog.className = className;
     dialog.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;background:transparent;overflow:hidden;';
     const style = document.createElement('style');
-    style.textContent = STYLE;
+    style.textContent = embedStyle(className) + (box ? BOX_STYLE : '');
     const frame = document.createElement('iframe');
-    frame.title = 'Send feedback';
+    frame.title = title;
     // The embed allows a framing page it can name from the referrer.
     frame.setAttribute('referrerpolicy', 'origin');
     // A frame whose color-scheme differs from its document's is painted
     // opaque, so this matches the embed's. WebKit also gives the frame this
     // scheme as its preferred one, so it has to follow the OS.
-    frame.style.cssText = 'display:block;width:100%;height:100%;border:0;background:transparent;color-scheme:light dark;';
+    frame.style.cssText = box
+        ? 'display:block;width:100%;height:100%;border:0;'
+        : 'display:block;width:100%;height:100%;border:0;background:transparent;color-scheme:light dark;';
     const loading = document.createElement('div');
-    loading.className = 'puter-feedback-embed-loading';
+    loading.className = `${className}-loading`;
     loading.setAttribute('role', 'status');
     loading.setAttribute('aria-label', 'Loading');
     loading.append(document.createElement('span'));
-    dialog.append(style, frame, loading);
+    dialog.append(style, loading);
+    if ( box ) {
+        const container = document.createElement('div');
+        container.className = `${className}-box`;
+        container.style.setProperty('--puter-popup-frame-width', `${box.width}px`);
+        container.style.setProperty('--puter-popup-frame-height', `${box.height}px`);
+        container.append(frame);
+        if ( closeLabel ) {
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.className = `${className}-close`;
+            close.setAttribute('aria-label', closeLabel);
+            close.title = closeLabel;
+            close.innerHTML = CLOSE_ICON;
+            close.addEventListener('click', () => finish(dismissed()));
+            container.append(close);
+        }
+        dialog.append(container);
+    } else {
+        dialog.insertBefore(frame, loading);
+    }
 
     let settled = false;
     let heard = false;
@@ -108,7 +157,7 @@ export const showFeedbackEmbed = ({ guiOrigin, userUuid }) => new Promise((resol
         settled = true;
         clearTimeout(timer);
         clearTimeout(loadingTimer);
-        window.removeEventListener('message', onMessage);
+        window.removeEventListener('message', onWindowMessage);
         dialog.remove();
         if ( shown ) restoreFocus?.focus?.({ preventScroll: true });
         resolve(result);
@@ -118,15 +167,16 @@ export const showFeedbackEmbed = ({ guiOrigin, userUuid }) => new Promise((resol
         shown = true;
         dialog.showModal();
     };
-    const onMessage = (event) => {
+    const onWindowMessage = (event) => {
         if ( event.origin !== origin || event.source !== frame.contentWindow ) return;
-        const { msg, state, sent } = event.data ?? {};
-        if ( msg === 'feedbackDialogClosed' ) {
-            finish({ sent: sent === true });
-        } else if ( msg === 'feedbackEmbed' && state === 'loading' ) {
+        const data = event.data;
+        if ( !data || typeof data !== 'object' ) return;
+        if ( data.msg !== stateMsg || !['loading', 'ready', 'unavailable'].includes(data.state) ) {
+            onMessage(data, finish);
+        } else if ( data.state === 'loading' ) {
             heard = true;
             wait(READY_TIMEOUT_MS);
-        } else if ( msg === 'feedbackEmbed' && state === 'ready' ) {
+        } else if ( data.state === 'ready' ) {
             heard = true;
             ready = true;
             clearTimeout(timer);
@@ -134,29 +184,30 @@ export const showFeedbackEmbed = ({ guiOrigin, userUuid }) => new Promise((resol
             dialog.classList.remove('is-loading');
             show();
             frame.focus();
-        } else if ( msg === 'feedbackEmbed' && state === 'unavailable' ) {
+        } else {
             finish(null);
         }
     };
-    window.addEventListener('message', onMessage);
+    window.addEventListener('message', onWindowMessage);
     frame.addEventListener('load', () => {
         if ( ! heard ) wait(LOAD_GRACE_MS);
     });
     // Once ready, Escape outside the frame would close the dialog with the
-    // embed's dialog still open inside it; the embed owns dismissal.
+    // embed's own dialog still open inside it; the embed owns dismissal.
     dialog.addEventListener('cancel', (event) => {
         event.preventDefault();
         if ( ready ) frame.focus();
-        else finish({ sent: false });
+        else finish(dismissed());
     });
     loading.addEventListener('click', () => {
-        if ( ! ready ) finish({ sent: false });
+        if ( ! ready ) finish(dismissed());
     });
 
     try {
         frame.src = url.href;
         // Hidden at first, so a quickly refused session shows nothing.
         document.body.append(dialog);
+        onFrame?.(frame.contentWindow);
         wait(READY_TIMEOUT_MS);
         loadingTimer = setTimeout(() => {
             dialog.classList.add('is-loading');
@@ -165,4 +216,77 @@ export const showFeedbackEmbed = ({ guiOrigin, userUuid }) => new Promise((resol
     } catch {
         finish(null);
     }
+});
+
+/**
+ * Shows the app feedback dialog from `/embed/feedback` in a modal frame over
+ * the page, as the user named, behind a loading scrim while a slow session
+ * check runs. Resolves `{ sent }` once the dialog closes or the user cancels
+ * the loading scrim, or null when the embed can't serve this user (no
+ * matching Puter session, an email to confirm, or a refused frame), so the
+ * caller can use the popup instead. Never rejects.
+ *
+ * @param {Object} opts
+ * @param {string} opts.guiOrigin
+ * @param {string} opts.userUuid - the page's signed-in user
+ * @returns {Promise<{ sent: boolean } | null>}
+ */
+export const showFeedbackEmbed = ({ guiOrigin, userUuid }) => mountGuiEmbed({
+    guiOrigin,
+    path: '/embed/feedback',
+    fragment: { user: userUuid },
+    className: 'puter-feedback-embed',
+    title: 'Send feedback',
+    stateMsg: 'feedbackEmbed',
+    dismissed: () => ({ sent: false }),
+    onMessage: ({ msg, sent }, finish) => {
+        if ( msg === 'feedbackDialogClosed' ) finish({ sent: sent === true });
+    },
+});
+
+/** Popup actions a first-party page shows framed, each in a box its popup window's size. */
+const POPUP_FRAME_BOXES = {
+    'sign-in': { width: 600, height: 700 },
+    'show-open-file-picker': { width: 700, height: 400 },
+    'show-save-file-picker': { width: 700, height: 400 },
+    'show-directory-picker': { width: 700, height: 400 },
+};
+
+/**
+ * Shows the GUI popup for `action` in a frame over the page instead of a
+ * window, from `/embed/<action>`. The GUI runs the popup unchanged and posts
+ * its answers to this page as it would to an opener; `onMessage` sees each of
+ * them and finishes with the result. The frame closing on its own, as the
+ * popup would, finishes with `closed()`, and so does the user dismissing it.
+ * Resolves null when the frame can't serve the request (refused, never
+ * answering, or reporting itself unavailable), so the caller can open the
+ * popup instead. Never rejects.
+ *
+ * @template T
+ * @param {Object} opts
+ * @param {string} opts.guiOrigin
+ * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker'} opts.action
+ * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for a picker
+ * @param {string} opts.title - the frame's accessible name
+ * @param {string} [opts.closeLabel] - puts a close button on the frame
+ * @param {() => T} opts.closed
+ * @param {(data: Record<string, unknown>, finish: (result: T) => void) => void} opts.onMessage
+ * @param {(frame: Window) => void} [opts.onFrame]
+ * @returns {Promise<T | null>}
+ */
+export const showPopupFrame = ({ guiOrigin, action, fragment, title, closeLabel, closed, onMessage, onFrame }) => mountGuiEmbed({
+    guiOrigin,
+    path: `/embed/${action}`,
+    fragment,
+    className: 'puter-popup-frame',
+    title,
+    stateMsg: 'puterPopupFrame',
+    box: POPUP_FRAME_BOXES[action],
+    closeLabel,
+    dismissed: closed,
+    onFrame,
+    onMessage: (data, finish) => {
+        if ( data.msg === 'puterPopupFrame' && data.state === 'closed' ) finish(closed());
+        else onMessage(data, finish);
+    },
 });

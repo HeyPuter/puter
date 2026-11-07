@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { canFrameGuiEmbed, showFeedbackEmbed } from './guiEmbed.js';
+import { canFrameGuiEmbed, showFeedbackEmbed, showPopupFrame } from './guiEmbed.js';
 
 const GUI_ORIGIN = 'https://puter.test';
 const USER = '0b1c9a52-3f0e-4c7a-9a65-2f6d1e8b7c40';
@@ -190,5 +190,118 @@ describe('showFeedbackEmbed', () => {
     it('resolves null for an unusable GUI origin', async () => {
         await expect(showFeedbackEmbed({ guiOrigin: 'not a url', userUuid: USER })).resolves.toBeNull();
         expect(document.querySelector('dialog')).toBeNull();
+    });
+});
+
+describe('showPopupFrame', () => {
+    const popupFrame = () => document.querySelector('dialog.puter-popup-frame iframe');
+    const fromPopup = (data, { origin = GUI_ORIGIN, source = popupFrame().contentWindow } = {}) =>
+        window.dispatchEvent(new MessageEvent('message', { data, origin, source }));
+    const show = (overrides = {}) => showPopupFrame({
+        guiOrigin: GUI_ORIGIN,
+        action: 'show-open-file-picker',
+        fragment: { msg_id: '3', user: USER },
+        title: 'Open file',
+        closed: () => 'closed',
+        onMessage: () => {},
+        ...overrides,
+    });
+
+    it('loads the popup action with its parameters in the fragment, hidden until ready', () => {
+        let framed;
+        show({ onFrame: (win) => {
+            framed = win;
+        } });
+        const url = new URL(popupFrame().src);
+        expect(url.origin + url.pathname).toBe(`${GUI_ORIGIN}/embed/show-open-file-picker`);
+        expect(url.search).toBe('');
+        expect(Object.fromEntries(new URLSearchParams(url.hash.slice(1)))).toEqual({ msg_id: '3', user: USER });
+        expect(popupFrame().getAttribute('referrerpolicy')).toBe('origin');
+        expect(framed).toBe(popupFrame().contentWindow);
+        expect(popupFrame().closest('dialog').open).toBe(false);
+    });
+
+    it('sizes the box like the popup window it replaces', () => {
+        show({ action: 'sign-in', fragment: { msg_id: 'a' } });
+        const box = document.querySelector('.puter-popup-frame-box');
+        expect(box.style.getPropertyValue('--puter-popup-frame-width')).toBe('600px');
+        expect(box.style.getPropertyValue('--puter-popup-frame-height')).toBe('700px');
+        expect(box.contains(popupFrame())).toBe(true);
+    });
+
+    it('shows once ready and hands every other message to the caller to finish with', async () => {
+        const seen = [];
+        const result = show({ onMessage: (data, finish) => {
+            seen.push(data.msg);
+            if ( data.msg === 'fileOpenPicked' ) finish('picked');
+        } });
+        const dialog = popupFrame().closest('dialog');
+        fromPopup({ msg: 'puterPopupFrame', state: 'loading' });
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        expect(dialog.open).toBe(true);
+        expect(document.activeElement).toBe(popupFrame());
+        fromPopup({ msg: 'puter.token', success: true });
+        fromPopup({ msg: 'fileOpenPicked' });
+        await expect(result).resolves.toBe('picked');
+        expect(seen).toEqual(['puter.token', 'fileOpenPicked']);
+        expect(dialog.isConnected).toBe(false);
+    });
+
+    it('finishes as closed when the popup closes itself', async () => {
+        const result = show();
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        fromPopup({ msg: 'puterPopupFrame', state: 'closed' });
+        await expect(result).resolves.toBe('closed');
+        expect(document.querySelector('dialog')).toBeNull();
+    });
+
+    it('offers a close button only when asked, which finishes as closed', async () => {
+        show();
+        expect(document.querySelector('.puter-popup-frame-close')).toBeNull();
+        document.body.innerHTML = '';
+
+        const result = show({ action: 'sign-in', closeLabel: 'Close' });
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        const close = document.querySelector('.puter-popup-frame-close');
+        expect(close.getAttribute('aria-label')).toBe('Close');
+        close.click();
+        await expect(result).resolves.toBe('closed');
+    });
+
+    it('resolves null for the popup when the frame is unavailable or refused', async () => {
+        const unavailable = show();
+        fromPopup({ msg: 'puterPopupFrame', state: 'loading' });
+        fromPopup({ msg: 'puterPopupFrame', state: 'unavailable' });
+        await expect(unavailable).resolves.toBeNull();
+
+        vi.useFakeTimers();
+        const refused = show();
+        popupFrame().dispatchEvent(new Event('load'));
+        await vi.advanceTimersByTimeAsync(1000);
+        await expect(refused).resolves.toBeNull();
+    });
+
+    it('lets the user dismiss the loading scrim, finishing as closed', async () => {
+        vi.useFakeTimers();
+        const result = show();
+        await vi.advanceTimersByTimeAsync(200);
+        document.querySelector('.puter-popup-frame-loading').click();
+        await expect(result).resolves.toBe('closed');
+    });
+
+    it('keeps the scrim behind a ready frame from dismissing it', () => {
+        show();
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        document.querySelector('.puter-popup-frame-loading').click();
+        expect(popupFrame().closest('dialog').isConnected).toBe(true);
+    });
+
+    it('ignores messages from another origin or another window', async () => {
+        const onMessage = vi.fn();
+        show({ onMessage });
+        fromPopup({ msg: 'puterPopupFrame', state: 'closed' }, { origin: 'https://other.test' });
+        fromPopup({ msg: 'fileOpenPicked' }, { source: window });
+        expect(onMessage).not.toHaveBeenCalled();
+        expect(popupFrame().closest('dialog').isConnected).toBe(true);
     });
 });

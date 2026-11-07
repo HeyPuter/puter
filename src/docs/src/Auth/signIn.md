@@ -6,7 +6,7 @@ platforms: [websites]
 
 Initiates the sign in process for the user.
 
-This will open a popup window with the appropriate authentication method. Puter automatically handles the authentication process and will resolve the promise when the user has signed in.
+This will open a popup window with the appropriate authentication method. Puter automatically handles the authentication process and will resolve the promise when the user has signed in. Puter's own apps on puter.com subdomains show the sign-in in a frame over the page instead, and open the popup when the user picks a sign-in provider such as Google.
 
 It is important to note that all essential methods in Puter handle authentication automatically. This method is only necessary if you want to handle authentication manually, for example if you want to build your own custom authentication flow.
 
