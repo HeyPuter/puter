@@ -663,32 +663,19 @@ window.update_auth_data = async (auth_token, user) => {
         $('.user-email').html(html_encode(user.email));
     }
 
-    // ----------------------------------------------------
-    // load the user's profile
-    // ----------------------------------------------------
-    user.profile = {};
-    puter.auth.getProfile().then((profile) => {
-        window.user.profile.displayName = profile?.displayName ?? null;
-        window.user.profile.bio = profile?.bio ?? null;
-        if ( profile?.displayName ) {
-            $('.dashboard-profile-display-name').text(profile.displayName);
-        }
-        if ( profile?.picture ) {
-            window.user.profile.picture = html_encode(profile.picture);
-            $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
-            // the account tab may have rendered before the profile arrived
-            $('.dashboard-profile-remove-picture').prop('hidden', false);
-        }
-    }).catch((error) => {
-        console.error('Error loading profile:', error);
-    });
-
-    // ----------------------------------------------------
+    // Keep this account's last known profile until the fresh one loads below;
+    // the account picker reads pictures from the stored copy.
+    const known_profile = window.logged_in_users.find(known => known.uuid === user.uuid)?.profile;
+    user.profile = { ...(known_profile ?? user.profile ?? {}) };
 
     const to_storable_user = user => {
         const storable_user = { ...user };
         delete storable_user.taskbar_items;
         return storable_user;
+    };
+    const store_users = () => {
+        localStorage.setItem('user', JSON.stringify(to_storable_user(window.user)));
+        localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users.map(to_storable_user)));
     };
 
     // update this session's user data
@@ -715,9 +702,32 @@ window.update_auth_data = async (auth_token, user) => {
             userobj.auth_token = window.auth_token;
             window.logged_in_users.push(userobj);
         }
-        // update local storage
-        localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users.map(to_storable_user)));
+        store_users();
     }
+
+    // Loaded only after puter.js holds this account's token, so it can't
+    // return the previous account's profile.
+    puter.auth.getProfile().then((profile) => {
+        // Another account may have signed in while this was loading.
+        if ( !profile || window.user !== user ) return;
+        const shown_picture = user.profile.picture ?? null;
+        user.profile = {
+            displayName: profile.displayName ?? null,
+            bio: profile.bio ?? null,
+            picture: profile.picture ? html_encode(profile.picture) : null,
+        };
+        store_users();
+        if ( profile.displayName ) {
+            $('.dashboard-profile-display-name').text(profile.displayName);
+        }
+        // the account tab may have rendered before the profile arrived
+        if ( user.profile.picture !== shown_picture ) {
+            $('.profile-pic').css('background-image', `url(${user.profile.picture || window.icons['profile.svg']})`);
+            $('.dashboard-profile-remove-picture').prop('hidden', !user.profile.picture);
+        }
+    }).catch((error) => {
+        console.error('Error loading profile:', error);
+    });
 
     window.desktop_path = `/${ window.user.username }/Desktop`;
     window.trash_path = `/${ window.user.username }/Trash`;
