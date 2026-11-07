@@ -14,6 +14,7 @@ const recipeTags = {
     notifications: 'Notifications',
     hosting: 'Hosting',
     workers: 'Workers',
+    peer: 'Peer',
     email: 'Email',
     ui: 'UI',
     teams: 'Teams',
