@@ -12,8 +12,10 @@ const READY_TIMEOUT_MS = 15_000;
 const LOADING_DELAY_MS = 200;
 
 // The loading scrim matches the feedback embed's own, which fades in over it
-// once ready. A popup frame keeps it as the scrim behind its box.
+// once ready. A popup frame keeps it as the scrim behind its box. Scrolling
+// over the dialog stays there rather than scrolling the page behind it.
 const embedStyle = (cls) => `
+dialog.${cls}{overscroll-behavior:contain}
 dialog.${cls}::backdrop{background:transparent}
 dialog.${cls}:focus{outline:none}
 .${cls}-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .16s ease-in-out}

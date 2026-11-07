@@ -113,8 +113,18 @@ test.describe('popups a first-party page shows framed', () => {
 
     test('closing the framed sign-in rejects as closing its popup would', async ({ page }) => {
         await openFirstPartyPage(page);
+        await page.evaluate(() => {
+            document.body.style.minHeight = '4000px';
+        });
         await runFromClick(page, 'puter.auth.signIn()');
         await frameReady(page);
+
+        // Scrolling over the scrim leaves the page behind it where it was.
+        await page.mouse.move(5, 300);
+        await page.mouse.wheel(0, 800);
+        await page.waitForTimeout(300);
+        expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
         await page.locator('.puter-popup-frame-close').click();
         const closed = await result(page);
         expect(closed).toMatchObject({ ok: false, error: { error: 'auth_window_closed' } });
