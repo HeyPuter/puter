@@ -76,6 +76,8 @@ class PuterUserMenu extends PuterWebComponent {
     #picture = null;
     // Set while signing out from inside the component, whose focus then moves to Sign in.
     #focusSignIn = false;
+    // Set while a sign-in popup is open, so another click doesn't open a second one.
+    #signingIn = false;
     #onDocumentPointerDown = (event) => {
         if ( ! event.composedPath().includes(this) ) this._closePanels();
     };
@@ -663,14 +665,21 @@ class PuterUserMenu extends PuterWebComponent {
     // -- Sign-in --
 
     _signIn () {
+        if ( this.#signingIn ) return;
         const puter = globalThis.puter;
+        // A cross-origin isolated page can't see its popup close, so it could never retry.
+        this.#signingIn = !globalThis.crossOriginIsolated;
         // Called inside the click, so the sign-in popup isn't blocked.
         puter.auth.signIn().then(
             async () => {
+                this.#signingIn = false;
                 const user = await Promise.resolve(puter.whoamiCache_).catch(() => null);
                 this.emitEvent('signin', { user: user && typeof user === 'object' ? user : null });
             },
-            () => { /* Closed or refused; the button stays for another try. */ },
+            () => {
+                // Closed or refused; the button stays for another try.
+                this.#signingIn = false;
+            },
         );
     }
 

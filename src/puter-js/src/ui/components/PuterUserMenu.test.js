@@ -143,6 +143,34 @@ describe('<puter-user-menu>', () => {
         expect(shown(el, '.avatar')).toBe(true);
     });
 
+    it('opens one sign-in at a time, and another once it is closed', async () => {
+        const sdk = fakePuter();
+        let close;
+        sdk.auth.signIn.mockImplementation(() => new Promise((_resolve, reject) => {
+            close = reject;
+        }));
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        part(el, '.sign-in').click();
+        part(el, '.sign-in').click();
+        expect(sdk.auth.signIn).toHaveBeenCalledTimes(1);
+
+        close({ error: 'auth_window_closed' });
+        await settle();
+        part(el, '.sign-in').click();
+        expect(sdk.auth.signIn).toHaveBeenCalledTimes(2);
+    });
+
+    it('lets a cross-origin isolated page start another sign-in, since it cannot see the popup close', async () => {
+        vi.stubGlobal('crossOriginIsolated', true);
+        const sdk = fakePuter();
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        part(el, '.sign-in').click();
+        part(el, '.sign-in').click();
+        expect(sdk.auth.signIn).toHaveBeenCalledTimes(2);
+    });
+
     it('shows the signed-in user and names them to the app browser', async () => {
         vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
         const el = await mount();
