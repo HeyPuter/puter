@@ -226,6 +226,8 @@ export const setupPublishDomain = (dialog, { onChange }) => {
     let claim_for = null;
     /** @type {CustomDomain | null} */
     let shown = null;
+    /** Whether the site is published, so the domain is all that's left. */
+    let live = false;
 
     const typed = () => normalizeHostnameInput($input.val());
     const owned_named = (hostname) => owned.find((domain) => domain.hostname === hostname);
@@ -236,7 +238,7 @@ export const setupPublishDomain = (dialog, { onChange }) => {
         const existing = owned_named(typed());
         $hint.text(existing
             ? t('publish_custom_domain_moves', [`${existing.site}.${window.hosting_domain}`])
-            : [t('publish_custom_domain_dns_hint'), price && t('custom_domain_price_note', [price])].filter(Boolean).join(' '));
+            : [! live && t('publish_custom_domain_dns_hint'), price && t('custom_domain_price_note', [price])].filter(Boolean).join(' '));
     };
 
     const sync = () => {
@@ -371,6 +373,10 @@ export const setupPublishDomain = (dialog, { onChange }) => {
             return hostname;
         },
         async attach (hostname, site) {
+            if ( ! live ) {
+                live = true;
+                update_hint();
+            }
             const existing = owned_named(hostname);
             const failed = (reason, field) => {
                 dialog.setStatus(`${t('publish_domain_failed', [site.url])}\n${reason}`, field ? { field } : undefined);

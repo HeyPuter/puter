@@ -350,6 +350,8 @@ describe('publish website on a custom domain', () => {
         expect(domainField().attr('aria-invalid')).toBe('true');
         expect(nameField().prop('readOnly')).toBe(true);
         expect(submitLabel()).toBe('custom_domain_add');
+        // Published now, so the hint no longer speaks of "after publishing".
+        expect($('.dashboard-form-field[data-field="domain"] .dashboard-form-hint').text()).toBe('custom_domain_price_note');
 
         domainField().val('www.example.org');
         await submitWith();
