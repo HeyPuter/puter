@@ -27,15 +27,7 @@ import { HttpError, isHttpError } from '../HttpError';
 import { isLocalWorkerHost } from './localWorkerProxy';
 
 /** Native-app subdomains served via `nativeAppStatic`. */
-const NATIVE_APP_SUBDOMAINS = [
-    'about',
-    'developer',
-    'docs',
-    'editor',
-    'markus',
-    'pdf',
-    'apps',
-] as const;
+const NATIVE_APP_SUBDOMAINS = ['about', 'developer', 'docs', 'apps'] as const;
 
 /** Subset served out of a `dist/` subdirectory rather than the app root. */
 const NATIVE_APPS_WITH_DIST = new Set(['docs', 'developer']);
