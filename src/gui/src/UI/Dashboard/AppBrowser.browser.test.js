@@ -494,6 +494,31 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('closes the account menu when Tab leaves it', async () => {
+            const context = await menuContext('app-token-session-user');
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.evaluate(() => document.body.insertAdjacentHTML('beforeend', '<button id="after">After</button>'));
+                const menu = page.locator('puter-user-menu .menu');
+                await page.locator('puter-user-menu .avatar').click();
+                await menu.waitFor();
+                await page.keyboard.press('Tab');
+                await menu.waitFor({ state: 'hidden' });
+                expect(await page.evaluate(() => document.activeElement.id)).toBe('after');
+
+                await page.locator('puter-user-menu .avatar').click();
+                await menu.waitFor();
+                await page.keyboard.press('Shift+Tab');
+                await menu.waitFor({ state: 'hidden' });
+                expect(await page.evaluate(() => document.activeElement.shadowRoot?.activeElement?.className)).toBe('apps-button');
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
         it('names the user an app signs in as after loading', async () => {
             const context = await menuContext(null);
             try {

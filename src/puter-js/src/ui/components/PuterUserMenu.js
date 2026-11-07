@@ -473,9 +473,15 @@ class PuterUserMenu extends PuterWebComponent {
         this.$('.sign-out').addEventListener('click', () => this._signOut());
         this.$('.apps-close').addEventListener('click', () => this._closePanels({ returnFocus: true }));
         this.shadowRoot.addEventListener('keydown', (event) => {
-            if ( event.key !== 'Escape' || !this._openPanel() ) return;
-            event.preventDefault();
-            this._closePanels({ returnFocus: true });
+            const open = this._openPanel();
+            if ( ! open ) return;
+            if ( event.key === 'Escape' ) {
+                event.preventDefault();
+                this._closePanels({ returnFocus: true });
+            } else if ( event.key === 'Tab' && open.classList.contains('menu') ) {
+                // Tab leaves the menu: it closes, and focus moves on from its button.
+                this._closePanels({ returnFocus: true });
+            }
         });
     }
 
