@@ -67,8 +67,9 @@ export const showFeedbackEmbed = ({ guiOrigin, userUuid }) => new Promise((resol
     // The embed allows a framing page it can name from the referrer.
     frame.setAttribute('referrerpolicy', 'origin');
     // A frame whose color-scheme differs from its document's is painted
-    // opaque; the embed declares none.
-    frame.style.cssText = 'display:block;width:100%;height:100%;border:0;background:transparent;color-scheme:normal;';
+    // opaque, so this matches the embed's. WebKit also gives the frame this
+    // scheme as its preferred one, so it has to follow the OS.
+    frame.style.cssText = 'display:block;width:100%;height:100%;border:0;background:transparent;color-scheme:light dark;';
     dialog.append(style, frame);
 
     let settled = false;

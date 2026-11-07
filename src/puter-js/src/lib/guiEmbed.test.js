@@ -50,6 +50,8 @@ describe('showFeedbackEmbed', () => {
         expect(url.search).toBe('');
         expect(new URLSearchParams(url.hash.slice(1)).get('user')).toBe(USER);
         expect(frame().getAttribute('referrerpolicy')).toBe('origin');
+        // WebKit hands the frame this as its preferred scheme; it must follow the OS.
+        expect(frame().getAttribute('style')).toContain('color-scheme: light dark');
         expect(frame().closest('dialog').open).toBe(false);
     });
 

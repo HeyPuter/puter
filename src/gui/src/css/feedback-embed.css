@@ -12,4 +12,6 @@ body {
 /* A scroll over the scrim must not scroll the framing page behind it. */
 html {
     overscroll-behavior: none;
+    /* Matches the frame's, so it stays transparent and follows the OS theme. */
+    color-scheme: light dark;
 }

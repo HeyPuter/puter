@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inflateSync } from 'node:zlib';
 
 let browser;
 let server;
@@ -74,7 +75,7 @@ beforeAll(async () => {
             });
         </script>
         <iframe referrerpolicy="origin" title="Send feedback" src="${origin}/embed/feedback#user=${req.query.user ?? ''}"
-            style="display:block;border:0;width:100vw;height:100vh;color-scheme:normal"></iframe>
+            style="display:block;border:0;width:100vw;height:100vh;color-scheme:light dark"></iframe>
         <div style="height:3000px"></div>
     </body></html>`));
     app.get('/embed/feedback', (_req, res) => {
@@ -102,12 +103,25 @@ afterAll(async () => {
 });
 
 /** A browser whose GUI origin is signed in with `token`, if any. */
-const signedIn = token => browser.newContext({ storageState: {
+const signedIn = (token, options = {}) => browser.newContext({ ...options, storageState: {
     cookies: [],
     origins: token ? [{ origin, localStorage: [{ name: 'auth_token_v2', value: token }] }] : [],
 } });
 
 const received = page => page.evaluate(() => window.received);
+
+/** The [r, g, b] of one pixel of the page, from a screenshot. */
+const pixel = async (page, x, y) => {
+    const png = await page.screenshot({ clip: { x, y, width: 1, height: 1 }, animations: 'disabled' });
+    const data = [];
+    for ( let at = 8; at < png.length; ) {
+        const length = png.readUInt32BE(at);
+        if ( png.toString('ascii', at + 4, at + 8) === 'IDAT' ) data.push(png.subarray(at + 8, at + 8 + length));
+        at += 12 + length;
+    }
+    // One pixel: a filter byte, then its channels unchanged.
+    return [...inflateSync(Buffer.concat(data)).subarray(1, 4)];
+};
 
 describe('feedback embed', () => {
     it('sends feedback for the framing page as the user it names, then tells it', async () => {
@@ -157,6 +171,26 @@ describe('feedback embed', () => {
             await frame.locator('.app-feedback-message').press('Escape');
             await page.waitForFunction(() => window.received.some(m => m.msg === 'feedbackDialogClosed'));
             expect((await received(page)).at(-1)).toEqual({ msg: 'feedbackDialogClosed', sent: false });
+        } finally {
+            await context.close();
+        }
+    }, 30000);
+
+    it.each(['light', 'dark'])('lets the page show through under the scrim in %s mode', async (colorScheme) => {
+        const context = await signedIn(sessionToken, { colorScheme });
+        try {
+            const page = await context.newPage();
+            page.setDefaultTimeout(6000);
+            await page.goto(`${hostOrigin}/host?user=${sessionUser}`);
+            const frame = page.frameLocator('iframe');
+            await frame.locator('.app-feedback-form').waitFor();
+            expect(await frame.locator('body').evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches))
+                .toBe(colorScheme === 'dark');
+            await page.waitForTimeout(300);
+            // The red page, dimmed by the scrim, rather than an opaque frame.
+            const [red, green, blue] = await pixel(page, 10, 10);
+            expect(red).toBeGreaterThan(green + 40);
+            expect(green).toBe(blue);
         } finally {
             await context.close();
         }
