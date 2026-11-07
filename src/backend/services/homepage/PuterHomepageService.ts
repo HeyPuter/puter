@@ -171,15 +171,50 @@ export class PuterHomepageService extends PuterService {
     renderAppBrowserEmbed({
         guestApps = [],
     }: { guestApps?: Array<Record<string, unknown>> } = {}): string {
-        const configJson = JSON.stringify({
-            apiOrigin: this.config.api_base_url,
-            sdkUrl:
-                this.config.env === 'dev'
-                    ? '/sdk/puter.dev.js'
-                    : (this.config.gui_puterjs_bundle ??
-                      'https://js.puter.com/v2/'),
-            guestApps,
-        }).replace(/</g, '\\u003c');
+        return this.#renderEmbed({
+            rootId: 'app-browser',
+            rootClass: 'dashboard',
+            stylesheet: 'apps-embed.css',
+            script: 'apps-embed.min.js',
+            config: {
+                apiOrigin: this.config.api_base_url,
+                sdkUrl:
+                    this.config.env === 'dev'
+                        ? '/sdk/puter.dev.js'
+                        : (this.config.gui_puterjs_bundle ??
+                          'https://js.puter.com/v2/'),
+                guestApps,
+            },
+        });
+    }
+
+    /**
+     * `hostOrigin` is the first-party page framing the dialog, which the
+     * feedback is sent for; null when no allowed page frames it.
+     */
+    renderFeedbackEmbed({ hostOrigin }: { hostOrigin: string | null }): string {
+        return this.#renderEmbed({
+            rootId: 'feedback-embed',
+            stylesheet: 'feedback-embed.css',
+            script: 'feedback-embed.min.js',
+            config: { apiOrigin: this.config.api_base_url, hostOrigin },
+        });
+    }
+
+    #renderEmbed({
+        rootId,
+        rootClass,
+        stylesheet,
+        script,
+        config,
+    }: {
+        rootId: string;
+        rootClass?: string;
+        stylesheet: string;
+        script: string;
+        config: Record<string, unknown>;
+    }): string {
+        const configJson = JSON.stringify(config).replace(/</g, '\\u003c');
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -190,27 +225,27 @@ export class PuterHomepageService extends PuterService {
     <title>${encode(String(this.config.gui_params?.title ?? 'Puter'))}</title>
     <link rel="stylesheet" href="/css/normalize.css">
     <link rel="stylesheet" href="/css/dashboard.css">
-    <link rel="stylesheet" href="/css/apps-embed.css">
+    <link rel="stylesheet" href="/css/${stylesheet}">
 </head>
 <body>
-    <main id="app-browser" class="dashboard"></main>
-    <script type="application/json" id="app-browser-config">${configJson}</script>
-    <script defer src="${encode(this.#appBrowserEmbedScript())}"></script>
+    <main id="${rootId}"${rootClass ? ` class="${rootClass}"` : ''}></main>
+    <script type="application/json" id="${rootId}-config">${configJson}</script>
+    <script defer src="${encode(this.#embedScript(script))}"></script>
 </body>
 </html>`;
     }
 
     /**
-     * The embed's script is built beside the GUI bundle, so it is served from
+     * Embed scripts are built beside the GUI bundle, so they are served from
      * wherever `gui_bundle` is (a CDN in production), with the same query.
      */
-    #appBrowserEmbedScript(): string {
+    #embedScript(name: string): string {
         const base = 'http://relative.invalid';
         const bundle = new URL(
             this.config.gui_bundle ?? '/dist/bundle.min.js',
             base,
         );
-        const script = new URL('apps-embed.min.js', bundle);
+        const script = new URL(name, bundle);
         script.search = bundle.search;
         return script.origin === base
             ? `${script.pathname}${script.search}`

@@ -19,6 +19,7 @@
 
 import PuterWebComponent from '../PuterWebComponent.js';
 import { defaultFontFamily } from '../PuterDefaultStyles.js';
+import { canFrameGuiEmbed } from '../../lib/guiEmbed.js';
 
 const APPS_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">${
     [5, 12, 19].flatMap(y => [5, 12, 19].map(x => `<circle cx="${x}" cy="${y}" r="2"/>`)).join('')
@@ -36,30 +37,6 @@ const LABELS = {
 // Gap between a panel and the viewport edge, and between its caret and corners.
 const EDGE = 8;
 const CARET_INSET = 20;
-
-/**
- * Whether a page at `pageUrl` may frame the app browser served by
- * `guiOrigin`: exactly one label under its host, on the same scheme and port.
- *
- * @param {string | undefined} pageUrl
- * @param {string} guiOrigin
- * @returns {boolean}
- */
-export const canFrameAppBrowser = (pageUrl, guiOrigin) => {
-    let page;
-    let gui;
-    try {
-        page = new URL(pageUrl);
-        gui = new URL(guiOrigin);
-    } catch {
-        return false;
-    }
-    const host = page.hostname.replace(/\.$/, '').toLowerCase();
-    const suffix = `.${gui.hostname.toLowerCase()}`;
-    if ( page.protocol !== gui.protocol || page.port !== gui.port || !host.endsWith(suffix) ) return false;
-    const label = host.slice(0, -suffix.length);
-    return label.length > 0 && !label.includes('.');
-};
 
 class PuterUserMenu extends PuterWebComponent {
     static get observedAttributes () {
@@ -133,7 +110,7 @@ class PuterUserMenu extends PuterWebComponent {
     }
 
     _appsAllowed () {
-        return canFrameAppBrowser(globalThis.location?.href, globalThis.puter.defaultGUIOrigin);
+        return canFrameGuiEmbed(globalThis.location?.href, globalThis.puter.defaultGUIOrigin);
     }
 
     /** A temporary account has nothing to sign out of, so it gets Sign in. */

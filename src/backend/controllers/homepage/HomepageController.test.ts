@@ -27,7 +27,7 @@ import type { Actor } from '../../core/actor.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
-import { embedFrameAncestors } from './HomepageController.js';
+import { embedFrameAncestors, embedHostOrigin } from './HomepageController.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -548,5 +548,28 @@ describe('embedFrameAncestors', () => {
         expect(
             embedFrameAncestors(config, 'https://backend.example.test/x'),
         ).toBe("'self'");
+    });
+});
+
+describe('embedHostOrigin', () => {
+    const config = {
+        origin: 'https://example.test',
+        domain: 'example.test',
+        api_base_url: 'https://backend.example.test',
+        static_hosting_domain: 'site.example.test',
+    };
+
+    it.each([
+        ['https://sheets.example.test/doc/1', 'https://sheets.example.test'],
+        ['https://backend.example.test/x', null],
+        ['https://api.example.test/', null],
+        ['https://someone.site.example.test/', null],
+        ['https://a.sheets.example.test/', null],
+        ['http://sheets.example.test/', null],
+        ['https://example.test/', null],
+        ['not a url', null],
+        [undefined, null],
+    ])('%s frames as %s', (referer, expected) => {
+        expect(embedHostOrigin(config, referer)).toBe(expected);
     });
 });

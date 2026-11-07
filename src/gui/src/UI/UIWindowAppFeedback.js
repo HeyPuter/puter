@@ -54,7 +54,8 @@ async function UIWindowAppFeedback (options) {
         let sending = false;
         let closed = false;
 
-        const authToken = puter.authToken ?? window.auth_token;
+        // The feedback embed runs without puter.js.
+        const authToken = globalThis.puter?.authToken ?? window.auth_token;
         const target_params = options.app
             ? { app: options.app }
             : { origin: options.origin };

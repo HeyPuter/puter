@@ -25,7 +25,7 @@ import { appTileLink } from './UI/Dashboard/appLink.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import { guestAppLaunchUrl, launchAppInTab } from './helpers/appTabLaunch.js';
 import { embedHostTheme, forceColorScheme } from './helpers/embedHostTheme.js';
-import { embedHostUser } from './helpers/embedHostUser.js';
+import { embedSession } from './helpers/embedSession.js';
 
 window.$ = window.jQuery = jQuery;
 window.html_encode = value => encode(String(value ?? ''), { mode: 'nonAsciiPrintable' });
@@ -105,55 +105,11 @@ function launchTile ({ appName, targetLink }) {
 }
 
 /**
- * The GUI session, from local storage or else the session cookie. Safari keys a
- * frame's local storage by the top-level origin, so under a sibling subdomain
- * the GUI's stored token is out of reach while its cookie is still sent.
- */
-async function readSession () {
-    let stored = null;
-    try {
-        stored = localStorage.getItem('auth_token_v2');
-    } catch { /* Storage the browser refuses holds no session; the cookie may. */ }
-    if ( stored ) return stored;
-    const response = await fetch('/get-gui-token', { credentials: 'include' });
-    // Only a 401 means there is no session; a rate limit or server error
-    // must not pass a signed-in user off as signed out.
-    if ( response.status === 401 ) return null;
-    if ( ! response.ok ) throw new Error(`Session lookup responded ${response.status}`);
-    return (await response.json())?.token || null;
-}
-
-/**
- * The uuid of the user a GUI token belongs to, or null when the API refuses it.
- */
-async function sessionUser (token) {
-    const response = await fetch(new URL('/whoami', config.apiOrigin), {
-        headers: { Authorization: `Bearer ${token}` },
-    });
-    if ( response.status === 401 ) return null;
-    if ( ! response.ok ) throw new Error(`Session check responded ${response.status}`);
-    const uuid = (await response.json())?.uuid;
-    return typeof uuid === 'string' ? uuid.toLowerCase() : null;
-}
-
-/**
- * The GUI session, only when it belongs to the user the host page names. A
- * host signed out, or signed in as someone else, gets the signed-out view.
- */
-async function hostSession () {
-    const hostUser = embedHostUser(window.location.hash);
-    if ( ! hostUser ) return null;
-    const token = await readSession();
-    if ( ! token ) return null;
-    return await sessionUser(token) === hostUser ? token : null;
-}
-
-/**
  * Signed in, the user's own apps through the SDK. Without a session, the
  * recommended apps the page was rendered with, and no SDK.
  */
 async function mount () {
-    window.auth_token = await hostSession();
+    window.auth_token = (await embedSession(config.apiOrigin, window.location.hash))?.token ?? null;
     const guestApps = window.auth_token ? undefined : config.guestApps;
     if ( !window.auth_token && !guestApps?.length ) throw new Error('No apps to show without a session');
 

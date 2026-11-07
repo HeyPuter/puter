@@ -124,7 +124,7 @@ localization system.
 </script>
 ```
 
-## Implementation and checks
+## Implementation
 
 `createAppBrowser` in `src/gui/src/UI/Dashboard/AppBrowser.js` owns the shared UI
 and data behavior; its `guestApps` option is the signed-out list. `TabApps.js`
@@ -134,14 +134,38 @@ injects desktop actions. `appsEmbed.js` supplies new-tab launching through
 `launch_app`, and loads only the embed entry, its SDK, and shared styles. `embedHostUser` in
 `src/gui/src/helpers/embedHostUser.js` reads the host's user from the fragment, and
 `embedHostTheme.js` beside it applies the host's theme.
-The normal GUI webpack build emits `bundle.min.js` and `apps-embed.min.js`.
+The normal GUI webpack build emits `bundle.min.js`, `apps-embed.min.js`, and `feedback-embed.min.js`.
 The `/embed/apps` route puts the recommended list in the page's config as
 `guestApps`. No puter.js API or app-list endpoint changes are needed.
+
+## Feedback dialog
+
+`GET /embed/feedback` is the app feedback dialog (`puter.ui.showFeedbackDialog()`)
+for a first-party page, with the same framing rules, query redirect, and
+host-user binding as `/embed/apps`. It sends the feedback for the framing
+page's origin, which the server reads from the referrer and pins with
+`frame-ancestors`; opened top-level, it does nothing. Its page is transparent
+so the dialog's own scrim covers the host.
+
+puter.js uses it on a page one label under the GUI origin when the page is
+signed in, framing it in a modal `<dialog>` that stays hidden until the embed
+is ready. The embed posts `{ msg: 'feedbackEmbed', state }` to its parent
+(`loading`, then `ready` or `unavailable`) and finally
+`{ msg: 'feedbackDialogClosed', sent }`. It reports `unavailable` without the
+named user's session, or while that user's email still needs confirming, and
+puter.js then uses the `/action/send-feedback` popup, which can sign in. So does
+a frame that never answers, such as one the host's CSP blocks. `feedbackEmbed.js`
+is the entry, sharing `embedSession` in `src/gui/src/helpers/embedSession.js`
+with the app browser; `showFeedbackEmbed` in `src/puter-js/src/lib/guiEmbed.js`
+is the host side.
+
+## Checks
 
 Run the GUI component/browser tests (with the SDK bundle built and Playwright
 Chromium installed), and the backend route tests:
 
 ```sh
-npx vitest run --config src/gui/vitest.config.js src/gui/src/UI/Dashboard/AppBrowser
+npx vitest run --config src/gui/vitest.config.js src/gui/src/UI/Dashboard/AppBrowser src/feedbackEmbed
+npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js
 npx vitest run --config src/backend/vitest.config.ts src/backend/server.test.ts
 ```
