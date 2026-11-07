@@ -165,10 +165,12 @@ export const publishDomainFields = () => [
 
 /**
  * @typedef {object} PublishDomain
- * @property {() => boolean} wanted Whether the switch is on and shown.
- * @property {() => string | null | false} prepare Before publishing: null
- *   when no domain is wanted, false when the form can't go ahead (the dialog
- *   says why), else the hostname to add.
+ * @property {() => boolean} addable Whether the switch is on and the plan
+ *   lets a domain be added.
+ * @property {(live: boolean) => string | null | false} prepare Before each
+ *   submit: null when no domain is to be added (including when the site is
+ *   `live` and the plan can't add one), false when the form can't go ahead
+ *   (the dialog says why), else the hostname to add.
  * @property {(hostname: string, site: { name: string, url: string }) => Promise<CustomDomain | null>} attach
  *   Adds the hostname to the live site, or moves it there when it's already
  *   on the account. Null when it didn't; the dialog says why.
@@ -228,6 +230,7 @@ export const setupPublishDomain = (dialog, { onChange }) => {
     const typed = () => normalizeHostnameInput($input.val());
     const owned_named = (hostname) => owned.find((domain) => domain.hostname === hostname);
     const wanted = () => available && $switch.prop('checked');
+    const addable = () => wanted() && can_add;
 
     const update_hint = () => {
         const existing = owned_named(typed());
@@ -271,7 +274,7 @@ export const setupPublishDomain = (dialog, { onChange }) => {
     // doesn't: a second Space meant for the switch would open the upgrade.
     $switch.on('change', () => {
         sync();
-        if ( wanted() && can_add ) $input.get(0)?.focus({ preventScroll: true });
+        if ( addable() ) $input.get(0)?.focus({ preventScroll: true });
     });
     $input.on('input', () => {
         $claim.prop('hidden', true);
@@ -287,7 +290,7 @@ export const setupPublishDomain = (dialog, { onChange }) => {
         }
         const had = can_add;
         await load();
-        if ( ! had && can_add && wanted() ) $input.get(0)?.focus({ preventScroll: true });
+        if ( ! had && addable() ) $input.get(0)?.focus({ preventScroll: true });
     };
     window.addEventListener('puter:subscription:changed', on_plan_change);
     $dialog.on('click', '.dashboard-publish-upgrade', () => open_upgrade_flow());
@@ -352,9 +355,9 @@ export const setupPublishDomain = (dialog, { onChange }) => {
     });
 
     return {
-        wanted,
-        prepare () {
-            if ( ! wanted() ) return null;
+        addable,
+        prepare (live) {
+            if ( ! wanted() || (live && ! can_add) ) return null;
             if ( ! can_add ) {
                 dialog.setStatus(t(upgradable ? 'publish_custom_domain_needs_plan' : 'custom_domain_error_plan'));
                 return false;
@@ -407,6 +410,6 @@ export const setupPublishDomain = (dialog, { onChange }) => {
             shown = domain;
             return `<section class="dashboard-publish-domain">${domainSummaryHtml(domain)}</section>`;
         },
-        claiming: () => wanted() && can_add && claim_for !== null && claim_for === typed(),
+        claiming: () => addable() && claim_for !== null && claim_for === typed(),
     };
 };

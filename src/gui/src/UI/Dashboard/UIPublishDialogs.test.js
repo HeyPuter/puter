@@ -487,6 +487,24 @@ describe('publish website on a custom domain', () => {
             await submitWith('my-site');
             expect(status()).toBe('custom_domain_error_plan');
         });
+
+        it('finishes with the live site when adding the domain turns out to need a plan', async () => {
+            serveDomains({ routes: { 'POST ': () => json(402, { code: 'subscription_required' }) } });
+            await openWebsite();
+            turnOnDomain();
+            domainField().val('www.example.com');
+            await submitWith('my-site');
+
+            expect(status()).toBe('publish_domain_failed\ncustom_domain_error_plan');
+            expect($('.dashboard-publish-upsell').prop('hidden')).toBe(false);
+            expect(submitLabel()).toBe('done');
+
+            await submitWith();
+            expect(puter.hosting.create).toHaveBeenCalledTimes(1);
+            expect(requests('POST')).toHaveLength(1);
+            expect($('.dashboard-form-done p').text()).toBe('website_published');
+            expect($('.dashboard-publish-domain')).toHaveLength(0);
+        });
     });
 });
 

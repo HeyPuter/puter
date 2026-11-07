@@ -150,7 +150,7 @@ const open_publish_dialog = async (kind_name, { name, path, ...opts }) => {
         fields,
         async onSubmit () {
             const values = dialog.values();
-            const hostname = extra?.prepare() ?? null;
+            const hostname = extra?.prepare(!! published) ?? null;
             if ( hostname === false ) return;
             if ( ! published ) {
                 const subdomain = finalizePublishName(values.name, kind.rule);
@@ -188,7 +188,7 @@ const open_publish_dialog = async (kind_name, { name, path, ...opts }) => {
         let key = 'publish';
         if ( published ) {
             if ( extra?.claiming() ) key = 'custom_domain_verify_and_add';
-            else key = extra?.wanted() ? 'custom_domain_add' : 'done';
+            else key = extra?.addable() ? 'custom_domain_add' : 'done';
         }
         dialog.$dialog.find('.dashboard-form-submit-label').text(t(key));
     };
