@@ -373,7 +373,7 @@ describe('PuterServer host header validation', () => {
         ['a private app host', 'http://someone.app.puter.localhost:PORT/'],
         ['the API host', 'http://api.puter.localhost:PORT/'],
         ['the WebDAV host', 'http://dav.puter.localhost:PORT/'],
-        ['a native app host', 'http://editor.puter.localhost:PORT/'],
+        ['a native app host', 'http://about.puter.localhost:PORT/'],
         ['a nested subdomain', 'http://a.spreadsheet.puter.localhost:PORT/'],
         ['another site', 'http://evil.test:PORT/'],
         ['another port', 'http://spreadsheet.puter.localhost:1/'],
