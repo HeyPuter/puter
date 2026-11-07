@@ -84,7 +84,8 @@ export function pushAccountPickerScreen (flow) {
     const accounts = Array.isArray(window.logged_in_users) ? window.logged_in_users : [];
 
     let h = '<div class="dashboard-dialog-body auth-body">';
-    h += authHeadHtml(flow, i18n('sign_in_with_puter', [], false));
+    // Everyone here has signed in to Puter before; no need to explain it.
+    h += authHeadHtml(flow, i18n('sign_in_with_puter', [], false), { openerNotice: false });
     h += `<ul class="auth-accounts" aria-label="${i18n('sign_in_with_puter')}">`;
     h += accounts.map(accountRowHtml).join('');
     h += '</ul>';

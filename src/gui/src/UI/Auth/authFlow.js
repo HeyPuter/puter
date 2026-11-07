@@ -387,9 +387,12 @@ export const joinAuthFlow = () => {
  *
  * @param {AuthFlow} flow
  * @param {string} title Plain text.
+ * @param {{ openerNotice?: boolean }} [opts] `openerNotice: false` leaves out
+ *   the line explaining that the site uses Puter, for screens shown to someone
+ *   who already has an account here.
  * @returns {string}
  */
-export const authHeadHtml = (flow, title) => {
+export const authHeadHtml = (flow, title, { openerNotice = true } = {}) => {
     const opener = window.embedded_in_popup && isAttestedOrigin(window.openerOrigin) ? window.openerOrigin : '';
     let h = '<div class="auth-head">';
     h += authLogoHeader({
@@ -399,7 +402,7 @@ export const authHeadHtml = (flow, title) => {
         openerFallbackSrc: window.icons['website.svg'],
     });
     h += `<h1 class="auth-title">${html_encode(title)}</h1>`;
-    if ( opener ) {
+    if ( opener && openerNotice ) {
         h += `<p class="auth-opener-notice">${i18n('popup_opener_uses_puter', [new URL(opener).hostname])}</p>`;
     }
     h += '</div>';
