@@ -8,7 +8,7 @@ Opens a dialog where the user can send you, the app's developer, feedback about 
 
 The message is delivered by Puter: it is stored and emailed to the email address on your Puter account. The feedback never passes through your app's code, and the dialog tells the user what is shared with you: their username, plus their email address (as the email's reply-to, so you can respond) when their email is verified.
 
-Inside Puter, the dialog is rendered by the desktop environment. On a website, a puter.com popup hosts the dialog (signing the user in first if needed).
+Inside Puter, the dialog is rendered by the desktop environment. On a website, a puter.com popup hosts the dialog (signing the user in first if needed). Puter's own apps on puter.com subdomains show it in a frame over the page instead, when the user is signed in to both.
 
 **Feedback is opt-in.** Users can only send feedback if it's enabled for your app. Apps created in the Dev Center have feedback enabled at creation — you can turn it off with the "User Feedback" toggle in the app's settings. Apps created through `puter.apps.create` default to off; enable it by setting `feedbackEnabled`:
 

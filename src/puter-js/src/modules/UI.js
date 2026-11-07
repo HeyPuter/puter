@@ -2,6 +2,7 @@ import EventListener from '../lib/EventListener.js';
 import { PuterJSError } from '../lib/PuterJSError.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
+import { canFrameGuiEmbed, showFeedbackEmbed } from '../lib/guiEmbed.js';
 import { checkPermissions } from './perms/lib/holds.js';
 
 
@@ -527,6 +528,9 @@ export class UIModule extends EventListener {
     // Read once at load: an app's router may rewrite the URL afterwards.
     #guiFeatures = new URLSearchParams(globalThis.location?.search ?? '')
         .get('puter.gui_features')?.split(',') ?? [];
+
+    // Set while the framed feedback dialog is open on a first-party page.
+    #feedbackEmbedOpen = false;
 
     // Holds the callback functions for the various events
     // that are triggered when a watched item has changed.
@@ -2249,9 +2253,12 @@ export class UIModule extends EventListener {
      * have opted in by setting `feedbackEnabled` on the app — otherwise the
      * dialog tells the user feedback is unavailable.
      *
-     * In the `app` environment the Puter desktop renders the dialog; in the
-     * `web` environment a puter.com popup hosts it (signing the user in first
-     * if needed). Every other environment resolves `false`.
+     * In the `app` environment the Puter desktop renders the dialog. In the
+     * `web` environment a first-party page one label under the Puter origin
+     * shows it in a frame over the page when the user's Puter session is the
+     * one the page is signed in as; otherwise a puter.com popup hosts it
+     * (signing the user in first if needed). Every other environment
+     * resolves `false`.
      *
      * @returns {Promise<boolean>} `true` when the user submitted feedback,
      *   `false` when the dialog was dismissed or feedback is unavailable.
@@ -2276,6 +2283,10 @@ export class UIModule extends EventListener {
         if ( this.env !== 'web' ) {
             return false;
         }
+        const embedded = await this.#showFeedbackEmbed();
+        if ( embedded ) {
+            return embedded.sent;
+        }
         // The app's identity is deliberately NOT in the popup URL: the GUI
         // derives it from the browser-attested opener origin, so a link
         // can't open a feedback dialog in another app's name.
@@ -2286,6 +2297,29 @@ export class UIModule extends EventListener {
         });
         return result?.sent === true;
     };
+
+    /**
+     * The framed feedback dialog for a first-party page that is signed in, or
+     * null when the popup has to host it. One at a time: a call while one is
+     * open resolves `{ sent: false }`, as the desktop does.
+     *
+     * @returns {Promise<{ sent: boolean } | null>}
+     */
+    async #showFeedbackEmbed () {
+        if ( ! globalThis.document?.body ) return null;
+        if ( ! canFrameGuiEmbed(globalThis.location?.href, puter.defaultGUIOrigin) ) return null;
+        if ( ! puter.auth?.isSignedIn?.() ) return null;
+        if ( this.#feedbackEmbedOpen ) return { sent: false };
+        this.#feedbackEmbedOpen = true;
+        try {
+            const known = await Promise.resolve(puter.whoami ?? puter.whoamiCache_).catch(() => null);
+            const user = known?.uuid ? known : await puter.auth.getUser().catch(() => null);
+            if ( typeof user?.uuid !== 'string' || ! user.uuid ) return null;
+            return await showFeedbackEmbed({ guiOrigin: puter.defaultGUIOrigin, userUuid: user.uuid });
+        } finally {
+            this.#feedbackEmbedOpen = false;
+        }
+    }
 
     /**
      * Opens `/action/<action>` on the GUI origin in a popup and waits for

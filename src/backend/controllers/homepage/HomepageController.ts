@@ -61,32 +61,34 @@ export function appMetaDescription(text: string): string {
     return `${cut.replace(/[\s,;:.!?…—-]+$/, '')}…`;
 }
 
+type EmbedFramingConfig = Pick<
+    IConfig,
+    | 'origin'
+    | 'domain'
+    | 'api_base_url'
+    | 'static_hosting_domain'
+    | 'static_hosting_domain_alt'
+    | 'private_app_hosting_domain'
+    | 'private_app_hosting_domain_alt'
+>;
+
 /**
- * `frame-ancestors` for the app browser embed. A wildcard over `*.<domain>`
+ * The origin of a first-party page that may frame an `/embed/*` page, named
+ * exactly from the request's referrer, or null. A wildcard over `*.<domain>`
  * would also admit user-hosted sites whenever the hosting domains sit under it,
- * so the embedding page is named exactly, from the request's referrer. Only a
- * single label under `<domain>` qualifies, and not one this server answers
- * itself (the API, WebDAV, SDK and native-app hosts).
+ * so only a single label under `<domain>` qualifies, and not one this server
+ * answers itself (the API, WebDAV, SDK and native-app hosts).
  */
-export function embedFrameAncestors(
-    config: Pick<
-        IConfig,
-        | 'origin'
-        | 'domain'
-        | 'api_base_url'
-        | 'static_hosting_domain'
-        | 'static_hosting_domain_alt'
-        | 'private_app_hosting_domain'
-        | 'private_app_hosting_domain_alt'
-    >,
+export function embedHostOrigin(
+    config: EmbedFramingConfig,
     referer: string | undefined,
-): string {
+): string | null {
     const gui = new URL(config.origin ?? `https://${config.domain}`);
     let parent: URL;
     try {
         parent = new URL(referer ?? '');
     } catch {
-        return "'self'";
+        return null;
     }
     const host = parent.hostname.toLowerCase();
     const label = subdomainLabelOf(host, config.domain);
@@ -105,7 +107,16 @@ export function embedFrameAncestors(
         !isReservedSubdomain(label) &&
         host !== new URL(config.api_base_url).hostname &&
         !hostingDomains.some((d) => host === d || host.endsWith(`.${d}`));
-    return allowed ? `'self' ${parent.origin}` : "'self'";
+    return allowed ? parent.origin : null;
+}
+
+/** `frame-ancestors` for an `/embed/*` page: the GUI and {@link embedHostOrigin}. */
+export function embedFrameAncestors(
+    config: EmbedFramingConfig,
+    referer: string | undefined,
+): string {
+    const host = embedHostOrigin(config, referer);
+    return host ? `'self' ${host}` : "'self'";
 }
 
 /**
@@ -157,12 +168,20 @@ export class HomepageController extends PuterController {
 
         router.get('/', {}, (req, res) => sendShell(req, res));
 
-        router.get('/embed/apps', {}, async (req, res) => {
-            // SDK bootstrap parameters must not change this page's account or API origin.
-            // Checked on the raw URL; `req.query` drops pairs past the parser's limit.
+        /**
+         * Headers shared by the `/embed/*` pages; false when the request was
+         * redirected instead. SDK bootstrap parameters must not change an
+         * embed's account or API origin, so a query string is dropped. Checked
+         * on the raw URL; `req.query` drops pairs past the parser's limit.
+         */
+        const prepareEmbed = (
+            req: express.Request,
+            res: express.Response,
+            path: string,
+        ): boolean => {
             if (req.originalUrl.includes('?')) {
-                res.redirect('/embed/apps');
-                return;
+                res.redirect(path);
+                return false;
             }
             res.removeHeader('X-Frame-Options');
             res.setHeader(
@@ -170,12 +189,31 @@ export class HomepageController extends PuterController {
                 `frame-ancestors ${embedFrameAncestors(this.config, req.get('referer'))}`,
             );
             res.setHeader('Cache-Control', 'no-store');
+            return true;
+        };
+
+        router.get('/embed/apps', {}, async (req, res) => {
+            if (!prepareEmbed(req, res, '/embed/apps')) return;
             // Shown to visitors without a session; a signed-in embed fetches
             // its own list, so a failure here only costs signed-out visitors.
             const guestApps = await this.services.recommendedApps
                 .getRecommendedApps()
                 .catch((): Array<Record<string, unknown>> => []);
             res.send(homepage.renderAppBrowserEmbed({ guestApps }));
+        });
+
+        router.get('/embed/feedback', {}, (req, res) => {
+            if (!prepareEmbed(req, res, '/embed/feedback')) return;
+            // The feedback is recorded against this origin, which
+            // frame-ancestors has just pinned to the actual framing page.
+            res.send(
+                homepage.renderFeedbackEmbed({
+                    hostOrigin: embedHostOrigin(
+                        this.config,
+                        req.get('referer'),
+                    ),
+                }),
+            );
         });
 
         router.get('/settings', {}, (req, res) => sendShell(req, res));

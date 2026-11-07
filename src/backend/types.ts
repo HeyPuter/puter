@@ -1102,8 +1102,9 @@ interface IConfigOptional {
     /** Force the bundled GUI even in dev. Default: false. */
     use_bundled_gui: boolean;
     /**
-     * Override the GUI bundle JS path. Default: `/dist/bundle.min.js`. The app
-     * browser embed loads `apps-embed.min.js` from the same directory.
+     * Override the GUI bundle JS path. Default: `/dist/bundle.min.js`. The
+     * `/embed/*` pages load `apps-embed.min.js` and `feedback-embed.min.js`
+     * from the same directory.
      */
     gui_bundle: string;
     /** Override the GUI CSS path when bundled. Default: `/dist/bundle.min.css`. */

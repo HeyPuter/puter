@@ -107,6 +107,31 @@ describe('app browser embed shell', () => {
     });
 });
 
+describe('feedback embed shell', () => {
+    it('carries the framing page and API origin, and loads only its own script', () => {
+        const html = makeService({
+            api_base_url: 'https://api.deployment.test',
+            gui_bundle: '/static/bundle.min.js?v=42',
+        }).renderFeedbackEmbed({ hostOrigin: 'https://notes.deployment.test' });
+        const configJson = html.match(/id="feedback-embed-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson)).toEqual({
+            apiOrigin: 'https://api.deployment.test',
+            hostOrigin: 'https://notes.deployment.test',
+        });
+        expect(html).toContain('<script defer src="/static/feedback-embed.min.js?v=42"></script>');
+        expect(html).toContain('<link rel="stylesheet" href="/css/feedback-embed.css">');
+        expect(html).toContain('<main id="feedback-embed"></main>');
+        expect(html).not.toContain('bundle.min.js');
+        expect(html).not.toContain('apps-embed');
+    });
+
+    it('carries no framing page when none is allowed', () => {
+        const html = makeService({}).renderFeedbackEmbed({ hostOrigin: null });
+        const configJson = html.match(/id="feedback-embed-config">(.*?)<\/script>/)![1];
+        expect(JSON.parse(configJson).hostOrigin).toBeNull();
+    });
+});
+
 /** Capture what the service sends, and return the rendered HTML. */
 const render = async (
     service: PuterHomepageService,

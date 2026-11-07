@@ -368,6 +368,46 @@ describe('PuterServer host header validation', () => {
         expect(api.status).toBe(404);
     });
 
+    it('lets a deployment subdomain frame the feedback embed and names it', async () => {
+        const parent = `http://spreadsheet.puter.localhost:${port}`;
+        const res = await request('/embed/feedback', {
+            host: `puter.localhost:${port}`,
+            referer: `${parent}/sheet/1`,
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBeUndefined();
+        expect(res.headers['content-security-policy']).toBe(
+            `frame-ancestors 'self' ${parent}`,
+        );
+        expect(res.headers['cache-control']).toBe('no-store');
+        expect(res.body).toContain('/dist/feedback-embed.min.js');
+        expect(res.body).not.toContain('/dist/bundle.min.js');
+        const config = JSON.parse(
+            res.body.match(/id="feedback-embed-config">(.*?)<\/script>/)[1],
+        );
+        expect(config).toEqual({
+            apiOrigin: `http://api.puter.localhost:${port}`,
+            hostOrigin: parent,
+        });
+
+        const hosted = await request('/embed/feedback', {
+            host: `puter.localhost:${port}`,
+            referer: `http://someone.site.puter.localhost:${port}/`,
+        });
+        expect(hosted.headers['content-security-policy']).toBe("frame-ancestors 'self'");
+        expect(
+            JSON.parse(
+                hosted.body.match(/id="feedback-embed-config">(.*?)<\/script>/)[1],
+            ).hostOrigin,
+        ).toBeNull();
+
+        const redirected = await request('/embed/feedback?puter.api_origin=https://other.test', {
+            host: `puter.localhost:${port}`,
+        });
+        expect(redirected.status).toBe(302);
+        expect(redirected.headers.location).toBe('/embed/feedback');
+    });
+
     it.each([
         ['a user-hosted site', 'http://someone.site.puter.localhost:PORT/'],
         ['a private app host', 'http://someone.app.puter.localhost:PORT/'],

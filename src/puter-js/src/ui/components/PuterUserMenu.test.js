@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // @vitest-environment-options {"url": "https://notes.puter.com/sheet"}
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import PuterUserMenu, { canFrameAppBrowser } from './PuterUserMenu.js';
+import PuterUserMenu from './PuterUserMenu.js';
 
 const USER = { username: 'jelveh', uuid: '0b1c9a52-3f0e-4c7a-9a65-2f6d1e8b7c40' };
 const OTHER = { username: 'sam', uuid: '7d2e4f10-8a3b-4c5d-9e6f-0a1b2c3d4e5f' };
@@ -74,24 +74,6 @@ afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
-});
-
-describe('canFrameAppBrowser', () => {
-    it.each([
-        ['https://notes.puter.com/a', 'https://puter.com', true],
-        ['https://NOTES.puter.com./a', 'https://puter.com', true],
-        ['http://notes.puter.localhost:4100/', 'http://puter.localhost:4100', true],
-        ['https://puter.com/', 'https://puter.com', false],
-        ['https://a.b.puter.com/', 'https://puter.com', false],
-        ['https://notputer.com/', 'https://puter.com', false],
-        ['https://notes.puter.com.evil.com/', 'https://puter.com', false],
-        ['http://notes.puter.com/', 'https://puter.com', false],
-        ['https://notes.puter.com:8443/', 'https://puter.com', false],
-        ['https://notes.puter.site/', 'https://puter.com', false],
-        [undefined, 'https://puter.com', false],
-    ])('%s under %s is %s', (page, gui, expected) => {
-        expect(canFrameAppBrowser(page, gui)).toBe(expected);
-    });
 });
 
 describe('<puter-user-menu>', () => {

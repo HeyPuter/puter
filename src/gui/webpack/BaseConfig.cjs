@@ -93,6 +93,7 @@ module.exports = async (options = {}) => {
             ...entries,
         ],
         'apps-embed': './src/appsEmbed.js',
+        'feedback-embed': './src/feedbackEmbed.js',
     };
     config.output = {
         path: path.resolve(__dirname, '../dist'),
