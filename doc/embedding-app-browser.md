@@ -14,6 +14,9 @@ to its normal sign-in. Apps that need the desktop (built-in and godmode apps,
 private apps the user can't open, or a failed token request) open `/app/<name>`
 on the GUI origin, cut off from the embed. Website shortcuts open their external
 destination with no opener.
+The embed follows the OS's light or dark setting. A host with a fixed theme adds
+`theme=dark` or `theme=light` to the fragment (`#user=<uuid>&theme=dark`), since
+Chromium doesn't pass an iframe's `color-scheme` on to the page inside it.
 Apps opened from the embed carry `utm_source=puter.com&utm_medium=referral&utm_campaign=app_browser_embed`;
 the desktop and dashboard send `utm_campaign=desktop` and `utm_campaign=dashboard`.
 
@@ -129,7 +132,8 @@ injects desktop actions. `appsEmbed.js` supplies new-tab launching through
 `launchAppInTab` (signed in) and `guestAppLaunchUrl` (signed out) in
 `src/gui/src/helpers/appTabLaunch.js`, which build the same app URL as
 `launch_app`, and loads only the embed entry, its SDK, and shared styles. `embedHostUser` in
-`src/gui/src/helpers/embedHostUser.js` reads the host's user from the fragment.
+`src/gui/src/helpers/embedHostUser.js` reads the host's user from the fragment, and
+`embedHostTheme.js` beside it applies the host's theme.
 The normal GUI webpack build emits `bundle.min.js` and `apps-embed.min.js`.
 The `/embed/apps` route puts the recommended list in the page's config as
 `guestApps`. No puter.js API or app-list endpoint changes are needed.

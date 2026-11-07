@@ -537,6 +537,31 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('shows the app browser in a theme the page forces', async () => {
+            const context = await menuContext('app-token-session-user');
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.emulateMedia({ colorScheme: 'light' });
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                const menu = page.locator('puter-user-menu');
+                await menu.evaluate(el => el.setAttribute('theme', 'dark'));
+                await page.locator('puter-user-menu .apps-button').click();
+                const frame = page.frameLocator('puter-user-menu iframe');
+                await frame.locator('[data-app-name="app-104"]').waitFor();
+                const background = () => frame.locator('body').evaluate(body => getComputedStyle(body).backgroundColor);
+                expect(await background()).toBe('rgb(30, 30, 30)');
+
+                await menu.evaluate(el => el.setAttribute('theme', 'light'));
+                await expect.poll(background).toBe('rgb(255, 255, 255)');
+                await frame.locator('[data-app-name="app-104"]').waitFor();
+                expect(await page.locator('puter-user-menu .apps-panel').isVisible()).toBe(true);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
         it('names the user an app signs in as after loading', async () => {
             const context = await menuContext(null);
             try {

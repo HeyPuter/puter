@@ -24,6 +24,7 @@ import { createAppBrowser } from './UI/Dashboard/AppBrowser.js';
 import { appTileLink } from './UI/Dashboard/appLink.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import { guestAppLaunchUrl, launchAppInTab } from './helpers/appTabLaunch.js';
+import { embedHostTheme, forceColorScheme } from './helpers/embedHostTheme.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
 
 window.$ = window.jQuery = jQuery;
@@ -46,8 +47,10 @@ try {
     window.locale = JSON.parse(localStorage.getItem('user_preferences') || '{}')?.language || 'en';
 } catch { /* Corrupt preferences must not prevent loading apps. */ }
 const localeReady = loadLocale(window.locale);
-// The host names its user in the fragment, which can change without a reload.
+// The host names its user and theme in the fragment, which can change without a reload.
 window.addEventListener('hashchange', () => window.location.reload());
+const hostTheme = embedHostTheme(window.location.hash);
+if ( hostTheme ) forceColorScheme(document, hostTheme);
 // Apps whose launch is still fetching; a second click would open a second tab.
 const launching = new Set();
 

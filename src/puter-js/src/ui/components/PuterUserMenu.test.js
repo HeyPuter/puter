@@ -294,17 +294,42 @@ describe('<puter-user-menu>', () => {
         part(el, '.apps-button').click();
         expect(frameOf(el).style.colorScheme).toBe('light');
 
+        expect(frameOf(el).src).toBe(`https://puter.com/embed/apps#user=${USER.uuid}`);
+
+        // The forced theme is in the URL, since not every browser passes `color-scheme` on.
         el.setAttribute('theme', 'dark');
         await settle();
         expect(el.classList.contains('puter-theme-dark')).toBe(true);
         expect(frameOf(el).style.colorScheme).toBe('dark');
+        expect(frameOf(el).src).toBe(`https://puter.com/embed/apps#user=${USER.uuid}&theme=dark`);
+        expect(appsOpen(el)).toBe(true);
+        expect(part(el, '.apps-body').classList.contains('is-loading')).toBe(true);
     });
 
     it('opens a new app browser in the forced theme', async () => {
-        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
-        const el = await mount({ theme: 'dark' });
+        vi.stubGlobal('puter', fakePuter());
+        const el = await mount({ theme: 'light' });
         part(el, '.apps-button').click();
-        expect(frameOf(el).style.colorScheme).toBe('dark');
+        expect(frameOf(el).style.colorScheme).toBe('light');
+        expect(frameOf(el).src).toBe('https://puter.com/embed/apps#theme=light');
+    });
+
+    it('keeps a closed app browser until the theme changes, then loads it in the new theme', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount({ theme: 'light' });
+        part(el, '.apps-button').click();
+        const frame = frameOf(el);
+        part(el, '.apps-close').click();
+        el.setAttribute('theme', 'light');
+        await settle();
+        expect(frameOf(el)).toBe(frame);
+
+        el.setAttribute('theme', 'dark');
+        await settle();
+        expect(frameOf(el)).toBeNull();
+        expect(appsOpen(el)).toBe(false);
+        part(el, '.apps-button').click();
+        expect(frameOf(el).src).toBe(`https://puter.com/embed/apps#user=${USER.uuid}&theme=dark`);
     });
 
     it('exposes parts for the host to style', async () => {

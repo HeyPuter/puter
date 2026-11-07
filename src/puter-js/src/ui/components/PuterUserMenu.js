@@ -103,12 +103,22 @@ class PuterUserMenu extends PuterWebComponent {
     _applyTheme () {
         super._applyTheme();
         const frame = this.shadowRoot?.querySelector('.apps-body iframe');
-        if ( frame ) frame.style.colorScheme = this._colorScheme();
+        if ( ! frame ) return;
+        frame.style.colorScheme = this._colorScheme();
+        // A forced theme is part of the app browser's URL, so a new one reloads it.
+        if ( frame.src === this._appsUrl() ) return;
+        this._dropApps();
+        if ( ! this.$('.apps-panel').hidden ) this._mountApps();
     }
 
-    /** The embed styles itself from `prefers-color-scheme`, which follows its frame's `color-scheme`. */
     _colorScheme () {
         return this.classList.contains('puter-theme-dark') ? 'dark' : 'light';
+    }
+
+    /** The `theme` attribute's scheme, or null when the component follows the OS. */
+    _forcedTheme () {
+        const theme = this.getAttribute('theme');
+        return theme === 'dark' || theme === 'light' ? theme : null;
     }
 
     _label (name) {
@@ -613,26 +623,36 @@ class PuterUserMenu extends PuterWebComponent {
 
     _openApps () {
         if ( ! this.#ready ) return;
-        const body = this.$('.apps-body');
-        if ( ! body.querySelector('iframe') ) {
-            const url = new URL('/embed/apps', globalThis.puter.defaultGUIOrigin);
-            // The app browser shows the Puter session only to the user named here.
-            const uuid = this._signedIn() && this.#token === globalThis.puter.authToken ? this.#user?.uuid : null;
-            if ( typeof uuid === 'string' && uuid ) url.hash = `user=${encodeURIComponent(uuid)}`;
-
-            const frame = document.createElement('iframe');
-            frame.title = this._label('apps-label');
-            // The app browser allows a framing page it can name from the referrer.
-            frame.setAttribute('referrerpolicy', 'origin');
-            frame.style.colorScheme = this._colorScheme();
-            body.classList.add('is-loading');
-            frame.addEventListener('load', () => body.classList.remove('is-loading'), { once: true });
-            frame.src = url.href;
-            body.append(frame);
-        }
+        if ( ! this.$('.apps-body iframe') ) this._mountApps();
         const panel = this.$('.apps-panel');
         this._showPanel(panel);
         panel.focus({ preventScroll: true });
+    }
+
+    /** The app browser for the signed-in user, in the forced theme if any. */
+    _appsUrl () {
+        const url = new URL('/embed/apps', globalThis.puter.defaultGUIOrigin);
+        const hash = new URLSearchParams();
+        // The app browser shows the Puter session only to the user named here.
+        const uuid = this._signedIn() && this.#token === globalThis.puter.authToken ? this.#user?.uuid : null;
+        if ( typeof uuid === 'string' && uuid ) hash.set('user', uuid);
+        const theme = this._forcedTheme();
+        if ( theme ) hash.set('theme', theme);
+        url.hash = hash.toString();
+        return url.href;
+    }
+
+    _mountApps () {
+        const body = this.$('.apps-body');
+        const frame = document.createElement('iframe');
+        frame.title = this._label('apps-label');
+        // The app browser allows a framing page it can name from the referrer.
+        frame.setAttribute('referrerpolicy', 'origin');
+        frame.style.colorScheme = this._colorScheme();
+        body.classList.add('is-loading');
+        frame.addEventListener('load', () => body.classList.remove('is-loading'), { once: true });
+        frame.src = this._appsUrl();
+        body.append(frame);
     }
 
     /** Discards the app browser, so the next open loads it for whoever is signed in then. */
