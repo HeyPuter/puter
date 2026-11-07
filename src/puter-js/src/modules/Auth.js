@@ -182,9 +182,8 @@ export class AuthModule extends PuterModule {
 
     /**
      * Whether this page can show the sign-in framed: a first-party page one
-     * label under the GUI origin. A temporary account is only offered in the
-     * popup, which sees whether this browser has visited Puter before; a
-     * framed page's storage may be keyed to the framing page instead.
+     * label under the GUI origin. Only the popup creates a temporary
+     * account, so a sign-in that asks for one keeps it.
      */
     #canSignInInFrame (options) {
         return !options.attempt_temp_user_creation &&

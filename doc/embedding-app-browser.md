@@ -181,9 +181,10 @@ answers (`puter.token`, `fileOpenPicked`, `directoryPicked`, `fileSaved`, the
 cancel messages, `sendMeFileData`) are the popup's.
 
 puter.js uses them on a page one label under the GUI origin, other than the
-subdomains the server refuses, unless the page is cross-origin isolated. `showPopupFrame` in `src/puter-js/src/lib/guiEmbed.js`
-shows the frame in a box the size of the popup window, over a scrim, hidden
-until `ready` and behind the loading spinner after 200ms. On screens up to
+subdomains the server refuses, unless the page is cross-origin isolated.
+`showPopupFrame` in `src/puter-js/src/lib/guiEmbed.js` shows the frame in a box
+the size of the popup window, over a scrim, hidden until `ready` and behind the
+loading spinner after 200ms. On screens up to
 600px wide the box fills the screen. A frame that is refused, never answers, or
 reports `unavailable` falls back to the popup, opened through a consent dialog
 when the click that asked for it has expired. A reload or navigation the frame
@@ -195,9 +196,8 @@ the frame again, once per `ready`.
   page gets a user. The box has a close button, which rejects with
   `auth_window_closed` as closing the popup does. Choosing a federated provider
   reports `unavailable`, since providers refuse to be framed, so the sign-in
-  continues in the popup. `attempt_temp_user_creation` keeps the popup, which
-  can tell whether this browser has visited Puter before; Safari keys a framed
-  page's storage to the framing page.
+  continues in the popup. `attempt_temp_user_creation` keeps the popup, since
+  only the popup creates a temporary account.
 - **Pickers** frame only for a signed-in page. The GUI reports `unavailable`
   unless its session belongs to the user named in `user`, and the page then uses
   the popup, which can sign in and switch accounts. The token the GUI sends
