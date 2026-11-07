@@ -307,9 +307,16 @@ export const setupPublishDomain = (dialog, { onChange }) => {
             ?? $dialog.find('.dashboard-form-done-btn').get(0);
         el?.focus({ preventScroll: true });
     };
-    /** Runs a done-screen request with `$btn` busy; resolves with the response, or null. */
+    const DONE_ACTIONS = '.dashboard-publish-domain-check, .dashboard-publish-domain-www';
+    let done_busy = false;
+    /**
+     * Runs a done-screen request with `$btn` busy and the other actions held,
+     * since each answer redraws the domain; resolves with the response, or null.
+     */
     const done_request = async ($btn, method, path) => {
-        $btn.prop('disabled', true).addClass('dashboard-form-busy').attr('aria-busy', 'true');
+        done_busy = true;
+        $dialog.find(DONE_ACTIONS).prop('disabled', true);
+        $btn.addClass('dashboard-form-busy').attr('aria-busy', 'true');
         set_done_status('');
         try {
             const res = await customDomainsRequest(method, path);
@@ -318,12 +325,14 @@ export const setupPublishDomain = (dialog, { onChange }) => {
         } catch {
             set_done_status(i18n('custom_domain_error_generic'), true);
         } finally {
-            $btn.prop('disabled', false).removeClass('dashboard-form-busy').removeAttr('aria-busy');
+            done_busy = false;
+            $dialog.find(DONE_ACTIONS).prop('disabled', false);
+            $btn.removeClass('dashboard-form-busy').removeAttr('aria-busy');
         }
         return null;
     };
     $dialog.on('click', '.dashboard-publish-domain-check', async function () {
-        if ( ! shown ) return;
+        if ( ! shown || done_busy ) return;
         const res = await done_request($(this), 'GET', `/${encodeURIComponent(shown.uuid)}`);
         if ( ! res ) return;
         shown = mergeCustomDomainRefresh(shown, res.data);
@@ -335,7 +344,7 @@ export const setupPublishDomain = (dialog, { onChange }) => {
     });
     // Same domain, so the month already paid covers the www hostname.
     $dialog.on('click', '.dashboard-publish-domain-www', async function () {
-        if ( ! shown ) return;
+        if ( ! shown || done_busy ) return;
         const res = await done_request($(this), 'POST', `/${encodeURIComponent(shown.uuid)}/use-www`);
         if ( ! res ) return;
         shown = res.data;

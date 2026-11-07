@@ -280,6 +280,34 @@ describe('publish website on a custom domain', () => {
         expect($('.dashboard-publish-domain-check')).toHaveLength(0);
     });
 
+    it('runs one domain action at a time on the done screen', async () => {
+        let answer_check;
+        serveDomains({
+            routes: {
+                'POST ': () => json(201, pendingDomain({ hostname: 'example.com', isApex: true })),
+                'GET /d1': () => new Promise((resolve) => {
+                    answer_check = () => resolve(json(200, pendingDomain({ hostname: 'example.com', isApex: true })));
+                }),
+                'POST /d1/use-www': () => json(200, pendingDomain({ redirectFrom: 'example.com' })),
+            },
+        });
+        await openWebsite();
+        turnOnDomain();
+        domainField().val('example.com');
+        await submitWith('my-site');
+
+        $('.dashboard-publish-domain-check').trigger('click');
+        await flush();
+        expect($('.dashboard-publish-domain-www').prop('disabled')).toBe(true);
+        $('.dashboard-publish-domain-www').trigger('click');
+        await flush();
+        expect(requests('POST').map((r) => r.path)).not.toContain('/d1/use-www');
+
+        answer_check();
+        await flush();
+        expect($('.dashboard-publish-domain-www').prop('disabled')).toBe(false);
+    });
+
     it('stops before publishing when the domain is not one', async () => {
         serveDomains();
         await openWebsite();
