@@ -318,6 +318,17 @@ describe('showPopupFrame', () => {
         expect(dialog.isConnected).toBe(true);
     });
 
+    it('closes on Escape outside the frame once ready, as Escape inside it does', async () => {
+        const result = show();
+        const dialog = popupFrame().closest('dialog');
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        const cancel = new Event('cancel', { cancelable: true });
+        dialog.dispatchEvent(cancel);
+        expect(cancel.defaultPrevented).toBe(true);
+        await expect(result).resolves.toBe('closed');
+        expect(dialog.isConnected).toBe(false);
+    });
+
     it('finishes as closed when the popup closes itself', async () => {
         const result = show();
         fromPopup({ msg: 'puterPopupFrame', state: 'ready' });

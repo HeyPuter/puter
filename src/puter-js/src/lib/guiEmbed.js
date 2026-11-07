@@ -90,12 +90,13 @@ export const canFrameGuiEmbed = (pageUrl, guiOrigin) => {
  * @param {{ width: number, height: number }} [opts.box] - shows the frame in a box this size over a scrim; without it the frame covers the page and the embed draws its own scrim
  * @param {string} [opts.closeLabel] - puts a close button on the box, which dismisses it
  * @param {string} [opts.allow] - the frame's permissions policy, for features the embed uses
+ * @param {boolean} [opts.escapeDismisses] - Escape on the page dismisses a ready embed too, instead of handing it the keys
  * @param {() => T} opts.dismissed - the result of a dismissal: Escape or a click on the loading scrim, or the close button
  * @param {(data: Record<string, unknown>, finish: (result: T | null) => void) => void} opts.onMessage - every other message from the embed
  * @param {(frame: Window) => void} [opts.onFrame] - the frame's window, once it exists
  * @returns {Promise<T | null>}
  */
-const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, box, closeLabel, allow, dismissed, onMessage, onFrame }) => new Promise((resolve) => {
+const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, box, closeLabel, allow, escapeDismisses = false, dismissed, onMessage, onFrame }) => new Promise((resolve) => {
     let origin;
     try {
         origin = new URL(guiOrigin).origin;
@@ -244,10 +245,11 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         }, LOAD_GRACE_MS);
     });
     // Once ready, Escape outside the frame would close the dialog with the
-    // embed's own dialog still open inside it; the embed owns dismissal.
+    // embed's own dialog still open inside it, so the embed owns dismissal
+    // unless it dismisses on Escape too.
     dialog.addEventListener('cancel', (event) => {
         event.preventDefault();
-        if ( ready ) frame.focus();
+        if ( ready && ! escapeDismisses ) frame.focus();
         else finish(dismissed());
     });
     loading.addEventListener('click', () => {
@@ -336,6 +338,8 @@ export const showPopupFrame = ({ guiOrigin, action, fragment, title, closeLabel,
     closeLabel,
     // Signup and the account checks fill in a texted code, as in the popup.
     allow: 'otp-credentials',
+    // Escape inside the frame closes it as well.
+    escapeDismisses: true,
     dismissed: closed,
     onFrame,
     onMessage: (data, finish) => {
