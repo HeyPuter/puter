@@ -89,12 +89,13 @@ export const canFrameGuiEmbed = (pageUrl, guiOrigin) => {
  * @param {string} opts.stateMsg - `msg` of the embed's loading, ready and unavailable messages
  * @param {{ width: number, height: number }} [opts.box] - shows the frame in a box this size over a scrim; without it the frame covers the page and the embed draws its own scrim
  * @param {string} [opts.closeLabel] - puts a close button on the box, which dismisses it
+ * @param {string} [opts.allow] - the frame's permissions policy, for features the embed uses
  * @param {() => T} opts.dismissed - the result of a dismissal: Escape or a click on the loading scrim, or the close button
  * @param {(data: Record<string, unknown>, finish: (result: T | null) => void) => void} opts.onMessage - every other message from the embed
  * @param {(frame: Window) => void} [opts.onFrame] - the frame's window, once it exists
  * @returns {Promise<T | null>}
  */
-const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, box, closeLabel, dismissed, onMessage, onFrame }) => new Promise((resolve) => {
+const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, box, closeLabel, allow, dismissed, onMessage, onFrame }) => new Promise((resolve) => {
     let origin;
     try {
         origin = new URL(guiOrigin).origin;
@@ -115,6 +116,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     frame.title = title;
     // The embed allows a framing page it can name from the referrer.
     frame.setAttribute('referrerpolicy', 'origin');
+    if ( allow ) frame.setAttribute('allow', allow);
     // A frame whose color-scheme differs from its document's is painted
     // opaque, so this matches the embed's. WebKit also gives the frame this
     // scheme as its preferred one, so it has to follow the OS.
@@ -332,6 +334,8 @@ export const showPopupFrame = ({ guiOrigin, action, fragment, title, closeLabel,
     stateMsg: 'puterPopupFrame',
     box: POPUP_FRAME_BOXES[action],
     closeLabel,
+    // Signup and the account checks fill in a texted code, as in the popup.
+    allow: 'otp-credentials',
     dismissed: closed,
     onFrame,
     onMessage: (data, finish) => {
