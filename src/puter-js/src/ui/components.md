@@ -340,7 +340,12 @@ el.open();
 The account button and Puter's app browser for a first-party app on a Puter subdomain (`notes.puter.com`). It is internal and left out of the public docs, because the app browser only works one subdomain under the Puter origin. It follows the page's own puter.js sign-in, never the Puter session's.
 
 - Signed out, it shows **Sign in**, which calls `puter.auth.signIn()`. A temporary account counts as signed out.
-- Signed in, it shows the user's profile picture, or the username's initial when there is none. Clicking it opens a menu with the username and **Sign out**, which calls `puter.auth.signOut()`.
+- Signed in, it shows the user's profile picture, or the username's initial when there is none. Clicking it opens a menu with:
+  - The user's picture, username and email. The email line is hidden when whoami leaves it out, such as for an app that can't read it.
+  - **Manage account**, **Usage** and **Open Puter**, links that open the GUI origin's `/dashboard/#account`, `/dashboard/#usage` and `/` in a new tab.
+  - **Send feedback**, which calls `puter.ui.showFeedbackDialog()`.
+  - **Sign out**, which calls `puter.auth.signOut()`.
+- The menu opens with focus on its first item. ArrowUp and ArrowDown move between items and wrap around, and Home and End jump to the first and last.
 - On a page exactly one label under the Puter origin, with the same scheme and port, an **Apps** button opens the app browser (`/embed/apps`) in a panel under the button. It names the signed-in user as `#user=<uuid>`, so the app browser shows the Puter session's apps only to that user (see `doc/embedding-app-browser.md`), and passes a forced `theme` on as `theme=`. Elsewhere the button is hidden, because the server refuses the framing.
 - The menu and the Apps panel hang under their button with a caret pointing at it, and close on Escape, a press outside them, or their button. They're in the browser's top layer where it has one, so a host's `transform`, `overflow` or `z-index` can't clip or cover them. On screens up to 600px wide, the Apps panel spans the width below the button.
 - Closing the Apps panel keeps the app browser, so reopening it keeps its scroll and search. Any change to the page's sign-in discards it, so it never stays loaded for the previous user.
@@ -355,6 +360,10 @@ The account button and Puter's app browser for a first-party app on a Puter subd
 | `sign-out-label` | `Sign out` | Sign-out menu item text |
 | `close-label` | `Close` | The Apps panel's close button label |
 | `account-label` | `Account` | Account button label, read as `Account: <username>` |
+| `manage-account-label` | `Manage account` | Menu link to the account settings |
+| `usage-label` | `Usage` | Menu link to the usage page |
+| `open-puter-label` | `Open Puter` | Menu link to Puter |
+| `feedback-label` | `Send feedback` | Menu item that opens the feedback dialog |
 | `theme` | follows the OS | `light` or `dark`, for the component and the app browser in it |
 
 Changing an attribute updates the component in place.

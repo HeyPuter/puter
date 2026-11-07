@@ -3,7 +3,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import PuterUserMenu from './PuterUserMenu.js';
 
-const USER = { username: 'jelveh', uuid: '0b1c9a52-3f0e-4c7a-9a65-2f6d1e8b7c40' };
+const USER = { username: 'jelveh', uuid: '0b1c9a52-3f0e-4c7a-9a65-2f6d1e8b7c40', email: 'jelveh@example.com' };
 const OTHER = { username: 'sam', uuid: '7d2e4f10-8a3b-4c5d-9e6f-0a1b2c3d4e5f' };
 const TEMP = { username: 'quiet_otter_42', uuid: '5c4b3a29-1807-4f6e-9d5c-4b3a29180716', is_temp: true };
 const PICTURE = 'data:image/png;base64,iVBORw0KGgo=';
@@ -23,6 +23,9 @@ const fakePuter = ({ token = null, user = null, picture = null } = {}) => {
         onAuthStateChanged: (listener) => {
             listeners.add(listener);
             return () => listeners.delete(listener);
+        },
+        ui: {
+            showFeedbackDialog: vi.fn(() => new Promise(() => {})),
         },
         auth: {
             getProfilePicture: vi.fn(async () => currentPicture),
@@ -164,13 +167,90 @@ describe('<puter-user-menu>', () => {
         part(el, '.avatar').click();
         expect(shown(el, '.menu')).toBe(true);
         expect(part(el, '.avatar').getAttribute('aria-expanded')).toBe('true');
-        expect(part(el, '.menu-user').textContent).toBe('jelveh');
+        expect(part(el, '.menu-username').textContent).toBe('jelveh');
+        expect(part(el, '.menu-email').textContent).toBe(USER.email);
+        expect(shown(el, '.menu-email')).toBe(true);
+        expect(part(el, '.menu-avatar').textContent).toBe('J');
 
         part(el, '.apps-button').click();
         expect(shown(el, '.menu')).toBe(false);
         expect(appsOpen(el)).toBe(true);
         expect(part(el, '.apps-button').getAttribute('aria-expanded')).toBe('true');
         expect(frameOf(el).src).toBe(`https://puter.com/embed/apps#user=${USER.uuid}`);
+    });
+
+    it('links to the account, its usage and Puter, each in a new tab', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount();
+        part(el, '.avatar').click();
+        expect(el.shadowRoot.activeElement).toBe(part(el, '.manage-account'));
+        const links = [...el.shadowRoot.querySelectorAll('.menu a.menu-item')].map(link => ({
+            label: link.textContent,
+            href: link.href,
+            target: link.target,
+            rel: link.rel,
+        }));
+        expect(links).toEqual([
+            { label: 'Manage account', href: 'https://puter.com/dashboard/#account', target: '_blank', rel: 'noopener' },
+            { label: 'Usage', href: 'https://puter.com/dashboard/#usage', target: '_blank', rel: 'noopener' },
+            { label: 'Open Puter', href: 'https://puter.com/', target: '_blank', rel: 'noopener' },
+        ]);
+
+        part(el, '.usage').dispatchEvent(new MouseEvent('click', { cancelable: true }));
+        expect(shown(el, '.menu')).toBe(false);
+    });
+
+    it('hides the email line when the account has none to show', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: OTHER }));
+        const el = await mount();
+        part(el, '.avatar').click();
+        expect(part(el, '.menu-username').textContent).toBe('sam');
+        expect(shown(el, '.menu-email')).toBe(false);
+    });
+
+    it('shows the profile picture in the menu header too', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER, picture: PICTURE }));
+        const el = await mount();
+        expect(part(el, '.menu-avatar img').getAttribute('src')).toBe(PICTURE);
+        expect(part(el, '.menu-avatar').textContent).toBe('J');
+    });
+
+    it('opens the feedback dialog from the menu', async () => {
+        const sdk = fakePuter({ token: 'app-token', user: USER });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        part(el, '.avatar').click();
+        part(el, '.feedback').click();
+        expect(sdk.ui.showFeedbackDialog).toHaveBeenCalledTimes(1);
+        expect(shown(el, '.menu')).toBe(false);
+    });
+
+    it('moves focus through the menu with the arrow, Home and End keys', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount();
+        part(el, '.avatar').click();
+        const press = (key) => {
+            const event = new KeyboardEvent('keydown', { key, bubbles: true, composed: true, cancelable: true });
+            el.shadowRoot.activeElement.dispatchEvent(event);
+            return event;
+        };
+        const focused = () => el.shadowRoot.activeElement.classList[1];
+
+        expect(focused()).toBe('manage-account');
+        expect(press('ArrowDown').defaultPrevented).toBe(true);
+        expect(focused()).toBe('usage');
+        press('End');
+        expect(focused()).toBe('sign-out');
+        press('ArrowDown');
+        expect(focused()).toBe('manage-account');
+        press('ArrowUp');
+        expect(focused()).toBe('sign-out');
+        press('ArrowUp');
+        expect(focused()).toBe('feedback');
+        press('Home');
+        expect(focused()).toBe('manage-account');
+        expect(press('a').defaultPrevented).toBe(false);
+        expect(shown(el, '.menu')).toBe(true);
     });
 
     it('hangs the panel under its button with the caret pointing at it', async () => {
@@ -381,12 +461,25 @@ describe('<puter-user-menu>', () => {
 
     it('uses label attributes, including ones changed later', async () => {
         vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
-        const el = await mount({ 'apps-label': 'Applis', 'sign-out-label': 'Déconnexion', 'account-label': 'Compte' });
+        const el = await mount({
+            'apps-label': 'Applis',
+            'sign-out-label': 'Déconnexion',
+            'account-label': 'Compte',
+            'manage-account-label': 'Gérer le compte',
+            'usage-label': 'Utilisation',
+            'open-puter-label': 'Ouvrir Puter',
+            'feedback-label': 'Envoyer un avis',
+        });
         expect(part(el, '.apps-button').getAttribute('aria-label')).toBe('Applis');
         expect(part(el, '.apps-title').textContent).toBe('Applis');
         expect(part(el, '.apps-panel').getAttribute('aria-label')).toBe('Applis');
         expect(part(el, '.sign-out').textContent).toBe('Déconnexion');
         expect(part(el, '.avatar').getAttribute('aria-label')).toBe('Compte: jelveh');
+        expect(part(el, '.manage-account').textContent).toBe('Gérer le compte');
+        expect(part(el, '.usage').textContent).toBe('Utilisation');
+        expect(part(el, '.open-puter').textContent).toBe('Ouvrir Puter');
+        expect(part(el, '.feedback').textContent).toBe('Envoyer un avis');
+        expect(part(el, '.manage-account .menu-external')).not.toBeNull();
 
         el.setAttribute('close-label', 'Fermer');
         el.setAttribute('sign-in-label', 'Connexion');
