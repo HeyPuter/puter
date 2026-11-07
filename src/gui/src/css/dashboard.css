@@ -10753,6 +10753,11 @@ body.dashboard-mode .notifications-close-all {
         flex-wrap: wrap;
     }
 
+    /* The text keeps to the icon's row; only the button takes its own. */
+    .dashboard-publish-upsell-text {
+        flex-basis: 0;
+    }
+
     .dashboard-publish-upsell .dashboard-dialog-btn {
         flex-basis: 100%;
     }
