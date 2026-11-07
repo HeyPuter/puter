@@ -29,6 +29,7 @@ const { activeAuthFlow } = await import('./authFlow.js');
 const { default: UIAuthSignup, signupRedirectUrl } = await import('./UIAuthSignup.js');
 const { default: UIAuthAccountPicker } = await import('./UIAuthAccountPicker.js');
 const { default: UIAuthRecoverPassword } = await import('./UIAuthRecoverPassword.js');
+const { default: UIAuthLogin } = await import('./UIAuthLogin.js');
 
 const providers = (body) => {
     globalThis.fetch = vi.fn(async () => reply(200, body));
@@ -110,11 +111,60 @@ describe('signup when only OIDC signups are open', () => {
         globalThis.fetch = vi.fn(() => new Promise((resolve) => {
             answer = resolve;
         }));
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
         void UIAuthSignup();
+        // A slow lookup gives up the wait and shows the form.
+        vi.advanceTimersByTime(1500);
+        vi.useRealTimers();
+        expect($('.signup-form').prop('hidden')).toBe(false);
         $('[name="username"]').val('started');
         answer(reply(200, { providers: ['google'] }));
         await vi.waitFor(() => expect($('.oidc-google-btn')).toHaveLength(1));
         expect($('.signup-form').prop('hidden')).toBe(false);
+    });
+});
+
+describe('signup while the providers are looked up', () => {
+    /** Lets promise callbacks run, but no timer, so nothing a paint could show in between. */
+    const settlePromises = async () => {
+        for ( let i = 0; i < 10; i++ ) await Promise.resolve();
+    };
+
+    it('keeps the email form hidden until the providers are known', async () => {
+        let answer;
+        globalThis.fetch = vi.fn(() => new Promise((resolve) => {
+            answer = resolve;
+        }));
+        void UIAuthSignup();
+        expect($('.signup-form').prop('hidden')).toBe(true);
+        answer(reply(200, { providers: ['google'] }));
+        await vi.waitFor(() => expect($('.oidc-google-btn')).toHaveLength(1));
+        expect($('.signup-form').prop('hidden')).toBe(true);
+        expect($('.signup-with-email-wrapper').prop('hidden')).toBe(false);
+    });
+
+    it('shows the email form when no providers are offered', async () => {
+        void UIAuthSignup();
+        await vi.waitFor(() => expect($('.signup-form').prop('hidden')).toBe(false));
+        expect($('.signup-with-email-wrapper').prop('hidden')).toBe(true);
+    });
+
+    it('shows a prefilled email form straight away', () => {
+        globalThis.fetch = vi.fn(() => new Promise(() => {}));
+        void UIAuthSignup({ email: 'someone@example.com' });
+        expect($('.signup-form').prop('hidden')).toBe(false);
+    });
+
+    it('reuses the login screen\'s lookup, drawing the providers before any paint', async () => {
+        providers({ providers: ['google'], signupOidcOnly: false });
+        void UIAuthLogin({ reload_on_success: false });
+        await vi.waitFor(() => expect(screen().find('.oidc-google-btn')).toHaveLength(1));
+        screen().find('.auth-to-signup').trigger('click');
+        await settlePromises();
+        expect(screen().attr('data-screen')).toBe('signup');
+        expect(screen().find('.oidc-google-btn')).toHaveLength(1);
+        expect(screen().find('.signup-with-email-wrapper').prop('hidden')).toBe(false);
+        expect(fetch).toHaveBeenCalledOnce();
     });
 });
 
