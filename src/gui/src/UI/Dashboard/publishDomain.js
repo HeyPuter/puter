@@ -279,7 +279,8 @@ export const setupPublishDomain = (dialog, { onChange }) => {
     // A claim's record shows only while its hostname is the one typed.
     $input.on('input', sync);
 
-    // Once an upgrade lands, the field unlocks where the prompt was.
+    // Once an upgrade lands, the field unlocks where the prompt was. The
+    // dialog is modal, so only its own prompt can change the plan meanwhile.
     const on_plan_change = async () => {
         if ( ! document.contains($dialog.get(0)) ) {
             window.removeEventListener('puter:subscription:changed', on_plan_change);
@@ -289,8 +290,10 @@ export const setupPublishDomain = (dialog, { onChange }) => {
         await load();
         if ( ! had && addable() ) $input.get(0)?.focus({ preventScroll: true });
     };
-    window.addEventListener('puter:subscription:changed', on_plan_change);
-    $dialog.on('click', '.dashboard-publish-upgrade', () => open_upgrade_flow());
+    $dialog.on('click', '.dashboard-publish-upgrade', () => {
+        if ( ! open_upgrade_flow() ) return;
+        window.addEventListener('puter:subscription:changed', on_plan_change);
+    });
 
     // -- Done screen --
 

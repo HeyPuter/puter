@@ -487,6 +487,7 @@ describe('publish website on a custom domain', () => {
             serveDomains({ list: () => ({ items: [], canAdd: can_add }) });
             await openWebsite();
             turnOnDomain();
+            $('.dashboard-publish-upgrade').trigger('click');
 
             can_add = true;
             window.dispatchEvent(new CustomEvent('puter:subscription:changed'));
@@ -495,6 +496,20 @@ describe('publish website on a custom domain', () => {
             expect(shown('domain')).toBe(true);
             expect($('.dashboard-publish-upsell').prop('hidden')).toBe(true);
             expect(document.activeElement).toBe(domainField().get(0));
+        });
+
+        it('only listens for a plan change once it has offered the upgrade', async () => {
+            serveDomains({ list: { items: [], canAdd: false } });
+            const listen = vi.spyOn(window, 'addEventListener');
+            try {
+                await openWebsite();
+                turnOnDomain();
+                expect(listen.mock.calls.map(([type]) => type)).not.toContain('puter:subscription:changed');
+                $('.dashboard-publish-upgrade').trigger('click');
+                expect(listen.mock.calls.map(([type]) => type)).toContain('puter:subscription:changed');
+            } finally {
+                listen.mockRestore();
+            }
         });
 
         it('explains the plan without a button where there is no upgrade flow', async () => {
