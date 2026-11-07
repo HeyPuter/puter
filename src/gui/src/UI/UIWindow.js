@@ -3446,6 +3446,10 @@ window.update_window_path = async function (el_window, target_path) {
     else if ( target_path !== '/' ) {
         try {
             puter.fs.stat({ path: target_path, consistency: 'eventual' }).then(fsentry => {
+                // the window may have moved on while this stat was in flight
+                if ( $(el_window).attr('data-path') !== html_encode(target_path) ) {
+                    return;
+                }
                 $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
                 $(el_window).addClass(`window-${ fsentry.id}`);
                 $(el_window).attr('data-uid', fsentry.id);
