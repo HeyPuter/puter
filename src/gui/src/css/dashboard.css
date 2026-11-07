@@ -10782,9 +10782,12 @@ body.dashboard-mode .notifications-close-all {
     gap: 10px;
 }
 
+/* One grid per card, so the label column fits the longest label and the
+   name and value line up. */
 .dashboard-dns-record {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(44px, max-content) minmax(0, 1fr);
+    align-items: center;
     gap: 8px;
     padding: 10px;
     border: 1px solid var(--dashboard-border);
@@ -10793,6 +10796,7 @@ body.dashboard-mode .notifications-close-all {
 }
 
 .dashboard-dns-record-head {
+    grid-column: 1 / -1;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -10814,10 +10818,7 @@ body.dashboard-mode .notifications-close-all {
 }
 
 .dashboard-dns-record-field {
-    display: grid;
-    grid-template-columns: 44px minmax(0, 1fr);
-    align-items: center;
-    gap: 8px;
+    display: contents;
 }
 
 .dashboard-dns-record-label {
