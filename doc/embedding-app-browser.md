@@ -165,7 +165,8 @@ is the host side.
 `GET /embed/sign-in`, `/embed/show-open-file-picker`, `/embed/show-save-file-picker`
 and `/embed/show-directory-picker` serve the same GUI popups as `/action/<action>`
 for a first-party page, with the same framing rules, query redirect, and
-`no-store` as `/embed/apps`. They render the normal GUI shell, which names the
+`no-store` as `/embed/apps`. Any other spelling of the path (another case, a
+trailing slash) redirects to it, since the shell boots the desktop for it. They render the normal GUI shell, which names the
 framing page (read from the referrer, pinned with `frame-ancestors`) as
 `gui_params.embed_host_origin`. The GUI then runs the popup boot unchanged, with
 the framing page as `window.opener`, and `window.close()` asks the page to

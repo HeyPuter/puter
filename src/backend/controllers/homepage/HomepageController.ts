@@ -234,6 +234,13 @@ export class HomepageController extends PuterController {
         for (const action of FRAMED_POPUP_ACTIONS) {
             const embedPath = `/embed/${action}`;
             router.get(embedPath, {}, async (req, res) => {
+                // Routes match case-insensitively and with a trailing slash,
+                // and the shell boots the desktop for any other spelling, so
+                // only the exact one may be framed.
+                if (req.originalUrl !== embedPath) {
+                    res.redirect(embedPath);
+                    return;
+                }
                 if (!prepareEmbed(req, res, embedPath)) return;
                 await sendShell(
                     req,

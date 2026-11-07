@@ -445,6 +445,20 @@ describe('PuterServer host header validation', () => {
         expect(redirected.headers['x-frame-options']).toBe('SAMEORIGIN');
     });
 
+    it.each(['/embed/SIGN-IN', '/embed/Show-Open-File-Picker', '/embed/sign-in/'])(
+        'lets a first-party page frame only the exact spelling of %s',
+        async (spelling) => {
+            const res = await request(spelling, {
+                host: `puter.localhost:${port}`,
+                referer: `http://spreadsheet.puter.localhost:${port}/`,
+            });
+            expect(res.status).toBe(302);
+            expect(res.headers.location).toBe(spelling.toLowerCase().replace(/\/$/, ''));
+            expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+            expect(res.headers['content-security-policy']).toBeUndefined();
+        },
+    );
+
     it('names no framing page to the popups it serves in a window', async () => {
         const res = await request('/action/sign-in?embedded_in_popup=true', {
             host: `puter.localhost:${port}`,
