@@ -74,7 +74,8 @@ beforeAll(async () => {
             });
         </script>
         <iframe referrerpolicy="origin" title="Send feedback" src="${origin}/embed/feedback#user=${req.query.user ?? ''}"
-            style="border:0;width:100vw;height:100vh;color-scheme:normal"></iframe>
+            style="display:block;border:0;width:100vw;height:100vh;color-scheme:normal"></iframe>
+        <div style="height:3000px"></div>
     </body></html>`));
     app.get('/embed/feedback', (_req, res) => {
         res.setHeader('Content-Security-Policy', `frame-ancestors 'self' ${hostOrigin}`);
@@ -156,6 +157,22 @@ describe('feedback embed', () => {
             await frame.locator('.app-feedback-message').press('Escape');
             await page.waitForFunction(() => window.received.some(m => m.msg === 'feedbackDialogClosed'));
             expect((await received(page)).at(-1)).toEqual({ msg: 'feedbackDialogClosed', sent: false });
+        } finally {
+            await context.close();
+        }
+    }, 30000);
+
+    it('keeps the page behind from scrolling under the scrim', async () => {
+        const context = await signedIn(sessionToken);
+        try {
+            const page = await context.newPage();
+            page.setDefaultTimeout(6000);
+            await page.goto(`${hostOrigin}/host?user=${sessionUser}`);
+            await page.frameLocator('iframe').locator('.app-feedback-form').waitFor();
+            await page.mouse.move(10, 10);
+            await page.mouse.wheel(0, 600);
+            await page.waitForTimeout(300);
+            expect(await page.evaluate(() => window.scrollY)).toBe(0);
         } finally {
             await context.close();
         }

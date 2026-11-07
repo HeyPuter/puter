@@ -8,3 +8,8 @@ body {
     background: transparent;
     font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
+
+/* A scroll over the scrim must not scroll the framing page behind it. */
+html {
+    overscroll-behavior: none;
+}
