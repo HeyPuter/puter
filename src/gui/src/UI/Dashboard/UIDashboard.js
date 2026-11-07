@@ -24,10 +24,10 @@ import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIAuthLogin from '../Auth/UIAuthLogin.js';
-import UIWindowFeedback from '../UIWindowFeedback.js';
 import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
 import { clear_shared_param } from '../../helpers/parseSharedPath.js';
 import UIDashboardNotifications from './UIDashboardNotifications.js';
+import UIDashboardContactDialog from './UIDashboardContactDialog.js';
 import {
     answerNotificationReceipts,
     notificationSocketAcks,
@@ -900,16 +900,8 @@ async function UIDashboard (options) {
             // Contact Us
             {
                 html: i18n('contact_us'),
-                onClick: async function () {
-                    UIWindowFeedback({
-                        window_options: {
-                            backdrop: true,
-                            close_on_backdrop_click: true,
-                            parent_center: true,
-                            stay_on_top: true,
-                            has_head: false,
-                        },
-                    });
+                onClick: function () {
+                    UIDashboardContactDialog({ $container: $el_window, returnFocusTo: $btn.get(0) });
                 },
             },
             '-',
