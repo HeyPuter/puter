@@ -24,6 +24,7 @@ import { createAppBrowser } from './UI/Dashboard/AppBrowser.js';
 import { appTileLink } from './UI/Dashboard/appLink.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import { guestAppLaunchUrl, launchAppInTab } from './helpers/appTabLaunch.js';
+import { embedHostUser } from './helpers/embedHostUser.js';
 
 window.$ = window.jQuery = jQuery;
 window.html_encode = value => encode(String(value ?? ''), { mode: 'nonAsciiPrintable' });
@@ -45,6 +46,8 @@ try {
     window.locale = JSON.parse(localStorage.getItem('user_preferences') || '{}')?.language || 'en';
 } catch { /* Corrupt preferences must not prevent loading apps. */ }
 const localeReady = loadLocale(window.locale);
+// The host names its user in the fragment, which can change without a reload.
+window.addEventListener('hashchange', () => window.location.reload());
 // Apps whose launch is still fetching; a second click would open a second tab.
 const launching = new Set();
 
@@ -118,11 +121,36 @@ async function readSession () {
 }
 
 /**
+ * The uuid of the user a GUI token belongs to, or null when the API refuses it.
+ */
+async function sessionUser (token) {
+    const response = await fetch(new URL('/whoami', config.apiOrigin), {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if ( response.status === 401 ) return null;
+    if ( ! response.ok ) throw new Error(`Session check responded ${response.status}`);
+    const uuid = (await response.json())?.uuid;
+    return typeof uuid === 'string' ? uuid.toLowerCase() : null;
+}
+
+/**
+ * The GUI session, only when it belongs to the user the host page names. A
+ * host signed out, or signed in as someone else, gets the signed-out view.
+ */
+async function hostSession () {
+    const hostUser = embedHostUser(window.location.hash);
+    if ( ! hostUser ) return null;
+    const token = await readSession();
+    if ( ! token ) return null;
+    return await sessionUser(token) === hostUser ? token : null;
+}
+
+/**
  * Signed in, the user's own apps through the SDK. Without a session, the
  * recommended apps the page was rendered with, and no SDK.
  */
 async function mount () {
-    window.auth_token = await readSession();
+    window.auth_token = await hostSession();
     const guestApps = window.auth_token ? undefined : config.guestApps;
     if ( !window.auth_token && !guestApps?.length ) throw new Error('No apps to show without a session');
 

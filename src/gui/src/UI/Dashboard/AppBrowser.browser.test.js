@@ -16,6 +16,8 @@ const requests = [];
 const guiRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const sessionToken = 'app-browser-test-session';
 const sessionCookie = 'app-browser-test-cookie';
+const sessionUser = '0b1c9a52-3f0e-4c7a-9a65-2f6d1e8b7c40';
+const otherUser = '7d2e4f10-8a3b-4c5d-9e6f-0a1b2c3d4e5f';
 const appRows = Array.from({ length: 105 }, (_, i) => ({
     name: `app-${i}`, title: `App ${i}`, icon: null,
 }));
@@ -62,6 +64,10 @@ beforeAll(async () => {
         if ( ! req.headers.cookie?.includes(`puter_auth_token=${sessionCookie}`) ) return res.sendStatus(401);
         res.json({ token: sessionToken });
     });
+    app.get('/whoami', (req, res) => {
+        if ( req.headers.authorization !== `Bearer ${sessionToken}` ) return res.sendStatus(401);
+        res.json({ uuid: sessionUser, username: 'session-user' });
+    });
     app.get('/get-launch-apps', (_req, res) => res.json({ recommended: [{ name: 'removed', title: 'Removed' }] }));
     app.get('/cache/last-change-timestamp', (_req, res) => res.json({ timestamp: 0 }));
     app.post('/drivers/call', (req, res) => {
@@ -81,8 +87,9 @@ beforeAll(async () => {
     app.get('/index', (_req, res) => res.send(`<title>App</title>
         <script>window.PUTER_ORIGIN = '${origin}'; window.PUTER_API_ORIGIN = '${origin}';</script>
         <script src="/sdk.js"></script>`));
-    app.get('/host', (_req, res) => res.send(`<!DOCTYPE html><html><body style="margin:0">
-        <iframe title="More apps" src="${origin}/embed/apps" style="border:0;width:100vw;height:100vh"></iframe>
+    // The host page names its signed-in user as `?user=`, as puter.js does in the fragment.
+    app.get('/host', (req, res) => res.send(`<!DOCTYPE html><html><body style="margin:0">
+        <iframe title="More apps" src="${origin}/embed/apps${req.query.user ? `#user=${req.query.user}` : ''}" style="border:0;width:100vw;height:100vh"></iframe>
     </body></html>`));
     app.get('/embed/apps', (_req, res) => {
         res.setHeader('Content-Security-Policy', `frame-ancestors 'self' http://*.puter.localhost:${port}`);
@@ -122,7 +129,7 @@ describe('embedded app browser', () => {
             page.on('pageerror', error => errors.push(error.message));
             requests.length = 0;
             try {
-                const parentUrl = `http://spreadsheet.puter.localhost:${port}/host`;
+                const parentUrl = `http://spreadsheet.puter.localhost:${port}/host?user=${sessionUser}`;
                 await page.goto(parentUrl);
                 const frame = page.frameLocator('iframe');
                 await frame.locator('.myapps-group-tile').waitFor();
@@ -182,7 +189,7 @@ describe('embedded app browser', () => {
         try {
             const page = await context.newPage();
             page.setDefaultTimeout(6000);
-            await page.goto(`http://spreadsheet.puter.localhost:${port}/host`);
+            await page.goto(`http://spreadsheet.puter.localhost:${port}/host?user=${sessionUser}`);
             const frame = page.frameLocator('iframe');
             await frame.locator('.myapps-group-tile').waitFor();
             expect(await frame.locator('[data-app-name="app-104"]').count()).toBe(1);
@@ -200,7 +207,7 @@ describe('embedded app browser', () => {
         try {
             const page = await context.newPage();
             page.setDefaultTimeout(6000);
-            await page.goto(`${origin}/embed/apps`);
+            await page.goto(`${origin}/embed/apps#user=${sessionUser}`);
             await page.locator('.myapps-search').fill('App 104');
             const popupPromise = context.waitForEvent('page');
             await page.locator('.myapps-tile').click();
@@ -275,7 +282,7 @@ describe('embedded app browser', () => {
             });
             const page = await context.newPage();
             page.setDefaultTimeout(6000);
-            await page.goto(`${origin}/embed/apps`);
+            await page.goto(`${origin}/embed/apps#user=${sessionUser}`);
             await page.locator('[data-app-name="notes"]').waitFor();
         } finally {
             guestApps = [];
@@ -290,7 +297,7 @@ describe('embedded app browser', () => {
             const page = await context.newPage();
             page.setDefaultTimeout(6000);
             await page.route('**/get-gui-token', route => route.fulfill({ status }));
-            await page.goto(`${origin}/embed/apps`);
+            await page.goto(`${origin}/embed/apps#user=${sessionUser}`);
             await page.getByRole('status').waitFor();
             expect(await page.getByRole('status').textContent()).toContain('Apps are unavailable');
             expect(await page.locator('.myapps-tile').count()).toBe(0);
@@ -300,6 +307,93 @@ describe('embedded app browser', () => {
         }
     });
 
+    describe('only shows the session to the host\'s own user', () => {
+        const notes = () => ({ name: 'notes', title: 'Notes', uuid: 'uid-notes', index_url: `http://notes.puter.localhost:${port}/index`, icon: null });
+        const signedInContext = () => browser.newContext({ storageState: {
+            cookies: [], origins: [{ origin, localStorage: [{ name: 'auth_token_v2', value: sessionToken }] }],
+        } });
+
+        it.each([
+            ['names no user', ''],
+            ['names another user', `?user=${otherUser}`],
+            ['names a malformed user', '?user=session-user'],
+        ])('shows the signed-out list when the host %s', async (_label, query) => {
+            guestApps = [notes()];
+            const context = await signedInContext();
+            requests.length = 0;
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/host${query}`);
+                const frame = page.frameLocator('iframe');
+                await frame.locator('[data-app-name="notes"]').waitFor();
+                expect(await frame.locator('.myapps-tile').count()).toBe(1);
+                expect(requests.some(req => ['/sdk.js', '/installedApps', '/drivers/call'].includes(req.path))).toBe(false);
+
+                const popupPromise = context.waitForEvent('page');
+                await frame.locator('[data-app-name="notes"]').click();
+                const popup = await popupPromise;
+                await popup.waitForURL(/\/index\?/);
+                expect(await popup.evaluate(() => window.opener)).toBeNull();
+                expect(requests.some(req => ['/auth/get-user-app-token', '/rao'].includes(req.path))).toBe(false);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
+        it('shows the signed-out list when the API refuses the stored session', async () => {
+            guestApps = [notes()];
+            const context = await browser.newContext({ storageState: {
+                cookies: [], origins: [{ origin, localStorage: [{ name: 'auth_token_v2', value: 'revoked-session' }] }],
+            } });
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`${origin}/embed/apps#user=${sessionUser}`);
+                await page.locator('[data-app-name="notes"]').waitFor();
+                expect(await page.locator('.myapps-tile').count()).toBe(1);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
+        it('shows an unavailable state when the session check fails', async () => {
+            guestApps = [notes()];
+            const context = await signedInContext();
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.route('**/whoami', route => route.fulfill({ status: 503 }));
+                await page.goto(`${origin}/embed/apps#user=${sessionUser}`);
+                await page.getByRole('status').waitFor();
+                expect(await page.getByRole('status').textContent()).toContain('Apps are unavailable');
+                expect(await page.locator('.myapps-tile').count()).toBe(0);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
+        it('reloads for the user a changed fragment names', async () => {
+            guestApps = [notes()];
+            const context = await signedInContext();
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`${origin}/embed/apps#user=${sessionUser}`);
+                await page.locator('[data-app-name="app-104"]').waitFor();
+                await page.evaluate(user => { window.location.hash = `user=${user}`; }, otherUser);
+                await page.locator('[data-app-name="notes"]').waitFor();
+                expect(await page.locator('[data-app-name="app-104"]').count()).toBe(0);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+    });
+
     it('shows an unavailable state if the SDK cannot load', async () => {
         const context = await browser.newContext({ storageState: {
             cookies: [], origins: [{ origin, localStorage: [{ name: 'auth_token_v2', value: sessionToken }] }],
@@ -307,7 +401,7 @@ describe('embedded app browser', () => {
         try {
             const page = await context.newPage();
             await page.route('**/sdk.js', route => route.abort());
-            await page.goto(`${origin}/embed/apps`);
+            await page.goto(`${origin}/embed/apps#user=${sessionUser}`);
             await page.getByRole('status').waitFor();
             expect(await page.getByRole('status').textContent()).toContain('Apps are unavailable');
         } finally {

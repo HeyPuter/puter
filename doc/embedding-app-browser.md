@@ -19,6 +19,17 @@ the desktop and dashboard send `utm_campaign=desktop` and `utm_campaign=dashboar
 
 ## Session and framing
 
+The embed shows the GUI session only to the user the host page is signed in as.
+The host names that user's `uuid` (from `puter.auth.getUser()`) in the iframe
+URL's fragment, as `/embed/apps#user=<uuid>`. The embed reads the session, asks
+`/whoami` which user it belongs to, and shows the signed-out view unless the two
+match. So a host that names no user, a malformed one, or a user other than the
+session's, gets the signed-out view, and so does a session the API refuses. A
+failed `/whoami` check shows the error state. The fragment never reaches the
+server and can only narrow what the embed shows: naming the session's own user
+gives the same view as a direct visit to the GUI. Changing the fragment of a
+loaded embed reloads it.
+
 The embed reads the existing GUI session from local storage on its own origin.
 If that storage holds no session, the embed gets the session from the GUI origin's session cookie through
 `/get-gui-token`. This matters in Safari, which gives a framed origin separate
@@ -29,7 +40,7 @@ does not create accounts, show a login dialog, or accept a token from its parent
 Being signed in on a subdomain alone does not create a session on the main GUI
 origin.
 
-Without a session, the embed shows the recommended apps (`RecommendedAppsService`)
+Without a session it can show, the embed shows the recommended apps (`RecommendedAppsService`)
 that the server put in the page, and nothing else: no installed apps, folders, or
 saved order, and no puter.js. Selecting one opens it at the same URL a signed-in
 launch uses, with no opener and no token on offer, so the app signs in on its own.
@@ -59,8 +70,10 @@ and popups to escape the sandbox.
 ## Host integration
 
 The iframe can be shown whether or not the user is signed in. Create it when
-“More apps” is opened, and remove it on close so reopening loads current apps
-and preferences. The host owns the modal and close control;
+“More apps” is opened, naming the signed-in user in its fragment, and remove it
+on close so reopening loads current apps and preferences. Remove it when the
+host's own sign-in changes too, such as on sign-out, so an open embed doesn't
+keep the previous user. The host owns the modal and close control;
 there is no parent messaging API and no app list or credential is sent to it.
 The app browser fills its iframe and responds to its size.
 
@@ -84,10 +97,14 @@ localization system.
   const container = document.querySelector('#apps-frame');
   const trigger = document.querySelector('#more-apps');
 
-  trigger.addEventListener('click', () => {
+  trigger.addEventListener('click', async () => {
+    const url = new URL('/embed/apps', puterOrigin);
+    // Signed out, the embed shows the recommended apps.
+    const user = puter.auth.isSignedIn() ? await puter.auth.getUser().catch(() => null) : null;
+    if (user) url.hash = `user=${encodeURIComponent(user.uuid)}`;
     const frame = document.createElement('iframe');
     frame.title = 'Your apps';
-    frame.src = new URL('/embed/apps', puterOrigin).href;
+    frame.src = url.href;
     container.replaceChildren(frame);
     dialog.showModal();
   });
@@ -106,7 +123,8 @@ and data behavior; its `guestApps` option is the signed-out list. `TabApps.js`
 injects desktop actions. `appsEmbed.js` supplies new-tab launching through
 `launchAppInTab` (signed in) and `guestAppLaunchUrl` (signed out) in
 `src/gui/src/helpers/appTabLaunch.js`, which build the same app URL as
-`launch_app`, and loads only the embed entry, its SDK, and shared styles.
+`launch_app`, and loads only the embed entry, its SDK, and shared styles. `embedHostUser` in
+`src/gui/src/helpers/embedHostUser.js` reads the host's user from the fragment.
 The normal GUI webpack build emits `bundle.min.js` and `apps-embed.min.js`.
 The `/embed/apps` route puts the recommended list in the page's config as
 `guestApps`. No puter.js API or app-list endpoint changes are needed.
