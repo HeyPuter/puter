@@ -1733,10 +1733,10 @@ window.initgui = async function (options) {
             let session_user = null;
             if (host_user && window.is_auth()) {
                 try {
-                    whoami = await puter.os.user({ query: 'icon_size=64' });
-                    session_user = String(whoami?.uuid ?? '').toLowerCase();
+                    const session = await puter.os.user({ query: 'icon_size=64' });
+                    session_user = String(session?.uuid ?? '').toLowerCase();
                 } catch (e) {
-                    whoami = undefined;
+                    session_user = null;
                 }
             }
             if (!host_user || session_user !== host_user) {
@@ -1996,8 +1996,11 @@ window.initgui = async function (options) {
         );
         window.userAppToken = response?.token;
 
+        // A framed picker already holds the framing page's user, so it
+        // doesn't offer to switch.
         if (
             !picked_a_user_for_sdk_login &&
+            !(window.embedded_in_frame && defersTokenToOpener(action)) &&
             window.logged_in_users.length > 1 &&
             (!window.userAppToken ||
                 window.url_query_params.get('request_auth'))
