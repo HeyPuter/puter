@@ -267,11 +267,11 @@ export const setupPublishDomain = (dialog, { onChange }) => {
     };
     load();
 
+    // The field takes focus as the switch reveals it. The upgrade prompt
+    // doesn't: a second Space meant for the switch would open the upgrade.
     $switch.on('change', () => {
         sync();
-        if ( ! wanted() ) return;
-        const el_target = can_add ? $input.get(0) : $upsell.find('.dashboard-publish-upgrade').get(0);
-        el_target?.focus({ preventScroll: true });
+        if ( wanted() && can_add ) $input.get(0)?.focus({ preventScroll: true });
     });
     $input.on('input', () => {
         $claim.prop('hidden', true);

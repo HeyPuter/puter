@@ -441,14 +441,15 @@ describe('publish website on a custom domain', () => {
             });
         });
 
-        it('offers the upgrade in place of the field', async () => {
+        it('offers the upgrade in place of the field, leaving focus on the switch', async () => {
             serveDomains({ list: { items: [], canAdd: false } });
             await openWebsite();
+            domainSwitch().get(0).focus();
             turnOnDomain();
 
             expect(shown('domain')).toBe(false);
             expect($('.dashboard-publish-upsell').prop('hidden')).toBe(false);
-            expect(document.activeElement).toBe($('.dashboard-publish-upgrade').get(0));
+            expect(document.activeElement).toBe(domainSwitch().get(0));
             $('.dashboard-publish-upgrade').trigger('click');
             expect(window.UIUpgradeAccount).toHaveBeenCalled();
         });
