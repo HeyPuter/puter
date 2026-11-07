@@ -74,6 +74,8 @@ class PuterUserMenu extends PuterWebComponent {
     #apiOrigin = null;
     #user = null;
     #picture = null;
+    // Set while signing out from inside the component, whose focus then moves to Sign in.
+    #focusSignIn = false;
     #onDocumentPointerDown = (event) => {
         if ( ! event.composedPath().includes(this) ) this._closePanels();
     };
@@ -535,6 +537,10 @@ class PuterUserMenu extends PuterWebComponent {
         menuUser.textContent = username;
         menuUser.hidden = !username;
         if ( avatar.hidden && !this.$('.menu').hidden ) this._closePanels();
+        if ( this.#ready && this.#focusSignIn ) {
+            this.#focusSignIn = false;
+            if ( ! this.$('.sign-in').hidden ) this.$('.sign-in').focus({ preventScroll: true });
+        }
     }
 
     // -- Panels --
@@ -650,10 +656,12 @@ class PuterUserMenu extends PuterWebComponent {
     }
 
     async _signOut () {
+        this.#focusSignIn = Boolean(this.shadowRoot.activeElement);
         this._closePanels();
         try {
             await globalThis.puter.auth.signOut();
         } finally {
+            this.#focusSignIn = false;
             // The token goes before the sign-out settles, even when it rejects.
             if ( ! globalThis.puter.authToken ) this.emitEvent('signout');
         }

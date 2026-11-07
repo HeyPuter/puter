@@ -519,6 +519,24 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('moves focus to Sign in after signing out from the keyboard', async () => {
+            const context = await menuContext('app-token-session-user');
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu .avatar').focus();
+                await page.keyboard.press('Enter');
+                await page.locator('puter-user-menu .menu').waitFor();
+                await page.keyboard.press('Enter');
+                await page.locator('puter-user-menu .sign-in').waitFor();
+                await expect.poll(() => page.evaluate(() => document.activeElement.shadowRoot?.activeElement?.className)).toBe('sign-in');
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
         it('names the user an app signs in as after loading', async () => {
             const context = await menuContext(null);
             try {
