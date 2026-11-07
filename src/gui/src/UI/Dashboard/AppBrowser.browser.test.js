@@ -582,6 +582,31 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('shows Sign in pressed and the account hovered', async () => {
+            const context = await menuContext(null);
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                const signIn = page.locator('puter-user-menu .sign-in');
+                await signIn.hover();
+                await page.mouse.down();
+                expect(await signIn.evaluate(el => getComputedStyle(el).color)).toBe('rgb(190, 222, 245)');
+                await page.mouse.move(0, 0);
+                await page.mouse.up();
+
+                await page.evaluate(() => puter.setAuthToken('app-token-session-user'));
+                const avatar = page.locator('puter-user-menu .avatar');
+                await avatar.waitFor();
+                expect(await avatar.evaluate(el => getComputedStyle(el).boxShadow)).toBe('none');
+                await avatar.hover();
+                expect(await avatar.evaluate(el => getComputedStyle(el).boxShadow)).not.toBe('none');
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
         it('shows the account before its picture arrives', async () => {
             const context = await menuContext('app-token-session-user');
             let respond;

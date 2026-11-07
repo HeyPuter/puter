@@ -255,6 +255,11 @@ class PuterUserMenu extends PuterWebComponent {
                 color: #fff;
                 font-size: 14px;
             }
+            .sign-in:active {
+                background-color: #2798eb;
+                border-color: #2798eb;
+                color: #bedef5;
+            }
 
             /* Panels hang under their button with a caret pointing at it. In
                the top layer where the browser has one, so no host transform,
@@ -442,6 +447,7 @@ class PuterUserMenu extends PuterWebComponent {
             /* A tap leaves :hover on touch screens, which would shade a closed button. */
             @media (hover: hover) {
                 .apps-button:hover { background-color: rgba(0, 0, 0, .06); }
+                .avatar:hover { box-shadow: 0 0 0 3px rgba(8, 142, 240, .25); }
                 .menu-item:hover { background-color: #f0f0f0; }
                 .apps-close:hover { background-color: #f0f0f0; color: #222; }
                 :host(.puter-theme-dark) .apps-button:hover { background-color: rgba(255, 255, 255, .1); }
