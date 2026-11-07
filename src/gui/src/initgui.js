@@ -638,12 +638,15 @@ const postAuthActions = async (action) => {
                 msg: 'sendMeFileData',
             }, '*');
 
-            // listen for 'showSaveFilePickerPopup' event from parent
-            window.addEventListener('message', async (event) => {
-                if ( event.data.msg !== 'showSaveFilePickerPopup' )
+            // listen for 'showSaveFilePickerPopup' event from parent. Only the
+            // page that asked supplies the file, once; any other window that
+            // can reach this one (a sibling frame of the framing page) can't.
+            window.addEventListener('message', async function onFileData (event) {
+                if ( event.data?.msg !== 'showSaveFilePickerPopup' || event.source !== window.opener )
                 {
                     return;
                 }
+                window.removeEventListener('message', onFileData);
 
                 // Open dialog
                 UIWindow({
