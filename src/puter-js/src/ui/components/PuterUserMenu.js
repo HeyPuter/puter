@@ -4,7 +4,8 @@
  *
  * Signed out (a temporary account counts as signed out), it shows a Sign in
  * button. Signed in, it shows the user's profile picture (or initial), which
- * opens a menu with the username and Sign out. On a page one subdomain under
+ * opens a menu with the account, links to manage it, see its usage and open
+ * Puter, Send feedback, and Sign out. On a page one subdomain under
  * the Puter origin, an Apps button opens Puter's app browser in a panel under
  * it, for the same user: signed out, or signed in as an account other than
  * the Puter session's, the browser shows only recommended apps. The browser
@@ -12,7 +13,8 @@
  * Renders nothing inside the Puter desktop.
  *
  * Attributes: theme, apps-label, sign-in-label, sign-out-label, close-label,
- *   account-label
+ *   account-label, manage-account-label, usage-label, open-puter-label,
+ *   feedback-label
  * Parts: apps-button, avatar, sign-in, menu, apps-panel
  * Events: signin (detail.user), signout
  */
@@ -24,6 +26,7 @@ import { canFrameGuiEmbed } from '../../lib/guiEmbed.js';
 const APPS_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">${
     [5, 12, 19].flatMap(y => [5, 12, 19].map(x => `<circle cx="${x}" cy="${y}" r="2"/>`)).join('')
 }</svg>`;
+const EXTERNAL_ICON = '<svg class="menu-external" viewBox="0 0 32 32" width="11" height="11" aria-hidden="true" focusable="false"><path d="m26 28h-20a2 2 0 0 1 -2-2v-20a2 2 0 0 1 2-2h10v2h-10v20h20v-10h2v10a2 2 0 0 1 -2 2z"/><path d="m20 2v2h6.586l-8.586 8.586 1.414 1.414 8.586-8.586v6.586h2v-10z"/></svg>';
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 const LABELS = {
@@ -32,7 +35,18 @@ const LABELS = {
     'sign-out-label': 'Sign out',
     'close-label': 'Close',
     'account-label': 'Account',
+    'manage-account-label': 'Manage account',
+    'usage-label': 'Usage',
+    'open-puter-label': 'Open Puter',
+    'feedback-label': 'Send feedback',
 };
+
+// Menu links, each opening a page of the Puter GUI in a new tab.
+const MENU_LINKS = [
+    { className: 'manage-account', label: 'manage-account-label', path: '/dashboard/#account' },
+    { className: 'usage', label: 'usage-label', path: '/dashboard/#usage' },
+    { className: 'open-puter', label: 'open-puter-label', path: '/' },
+];
 
 // Gap between a panel and the viewport edge, and between its caret and corners.
 const EDGE = 8;
@@ -216,7 +230,8 @@ class PuterUserMenu extends PuterWebComponent {
                 text-align: center;
             }
             .avatar[aria-expanded="true"] { box-shadow: 0 0 0 3px rgba(8, 142, 240, .25); }
-            .avatar img {
+            .avatar img,
+            .menu-avatar img {
                 position: absolute;
                 inset: 0;
                 width: 100%;
@@ -285,31 +300,78 @@ class PuterUserMenu extends PuterWebComponent {
             }
 
             .menu {
-                min-width: 200px;
+                min-width: 220px;
                 max-width: min(300px, calc(100vw - ${EDGE * 2}px));
                 padding: 4px 0;
                 text-align: left;
             }
             .menu-user {
+                display: flex;
+                align-items: center;
+                gap: 10px;
                 padding: 8px 14px 10px;
                 margin-bottom: 4px;
                 border-bottom: 1px solid #eee;
-                color: #414650;
-                font-size: 14px;
+            }
+            .menu-avatar {
+                position: relative;
+                flex: none;
+                width: 40px;
+                height: 40px;
+                overflow: hidden;
+                border-radius: 50%;
+                background: linear-gradient(#34a5f8, #088ef0);
+                color: #fff;
+                font-size: 18px;
                 font-weight: 600;
+                line-height: 40px;
+                text-align: center;
+            }
+            .menu-identity {
+                display: flex;
+                flex-direction: column;
+                min-width: 0;
+            }
+            .menu-username,
+            .menu-email {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
+            .menu-username {
+                color: #414650;
+                font-size: 14px;
+                font-weight: 600;
+            }
+            .menu-email {
+                color: #6b7280;
+                font-size: 12px;
+            }
             .menu-item {
-                display: block;
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                box-sizing: border-box;
                 width: 100%;
                 padding: 8px 14px;
                 border: none;
                 background: none;
                 color: #333;
                 font-size: 14px;
+                line-height: normal;
                 text-align: left;
+                text-decoration: none;
+                cursor: pointer;
+            }
+            .menu-external {
+                flex: none;
+                fill: currentColor;
+                opacity: .7;
+            }
+            .menu-separator {
+                height: 1px;
+                margin: 4px 0;
+                background-color: #eee;
             }
             .menu-item:focus-visible {
                 outline: none;
@@ -411,7 +473,9 @@ class PuterUserMenu extends PuterWebComponent {
             }
             :host(.puter-theme-dark) .menu-user,
             :host(.puter-theme-dark) .apps-header { border-color: #3a3a3a; }
-            :host(.puter-theme-dark) .menu-user,
+            :host(.puter-theme-dark) .menu-separator { background-color: #3a3a3a; }
+            :host(.puter-theme-dark) .menu-email { color: #a0a0a0; }
+            :host(.puter-theme-dark) .menu-username,
             :host(.puter-theme-dark) .apps-title,
             :host(.puter-theme-dark) .menu-item { color: #e6e6e6; }
             :host(.puter-theme-dark) .menu-item:focus-visible { background-color: #3a3a3a; color: #fff; }
@@ -442,7 +506,16 @@ class PuterUserMenu extends PuterWebComponent {
                 <button type="button" class="avatar" part="avatar" aria-haspopup="menu" aria-expanded="false" hidden></button>
             </div>
             <div class="panel menu" part="menu" role="menu" tabindex="-1" hidden>
-                <div class="menu-user" hidden></div>
+                <div class="menu-user" hidden>
+                    <span class="menu-avatar" aria-hidden="true"></span>
+                    <span class="menu-identity">
+                        <span class="menu-username"></span>
+                        <span class="menu-email" hidden></span>
+                    </span>
+                </div>
+                ${MENU_LINKS.map(link => `<a class="menu-item ${link.className}" role="menuitem" target="_blank" rel="noopener"><span class="menu-label"></span>${EXTERNAL_ICON}</a>`).join('')}
+                <button type="button" class="menu-item feedback" role="menuitem"></button>
+                <div class="menu-separator" role="separator"></div>
                 <button type="button" class="menu-item sign-out" role="menuitem"></button>
             </div>
             <div class="panel apps-panel" part="apps-panel" role="dialog" tabindex="-1" hidden>
@@ -471,6 +544,10 @@ class PuterUserMenu extends PuterWebComponent {
             if ( this.$('.menu').hidden ) this._openMenu();
             else this._closePanels();
         });
+        for ( const link of MENU_LINKS ) {
+            this.$(`.${link.className}`).addEventListener('click', () => this._closePanels());
+        }
+        this.$('.feedback').addEventListener('click', () => this._sendFeedback());
         this.$('.sign-out').addEventListener('click', () => this._signOut());
         this.$('.apps-close').addEventListener('click', () => this._closePanels({ returnFocus: true }));
         this.shadowRoot.addEventListener('keydown', (event) => {
@@ -482,6 +559,8 @@ class PuterUserMenu extends PuterWebComponent {
             } else if ( event.key === 'Tab' && open.classList.contains('menu') ) {
                 // Tab leaves the menu: it closes, and focus moves on from its button.
                 this._closePanels({ returnFocus: true });
+            } else if ( open.classList.contains('menu') && this._moveMenuFocus(event.key) ) {
+                event.preventDefault();
             }
         });
     }
@@ -501,6 +580,10 @@ class PuterUserMenu extends PuterWebComponent {
         close.title = this._label('close-label');
         this.$('.sign-in').textContent = this._label('sign-in-label');
         this.$('.sign-out').textContent = this._label('sign-out-label');
+        this.$('.feedback').textContent = this._label('feedback-label');
+        for ( const link of MENU_LINKS ) {
+            this.$(`.${link.className} .menu-label`).textContent = this._label(link.label);
+        }
         this._renderAvatarLabel();
     }
 
@@ -522,24 +605,34 @@ class PuterUserMenu extends PuterWebComponent {
 
         const avatar = this.$('.avatar');
         avatar.hidden = !this.#ready || !signedIn;
-        avatar.textContent = username ? username[0].toUpperCase() : '?';
-        if ( this.#picture ) {
-            const img = document.createElement('img');
-            img.alt = '';
-            // The initial stays underneath for a picture the page's CSP refuses.
-            img.addEventListener('error', () => img.remove());
-            img.src = this.#picture;
-            avatar.append(img);
-        }
+        this._fillAvatar(avatar, username);
         this._renderAvatarLabel();
-        const menuUser = this.$('.menu-user');
-        menuUser.textContent = username;
-        menuUser.hidden = !username;
+        this.$('.menu-user').hidden = !username;
+        this.$('.menu-username').textContent = username;
+        this._fillAvatar(this.$('.menu-avatar'), username);
+        const email = typeof this.#user?.email === 'string' ? this.#user.email : '';
+        this.$('.menu-email').textContent = email;
+        this.$('.menu-email').hidden = !email;
+        for ( const link of MENU_LINKS ) {
+            this.$(`.${link.className}`).href = new URL(link.path, globalThis.puter.defaultGUIOrigin).href;
+        }
         if ( avatar.hidden && !this.$('.menu').hidden ) this._closePanels();
         if ( this.#ready && this.#focusSignIn ) {
             this.#focusSignIn = false;
             if ( ! this.$('.sign-in').hidden ) this.$('.sign-in').focus({ preventScroll: true });
         }
+    }
+
+    /** The username's initial, with the profile picture over it once there is one. */
+    _fillAvatar (el, username) {
+        el.textContent = username ? username[0].toUpperCase() : '?';
+        if ( ! this.#picture ) return;
+        const img = document.createElement('img');
+        img.alt = '';
+        // The initial stays underneath for a picture the page's CSP refuses.
+        img.addEventListener('error', () => img.remove());
+        img.src = this.#picture;
+        el.append(img);
     }
 
     // -- Panels --
@@ -607,7 +700,23 @@ class PuterUserMenu extends PuterWebComponent {
     _openMenu () {
         const menu = this.$('.menu');
         this._showPanel(menu);
-        this.$('.sign-out').focus({ preventScroll: true });
+        this.$('.menu-item').focus({ preventScroll: true });
+    }
+
+    /** Moves focus between menu items for an arrow, Home or End key; false for any other key. */
+    _moveMenuFocus (key) {
+        const items = [...this.$$('.menu .menu-item')];
+        const current = items.indexOf(this.shadowRoot.activeElement);
+        const last = items.length - 1;
+        const next = {
+            ArrowDown: current < 0 || current === last ? 0 : current + 1,
+            ArrowUp: current <= 0 ? last : current - 1,
+            Home: 0,
+            End: last,
+        }[key];
+        if ( next === undefined ) return false;
+        items[next].focus({ preventScroll: true });
+        return true;
     }
 
     _openApps () {
@@ -669,6 +778,11 @@ class PuterUserMenu extends PuterWebComponent {
                 this.#signingIn = false;
             },
         );
+    }
+
+    _sendFeedback () {
+        this._closePanels();
+        void globalThis.puter.ui.showFeedbackDialog();
     }
 
     async _signOut () {
