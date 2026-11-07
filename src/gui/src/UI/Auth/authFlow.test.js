@@ -75,6 +75,26 @@ describe('openAuthFlow', () => {
         expect(flow.isClosed()).toBe(false);
     });
 
+    it('lets Escape ask the framing page to close a framed sign-in, unless busy', async () => {
+        window.embedded_in_frame = true;
+        const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+        try {
+            const flow = openAuthFlow({ page: true });
+            flow.push({ name: 'a', html: '<input>' });
+            await tick();
+            flow.setBusy(true);
+            key($('.auth-dialog input').get(0), 'Escape');
+            expect(close).not.toHaveBeenCalled();
+            flow.setBusy(false);
+            key($('.auth-dialog input').get(0), 'Escape');
+            expect(close).toHaveBeenCalledTimes(1);
+            flow.finish(false);
+        } finally {
+            close.mockRestore();
+            delete window.embedded_in_frame;
+        }
+    });
+
     it('ignores the backdrop unless asked, so a stray click keeps typed credentials', async () => {
         const kept = openAuthFlow();
         kept.push({ name: 'a', html: '' });

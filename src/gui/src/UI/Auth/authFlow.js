@@ -353,7 +353,10 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
         e.stopPropagation();
         if ( e.type !== 'keydown' || e.key !== 'Escape' ) return;
         e.preventDefault();
-        if ( dismissable && ! busy ) $dialog.find('.dashboard-dialog-close').trigger('click');
+        if ( busy ) return;
+        if ( dismissable ) $dialog.find('.dashboard-dialog-close').trigger('click');
+        // A framed sign-in's ✕ is the framing page's, which close() asks.
+        else if ( window.embedded_in_frame ) window.close();
     });
     // A press on the backdrop (or a page's background) would move focus to
     // the page, and with it the keys; it stays where it was.
