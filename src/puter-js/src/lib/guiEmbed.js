@@ -125,6 +125,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     loading.className = `${className}-loading`;
     loading.setAttribute('role', 'status');
     loading.setAttribute('aria-label', 'Loading');
+    loading.setAttribute('aria-hidden', 'true');
     loading.append(document.createElement('span'));
     dialog.append(style, loading);
     if ( box ) {
@@ -177,6 +178,12 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         if ( shown ) restoreFocus?.focus?.({ preventScroll: true });
         resolve(result);
     };
+    // The spinner is only faded out, so assistive tech hears it only while it shows.
+    const setLoading = (on) => {
+        dialog.classList.toggle('is-loading', on);
+        if ( on ) loading.removeAttribute('aria-hidden');
+        else loading.setAttribute('aria-hidden', 'true');
+    };
     const show = () => {
         if ( dialog.open ) return;
         shown = true;
@@ -199,7 +206,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
             restarted = false;
             clearTimeout(timer);
             clearTimeout(loadingTimer);
-            dialog.classList.remove('is-loading');
+            setLoading(false);
             show();
             frame.focus();
         } else {
@@ -217,7 +224,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         restarted = true;
         ready = false;
         loads = boots;
-        dialog.classList.add('is-loading');
+        setLoading(true);
         frame.src = url.href;
     };
     window.addEventListener('message', onWindowMessage);
@@ -227,7 +234,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         if ( ! wasReady || boots >= loads ) return;
         // Most likely refused: the spinner covers the error page meanwhile.
         ready = false;
-        dialog.classList.add('is-loading');
+        setLoading(true);
         const expected = loads;
         clearTimeout(restartTimer);
         restartTimer = setTimeout(() => {
@@ -252,7 +259,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         onFrame?.(frame.contentWindow);
         wait(READY_TIMEOUT_MS);
         loadingTimer = setTimeout(() => {
-            dialog.classList.add('is-loading');
+            setLoading(true);
             show();
         }, LOADING_DELAY_MS);
     } catch {

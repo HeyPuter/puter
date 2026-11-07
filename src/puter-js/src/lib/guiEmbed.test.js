@@ -91,10 +91,11 @@ describe('showFeedbackEmbed', () => {
         await vi.advanceTimersByTimeAsync(1);
         expect(dialog.open).toBe(true);
         expect(dialog.classList.contains('is-loading')).toBe(true);
-        expect(dialog.querySelector('[role="status"]')).not.toBeNull();
+        expect(dialog.querySelector('[role="status"]').hasAttribute('aria-hidden')).toBe(false);
 
         fromEmbed({ msg: 'feedbackEmbed', state: 'ready' });
         expect(dialog.classList.contains('is-loading')).toBe(false);
+        expect(dialog.querySelector('[role="status"]').getAttribute('aria-hidden')).toBe('true');
         expect(document.activeElement).toBe(frame());
         fromEmbed({ msg: 'feedbackDialogClosed', sent: true });
         await expect(result).resolves.toEqual({ sent: true });
@@ -241,9 +242,12 @@ describe('showPopupFrame', () => {
             if ( data.msg === 'fileOpenPicked' ) finish('picked');
         } });
         const dialog = popupFrame().closest('dialog');
+        const status = dialog.querySelector('[role="status"]');
+        expect(status.getAttribute('aria-hidden')).toBe('true');
         fromPopup({ msg: 'puterPopupFrame', state: 'loading' });
         fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
         expect(dialog.open).toBe(true);
+        expect(status.getAttribute('aria-hidden')).toBe('true');
         expect(document.activeElement).toBe(popupFrame());
         fromPopup({ msg: 'puter.token', success: true });
         fromPopup({ msg: 'fileOpenPicked' });
