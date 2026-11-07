@@ -10590,6 +10590,253 @@ body.dashboard-mode .notifications-close-all {
     overflow-wrap: anywhere;
 }
 
+/* Contact Us: a message with screenshots or recordings attached */
+.dashboard-dialog.dashboard-contact-dialog {
+    width: min(500px, 100%);
+}
+
+.dashboard-contact-dialog .dashboard-form-input[name='message'] {
+    min-height: 132px;
+}
+
+.dashboard-contact-attachments {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.dashboard-contact-dropzone {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px dashed var(--dashboard-border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--dashboard-text-primary);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dashboard-contact-dropzone-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+
+.dashboard-contact-dropzone-icon svg {
+    width: 17px;
+    height: 17px;
+}
+
+.dashboard-contact-dropzone-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.dashboard-contact-dropzone-label,
+.dashboard-contact-dropzone-drop {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.dashboard-contact-dropzone-drop {
+    display: none;
+    color: var(--select-text);
+}
+
+.dashboard-contact-dropzone-hint {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--dashboard-text-muted);
+}
+
+@media (hover: hover) {
+    .dashboard-contact-dropzone:hover:not(:disabled) {
+        border-color: var(--select-color);
+        background: var(--select-tint-weak);
+    }
+}
+
+.dashboard-contact-dropzone:focus-visible {
+    outline: none;
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-contact-dropzone:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+/* Files dragged anywhere over the dialog land here. */
+.dashboard-contact-dragging .dashboard-contact-dropzone {
+    border-style: solid;
+    border-color: var(--select-color);
+    background: var(--select-tint);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-contact-dragging .dashboard-contact-dropzone-label {
+    display: none;
+}
+
+.dashboard-contact-dragging .dashboard-contact-dropzone-drop {
+    display: block;
+}
+
+.dashboard-contact-files {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.dashboard-contact-files[hidden] {
+    display: none;
+}
+
+.dashboard-contact-file {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 6px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-input-background);
+    animation: dashboard-contact-file-in 160ms ease;
+}
+
+@keyframes dashboard-contact-file-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+}
+
+.dashboard-contact-file-thumb {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 7px;
+    overflow: hidden;
+    background: var(--dashboard-sidebar-background);
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard-contact-file-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.dashboard-contact-file-thumb svg {
+    width: 20px;
+    height: 20px;
+}
+
+.dashboard-contact-file-text {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.dashboard-contact-file-name {
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--dashboard-text-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-contact-file-size {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.dashboard-contact-file-remove {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.dashboard-contact-file-remove svg {
+    width: 16px;
+    height: 16px;
+}
+
+@media (hover: hover) {
+    .dashboard-contact-file-remove:hover:not(:disabled) {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+
+.dashboard-contact-file-remove:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-contact-file-remove:disabled {
+    cursor: default;
+    opacity: 0.5;
+}
+
+/* Sending: the files are on their way and no longer up for change. */
+.dashboard-contact-sending .dashboard-contact-file {
+    opacity: 0.7;
+}
+
+@media (pointer: coarse) {
+    .dashboard-contact-dropzone {
+        min-height: 56px;
+    }
+
+    .dashboard-contact-file-remove {
+        width: 44px;
+        height: 44px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-contact-file {
+        animation: none;
+    }
+}
+
 /* API token, shown once */
 .dashboard-token-warning {
     padding: 10px 12px;
