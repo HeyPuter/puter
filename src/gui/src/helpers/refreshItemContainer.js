@@ -32,6 +32,13 @@ const refresh_item_container = function (el_item_container, options) {
     options = options || {};
 
     let container_path =  $(el_item_container).attr('data-path');
+
+    // Only the newest refresh of a container may write to it or its window;
+    // an older one's responses belong to a folder the window has since left.
+    const refresh_id = ($(el_item_container).data('refreshId') ?? 0) + 1;
+    $(el_item_container).data('refreshId', refresh_id);
+    const is_current = () => $(el_item_container).data('refreshId') === refresh_id;
+
     let el_window = $(el_item_container).closest('.window');
     let el_window_head_icon = $(el_window).find('.window-head-icon');
     const loading_spinner = $(el_item_container).find('.explorer-loading-spinner');
@@ -60,9 +67,7 @@ const refresh_item_container = function (el_item_container, options) {
     // A timeout that will show the loading spinner if the folder is not loaded
     // after 1000ms
     let loading_timeout = setTimeout(function () {
-        // make sure the same folder is still loading
-        if ( $(loading_spinner).closest('.item-container').attr('data-path') !== container_path )
-        {
+        if ( ! is_current() ) {
             return;
         }
 
@@ -89,6 +94,9 @@ const refresh_item_container = function (el_item_container, options) {
     }
 
     if ( !is_shared_view ) puter.fs.stat({ path: container_path, consistency: options.consistency ?? 'eventual' }).then(fsentry => {
+        if ( ! is_current() ) {
+            return;
+        }
         if ( el_window ) {
             $(el_window).attr('data-uid', fsentry.id);
             $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
@@ -156,10 +164,8 @@ const refresh_item_container = function (el_item_container, options) {
         : puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual' });
 
     entries_promise.then(async (fsentries) => {
-        // Check if the same folder is still loading since el_item_container's
-        // data-path might have changed by other operations while waiting for the response to this `readdir`.
-        if ( $(el_item_container).attr('data-path') !== container_path )
-        {
+        if ( ! is_current() ) {
+            clearTimeout(loading_timeout);
             return;
         }
 
@@ -167,6 +173,11 @@ const refresh_item_container = function (el_item_container, options) {
             async function () {
             // clear loading timeout
                 clearTimeout(loading_timeout);
+
+                // a newer refresh may have started during the spinner delay
+                if ( ! is_current() ) {
+                    return;
+                }
 
                 // hide loading spinner
                 $(loading_spinner).hide();
@@ -187,6 +198,10 @@ const refresh_item_container = function (el_item_container, options) {
 
                 // add each item to window
                 for ( let index = 0; index < fsentries.length; index++ ) {
+                    // item_icon() is awaited below, so a newer refresh can start mid-loop
+                    if ( ! is_current() ) {
+                        return;
+                    }
                     const fsentry = fsentries[index];
                     let is_disabled = false;
 
@@ -258,6 +273,9 @@ const refresh_item_container = function (el_item_container, options) {
                 if ( $(el_item_container).hasClass('desktop') ) {
                     try {
                         const trash = await puter.fs.stat({ path: window.trash_path, consistency: options.consistency ?? 'eventual' });
+                        if ( ! is_current() ) {
+                            return;
+                        }
                         UIItem({
                             appendTo: el_item_container,
                             uid: trash.id,
@@ -318,6 +336,11 @@ const refresh_item_container = function (el_item_container, options) {
 
         // clear loading timeout
         clearTimeout(loading_timeout);
+
+        // don't show a folder's error in the folder the window moved to
+        if ( ! is_current() ) {
+            return;
+        }
 
         // hide other messages/indicators
         $(loading_spinner).hide();
