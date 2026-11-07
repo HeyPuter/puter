@@ -83,7 +83,7 @@ on close so reopening loads current apps and preferences. Remove it when the
 host's own sign-in changes too, such as on sign-out, so an open embed doesn't
 keep the previous user. The host owns the modal and close control;
 there is no parent messaging API and no app list or credential is sent to it.
-The app browser fills its iframe and responds to its size.
+The app browser fills its iframe and responds to its size. It shows a spinner until its apps load.
 
 This example assumes `puterOrigin` comes from the host app's deployment
 settings. Translate the button and frame labels using the host app's

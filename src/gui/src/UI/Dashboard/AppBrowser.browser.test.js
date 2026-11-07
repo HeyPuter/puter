@@ -379,6 +379,25 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('shows a spinner while it checks the session', async () => {
+            const context = await signedInContext();
+            let respond;
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.route('**/whoami', route => { respond = () => route.continue(); });
+                await page.goto(`${origin}/embed/apps#user=${sessionUser}`);
+                await expect.poll(() => typeof respond).toBe('function');
+                const spinner = () => page.locator('#app-browser').evaluate(root => getComputedStyle(root, '::after').animationName);
+                expect(await spinner()).not.toBe('none');
+                await respond();
+                await page.locator('[data-app-name="app-104"]').waitFor();
+                expect(await spinner()).toBe('none');
+            } finally {
+                await context.close();
+            }
+        });
+
         it('shows an unavailable state when the session check fails', async () => {
             guestApps = [notes()];
             const context = await signedInContext();
