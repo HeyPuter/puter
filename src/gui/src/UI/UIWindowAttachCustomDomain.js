@@ -603,7 +603,7 @@ async function UIWindowAttachCustomDomain (options) {
                 .toggle(!!domain.statusDetail && status !== 'active');
             const $redirect = $overlay.find('.custom-domain-redirect').toggle(!!domain.redirectFrom);
             if ( domain.redirectFrom ) {
-                $redirect.html(i18n('custom_domain_redirect_note', [domain.redirectFrom, domain.hostname]));
+                $redirect.html(i18n('custom_domain_redirect_note', [domain.hostname, domain.redirectFrom]));
             }
             $overlay.find('.custom-domain-apex').toggle(domain.isApex === true);
             $overlay.find('.custom-domain-use-www').toggle(domain.isApex === true && status !== 'active');

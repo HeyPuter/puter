@@ -117,7 +117,7 @@ export const domainSummaryHtml = (domain) => {
         }
     }
     if ( domain.redirectFrom ) {
-        h += `<p class="dashboard-form-hint">${i18n('custom_domain_redirect_note', [domain.redirectFrom, domain.hostname])}</p>`;
+        h += `<p class="dashboard-form-hint">${i18n('custom_domain_redirect_note', [domain.hostname, domain.redirectFrom])}</p>`;
     }
     if ( status !== 'active' ) {
         h += '<div class="dashboard-publish-domain-actions">'

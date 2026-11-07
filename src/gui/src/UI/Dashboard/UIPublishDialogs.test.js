@@ -351,6 +351,33 @@ describe('publish website on a custom domain', () => {
         expect($('.dashboard-publish-domain-badge').attr('data-status')).toBe('active');
     });
 
+    it('says the www hostname serves the site and the root domain forwards to it', async () => {
+        serveDomains({
+            routes: {
+                'POST ': () => json(201, pendingDomain({
+                    redirectFrom: 'example.com',
+                    records: [
+                        { type: 'CNAME', name: 'www', value: 'my-site.puter.site', purpose: 'routing', required: true },
+                        { type: 'A', name: '@', value: '192.0.2.1', purpose: 'redirect', required: true },
+                    ],
+                })),
+            },
+        });
+        await openWebsite();
+        turnOnDomain();
+        domainField().val('www.example.com');
+        const i18n_stub = globalThis.i18n;
+        globalThis.i18n = (key, replacements) => (Array.isArray(replacements) && replacements.length ? `${key}:${replacements.join('|')}` : key);
+        try {
+            await submitWith('my-site');
+        } finally {
+            globalThis.i18n = i18n_stub;
+        }
+
+        expect($('.dashboard-publish-domain .dashboard-form-hint').last().text())
+            .toBe('custom_domain_redirect_note:www.example.com|example.com');
+    });
+
     it('shows the ownership record for a domain held by another account', async () => {
         const add = vi.fn(() => json(409, {
             code: 'custom_domain_claim_required',
