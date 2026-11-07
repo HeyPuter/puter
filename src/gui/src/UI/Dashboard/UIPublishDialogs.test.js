@@ -432,6 +432,11 @@ describe('publish website on a custom domain', () => {
         domainField().val('www.example.net').trigger('input');
         expect($('.dashboard-publish-claim').prop('hidden')).toBe(true);
         expect(submitLabel()).toBe('custom_domain_add');
+
+        // Back to the claimed hostname, its record and the verify step return together.
+        domainField().val('www.example.com').trigger('input');
+        expect($('.dashboard-publish-claim').prop('hidden')).toBe(false);
+        expect(submitLabel()).toBe('custom_domain_verify_and_add');
     });
 
     describe('on a plan without custom domains', () => {

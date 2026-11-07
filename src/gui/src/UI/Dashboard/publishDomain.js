@@ -276,11 +276,8 @@ export const setupPublishDomain = (dialog, { onChange }) => {
         sync();
         if ( addable() ) $input.get(0)?.focus({ preventScroll: true });
     });
-    $input.on('input', () => {
-        $claim.prop('hidden', true);
-        update_hint();
-        onChange();
-    });
+    // A claim's record shows only while its hostname is the one typed.
+    $input.on('input', sync);
 
     // Once an upgrade lands, the field unlocks where the prompt was.
     const on_plan_change = async () => {
