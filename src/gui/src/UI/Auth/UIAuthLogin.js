@@ -104,7 +104,8 @@ export function pushLoginScreen (flow, options = {}) {
     const id = `auth-login-${window.uuidv4?.() ?? Date.now()}`;
 
     let h = '<div class="dashboard-dialog-body auth-body">';
-    h += authHeadHtml(flow, i18n('log_in', [], false));
+    // Logging in means already having a Puter account; no need to explain it.
+    h += authHeadHtml(flow, i18n('log_in', [], false), { openerNotice: false });
     h += '<form class="auth-form login-form" novalidate>';
     h += '<div class="dashboard-form-status" role="status" aria-live="polite"></div>';
     h += formFieldHtml({

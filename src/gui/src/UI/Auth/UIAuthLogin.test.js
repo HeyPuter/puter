@@ -60,6 +60,14 @@ afterEach(() => {
 });
 
 describe('login screen', () => {
+    it('leaves out the opener notice in a sign-in popup', () => {
+        window.embedded_in_popup = true;
+        window.openerOrigin = 'https://builder.puter.com';
+        void UIAuthLogin({ reload_on_success: false });
+        expect(screen().find('.auth-title')).toHaveLength(1);
+        expect(screen().find('.auth-opener-notice')).toHaveLength(0);
+    });
+
     it('asks for each field before sending anything', () => {
         const calls = captureAjax();
         void UIAuthLogin({ reload_on_success: false });
