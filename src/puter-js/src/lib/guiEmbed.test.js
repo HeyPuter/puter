@@ -36,6 +36,10 @@ describe('canFrameGuiEmbed', () => {
         ['http://notes.puter.com/', 'https://puter.com', false],
         ['https://notes.puter.com:8443/', 'https://puter.com', false],
         ['https://notes.puter.site/', 'https://puter.com', false],
+        ['https://docs.puter.com/playground/', 'https://puter.com', false],
+        ['https://api.puter.com/', 'https://puter.com', false],
+        ['https://www.puter.com/', 'https://puter.com', false],
+        ['http://apps.puter.localhost:4100/', 'http://puter.localhost:4100', false],
         [undefined, 'https://puter.com', false],
     ])('%s under %s is %s', (page, gui, expected) => {
         expect(canFrameGuiEmbed(page, gui)).toBe(expected);

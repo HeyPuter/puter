@@ -42,9 +42,15 @@ const BOX_STYLE = `
 
 const CLOSE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>';
 
+// Subdomains the server answers or reserves itself, which it never lets frame
+// an embed (the backend's `isReservedSubdomain`). Framing from one would wait
+// on a refused frame before falling back.
+const RESERVED_LABELS = new Set(['www', 'api', 'js', 'dav', 'about', 'developer', 'docs', 'apps', 'puter-app-icons']);
+
 /**
  * Whether a page at `pageUrl` may frame an embed served by `guiOrigin`:
- * exactly one label under its host, on the same scheme and port.
+ * exactly one label under its host, on the same scheme and port, and not one
+ * of the GUI's reserved subdomains.
  *
  * @param {string | undefined} pageUrl
  * @param {string} guiOrigin
@@ -63,7 +69,7 @@ export const canFrameGuiEmbed = (pageUrl, guiOrigin) => {
     const suffix = `.${gui.hostname.toLowerCase()}`;
     if ( page.protocol !== gui.protocol || page.port !== gui.port || !host.endsWith(suffix) ) return false;
     const label = host.slice(0, -suffix.length);
-    return label.length > 0 && !label.includes('.');
+    return label.length > 0 && !label.includes('.') && !RESERVED_LABELS.has(label);
 };
 
 /**

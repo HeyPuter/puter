@@ -147,9 +147,9 @@ page's origin, which the server reads from the referrer and pins with
 `frame-ancestors`; opened top-level, it does nothing. Its page is transparent
 so the dialog's own scrim covers the host.
 
-puter.js uses it on a page one label under the GUI origin when the page is
-signed in, framing it in a modal `<dialog>` that stays hidden until the embed
-is ready. A session check that takes longer than 200ms shows a loading scrim
+puter.js uses it on a page one label under the GUI origin, other than the
+subdomains the server refuses, when the page is signed in, framing it in a
+modal `<dialog>` that stays hidden until the embed is ready. A session check that takes longer than 200ms shows a loading scrim
 with a spinner in its place; Escape or a click on it cancels. The embed posts `{ msg: 'feedbackEmbed', state }` to its parent
 (`loading`, then `ready` or `unavailable`) and finally
 `{ msg: 'feedbackDialogClosed', sent }`. It reports `unavailable` without the
@@ -180,8 +180,8 @@ when the page has to use the popup, and `closed` where a popup would close. Its
 answers (`puter.token`, `fileOpenPicked`, `directoryPicked`, `fileSaved`, the
 cancel messages, `sendMeFileData`) are the popup's.
 
-puter.js uses them on a page one label under the GUI origin, unless the page is
-cross-origin isolated. `showPopupFrame` in `src/puter-js/src/lib/guiEmbed.js`
+puter.js uses them on a page one label under the GUI origin, other than the
+subdomains the server refuses, unless the page is cross-origin isolated. `showPopupFrame` in `src/puter-js/src/lib/guiEmbed.js`
 shows the frame in a box the size of the popup window, over a scrim, hidden
 until `ready` and behind the loading spinner after 200ms. On screens up to
 600px wide the box fills the screen. A frame that is refused, never answers, or
