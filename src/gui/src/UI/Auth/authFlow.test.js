@@ -250,6 +250,16 @@ describe('authHeadHtml', () => {
         expect($dialog_head.find('a')).toHaveLength(0);
         expect($dialog_head.find('.auth-logo').attr('alt')).toBe('');
     });
+
+    it('explains the opener in a sign-in popup unless told not to', () => {
+        window.embedded_in_popup = true;
+        window.openerOrigin = 'https://builder.puter.com';
+        const flow = openAuthFlow();
+        const $notice = $(authHeadHtml(flow, 'Log in')).find('.auth-opener-notice');
+        expect($notice).toHaveLength(1);
+        expect($notice.text()).toContain('builder.puter.com');
+        expect($(authHeadHtml(flow, 'Log in', { openerNotice: false })).find('.auth-opener-notice')).toHaveLength(0);
+    });
 });
 
 describe('authFlowOptions', () => {
