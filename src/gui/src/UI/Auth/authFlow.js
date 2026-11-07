@@ -191,9 +191,15 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
     /** @type {Array<AuthScreen & { $el: jQuery, el_return?: Element | null }>} */
     const stack = [];
 
+    // A frame's focus() calls do nothing until the framing page focuses it,
+    // so the screen takes focus then, unless something already has it.
+    const onFrameFocus = () => {
+        if ( ! document.activeElement || document.activeElement === document.body ) flow.focus();
+    };
     const teardown = () => {
         if ( torn_down ) return;
         torn_down = true;
+        window.removeEventListener('focus', onFrameFocus);
         if ( active_flow === flow ) active_flow = null;
         // Screens waiting on the user (the second factor) hear they won't get an answer.
         while ( stack.length ) stack.pop().onLeave?.();
@@ -363,6 +369,8 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
     $overlay.on('mousedown', function (e) {
         if ( e.target === this ) e.preventDefault();
     });
+
+    if ( window.embedded_in_frame ) window.addEventListener('focus', onFrameFocus);
 
     active_flow = flow;
     return flow;
