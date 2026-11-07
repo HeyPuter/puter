@@ -35,13 +35,59 @@ const { openPublishWebsiteDialog, openPublishWorkerDialog } = await import('./UI
 const { default: ensure_can_publish } = await import('../../helpers/ensureCanPublish.js');
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+const flush = async () => {
+    for ( let i = 0; i < 5; i++ ) await settle();
+};
 const nameField = () => $('.dashboard-form-input[name="name"]');
 const status = () => $('.dashboard-form-status').text();
 
 const submitWith = async (name) => {
     if ( name !== undefined ) nameField().val(name);
     $('.dashboard-form-dialog').trigger('submit');
-    for ( let i = 0; i < 5; i++ ) await settle();
+    await flush();
+};
+
+const json = (code, data) => new Response(JSON.stringify(data), {
+    status: code,
+    headers: { 'Content-Type': 'application/json' },
+});
+
+/**
+ * Stands in for the `/custom-domains` API. The list call answers with
+ * `list`; anything else with its entry in `routes` (keyed `METHOD /path`),
+ * or a 404.
+ */
+const serveDomains = ({ list = { items: [], canAdd: true, pricing: { amount: 0.5, currency: 'USD' } }, routes = {} } = {}) => {
+    globalThis.fetch = vi.fn(async (url, opts = {}) => {
+        const key = `${opts.method ?? 'GET'} ${String(url).split('/custom-domains')[1]}`;
+        if ( key === 'GET ' ) return json(200, typeof list === 'function' ? list() : list);
+        return routes[key]?.(opts.body ? JSON.parse(opts.body) : undefined) ?? json(404, {});
+    });
+};
+const requests = (method) => fetch.mock.calls
+    .filter(([, opts = {}]) => (opts.method ?? 'GET') === method)
+    .map(([url, opts]) => ({ path: String(url).split('/custom-domains')[1], body: opts.body ? JSON.parse(opts.body) : undefined }));
+
+const pendingDomain = (overrides = {}) => ({
+    uuid: 'd1',
+    hostname: 'www.example.com',
+    site: 'my-site',
+    status: 'pending',
+    isApex: false,
+    records: [{ type: 'CNAME', name: 'www', value: 'my-site.puter.site', purpose: 'routing', required: true }],
+    ...overrides,
+});
+
+const domainSwitch = () => $('.dashboard-form-input[name="useDomain"]');
+const domainField = () => $('.dashboard-form-input[name="domain"]');
+const shown = (name) => $(`.dashboard-form-field[data-field="${name}"]`).prop('hidden') === false;
+const submitLabel = () => $('.dashboard-form-submit-label').text();
+const turnOnDomain = () => domainSwitch().prop('checked', true).trigger('change');
+
+/** Opens the website dialog and waits for the custom domain list. */
+const openWebsite = async () => {
+    await openPublishWebsiteDialog({ name: 'Site', path: '/alice/Site' });
+    await flush();
 };
 
 const addRow = (path) => {
@@ -59,6 +105,10 @@ beforeEach(() => {
     window.generate_identifier = () => 'clever-idea-42';
     window.update_sites_cache = vi.fn();
     window.require_email_verification_to_publish_website = false;
+    window.api_origin = 'https://api.puter.test';
+    delete window.UIUpgradeAccount;
+    // A Puter without custom domains, unless a test serves them.
+    globalThis.fetch = vi.fn(async () => json(404, {}));
     globalThis.puter = {
         fsCacheKey: (kind, path) => `${kind}:${path}`,
         _cache: { del: vi.fn() },
@@ -126,7 +176,7 @@ describe('publish website', () => {
         expect(nameField().val()).toBe('cafe');
     });
 
-        it('asks for an address when nothing usable was typed', async () => {
+    it('asks for an address when nothing usable was typed', async () => {
         await openPublishWebsiteDialog({ name: 'Site', path: '/alice/Site' });
         await submitWith('---');
         expect(status()).toBe('publish_name_required');
@@ -161,6 +211,226 @@ describe('publish website', () => {
         await openPublishWebsiteDialog({ name: 'Site', path: '/alice/Site' });
         expect(ensure_can_publish).toHaveBeenCalledWith(true);
         expect($('.dashboard-form-dialog')).toHaveLength(0);
+    });
+});
+
+describe('publish website on a custom domain', () => {
+    it('leaves the option out where the server has no custom domains', async () => {
+        await openWebsite();
+        expect(shown('useDomain')).toBe(false);
+        expect(shown('domain')).toBe(false);
+        await submitWith('my-site');
+        expect(puter.hosting.create).toHaveBeenCalledWith('my-site', '/alice/Site');
+        expect(requests('POST')).toEqual([]);
+    });
+
+    it('asks for the domain once the switch is on, with what it costs', async () => {
+        serveDomains();
+        await openWebsite();
+        expect(shown('useDomain')).toBe(true);
+        expect(shown('domain')).toBe(false);
+
+        turnOnDomain();
+
+        expect(shown('domain')).toBe(true);
+        expect(document.activeElement).toBe(domainField().get(0));
+        expect($('.dashboard-form-field[data-field="domain"] .dashboard-form-hint').text())
+            .toBe('publish_custom_domain_dns_hint custom_domain_price_note');
+        expect($('.dashboard-publish-upsell').prop('hidden')).toBe(true);
+    });
+
+    it('publishes the site, adds the domain, and shows the records to set', async () => {
+        serveDomains({ routes: { 'POST ': () => json(201, pendingDomain()) } });
+        await openWebsite();
+        turnOnDomain();
+        domainField().val('https://WWW.Example.com/about');
+
+        await submitWith('my-site');
+
+        expect(puter.hosting.create).toHaveBeenCalledWith('my-site', '/alice/Site');
+        expect(requests('POST')).toEqual([{ path: '', body: { site: 'my-site', hostname: 'www.example.com' } }]);
+        expect($('.dashboard-form-done p').text()).toBe('website_published');
+        expect($('.dashboard-copy-value').first().val()).toBe('https://my-site.puter.site');
+        expect($('.dashboard-publish-domain-host').text()).toBe('www.example.com');
+        expect($('.dashboard-publish-domain-badge').attr('data-status')).toBe('pending');
+        expect($('.dashboard-dns-record-type').text()).toBe('CNAME');
+        expect($('.dashboard-dns-record .dashboard-copy-value').map((_, el) => el.value).get())
+            .toEqual(['www', 'my-site.puter.site']);
+    });
+
+    it('checks the domain again and shows its address once connected', async () => {
+        serveDomains({
+            routes: {
+                'POST ': () => json(201, pendingDomain()),
+                'GET /d1': () => json(200, pendingDomain({ status: 'active', records: [] })),
+            },
+        });
+        await openWebsite();
+        turnOnDomain();
+        domainField().val('www.example.com');
+        await submitWith('my-site');
+
+        $('.dashboard-publish-domain-check').trigger('click');
+        await flush();
+
+        expect(requests('GET').map((r) => r.path)).toContain('/d1');
+        expect($('.dashboard-publish-domain-badge').attr('data-status')).toBe('active');
+        expect($('.dashboard-publish-domain .dashboard-copy-value').val()).toBe('https://www.example.com');
+        expect($('.dashboard-publish-domain-status').text()).toBe('custom_domain_success_note');
+        expect($('.dashboard-publish-domain-check')).toHaveLength(0);
+    });
+
+    it('stops before publishing when the domain is not one', async () => {
+        serveDomains();
+        await openWebsite();
+        turnOnDomain();
+        domainField().val('localhost');
+
+        await submitWith('my-site');
+
+        expect(status()).toBe('custom_domain_error_invalid');
+        expect(domainField().attr('aria-invalid')).toBe('true');
+        expect(puter.hosting.create).not.toHaveBeenCalled();
+    });
+
+    it('keeps the live site and retries only the domain when adding it fails', async () => {
+        const add = vi.fn()
+            .mockReturnValueOnce(json(409, { code: 'custom_domain_taken', message: 'That hostname is already in use' }))
+            .mockReturnValueOnce(json(201, pendingDomain({ hostname: 'www.example.org' })));
+        serveDomains({ routes: { 'POST ': add } });
+        await openWebsite();
+        turnOnDomain();
+        domainField().val('www.example.com');
+
+        await submitWith('my-site');
+
+        expect(status()).toBe('publish_domain_failed\ncustom_domain_error_taken');
+        expect(domainField().attr('aria-invalid')).toBe('true');
+        expect(nameField().prop('readOnly')).toBe(true);
+        expect(submitLabel()).toBe('custom_domain_add');
+
+        domainField().val('www.example.org');
+        await submitWith();
+
+        expect(puter.hosting.create).toHaveBeenCalledTimes(1);
+        expect(add).toHaveBeenLastCalledWith({ site: 'my-site', hostname: 'www.example.org' });
+        expect($('.dashboard-publish-domain-host').text()).toBe('www.example.org');
+    });
+
+    it('finishes with just the site when the domain is turned off after a failure', async () => {
+        serveDomains({ routes: { 'POST ': () => json(409, { code: 'custom_domain_taken' }) } });
+        await openWebsite();
+        turnOnDomain();
+        domainField().val('www.example.com');
+        await submitWith('my-site');
+
+        domainSwitch().prop('checked', false).trigger('change');
+        expect(submitLabel()).toBe('done');
+        await submitWith();
+
+        expect(puter.hosting.create).toHaveBeenCalledTimes(1);
+        expect($('.dashboard-form-done p').text()).toBe('website_published');
+        expect($('.dashboard-publish-domain')).toHaveLength(0);
+    });
+
+    it('moves a domain already on the account instead of adding it again', async () => {
+        serveDomains({
+            list: { items: [pendingDomain({ site: 'old-site', status: 'active' })], canAdd: true },
+            routes: { 'PATCH /d1': () => json(200, pendingDomain({ status: 'active' })) },
+        });
+        await openWebsite();
+        turnOnDomain();
+        expect($(`#${domainField().attr('list')} option`).map((_, el) => el.value).get()).toEqual(['www.example.com']);
+        domainField().val('www.example.com').trigger('input');
+        expect($('.dashboard-form-field[data-field="domain"] .dashboard-form-hint').text()).toBe('publish_custom_domain_moves');
+
+        await submitWith('my-site');
+
+        expect(requests('POST')).toEqual([]);
+        expect(requests('PATCH')).toEqual([{ path: '/d1', body: { site: 'my-site' } }]);
+        expect($('.dashboard-publish-domain-badge').attr('data-status')).toBe('active');
+    });
+
+    it('shows the ownership record for a domain held by another account', async () => {
+        const add = vi.fn(() => json(409, {
+            code: 'custom_domain_claim_required',
+            verification: { name: '_puter.www.example.com', value: 'token-1' },
+        }));
+        serveDomains({ routes: { 'POST ': add } });
+        await openWebsite();
+        turnOnDomain();
+        domainField().val('www.example.com');
+
+        await submitWith('my-site');
+
+        expect($('.dashboard-publish-claim').prop('hidden')).toBe(false);
+        expect($('.dashboard-publish-claim .dashboard-dns-record-type').text()).toBe('TXT');
+        expect($('.dashboard-publish-claim .dashboard-copy-value').map((_, el) => el.value).get())
+            .toEqual(['_puter.www.example.com', 'token-1']);
+        expect(submitLabel()).toBe('custom_domain_verify_and_add');
+        expect(status()).toBe('publish_site_live');
+
+        await submitWith();
+        expect(status()).toBe('publish_domain_failed\ncustom_domain_claim_not_found');
+
+        // A claim is for one hostname; editing it starts over.
+        domainField().val('www.example.net').trigger('input');
+        expect($('.dashboard-publish-claim').prop('hidden')).toBe(true);
+        expect(submitLabel()).toBe('custom_domain_add');
+    });
+
+    describe('on a plan without custom domains', () => {
+        beforeEach(() => {
+            window.UIUpgradeAccount = vi.fn(function () {
+                this.open_as_window = vi.fn();
+            });
+        });
+
+        it('offers the upgrade in place of the field', async () => {
+            serveDomains({ list: { items: [], canAdd: false } });
+            await openWebsite();
+            turnOnDomain();
+
+            expect(shown('domain')).toBe(false);
+            expect($('.dashboard-publish-upsell').prop('hidden')).toBe(false);
+            expect(document.activeElement).toBe($('.dashboard-publish-upgrade').get(0));
+            $('.dashboard-publish-upgrade').trigger('click');
+            expect(window.UIUpgradeAccount).toHaveBeenCalled();
+        });
+
+        it('does not publish while the switch asks for a domain it cannot add', async () => {
+            serveDomains({ list: { items: [], canAdd: false } });
+            await openWebsite();
+            turnOnDomain();
+            await submitWith('my-site');
+            expect(status()).toBe('publish_custom_domain_needs_plan');
+            expect(puter.hosting.create).not.toHaveBeenCalled();
+        });
+
+        it('unlocks the field once the upgrade goes through', async () => {
+            let can_add = false;
+            serveDomains({ list: () => ({ items: [], canAdd: can_add }) });
+            await openWebsite();
+            turnOnDomain();
+
+            can_add = true;
+            window.dispatchEvent(new CustomEvent('puter:subscription:changed'));
+            await flush();
+
+            expect(shown('domain')).toBe(true);
+            expect($('.dashboard-publish-upsell').prop('hidden')).toBe(true);
+            expect(document.activeElement).toBe(domainField().get(0));
+        });
+
+        it('explains the plan without a button where there is no upgrade flow', async () => {
+            delete window.UIUpgradeAccount;
+            serveDomains({ list: { items: [], canAdd: false } });
+            await openWebsite();
+            turnOnDomain();
+            expect($('.dashboard-publish-upgrade')).toHaveLength(0);
+            await submitWith('my-site');
+            expect(status()).toBe('custom_domain_error_plan');
+        });
     });
 });
 

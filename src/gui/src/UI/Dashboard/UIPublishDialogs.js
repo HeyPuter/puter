@@ -17,13 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// The Files tab's publish flows, a folder as a website and a .js file as a
-// worker: dashboard form dialogs rather than desktop windows.
+// The Files tab's publish flows, a folder as a website (optionally on a
+// custom domain) and a .js file as a worker: dashboard form dialogs rather
+// than desktop windows.
 
 import ensure_can_publish from '../../helpers/ensureCanPublish.js';
 import forget_parent_listing from '../../helpers/forgetParentListing.js';
-import { SVG } from './UIDashboardDialog.js';
 import UIDashboardFormDialog, { copyRowHtml } from './UIDashboardFormDialog.js';
+import { openLinkHtml, publishDomainFields, setupPublishDomain } from './publishDomain.js';
 import { finalizePublishName, normalizePublishName, PUBLISH_NAME_RULES } from './publishName.js';
 
 /**
@@ -35,8 +36,6 @@ import { finalizePublishName, normalizePublishName, PUBLISH_NAME_RULES } from '.
  */
 
 const t = (key) => i18n(key, [], false);
-
-const OPEN_ICON = SVG('<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/>');
 
 /** Rows showing `path` or anything under it, on the dashboard or the desktop. */
 const each_item_at = (path, fn) => $('.item').each(function () {
@@ -54,6 +53,8 @@ const KINDS = {
         nameErrors: new Set(['conflict', 'subdomain_reserved']),
         suffix: () => `.${window.hosting_domain}`,
         requiresVerification: () => !! window.require_email_verification_to_publish_website,
+        extraFields: publishDomainFields,
+        setup: setupPublishDomain,
         async publish (name, path) {
             const site = await puter.hosting.create(name, path);
             // The server's address carries the deployment's real scheme (a
@@ -136,6 +137,11 @@ const open_publish_dialog = async (kind_name, { name, path, ...opts }) => {
     }];
     fields.push(...(kind.extraFields?.() ?? []));
 
+    /** Set once the site is live; a retry for a step after it skips publishing. */
+    let published = null;
+    /** @type {import('./publishDomain.js').PublishDomain | undefined} */
+    let extra;
+
     const dialog = UIDashboardFormDialog({
         ...opts,
         title: t(kind.title),
@@ -144,29 +150,49 @@ const open_publish_dialog = async (kind_name, { name, path, ...opts }) => {
         fields,
         async onSubmit () {
             const values = dialog.values();
-            const subdomain = finalizePublishName(values.name, kind.rule);
-            dialog.field('name').val(subdomain);
-            if ( ! subdomain ) {
-                dialog.setStatus(t('publish_name_required'), { field: 'name' });
-                return;
+            const hostname = extra?.prepare() ?? null;
+            if ( hostname === false ) return;
+            if ( ! published ) {
+                const subdomain = finalizePublishName(values.name, kind.rule);
+                dialog.field('name').val(subdomain);
+                if ( ! subdomain ) {
+                    dialog.setStatus(t('publish_name_required'), { field: 'name' });
+                    return;
+                }
+                let url;
+                try {
+                    url = await kind.publish(subdomain, path, values);
+                } catch ( err ) {
+                    const code = err?.error?.code ?? err?.code;
+                    dialog.setStatus(error_message(err), kind.nameErrors.has(code) ? { field: 'name' } : undefined);
+                    return;
+                }
+                kind.markPublished(path, url);
+                published = { name: subdomain, url };
+                // The address is taken now; what's left to retry is the domain.
+                dialog.field('name').prop('readOnly', true).attr('aria-readonly', 'true');
+                update_submit_label();
             }
-            let url;
-            try {
-                url = await kind.publish(subdomain, path, values);
-            } catch ( err ) {
-                const code = err?.error?.code ?? err?.code;
-                dialog.setStatus(error_message(err), kind.nameErrors.has(code) ? { field: 'name' } : undefined);
-                return;
-            }
-            kind.markPublished(path, url);
-            const open_link = `<a class="dashboard-dialog-btn dashboard-dialog-btn-quiet dashboard-icon-btn dashboard-publish-open" href="${html_encode(url)}"`
-                + ` target="_blank" rel="noopener noreferrer" aria-label="${i18n('open_in_new_tab')}" title="${i18n('open_in_new_tab')}">${OPEN_ICON}</a>`;
+            const domain = hostname ? await extra.attach(hostname, published) : null;
+            if ( hostname && ! domain ) return;
             dialog.finish({
                 message: t(kind.published),
-                html: copyRowHtml({ value: url, label: t('publish_address'), compact: true, after: open_link }),
+                html: copyRowHtml({ value: published.url, label: t('publish_address'), compact: true, after: openLinkHtml(published.url) })
+                    + (domain ? extra.doneHtml(domain) : ''),
             });
         },
     });
+
+    // Before the site is live the button publishes; after, it adds the domain.
+    const update_submit_label = () => {
+        let key = 'publish';
+        if ( published ) {
+            if ( extra?.claiming() ) key = 'custom_domain_verify_and_add';
+            else key = extra?.wanted() ? 'custom_domain_add' : 'done';
+        }
+        dialog.$dialog.find('.dashboard-form-submit-label').text(t(key));
+    };
+    extra = kind.setup?.(dialog, { onChange: update_submit_label });
 
     // Shape the name as it's typed, keeping the caret where it was.
     const el_name = dialog.field('name').get(0);

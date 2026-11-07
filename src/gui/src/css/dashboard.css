@@ -10682,6 +10682,275 @@ body.dashboard-mode .notifications-close-all {
 }
 
 /* ======================================
+   Publish dialog: custom domain
+   ====================================== */
+
+/* The address, once the site is live under it, reads as settled. */
+.dashboard-form-affix:has([readonly]) {
+    background: var(--dashboard-sidebar-background);
+}
+
+.dashboard-form-affix:has([readonly]):focus-within {
+    border-color: var(--dashboard-border);
+    box-shadow: none;
+}
+
+.dashboard-publish-upsell {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 12px;
+    background: var(--select-tint-weak);
+}
+
+.dashboard-publish-upsell[hidden],
+.dashboard-publish-claim[hidden] {
+    display: none;
+}
+
+.dashboard-publish-upsell-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+
+.dashboard-publish-upsell-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.dashboard-publish-upsell-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dashboard-publish-upsell-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-publish-upsell .dashboard-dialog-btn {
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+@media (max-width: 600px) {
+    .dashboard-publish-upsell {
+        flex-wrap: wrap;
+    }
+
+    .dashboard-publish-upsell .dashboard-dialog-btn {
+        flex-basis: 100%;
+    }
+}
+
+.dashboard-publish-claim {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dashboard-publish-claim-text {
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--dashboard-warning-border);
+    border-radius: 8px;
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+/* DNS records: the type, then a copyable name and value. */
+.dashboard-dns-records {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dashboard-dns-record {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-sidebar-background);
+}
+
+.dashboard-dns-record-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dashboard-dns-record-type {
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--select-tint);
+    color: var(--select-color);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.dashboard-dns-record-optional {
+    font-size: 11px;
+    color: var(--dashboard-text-muted);
+}
+
+.dashboard-dns-record-field {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+}
+
+.dashboard-dns-record-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-secondary);
+}
+
+/* The done screen's domain, under the live address. */
+.dashboard-publish-domain {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--dashboard-border);
+}
+
+.dashboard-publish-domain-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.dashboard-publish-domain-icon {
+    flex-shrink: 0;
+    display: flex;
+    color: var(--dashboard-text-muted);
+}
+
+.dashboard-publish-domain-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.dashboard-publish-domain-host {
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
+}
+
+.dashboard-publish-domain-badge {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.dashboard-publish-domain-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+.dashboard-publish-domain-badge[data-status='active'] {
+    background: var(--dashboard-success-background);
+    color: var(--dashboard-success-text);
+}
+
+.dashboard-publish-domain-badge[data-status='failed'] {
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+}
+
+.dashboard-publish-domain-detail {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--dashboard-danger-text);
+    overflow-wrap: anywhere;
+}
+
+.dashboard-publish-domain-actions {
+    display: flex;
+}
+
+.dashboard-publish-domain-status {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--dashboard-text-secondary);
+}
+
+/* Empty, it stays in the a11y tree and gives back the gap it would claim. */
+.dashboard-publish-domain-status:empty {
+    margin-top: -10px;
+}
+
+.dashboard-publish-domain-status-error {
+    color: var(--dashboard-danger-text);
+}
+
+.dashboard-publish-link-btn {
+    align-self: flex-start;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--dashboard-link);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .dashboard-publish-link-btn:hover:not(:disabled) {
+        text-decoration: underline;
+    }
+}
+
+.dashboard-publish-link-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.dashboard-publish-link-btn:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* ======================================
    Auth dialog (login, signup, account picker, password recovery, 2FA)
    ====================================== */
 
