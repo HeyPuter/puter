@@ -2739,15 +2739,17 @@ input.myapps-group-name:focus {
     }
 }
 
-/* In a popup that exists only for this dialog, the dialog is the page: a
-   centered column, with the actions pinned to the bottom edge. */
-.custom-domain-fullpage {
-    --cd-column: min(552px, 100% - 48px);
+/* In a popup that exists only to host one of these dialogs, the dialog is the
+   page: a centered column, with the actions pinned to the bottom edge. */
+.app-feedback-fullpage {
+    --afb-column: min(552px, 100% - 48px);
     padding: 0;
     align-items: stretch;
     background: var(--afb-bg);
 }
-.custom-domain-fullpage .custom-domain-modal {
+.app-feedback-fullpage .app-feedback-modal {
+    display: flex;
+    flex-direction: column;
     width: 100%;
     height: 100dvh;
     max-height: none;
@@ -2758,39 +2760,39 @@ input.myapps-group-name:focus {
     padding-bottom: 0;
     overflow: hidden;
 }
-.custom-domain-fullpage .app-feedback-x {
+.app-feedback-fullpage .app-feedback-x {
     display: none;
 }
-.custom-domain-fullpage .custom-domain-head {
-    width: var(--cd-column);
+.app-feedback-fullpage .app-feedback-head {
+    width: var(--afb-column);
     margin: 0 auto;
     padding: 28px 0 4px;
 }
-.custom-domain-fullpage .custom-domain-body {
+.app-feedback-fullpage .app-feedback-body {
     flex: 1;
     display: flex;
     flex-direction: column;
     overflow-y: auto;
     padding: 20px 0 0;
 }
-.custom-domain-fullpage .custom-domain-pane {
+.app-feedback-fullpage .app-feedback-pane {
     flex: 1 0 auto;
     display: flex;
     flex-direction: column;
 }
-.custom-domain-fullpage .custom-domain-pane > :not(.app-feedback-actions, .app-feedback-success-check, .custom-domain-state-icon) {
+.app-feedback-fullpage .app-feedback-pane > :not(.app-feedback-actions, .app-feedback-success-check, .custom-domain-state-icon) {
     box-sizing: border-box;
-    width: var(--cd-column);
+    width: var(--afb-column);
     margin-left: auto;
     margin-right: auto;
 }
 /* Keeps the actions off the content when it fills the page. */
-.custom-domain-fullpage .custom-domain-pane::after {
+.app-feedback-fullpage .app-feedback-pane::after {
     content: '';
     flex: 1 0 20px;
     order: 1;
 }
-.custom-domain-fullpage .app-feedback-actions {
+.app-feedback-fullpage .app-feedback-actions {
     order: 2;
     position: sticky;
     bottom: 0;
@@ -2799,8 +2801,17 @@ input.myapps-group-name:focus {
     background: var(--afb-bg);
     border-top: 1px solid var(--afb-border);
 }
-.custom-domain-fullpage .custom-domain-state .app-feedback-actions {
+.app-feedback-fullpage .app-feedback-unavailable .app-feedback-actions,
+.app-feedback-fullpage .custom-domain-state .app-feedback-actions {
     justify-content: center;
+}
+/* The message box takes the spare height instead of the spacer. */
+.app-feedback-fullpage .app-feedback-form::after {
+    flex-grow: 0;
+}
+.app-feedback-fullpage .app-feedback-message {
+    flex: 1 0 160px;
+    resize: none;
 }
 
 /* Add-an-app chooser (see showAddAppModal): the three ways to get an app, as

@@ -83,7 +83,7 @@ async function UIWindowAttachCustomDomain (options) {
         const titleId = `${modal_id}-title`;
         const closeLabel = html_encode(i18n('close'));
         const h = `
-            <div class="app-feedback-overlay custom-domain-overlay${options.fullpage ? ' custom-domain-fullpage' : ''}" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
+            <div class="app-feedback-overlay custom-domain-overlay${options.fullpage ? ' app-feedback-fullpage' : ''}" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
                 <div class="app-feedback-modal custom-domain-modal" tabindex="-1">
                     <div class="app-feedback-head custom-domain-head">
                         <div class="custom-domain-head-icon">${ICON_GLOBE}</div>
@@ -95,13 +95,13 @@ async function UIWindowAttachCustomDomain (options) {
                         <button type="button" class="app-feedback-x" aria-label="${closeLabel}" title="${closeLabel}">${ICON_X}</button>
                     </div>
                     <div class="app-feedback-body custom-domain-body">
-                        <div class="custom-domain-pane" data-pane="loading" aria-busy="true">
+                        <div class="app-feedback-pane custom-domain-pane" data-pane="loading" aria-busy="true">
                             <span class="custom-domain-sr">${i18n('loading')}…</span>
                             <div class="custom-domain-skeleton"><span></span><span></span></div>
                             <div class="custom-domain-skeleton"><span></span><span></span></div>
                         </div>
 
-                        <div class="custom-domain-pane custom-domain-state" data-pane="unavailable" style="display:none;">
+                        <div class="app-feedback-pane custom-domain-pane custom-domain-state" data-pane="unavailable" style="display:none;">
                             <div class="custom-domain-state-icon">${ICON_ALERT}</div>
                             <p class="app-feedback-unavailable-message"></p>
                             <div class="app-feedback-actions">
@@ -109,7 +109,7 @@ async function UIWindowAttachCustomDomain (options) {
                             </div>
                         </div>
 
-                        <div class="custom-domain-pane" data-pane="list" style="display:none;">
+                        <div class="app-feedback-pane custom-domain-pane" data-pane="list" style="display:none;">
                             <ul class="custom-domain-list"></ul>
                             <div class="custom-domain-state custom-domain-empty" style="display:none;">
                                 <div class="custom-domain-state-icon">${ICON_GLOBE}</div>
@@ -124,7 +124,7 @@ async function UIWindowAttachCustomDomain (options) {
                             </div>
                         </div>
 
-                        <form class="custom-domain-pane" data-pane="add" style="display:none;" novalidate>
+                        <form class="app-feedback-pane custom-domain-pane" data-pane="add" style="display:none;" novalidate>
                             <label class="custom-domain-label" for="${modal_id}-hostname">${i18n('custom_domain_hostname_label')}</label>
                             <div class="custom-domain-field">
                                 ${ICON_GLOBE}
@@ -143,7 +143,7 @@ async function UIWindowAttachCustomDomain (options) {
                             </div>
                         </form>
 
-                        <div class="custom-domain-pane" data-pane="records" style="display:none;">
+                        <div class="app-feedback-pane custom-domain-pane" data-pane="records" style="display:none;">
                             <div class="custom-domain-status-card">
                                 <div class="custom-domain-status-icon"></div>
                                 <div class="custom-domain-status-main">
@@ -165,7 +165,7 @@ async function UIWindowAttachCustomDomain (options) {
                             </div>
                         </div>
 
-                        <div class="custom-domain-pane app-feedback-success custom-domain-success" data-pane="success" role="status" style="display:none;">
+                        <div class="app-feedback-pane custom-domain-pane app-feedback-success custom-domain-success" data-pane="success" role="status" style="display:none;">
                             <div class="app-feedback-success-check">${ICON_CHECK}</div>
                             <p class="app-feedback-success-text custom-domain-success-text"></p>
                             <p class="app-feedback-note custom-domain-success-note"></p>

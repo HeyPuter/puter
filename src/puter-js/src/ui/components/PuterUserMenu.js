@@ -540,8 +540,9 @@ class PuterUserMenu extends PuterWebComponent {
             else this._closePanels();
         });
         this.$('.sign-in').addEventListener('click', () => this._signIn());
-        this.$('.avatar').addEventListener('click', () => {
-            if ( this.$('.menu').hidden ) this._openMenu();
+        this.$('.avatar').addEventListener('click', (event) => {
+            // detail is 0 for a click from Enter or Space.
+            if ( this.$('.menu').hidden ) this._openMenu({ fromKeyboard: event.detail === 0 });
             else this._closePanels();
         });
         for ( const link of MENU_LINKS ) {
@@ -697,10 +698,15 @@ class PuterUserMenu extends PuterWebComponent {
         panel.style.setProperty('--caret-x', `${Math.round(Math.min(width - CARET_INSET, Math.max(CARET_INSET, caret)))}px`);
     }
 
-    _openMenu () {
+    /**
+     * Opened from the keyboard, focus goes to the first item. Opened with the
+     * pointer, it goes to the menu itself, where no item looks focused, so the
+     * first ArrowDown lands on the first item.
+     */
+    _openMenu ({ fromKeyboard = false } = {}) {
         const menu = this.$('.menu');
         this._showPanel(menu);
-        this.$('.menu-item').focus({ preventScroll: true });
+        (fromKeyboard ? this.$('.menu-item') : menu).focus({ preventScroll: true });
     }
 
     /** Moves focus between menu items for an arrow, Home or End key; false for any other key. */

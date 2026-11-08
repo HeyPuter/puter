@@ -253,6 +253,18 @@ describe('<puter-user-menu>', () => {
         expect(shown(el, '.menu')).toBe(true);
     });
 
+    it('lands the first ArrowDown on the first item when the menu was opened with the pointer', async () => {
+        vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
+        const el = await mount();
+        part(el, '.avatar').dispatchEvent(new MouseEvent('click', { detail: 1, bubbles: true, composed: true }));
+        expect(shown(el, '.menu')).toBe(true);
+        expect(el.shadowRoot.activeElement).toBe(part(el, '.menu'));
+
+        const press = (key) => el.shadowRoot.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, composed: true, cancelable: true }));
+        press('ArrowDown');
+        expect(el.shadowRoot.activeElement.classList[1]).toBe('manage-account');
+    });
+
     it('hangs the panel under its button with the caret pointing at it', async () => {
         vi.stubGlobal('puter', fakePuter({ token: 'app-token', user: USER }));
         const el = await mount();
