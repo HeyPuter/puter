@@ -77,8 +77,15 @@ let pageRootStyle = null;
  */
 const lockPageScroll = (dialog) => {
     const root = document.documentElement;
-    // One the page removed itself never unlocks.
+    const unlockPage = () => {
+        root.style.overflow = pageRootStyle.overflow;
+        root.style.paddingRight = pageRootStyle.paddingRight;
+        pageRootStyle = null;
+    };
+    // One the page removed itself never unlocks, so the page's own styles
+    // go back before they're read again.
     for ( const shown of scrollLockers ) if ( ! shown.isConnected ) scrollLockers.delete(shown);
+    if ( scrollLockers.size === 0 && pageRootStyle ) unlockPage();
     if ( scrollLockers.size === 0 ) {
         pageRootStyle = { overflow: root.style.overflow, paddingRight: root.style.paddingRight };
         const scrollbar = window.innerWidth - root.clientWidth;
@@ -92,10 +99,7 @@ const lockPageScroll = (dialog) => {
     return () => {
         if ( ! scrollLockers.delete(dialog) ) return;
         for ( const shown of scrollLockers ) if ( ! shown.isConnected ) scrollLockers.delete(shown);
-        if ( scrollLockers.size > 0 ) return;
-        root.style.overflow = pageRootStyle.overflow;
-        root.style.paddingRight = pageRootStyle.paddingRight;
-        pageRootStyle = null;
+        if ( scrollLockers.size === 0 && pageRootStyle ) unlockPage();
     };
 };
 

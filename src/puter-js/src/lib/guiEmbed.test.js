@@ -553,6 +553,24 @@ describe('page scroll behind an embed', () => {
         expect(root.style.overflow).toBe('');
     });
 
+    it('gives the page its own styles back after an embed the page removed itself', async () => {
+        scrollbar(15);
+        root.style.paddingRight = '8px';
+        show('upgrade');
+        tell('upgrade', 'ready');
+        document.querySelector('dialog.puter-popup-frame').remove();
+
+        const signIn = show('sign-in');
+        tell('sign-in', 'ready');
+        expect(root.style.overflow).toBe('hidden');
+        expect(root.style.paddingRight).toBe('23px');
+        tell('sign-in', 'closed');
+        await signIn;
+
+        expect(root.style.overflow).toBe('');
+        expect(root.style.paddingRight).toBe('8px');
+    });
+
     it('leaves the page alone for an embed that never showed', async () => {
         scrollbar(0);
         const result = show('upgrade');
