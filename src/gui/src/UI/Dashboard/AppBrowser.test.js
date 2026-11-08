@@ -68,6 +68,29 @@ async function mount (options = {}) {
 }
 
 describe('shared app browser', () => {
+    it('saves one layout at a time, sending only the newest once the last write lands', async () => {
+        await mount({ editable: true });
+        const writes = [];
+        puter.kv.set = vi.fn((key, value) => new Promise(resolve => writes.push({ key, value, resolve })));
+        const orderWrites = () => writes.filter(w => w.key === APPS_ORDER_KV_KEY);
+
+        browser._apps = [{ name: 'a' }, { name: 'b' }];
+        browser.saveOrder();
+        browser._apps = [{ name: 'b' }, { name: 'a' }];
+        browser.saveOrder();
+        browser._apps = [{ name: 'a' }, { name: 'b' }, { name: 'c' }];
+        browser.saveOrder();
+        expect(orderWrites()).toHaveLength(1);
+
+        orderWrites()[0].resolve();
+        await vi.waitFor(() => expect(orderWrites()).toHaveLength(2));
+        expect(orderWrites()[1].value).toBe(JSON.stringify(browser._savedOrderNames));
+        expect(orderWrites()[1].value).not.toBe(orderWrites()[0].value);
+        orderWrites()[1].resolve();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(orderWrites()).toHaveLength(2);
+    });
+
     it('leaves the app request form open on an Escape that ends an IME composition', async () => {
         await mount({ editable: true });
         $('.myapps-add-tile').trigger('click');

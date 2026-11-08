@@ -2338,14 +2338,32 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             // boundary so their stale snapshot can't replay over it (see
             // _resolveGroups).
             this._groupsSavedAtSeq = this._loadSeq || 0;
-            try {
-                const p = puter.kv.set(APP_GROUPS_KV_KEY, JSON.stringify(groups));
-                if ( p && typeof p.catch === 'function' ) {
-                    p.catch(err => console.error('Failed to save app folders:', err));
+            this._persistLatest(APP_GROUPS_KV_KEY, JSON.stringify(groups), 'Failed to save app folders:');
+        },
+
+        // Saves `value` under `key` one write at a time, sending only the
+        // newest value once the write before it lands: two writes of a key in
+        // flight together (an eject's save, then the drop's) can land in
+        // either order, leaving the older layout stored.
+        _persistLatest (key, value, failureMessage) {
+            this._kvWrites ??= new Map();
+            let slot = this._kvWrites.get(key);
+            if ( ! slot ) this._kvWrites.set(key, slot = { pending: undefined, running: false });
+            slot.pending = value;
+            if ( slot.running ) return;
+            slot.running = true;
+            (async () => {
+                while ( slot.pending !== undefined ) {
+                    const next = slot.pending;
+                    slot.pending = undefined;
+                    try {
+                        await puter.kv.set(key, next);
+                    } catch ( err ) {
+                        console.error(failureMessage, err);
+                    }
                 }
-            } catch ( err ) {
-                console.error('Failed to save app folders:', err);
-            }
+                slot.running = false;
+            })();
         },
 
         // -- Drag-to-reorder --
@@ -3273,14 +3291,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             // boundary so their stale snapshot can't replay over it (see
             // _resolveOrderNames).
             this._orderSavedAtSeq = this._loadSeq || 0;
-            try {
-                const p = puter.kv.set(APPS_ORDER_KV_KEY, JSON.stringify(names));
-                if ( p && typeof p.catch === 'function' ) {
-                    p.catch(err => console.error('Failed to save app order:', err));
-                }
-            } catch ( err ) {
-                console.error('Failed to save app order:', err);
-            }
+            this._persistLatest(APPS_ORDER_KV_KEY, JSON.stringify(names), 'Failed to save app order:');
         },
 
         loadApps ($el_window) {
