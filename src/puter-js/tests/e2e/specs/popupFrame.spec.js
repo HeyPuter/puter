@@ -262,6 +262,16 @@ button { margin: 0 6px 8px 0; min-width: 88px; min-height: 44px; box-shadow: 0 1
             expect(open.y).toBe(cancel.y);
             expect(open.x).toBeGreaterThan(cancel.x + cancel.width);
             expect(open.y + open.height).toBeLessThan(bar.y + bar.height);
+
+            // With German's longer labels, the upload label gives way so both
+            // buttons stay whole on screen.
+            await frame(page).locator('.window-filedialog-prompt').evaluate((el) => {
+                el.querySelector('.window-filedialog-upload-here').lastChild.textContent = ' Hochladen';
+                el.querySelector('.filedialog-cancel-btn').textContent = 'Abbrechen';
+                el.querySelector('.openfiledialog-open-btn').textContent = 'Öffnen';
+            });
+            const germanOpen = await frame(page).locator('.openfiledialog-open-btn').boundingBox();
+            expect(germanOpen.x + germanOpen.width).toBeLessThanOrEqual(bar.x + bar.width);
         });
     });
 

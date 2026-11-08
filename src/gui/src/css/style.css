@@ -1515,9 +1515,16 @@ span.header-sort-icon img {
     width: initial !important;
 }
 
-.window-filedialog-upload-here {
+/* In a narrow open dialog, the upload label gives way so its buttons stay whole. */
+.window-filedialog-upload-here + div {
     flex-shrink: 0;
+}
+
+.window-filedialog-upload-here {
+    min-width: 0;
     margin-right: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
     -webkit-font-smoothing: antialiased;
     opacity: 0.7;
