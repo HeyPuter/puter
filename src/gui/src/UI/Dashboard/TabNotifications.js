@@ -232,11 +232,18 @@ const TabNotifications = {
                 ? devices.map(device => deviceCardHtml(device, now)).join('')
                 : emptyHtml('push_devices_empty'));
         };
+        // Only the newest listing draws, and a local removal outdates any
+        // listing still in flight: it may predate the removal.
+        let devicesSeq = 0;
         const refreshDevices = async () => {
+            const seq = ++devicesSeq;
             try {
-                devices = await listPushDevices();
+                const listed = await listPushDevices();
+                if ( seq !== devicesSeq ) return;
+                devices = listed;
                 renderDevices();
             } catch ( e ) {
+                if ( seq !== devicesSeq ) return;
                 console.warn('[push] device list failed', e);
                 $section.find('.push-devices-list').html(emptyHtml(loadFailedKey(e)));
             }
@@ -247,11 +254,16 @@ const TabNotifications = {
                 ? apps.map(appCardHtml).join('')
                 : emptyHtml('push_apps_empty'));
         };
+        let appsSeq = 0;
         const refreshApps = async () => {
+            const seq = ++appsSeq;
             try {
-                apps = await listPushApps();
+                const listed = await listPushApps();
+                if ( seq !== appsSeq ) return;
+                apps = listed;
                 renderApps();
             } catch ( e ) {
+                if ( seq !== appsSeq ) return;
                 console.warn('[push] app list failed', e);
                 $section.find('.push-apps-list').html(emptyHtml(loadFailedKey(e)));
             }
@@ -390,6 +402,7 @@ const TabNotifications = {
                 await Promise.all([refreshBrowser(), refreshDevices()]);
                 return;
             }
+            devicesSeq++;
             devices = devices.filter(d => d.uid !== uid);
             renderDevices();
             if ( device.current ) refreshBrowser();
@@ -406,6 +419,7 @@ const TabNotifications = {
                 showError('push_app_turn_off_failed', $el_window);
                 return;
             }
+            appsSeq++;
             apps = apps.filter(app => app.uid !== appUid);
             renderApps();
         });

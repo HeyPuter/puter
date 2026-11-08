@@ -607,6 +607,36 @@ describe('your devices', () => {
         expect($('.push-device-card')).toHaveLength(0);
     });
 
+    it('does not bring back a removed device when an older listing lands after the removal', async () => {
+        const both = [device({ uid: 'a' }), device({ uid: 'b', label: 'Phone' })];
+        let releaseListing;
+        let deferred = false;
+        serve({
+            'GET /push/devices': () => (deferred
+                ? new Promise(resolve => { releaseListing = () => resolve(reply(200, { devices: both })); })
+                : reply(200, { devices: both })),
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+            'DELETE /push/devices/b': () => reply(200, { removed: true }),
+        });
+        await open();
+        // Coming back to the tab starts a listing that is slow to answer.
+        deferred = true;
+        void tab.onActivate($('.win'));
+        await settle();
+
+        $('.push-remove-device[data-uid="b"]').trigger('click');
+        await settle();
+        dialogButton('push_device_remove').trigger('click');
+        await settle();
+        expect($('.push-remove-device[data-uid="b"]')).toHaveLength(0);
+
+        releaseListing();
+        await settle();
+        expect($('.push-remove-device[data-uid="b"]')).toHaveLength(0);
+        expect($('.push-device-card')).toHaveLength(1);
+    });
+
     it('removes another device with the server alone', async () => {
         const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'a' });
         pushClient.registerPushClient(client);
