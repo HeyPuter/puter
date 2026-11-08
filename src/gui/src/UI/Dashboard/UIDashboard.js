@@ -548,12 +548,13 @@ async function UIDashboard (options) {
         const filePath = route.path;
         notifications.close({ restoreFocus: false });
         // What was open over the tab being left goes with it, as on a
-        // sidebar click: the phone drawer, a menu, and Files' Share and
+        // sidebar click: the phone drawer, a menu, Files' Share and
         // Properties, which act on its rows (their changes are already saved),
-        // and its image preview.
+        // its image preview, and a dialog or the photo crop, each through its
+        // own close button.
         setMobileSidebar(false);
         $('.context-menu').remove();
-        $el_window.find('.share-modal-close, .item-props-close').trigger('click');
+        $el_window.find('.share-modal-close, .item-props-close, .dashboard-dialog-overlay .dashboard-dialog-close, .profile-crop-close').trigger('click');
         if ( tab !== 'files' && TabFiles.previewOpen ) TabFiles.closeImagePreview();
 
         // Switch to correct tab
