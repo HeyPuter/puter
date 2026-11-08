@@ -258,6 +258,11 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     let restarted = false;
     let restartTimer = null;
     let unlockScroll = null;
+    // A dialog the page removes itself, such as by re-rendering its body,
+    // counts as dismissed, so whoever awaits it isn't left waiting.
+    const removal = new MutationObserver(() => {
+        if ( ! dialog.isConnected ) dismiss();
+    });
     const restoreFocus = document.activeElement;
     const wait = (ms) => {
         clearTimeout(timer);
@@ -269,6 +274,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         clearTimeout(timer);
         clearTimeout(loadingTimer);
         clearTimeout(restartTimer);
+        removal.disconnect();
         window.removeEventListener('message', onWindowMessage);
         if ( showingEmbeds.get(path) === dismiss ) showingEmbeds.delete(path);
         dialog.remove();
@@ -365,6 +371,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         frame.src = url.href;
         // Hidden at first, so a quickly refused session shows nothing.
         document.body.append(dialog);
+        removal.observe(document.documentElement, { childList: true, subtree: true });
         onFrame?.(frame.contentWindow);
         wait(READY_TIMEOUT_MS);
         loadingTimer = setTimeout(() => {

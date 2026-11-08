@@ -459,6 +459,15 @@ describe('showPopupFrame', () => {
         await expect(picker).resolves.toBe('closed');
     });
 
+    it('finishes as closed when the page removes it, letting the page scroll again', async () => {
+        const result = show({ action: 'upgrade', fragment: { user: USER } });
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        expect(document.documentElement.style.overflow).toBe('hidden');
+        document.body.innerHTML = '<main>re-rendered</main>';
+        await expect(result).resolves.toBe('closed');
+        expect(document.documentElement.style.overflow).toBe('');
+    });
+
     it('keeps the scrim behind a ready frame from dismissing it', () => {
         show();
         fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
