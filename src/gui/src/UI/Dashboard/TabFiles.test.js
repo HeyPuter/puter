@@ -116,6 +116,33 @@ describe('TabFiles emptying the Trash', () => {
     });
 });
 
+describe('TabFiles restoring from the Trash', () => {
+    beforeEach(() => {
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+        window.refresh_trash_state = vi.fn(async () => {});
+        window.puter = { fs: { move: vi.fn(async () => ({})) } };
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('says in the user\'s language when an item has no record of where it came from', async () => {
+        const { default: UIAlert } = await import('../UIAlert.js');
+        UIAlert.mockClear();
+        mountListing(['uid-1']);
+        const row = $('.files .row')[0];
+        row.setAttribute('data-name', 'notes.txt');
+        row.setAttribute('data-uid', 'uid-1');
+
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        await TabFiles.restoreRows([row]);
+
+        expect(puter.fs.move).not.toHaveBeenCalled();
+        expect(UIAlert).toHaveBeenCalledWith('“notes.txt” can’t be restored because where it was deleted from isn’t known.');
+        expect($('.files .row')).toHaveLength(1);
+    });
+});
+
 describe('failedUploadsMessage', () => {
     it('puts each failed item on its own line', () => {
         const message = failedUploadsMessage({ failedItems: [

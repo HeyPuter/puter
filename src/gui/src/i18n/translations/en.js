@@ -550,6 +550,8 @@ const en = {
         'Resources': 'Resources',
         restart_puter_confirm: 'Are you sure you want to restart Puter?',
         restore: 'Restore',
+        restore_location_unknown: '“{{name}}” can’t be restored because where it was deleted from isn’t known.',
+        restore_only_trash_items: '“{{name}}” is inside a folder in the Trash. Restore that folder instead.',
         retry: 'Retry',
         save: 'Save',
         saturation: 'Saturation',

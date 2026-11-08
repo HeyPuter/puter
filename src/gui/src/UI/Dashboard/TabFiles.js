@@ -4442,11 +4442,14 @@ const TabFiles = {
         const metadata = metadataStr ? JSON.parse(metadataStr) : {};
 
         // Only a direct child of Trash carries restore metadata.
+        const name = $(el_item).attr('data-name') || '';
         if ( path.dirname($(el_item).attr('data-path') || '') !== window.trash_path ) {
-            throw new Error('Cannot restore: only top-level Trash items can be restored');
+            throw new Error(i18n('restore_only_trash_items', { name }, false));
         }
+        // An item an app or the API moved into the Trash has no record of
+        // where it came from.
         if ( ! metadata.original_path ) {
-            throw new Error('Cannot restore: original path not found in metadata');
+            throw new Error(i18n('restore_location_unknown', { name }, false));
         }
 
         const destPath = path.dirname(metadata.original_path);
