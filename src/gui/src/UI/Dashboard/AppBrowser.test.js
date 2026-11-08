@@ -68,6 +68,24 @@ async function mount (options = {}) {
 }
 
 describe('shared app browser', () => {
+    it('lets Tab reach the delete-data option in the Uninstall dialog', async () => {
+        // jsdom lays nothing out; the focus trap skips elements with no offsetParent.
+        vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockReturnValue(document.body);
+        await mount({ editable: true });
+        browser._setReorderMode($root, true);
+        $('.myapps-tile[data-app-name="editor"] .myapps-tile-remove').trigger('click');
+        const $overlay = $('.myapps-modal-overlay');
+        expect(document.activeElement.classList.contains('myapps-modal-cancel')).toBe(true);
+
+        // Tab from the last control wraps to the first, the checkbox.
+        $overlay.find('.myapps-modal-confirm')[0].focus();
+        $overlay.trigger($.Event('keydown', { key: 'Tab', shiftKey: false }));
+        expect(document.activeElement.classList.contains('myapps-modal-delete-data')).toBe(true);
+        // Shift+Tab from it wraps back to the last.
+        $overlay.trigger($.Event('keydown', { key: 'Tab', shiftKey: true }));
+        expect(document.activeElement.classList.contains('myapps-modal-confirm')).toBe(true);
+    });
+
     it('uses saved order, folders, and removed recommendations in read-only mode', async () => {
         await mount();
         expect(browser._apps.map(app => app.name)).toEqual(['notes', 'sheet', 'editor']);

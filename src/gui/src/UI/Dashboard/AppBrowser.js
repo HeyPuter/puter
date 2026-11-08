@@ -383,7 +383,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
     function trapModalTab ($overlay) {
         $overlay.on('keydown', function (e) {
             if ( e.key !== 'Tab' ) return;
-            const focusables = $overlay.find('button, textarea').toArray()
+            const focusables = $overlay.find('button, textarea, input:not([type="hidden"]), select, a[href]').toArray()
                 .filter(el => ! el.disabled && el.offsetParent !== null);
             if ( focusables.length === 0 ) return;
             const first = focusables[0];
