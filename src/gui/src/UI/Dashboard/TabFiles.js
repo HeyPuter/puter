@@ -3325,6 +3325,9 @@ const TabFiles = {
         // the directories sidebar is hidden — Home carries a row for each.
         this.renderPlaceRows();
 
+        // Something that ran while the listing loaded (a restore finishing,
+        // a failed mkdir) may have found the pane empty and said so.
+        $files.find('.files-empty-notice').remove();
         if ( directoryContents.length === 0 ) {
             this.renderEmptyPlaceholderIfNeeded();
             this.updateFooterStats();
