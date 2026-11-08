@@ -1492,9 +1492,16 @@ span.header-sort-icon img {
     align-items: center;
 }
 
-/* The file name shrinks so the buttons stay on screen in a narrow dialog. */
+/* The file name shrinks so the buttons stay on one line, on screen, in a narrow dialog. */
 .window-filedialog-prompt > div {
     min-width: 0;
+    white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+    .window-filedialog-prompt .button-small {
+        padding: 0 16px;
+    }
 }
 
 .savefiledialog-filename {
@@ -1509,6 +1516,9 @@ span.header-sort-icon img {
 }
 
 .window-filedialog-upload-here {
+    flex-shrink: 0;
+    margin-right: 10px;
+    white-space: nowrap;
     -webkit-font-smoothing: antialiased;
     opacity: 0.7;
     font-size: 14px;

@@ -229,6 +229,30 @@ button { margin: 0 6px 8px 0; min-width: 88px; min-height: 44px; box-shadow: 0 1
         });
     });
 
+    test.describe('on a small phone', () => {
+        const { defaultBrowserType: _browser, ...iPhoneSE } = devices['iPhone SE'];
+        test.use(iPhoneSE);
+
+        test('the framed open picker keeps its buttons on one line inside its bar', async ({ page }) => {
+            await page.goto('/');
+            await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+            await openFirstPartyPage(page);
+            await runFromClick(page, 'puter.auth.signIn()');
+            await frameReady(page);
+            await frame(page).locator('.auth-dialog [data-screen="accounts"] button').first().click();
+            expect((await result(page)).ok).toBe(true);
+
+            await runFromClick(page, 'puter.ui.showOpenFilePicker()');
+            await frameReady(page);
+            const bar = await frame(page).locator('.window-filedialog-prompt').boundingBox();
+            const cancel = await frame(page).locator('.filedialog-cancel-btn').boundingBox();
+            const open = await frame(page).locator('.openfiledialog-open-btn').boundingBox();
+            expect(open.y).toBe(cancel.y);
+            expect(open.x).toBeGreaterThan(cancel.x + cancel.width);
+            expect(open.y + open.height).toBeLessThan(bar.y + bar.height);
+        });
+    });
+
     test('a provider picked in the framed sign-in opens straight in the popup', async ({ page }) => {
         await page.goto('/');
         await page.waitForFunction(() => !!window.user?.username && !!window.puter?.authToken, null, { timeout: 60_000 });
