@@ -959,6 +959,7 @@ const postAuthActions = async (action) => {
             sent = await UIWindowAppFeedback({
                 origin,
                 source: 'web',
+                fullpage: window.embedded_in_popup === true,
             });
         } catch (e) {
             console.error('send-feedback action failed', e);
