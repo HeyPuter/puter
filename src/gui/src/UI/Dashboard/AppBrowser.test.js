@@ -68,6 +68,20 @@ async function mount (options = {}) {
 }
 
 describe('shared app browser', () => {
+    it('leaves the app request form open on an Escape that ends an IME composition', async () => {
+        await mount({ editable: true });
+        $('.myapps-add-tile').trigger('click');
+        $('.myapps-add-option[data-add-option="request"]').trigger('click');
+        const pane = () => $('.myapps-add-pane:not([hidden])').attr('data-pane');
+        expect(pane()).toBe('request');
+
+        $('.myapps-add-message')[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }));
+        expect(pane()).toBe('request');
+        $('.myapps-add-message')[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        expect(pane()).toBe('options');
+        $(document).off('keydown.add-app-modal');
+    });
+
     it('lets Tab reach the delete-data option in the Uninstall dialog', async () => {
         // jsdom lays nothing out; the focus trap skips elements with no offsetParent.
         vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockReturnValue(document.body);

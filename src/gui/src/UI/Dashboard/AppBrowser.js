@@ -693,6 +693,8 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
         $overlay.on('click', '.myapps-add-back', () => showPane('options'));
         $(document).on('keydown.add-app-modal', function (e) {
             if ( e.key !== 'Escape' ) return;
+            // Escape while composing (CJK input) cancels the composition only.
+            if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
             // Escape steps back out of the form before it closes the modal, so a
             // half-written request survives a mis-hit key.
             if ( currentPane() === 'request' ) showPane('options');
