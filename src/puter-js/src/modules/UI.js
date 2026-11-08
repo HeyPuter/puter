@@ -1714,13 +1714,14 @@ export class UIModule extends EventListener {
      * Asks the desktop to show its upgrade flow. `details` say what was
      * refused and why, so the desktop can explain the suggestion; the SDK
      * fills them in when a call is refused for want of credit, a plan, or
-     * storage. Inside an app the desktop doesn't answer, so the promise never
-     * settles.
+     * storage.
      *
      * On a signed-in first-party page one label under the Puter origin, the
      * upgrade shows in a frame over the page instead, and the promise
      * resolves once it closes. When the frame can't show it, the upgrade
      * opens in a new tab and the promise resolves `{ upgraded: false }`.
+     * Anywhere else the promise never settles: the desktop doesn't answer an
+     * app, and a website has no desktop to ask.
      *
      * @param {import('../lib/types.js').UpgradeRequestDetails} [details]
      * @returns {Promise<import('../lib/types.js').UpgradeResult>}
