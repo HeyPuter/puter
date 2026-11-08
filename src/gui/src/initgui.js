@@ -719,7 +719,14 @@ const postAuthActions = async (action) => {
                             catch ( err ) {
                                 // item with same name exists
                                 if ( err.code === 'item_with_same_name_exists' ) {
-                                    const alert_resp = await UIAlert({
+                                    // Escape closes the alert without an answer,
+                                    // which counts as Cancel, so the picker isn't
+                                    // left behind its busy mask.
+                                    let alert_closed;
+                                    const alert_dismissed = new Promise((resolve) => {
+                                        alert_closed = () => resolve('cancel');
+                                    });
+                                    const alert_resp = await Promise.race([UIAlert({
                                         message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                                         buttons: [
                                             {
@@ -733,10 +740,11 @@ const postAuthActions = async (action) => {
                                             },
                                         ],
                                         parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
-                                    });
+                                        window_options: { on_close: alert_closed },
+                                    }), alert_dismissed]);
                                     if ( alert_resp === 'replace' ) {
                                         overwrite = true;
-                                    } else if ( alert_resp === 'cancel' ) {
+                                    } else {
                                         // enable parent window
                                         $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
                                         return;

@@ -116,6 +116,18 @@ test.describe('popups a first-party page shows framed', () => {
         const saved = await result(page);
         expect(saved.value).toMatchObject({ name: savedName });
 
+        // Escape on the alert asking to replace that file goes back to the
+        // picker, as its Cancel does, rather than leaving it behind its mask.
+        await runFromClick(page, `puter.ui.showSaveFilePicker("again", ${JSON.stringify(savedName)}).undefinedOnCancel`);
+        await frameReady(page);
+        await frame(page).locator('.savefiledialog-save-btn').click();
+        await expect(frame(page).locator('.window-alert')).toHaveCount(1);
+        await page.keyboard.press('Escape');
+        await expect(frame(page).locator('.window-alert')).toHaveCount(0);
+        await expect(frame(page).locator('.window-filedialog .window-disable-mask')).toBeHidden();
+        await frame(page).getByRole('button', { name: 'Cancel' }).click();
+        expect(await result(page)).toEqual({ ok: true, value: null });
+
         await runFromClick(page, 'puter.ui.showDirectoryPicker().undefinedOnCancel');
         await frameReady(page);
         await frame(page).getByRole('button', { name: 'Cancel' }).click();
