@@ -177,16 +177,16 @@ export class AuthModule extends PuterModule {
         }
 
         if (this.#canSignInInFrame(options)) {
-            // A second call, such as from a double click, waits on the first
-            // rather than replacing its frame.
-            const requestAuth = !!options.request_auth;
-            if (this.#framedSignIn?.requestAuth === requestAuth) return this.#framedSignIn.promise;
+            // A second call, such as from a double click or a `puter.*` call
+            // asking for implicit auth, waits on the first rather than
+            // replacing its frame, which would reject the first.
+            if (this.#framedSignIn) return this.#framedSignIn;
             const promise = this.#signInInFrame(options).then((result) =>
                 result ?? this.#signInWithPopup(options));
             const done = () => {
-                if (this.#framedSignIn?.promise === promise) this.#framedSignIn = null;
+                if (this.#framedSignIn === promise) this.#framedSignIn = null;
             };
-            this.#framedSignIn = { requestAuth, promise };
+            this.#framedSignIn = promise;
             promise.then(done, done);
             return promise;
         }

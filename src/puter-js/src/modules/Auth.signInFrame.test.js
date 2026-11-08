@@ -117,6 +117,17 @@ describe('auth.signIn on a first-party page', () => {
         await expect(third).rejects.toMatchObject({ error: 'auth_window_closed' });
     });
 
+    it('shares the framed sign-in with a call that differs in request_auth', async () => {
+        // Implicit auth (a `puter.*` call without a token) asks with request_auth.
+        const implicit = auth.signIn({ request_auth: true });
+        const explicit = auth.signIn();
+        expect(document.querySelectorAll('dialog.puter-popup-frame')).toHaveLength(1);
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puter.token', msg_id: frameMsgId(), success: true, token: 'tok' });
+        await expect(implicit).resolves.toEqual({ success: true, token: 'tok' });
+        await expect(explicit).resolves.toEqual({ success: true, token: 'tok' });
+    });
+
     it('rejects with the reply a failed sign-in sends, as the popup does', async () => {
         const result = auth.signIn();
         fromFrame({ msg: 'puter.token', msg_id: frameMsgId(), success: false, token: null });
