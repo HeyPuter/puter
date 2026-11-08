@@ -131,6 +131,48 @@ test.describe('popups a first-party page shows framed', () => {
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
     });
 
+    test('a provider picked in the framed sign-in opens straight in the popup', async ({ page }) => {
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.user?.username && !!window.puter?.authToken, null, { timeout: 60_000 });
+        const username = await page.evaluate(() => window.user.username);
+        // Offer Google, and stand in for its round trip: the provider returns
+        // the popup to the sign-in popup for the same attempt.
+        await page.context().route('**/auth/oidc/providers', (route) =>
+            route.fulfill({ contentType: 'application/json', body: JSON.stringify({ providers: ['google'] }) }));
+        let started = null;
+        await page.context().route('**/auth/oidc/google/start?*', (route) => {
+            started = new URL(route.request().url());
+            const back = new URL('/action/sign-in', PUTER_ORIGIN);
+            back.searchParams.set('embedded_in_popup', 'true');
+            back.searchParams.set('msg_id', started.searchParams.get('msg_id'));
+            return route.fulfill({ status: 302, headers: { location: back.href } });
+        });
+
+        await openFirstPartyPage(page);
+        const popups = [];
+        page.on('popup', (p) => popups.push(p));
+        await runFromClick(page, 'puter.auth.signIn()');
+        await frameReady(page);
+        const frameMsgId = await page.evaluate(() =>
+            new URLSearchParams(new URL(document.querySelector('dialog.puter-popup-frame iframe').src).hash.slice(1)).get('msg_id'));
+        await frame(page).locator('.auth-dialog [data-screen="accounts"]').waitFor();
+        await frame(page).locator('.auth-dialog .auth-to-login').click();
+        await frame(page).locator('.oidc-google-btn').click();
+
+        await expect.poll(() => popups.length).toBe(1);
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+        expect(started.origin + started.pathname).toBe(`${PUTER_ORIGIN}/auth/oidc/google/start`);
+        expect(started.searchParams.get('msg_id')).toBe(frameMsgId);
+        expect(started.searchParams.get('embedded_in_popup')).toBe('true');
+        expect(started.searchParams.get('opener_origin')).toBe(FIRST_PARTY);
+
+        const popup = popups[0];
+        await popup.locator('.auth-dialog [data-screen="accounts"] button').first().click();
+        const signedIn = await result(page);
+        expect(signedIn).toMatchObject({ ok: true, value: { success: true, username } });
+        expect(popups).toHaveLength(1);
+    });
+
     test('a page signed in as someone else gets the picker popup', async ({ page }) => {
         await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });

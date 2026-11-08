@@ -177,7 +177,8 @@ popup's parameters come from the fragment instead of the query: `msg_id`,
 
 The frame posts `{ msg: 'puterPopupFrame', state }` to its parent: `loading` as
 soon as the shell boots, `ready` once it shows a window or dialog, `unavailable`
-when the page has to use the popup, and `closed` where a popup would close. Its
+when the page has to use the popup, `provider` when the user picks a sign-in
+provider (below), and `closed` where a popup would close. Its
 answers (`puter.token`, `fileOpenPicked`, `directoryPicked`, `fileSaved`, the
 cancel messages, `sendMeFileData`) are the popup's.
 
@@ -195,9 +196,12 @@ the frame again, once per `ready`.
 
 - **Sign-in** (`puter.auth.signIn()`) has no host-user binding: it is how the
   page gets a user. The box has a close button, which rejects with
-  `auth_window_closed` as closing the popup does. Choosing a federated provider
-  reports `unavailable`, since providers refuse to be framed, so the sign-in
-  continues in the popup. `attempt_temp_user_creation` keeps the popup, since
+  `auth_window_closed` as closing the popup does. Providers refuse to be
+  framed, so choosing one posts `{ state: 'provider', url }` with the
+  provider's start URL for this sign-in's `msg_id`, then `unavailable`. The
+  page opens the popup straight at that URL, once it checks the URL is the
+  GUI's `/auth/oidc/<provider>/start` for this `msg_id`, and the provider
+  returns it as this sign-in's popup. `attempt_temp_user_creation` keeps the popup, since
   only the popup creates a temporary account.
 - **Pickers** frame only for a signed-in page. The GUI reports `unavailable`
   unless its session belongs to the user named in `user`, and the page then uses

@@ -93,6 +93,16 @@ describe('startPopupFrame', () => {
         expect(statesSent(win)).toEqual(['loading', 'closed', 'closed']);
     });
 
+    it('sends the fields that go with a state, without letting them rename it', () => {
+        const win = frameWindow();
+        const tell = startPopupFrame(win, HOST);
+        tell('provider', { url: 'https://puter.test/auth/oidc/google/start', msg: 'x', state: 'y' });
+        expect(win.parent.postMessage).toHaveBeenLastCalledWith(
+            { url: 'https://puter.test/auth/oidc/google/start', msg: POPUP_FRAME_MSG, state: 'provider' },
+            HOST,
+        );
+    });
+
     it('leaves other window.open calls alone', () => {
         const win = frameWindow();
         const open = win.open;

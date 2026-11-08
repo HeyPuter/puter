@@ -235,7 +235,13 @@ describe('OIDC buttons on the login and signup screens', () => {
             await vi.waitFor(() => expect($('.oidc-google-btn')).toHaveLength(1));
             const href = window.location.href;
             $('.oidc-google-btn').trigger('click');
-            expect(window.tell_popup_frame).toHaveBeenCalledWith('unavailable');
+            expect(window.tell_popup_frame.mock.calls).toEqual([
+                ['provider', { url: expect.stringContaining('https://puter.test/auth/oidc/google/start?flow=login') }],
+                ['unavailable'],
+            ]);
+            const start = new URL(window.tell_popup_frame.mock.calls[0][1].url);
+            expect(start.searchParams.get('embedded_in_popup')).toBe('true');
+            expect(start.searchParams.get('msg_id')).toBe('1');
             expect(window.location.href).toBe(href);
         } finally {
             delete window.embedded_in_frame;

@@ -127,6 +127,44 @@ describe('auth.signIn on a first-party page', () => {
         await expect(result).resolves.toMatchObject({ success: true, token: 'tok' });
     });
 
+    it('opens the provider the user picked in the frame straight in the popup', async () => {
+        const result = auth.signIn();
+        const msgId = frameMsgId();
+        const start = `${GUI_ORIGIN}/auth/oidc/google/start?flow=login&referrer=x&embedded_in_popup=true&msg_id=${msgId}&opener_origin=https%3A%2F%2Fnotes.puter.test`;
+        const frameWindow = signInFrame().contentWindow;
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'provider', url: start });
+        fromFrame({ msg: 'puterPopupFrame', state: 'unavailable' }, frameWindow);
+        await vi.waitFor(() => expect(window.open).toHaveBeenCalledTimes(1));
+        expect(window.open.mock.calls[0][0]).toBe(start);
+        expect(signInFrame()).toBeNull();
+        expect(auth.pendingSignInMessageIds_.has(msgId)).toBe(true);
+
+        // The provider returns the popup as a sign-in popup for the same attempt.
+        window.dispatchEvent(new MessageEvent('message', {
+            data: { msg: 'puter.token', msg_id: msgId, success: true, token: 'tok' },
+            origin: GUI_ORIGIN,
+            source: window.open.mock.results[0].value,
+        }));
+        await expect(result).resolves.toMatchObject({ success: true, token: 'tok' });
+        expect(puter.setAuthToken).toHaveBeenCalledWith('tok');
+        expect(auth.pendingSignInMessageIds_.size).toBe(0);
+    });
+
+    it.each([
+        ['another origin', (id) => `https://evil.test/auth/oidc/google/start?embedded_in_popup=true&msg_id=${id}`],
+        ['another path', (id) => `${GUI_ORIGIN}/action/sign-in?embedded_in_popup=true&msg_id=${id}&auth_token=x`],
+        ['another sign-in', () => `${GUI_ORIGIN}/auth/oidc/google/start?embedded_in_popup=true&msg_id=other`],
+        ['no popup return', (id) => `${GUI_ORIGIN}/auth/oidc/google/start?msg_id=${id}`],
+        ['no URL', () => undefined],
+    ])('opens the sign-in popup instead of a provider URL to %s', async (_, url) => {
+        auth.signIn();
+        fromFrame({ msg: 'puterPopupFrame', state: 'provider', url: url(frameMsgId()) });
+        fromFrame({ msg: 'puterPopupFrame', state: 'unavailable' });
+        await vi.waitFor(() => expect(window.open).toHaveBeenCalledTimes(1));
+        expect(window.open.mock.calls[0][0]).toContain(`${GUI_ORIGIN}/action/sign-in?embedded_in_popup=true`);
+    });
+
     it('continues in the popup when the frame is refused', async () => {
         vi.useFakeTimers();
         auth.signIn();

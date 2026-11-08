@@ -226,6 +226,10 @@ export class AuthModule extends PuterModule {
                 closeLabel: 'Close',
                 closed: () => ({ closed: true }),
                 onMessage: (data, finish) => {
+                    if (data.msg === 'puterPopupFrame' && data.state === 'provider') {
+                        if (this.#isProviderStart(data.url, msg_id)) finish({ providerUrl: data.url });
+                        return;
+                    }
                     if (data.msg !== 'puter.token' || data.msg_id != msg_id) return;
                     finish({ reply: data });
                 },
@@ -234,6 +238,11 @@ export class AuthModule extends PuterModule {
             this.pendingSignInMessageIds_.delete(msg_id);
         }
         if (!outcome) return null;
+        // A provider won't load in a frame, so its sign-in continues in the
+        // popup, which the provider returns as this attempt's sign-in popup.
+        if (outcome.providerUrl) {
+            return this.#signInWithPopup(options, { url: outcome.providerUrl, msgId: msg_id });
+        }
         if (outcome.closed) {
             throw {
                 error: 'auth_window_closed',
@@ -247,14 +256,33 @@ export class AuthModule extends PuterModule {
         return result;
     }
 
-    /** The sign-in in a popup window. */
-    #signInWithPopup (options) {
+    /**
+     * Whether `url` is the GUI's start of a provider sign-in that returns as
+     * the popup for sign-in `msgId`.
+     */
+    #isProviderStart (url, msgId) {
+        try {
+            const start = new URL(url);
+            return start.origin === new URL(puter.defaultGUIOrigin).origin &&
+                /^\/auth\/oidc\/[^/]+\/start$/.test(start.pathname) &&
+                start.searchParams.get('embedded_in_popup') === 'true' &&
+                start.searchParams.get('msg_id') === msgId;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * The sign-in in a popup window, opened at `start.url` for sign-in
+     * `start.msgId` when a framed sign-in hands one over.
+     */
+    #signInWithPopup (options, start = {}) {
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
-            const msg_id = signinsession;
+            const msg_id = start.msgId ?? signinsession;
             this.pendingSignInMessageIds_.add(msg_id);
             const popupName = `Puter-sign-in-${signinsession}`;
-            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
+            const url = start.url ?? `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
 
             // Guards against settling the promise more than once across the
             // message, popup-closed, and dialog-cancel code paths.

@@ -72,17 +72,19 @@ export const framedPopupParams = (hash) => {
  * Starts a framed popup in `win`: the framing page, at the origin the server
  * pinned with frame-ancestors, becomes `opener`, `close()` asks it to remove
  * the frame, and it hears `ready` once the popup shows something. Returns a
- * function that sends it a lifecycle state, or null when there is no framing
- * page to answer (opened on its own, or framed by a page the server refused).
+ * function that sends it a lifecycle state, with any fields that go with it,
+ * or null when there is no framing page to answer (opened on its own, or
+ * framed by a page the server refused).
  *
  * @param {Window} win
  * @param {string | null | undefined} hostOrigin - `gui_params.embed_host_origin`
- * @returns {((state: 'loading' | 'ready' | 'unavailable' | 'closed') => void) | null}
+ * @returns {((state: 'loading' | 'ready' | 'unavailable' | 'closed' | 'provider', fields?: Record<string, string>) => void) | null}
  */
 export const startPopupFrame = (win, hostOrigin) => {
     if ( ! hostOrigin || win.parent === win ) return null;
     const parent = win.parent;
-    const tell = (state) => parent.postMessage({ msg: POPUP_FRAME_MSG, state }, hostOrigin);
+    const tell = (state, fields = {}) =>
+        parent.postMessage({ ...fields, msg: POPUP_FRAME_MSG, state }, hostOrigin);
 
     win.opener = parent;
     win.close = () => tell('closed');
