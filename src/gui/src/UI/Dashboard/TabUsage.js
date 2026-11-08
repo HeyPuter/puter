@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
+import { formatCount, formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { isOrgSeat } from './orgSeat.js';
 import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
@@ -351,7 +351,7 @@ async function update_usage_details ($el_window) {
             if ( key.endsWith(':bytes') ) {
                 formattedUnits = window.byte_format(rawUnits);
             } else {
-                formattedUnits = window.number_format(rawUnits, { decimals: 0, thousandSeparator: ',' });
+                formattedUnits = formatCount(rawUnits);
             }
 
             usageTableData.push({

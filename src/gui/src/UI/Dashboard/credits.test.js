@@ -19,6 +19,7 @@
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import {
+    formatCount,
     formatCredits,
     formatDollarsFromMicrocents,
     usageIsCredits,
@@ -86,6 +87,14 @@ describe('amounts in the dashboard\'s language', () => {
         expect(formatCredits(2.5)).toBe('2,5');
         expect(formatCredits(0.001)).toBe('<0,01');
         expect(formatDollarsFromMicrocents(123_450_000_000).replace(/\s/g, ' ')).toBe('1.234,50 $');
+        expect(formatCount(1234567)).toBe('1.234.567');
+    });
+
+    it('counts usage units in English by default', () => {
+        delete globalThis.window.locale;
+        expect(formatCount(1234567)).toBe('1,234,567');
+        expect(formatCount(12.6)).toBe('13');
+        expect(formatCount(undefined)).toBe('0');
     });
 
     it("reads Puter's codes that aren't BCP 47 tags", () => {
