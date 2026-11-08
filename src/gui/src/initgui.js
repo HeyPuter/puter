@@ -1007,14 +1007,17 @@ const postAuthActions = async (action) => {
     // is the one the framing page's origin resolves to, never one the fragment names.
     // -------------------------------------------------------------------------------------
     if ( action === 'upgrade' && window.embedded_in_frame ) {
-        let upgraded = false;
+        let upgraded;
         try {
             upgraded = await showFramedUpgrade(window, {
                 ...(window.host_app_uid ? { appUid: window.host_app_uid } : {}),
                 ...framedUpgradeDetails(window.location.hash),
             }, window.tell_popup_frame);
         } catch (e) {
+            // A dialog that failed to open leaves the page to open the upgrade in a tab.
             console.error('upgrade action failed', e);
+            window.tell_popup_frame('unavailable');
+            return;
         }
         window.tell_popup_frame('closed', { upgraded });
     }

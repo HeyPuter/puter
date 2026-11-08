@@ -454,6 +454,24 @@ test.describe('the upgrade a first-party page shows framed', () => {
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
     });
 
+    test('an upgrade dialog that fails to open leaves the dashboard upgrade in a tab', async ({ page }) => {
+        await page.context().addInitScript(STUB_UPGRADE_DIALOG);
+        await page.context().addInitScript(() => {
+            if ( location.pathname !== '/embed/upgrade' ) return;
+            window.UIUpgradeAccount.prototype.open_as_window = async () => {
+                throw new Error('broken dialog');
+            };
+        });
+        await routeDashboard(page);
+        await signInFirstPartyPage(page);
+
+        const popup = page.waitForEvent('popup', { timeout: 60_000 });
+        await runFromClick(page, 'puter.ui.requestUpgrade({ reason: "funds" })');
+        expect(new URL((await popup).url()).pathname).toBe('/dashboard/');
+        expect(await result(page)).toEqual({ ok: true, value: { upgraded: false } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
     test('a page signed in as someone else gets the dashboard upgrade in a tab', async ({ page }) => {
         await page.context().addInitScript(STUB_UPGRADE_DIALOG);
         await routeDashboard(page);

@@ -250,7 +250,7 @@ the frame has a viewport, so a window it opens doesn't center on 0x0.
 `onClose({ upgraded })` must run exactly once, when the
 dialog closes or when it declines to open for the account; the GUI then posts
 `{ msg: 'puterPopupFrame', state: 'closed', upgraded }` and the page removes
-the frame. `requestUpgrade()` resolves `{ upgraded }`. A call made while the
+the frame. If `open_as_window()` rejects, the GUI posts `unavailable` instead. `requestUpgrade()` resolves `{ upgraded }`. A call made while the
 frame shows settles with it rather than replacing it.
 
 When the frame can't show the upgrade (refused, never ready, `unavailable`, or
