@@ -61,10 +61,27 @@ const RESERVED_LABELS = new Set(['www', 'api', 'js', 'dav', 'about', 'developer'
 // Dismisses the single-instance embed showing at each path.
 const showingEmbeds = new Map();
 
-// Embed dialogs showing over the page, and the page's own root styles to put
-// back once none is.
+// Embed dialogs showing over the page, and the page's own styles to put back
+// once none is.
 const scrollLockers = new Set();
-let pageRootStyle = null;
+let pageStyle = null;
+
+/**
+ * The element whose overflow the page's viewport uses: the body's while the
+ * root's is `visible`. Hiding the root's then would make the body a scroller
+ * of its own, which starts at the top.
+ *
+ * @returns {HTMLElement}
+ */
+const viewportOverflowElement = () => {
+    const root = document.documentElement;
+    const body = document.body;
+    const visible = (el) => {
+        const style = getComputedStyle(el);
+        return style.overflowX === 'visible' && style.overflowY === 'visible';
+    };
+    return body && visible(root) && ! visible(body) ? body : root;
+};
 
 /**
  * Stops the page scrolling behind `dialog` while it shows: Firefox and WebKit
@@ -78,19 +95,32 @@ let pageRootStyle = null;
 const lockPageScroll = (dialog) => {
     const root = document.documentElement;
     const unlockPage = () => {
-        root.style.overflow = pageRootStyle.overflow;
-        root.style.paddingRight = pageRootStyle.paddingRight;
-        pageRootStyle = null;
+        const { scroller, overflow, overflowX, overflowY } = pageStyle;
+        scroller.style.overflow = overflow;
+        // A shorthand reads empty when the page set only one axis.
+        if ( ! overflow ) {
+            scroller.style.overflowX = overflowX;
+            scroller.style.overflowY = overflowY;
+        }
+        root.style.paddingRight = pageStyle.paddingRight;
+        pageStyle = null;
     };
     // One the page removed itself never unlocks, so the page's own styles
     // go back before they're read again.
     for ( const shown of scrollLockers ) if ( ! shown.isConnected ) scrollLockers.delete(shown);
-    if ( scrollLockers.size === 0 && pageRootStyle ) unlockPage();
+    if ( scrollLockers.size === 0 && pageStyle ) unlockPage();
     if ( scrollLockers.size === 0 ) {
-        pageRootStyle = { overflow: root.style.overflow, paddingRight: root.style.paddingRight };
+        const scroller = viewportOverflowElement();
+        pageStyle = {
+            scroller,
+            overflow: scroller.style.overflow,
+            overflowX: scroller.style.overflowX,
+            overflowY: scroller.style.overflowY,
+            paddingRight: root.style.paddingRight,
+        };
         const hasScrollbar = window.innerWidth > root.clientWidth;
         const width = hasScrollbar ? root.getBoundingClientRect().width : 0;
-        root.style.overflow = 'hidden';
+        scroller.style.overflow = 'hidden';
         // Measured, since a gutter the page keeps (`scrollbar-gutter: stable`)
         // gives nothing back.
         const released = hasScrollbar ? root.getBoundingClientRect().width - width : 0;
@@ -103,7 +133,7 @@ const lockPageScroll = (dialog) => {
     return () => {
         if ( ! scrollLockers.delete(dialog) ) return;
         for ( const shown of scrollLockers ) if ( ! shown.isConnected ) scrollLockers.delete(shown);
-        if ( scrollLockers.size === 0 && pageRootStyle ) unlockPage();
+        if ( scrollLockers.size === 0 && pageStyle ) unlockPage();
     };
 };
 

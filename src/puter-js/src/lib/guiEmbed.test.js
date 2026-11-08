@@ -520,6 +520,7 @@ describe('page scroll behind an embed', () => {
     afterEach(() => {
         vi.restoreAllMocks();
         root.removeAttribute('style');
+        document.body.removeAttribute('style');
     });
 
     it('stops while the embed shows and comes back as the page had it once it closes', async () => {
@@ -536,6 +537,21 @@ describe('page scroll behind an embed', () => {
         tell('upgrade', 'closed');
         await expect(result).resolves.toBe('closed');
         expect(root.style.overflow).toBe('clip');
+    });
+
+    it('stops the body instead when the viewport scrolls by the body\'s overflow', async () => {
+        scrollbar(0);
+        root.style.overflow = 'visible';
+        document.body.style.overflowX = 'hidden';
+        const result = show('upgrade');
+        tell('upgrade', 'ready');
+        expect(document.body.style.overflow).toBe('hidden');
+        expect(root.style.overflow).toBe('visible');
+
+        tell('upgrade', 'closed');
+        await result;
+        expect(document.body.style.overflowX).toBe('hidden');
+        expect(document.body.style.overflowY).toBe('');
     });
 
     it('keeps the space of a classic scrollbar, so the page doesn\'t shift', async () => {
