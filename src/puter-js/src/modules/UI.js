@@ -600,8 +600,9 @@ export class UIModule extends EventListener {
      * Shows a picker on a `web` page. A first-party page one label under the
      * Puter origin that is signed in gets it in a frame over the page; every
      * other page, or a frame that can't serve this user, gets the popup.
-     * `onWindow` sees the window that will ask for and answer the picker, and
-     * may return a function that stops listening to it.
+     * `onWindow` sees the window that will ask for and answer the picker, with
+     * `framed` set for a frame, and may return a function that stops listening
+     * to it.
      *
      * @param {Object} opts
      * @param {'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker'} opts.action
@@ -609,7 +610,7 @@ export class UIModule extends EventListener {
      * @param {string} opts.url - the popup's URL
      * @param {string} opts.title - the popup's window name, and the frame's accessible name
      * @param {Record<string, string>} [opts.fragment] - the popup parameters the frame needs besides `msg_id`
-     * @param {(win: Window | null) => (() => void) | void} [opts.onWindow]
+     * @param {(win: Window | null, how?: { framed: boolean }) => (() => void) | void} [opts.onWindow]
      */
     #showWebPicker ({ action, msgId, url, title, fragment = {}, onWindow }) {
         if ( ! this.#canFramePicker() ) {
@@ -688,7 +689,7 @@ export class UIModule extends EventListener {
             onFrame: (win) => {
                 frame = win;
                 this.#pickerPopups.add(win);
-                stopListening = onWindow?.(win);
+                stopListening = onWindow?.(win, { framed: true });
             },
         });
         this.#pickerPopups.delete(frame);
@@ -1749,7 +1750,9 @@ export class UIModule extends EventListener {
                 // the picker (its popup, or its frame on a first-party page).
                 // Without this, any framing parent or sibling iframe could post
                 // { msg: 'sendMeFileData' } and receive the content the page meant to save.
-                const sendFileDataTo = (picker) => {
+                // A frame that reloads asks again, so it's answered until it
+                // closes; a popup is answered once.
+                const sendFileDataTo = (picker, { framed = false } = {}) => {
                     const onSendMeFileData = (e) => {
                         if ( e.data?.msg !== 'sendMeFileData' ) return;
                         // Reject anything that isn't our picker on the trusted GUI origin.
@@ -1766,8 +1769,8 @@ export class UIModule extends EventListener {
                             uuid: msg_id,
                         }, puter.defaultGUIOrigin);
 
-                        // The trusted picker has the data; remove this exact listener.
-                        window.removeEventListener('message', onSendMeFileData);
+                        // A popup has the data now; remove this exact listener.
+                        if ( ! framed ) window.removeEventListener('message', onSendMeFileData);
                     };
                     window.addEventListener('message', onSendMeFileData);
                     return () => window.removeEventListener('message', onSendMeFileData);

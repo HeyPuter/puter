@@ -127,6 +127,24 @@ describe('pickers on a signed-in first-party page', () => {
         await expect(result).resolves.toMatchObject({ name: 'a.txt' });
     });
 
+    it('hands the file content again to a save picker frame that reloads, until it closes', async () => {
+        const result = makeUI().showSaveFilePicker('hello', 'a.txt');
+        await vi.waitFor(() => expect(pickerFrame()).not.toBeNull());
+        const frameWindow = pickerFrame().contentWindow;
+        const post = vi.spyOn(frameWindow, 'postMessage').mockImplementation(() => {});
+
+        fromFrame({ msg: 'sendMeFileData' });
+        // The reloaded document asks again.
+        fromFrame({ msg: 'sendMeFileData' });
+        expect(post).toHaveBeenCalledTimes(2);
+        expect(post.mock.calls[1][0]).toMatchObject({ msg: 'showSaveFilePickerPopup', content: 'hello' });
+
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed' });
+        await expect(result.undefinedOnCancel).resolves.toBeUndefined();
+        fromFrame({ msg: 'sendMeFileData' }, frameWindow);
+        expect(post).toHaveBeenCalledTimes(2);
+    });
+
     it('opens the popup instead when the frame cannot serve the user', async () => {
         const ui = makeUI();
         const result = ui.showOpenFilePicker();
