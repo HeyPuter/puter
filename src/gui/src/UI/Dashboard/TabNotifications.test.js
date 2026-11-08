@@ -471,6 +471,21 @@ describe('your devices', () => {
         expect($cards.eq(2).find('strong').text()).toBe('push_device_unknown');
     });
 
+    it('labels a browser on Puter\'s own Web Push as a browser', async () => {
+        serve({
+            'GET /push/devices': { devices: [device({ uid: 'a', platform: 'webpush' }), device({ uid: 'b', platform: 'ios' })] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+        });
+        await open();
+
+        const $cards = $('.push-device-card');
+        expect($cards.eq(0).find('.dashboard-settings-card-info > span').text()).toContain('push_platform_web');
+        // Laptop, not phone.
+        expect($cards.eq(0).find('svg rect').attr('width')).toBe('18');
+        expect($cards.eq(1).find('svg rect').attr('width')).toBe('12');
+    });
+
     it('removes a device once the user confirms', async () => {
         const remove = vi.fn(() => reply(200, { removed: true }));
         serve({

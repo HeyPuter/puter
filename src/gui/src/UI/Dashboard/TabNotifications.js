@@ -49,7 +49,9 @@ const ICONS = {
     puter: svg('<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12h8M12 8v8"/>'),
 };
 
-const PLATFORM_KEYS = { web: 'push_platform_web', ios: 'push_platform_ios', android: 'push_platform_android' };
+// `webpush` is Puter's own Web Push (see webPushClient.js); both are browsers.
+const PLATFORM_KEYS = { web: 'push_platform_web', webpush: 'push_platform_web', ios: 'push_platform_ios', android: 'push_platform_android' };
+const BROWSER_PLATFORMS = new Set(['web', 'webpush']);
 
 /** @param {{ pushEnabled?: boolean }|undefined} params - `window.gui_params` */
 export const notificationsTabEnabled = (params) => params?.pushEnabled === true;
@@ -106,7 +108,7 @@ export const deviceCardHtml = (device, now) => {
         ? i18n('push_device_last_seen', { time: formatRelativeTime(seenAt, now, locale) })
         : '';
     return card({
-        icon: device.platform === 'web' ? ICONS.laptop : ICONS.phone,
+        icon: BROWSER_PLATFORMS.has(device.platform) ? ICONS.laptop : ICONS.phone,
         title: html_encode(deviceName(device)),
         badge: device.current ? i18n('push_this_browser') : '',
         detail: [platform, seen].filter(Boolean).join(' · '),
