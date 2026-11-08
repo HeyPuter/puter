@@ -46,6 +46,8 @@ import UIAuthSignup from './UI/Auth/UIAuthSignup.js';
 import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
+import { embedHostUser } from './helpers/embedHostUser.js';
+import { closeAccountChecksOnEscape, focusOnFrameFocus, framedPopupAction, framedPopupParams, startPopupFrame } from './helpers/popupFrame.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
@@ -93,6 +95,7 @@ import { ThemeService } from './services/ThemeService.js';
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
 import {
+    defersTokenToOpener,
     deliversTokenAtBoot,
     relationshipIsConsent,
     relaysTokenAtBoot,
@@ -566,6 +569,9 @@ const postAuthActions = async (action) => {
                 msg,
                 original_msg_id: msg_id,
             }, '*');
+            // Escape closes only the picker window, which would leave the
+            // page's frame open over an empty desktop.
+            if ( window.embedded_in_frame ) window.close();
         };
 
         if ( action === 'show-open-file-picker' ) {
@@ -632,12 +638,15 @@ const postAuthActions = async (action) => {
                 msg: 'sendMeFileData',
             }, '*');
 
-            // listen for 'showSaveFilePickerPopup' event from parent
-            window.addEventListener('message', async (event) => {
-                if ( event.data.msg !== 'showSaveFilePickerPopup' )
+            // listen for 'showSaveFilePickerPopup' event from parent. Only the
+            // page that asked supplies the file, once; any other window that
+            // can reach this one (a sibling frame of the framing page) can't.
+            window.addEventListener('message', async function onFileData (event) {
+                if ( event.data?.msg !== 'showSaveFilePickerPopup' || event.source !== window.opener )
                 {
                     return;
                 }
+                window.removeEventListener('message', onFileData);
 
                 // Open dialog
                 UIWindow({
@@ -650,6 +659,7 @@ const postAuthActions = async (action) => {
                     title: 'Save',
                     is_dir: true,
                     is_saveFileDialog: true,
+                    saveFileDialog_default_filename: event.data.suggestedName ?? '',
                     is_resizable: false,
                     has_head: false,
                     cover_page: true,
@@ -709,7 +719,14 @@ const postAuthActions = async (action) => {
                             catch ( err ) {
                                 // item with same name exists
                                 if ( err.code === 'item_with_same_name_exists' ) {
-                                    const alert_resp = await UIAlert({
+                                    // Escape closes the alert without an answer,
+                                    // which counts as Cancel, so the picker isn't
+                                    // left behind its busy mask.
+                                    let alert_closed;
+                                    const alert_dismissed = new Promise((resolve) => {
+                                        alert_closed = () => resolve('cancel');
+                                    });
+                                    const alert_resp = await Promise.race([UIAlert({
                                         message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                                         buttons: [
                                             {
@@ -723,10 +740,11 @@ const postAuthActions = async (action) => {
                                             },
                                         ],
                                         parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
-                                    });
+                                        window_options: { on_close: alert_closed },
+                                    }), alert_dismissed]);
                                     if ( alert_resp === 'replace' ) {
                                         overwrite = true;
-                                    } else if ( alert_resp === 'cancel' ) {
+                                    } else {
                                         // enable parent window
                                         $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
                                         return;
@@ -1154,9 +1172,17 @@ if (jQuery) {
 {
     const pathname = window.location.pathname;
     const search_params = new URLSearchParams(window.location.search);
-    if (['true', '1'].includes(search_params.get('embedded_in_popup'))) {
+    // A popup a first-party page frames at `/embed/<action>` boots as one.
+    if (['true', '1'].includes(search_params.get('embedded_in_popup')) || framedPopupAction(pathname)) {
         window.embedded_in_popup = true;
     }
+    // Called by the bootstrap in index.js, which can't import.
+    window.start_popup_frame = (hostOrigin) => {
+        if (!framedPopupAction(pathname)) return;
+        window.tell_popup_frame = startPopupFrame(window, hostOrigin);
+        window.embedded_in_frame = !!window.tell_popup_frame;
+        if (window.embedded_in_frame) focusOnFrameFocus(window);
+    };
     // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
     const in_iframe = window.location !== window.parent.location;
     const needs_desktop_at_root =
@@ -1411,8 +1437,16 @@ window.initgui = async function (options) {
     const url_paths = parse_url_paths(window.location.pathname);
     window.url_paths = url_paths;
 
-    // GET query params provided
-    window.url_query_params = new URLSearchParams(window.location.search);
+    // A framed popup without a framing page to answer (opened on its own, or
+    // framed by a page the server refused) has nothing to do.
+    const framed_action = framedPopupAction(window.location.pathname);
+    if (framed_action && !window.embedded_in_frame) return;
+
+    // GET query params provided. A framed popup takes the popup's parameters
+    // from its fragment; its route refuses a query string.
+    window.url_query_params = framed_action
+        ? framedPopupParams(window.location.hash)
+        : new URLSearchParams(window.location.search);
     window.signup_bonus_code = readSignupBonusCode(window.url_query_params);
 
     // Install device signal helpers; collection is lazy. The fingerprint is
@@ -1506,7 +1540,9 @@ window.initgui = async function (options) {
     // Extract 'action' from URL
     //--------------------------------------------------------------------------------------
     let action;
-    if (
+    if (framed_action) {
+        action = framed_action;
+    } else if (
         window.url_paths[0]?.toLocaleLowerCase() === 'action' &&
         window.url_paths[1]
     ) {
@@ -1519,6 +1555,8 @@ window.initgui = async function (options) {
     // federated sign-in hop that would navigate the popup away and lose the
     // action. See util/popupAuth.js.
     window.gui_action = action;
+
+    if (window.embedded_in_frame && action === 'sign-in') closeAccountChecksOnEscape(window);
 
     if (action === 'oidc-2fa') {
         const result = oidcChallenge?.token && await UIAuth2FA(oidcChallenge.token);
@@ -1643,7 +1681,9 @@ window.initgui = async function (options) {
             action,
         );
         try {
-            window.openerOrigin = await resolveOpenerOrigin({
+            // A framed popup's opener is the page the server read from the
+            // referrer and pinned with frame-ancestors.
+            window.openerOrigin = window.embedded_in_frame ? window.gui_params.embed_host_origin : await resolveOpenerOrigin({
                 relaysToken: relaysTokenAtBoot(
                     action,
                     window.url_query_params.get('cross_origin_isolated') ===
@@ -1699,6 +1739,26 @@ window.initgui = async function (options) {
 
         // this is the referrer in terms of user acquisition
         window.referrerStr = window.openerOrigin;
+
+        // A framed picker shows only the Puter session of the user the
+        // framing page is signed in as; for anyone else the page uses the
+        // popup, which can sign in and switch accounts.
+        if (window.embedded_in_frame && defersTokenToOpener(action)) {
+            const host_user = embedHostUser(window.location.hash);
+            let session_user = null;
+            if (host_user && window.is_auth()) {
+                try {
+                    const session = await puter.os.user({ query: 'icon_size=64' });
+                    session_user = String(session?.uuid ?? '').toLowerCase();
+                } catch (e) {
+                    session_user = null;
+                }
+            }
+            if (!host_user || session_user !== host_user) {
+                window.tell_popup_frame('unavailable');
+                return;
+            }
+        }
 
         // Tell a request-permission opener that this popup can reach it. Sent
         // here, before any sign-in gate, because the SDK reads its absence as
@@ -1932,8 +1992,11 @@ window.initgui = async function (options) {
         );
         window.userAppToken = response?.token;
 
+        // A framed picker already holds the framing page's user, so it
+        // doesn't offer to switch.
         if (
             !picked_a_user_for_sdk_login &&
+            !(window.embedded_in_frame && defersTokenToOpener(action)) &&
             window.logged_in_users.length > 1 &&
             (!window.userAppToken ||
                 window.url_query_params.get('request_auth'))

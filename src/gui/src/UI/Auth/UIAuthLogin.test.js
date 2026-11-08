@@ -225,6 +225,29 @@ describe('OIDC buttons on the login and signup screens', () => {
         window.location = original;
         expect(assign.mock.calls[0][0]).toBe('https://puter.test/auth/oidc/google/start?flow=login&referrer=ref');
     });
+
+    it('hands a framed sign-in to the popup instead of leaving for the provider', async () => {
+        asPopup('msg_id=1');
+        window.embedded_in_frame = true;
+        window.tell_popup_frame = vi.fn();
+        try {
+            void UIAuthLogin();
+            await vi.waitFor(() => expect($('.oidc-google-btn')).toHaveLength(1));
+            const href = window.location.href;
+            $('.oidc-google-btn').trigger('click');
+            expect(window.tell_popup_frame.mock.calls).toEqual([
+                ['provider', { url: expect.stringContaining('https://puter.test/auth/oidc/google/start?flow=login') }],
+                ['unavailable'],
+            ]);
+            const start = new URL(window.tell_popup_frame.mock.calls[0][1].url);
+            expect(start.searchParams.get('embedded_in_popup')).toBe('true');
+            expect(start.searchParams.get('msg_id')).toBe('1');
+            expect(window.location.href).toBe(href);
+        } finally {
+            delete window.embedded_in_frame;
+            delete window.tell_popup_frame;
+        }
+    });
 });
 
 describe('second factor', () => {

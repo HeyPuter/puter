@@ -147,9 +147,9 @@ page's origin, which the server reads from the referrer and pins with
 `frame-ancestors`; opened top-level, it does nothing. Its page is transparent
 so the dialog's own scrim covers the host.
 
-puter.js uses it on a page one label under the GUI origin when the page is
-signed in, framing it in a modal `<dialog>` that stays hidden until the embed
-is ready. A session check that takes longer than 200ms shows a loading scrim
+puter.js uses it on a page one label under the GUI origin, other than the
+subdomains the server refuses, when the page is signed in, framing it in a
+modal `<dialog>` that stays hidden until the embed is ready. A session check that takes longer than 200ms shows a loading scrim
 with a spinner in its place; Escape or a click on it cancels. The embed posts `{ msg: 'feedbackEmbed', state }` to its parent
 (`loading`, then `ready` or `unavailable`) and finally
 `{ msg: 'feedbackDialogClosed', sent }`. It reports `unavailable` without the
@@ -160,6 +160,59 @@ is the entry, sharing `embedSession` in `src/gui/src/helpers/embedSession.js`
 with the app browser; `showFeedbackEmbed` in `src/puter-js/src/lib/guiEmbed.js`
 is the host side.
 
+## Sign-in and file pickers
+
+`GET /embed/sign-in`, `/embed/show-open-file-picker`, `/embed/show-save-file-picker`
+and `/embed/show-directory-picker` serve the same GUI popups as `/action/<action>`
+for a first-party page, with the same framing rules, query redirect, and
+`no-store` as `/embed/apps`. Any other spelling of the path (another case, a
+trailing slash) redirects to it, since the shell boots the desktop for it. They render the normal GUI shell, which names the
+framing page (read from the referrer, pinned with `frame-ancestors`) as
+`gui_params.embed_host_origin`. The GUI then runs the popup boot unchanged, with
+the framing page as `window.opener`, and `window.close()` asks the page to
+remove the frame (`src/gui/src/helpers/popupFrame.js`). Without a framing page
+to answer (opened top-level, or framed by a refused page) it does nothing. The
+popup's parameters come from the fragment instead of the query: `msg_id`,
+`options` and `request_auth`, plus `user` for a picker.
+
+The frame posts `{ msg: 'puterPopupFrame', state }` to its parent: `loading` as
+soon as the shell boots, `ready` once it shows a window or dialog, `unavailable`
+when the page has to use the popup, `provider` when the user picks a sign-in
+provider (below), and `closed` where a popup would close. Its
+answers (`puter.token`, `fileOpenPicked`, `directoryPicked`, `fileSaved`, the
+cancel messages, `sendMeFileData`) are the popup's.
+
+puter.js uses them on a page one label under the GUI origin, other than the
+subdomains the server refuses, unless the page is cross-origin isolated or in a
+frame of another site (which `frame-ancestors` refuses too).
+`showPopupFrame` in `src/puter-js/src/lib/guiEmbed.js` shows the frame in a box
+the size of the popup window, over a scrim, hidden until `ready` and behind the
+loading spinner after 200ms. Escape closes it, on the page or in the frame. One shows per popup, as each
+popup has its own window name: a second picker request of the same kind
+replaces the one showing, and a `signIn()` call made while a framed sign-in is
+open settles with it. On
+screens up to 600px wide the box fills the screen. A frame that is refused,
+never answers, or reports `unavailable` falls back to the popup, opened through
+a consent dialog when the click that asked for it has expired. A reload or navigation the frame
+starts itself (logging out, a sign-out in another tab) names the frame as its
+referrer, so the server refuses it; the page then shows its spinner and opens
+the frame again, once per `ready`.
+
+- **Sign-in** (`puter.auth.signIn()`) has no host-user binding: it is how the
+  page gets a user. The box has a close button, which rejects with
+  `auth_window_closed` as closing the popup does. Providers refuse to be
+  framed, so choosing one posts `{ state: 'provider', url }` with the
+  provider's start URL for this sign-in's `msg_id`, then `unavailable`. The
+  page opens the popup straight at that URL, once it checks the URL is the
+  GUI's `/auth/oidc/<provider>/start` for this `msg_id`, and the provider
+  returns it as this sign-in's popup. `attempt_temp_user_creation` keeps the popup, since
+  only the popup creates a temporary account.
+- **Pickers** frame only for a signed-in page. The GUI reports `unavailable`
+  unless its session belongs to the user named in `user`, and the page then uses
+  the popup, which can sign in and switch accounts. The token the GUI sends
+  before a picker's answer isn't adopted, since it is for the page's own user.
+  Dismissing the loading scrim settles the picker as cancelled.
+
 ## Checks
 
 Run the GUI component/browser tests (with the SDK bundle built and Playwright
@@ -167,6 +220,7 @@ Chromium installed), and the backend route tests:
 
 ```sh
 npx vitest run --config src/gui/vitest.config.js src/gui/src/UI/Dashboard/AppBrowser src/feedbackEmbed
-npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js
+npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js src/puter-js/src/modules/Auth.signInFrame.test.js src/puter-js/src/modules/UI.pickerFrame.test.js
+npx vitest run --config src/gui/vitest.config.js src/gui/src/helpers/popupFrame.test.js
 npx vitest run --config src/backend/vitest.config.ts src/backend/server.test.ts
 ```

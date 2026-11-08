@@ -48,6 +48,15 @@ export interface LaunchOptions {
     on_initialized?: Array<Record<string, unknown>>;
 }
 
+/**
+ * A GUI popup a first-party page frames at `/embed/<action>`. `hostOrigin` is
+ * that page, read from the referrer and pinned with frame-ancestors; null when
+ * no allowed page frames it.
+ */
+export interface PopupFrame {
+    hostOrigin: string | null;
+}
+
 interface PuterGuiAddonsEvent {
     req: Request;
     path: string;
@@ -303,6 +312,7 @@ export class PuterHomepageService extends PuterService {
         ctx: { req: Request; res: Response; actor?: Actor | null },
         meta: PageMeta,
         launchOptions: LaunchOptions = {},
+        popupFrame?: PopupFrame,
     ): Promise<void> {
         const { req, res, actor } = ctx;
 
@@ -327,6 +337,7 @@ export class PuterHomepageService extends PuterService {
             { req, actor: actor ?? null },
             meta,
             launchOptions,
+            popupFrame,
         );
         res.send(html);
     }
@@ -337,6 +348,7 @@ export class PuterHomepageService extends PuterService {
         ctx: { req: Request; actor: Actor | null },
         meta: PageMeta,
         launchOptions: LaunchOptions,
+        popupFrame?: PopupFrame,
     ): Promise<string> {
         const { req, actor } = ctx;
         const env = this.config.env ?? 'prod';
@@ -382,6 +394,8 @@ export class PuterHomepageService extends PuterService {
             eventsNotifications: notificationsFoldInEnabled(this.config),
             ...meta,
             launch_options: launchOptions,
+            // After `meta`, so nothing page-specific can name the opener.
+            ...(popupFrame ? { embed_host_origin: popupFrame.hostOrigin } : {}),
         };
 
         const event: PuterGuiAddonsEvent = {

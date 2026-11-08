@@ -3,6 +3,7 @@ import { fetchUrl } from '../lib/networkUtils.js';
 import { PuterModule } from '../lib/PuterModule.js';
 import PuterDialog from './PuterDialog.js';
 import { hasOpaqueOrigin } from '../lib/auth-popup.js';
+import { ancestorsAllowGuiEmbed, canFrameGuiEmbed, showPopupFrame } from '../lib/guiEmbed.js';
 
 /**
  * Puter user details, as returned by `getUser()`.
@@ -115,11 +116,18 @@ export class AuthModule extends PuterModule {
     /** @internal */
     pendingSignInMessageIds_ = new Set();
 
+    /** The framed sign-in in progress, which a repeated call joins. */
+    #framedSignIn = null;
+
     /**
      * Signs the user in, opening a popup with the appropriate authentication
      * method. Must be called from a user gesture (such as a click) — without
      * one, a consent dialog is shown first so the popup can be opened from the
      * user's click on it. Resolves once the user has signed in.
+     *
+     * On a page one label under the Puter origin, the sign-in shows in a frame
+     * over the page instead, and continues in the popup when the user picks a
+     * federated provider or the frame can't be shown.
      *
      * Rejects with `{ error: 'popup_blocked' }` if the browser blocked the
      * popup, `{ error: 'auth_window_closed' }` if the user closed it, `{ error:
@@ -168,12 +176,128 @@ export class AuthModule extends PuterModule {
                     : this.signIn(options));
         }
 
+        if (this.#canSignInInFrame(options)) {
+            // A second call, such as from a double click or a `puter.*` call
+            // asking for implicit auth, waits on the first rather than
+            // replacing its frame, which would reject the first.
+            if (this.#framedSignIn) return this.#framedSignIn;
+            const promise = this.#signInInFrame(options).then((result) =>
+                result ?? this.#signInWithPopup(options));
+            const done = () => {
+                if (this.#framedSignIn === promise) this.#framedSignIn = null;
+            };
+            this.#framedSignIn = promise;
+            promise.then(done, done);
+            return promise;
+        }
+        return this.#signInWithPopup(options);
+    };
+
+    /**
+     * Whether this page can show the sign-in framed: a first-party page one
+     * label under the GUI origin, not in a frame of another site. Only the
+     * popup creates a temporary account, so a sign-in that asks for one keeps
+     * it.
+     */
+    #canSignInInFrame (options) {
+        return !options.attempt_temp_user_creation &&
+            !globalThis.crossOriginIsolated &&
+            !!globalThis.document?.body &&
+            canFrameGuiEmbed(globalThis.location?.href, puter.defaultGUIOrigin) &&
+            ancestorsAllowGuiEmbed(globalThis, puter.defaultGUIOrigin);
+    }
+
+    /** Runs `puter.onAuth`, if set, with the user just signed in. */
+    #notifyAuth () {
+        if (typeof puter.onAuth !== 'function') return;
+        void (async () => {
+            try {
+                const user = await puter.whoamiCache_;
+                puter.onAuth(user ?? (await puter.getUser()));
+            } catch (error) {
+                console.error(error);
+            }
+        })();
+    }
+
+    /**
+     * The sign-in in a frame over the page. Settles as the popup would, or
+     * resolves null when the popup has to take over.
+     *
+     * @returns {Promise<SignInResult | null>}
+     */
+    async #signInInFrame (options) {
+        const msg_id = crypto.randomUUID();
+        this.pendingSignInMessageIds_.add(msg_id);
+        const fragment = { msg_id };
+        if (options.request_auth) fragment.request_auth = 'true';
+        let outcome;
+        try {
+            outcome = await showPopupFrame({
+                guiOrigin: puter.defaultGUIOrigin,
+                action: 'sign-in',
+                fragment,
+                title: 'Sign in to Puter',
+                closeLabel: 'Close',
+                closed: () => ({ closed: true }),
+                onMessage: (data, finish) => {
+                    if (data.msg === 'puterPopupFrame' && data.state === 'provider') {
+                        if (this.#isProviderStart(data.url, msg_id)) finish({ providerUrl: data.url });
+                        return;
+                    }
+                    if (data.msg !== 'puter.token' || data.msg_id != msg_id) return;
+                    finish({ reply: data });
+                },
+            });
+        } finally {
+            this.pendingSignInMessageIds_.delete(msg_id);
+        }
+        if (!outcome) return null;
+        // A provider won't load in a frame, so its sign-in continues in the
+        // popup, which the provider returns as this attempt's sign-in popup.
+        if (outcome.providerUrl) {
+            return this.#signInWithPopup(options, { url: outcome.providerUrl, msgId: msg_id });
+        }
+        if (outcome.closed) {
+            throw {
+                error: 'auth_window_closed',
+                msg: 'Authentication window was closed by the user without completing the process.',
+            };
+        }
+        const { msg: _msg, msg_id: _msgId, ...result } = outcome.reply;
+        if (!result.success) throw result;
+        puter.setAuthToken(result.token);
+        this.#notifyAuth();
+        return result;
+    }
+
+    /**
+     * Whether `url` is the GUI's start of a provider sign-in that returns as
+     * the popup for sign-in `msgId`.
+     */
+    #isProviderStart (url, msgId) {
+        try {
+            const start = new URL(url);
+            return start.origin === new URL(puter.defaultGUIOrigin).origin &&
+                /^\/auth\/oidc\/[^/]+\/start$/.test(start.pathname) &&
+                start.searchParams.get('embedded_in_popup') === 'true' &&
+                start.searchParams.get('msg_id') === msgId;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * The sign-in in a popup window, opened at `start.url` for sign-in
+     * `start.msgId` when a framed sign-in hands one over.
+     */
+    #signInWithPopup (options, start = {}) {
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
-            const msg_id = signinsession;
+            const msg_id = start.msgId ?? signinsession;
             this.pendingSignInMessageIds_.add(msg_id);
             const popupName = `Puter-sign-in-${signinsession}`;
-            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
+            const url = start.url ?? `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
 
             // Guards against settling the promise more than once across the
             // message, popup-closed, and dialog-cancel code paths.
@@ -196,17 +320,7 @@ export class AuthModule extends PuterModule {
                 consentDialog = null;
             };
 
-            const notifyAuth = () => {
-                if (typeof puter.onAuth !== 'function') return;
-                void (async () => {
-                    try {
-                        const user = await puter.whoamiCache_;
-                        puter.onAuth(user ?? (await puter.getUser()));
-                    } catch (error) {
-                        console.error(error);
-                    }
-                })();
-            };
+            const notifyAuth = () => this.#notifyAuth();
 
             if (window.crossOriginIsolated) {
                 (async () => {
@@ -366,7 +480,7 @@ export class AuthModule extends PuterModule {
                 rejectBlocked();
             }
         });
-    };
+    }
 
     /**
      * Whether the user is currently signed in.

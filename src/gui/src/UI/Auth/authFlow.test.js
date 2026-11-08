@@ -75,6 +75,56 @@ describe('openAuthFlow', () => {
         expect(flow.isClosed()).toBe(false);
     });
 
+    it('lets Escape ask the framing page to close a framed sign-in, unless busy', async () => {
+        window.embedded_in_frame = true;
+        const close = vi.spyOn(window, 'close').mockImplementation(() => {});
+        try {
+            const flow = openAuthFlow({ page: true });
+            flow.push({ name: 'a', html: '<input>' });
+            await tick();
+            flow.setBusy(true);
+            key($('.auth-dialog input').get(0), 'Escape');
+            expect(close).not.toHaveBeenCalled();
+            flow.setBusy(false);
+            // Escape that cancels an IME conversion is the IME's.
+            $('.auth-dialog input').get(0).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }));
+            expect(close).not.toHaveBeenCalled();
+            key($('.auth-dialog input').get(0), 'Escape');
+            expect(close).toHaveBeenCalledTimes(1);
+            flow.finish(false);
+        } finally {
+            close.mockRestore();
+            delete window.embedded_in_frame;
+        }
+    });
+
+    it('focuses a framed screen once the framing page focuses the frame', async () => {
+        window.embedded_in_frame = true;
+        try {
+            const flow = openAuthFlow({ page: true });
+            flow.push({ name: 'a', html: '<input>' });
+            // What a frame's focus() amounts to before the page focuses it.
+            document.activeElement.blur();
+            window.dispatchEvent(new FocusEvent('focus'));
+            // jsdom lays nothing out, so the screen's fallback, the card, takes it.
+            expect($('.auth-dialog').get(0).contains(document.activeElement)).toBe(true);
+
+            // Focus the user moved elsewhere stays there.
+            const el_outside = $('<button class="outside">').appendTo('body').get(0);
+            el_outside.focus();
+            window.dispatchEvent(new FocusEvent('focus'));
+            expect(document.activeElement).toBe(el_outside);
+            el_outside.remove();
+
+            flow.finish(false);
+            document.activeElement.blur();
+            window.dispatchEvent(new FocusEvent('focus'));
+            expect(document.activeElement).toBe(document.body);
+        } finally {
+            delete window.embedded_in_frame;
+        }
+    });
+
     it('ignores the backdrop unless asked, so a stray click keeps typed credentials', async () => {
         const kept = openAuthFlow();
         kept.push({ name: 'a', html: '' });

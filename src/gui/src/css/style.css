@@ -1492,6 +1492,18 @@ span.header-sort-icon img {
     align-items: center;
 }
 
+/* The file name shrinks so the buttons stay on one line, on screen, in a narrow dialog. */
+.window-filedialog-prompt > div {
+    min-width: 0;
+    white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+    .window-filedialog-prompt .button-small {
+        padding: 0 16px;
+    }
+}
+
 .savefiledialog-filename {
     float: left;
     margin-right: 10px;
@@ -1499,10 +1511,21 @@ span.header-sort-icon img {
     border-width: 1px !important;
     height: 31px;
     flex-grow: 1;
+    min-width: 0;
     width: initial !important;
 }
 
+/* In a narrow open dialog, the upload label gives way so its buttons stay whole. */
+.window-filedialog-upload-here + div {
+    flex-shrink: 0;
+}
+
 .window-filedialog-upload-here {
+    min-width: 0;
+    margin-right: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     -webkit-font-smoothing: antialiased;
     opacity: 0.7;
     font-size: 14px;

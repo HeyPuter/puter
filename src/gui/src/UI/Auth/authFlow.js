@@ -191,9 +191,15 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
     /** @type {Array<AuthScreen & { $el: jQuery, el_return?: Element | null }>} */
     const stack = [];
 
+    // A frame's focus() calls do nothing until the framing page focuses it,
+    // so the screen takes focus then, unless something already has it.
+    const onFrameFocus = () => {
+        if ( ! document.activeElement || document.activeElement === document.body ) flow.focus();
+    };
     const teardown = () => {
         if ( torn_down ) return;
         torn_down = true;
+        window.removeEventListener('focus', onFrameFocus);
         if ( active_flow === flow ) active_flow = null;
         // Screens waiting on the user (the second factor) hear they won't get an answer.
         while ( stack.length ) stack.pop().onLeave?.();
@@ -352,14 +358,22 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
     $overlay.on('keydown keyup keypress', function (e) {
         e.stopPropagation();
         if ( e.type !== 'keydown' || e.key !== 'Escape' ) return;
+        // An Escape that cancels an IME conversion is the IME's; jQuery's
+        // event doesn't carry isComposing, the browser's does.
+        if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
         e.preventDefault();
-        if ( dismissable && ! busy ) $dialog.find('.dashboard-dialog-close').trigger('click');
+        if ( busy ) return;
+        if ( dismissable ) $dialog.find('.dashboard-dialog-close').trigger('click');
+        // A framed sign-in's ✕ is the framing page's, which close() asks.
+        else if ( window.embedded_in_frame ) window.close();
     });
     // A press on the backdrop (or a page's background) would move focus to
     // the page, and with it the keys; it stays where it was.
     $overlay.on('mousedown', function (e) {
         if ( e.target === this ) e.preventDefault();
     });
+
+    if ( window.embedded_in_frame ) window.addEventListener('focus', onFrameFocus);
 
     active_flow = flow;
     return flow;

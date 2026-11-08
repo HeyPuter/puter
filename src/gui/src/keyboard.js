@@ -448,6 +448,8 @@ $(document).bind('keydown', async function (e) {
     else if (
         // escape key code
         e.which === 27 &&
+        // an open context menu takes the Escape (below) instead
+        $('.context-menu').length === 0 &&
         // active window must be a FileDialog or Alert
         ($('.window-active').hasClass('window-filedialog') || $('.window-active').hasClass('window-alert')) &&
         // either don't close if an input is focused or if the input is the filename input

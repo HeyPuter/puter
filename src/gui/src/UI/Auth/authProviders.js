@@ -134,7 +134,15 @@ export async function renderProviderButtons ($list, { kind, referrer, flow }) {
     }
     $list.html(h);
     $list.on('click', '.auth-provider-btn', function () {
-        window.location.href = providerStartUrl($(this).attr('data-provider'), kind, referrer());
+        const url = providerStartUrl($(this).attr('data-provider'), kind, referrer());
+        // A provider won't load in a frame, so the framing page opens this
+        // in a popup instead. `unavailable` covers an SDK that can't.
+        if ( window.embedded_in_frame ) {
+            window.tell_popup_frame('provider', { url });
+            window.tell_popup_frame('unavailable');
+            return;
+        }
+        window.location.href = url;
     });
     return { providers: ordered, signupOidcOnly: data.signupOidcOnly === true };
 }
