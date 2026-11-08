@@ -281,7 +281,7 @@ function renderUsageTable () {
     for ( const row of rowsToShow ) {
         h += `
         <tr>
-            <td>${window.html_encode(row.resource.replaceAll('_dot_', '.'))}</td>
+            <td title="${window.html_encode(row.resource.replaceAll('_dot_', '.'))}">${window.html_encode(row.resource.replaceAll('_dot_', '.'))}</td>
             <td>${row.formattedUnits}</td>
             <td>${row.formattedCost}</td>
         </tr>`;
