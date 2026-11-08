@@ -58,7 +58,7 @@ const CLOSE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.
 // on a refused frame before falling back.
 const RESERVED_LABELS = new Set(['www', 'api', 'js', 'dav', 'about', 'developer', 'docs', 'apps', 'puter-app-icons']);
 
-// Dismisses the embed of each single-instance class that is showing.
+// Dismisses the single-instance embed showing at each path.
 const showingEmbeds = new Map();
 
 /**
@@ -135,7 +135,7 @@ export const ancestorsAllowGuiEmbed = (win, guiOrigin) => {
  * @param {string} [opts.closeLabel] - puts a close button on the box, which dismisses it
  * @param {string} [opts.allow] - the frame's permissions policy, for features the embed uses
  * @param {boolean} [opts.escapeDismisses] - Escape on the page dismisses a ready embed too, instead of handing it the keys
- * @param {boolean} [opts.single] - a newer embed of this class dismisses this one, as a named popup window is reused
+ * @param {boolean} [opts.single] - a newer embed at this path dismisses this one, as a named popup window is reused
  * @param {() => T} opts.dismissed - the result of a dismissal: Escape or a click on the loading scrim, or the close button
  * @param {(data: Record<string, unknown>, finish: (result: T | null) => void) => void} opts.onMessage - every other message from the embed
  * @param {(frame: Window) => void} [opts.onFrame] - the frame's window, once it exists
@@ -152,7 +152,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     const url = new URL(path, origin);
     url.hash = new URLSearchParams(fragment).toString();
     // Before reading the focus this one restores, which the older one hands back.
-    if ( single ) showingEmbeds.get(className)?.();
+    if ( single ) showingEmbeds.get(path)?.();
 
     const dialog = document.createElement('dialog');
     dialog.className = className;
@@ -227,13 +227,13 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         clearTimeout(loadingTimer);
         clearTimeout(restartTimer);
         window.removeEventListener('message', onWindowMessage);
-        if ( showingEmbeds.get(className) === dismiss ) showingEmbeds.delete(className);
+        if ( showingEmbeds.get(path) === dismiss ) showingEmbeds.delete(path);
         dialog.remove();
         if ( shown ) restoreFocus?.focus?.({ preventScroll: true });
         resolve(result);
     };
     const dismiss = () => finish(dismissed());
-    if ( single ) showingEmbeds.set(className, dismiss);
+    if ( single ) showingEmbeds.set(path, dismiss);
     // The spinner is only faded out, so assistive tech hears it only while it shows.
     const setLoading = (on) => {
         dialog.classList.toggle('is-loading', on);
@@ -395,7 +395,8 @@ export const showPopupFrame = ({ guiOrigin, action, fragment, title, closeLabel,
     allow: 'otp-credentials',
     // Escape inside the frame closes it as well.
     escapeDismisses: true,
-    // A second picker or sign-in, such as from a double click, replaces the first.
+    // A second request for this popup, such as from a double click, replaces the
+    // first. Each popup has its own window name, so other popups stay open.
     single: true,
     dismissed: closed,
     onFrame,

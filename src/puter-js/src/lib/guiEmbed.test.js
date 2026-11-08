@@ -440,6 +440,20 @@ describe('showPopupFrame', () => {
         expect(document.activeElement).toBe(button);
     });
 
+    it('leaves a popup frame for another action showing, as its popup window would stay open', async () => {
+        const picker = show();
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        const pickerFrame = popupFrame();
+        const signIn = show({ action: 'sign-in', fragment: { msg_id: 'a' } });
+        expect(document.querySelectorAll('dialog.puter-popup-frame')).toHaveLength(2);
+        const signInFrame = document.querySelectorAll('dialog.puter-popup-frame iframe')[1];
+        fromPopup({ msg: 'puterPopupFrame', state: 'closed' }, { source: signInFrame.contentWindow });
+        await expect(signIn).resolves.toBe('closed');
+        expect(pickerFrame.isConnected).toBe(true);
+        fromPopup({ msg: 'puterPopupFrame', state: 'closed' }, { source: pickerFrame.contentWindow });
+        await expect(picker).resolves.toBe('closed');
+    });
+
     it('keeps the scrim behind a ready frame from dismissing it', () => {
         show();
         fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
