@@ -370,16 +370,17 @@ export const titleWithBadge = (title, count) => {
 export const MAX_BURST_TOASTS = 3;
 
 /**
- * Split a burst into the entries that get their own toast and the number
- * that don't.
+ * Split a burst into the entries that get their own toast, newest first, and
+ * the number that don't. Bursts arrive in either order (a catch-up listing is
+ * oldest first), and the newest are the ones worth a toast.
  *
- * @param {NotificationEntry[]} entries - Newest first
+ * @param {NotificationEntry[]} entries
  * @param {number} [max]
  * @returns {{ shown: NotificationEntry[], folded: number }}
  */
 export const planBurstToasts = (entries, max = MAX_BURST_TOASTS) => {
-    if ( entries.length <= max ) return { shown: entries, folded: 0 };
+    const newestFirst = sortEntries(entries);
     // One over the cap is no quieter shown as a summary than as a toast.
-    if ( entries.length === max + 1 ) return { shown: entries, folded: 0 };
-    return { shown: entries.slice(0, max), folded: entries.length - max };
+    if ( newestFirst.length <= max + 1 ) return { shown: newestFirst, folded: 0 };
+    return { shown: newestFirst.slice(0, max), folded: newestFirst.length - max };
 };

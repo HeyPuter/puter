@@ -463,6 +463,12 @@ describe('planBurstToasts', () => {
         expect(shown.map((e) => e.uid)).toEqual(['n0', 'n1', 'n2']);
         expect(folded).toBe(9);
     });
+
+    it('toasts the newest of a burst that arrives oldest first', () => {
+        const { shown, folded } = planBurstToasts(many(6).reverse());
+        expect(shown.map((e) => e.uid)).toEqual(['n0', 'n1', 'n2']);
+        expect(folded).toBe(3);
+    });
 });
 
 describe('senderNameFor', () => {
