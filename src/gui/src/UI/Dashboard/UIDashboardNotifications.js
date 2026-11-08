@@ -46,6 +46,7 @@ import {
     senderNameFor,
     setReadAt,
     takeMarksSince,
+    titleBadge,
     titleWithBadge,
     toEntry,
     unreadCount,
@@ -360,6 +361,15 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         target.focus({ preventScroll: true });
     };
 
+    // The badge last put in front of the title, the only prefix replaced.
+    let appliedBadge = '';
+    const applyTitleBadge = () => {
+        const count = unreadCount(entries);
+        const wanted = titleWithBadge(document.title, count, appliedBadge);
+        appliedBadge = titleBadge(count);
+        if ( document.title !== wanted ) document.title = wanted;
+    };
+
     const render = () => {
         const hadFocus = $panel[0].contains(document.activeElement);
         const count = unreadCount(entries);
@@ -373,7 +383,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         $sidebarToggle.toggleClass('has-unread', count > 0);
         $count.text(label);
         $markAll.attr('hidden', count > 0 ? null : '');
-        document.title = titleWithBadge(document.title, count);
+        applyTitleBadge();
 
         const showLoading = ! loaded && loading !== null;
         const showError = ! loaded && loadFailed && loading === null;
@@ -801,10 +811,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     // same title again is a no-op, so this can't loop.
     const titleEl = document.querySelector('title');
     if ( titleEl ) {
-        new MutationObserver(() => {
-            const wanted = titleWithBadge(document.title, unreadCount(entries));
-            if ( document.title !== wanted ) document.title = wanted;
-        }).observe(titleEl, { childList: true, characterData: true, subtree: true });
+        new MutationObserver(applyTitleBadge)
+            .observe(titleEl, { childList: true, characterData: true, subtree: true });
     }
 
     // -- Arrivals -----------------------------------------------------------------

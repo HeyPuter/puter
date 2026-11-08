@@ -35,6 +35,7 @@ import {
     setReadAt,
     sortEntries,
     takeMarksSince,
+    titleBadge,
     titleWithBadge,
     toEntry,
     unreadCount,
@@ -424,14 +425,22 @@ describe('titleWithBadge', () => {
         expect(titleWithBadge('Puter', 3)).toBe('(3) Puter');
     });
 
-    it('replaces an existing count instead of stacking', () => {
-        expect(titleWithBadge('(2) Puter', 5)).toBe('(5) Puter');
-        expect(titleWithBadge('(99+) Puter', 1)).toBe('(1) Puter');
+    it('replaces the count it put there instead of stacking', () => {
+        expect(titleWithBadge('(2) Puter', 5, '(2) ')).toBe('(5) Puter');
+        expect(titleWithBadge('(99+) Puter', 1, '(99+) ')).toBe('(1) Puter');
     });
 
     it('clears the prefix at zero', () => {
-        expect(titleWithBadge('(2) Puter', 0)).toBe('Puter');
+        expect(titleWithBadge('(2) Puter', 0, '(2) ')).toBe('Puter');
         expect(titleWithBadge('Puter', 0)).toBe('Puter');
+    });
+
+    it('leaves a count that is part of an app\'s own title alone', () => {
+        expect(titleWithBadge('(3) Inbox', 0)).toBe('(3) Inbox');
+        expect(titleWithBadge('(3) Inbox', 2)).toBe('(2) (3) Inbox');
+        // The app rewrote the title after the badge was applied.
+        expect(titleWithBadge('(3) Inbox', 2, '(2) ')).toBe('(2) (3) Inbox');
+        expect(titleWithBadge('(2) (3) Inbox', 0, '(2) ')).toBe('(3) Inbox');
     });
 
     it('leaves a parenthesised title that is not a badge alone', () => {
@@ -442,6 +451,14 @@ describe('titleWithBadge', () => {
     it('copes with an empty title', () => {
         expect(titleWithBadge('', 2)).toBe('(2) ');
         expect(titleWithBadge(undefined, 0)).toBe('');
+    });
+});
+
+describe('titleBadge', () => {
+    it('is the prefix a count puts in front of the title', () => {
+        expect(titleBadge(3)).toBe('(3) ');
+        expect(titleBadge(120)).toBe('(99+) ');
+        expect(titleBadge(0)).toBe('');
     });
 });
 

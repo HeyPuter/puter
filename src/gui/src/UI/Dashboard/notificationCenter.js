@@ -346,20 +346,26 @@ export const badgeLabel = (count) => {
     return count > 99 ? '99+' : String(count);
 };
 
-const TITLE_BADGE = /^\((\d+\+?)\) /;
+/** What the unread count puts in front of the title: "(3) ", or nothing. */
+export const titleBadge = (count) => {
+    const label = badgeLabel(count);
+    return label ? `(${label}) ` : '';
+};
 
 /**
- * The document title with the unread count in front, replacing any count
- * already there so repeated application never stacks prefixes.
+ * The document title with the unread count in front. Only `applied`, the
+ * badge this page last put there, is replaced, so repeated application never
+ * stacks prefixes and an app's own "(3) Inbox" title keeps its count.
  *
  * @param {string} title
  * @param {number} count
+ * @param {string} [applied]
  * @returns {string}
  */
-export const titleWithBadge = (title, count) => {
-    const base = String(title ?? '').replace(TITLE_BADGE, '');
-    const label = badgeLabel(count);
-    return label ? `(${label}) ${base}` : base;
+export const titleWithBadge = (title, count, applied = '') => {
+    let base = String(title ?? '');
+    if ( applied && base.startsWith(applied) ) base = base.slice(applied.length);
+    return titleBadge(count) + base;
 };
 
 /**
