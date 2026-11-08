@@ -188,6 +188,17 @@ describe('auth.signIn on a first-party page', () => {
         expect(window.open).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps the popup for a page in a frame of another site', () => {
+        Object.defineProperty(window.location, 'ancestorOrigins', { configurable: true, value: ['https://other.test'] });
+        try {
+            auth.signIn();
+            expect(signInFrame()).toBeNull();
+            expect(window.open).toHaveBeenCalledTimes(1);
+        } finally {
+            delete window.location.ancestorOrigins;
+        }
+    });
+
     it('keeps the popup for a cross-origin isolated page', () => {
         vi.stubGlobal('crossOriginIsolated', true);
         auth.signIn().catch(() => {});

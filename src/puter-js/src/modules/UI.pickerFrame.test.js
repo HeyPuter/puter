@@ -193,6 +193,17 @@ describe('pickers that keep the popup', () => {
         expect(pickerFrame()).toBeNull();
     });
 
+    it('opens it synchronously for a page in a frame of another site', () => {
+        Object.defineProperty(window.location, 'ancestorOrigins', { configurable: true, value: ['https://other.test'] });
+        try {
+            makeUI().showOpenFilePicker();
+            expect(window.open).toHaveBeenCalledTimes(1);
+            expect(pickerFrame()).toBeNull();
+        } finally {
+            delete window.location.ancestorOrigins;
+        }
+    });
+
     it('opens it synchronously for a page outside the Puter origin', () => {
         globalThis.puter.defaultGUIOrigin = 'https://puter.com';
         makeUI().showSaveFilePicker('x', 'a.txt');

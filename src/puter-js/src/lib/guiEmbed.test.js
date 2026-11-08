@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { canFrameGuiEmbed, showFeedbackEmbed, showPopupFrame } from './guiEmbed.js';
+import { ancestorsAllowGuiEmbed, canFrameGuiEmbed, showFeedbackEmbed, showPopupFrame } from './guiEmbed.js';
 
 const GUI_ORIGIN = 'https://puter.test';
 const USER = '0b1c9a52-3f0e-4c7a-9a65-2f6d1e8b7c40';
@@ -43,6 +43,38 @@ describe('canFrameGuiEmbed', () => {
         [undefined, 'https://puter.com', false],
     ])('%s under %s is %s', (page, gui, expected) => {
         expect(canFrameGuiEmbed(page, gui)).toBe(expected);
+    });
+});
+
+describe('ancestorsAllowGuiEmbed', () => {
+    const PAGE = 'https://notes.puter.test';
+    /** A window at `origin` under `parent`; a cross-origin parent throws on `location`, as in a browser. */
+    const fakeWindow = ({ origin = PAGE, ancestorOrigins, parent } = {}) => {
+        const win = { location: { origin, ancestorOrigins } };
+        win.parent = parent ?? win;
+        return win;
+    };
+    const crossOrigin = () => {
+        const win = {};
+        Object.defineProperty(win, 'location', { get: () => { throw new DOMException('Blocked', 'SecurityError'); } });
+        win.parent = win;
+        return win;
+    };
+
+    it.each([
+        ['a top-level page', [], true],
+        ['a frame of the same page', [PAGE], true],
+        ['a frame in the GUI', [PAGE, GUI_ORIGIN], true],
+        ['a frame of another site', ['https://other.test'], false],
+        ['a frame of the page inside another site', [PAGE, 'https://other.test'], false],
+    ])('reads ancestorOrigins for %s', (_, ancestorOrigins, expected) => {
+        expect(ancestorsAllowGuiEmbed(fakeWindow({ ancestorOrigins }), GUI_ORIGIN)).toBe(expected);
+    });
+
+    it('walks same-origin parents without ancestorOrigins', () => {
+        expect(ancestorsAllowGuiEmbed(fakeWindow(), GUI_ORIGIN)).toBe(true);
+        expect(ancestorsAllowGuiEmbed(fakeWindow({ parent: fakeWindow() }), GUI_ORIGIN)).toBe(true);
+        expect(ancestorsAllowGuiEmbed(fakeWindow({ parent: crossOrigin() }), GUI_ORIGIN)).toBe(false);
     });
 });
 

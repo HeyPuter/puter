@@ -2,7 +2,7 @@ import EventListener from '../lib/EventListener.js';
 import { PuterJSError } from '../lib/PuterJSError.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
-import { canFrameGuiEmbed, showFeedbackEmbed, showPopupFrame } from '../lib/guiEmbed.js';
+import { ancestorsAllowGuiEmbed, canFrameGuiEmbed, showFeedbackEmbed, showPopupFrame } from '../lib/guiEmbed.js';
 import { hasUserActivation } from '../lib/auth-popup.js';
 import { checkPermissions } from './perms/lib/holds.js';
 
@@ -653,12 +653,13 @@ export class UIModule extends EventListener {
         })();
     }
 
-    /** Whether a picker can show framed: a signed-in first-party page. */
+    /** Whether a picker can show framed: a signed-in first-party page, not in a frame of another site. */
     #canFramePicker () {
         return this.env === 'web' &&
             !globalThis.crossOriginIsolated &&
             !!globalThis.document?.body &&
             canFrameGuiEmbed(globalThis.location?.href, puter.defaultGUIOrigin) &&
+            ancestorsAllowGuiEmbed(globalThis, puter.defaultGUIOrigin) &&
             !!puter.auth?.isSignedIn?.();
     }
 

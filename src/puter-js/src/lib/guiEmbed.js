@@ -75,6 +75,36 @@ export const canFrameGuiEmbed = (pageUrl, guiOrigin) => {
 };
 
 /**
+ * Whether every frame above `win` may frame an embed too. The server's
+ * frame-ancestors allows only the GUI and the page, so in a frame of any other
+ * site the embed is refused, and opening the popup straight away is faster.
+ *
+ * @param {Window} win - the page
+ * @param {string} guiOrigin
+ * @returns {boolean}
+ */
+export const ancestorsAllowGuiEmbed = (win, guiOrigin) => {
+    let gui;
+    try {
+        gui = new URL(guiOrigin).origin;
+    } catch {
+        return false;
+    }
+    const page = win.location.origin;
+    const ancestors = win.location.ancestorOrigins;
+    if ( ancestors ) return Array.from(ancestors).every((origin) => origin === page || origin === gui);
+    // Without ancestorOrigins (Firefox), only a same-origin ancestor can be named.
+    try {
+        for ( let w = win; w.parent !== w; w = w.parent ) {
+            if ( w.parent.location.origin !== page ) return false;
+        }
+        return true;
+    } catch {
+        return false;
+    }
+};
+
+/**
  * Mounts `/embed/<path>` in a modal frame, hidden until the embed reports
  * `ready` and behind a loading scrim once its start takes longer than
  * LOADING_DELAY_MS. Resolves what `onMessage` finishes with, what `dismissed`

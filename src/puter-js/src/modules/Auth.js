@@ -3,7 +3,7 @@ import { fetchUrl } from '../lib/networkUtils.js';
 import { PuterModule } from '../lib/PuterModule.js';
 import PuterDialog from './PuterDialog.js';
 import { hasOpaqueOrigin } from '../lib/auth-popup.js';
-import { canFrameGuiEmbed, showPopupFrame } from '../lib/guiEmbed.js';
+import { ancestorsAllowGuiEmbed, canFrameGuiEmbed, showPopupFrame } from '../lib/guiEmbed.js';
 
 /**
  * Puter user details, as returned by `getUser()`.
@@ -182,14 +182,16 @@ export class AuthModule extends PuterModule {
 
     /**
      * Whether this page can show the sign-in framed: a first-party page one
-     * label under the GUI origin. Only the popup creates a temporary
-     * account, so a sign-in that asks for one keeps it.
+     * label under the GUI origin, not in a frame of another site. Only the
+     * popup creates a temporary account, so a sign-in that asks for one keeps
+     * it.
      */
     #canSignInInFrame (options) {
         return !options.attempt_temp_user_creation &&
             !globalThis.crossOriginIsolated &&
             !!globalThis.document?.body &&
-            canFrameGuiEmbed(globalThis.location?.href, puter.defaultGUIOrigin);
+            canFrameGuiEmbed(globalThis.location?.href, puter.defaultGUIOrigin) &&
+            ancestorsAllowGuiEmbed(globalThis, puter.defaultGUIOrigin);
     }
 
     /** Runs `puter.onAuth`, if set, with the user just signed in. */

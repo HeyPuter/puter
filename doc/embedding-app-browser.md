@@ -183,7 +183,8 @@ answers (`puter.token`, `fileOpenPicked`, `directoryPicked`, `fileSaved`, the
 cancel messages, `sendMeFileData`) are the popup's.
 
 puter.js uses them on a page one label under the GUI origin, other than the
-subdomains the server refuses, unless the page is cross-origin isolated.
+subdomains the server refuses, unless the page is cross-origin isolated or in a
+frame of another site (which `frame-ancestors` refuses too).
 `showPopupFrame` in `src/puter-js/src/lib/guiEmbed.js` shows the frame in a box
 the size of the popup window, over a scrim, hidden until `ready` and behind the
 loading spinner after 200ms. Escape closes it, on the page or in the frame. On
