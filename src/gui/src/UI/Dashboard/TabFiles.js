@@ -1242,8 +1242,9 @@ const TabFiles = {
                 return false;
             }
 
-            // Arrow keys, Home/End and PageUp/PageDown - Navigate items
-            if ( e.which >= 33 && e.which <= 40 ) {
+            // Arrow keys, Home/End and PageUp/PageDown - Navigate items. Not
+            // with Alt or Cmd: those are the browser's (Alt+Left is Back).
+            if ( e.which >= 33 && e.which <= 40 && ! e.altKey && ! e.metaKey ) {
                 e.preventDefault();
                 e.stopPropagation();
 

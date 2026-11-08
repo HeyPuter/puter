@@ -1420,6 +1420,22 @@ describe('TabFiles keyboard', () => {
         expect(selected()).toEqual(['/alice/Documents/a.txt']);
     });
 
+    it('leaves Alt and Cmd arrows to the browser', () => {
+        mountKeyboard(['a.txt', 'b.txt']);
+        $('.files .row').first().addClass('selected');
+
+        const back = new KeyboardEvent('keydown', { key: 'ArrowLeft', which: 37, keyCode: 37, altKey: true, bubbles: true, cancelable: true });
+        document.body.dispatchEvent(back);
+        const down = new KeyboardEvent('keydown', { key: 'ArrowDown', which: 40, keyCode: 40, metaKey: true, bubbles: true, cancelable: true });
+        document.body.dispatchEvent(down);
+
+        expect(back.defaultPrevented).toBe(false);
+        expect(down.defaultPrevented).toBe(false);
+        expect(selected()).toEqual(['/alice/Documents/a.txt']);
+        press(document.body, 'ArrowDown', { which: 40, keyCode: 40 });
+        expect(selected()).toEqual(['/alice/Documents/b.txt']);
+    });
+
     it('takes a space typed into a name as part of it', () => {
         mountKeyboard(['my notes.txt', 'my zebra.txt']);
         for ( const key of ['m', 'y', ' ', 'z'] ) press(document.body, key, { which: key.toUpperCase().charCodeAt(0) });
