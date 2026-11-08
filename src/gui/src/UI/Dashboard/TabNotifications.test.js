@@ -412,6 +412,26 @@ describe('Puter notifications', () => {
         expect($('.push-puter-card').text()).toContain('push_load_failed');
     });
 
+    it('puts the hint back once a later visit reads the preference', async () => {
+        serve({
+            'GET /push/devices': { devices: [] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': () => reply(500, {}),
+        });
+        await open();
+        serve({
+            'GET /push/devices': { devices: [] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+        });
+        await tab.onActivate($('.win'));
+        await settle();
+
+        expect($('.push-puter-toggle').prop('disabled')).toBe(false);
+        expect($('.push-puter-card').text()).toContain('push_puter_notifications_hint');
+        expect($('.push-puter-card').text()).not.toContain('push_load_failed');
+    });
+
     it('puts the switch back when the save fails', async () => {
         serve({
             'GET /push/devices': { devices: [] },

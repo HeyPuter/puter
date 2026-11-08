@@ -259,12 +259,15 @@ const TabNotifications = {
 
         const refreshPreference = async () => {
             const $toggle = $section.find('.push-puter-toggle');
+            const $hint = $section.find('.push-puter-card .dashboard-settings-card-info > span');
             try {
                 $toggle.prop('checked', await getPuterPushPreference()).prop('disabled', false);
+                // A failed earlier read replaced the hint.
+                $hint.html(i18n('push_puter_notifications_hint'));
             } catch ( e ) {
                 console.warn('[push] preference read failed', e);
                 $toggle.prop('checked', false).prop('disabled', true);
-                $section.find('.push-puter-card .dashboard-settings-card-info > span').html(i18n(loadFailedKey(e)));
+                $hint.html(i18n(loadFailedKey(e)));
             }
         };
 
