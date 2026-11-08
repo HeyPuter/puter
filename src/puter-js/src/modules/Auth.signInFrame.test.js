@@ -101,6 +101,22 @@ describe('auth.signIn on a first-party page', () => {
         await expect(result).rejects.toMatchObject({ error: 'auth_window_closed' });
     });
 
+    it('shares one framed sign-in between calls made while it is open', async () => {
+        const first = auth.signIn();
+        const second = auth.signIn();
+        expect(document.querySelectorAll('dialog.puter-popup-frame')).toHaveLength(1);
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puter.token', msg_id: frameMsgId(), success: true, token: 'tok' });
+        await expect(first).resolves.toEqual({ success: true, token: 'tok' });
+        await expect(second).resolves.toEqual({ success: true, token: 'tok' });
+
+        // Once it settles, the next call starts a new one.
+        const third = auth.signIn();
+        expect(signInFrame()).not.toBeNull();
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed' });
+        await expect(third).rejects.toMatchObject({ error: 'auth_window_closed' });
+    });
+
     it('rejects with the reply a failed sign-in sends, as the popup does', async () => {
         const result = auth.signIn();
         fromFrame({ msg: 'puter.token', msg_id: frameMsgId(), success: false, token: null });

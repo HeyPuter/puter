@@ -116,6 +116,9 @@ export class AuthModule extends PuterModule {
     /** @internal */
     pendingSignInMessageIds_ = new Set();
 
+    /** The framed sign-in in progress, which a repeated call joins. */
+    #framedSignIn = null;
+
     /**
      * Signs the user in, opening a popup with the appropriate authentication
      * method. Must be called from a user gesture (such as a click) — without
@@ -174,8 +177,18 @@ export class AuthModule extends PuterModule {
         }
 
         if (this.#canSignInInFrame(options)) {
-            return this.#signInInFrame(options).then((result) =>
+            // A second call, such as from a double click, waits on the first
+            // rather than replacing its frame.
+            const requestAuth = !!options.request_auth;
+            if (this.#framedSignIn?.requestAuth === requestAuth) return this.#framedSignIn.promise;
+            const promise = this.#signInInFrame(options).then((result) =>
                 result ?? this.#signInWithPopup(options));
+            const done = () => {
+                if (this.#framedSignIn?.promise === promise) this.#framedSignIn = null;
+            };
+            this.#framedSignIn = { requestAuth, promise };
+            promise.then(done, done);
+            return promise;
         }
         return this.#signInWithPopup(options);
     };
