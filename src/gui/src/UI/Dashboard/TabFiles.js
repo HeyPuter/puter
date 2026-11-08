@@ -5394,6 +5394,11 @@ const TabFiles = {
                     return async () => {
                         $('.context-menu').remove();
 
+                        // Where the user was, so an upload that lands after
+                        // they've moved on neither pulls them back nor draws
+                        // its row into another folder's listing.
+                        const pathAtClick = _this.currentPath;
+
                         // Temporarily intercept create_file to capture the upload promise
                         let uploadPromise = null;
                         const createFile = (options) => {
@@ -5430,7 +5435,10 @@ const TabFiles = {
                                     operation: 'create_file',
                                     data: $('<div>').attr({ 'data-uid': result.uid, 'data-path': result.path }),
                                 });
-                                if ( targetPath === _this.currentPath ) {
+                                // Not mid-way to another folder (currentPath
+                                // only moves once its listing arrives).
+                                const settled = ! _this.loadingFolder;
+                                if ( settled && targetPath === _this.currentPath ) {
                                     // Remove empty-directory placeholder if present
                                     _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row):not(.tabfiles-selection-area)').remove();
                                     // Add the new file incrementally
@@ -5441,11 +5449,15 @@ const TabFiles = {
                                         _this.applyColumnWidths();
                                         _this.updateFooterStats();
                                     }
-                                } else {
+                                } else if ( settled && _this.currentPath === pathAtClick ) {
                                     // Same navigate-to-target treatment as New
                                     // Folder above.
                                     _this.pushNavHistory(targetPath);
                                     await _this.renderDirectory(targetPath, { consistency: 'strong' });
+                                } else {
+                                    // The user went elsewhere meanwhile; the
+                                    // file is there when they come back.
+                                    return;
                                 }
                                 const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
                                 if ( $newRow.length > 0 ) {

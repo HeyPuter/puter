@@ -157,6 +157,7 @@ describe('TabFiles New menu creates', () => {
         window.sites = [];
         window.actions_history = [];
         window.activate_item_name_editor = vi.fn();
+        vi.spyOn(TabFiles, 'pushNavHistory').mockImplementation(() => {});
         uploads = [];
         window.puter = { fs: { upload: vi.fn((file, dirname) => new Promise(resolve => {
             uploads.push(() => resolve({ uid: `u${uploads.length}`, name: file.name, path: `${dirname}/${file.name}` }));
@@ -198,6 +199,45 @@ describe('TabFiles New menu creates', () => {
 
         expect(window.create_file).toBe(real);
         expect(TabFiles._creatingItem).toBe(0);
+    });
+
+    it('leaves a listing the user moved to alone when the upload lands after', async () => {
+        window.create_file = vi.fn();
+        vi.spyOn(TabFiles, 'renderDirectory').mockResolvedValue();
+        const created = menuItem(/text_document|Text/).onClick();
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        // The user opened Pictures; its listing is still loading.
+        TabFiles.loadingFolder = true;
+        uploads[0]();
+        await created;
+        expect(TabFiles.renderItem).not.toHaveBeenCalled();
+        expect(TabFiles.renderDirectory).not.toHaveBeenCalled();
+        expect(window.activate_item_name_editor).not.toHaveBeenCalled();
+    });
+
+    it('does not pull the user back once they are in another folder', async () => {
+        window.create_file = vi.fn();
+        vi.spyOn(TabFiles, 'renderDirectory').mockResolvedValue();
+        const created = menuItem(/text_document|Text/).onClick();
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        TabFiles.currentPath = '/alice/Pictures';
+        uploads[0]();
+        await created;
+        expect(TabFiles.renderDirectory).not.toHaveBeenCalled();
+        expect(TabFiles.renderItem).not.toHaveBeenCalled();
+    });
+
+    it('still goes to the folder whose menu made the file', async () => {
+        window.create_file = vi.fn();
+        vi.spyOn(TabFiles, 'renderDirectory').mockResolvedValue();
+        const created = menuItem(/text_document|Text/, '/alice/Videos').onClick();
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        uploads[0]();
+        await created;
+        expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Videos', { consistency: 'strong' });
     });
 });
 
