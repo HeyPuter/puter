@@ -86,6 +86,9 @@ describe('openAuthFlow', () => {
             key($('.auth-dialog input').get(0), 'Escape');
             expect(close).not.toHaveBeenCalled();
             flow.setBusy(false);
+            // Escape that cancels an IME conversion is the IME's.
+            $('.auth-dialog input').get(0).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }));
+            expect(close).not.toHaveBeenCalled();
             key($('.auth-dialog input').get(0), 'Escape');
             expect(close).toHaveBeenCalledTimes(1);
             flow.finish(false);

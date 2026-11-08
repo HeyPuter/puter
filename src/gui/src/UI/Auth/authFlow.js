@@ -358,6 +358,9 @@ export default function openAuthFlow ({ page = false, dismissable = ! page, clos
     $overlay.on('keydown keyup keypress', function (e) {
         e.stopPropagation();
         if ( e.type !== 'keydown' || e.key !== 'Escape' ) return;
+        // An Escape that cancels an IME conversion is the IME's; jQuery's
+        // event doesn't carry isComposing, the browser's does.
+        if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
         e.preventDefault();
         if ( busy ) return;
         if ( dismissable ) $dialog.find('.dashboard-dialog-close').trigger('click');

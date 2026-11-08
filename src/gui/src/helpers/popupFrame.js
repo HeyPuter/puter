@@ -121,7 +121,7 @@ export const startPopupFrame = (win, hostOrigin) => {
  */
 export const closeAccountChecksOnEscape = (win) => {
     win.document.addEventListener('keydown', (e) => {
-        if ( e.key !== 'Escape' || e.defaultPrevented ) return;
+        if ( e.key !== 'Escape' || e.defaultPrevented || e.isComposing ) return;
         const el = e.target === win.document.body ? win.document.querySelector('.window-active') : e.target;
         if ( el?.closest?.(ACCOUNT_CHECK_WINDOWS) ) win.close();
     });

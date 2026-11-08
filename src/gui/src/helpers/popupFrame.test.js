@@ -163,12 +163,13 @@ describe('closeAccountChecksOnEscape', () => {
         expect(win.close).toHaveBeenCalledTimes(1);
     });
 
-    it('leaves Escape that something handled, other keys, and other windows alone', () => {
+    it('leaves Escape that something or an IME handled, other keys, and other windows alone', () => {
         const win = signInWindow();
         const input = showWindow(win).querySelector('input');
         input.addEventListener('keydown', (e) => e.preventDefault(), { once: true });
         escapeOn(input);
         escapeOn(input, { key: 'Enter' });
+        escapeOn(input, { isComposing: true });
         escapeOn(showWindow(win, 'window window-alert').querySelector('input'));
         expect(win.close).not.toHaveBeenCalled();
     });
