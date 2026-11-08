@@ -113,6 +113,34 @@ export const startPopupFrame = (win, hostOrigin) => {
 };
 
 /**
+ * Gives a framed popup's latest focus() back whenever the frame gains focus
+ * with nothing focused, until the user presses a key or the pointer in it. A
+ * cross-origin frame can't take focus until the framing page focuses it, which
+ * also resets it, so a save picker's file name would start unfocused.
+ *
+ * @param {Window} win
+ */
+export const focusOnFrameFocus = (win) => {
+    const focus = win.HTMLElement.prototype.focus;
+    let latest = null;
+    win.HTMLElement.prototype.focus = function (...args) {
+        latest = { el: this, args };
+        return focus.apply(this, args);
+    };
+    const forget = () => {
+        latest = null;
+        win.HTMLElement.prototype.focus = focus;
+    };
+    win.addEventListener('pointerdown', forget, { capture: true, once: true });
+    win.addEventListener('keydown', forget, { capture: true, once: true });
+    win.addEventListener('focus', () => {
+        const active = win.document.activeElement;
+        if ( ! latest?.el.isConnected || (active && active !== win.document.body) ) return;
+        focus.apply(latest.el, latest.args);
+    });
+};
+
+/**
  * Closes a framed sign-in on Escape in one of its account checks, as Escape
  * on its auth screens does. Those screens handle Escape themselves; the
  * account checks are windows, which don't.

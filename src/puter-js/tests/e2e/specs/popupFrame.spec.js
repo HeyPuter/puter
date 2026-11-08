@@ -103,9 +103,14 @@ test.describe('popups a first-party page shows framed', () => {
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
 
         // A name no earlier run left behind, so the save doesn't ask to replace it.
-        const savedName = `popup-frame-${Date.now()}.txt`;
-        await runFromClick(page, `puter.ui.showSaveFilePicker("saved in a frame", ${JSON.stringify(savedName)})`);
+        const suggestedName = `popup-frame-${Date.now()}.txt`;
+        await runFromClick(page, `puter.ui.showSaveFilePicker("saved in a frame", ${JSON.stringify(suggestedName)})`);
         await frameReady(page);
+        await expect(frame(page).locator('.savefiledialog-filename')).toHaveValue(suggestedName);
+        // As in the popup, the name has focus with all but its extension
+        // selected, so typing renames it straight away.
+        const savedName = `renamed-${suggestedName}`;
+        await page.keyboard.type(savedName.replace(/\.txt$/, ''));
         await expect(frame(page).locator('.savefiledialog-filename')).toHaveValue(savedName);
         await frame(page).locator('.savefiledialog-save-btn').click();
         const saved = await result(page);

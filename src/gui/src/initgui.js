@@ -47,7 +47,7 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
-import { closeAccountChecksOnEscape, framedPopupAction, framedPopupParams, startPopupFrame } from './helpers/popupFrame.js';
+import { closeAccountChecksOnEscape, focusOnFrameFocus, framedPopupAction, framedPopupParams, startPopupFrame } from './helpers/popupFrame.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
@@ -1173,6 +1173,7 @@ if (jQuery) {
         if (!framedPopupAction(pathname)) return;
         window.tell_popup_frame = startPopupFrame(window, hostOrigin);
         window.embedded_in_frame = !!window.tell_popup_frame;
+        if (window.embedded_in_frame) focusOnFrameFocus(window);
     };
     // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
     const in_iframe = window.location !== window.parent.location;

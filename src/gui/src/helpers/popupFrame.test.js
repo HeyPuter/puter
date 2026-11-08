@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     POPUP_FRAME_MSG,
     closeAccountChecksOnEscape,
+    focusOnFrameFocus,
     framedPopupAction,
     framedPopupParams,
     startPopupFrame,
@@ -126,6 +127,62 @@ describe('startPopupFrame', () => {
         document.body.append(Object.assign(document.createElement('div'), { className: 'window' }));
         await Promise.resolve();
         expect(statesSent(win)).toEqual(['loading', 'ready']);
+    });
+});
+
+describe('focusOnFrameFocus', () => {
+    /** A window of its own, so patching its focus() leaves the test's alone. */
+    const ownWindow = () => {
+        const iframe = document.createElement('iframe');
+        document.body.append(iframe);
+        const win = iframe.contentWindow;
+        const input = win.document.createElement('input');
+        win.document.body.append(input);
+        return { win, input };
+    };
+    /** The frame losing its focus, then the framing page focusing it again. */
+    const refocusFrame = (win) => {
+        win.document.activeElement?.blur();
+        win.dispatchEvent(new win.FocusEvent('focus'));
+    };
+
+    it('gives the popup\'s latest focus back each time the frame gains focus with nothing focused', () => {
+        const { win, input } = ownWindow();
+        focusOnFrameFocus(win);
+        input.focus();
+        refocusFrame(win);
+        expect(win.document.activeElement).toBe(input);
+        refocusFrame(win);
+        expect(win.document.activeElement).toBe(input);
+    });
+
+    it('leaves focus to the user once they press a key or the pointer', () => {
+        for ( const type of ['keydown', 'pointerdown'] ) {
+            const { win, input } = ownWindow();
+            const focus = win.HTMLElement.prototype.focus;
+            focusOnFrameFocus(win);
+            input.focus();
+            win.document.body.dispatchEvent(new win.Event(type, { bubbles: true }));
+            refocusFrame(win);
+            expect(win.document.activeElement).toBe(win.document.body);
+            expect(win.HTMLElement.prototype.focus).toBe(focus);
+        }
+    });
+
+    it('leaves an element that has focus, and one that has left the page', () => {
+        const { win, input } = ownWindow();
+        const nativeFocus = win.HTMLElement.prototype.focus;
+        const other = win.document.createElement('button');
+        win.document.body.append(other);
+        focusOnFrameFocus(win);
+        input.focus();
+        nativeFocus.call(other);
+        win.dispatchEvent(new win.FocusEvent('focus'));
+        expect(win.document.activeElement).toBe(other);
+
+        input.remove();
+        refocusFrame(win);
+        expect(win.document.activeElement).toBe(win.document.body);
     });
 });
 
