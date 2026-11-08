@@ -475,3 +475,89 @@ describe('showPopupFrame', () => {
         expect(popupFrame().closest('dialog').isConnected).toBe(true);
     });
 });
+
+describe('page scroll behind an embed', () => {
+    const root = document.documentElement;
+    const popupFrame = (action) => document.querySelector(`dialog.puter-popup-frame iframe[src*="/embed/${action}"]`);
+    const show = (action, closed = () => 'closed') => showPopupFrame({
+        guiOrigin: GUI_ORIGIN,
+        action,
+        fragment: { user: USER },
+        title: action,
+        closed,
+        onMessage: () => {},
+    });
+    const tell = (action, state) => window.dispatchEvent(new MessageEvent('message', {
+        data: { msg: 'puterPopupFrame', state },
+        origin: GUI_ORIGIN,
+        source: popupFrame(action).contentWindow,
+    }));
+    /** Gives the page a classic scrollbar this wide, or none. */
+    const scrollbar = (width) => {
+        vi.spyOn(root, 'clientWidth', 'get').mockReturnValue(window.innerWidth - width);
+    };
+
+    // Earlier tests leave dialogs that never closed, which locked the page.
+    beforeEach(() => {
+        root.removeAttribute('style');
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        root.removeAttribute('style');
+    });
+
+    it('stops while the embed shows and comes back as the page had it once it closes', async () => {
+        scrollbar(0);
+        root.style.overflow = 'clip';
+        const result = show('upgrade');
+        tell('upgrade', 'loading');
+        expect(root.style.overflow).toBe('clip');
+
+        tell('upgrade', 'ready');
+        expect(root.style.overflow).toBe('hidden');
+        expect(root.style.paddingRight).toBe('');
+
+        tell('upgrade', 'closed');
+        await expect(result).resolves.toBe('closed');
+        expect(root.style.overflow).toBe('clip');
+    });
+
+    it('keeps the space of a classic scrollbar, so the page doesn\'t shift', async () => {
+        scrollbar(15);
+        root.style.paddingRight = '8px';
+        const result = show('upgrade');
+        tell('upgrade', 'ready');
+        expect(root.style.overflow).toBe('hidden');
+        expect(root.style.paddingRight).toBe('23px');
+        tell('upgrade', 'closed');
+        await result;
+        expect(root.style.paddingRight).toBe('8px');
+        expect(root.style.overflow).toBe('');
+    });
+
+    it('stops behind the loading scrim too, and stays stopped until the last embed closes', async () => {
+        vi.useFakeTimers();
+        scrollbar(0);
+        const upgrade = show('upgrade');
+        await vi.advanceTimersByTimeAsync(200);
+        expect(root.style.overflow).toBe('hidden');
+        const signIn = show('sign-in');
+        tell('sign-in', 'ready');
+
+        tell('sign-in', 'closed');
+        await signIn;
+        expect(root.style.overflow).toBe('hidden');
+        tell('upgrade', 'closed');
+        await upgrade;
+        expect(root.style.overflow).toBe('');
+    });
+
+    it('leaves the page alone for an embed that never showed', async () => {
+        scrollbar(0);
+        const result = show('upgrade');
+        tell('upgrade', 'unavailable');
+        await expect(result).resolves.toBeNull();
+        expect(root.style.overflow).toBe('');
+    });
+});

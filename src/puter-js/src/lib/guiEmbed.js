@@ -61,6 +61,44 @@ const RESERVED_LABELS = new Set(['www', 'api', 'js', 'dav', 'about', 'developer'
 // Dismisses the single-instance embed showing at each path.
 const showingEmbeds = new Map();
 
+// Embed dialogs showing over the page, and the page's own root styles to put
+// back once none is.
+const scrollLockers = new Set();
+let pageRootStyle = null;
+
+/**
+ * Stops the page scrolling behind `dialog` while it shows: Firefox and WebKit
+ * pass a scroll over the frame on to the page, whatever the dialog's
+ * `overscroll-behavior`. The root takes a classic scrollbar's width as padding,
+ * so the page doesn't shift. Returns the function that lets it scroll again.
+ *
+ * @param {HTMLDialogElement} dialog
+ * @returns {() => void}
+ */
+const lockPageScroll = (dialog) => {
+    const root = document.documentElement;
+    // One the page removed itself never unlocks.
+    for ( const shown of scrollLockers ) if ( ! shown.isConnected ) scrollLockers.delete(shown);
+    if ( scrollLockers.size === 0 ) {
+        pageRootStyle = { overflow: root.style.overflow, paddingRight: root.style.paddingRight };
+        const scrollbar = window.innerWidth - root.clientWidth;
+        if ( scrollbar > 0 ) {
+            const padding = parseFloat(getComputedStyle(root).paddingRight) || 0;
+            root.style.paddingRight = `${padding + scrollbar}px`;
+        }
+        root.style.overflow = 'hidden';
+    }
+    scrollLockers.add(dialog);
+    return () => {
+        if ( ! scrollLockers.delete(dialog) ) return;
+        for ( const shown of scrollLockers ) if ( ! shown.isConnected ) scrollLockers.delete(shown);
+        if ( scrollLockers.size > 0 ) return;
+        root.style.overflow = pageRootStyle.overflow;
+        root.style.paddingRight = pageRootStyle.paddingRight;
+        pageRootStyle = null;
+    };
+};
+
 /**
  * Whether a page at `pageUrl` may frame an embed served by `guiOrigin`:
  * exactly one label under its host, on the same scheme and port, and not one
@@ -215,6 +253,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     let wasReady = false;
     let restarted = false;
     let restartTimer = null;
+    let unlockScroll = null;
     const restoreFocus = document.activeElement;
     const wait = (ms) => {
         clearTimeout(timer);
@@ -229,6 +268,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         window.removeEventListener('message', onWindowMessage);
         if ( showingEmbeds.get(path) === dismiss ) showingEmbeds.delete(path);
         dialog.remove();
+        unlockScroll?.();
         if ( shown ) restoreFocus?.focus?.({ preventScroll: true });
         resolve(result);
     };
@@ -244,6 +284,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         if ( dialog.open ) return;
         shown = true;
         dialog.showModal();
+        unlockScroll = lockPageScroll(dialog);
     };
     const onWindowMessage = (event) => {
         if ( event.origin !== origin || event.source !== frame.contentWindow ) return;
