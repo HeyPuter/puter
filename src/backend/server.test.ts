@@ -413,6 +413,7 @@ describe('PuterServer host header validation', () => {
         'show-open-file-picker',
         'show-save-file-picker',
         'show-directory-picker',
+        'upgrade',
     ])('lets a deployment subdomain frame the %s popup and names it to the GUI', async (action) => {
         const parent = `http://spreadsheet.puter.localhost:${port}`;
         const guiParams = (body: string) =>
@@ -445,7 +446,7 @@ describe('PuterServer host header validation', () => {
         expect(redirected.headers['x-frame-options']).toBe('SAMEORIGIN');
     });
 
-    it.each(['/embed/SIGN-IN', '/embed/Show-Open-File-Picker', '/embed/sign-in/'])(
+    it.each(['/embed/SIGN-IN', '/embed/Show-Open-File-Picker', '/embed/sign-in/', '/embed/Upgrade', '/embed/upgrade/'])(
         'lets a first-party page frame only the exact spelling of %s',
         async (spelling) => {
             const res = await request(spelling, {

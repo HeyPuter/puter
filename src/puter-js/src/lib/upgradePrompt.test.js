@@ -179,6 +179,42 @@ describe('promptIfUpgradeRequired', () => {
         });
     });
 
+    describe('on a first-party page that can frame the upgrade', () => {
+        beforeEach(() => {
+            globalThis.puter = {
+                env: 'web',
+                ui: { requestUpgrade: vi.fn(), canShowUpgradeFrame_: () => true },
+            };
+        });
+
+        it('has the dialog ask for the framed upgrade instead of opening a tab', () => {
+            promptIfUpgradeRequired({ code: 'insufficient_funds', status: 402 }, { method: 'puter.ai.chat' });
+            expect(globalThis.puter.ui.requestUpgrade).not.toHaveBeenCalled();
+            const [message, options] = showUsageLimitDialog.mock.calls[0];
+            expect(message).toBe('Your account does not have enough funding to complete this request.');
+            expect(options).toMatchObject({ title: 'Low Balance', method: 'puter.ai.chat', reason: 'funds' });
+
+            options.onUpgrade();
+            expect(globalThis.puter.ui.requestUpgrade).toHaveBeenCalledWith({
+                reason: 'funds',
+                method: 'puter.ai.chat',
+                message: 'Your account does not have enough funding to complete this request.',
+            });
+        });
+
+        it('keeps the tab when the page cannot frame it', () => {
+            globalThis.puter.ui.canShowUpgradeFrame_ = () => false;
+            promptIfUpgradeRequired({ code: 'storage_limit_reached' }, { method: 'puter.fs.upload' });
+            expect(showUsageLimitDialog.mock.calls[0][1]).not.toHaveProperty('onUpgrade');
+        });
+
+        it('keeps the tab for a storage refusal outside a website', () => {
+            globalThis.puter.env = 'gui';
+            promptIfUpgradeRequired({ code: 'storage_limit_reached' }, { method: 'puter.fs.upload' });
+            expect(showUsageLimitDialog.mock.calls[0][1]).not.toHaveProperty('onUpgrade');
+        });
+    });
+
     it('does nothing for a rejection an upgrade would not clear', () => {
         promptIfUpgradeRequired({ status: 403 });
         promptIfUpgradeRequired(new Error('offline'));

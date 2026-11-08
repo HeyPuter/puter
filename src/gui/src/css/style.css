@@ -140,6 +140,15 @@ body {
     background-color: #ccccccbe !important;
 }
 
+/* A popup framed over its whole page, such as the upgrade, shows the page
+   around its own dialog. The color scheme matches the frame's, or the
+   browser paints the frame opaque. */
+html.popup-frame-transparent,
+html.popup-frame-transparent body {
+    background: transparent !important;
+    color-scheme: light dark;
+}
+
 .disable-user-select {
     cursor: default;
     -webkit-touch-callout: none !important;

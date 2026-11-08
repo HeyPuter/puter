@@ -28,6 +28,7 @@ export type {
     ToolSchema,
     UpgradeReason,
     UpgradeRequestDetails,
+    UpgradeResult,
 } from './types/lib/types.js';
 export type { default as APICallLogger } from './types/lib/APICallLogger.js';
 

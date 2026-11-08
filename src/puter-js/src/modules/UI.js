@@ -4,6 +4,8 @@ import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
 import { ancestorsAllowGuiEmbed, canFrameGuiEmbed, showFeedbackEmbed, showPopupFrame } from '../lib/guiEmbed.js';
 import { hasUserActivation } from '../lib/auth-popup.js';
+import { appIDOf } from '../lib/upgradePrompt.js';
+import { upgradeUrl } from './UsageLimitDialog.js';
 import { checkPermissions } from './perms/lib/holds.js';
 
 
@@ -533,6 +535,9 @@ export class UIModule extends EventListener {
     // Set while the framed feedback dialog is open on a first-party page.
     #feedbackEmbedOpen = false;
 
+    // The framed upgrade showing, which a call made while it's open joins.
+    #upgradeFrame = null;
+
     // Holds the callback functions for the various events
     // that are triggered when a watched item has changed.
     itemWatchCallbackFunctions = [];
@@ -620,7 +625,7 @@ export class UIModule extends EventListener {
      * @param {(win: Window | null, how?: { framed: boolean }) => (() => void) | void} [opts.onWindow]
      */
     #showWebPicker ({ action, msgId, url, title, fragment = {}, onWindow }) {
-        if ( ! this.#canFramePicker() ) {
+        if ( ! this.#canFrameForUser() ) {
             // window.open() returns synchronously and the popup cannot post
             // back until this function yields, so there is no race.
             const popup = this.#openPickerPopup(url, title);
@@ -662,8 +667,8 @@ export class UIModule extends EventListener {
         })();
     }
 
-    /** Whether a picker can show framed: a signed-in first-party page, not in a frame of another site. */
-    #canFramePicker () {
+    /** Whether a picker or upgrade can show framed: a signed-in first-party page, not in a frame of another site. */
+    #canFrameForUser () {
         return this.env === 'web' &&
             !globalThis.crossOriginIsolated &&
             !!globalThis.document?.body &&
@@ -680,9 +685,8 @@ export class UIModule extends EventListener {
      * @returns {Promise<boolean>}
      */
     async #showPickerFrame ({ action, msgId, title, fragment, onWindow }) {
-        const known = await Promise.resolve(puter.whoami ?? puter.whoamiCache_).catch(() => null);
-        const user = known?.uuid ? known : await puter.auth.getUser().catch(() => null);
-        if ( typeof user?.uuid !== 'string' || ! user.uuid ) return false;
+        const user = await this.#frameUser();
+        if ( ! user ) return false;
         let frame = null;
         let stopListening;
         // The frame only serves this page's own user, so the token it sends
@@ -706,6 +710,18 @@ export class UIModule extends EventListener {
         // Gone without an answer: dismissed, so it settles as a cancel.
         this.#settleCallback(msgId, PICKER_CANCELLED);
         return true;
+    }
+
+    /**
+     * The page's signed-in user that a frame is shown for, from the cached
+     * whoami when there is one, or null without a uuid.
+     *
+     * @returns {Promise<{ uuid: string } | null>}
+     */
+    async #frameUser () {
+        const known = await Promise.resolve(puter.whoami ?? puter.whoamiCache_).catch(() => null);
+        const user = known?.uuid ? known : await puter.auth.getUser().catch(() => null);
+        return typeof user?.uuid === 'string' && user.uuid ? user : null;
     }
 
     // Whether a message on the window may drive this module.
@@ -1698,17 +1714,93 @@ export class UIModule extends EventListener {
      * Asks the desktop to show its upgrade flow. `details` say what was
      * refused and why, so the desktop can explain the suggestion; the SDK
      * fills them in when a call is refused for want of credit, a plan, or
-     * storage.
+     * storage. Inside an app the desktop doesn't answer, so the promise never
+     * settles.
+     *
+     * On a signed-in first-party page one label under the Puter origin, the
+     * upgrade shows in a frame over the page instead, and the promise
+     * resolves once it closes. When the frame can't show it, the upgrade
+     * opens in a new tab and the promise resolves `{ upgraded: false }`.
      *
      * @param {import('../lib/types.js').UpgradeRequestDetails} [details]
-     * @returns {Promise<unknown>}
+     * @returns {Promise<import('../lib/types.js').UpgradeResult>}
      */
     requestUpgrade (details) {
         const { reason, method, message } = details ?? {};
+        if ( this.canShowUpgradeFrame_() ) return this.#showUpgradeFrame({ reason, method });
         return new Promise((resolve) => {
             this.#postMessageWithCallback('requestUpgrade', resolve, { reason, method, message });
         });
     };
+
+    /**
+     * Whether {@link requestUpgrade} shows the upgrade in a frame over this page.
+     *
+     * @internal
+     * @returns {boolean}
+     */
+    canShowUpgradeFrame_ () {
+        return this.#canFrameForUser();
+    }
+
+    /**
+     * The upgrade in a frame over the page, for the page's signed-in user, or
+     * in a new tab when the frame can't show it. A call made while one is
+     * showing settles with it, so a payment in progress isn't replaced.
+     *
+     * @param {{ reason?: string, method?: string }} details
+     * @returns {Promise<import('../lib/types.js').UpgradeResult>}
+     */
+    #showUpgradeFrame ({ reason, method }) {
+        if ( this.#upgradeFrame ) return this.#upgradeFrame;
+        this.#upgradeFrame = (async () => {
+            try {
+                const user = await this.#frameUser();
+                const framed = user && await showPopupFrame({
+                    guiOrigin: puter.defaultGUIOrigin,
+                    action: 'upgrade',
+                    fragment: {
+                        user: user.uuid,
+                        ...(reason ? { reason } : {}),
+                        ...(method ? { method } : {}),
+                    },
+                    title: 'Upgrade',
+                    closed: (data) => ({ upgraded: data?.upgraded === true }),
+                    onMessage: () => {},
+                });
+                if ( framed ) return framed;
+                this.#openUpgradeTab(upgradeUrl({ reason, method, appID: appIDOf(puter) }));
+                return { upgraded: false };
+            } finally {
+                this.#upgradeFrame = null;
+            }
+        })();
+        return this.#upgradeFrame;
+    }
+
+    /**
+     * Opens the upgrade page in a new tab. The click that asked for it may
+     * have expired by now, so without it the user opens it from a consent
+     * dialog.
+     *
+     * @param {string} url
+     */
+    #openUpgradeTab (url) {
+        if ( hasUserActivation() && window.open(url, '_blank') ) return;
+        let consent = null;
+        try {
+            consent = PuterDialog.show({
+                message: 'This website wants to open the Puter upgrade page.',
+                onContinue: () => {
+                    window.open(url, '_blank');
+                    consent?.remove();
+                },
+                onCancel: () => consent?.remove(),
+            });
+        } catch {
+            // No dialog either; as with a blocked tab, the page never opens.
+        }
+    }
 
     /**
      * Shows a picker for choosing where to save a file, and saves `content`
@@ -2423,9 +2515,8 @@ export class UIModule extends EventListener {
         if ( this.#feedbackEmbedOpen ) return { sent: false };
         this.#feedbackEmbedOpen = true;
         try {
-            const known = await Promise.resolve(puter.whoami ?? puter.whoamiCache_).catch(() => null);
-            const user = known?.uuid ? known : await puter.auth.getUser().catch(() => null);
-            if ( typeof user?.uuid !== 'string' || ! user.uuid ) return null;
+            const user = await this.#frameUser();
+            if ( ! user ) return null;
             return await showFeedbackEmbed({ guiOrigin: puter.defaultGUIOrigin, userUuid: user.uuid });
         } finally {
             this.#feedbackEmbedOpen = false;

@@ -365,24 +365,33 @@ const POPUP_FRAME_BOXES = {
     'show-directory-picker': { width: 700, height: 400 },
 };
 
+// The upgrade has no box: it covers the page and its dialog draws its own
+// scrim. A payment in it may use the Payment Request API, which a frame can
+// use only when allowed, and Escape is left to the dialog, which doesn't close
+// mid-entry.
+const UNBOXED_POPUP_FRAMES = {
+    upgrade: { allow: 'payment; otp-credentials', escapeDismisses: false },
+};
+
 /**
  * Shows the GUI popup for `action` in a frame over the page instead of a
  * window, from `/embed/<action>`. The GUI runs the popup unchanged and posts
  * its answers to this page as it would to an opener; `onMessage` sees each of
  * them and finishes with the result. The frame closing on its own, as the
- * popup would, finishes with `closed()`, and so does the user dismissing it.
- * Resolves null when the frame can't serve the request (refused, never
- * answering, or reporting itself unavailable), so the caller can open the
- * popup instead. Never rejects.
+ * popup would, finishes with `closed(data)`, `data` being its closing
+ * message, and the user dismissing it finishes with `closed()`. Resolves null
+ * when the frame can't serve the request (refused, never answering, or
+ * reporting itself unavailable), so the caller can open the popup instead.
+ * Never rejects.
  *
  * @template T
  * @param {Object} opts
  * @param {string} opts.guiOrigin
- * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker'} opts.action
- * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for a picker
+ * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker' | 'upgrade'} opts.action
+ * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for a picker or the upgrade
  * @param {string} opts.title - the frame's accessible name
  * @param {string} [opts.closeLabel] - puts a close button on the frame
- * @param {() => T} opts.closed
+ * @param {(data?: Record<string, unknown>) => T} opts.closed
  * @param {(data: Record<string, unknown>, finish: (result: T) => void) => void} opts.onMessage
  * @param {(frame: Window) => void} [opts.onFrame]
  * @returns {Promise<T | null>}
@@ -400,13 +409,14 @@ export const showPopupFrame = ({ guiOrigin, action, fragment, title, closeLabel,
     allow: 'otp-credentials',
     // Escape inside the frame closes it as well.
     escapeDismisses: true,
+    ...UNBOXED_POPUP_FRAMES[action],
     // A second request for this popup, such as from a double click, replaces the
     // first. Each popup has its own window name, so other popups stay open.
     single: true,
-    dismissed: closed,
+    dismissed: () => closed(),
     onFrame,
     onMessage: (data, finish) => {
-        if ( data.msg === 'puterPopupFrame' && data.state === 'closed' ) finish(closed());
+        if ( data.msg === 'puterPopupFrame' && data.state === 'closed' ) finish(closed(data));
         else onMessage(data, finish);
     },
 });

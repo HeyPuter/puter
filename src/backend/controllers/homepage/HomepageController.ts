@@ -36,13 +36,15 @@ import type {
 
 /**
  * GUI popups a first-party page can show in a frame at `/embed/<action>`,
- * instead of opening `/action/<action>` in a window.
+ * instead of opening `/action/<action>` in a window, and the upgrade dialog,
+ * which it would otherwise open in a dashboard tab.
  */
 export const FRAMED_POPUP_ACTIONS = [
     'sign-in',
     'show-open-file-picker',
     'show-save-file-picker',
     'show-directory-picker',
+    'upgrade',
 ] as const;
 
 /** Longest description/og:description/twitter:description on `/app/<name>`. */
