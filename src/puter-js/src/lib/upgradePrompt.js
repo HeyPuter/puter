@@ -26,7 +26,7 @@ import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
  *
  * @typedef {{
  *   env?: string,
- *   ui?: { requestUpgrade: Function },
+ *   ui?: { requestUpgrade: Function, canShowUpgradeFrame_?: () => boolean, upgradeFrameShowing_?: () => boolean },
  *   authToken?: string,
  *   appID?: string,
  *   getAppIDFromAuthToken?: (token: unknown) => string | null,
@@ -109,7 +109,8 @@ const messageFor = (reason, error, context) => {
  * Inside an app the desktop's upgrade flow is asked for (and not awaited: it
  * never answers). The SDK's own dialog covers storage refusals everywhere
  * else - the desktop leans on it for those - and funding / plan refusals on
- * third-party sites only. The error is not consumed; callers still reject.
+ * websites only. On a first-party page its Upgrade button shows the upgrade
+ * in a frame over the page. The error is not consumed; callers still reject.
  *
  * @param {unknown} error The rejection, in whatever shape it arrived.
  * @param {UpgradePromptContext} [context] Which SDK method was refused and,
@@ -127,11 +128,26 @@ export const promptIfUpgradeRequired = (error, context = {}, puter = globalThis.
     if ( puter?.env === 'app' ) {
         puter.ui.requestUpgrade({ reason, method, message });
     } else if ( puter?.env === 'web' || reason === 'storage' ) {
+        // The upgrade a first-party page already shows answers this refusal
+        // too, and a dialog over it would block it.
+        if ( puter.ui?.upgradeFrameShowing_?.() === true ) return;
+        // A first-party page shows the upgrade in a frame over itself
+        // instead of a dashboard tab.
+        const framed = puter?.env === 'web' && puter.ui?.canShowUpgradeFrame_?.() === true;
         showUsageLimitDialog(message, {
             title: TITLES[reason],
             method,
             reason,
             appID: appIDOf(puter),
+            ...(framed ? {
+                // The page may have stopped being able to frame it, such as
+                // by signing out, since the dialog opened.
+                onUpgrade: () => {
+                    if ( puter.ui.canShowUpgradeFrame_?.() !== true ) return false;
+                    puter.ui.requestUpgrade({ reason, method, message });
+                    return true;
+                },
+            } : {}),
         });
     }
 };
@@ -143,5 +159,5 @@ export const promptIfUpgradeRequired = (error, context = {}, puter = globalThis.
  * @param {PromptingSdk | undefined} puter
  * @returns {string | undefined}
  */
-const appIDOf = (puter) =>
+export const appIDOf = (puter) =>
     puter?.getAppIDFromAuthToken?.(puter.authToken) || puter?.appID || undefined;

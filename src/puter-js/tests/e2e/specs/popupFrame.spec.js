@@ -337,3 +337,180 @@ button { margin: 0 6px 8px 0; min-width: 88px; min-height: 44px; box-shadow: 0 1
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
     });
 });
+
+// The open-source GUI has no upgrade dialog, so the frame gets a stand-in for
+// the deployment's: it records what prompted it and closes from its buttons.
+const STUB_UPGRADE_DIALOG = () => {
+    if ( location.pathname !== '/embed/upgrade' ) return;
+    window.UIUpgradeAccount = class {
+        static embeddable = true;
+        constructor ({ attribution, onClose }) {
+            window.__upgradeAttribution = attribution;
+            this.onClose = onClose;
+        }
+        async open_as_window () {
+            const dialog = document.createElement('div');
+            dialog.className = 'stub-upgrade';
+            dialog.setAttribute('role', 'dialog');
+            dialog.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5)';
+            dialog.innerHTML = '<button id="buy">Buy</button><button id="done">Close</button>';
+            dialog.querySelector('#buy').onclick = () => {
+                this.upgraded = true;
+            };
+            dialog.querySelector('#done').onclick = () => {
+                dialog.remove();
+                this.onClose({ upgraded: this.upgraded === true });
+            };
+            document.body.append(dialog);
+        }
+    };
+};
+
+/** Signs the first-party page in as the admin, whose Puter session the GUI holds. */
+const signInFirstPartyPage = async (page) => {
+    await page.goto('/');
+    await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+    await openFirstPartyPage(page);
+    await runFromClick(page, 'puter.auth.signIn()');
+    await frameReady(page);
+    await frame(page).locator('.auth-dialog [data-screen="accounts"] button').first().click();
+    expect(await result(page)).toMatchObject({ ok: true });
+    await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+};
+
+/** Stands in for the dashboard the upgrade falls back to, so no request leaves the machine. */
+const routeDashboard = (page) => page.context().route('https://puter.com/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>dashboard</title>' }));
+
+test.describe('the upgrade a first-party page shows framed', () => {
+    test('requestUpgrade() shows it over the page and resolves whether the user upgraded', async ({ page }) => {
+        await page.context().addInitScript(STUB_UPGRADE_DIALOG);
+        await signInFirstPartyPage(page);
+        const popups = [];
+        page.on('popup', (p) => popups.push(p));
+
+        await runFromClick(page, 'puter.ui.requestUpgrade({ reason: "funds", method: "puter.ai.chat", message: "x" })');
+        await frameReady(page);
+        const upgradeFrame = page.frames().find((f) => new URL(f.url()).pathname === '/embed/upgrade');
+        // The app it credits is the page's own, resolved from its origin.
+        expect(await upgradeFrame.evaluate(() => window.__upgradeAttribution)).toEqual({
+            appUid: expect.stringMatching(/^app-/),
+            reason: 'funds',
+            method: 'puter.ai.chat',
+        });
+        // The page shows through around the dialog.
+        expect(await upgradeFrame.evaluate(() => [
+            getComputedStyle(document.documentElement).backgroundColor,
+            getComputedStyle(document.body).backgroundColor,
+        ])).toEqual(['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)']);
+
+        await frame(page).locator('#buy').click();
+        await frame(page).locator('#done').click();
+        expect(await result(page)).toEqual({ ok: true, value: { upgraded: true } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+        expect(popups).toHaveLength(0);
+    });
+
+    test('the usage limit dialog\'s Upgrade button shows it instead of a tab', async ({ page }) => {
+        await page.context().addInitScript(STUB_UPGRADE_DIALOG);
+        await signInFirstPartyPage(page);
+        const popups = [];
+        page.on('popup', (p) => popups.push(p));
+        // The account is out of credit.
+        await page.route(`${API_ORIGIN}/drivers/call`, (route) => route.fulfill({
+            status: route.request().method() === 'OPTIONS' ? 204 : 402,
+            headers: {
+                'access-control-allow-origin': FIRST_PARTY,
+                'access-control-allow-headers': '*',
+                'access-control-allow-credentials': 'true',
+            },
+            contentType: 'application/json',
+            body: JSON.stringify({ success: false, error: { code: 'insufficient_funds', message: 'Not enough credit.' } }),
+        }));
+
+        await page.evaluate(() => puter.kv.set('upgrade-frame', 'x').catch(() => {}));
+        await page.locator('usage-limit-dialog #upgrade-btn').click();
+        await frameReady(page);
+        await expect(page.locator('usage-limit-dialog')).toHaveCount(0);
+        const upgradeFrame = page.frames().find((f) => new URL(f.url()).pathname === '/embed/upgrade');
+        expect(await upgradeFrame.evaluate(() => window.__upgradeAttribution)).toMatchObject({ reason: 'funds' });
+
+        await frame(page).locator('#done').click();
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+        expect(popups).toHaveLength(0);
+    });
+
+    test('a call refused while the upgrade shows leaves it uncovered', async ({ page }) => {
+        await page.context().addInitScript(STUB_UPGRADE_DIALOG);
+        await signInFirstPartyPage(page);
+        await page.route(`${API_ORIGIN}/drivers/call`, (route) => route.fulfill({
+            status: route.request().method() === 'OPTIONS' ? 204 : 402,
+            headers: {
+                'access-control-allow-origin': FIRST_PARTY,
+                'access-control-allow-headers': '*',
+                'access-control-allow-credentials': 'true',
+            },
+            contentType: 'application/json',
+            body: JSON.stringify({ success: false, error: { code: 'insufficient_funds', message: 'Not enough credit.' } }),
+        }));
+
+        await runFromClick(page, 'puter.ui.requestUpgrade({ reason: "funds" })');
+        await frameReady(page);
+        const refused = await page.evaluate(() => puter.kv.set('upgrade-frame', 'x').then(() => false, () => true));
+        expect(refused).toBe(true);
+        await expect(page.locator('usage-limit-dialog')).toHaveCount(0);
+
+        await frame(page).locator('#done').click();
+        expect(await result(page)).toEqual({ ok: true, value: { upgraded: false } });
+        await page.evaluate(() => puter.kv.set('upgrade-frame', 'x').catch(() => {}));
+        await expect(page.locator('usage-limit-dialog')).toHaveCount(1);
+    });
+
+    test('a deployment without an upgrade dialog opens the dashboard upgrade in a tab', async ({ page }) => {
+        await routeDashboard(page);
+        await signInFirstPartyPage(page);
+
+        const popup = page.waitForEvent('popup', { timeout: 60_000 });
+        await runFromClick(page, 'puter.ui.requestUpgrade({ reason: "storage", method: "puter.fs.upload" })');
+        const url = new URL((await popup).url());
+        expect(url.origin + url.pathname).toBe('https://puter.com/dashboard/');
+        expect(url.searchParams.get('upgrade')).toBe('storage');
+        expect(url.searchParams.get('upgrade_method')).toBe('puter.fs.upload');
+        expect(await result(page)).toEqual({ ok: true, value: { upgraded: false } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
+    test('an upgrade dialog that fails to open leaves the dashboard upgrade in a tab', async ({ page }) => {
+        await page.context().addInitScript(STUB_UPGRADE_DIALOG);
+        await page.context().addInitScript(() => {
+            if ( location.pathname !== '/embed/upgrade' ) return;
+            window.UIUpgradeAccount.prototype.open_as_window = async () => {
+                throw new Error('broken dialog');
+            };
+        });
+        await routeDashboard(page);
+        await signInFirstPartyPage(page);
+
+        const popup = page.waitForEvent('popup', { timeout: 60_000 });
+        await runFromClick(page, 'puter.ui.requestUpgrade({ reason: "funds" })');
+        expect(new URL((await popup).url()).pathname).toBe('/dashboard/');
+        expect(await result(page)).toEqual({ ok: true, value: { upgraded: false } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
+    test('a page signed in as someone else gets the dashboard upgrade in a tab', async ({ page }) => {
+        await page.context().addInitScript(STUB_UPGRADE_DIALOG);
+        await routeDashboard(page);
+        await signInFirstPartyPage(page);
+        await page.evaluate(async () => {
+            await puter.whoamiCache_;
+            puter.whoami = { uuid: '00000000-0000-4000-8000-000000000000' };
+        });
+
+        const popup = page.waitForEvent('popup', { timeout: 60_000 });
+        await runFromClick(page, 'puter.ui.requestUpgrade({ reason: "funds" })');
+        expect(new URL((await popup).url()).pathname).toBe('/dashboard/');
+        expect(await result(page)).toEqual({ ok: true, value: { upgraded: false } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+});

@@ -61,6 +61,82 @@ const RESERVED_LABELS = new Set(['www', 'api', 'js', 'dav', 'about', 'developer'
 // Dismisses the single-instance embed showing at each path.
 const showingEmbeds = new Map();
 
+// Embed dialogs showing over the page, and the page's own styles to put back
+// once none is.
+const scrollLockers = new Set();
+let pageStyle = null;
+
+/**
+ * The element whose overflow the page's viewport uses: the body's while the
+ * root's is `visible`. Hiding the root's then would make the body a scroller
+ * of its own, which starts at the top.
+ *
+ * @returns {HTMLElement}
+ */
+const viewportOverflowElement = () => {
+    const root = document.documentElement;
+    const body = document.body;
+    const visible = (el) => {
+        const style = getComputedStyle(el);
+        return style.overflowX === 'visible' && style.overflowY === 'visible';
+    };
+    return body && visible(root) && ! visible(body) ? body : root;
+};
+
+/**
+ * Stops the page scrolling behind `dialog` while it shows: Firefox and WebKit
+ * pass a scroll over the frame on to the page, whatever the dialog's
+ * `overscroll-behavior`. The root takes the width its scrollbar gave back as
+ * padding, so the page doesn't shift. Returns the function that lets it scroll again.
+ *
+ * @param {HTMLDialogElement} dialog
+ * @returns {() => void}
+ */
+const lockPageScroll = (dialog) => {
+    const root = document.documentElement;
+    const unlockPage = () => {
+        const { scroller, overflow, overflowX, overflowY } = pageStyle;
+        scroller.style.overflow = overflow;
+        // A shorthand reads empty when the page set only one axis.
+        if ( ! overflow ) {
+            scroller.style.overflowX = overflowX;
+            scroller.style.overflowY = overflowY;
+        }
+        root.style.paddingRight = pageStyle.paddingRight;
+        pageStyle = null;
+    };
+    // One the page removed itself never unlocks, so the page's own styles
+    // go back before they're read again.
+    for ( const shown of scrollLockers ) if ( ! shown.isConnected ) scrollLockers.delete(shown);
+    if ( scrollLockers.size === 0 && pageStyle ) unlockPage();
+    if ( scrollLockers.size === 0 ) {
+        const scroller = viewportOverflowElement();
+        pageStyle = {
+            scroller,
+            overflow: scroller.style.overflow,
+            overflowX: scroller.style.overflowX,
+            overflowY: scroller.style.overflowY,
+            paddingRight: root.style.paddingRight,
+        };
+        const hasScrollbar = window.innerWidth > root.clientWidth;
+        const width = hasScrollbar ? root.getBoundingClientRect().width : 0;
+        scroller.style.overflow = 'hidden';
+        // Measured, since a gutter the page keeps (`scrollbar-gutter: stable`)
+        // gives nothing back.
+        const released = hasScrollbar ? root.getBoundingClientRect().width - width : 0;
+        if ( released > 0 ) {
+            const padding = parseFloat(getComputedStyle(root).paddingRight) || 0;
+            root.style.paddingRight = `${padding + released}px`;
+        }
+    }
+    scrollLockers.add(dialog);
+    return () => {
+        if ( ! scrollLockers.delete(dialog) ) return;
+        for ( const shown of scrollLockers ) if ( ! shown.isConnected ) scrollLockers.delete(shown);
+        if ( scrollLockers.size === 0 && pageStyle ) unlockPage();
+    };
+};
+
 /**
  * Whether a page at `pageUrl` may frame an embed served by `guiOrigin`:
  * exactly one label under its host, on the same scheme and port, and not one
@@ -215,6 +291,12 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     let wasReady = false;
     let restarted = false;
     let restartTimer = null;
+    let unlockScroll = null;
+    // A dialog the page removes itself, such as by re-rendering its body,
+    // counts as dismissed, so whoever awaits it isn't left waiting.
+    const removal = new MutationObserver(() => {
+        if ( ! dialog.isConnected ) dismiss();
+    });
     const restoreFocus = document.activeElement;
     const wait = (ms) => {
         clearTimeout(timer);
@@ -226,9 +308,11 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         clearTimeout(timer);
         clearTimeout(loadingTimer);
         clearTimeout(restartTimer);
+        removal.disconnect();
         window.removeEventListener('message', onWindowMessage);
         if ( showingEmbeds.get(path) === dismiss ) showingEmbeds.delete(path);
         dialog.remove();
+        unlockScroll?.();
         if ( shown ) restoreFocus?.focus?.({ preventScroll: true });
         resolve(result);
     };
@@ -244,6 +328,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         if ( dialog.open ) return;
         shown = true;
         dialog.showModal();
+        unlockScroll = lockPageScroll(dialog);
     };
     const onWindowMessage = (event) => {
         if ( event.origin !== origin || event.source !== frame.contentWindow ) return;
@@ -320,6 +405,7 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         frame.src = url.href;
         // Hidden at first, so a quickly refused session shows nothing.
         document.body.append(dialog);
+        removal.observe(document.documentElement, { childList: true, subtree: true });
         onFrame?.(frame.contentWindow);
         wait(READY_TIMEOUT_MS);
         loadingTimer = setTimeout(() => {
@@ -365,24 +451,33 @@ const POPUP_FRAME_BOXES = {
     'show-directory-picker': { width: 700, height: 400 },
 };
 
+// The upgrade has no box: it covers the page and its dialog draws its own
+// scrim. A payment in it may use the Payment Request API, which a frame can
+// use only when allowed, and Escape is left to the dialog, which doesn't close
+// mid-entry.
+const UNBOXED_POPUP_FRAMES = {
+    upgrade: { allow: 'payment; otp-credentials', escapeDismisses: false },
+};
+
 /**
  * Shows the GUI popup for `action` in a frame over the page instead of a
  * window, from `/embed/<action>`. The GUI runs the popup unchanged and posts
  * its answers to this page as it would to an opener; `onMessage` sees each of
  * them and finishes with the result. The frame closing on its own, as the
- * popup would, finishes with `closed()`, and so does the user dismissing it.
- * Resolves null when the frame can't serve the request (refused, never
- * answering, or reporting itself unavailable), so the caller can open the
- * popup instead. Never rejects.
+ * popup would, finishes with `closed(data)`, `data` being its closing
+ * message, and the user dismissing it finishes with `closed()`. Resolves null
+ * when the frame can't serve the request (refused, never answering, or
+ * reporting itself unavailable), so the caller can open the popup instead.
+ * Never rejects.
  *
  * @template T
  * @param {Object} opts
  * @param {string} opts.guiOrigin
- * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker'} opts.action
- * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for a picker
+ * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker' | 'upgrade'} opts.action
+ * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for a picker or the upgrade
  * @param {string} opts.title - the frame's accessible name
  * @param {string} [opts.closeLabel] - puts a close button on the frame
- * @param {() => T} opts.closed
+ * @param {(data?: Record<string, unknown>) => T} opts.closed
  * @param {(data: Record<string, unknown>, finish: (result: T) => void) => void} opts.onMessage
  * @param {(frame: Window) => void} [opts.onFrame]
  * @returns {Promise<T | null>}
@@ -400,13 +495,14 @@ export const showPopupFrame = ({ guiOrigin, action, fragment, title, closeLabel,
     allow: 'otp-credentials',
     // Escape inside the frame closes it as well.
     escapeDismisses: true,
+    ...UNBOXED_POPUP_FRAMES[action],
     // A second request for this popup, such as from a double click, replaces the
     // first. Each popup has its own window name, so other popups stay open.
     single: true,
-    dismissed: closed,
+    dismissed: () => closed(),
     onFrame,
     onMessage: (data, finish) => {
-        if ( data.msg === 'puterPopupFrame' && data.state === 'closed' ) finish(closed());
+        if ( data.msg === 'puterPopupFrame' && data.state === 'closed' ) finish(closed(data));
         else onMessage(data, finish);
     },
 });

@@ -51,6 +51,15 @@
  */
 
 /**
+ * How a framed upgrade on a first-party page ended.
+ *
+ * @typedef {Object} UpgradeResult
+ * @property {boolean} upgraded `true` when the user subscribed to a plan or upgraded to a higher
+ * one before closing the dialog. `false` otherwise, including after a downgrade or cancellation,
+ * or when the upgrade opened in a new tab instead.
+ */
+
+/**
  * The legacy positional callbacks most methods accept alongside the promise
  * they return.
  *

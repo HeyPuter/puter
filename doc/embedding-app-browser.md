@@ -213,6 +213,52 @@ the frame again, once per `ready`.
   before a picker's answer isn't adopted, since it is for the page's own user.
   Dismissing the loading scrim settles the picker as cancelled.
 
+## Upgrade
+
+`GET /embed/upgrade` is the deployment's upgrade dialog for a first-party page,
+served like the popups above: the GUI shell with the same framing rules, query
+redirect, exact-path redirect and `no-store`, naming the framing page as
+`gui_params.embed_host_origin`. It runs only when framed by an allowed page.
+
+puter.js frames it on a signed-in first-party page (the same pages as the
+pickers) for `puter.ui.requestUpgrade(details)`, and for the Upgrade button of
+the usage limit dialog a refused call shows there. Elsewhere both keep their
+behavior: inside an app `requestUpgrade()` asks the desktop, and on any other
+page the usage limit dialog opens the dashboard's upgrade page in a new tab.
+
+The frame covers the page with no box or close button, and the GUI page is
+transparent (`html.popup-frame-transparent`) so the dialog's own scrim covers
+the host. The frame allows `payment` as well as `otp-credentials`. Escape on the
+page is left to the dialog, since one there shouldn't drop a payment in
+progress. Its fragment names `user` (the page's signed-in user) and, when the
+refusal gave them, `reason` (`funds`, `subscription` or `storage`) and `method`.
+
+The GUI reports `unavailable` unless its session belongs to `user`, the account
+has no verification or password change waiting (which the frame couldn't be
+closed from), and the deployment defines `window.UIUpgradeAccount` with
+`UIUpgradeAccount.embeddable === true`. Otherwise it runs:
+
+```js
+new UIUpgradeAccount({ attribution: { appUid, reason, method }, onClose }).open_as_window();
+```
+
+`appUid` is the app the framing page's origin resolves to, never one the
+fragment names. `open_as_window()` resolves once the dialog shows, and the GUI
+then posts `ready`. While the page still hides the frame, which Chromium and
+WebKit lay out at 0x0, the GUI posts `ready` first and opens the dialog once
+the frame has a viewport, so a window it opens doesn't center on 0x0.
+`onClose({ upgraded })` must run exactly once, when the
+dialog closes or when it declines to open for the account; the GUI then posts
+`{ msg: 'puterPopupFrame', state: 'closed', upgraded }` and the page removes
+the frame. If `open_as_window()` rejects, the GUI posts `unavailable` instead. `requestUpgrade()` resolves `{ upgraded }`. A call made while the
+frame shows settles with it rather than replacing it, and a call refused while
+it shows still rejects but opens no usage limit dialog over it.
+
+When the frame can't show the upgrade (refused, never ready, `unavailable`, or
+no user to name), puter.js opens the dashboard's upgrade page in a new tab with
+what was refused, through a consent dialog when the click has expired or the
+tab is blocked, and `requestUpgrade()` resolves `{ upgraded: false }`.
+
 ## Checks
 
 Run the GUI component/browser tests (with the SDK bundle built and Playwright
@@ -220,7 +266,7 @@ Chromium installed), and the backend route tests:
 
 ```sh
 npx vitest run --config src/gui/vitest.config.js src/gui/src/UI/Dashboard/AppBrowser src/feedbackEmbed
-npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js src/puter-js/src/modules/Auth.signInFrame.test.js src/puter-js/src/modules/UI.pickerFrame.test.js
+npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js src/puter-js/src/modules/Auth.signInFrame.test.js src/puter-js/src/modules/UI.pickerFrame.test.js src/puter-js/src/modules/UI.requestUpgrade.test.js src/puter-js/src/lib/upgradePrompt.test.js src/puter-js/src/modules/UsageLimitDialog.upgrade.test.js
 npx vitest run --config src/gui/vitest.config.js src/gui/src/helpers/popupFrame.test.js
 npx vitest run --config src/backend/vitest.config.ts src/backend/server.test.ts
 ```

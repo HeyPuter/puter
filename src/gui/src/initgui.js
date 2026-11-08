@@ -47,7 +47,17 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
-import { closeAccountChecksOnEscape, focusOnFrameFocus, framedPopupAction, framedPopupParams, startPopupFrame } from './helpers/popupFrame.js';
+import {
+    canShowUpgradeFrame,
+    closeAccountChecksOnEscape,
+    focusOnFrameFocus,
+    framedPopupAction,
+    framedPopupParams,
+    framedUpgradeDetails,
+    framesHostUser,
+    showFramedUpgrade,
+    startPopupFrame,
+} from './helpers/popupFrame.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
@@ -95,7 +105,6 @@ import { ThemeService } from './services/ThemeService.js';
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
 import {
-    defersTokenToOpener,
     deliversTokenAtBoot,
     relationshipIsConsent,
     relaysTokenAtBoot,
@@ -993,6 +1002,27 @@ const postAuthActions = async (action) => {
     }
 
     // -------------------------------------------------------------------------------------
+    // Action: upgrade — the deployment's upgrade dialog for the first-party page framing
+    // it, which hears whether the user upgraded once the dialog closes. The app it credits
+    // is the one the framing page's origin resolves to, never one the fragment names.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'upgrade' && window.embedded_in_frame ) {
+        let upgraded;
+        try {
+            upgraded = await showFramedUpgrade(window, {
+                ...(window.host_app_uid ? { appUid: window.host_app_uid } : {}),
+                ...framedUpgradeDetails(window.location.hash),
+            }, window.tell_popup_frame);
+        } catch (e) {
+            // A dialog that failed to open leaves the page to open the upgrade in a tab.
+            console.error('upgrade action failed', e);
+            window.tell_popup_frame('unavailable');
+            return;
+        }
+        window.tell_popup_frame('closed', { upgraded });
+    }
+
+    // -------------------------------------------------------------------------------------
     // Action: attach-custom-domain — puter.hosting.attach() on a website. Hosts the custom
     // domain dialog for `subdomain` and posts the chosen domain back to the opener.
     // -------------------------------------------------------------------------------------
@@ -1741,21 +1771,26 @@ window.initgui = async function (options) {
         // this is the referrer in terms of user acquisition
         window.referrerStr = window.openerOrigin;
 
-        // A framed picker shows only the Puter session of the user the
-        // framing page is signed in as; for anyone else the page uses the
-        // popup, which can sign in and switch accounts.
-        if (window.embedded_in_frame && defersTokenToOpener(action)) {
+        // A framed picker or upgrade shows only the Puter session of the user
+        // the framing page is signed in as; for anyone else the page uses the
+        // popup or tab, which can sign in and switch accounts.
+        if (window.embedded_in_frame && framesHostUser(action)) {
             const host_user = embedHostUser(window.location.hash);
+            let session = null;
             let session_user = null;
             if (host_user && window.is_auth()) {
                 try {
-                    const session = await puter.os.user({ query: 'icon_size=64' });
+                    session = await puter.os.user({ query: 'icon_size=64' });
                     session_user = String(session?.uuid ?? '').toLowerCase();
                 } catch (e) {
                     session_user = null;
                 }
             }
-            if (!host_user || session_user !== host_user) {
+            if (
+                !host_user ||
+                session_user !== host_user ||
+                (action === 'upgrade' && !canShowUpgradeFrame(window, session))
+            ) {
                 window.tell_popup_frame('unavailable');
                 return;
             }
@@ -1993,11 +2028,11 @@ window.initgui = async function (options) {
         );
         window.userAppToken = response?.token;
 
-        // A framed picker already holds the framing page's user, so it
-        // doesn't offer to switch.
+        // A framed picker or upgrade already holds the framing page's user,
+        // so it doesn't offer to switch.
         if (
             !picked_a_user_for_sdk_login &&
-            !(window.embedded_in_frame && defersTokenToOpener(action)) &&
+            !(window.embedded_in_frame && framesHostUser(action)) &&
             window.logged_in_users.length > 1 &&
             (!window.userAppToken ||
                 window.url_query_params.get('request_auth'))

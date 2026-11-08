@@ -459,6 +459,15 @@ describe('showPopupFrame', () => {
         await expect(picker).resolves.toBe('closed');
     });
 
+    it('finishes as closed when the page removes it, letting the page scroll again', async () => {
+        const result = show({ action: 'upgrade', fragment: { user: USER } });
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        expect(document.documentElement.style.overflow).toBe('hidden');
+        document.body.innerHTML = '<main>re-rendered</main>';
+        await expect(result).resolves.toBe('closed');
+        expect(document.documentElement.style.overflow).toBe('');
+    });
+
     it('keeps the scrim behind a ready frame from dismissing it', () => {
         show();
         fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
@@ -473,5 +482,141 @@ describe('showPopupFrame', () => {
         fromPopup({ msg: 'fileOpenPicked' }, { source: window });
         expect(onMessage).not.toHaveBeenCalled();
         expect(popupFrame().closest('dialog').isConnected).toBe(true);
+    });
+});
+
+describe('page scroll behind an embed', () => {
+    const root = document.documentElement;
+    const popupFrame = (action) => document.querySelector(`dialog.puter-popup-frame iframe[src*="/embed/${action}"]`);
+    const show = (action, closed = () => 'closed') => showPopupFrame({
+        guiOrigin: GUI_ORIGIN,
+        action,
+        fragment: { user: USER },
+        title: action,
+        closed,
+        onMessage: () => {},
+    });
+    const tell = (action, state) => window.dispatchEvent(new MessageEvent('message', {
+        data: { msg: 'puterPopupFrame', state },
+        origin: GUI_ORIGIN,
+        source: popupFrame(action).contentWindow,
+    }));
+    /**
+     * Gives the page a classic scrollbar this wide, or none, whose space comes
+     * back once the root stops scrolling unless the page keeps its gutter.
+     */
+    const scrollbar = (width, { gutterKept = false } = {}) => {
+        vi.spyOn(root, 'clientWidth', 'get').mockReturnValue(window.innerWidth - width);
+        vi.spyOn(root, 'getBoundingClientRect').mockImplementation(() => ({
+            width: window.innerWidth - (root.style.overflow === 'hidden' && ! gutterKept ? 0 : width),
+        }));
+    };
+
+    // Earlier tests leave dialogs that never closed, which locked the page.
+    beforeEach(() => {
+        root.removeAttribute('style');
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+        root.removeAttribute('style');
+        document.body.removeAttribute('style');
+    });
+
+    it('stops while the embed shows and comes back as the page had it once it closes', async () => {
+        scrollbar(0);
+        root.style.overflow = 'clip';
+        const result = show('upgrade');
+        tell('upgrade', 'loading');
+        expect(root.style.overflow).toBe('clip');
+
+        tell('upgrade', 'ready');
+        expect(root.style.overflow).toBe('hidden');
+        expect(root.style.paddingRight).toBe('');
+
+        tell('upgrade', 'closed');
+        await expect(result).resolves.toBe('closed');
+        expect(root.style.overflow).toBe('clip');
+    });
+
+    it('stops the body instead when the viewport scrolls by the body\'s overflow', async () => {
+        scrollbar(0);
+        root.style.overflow = 'visible';
+        document.body.style.overflowX = 'hidden';
+        const result = show('upgrade');
+        tell('upgrade', 'ready');
+        expect(document.body.style.overflow).toBe('hidden');
+        expect(root.style.overflow).toBe('visible');
+
+        tell('upgrade', 'closed');
+        await result;
+        expect(document.body.style.overflowX).toBe('hidden');
+        expect(document.body.style.overflowY).toBe('');
+    });
+
+    it('keeps the space of a classic scrollbar, so the page doesn\'t shift', async () => {
+        scrollbar(15);
+        root.style.paddingRight = '8px';
+        const result = show('upgrade');
+        tell('upgrade', 'ready');
+        expect(root.style.overflow).toBe('hidden');
+        expect(root.style.paddingRight).toBe('23px');
+        tell('upgrade', 'closed');
+        await result;
+        expect(root.style.paddingRight).toBe('8px');
+        expect(root.style.overflow).toBe('');
+    });
+
+    it('adds no space for a scrollbar whose gutter the page keeps', async () => {
+        scrollbar(15, { gutterKept: true });
+        const result = show('upgrade');
+        tell('upgrade', 'ready');
+        expect(root.style.overflow).toBe('hidden');
+        expect(root.style.paddingRight).toBe('');
+        tell('upgrade', 'closed');
+        await result;
+    });
+
+    it('stops behind the loading scrim too, and stays stopped until the last embed closes', async () => {
+        vi.useFakeTimers();
+        scrollbar(0);
+        const upgrade = show('upgrade');
+        await vi.advanceTimersByTimeAsync(200);
+        expect(root.style.overflow).toBe('hidden');
+        const signIn = show('sign-in');
+        tell('sign-in', 'ready');
+
+        tell('sign-in', 'closed');
+        await signIn;
+        expect(root.style.overflow).toBe('hidden');
+        tell('upgrade', 'closed');
+        await upgrade;
+        expect(root.style.overflow).toBe('');
+    });
+
+    it('gives the page its own styles back after an embed the page removed itself', async () => {
+        scrollbar(15);
+        root.style.paddingRight = '8px';
+        show('upgrade');
+        tell('upgrade', 'ready');
+        document.querySelector('dialog.puter-popup-frame').remove();
+
+        const signIn = show('sign-in');
+        tell('sign-in', 'ready');
+        expect(root.style.overflow).toBe('hidden');
+        expect(root.style.paddingRight).toBe('23px');
+        tell('sign-in', 'closed');
+        await signIn;
+
+        expect(root.style.overflow).toBe('');
+        expect(root.style.paddingRight).toBe('8px');
+    });
+
+    it('leaves the page alone for an embed that never showed', async () => {
+        scrollbar(0);
+        const result = show('upgrade');
+        tell('upgrade', 'unavailable');
+        await expect(result).resolves.toBeNull();
+        expect(root.style.overflow).toBe('');
     });
 });

@@ -140,6 +140,21 @@ body {
     background-color: #ccccccbe !important;
 }
 
+/* A popup framed over its whole page, such as the upgrade, shows the page
+   around its own dialog. The root's color scheme matches the frame's, or the
+   browser paints the frame opaque; the GUI inside keeps the light scheme it
+   has everywhere else, so its form fields don't turn dark. */
+html.popup-frame-transparent,
+html.popup-frame-transparent body {
+    background: transparent !important;
+}
+html.popup-frame-transparent {
+    color-scheme: light dark;
+}
+html.popup-frame-transparent body {
+    color-scheme: light;
+}
+
 .disable-user-select {
     cursor: default;
     -webkit-touch-callout: none !important;
