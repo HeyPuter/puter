@@ -391,6 +391,57 @@ describe('focusOnFrameFocus', () => {
         }
     });
 
+    /** A window whose focus() is ignored while `blocked`, as a frame just shown is. */
+    const blockableWindow = () => {
+        const { win, input } = ownWindow();
+        const nativeFocus = win.HTMLElement.prototype.focus;
+        const state = { blocked: true };
+        win.HTMLElement.prototype.focus = function (...args) {
+            if ( ! state.blocked ) nativeFocus.apply(this, args);
+        };
+        return { win, input, state };
+    };
+
+    it('retries a focus() the frame ignored until it takes', async () => {
+        vi.useFakeTimers();
+        try {
+            const { win, input, state } = blockableWindow();
+            focusOnFrameFocus(win);
+            input.focus();
+            expect(win.document.activeElement).toBe(win.document.body);
+            await vi.advanceTimersByTimeAsync(120);
+            expect(win.document.activeElement).toBe(win.document.body);
+            state.blocked = false;
+            await vi.advanceTimersByTimeAsync(50);
+            expect(win.document.activeElement).toBe(input);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('stops retrying after a while, and once the user presses a key', async () => {
+        vi.useFakeTimers();
+        try {
+            const { win, input, state } = blockableWindow();
+            focusOnFrameFocus(win);
+            input.focus();
+            await vi.advanceTimersByTimeAsync(1000);
+            state.blocked = false;
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(win.document.activeElement).toBe(win.document.body);
+
+            const other = blockableWindow();
+            focusOnFrameFocus(other.win);
+            other.input.focus();
+            other.win.document.body.dispatchEvent(new other.win.Event('keydown', { bubbles: true }));
+            other.state.blocked = false;
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(other.win.document.activeElement).toBe(other.win.document.body);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('leaves an element that has focus, and one that has left the page', () => {
         const { win, input } = ownWindow();
         const nativeFocus = win.HTMLElement.prototype.focus;

@@ -54,6 +54,9 @@ const UPGRADE_MODAL_UI = '.window, [aria-modal="true"]';
 const UPGRADE_GONE_MS = 500;
 // How long a hidden frame waits for the page to show it before opening anyway.
 const FRAME_SIZE_TIMEOUT_MS = 1000;
+// A focus() the frame ignored is retried this often, this many times.
+const FOCUS_RETRY_MS = 50;
+const FOCUS_RETRIES = 20;
 
 /** Lifecycle messages to the framing page carry this as `msg`. */
 export const POPUP_FRAME_MSG = 'puterPopupFrame';
@@ -162,27 +165,48 @@ export const startPopupFrame = (win, hostOrigin) => {
  * with nothing focused, until the user presses a key or the pointer in it. A
  * cross-origin frame can't take focus until the framing page focuses it, which
  * also resets it, so a save picker's file name would start unfocused.
+ * Firefox and WebKit also ignore a focus() for a moment after the page shows
+ * the frame, without a `focus` event after it, so one that didn't take is
+ * retried for a while.
  *
  * @param {Window} win
  */
 export const focusOnFrameFocus = (win) => {
     const focus = win.HTMLElement.prototype.focus;
     let latest = null;
+    let retryTimer = null;
+    let retries = 0;
+    // Whether the latest focus() still needs giving back.
+    const pending = () => {
+        const active = win.document.activeElement;
+        return !!latest?.el.isConnected && (!active || active === win.document.body);
+    };
+    const giveBack = () => {
+        if ( pending() ) focus.apply(latest.el, latest.args);
+    };
+    const retry = () => {
+        retryTimer = null;
+        giveBack();
+        if ( pending() && ++retries < FOCUS_RETRIES ) retryTimer = setTimeout(retry, FOCUS_RETRY_MS);
+    };
     win.HTMLElement.prototype.focus = function (...args) {
         latest = { el: this, args };
-        return focus.apply(this, args);
+        const result = focus.apply(this, args);
+        clearTimeout(retryTimer);
+        retryTimer = null;
+        retries = 0;
+        if ( pending() ) retryTimer = setTimeout(retry, FOCUS_RETRY_MS);
+        return result;
     };
     const forget = () => {
         latest = null;
+        clearTimeout(retryTimer);
+        retryTimer = null;
         win.HTMLElement.prototype.focus = focus;
     };
     win.addEventListener('pointerdown', forget, { capture: true, once: true });
     win.addEventListener('keydown', forget, { capture: true, once: true });
-    win.addEventListener('focus', () => {
-        const active = win.document.activeElement;
-        if ( ! latest?.el.isConnected || (active && active !== win.document.body) ) return;
-        focus.apply(latest.el, latest.args);
-    });
+    win.addEventListener('focus', giveBack);
 };
 
 /**
