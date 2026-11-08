@@ -227,6 +227,8 @@ describe('closeAccountChecksOnEscape', () => {
         escapeOn(input);
         escapeOn(input, { key: 'Enter' });
         escapeOn(input, { isComposing: true });
+        // Safari ends a conversion with keyCode 229 and isComposing false.
+        escapeOn(input, { keyCode: 229 });
         escapeOn(showWindow(win, 'window window-alert').querySelector('input'));
         expect(win.close).not.toHaveBeenCalled();
     });

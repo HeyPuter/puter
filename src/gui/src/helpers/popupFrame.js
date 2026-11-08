@@ -149,7 +149,9 @@ export const focusOnFrameFocus = (win) => {
  */
 export const closeAccountChecksOnEscape = (win) => {
     win.document.addEventListener('keydown', (e) => {
-        if ( e.key !== 'Escape' || e.defaultPrevented || e.isComposing ) return;
+        // Safari sends the Escape that ends an IME conversion as keyCode 229
+        // with isComposing false.
+        if ( e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229 ) return;
         const el = e.target === win.document.body ? win.document.querySelector('.window-active') : e.target;
         if ( el?.closest?.(ACCOUNT_CHECK_WINDOWS) ) win.close();
     });
