@@ -557,6 +557,30 @@ describe('your devices', () => {
         expect(pushClient.browserPushOptedOut('u-1')).toBe(true);
     });
 
+    it('keeps this browser opted out when its push is off but the server removal fails', async () => {
+        const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'a' });
+        pushClient.registerPushClient(client);
+        serve({
+            'GET /push/devices': { devices: [device({ uid: 'a', current: true })] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+            'DELETE /push/devices/a': () => reply(500, {}),
+        });
+        await open();
+        client.disable.mockImplementation(async () => {
+            client.status.mockResolvedValue({ permission: 'granted', registered: false });
+        });
+
+        $('.push-remove-device[data-uid="a"]').trigger('click');
+        await settle();
+        dialogButton('push_device_remove').trigger('click');
+        await settle();
+
+        expect(dialog('.dashboard-dialog-message').text()).toContain('push_device_remove_failed');
+        expect(pushClient.browserPushOptedOut('u-1')).toBe(true);
+        expect(browserCard().hasClass('push-browser-off')).toBe(true);
+    });
+
     it('still removes this browser on the server when it has no local record', async () => {
         const client = fakeClient({ permission: 'granted', registered: false });
         pushClient.registerPushClient(client);

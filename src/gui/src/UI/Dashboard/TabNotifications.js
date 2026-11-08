@@ -367,13 +367,21 @@ const TabNotifications = {
             if ( confirmed !== true ) return;
             // disable() drops the token and record; the DELETE covers a lost record.
             const client = device.current ? getPushClient() : null;
+            let disabled = false;
             try {
-                if ( client ) await client.disable();
+                if ( client ) {
+                    await client.disable();
+                    disabled = true;
+                    // Push is off here even if the DELETE fails; without the
+                    // opt-out the next load would turn it back on.
+                    setBrowserPushOptOut(window.user?.uuid, true);
+                }
                 await removePushDevice(uid);
             } catch ( e ) {
                 if ( e?.status !== 404 || e?.code === PUSH_UNAVAILABLE ) {
                     console.warn('[push] device removal failed', e);
                     showError('push_device_remove_failed', $el_window);
+                    if ( disabled ) refreshBrowser();
                     return;
                 }
             }
