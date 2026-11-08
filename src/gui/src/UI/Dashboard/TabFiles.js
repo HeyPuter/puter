@@ -37,6 +37,7 @@ import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
 import { openPublishWebsiteDialog, openPublishWorkerDialog } from './UIPublishDialogs.js';
 import { dedupedName } from '../../helpers/dedupedName.js';
+import { runLimited } from '../../helpers/runLimited.js';
 import { compareEntries, compareNames } from './sortEntries.js';
 import { middleTruncate } from './middleTruncate.js';
 import { resolveTypedPath } from './typedPath.js';
@@ -53,6 +54,9 @@ import { compareSharers, filterBySharer, fitSharedByWidth, sharedByCellHtml, sha
 import { paintAvatars } from '../../helpers/profilePictures.js';
 
 const { html_encode, SelectionArea } = window;
+
+// Permanent deletes in flight at once: a browser's connections to one host.
+const DELETE_CONCURRENCY = 6;
 
 /**
  * `p` with the folder `from` (itself, or anything under it) moved to `to`;
@@ -1908,9 +1912,9 @@ const TabFiles = {
         if ( confirmed !== 'delete' ) return;
         // The phone selection bar acts on rows that are going away.
         this.$el_window.find('.files-selection-actions').removeClass('visible');
-        for ( const row of list ) {
-            await window.delete_item(row);
-        }
+        // A few at a time rather than one after another: a few hundred items
+        // took a round trip each. delete_item reports its own failures.
+        await runLimited(list, DELETE_CONCURRENCY, row => window.delete_item(row));
         await window.refresh_trash_state();
     },
 

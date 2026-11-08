@@ -33,6 +33,7 @@ import { startPushWorker } from '../../helpers/pushWorker.js';
 import { syncBrowserPush } from '../../helpers/pushSync.js';
 import { get_app_by_uid } from '../../helpers/getAppByUid.js';
 import launch_app from '../../helpers/launchApp.js';
+import { runLimited } from '../../helpers/runLimited.js';
 import {
     badgeLabel,
     glyphKey,
@@ -143,27 +144,6 @@ const whenFilesIdle = async (filesTab, timeoutMs = 4_000) => {
     while ( filesTab.renderingDirectory && Date.now() - started < timeoutMs ) {
         await new Promise((resolve) => setTimeout(resolve, 50));
     }
-};
-
-/**
- * Run `task` over `items`, at most `limit` at a time. Resolves to the items
- * whose task rejected.
- */
-const runLimited = async (items, limit, task) => {
-    const failed = [];
-    let index = 0;
-    const worker = async () => {
-        while ( index < items.length ) {
-            const item = items[index++];
-            try {
-                await task(item);
-            } catch {
-                failed.push(item);
-            }
-        }
-    };
-    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-    return failed;
 };
 
 /**
