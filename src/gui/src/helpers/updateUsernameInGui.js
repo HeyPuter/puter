@@ -27,7 +27,8 @@ const update_username_in_gui = function (new_username) {
     // ------------------------------------------------------------
     // Update all item/window/... paths, with the new username
     // ------------------------------------------------------------
-    $(':not([data-path=""]),:not([data-item-path=""])').each((i, el) => {
+    // With no earlier username there are no paths under it to rewrite.
+    if ( old_username ) $('[data-path], [data-item-path], [data-shortcut_to_path]').each((i, el) => {
         const $el = $(el);
         const attr_path = $el.attr('data-path');
         const attr_item_path = $el.attr('data-item-path');
@@ -91,10 +92,10 @@ const update_username_in_gui = function (new_username) {
                 $el.attr('data-item-path', attr_item_path.replace(`/${ window.user.username }/`, `/${ new_username }/`));
             }
         }
-
-        // any element with username class
-        $('.username').text(new_username);
     });
+
+    // any element with username class
+    $('.username').text(new_username);
 
     // todo update all window paths
     $('.window').each((i, el) => {
