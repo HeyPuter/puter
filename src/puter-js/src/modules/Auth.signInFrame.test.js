@@ -68,7 +68,7 @@ describe('auth.signIn on a first-party page', () => {
     });
 
     it('passes request_auth on to the frame', () => {
-        auth.signIn({ request_auth: true });
+        auth.signIn({ request_auth: true }).catch(() => {});
         expect(new URLSearchParams(new URL(signInFrame().src).hash.slice(1)).get('request_auth')).toBe('true');
     });
 

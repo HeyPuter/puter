@@ -423,6 +423,23 @@ describe('showPopupFrame', () => {
         await expect(result).resolves.toBe('closed');
     });
 
+    it('replaces a popup frame that is showing, finishing it as closed', async () => {
+        const button = document.createElement('button');
+        document.body.append(button);
+        button.focus();
+        const first = show();
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        const firstDialog = popupFrame().closest('dialog');
+        const second = show({ fragment: { msg_id: '4', user: USER } });
+        await expect(first).resolves.toBe('closed');
+        expect(firstDialog.isConnected).toBe(false);
+        expect(document.querySelectorAll('dialog.puter-popup-frame')).toHaveLength(1);
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+        fromPopup({ msg: 'puterPopupFrame', state: 'closed' });
+        await expect(second).resolves.toBe('closed');
+        expect(document.activeElement).toBe(button);
+    });
+
     it('keeps the scrim behind a ready frame from dismissing it', () => {
         show();
         fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
