@@ -59,6 +59,22 @@ const result = (page) => page.waitForFunction(() => window.__result, null, { tim
 const frame = (page) => page.frameLocator('dialog.puter-popup-frame iframe');
 const frameReady = (page) => page.locator('dialog.puter-popup-frame[open]:not(.is-loading)').waitFor({ timeout: 60_000 });
 
+/** The red channel of a screenshot of `clip`, row by row, decoded in the page. */
+const screenshotRed = async (page, clip) => {
+    const png = await page.screenshot({ clip });
+    return page.evaluate(async (base64) => {
+        const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${base64}`)).blob());
+        const context = new OffscreenCanvas(image.width, image.height).getContext('2d');
+        context.drawImage(image, 0, 0);
+        const { data } = context.getImageData(0, 0, image.width, image.height);
+        return { width: image.width, red: Array.from(data.filter((_, i) => i % 4 === 0)) };
+    }, png.toString('base64'));
+};
+
+/** Waits for the box's fade-in to finish, so screenshots show it as it stays. */
+const boxSettled = (page) => page.waitForFunction(() =>
+    document.querySelector('.puter-popup-frame-box')?.getAnimations().length === 0);
+
 test.describe('popups a first-party page shows framed', () => {
     test('signs in, then picks and saves files, without opening a window', async ({ page }) => {
         // The admin's Puter session, and a file of theirs to pick.
@@ -150,6 +166,25 @@ button { margin: 0 6px 8px 0; min-width: 88px; min-height: 44px; box-shadow: 0 1
         expect([close.width, close.height]).toEqual([32, 32]);
         expect(box.x + box.width - (close.x + close.width)).toBe(10);
         await expect(page.locator('.puter-popup-frame-close')).toHaveCSS('box-shadow', 'none');
+    });
+
+    test.describe('in dark mode', () => {
+        test.use({ colorScheme: 'dark', deviceScaleFactor: 2 });
+
+        test('the framed sign-in\'s rounded corners show no light fringe', async ({ page }) => {
+            await openFirstPartyPage(page);
+            await runFromClick(page, 'puter.auth.signIn()');
+            await frameReady(page);
+            await boxSettled(page);
+
+            // The bottom-left corner: the dialog at the top right, the scrim
+            // at the bottom left, and the curve between them.
+            const box = await page.locator('.puter-popup-frame-box').boundingBox();
+            const { width, red } = await screenshotRed(page, { x: box.x, y: box.y + box.height - 12, width: 12, height: 12 });
+            const inside = red[width - 1];
+            const outside = red[red.length - width];
+            expect(Math.max(...red)).toBeLessThanOrEqual(Math.max(inside, outside) + 3);
+        });
     });
 
     test('a provider picked in the framed sign-in opens straight in the popup', async ({ page }) => {
