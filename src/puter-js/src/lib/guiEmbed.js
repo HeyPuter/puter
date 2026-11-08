@@ -40,6 +40,9 @@ const BOX_STYLE = `
 .puter-popup-frame-close svg{width:16px;height:16px}
 @media (prefers-color-scheme:dark){.puter-popup-frame-close{color:#9ca3af}}
 @media (max-width:600px){.puter-popup-frame-box{width:100%;height:100%;border-radius:0}}
+.puter-popup-frame[open] .puter-popup-frame-loading,.puter-popup-frame:not(.is-loading) .puter-popup-frame-box{animation:puter-popup-frame-in .16s ease-out}
+@keyframes puter-popup-frame-in{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.puter-popup-frame[open] .puter-popup-frame-loading,.puter-popup-frame:not(.is-loading) .puter-popup-frame-box{animation:none}}
 `;
 
 const CLOSE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>';
