@@ -326,6 +326,26 @@ describe('showPopupFrame', () => {
         expect(srcSet).toHaveBeenCalledTimes(2);
     });
 
+    it('falls back to the popup when the embed it opens again never loads', async () => {
+        vi.useFakeTimers();
+        const result = show();
+        const iframe = popupFrame();
+        const dialog = iframe.closest('dialog');
+        const load = () => iframe.dispatchEvent(new Event('load'));
+        fromPopup({ msg: 'puterPopupFrame', state: 'loading' });
+        load();
+        fromPopup({ msg: 'puterPopupFrame', state: 'ready' });
+
+        // Refused after a reload of its own, then reopened on a stalled connection.
+        load();
+        vi.advanceTimersByTime(1000);
+        vi.advanceTimersByTime(14_999);
+        expect(dialog.isConnected).toBe(true);
+        vi.advanceTimersByTime(1);
+        await expect(result).resolves.toBeNull();
+        expect(dialog.isConnected).toBe(false);
+    });
+
     it('keeps showing an embed that was ready before its load event fired', () => {
         vi.useFakeTimers();
         show();

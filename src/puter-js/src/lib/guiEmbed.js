@@ -268,6 +268,8 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         ready = false;
         loads = boots;
         setLoading(true);
+        // As long as its first start may take, then the popup.
+        wait(READY_TIMEOUT_MS);
         frame.src = url.href;
     };
     window.addEventListener('message', onWindowMessage);
