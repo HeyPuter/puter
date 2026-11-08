@@ -440,6 +440,32 @@ test.describe('the upgrade a first-party page shows framed', () => {
         expect(popups).toHaveLength(0);
     });
 
+    test('a call refused while the upgrade shows leaves it uncovered', async ({ page }) => {
+        await page.context().addInitScript(STUB_UPGRADE_DIALOG);
+        await signInFirstPartyPage(page);
+        await page.route(`${API_ORIGIN}/drivers/call`, (route) => route.fulfill({
+            status: route.request().method() === 'OPTIONS' ? 204 : 402,
+            headers: {
+                'access-control-allow-origin': FIRST_PARTY,
+                'access-control-allow-headers': '*',
+                'access-control-allow-credentials': 'true',
+            },
+            contentType: 'application/json',
+            body: JSON.stringify({ success: false, error: { code: 'insufficient_funds', message: 'Not enough credit.' } }),
+        }));
+
+        await runFromClick(page, 'puter.ui.requestUpgrade({ reason: "funds" })');
+        await frameReady(page);
+        const refused = await page.evaluate(() => puter.kv.set('upgrade-frame', 'x').then(() => false, () => true));
+        expect(refused).toBe(true);
+        await expect(page.locator('usage-limit-dialog')).toHaveCount(0);
+
+        await frame(page).locator('#done').click();
+        expect(await result(page)).toEqual({ ok: true, value: { upgraded: false } });
+        await page.evaluate(() => puter.kv.set('upgrade-frame', 'x').catch(() => {}));
+        await expect(page.locator('usage-limit-dialog')).toHaveCount(1);
+    });
+
     test('a deployment without an upgrade dialog opens the dashboard upgrade in a tab', async ({ page }) => {
         await routeDashboard(page);
         await signInFirstPartyPage(page);

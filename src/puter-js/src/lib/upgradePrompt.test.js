@@ -202,6 +202,14 @@ describe('promptIfUpgradeRequired', () => {
             });
         });
 
+        it('shows no dialog over an upgrade the page already shows', () => {
+            globalThis.puter.ui.upgradeFrameShowing_ = () => true;
+            promptIfUpgradeRequired({ code: 'insufficient_funds', status: 402 }, { method: 'puter.ai.chat' });
+            promptIfUpgradeRequired({ code: 'storage_limit_reached' }, { method: 'puter.fs.upload' });
+            expect(showUsageLimitDialog).not.toHaveBeenCalled();
+            expect(globalThis.puter.ui.requestUpgrade).not.toHaveBeenCalled();
+        });
+
         it('keeps the tab when the page cannot frame it', () => {
             globalThis.puter.ui.canShowUpgradeFrame_ = () => false;
             promptIfUpgradeRequired({ code: 'storage_limit_reached' }, { method: 'puter.fs.upload' });

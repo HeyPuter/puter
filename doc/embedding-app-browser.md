@@ -251,7 +251,8 @@ the frame has a viewport, so a window it opens doesn't center on 0x0.
 dialog closes or when it declines to open for the account; the GUI then posts
 `{ msg: 'puterPopupFrame', state: 'closed', upgraded }` and the page removes
 the frame. If `open_as_window()` rejects, the GUI posts `unavailable` instead. `requestUpgrade()` resolves `{ upgraded }`. A call made while the
-frame shows settles with it rather than replacing it.
+frame shows settles with it rather than replacing it, and a call refused while
+it shows still rejects but opens no usage limit dialog over it.
 
 When the frame can't show the upgrade (refused, never ready, `unavailable`, or
 no user to name), puter.js opens the dashboard's upgrade page in a new tab with

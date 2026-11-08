@@ -87,6 +87,18 @@ describe('ui.requestUpgrade on a signed-in first-party page', () => {
         expect(window.open).not.toHaveBeenCalled();
     });
 
+    it('says the upgrade is showing from the call until it closes', async () => {
+        const ui = makeUI();
+        expect(ui.upgradeFrameShowing_()).toBe(false);
+        const result = ui.requestUpgrade();
+        expect(ui.upgradeFrameShowing_()).toBe(true);
+        await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed' });
+        await result;
+        expect(ui.upgradeFrameShowing_()).toBe(false);
+    });
+
     it('resolves upgraded false when the dialog closes without an upgrade', async () => {
         const result = makeUI().requestUpgrade();
         await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());

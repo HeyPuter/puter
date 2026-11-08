@@ -1744,6 +1744,17 @@ export class UIModule extends EventListener {
     }
 
     /**
+     * Whether {@link requestUpgrade} is showing the upgrade in a frame, or
+     * about to.
+     *
+     * @internal
+     * @returns {boolean}
+     */
+    upgradeFrameShowing_ () {
+        return this.#upgradeFrame !== null;
+    }
+
+    /**
      * The upgrade in a frame over the page, for the page's signed-in user, or
      * in a new tab when the frame can't show it. A call made while one is
      * showing settles with it, so a payment in progress isn't replaced.
