@@ -269,7 +269,8 @@ export const framedUpgradeDetails = (hash) => {
  * gone without it reporting a close.
  *
  * @param {Window} win
- * @param {{ appUid?: string, reason?: string, method?: string }} attribution - what prompted it
+ * @param {{ appUid?: string, reason?: string, method?: string }} attribution - what prompted it;
+ *   an empty one is passed as null, so the dialog credits the prompt it remembers
  * @param {(state: 'ready') => void} tell
  * @returns {Promise<boolean>}
  */
@@ -308,7 +309,7 @@ export const showFramedUpgrade = (win, attribution, tell) => new Promise((resolv
     };
     const open = () => {
         const dialog = new win.UIUpgradeAccount({
-            attribution,
+            attribution: Object.keys(attribution).length ? attribution : null,
             onClose: (result) => settle(() => resolve(result?.upgraded === true)),
         });
         return dialog.open_as_window();

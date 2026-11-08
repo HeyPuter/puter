@@ -175,6 +175,12 @@ describe('showFramedUpgrade', () => {
         await expect(result).resolves.toBe(true);
     });
 
+    it('passes no attribution when nothing is known, so the dialog credits the prompt it remembers', async () => {
+        const { win, created } = upgradeWindow(async (o) => o.onClose());
+        await showFramedUpgrade(win, {}, vi.fn());
+        expect(created[0].attribution).toBeNull();
+    });
+
     it('resolves false for a close without an upgrade, even one before it opened', async () => {
         const { win } = upgradeWindow(async (o) => o.onClose({ upgraded: false }));
         await expect(showFramedUpgrade(win, {}, vi.fn())).resolves.toBe(false);
