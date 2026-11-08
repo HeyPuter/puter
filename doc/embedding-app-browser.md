@@ -187,7 +187,9 @@ subdomains the server refuses, unless the page is cross-origin isolated or in a
 frame of another site (which `frame-ancestors` refuses too).
 `showPopupFrame` in `src/puter-js/src/lib/guiEmbed.js` shows the frame in a box
 the size of the popup window, over a scrim, hidden until `ready` and behind the
-loading spinner after 200ms. Escape closes it, on the page or in the frame. On
+loading spinner after 200ms. Escape closes it, on the page or in the frame. One shows at a time: a second
+request replaces the one showing, and a `signIn()` call made while a framed
+sign-in is open settles with it. On
 screens up to 600px wide the box fills the screen. A frame that is refused,
 never answers, or reports `unavailable` falls back to the popup, opened through
 a consent dialog when the click that asked for it has expired. A reload or navigation the frame
