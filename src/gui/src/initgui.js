@@ -1827,25 +1827,6 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Inform the user if they chose "signup" but were logged into an existing account
-    //--------------------------------------------------------------------------------------
-    if (
-        window.url_query_params.get('oidc_switched') === 'login' &&
-        window.is_auth()
-    ) {
-        await UIAlert({
-            message: i18n('oidc_switched_to_login_message'),
-        });
-        const params = new URLSearchParams(window.location.search);
-        params.delete('oidc_switched');
-        const cleanSearch = params.toString();
-        const cleanUrl = cleanSearch
-            ? `${window.location.pathname}?${cleanSearch}`
-            : window.location.pathname || '/';
-        window.history.replaceState(null, document.title, cleanUrl);
-    }
-
-    //--------------------------------------------------------------------------------------
     // Early check for fullpage mode from app metadata
     // If the user navigated to /app/<app_name> and the app has fullpage_on_landing,
     // set fullpage mode now so we can skip loading the desktop background and items.
