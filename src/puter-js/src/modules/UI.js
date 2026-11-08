@@ -1744,8 +1744,8 @@ export class UIModule extends EventListener {
     }
 
     /**
-     * Whether {@link requestUpgrade} is showing the upgrade in a frame, or
-     * about to.
+     * Whether {@link requestUpgrade} is showing the upgrade in a frame, about
+     * to, or asking to open it in a tab instead.
      *
      * @internal
      * @returns {boolean}
@@ -1780,7 +1780,7 @@ export class UIModule extends EventListener {
                     onMessage: () => {},
                 });
                 if ( framed ) return framed;
-                this.#openUpgradeTab(upgradeUrl({ reason, method, appID: appIDOf(puter) }));
+                await this.#openUpgradeTab(upgradeUrl({ reason, method, appID: appIDOf(puter) }));
                 return { upgraded: false };
             } finally {
                 this.#upgradeFrame = null;
@@ -1792,25 +1792,33 @@ export class UIModule extends EventListener {
     /**
      * Opens the upgrade page in a new tab. The click that asked for it may
      * have expired by now, so without it the user opens it from a consent
-     * dialog.
+     * dialog. Resolves once the tab opens or the user answers the dialog.
      *
      * @param {string} url
+     * @returns {Promise<void>}
      */
     #openUpgradeTab (url) {
-        if ( hasUserActivation() && window.open(url, '_blank') ) return;
-        let consent = null;
-        try {
-            consent = PuterDialog.show({
-                message: 'This website wants to open the Puter upgrade page.',
-                onContinue: () => {
-                    window.open(url, '_blank');
-                    consent?.remove();
-                },
-                onCancel: () => consent?.remove(),
-            });
-        } catch {
-            // No dialog either; as with a blocked tab, the page never opens.
-        }
+        if ( hasUserActivation() && window.open(url, '_blank') ) return Promise.resolve();
+        return new Promise((resolve) => {
+            let consent = null;
+            const answered = () => {
+                consent?.remove();
+                resolve();
+            };
+            try {
+                consent = PuterDialog.show({
+                    message: 'This website wants to open the Puter upgrade page.',
+                    onContinue: () => {
+                        window.open(url, '_blank');
+                        answered();
+                    },
+                    onCancel: answered,
+                });
+            } catch {
+                // No dialog either; as with a blocked tab, the page never opens.
+                resolve();
+            }
+        });
     }
 
     /**

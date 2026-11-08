@@ -157,18 +157,28 @@ describe('ui.requestUpgrade on a signed-in first-party page', () => {
     });
 
     it('asks for a click before opening the tab once the original click has expired', async () => {
-        const result = makeUI().requestUpgrade(DETAILS);
+        const ui = makeUI();
+        const result = ui.requestUpgrade(DETAILS);
         await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
         setActivation(false);
         fromFrame({ msg: 'puterPopupFrame', state: 'unavailable' });
-        await expect(result).resolves.toEqual({ upgraded: false });
+        await vi.waitFor(() => expect(document.querySelector('puter-dialog')).not.toBeNull());
 
         const consent = document.querySelector('puter-dialog');
-        expect(consent).not.toBeNull();
         expect(window.open).not.toHaveBeenCalled();
         expect(consent.shadowRoot.querySelector('.about').textContent)
             .toBe('This website wants to open the Puter upgrade page.');
+        // Until it's answered the upgrade counts as showing, so a second call
+        // joins it instead of asking again.
+        expect(ui.upgradeFrameShowing_()).toBe(true);
+        expect(await settled(result)).toBe(PENDING);
+        const again = ui.requestUpgrade(DETAILS);
+        expect(document.querySelectorAll('puter-dialog')).toHaveLength(1);
+
         consent.shadowRoot.querySelector('#launch-auth-popup').click();
+        await expect(result).resolves.toEqual({ upgraded: false });
+        await expect(again).resolves.toEqual({ upgraded: false });
+        expect(ui.upgradeFrameShowing_()).toBe(false);
         expect(window.open).toHaveBeenCalledTimes(1);
         expect(window.open.mock.calls[0][0]).toContain('https://puter.com/dashboard/?upgrade=funds');
         expect(document.querySelector('puter-dialog')).toBeNull();
@@ -176,12 +186,13 @@ describe('ui.requestUpgrade on a signed-in first-party page', () => {
 
     it('asks for a click when the browser blocks the tab', async () => {
         window.open = vi.fn(() => null);
-        makeUI().requestUpgrade(DETAILS);
+        const result = makeUI().requestUpgrade(DETAILS);
         await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
         fromFrame({ msg: 'puterPopupFrame', state: 'unavailable' });
         await vi.waitFor(() => expect(document.querySelector('puter-dialog')).not.toBeNull());
         document.querySelector('puter-dialog').shadowRoot.querySelector('#launch-auth-popup-cancel').click();
         expect(document.querySelector('puter-dialog')).toBeNull();
+        await expect(result).resolves.toEqual({ upgraded: false });
         expect(window.open).toHaveBeenCalledTimes(1);
     });
 
