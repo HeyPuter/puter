@@ -54,8 +54,9 @@
  * How a framed upgrade on a first-party page ended.
  *
  * @typedef {Object} UpgradeResult
- * @property {boolean} upgraded `true` when the user bought or changed a plan before closing the
- * dialog. `false` when they closed it without one, or the upgrade opened in a new tab instead.
+ * @property {boolean} upgraded `true` when the user subscribed to a plan or upgraded to a higher
+ * one before closing the dialog. `false` otherwise, including after a downgrade or cancellation,
+ * or when the upgrade opened in a new tab instead.
  */
 
 /**
