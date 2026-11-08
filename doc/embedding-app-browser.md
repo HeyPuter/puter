@@ -244,7 +244,10 @@ new UIUpgradeAccount({ attribution: { appUid, reason, method }, onClose }).open_
 
 `appUid` is the app the framing page's origin resolves to, never one the
 fragment names. `open_as_window()` resolves once the dialog shows, and the GUI
-then posts `ready`. `onClose({ upgraded })` must run exactly once, when the
+then posts `ready`. While the page still hides the frame, which Chromium and
+WebKit lay out at 0x0, the GUI posts `ready` first and opens the dialog once
+the frame has a viewport, so a window it opens doesn't center on 0x0.
+`onClose({ upgraded })` must run exactly once, when the
 dialog closes or when it declines to open for the account; the GUI then posts
 `{ msg: 'puterPopupFrame', state: 'closed', upgraded }` and the page removes
 the frame. `requestUpgrade()` resolves `{ upgraded }`. A call made while the
