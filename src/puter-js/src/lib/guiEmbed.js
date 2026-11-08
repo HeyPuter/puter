@@ -28,13 +28,15 @@ dialog.${cls}:focus{outline:none}
 `;
 
 // A popup frame sits in a box the size of the popup window it replaces, over
-// the scrim, and fills the screen on a phone as the popup's tab would.
+// the scrim, and fills the screen on a phone as the popup's tab would. The
+// close button starts from `all:unset` so the page's own button styles don't
+// reach it.
 const BOX_STYLE = `
 .puter-popup-frame .puter-popup-frame-loading{opacity:1;pointer-events:auto}
 .puter-popup-frame:not(.is-loading) .puter-popup-frame-loading span{display:none}
 .puter-popup-frame.is-loading .puter-popup-frame-box{visibility:hidden}
 .puter-popup-frame-box{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);box-sizing:border-box;width:min(var(--puter-popup-frame-width),calc(100% - 32px));height:min(var(--puter-popup-frame-height),calc(100% - 32px));border-radius:12px;overflow:hidden;background:#fff;box-shadow:0 24px 64px rgba(0,0,0,.35)}
-.puter-popup-frame-close{position:absolute;top:10px;right:10px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:transparent;color:#6b7280;cursor:pointer}
+.puter-popup-frame-close{all:unset;box-sizing:border-box;position:absolute;top:10px;right:10px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:transparent;color:#6b7280;cursor:pointer}
 .puter-popup-frame-close:hover{background:rgba(127,127,127,.15)}
 .puter-popup-frame-close:focus-visible{outline:2px solid #3b82f6;outline-offset:1px}
 .puter-popup-frame-close svg{width:16px;height:16px}
@@ -145,7 +147,9 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     const dialog = document.createElement('dialog');
     dialog.className = className;
     dialog.setAttribute('aria-label', title);
-    dialog.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;background:transparent;overflow:hidden;';
+    // Inline, so the page's own `dialog` and `iframe` styles can't move,
+    // round or shrink them.
+    dialog.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;min-width:0;min-height:0;max-width:none;max-height:none;margin:0;padding:0;border:0;border-radius:0;box-shadow:none;transform:none;background:transparent;overflow:hidden;';
     const style = document.createElement('style');
     style.textContent = embedStyle(className) + (box ? BOX_STYLE : '');
     const frame = document.createElement('iframe');
@@ -153,12 +157,13 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     // The embed allows a framing page it can name from the referrer.
     frame.setAttribute('referrerpolicy', 'origin');
     if ( allow ) frame.setAttribute('allow', allow);
+    const frameBase = 'display:block;width:100%;height:100%;min-width:0;min-height:0;max-width:none;max-height:none;margin:0;padding:0;border:0;';
     // A frame whose color-scheme differs from its document's is painted
     // opaque, so this matches the embed's. WebKit also gives the frame this
     // scheme as its preferred one, so it has to follow the OS.
     frame.style.cssText = box
-        ? 'display:block;width:100%;height:100%;border:0;'
-        : 'display:block;width:100%;height:100%;border:0;background:transparent;color-scheme:light dark;';
+        ? frameBase
+        : `${frameBase}background:transparent;color-scheme:light dark;`;
     const loading = document.createElement('div');
     loading.className = `${className}-loading`;
     loading.setAttribute('role', 'status');

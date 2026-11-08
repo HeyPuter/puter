@@ -131,6 +131,27 @@ test.describe('popups a first-party page shows framed', () => {
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
     });
 
+    test('the page\'s own dialog, frame and button styles leave the framed sign-in as it is', async ({ page }) => {
+        await openFirstPartyPage(page);
+        await page.addStyleTag({
+            content: `dialog { top: 50%; left: 50%; transform: translate(-50%, -50%); border-radius: 24px; }
+iframe { max-width: 420px; margin: 12px; }
+button { margin: 0 6px 8px 0; min-width: 88px; min-height: 44px; box-shadow: 0 1px 2px #000; }`,
+        });
+        await runFromClick(page, 'puter.auth.signIn()');
+        await frameReady(page);
+
+        const viewport = page.viewportSize();
+        const dialog = await page.locator('dialog.puter-popup-frame').boundingBox();
+        expect(dialog).toEqual({ x: 0, y: 0, width: viewport.width, height: viewport.height });
+        const box = await page.locator('.puter-popup-frame-box').boundingBox();
+        expect(await page.locator('.puter-popup-frame-box iframe').boundingBox()).toEqual(box);
+        const close = await page.locator('.puter-popup-frame-close').boundingBox();
+        expect([close.width, close.height]).toEqual([32, 32]);
+        expect(box.x + box.width - (close.x + close.width)).toBe(10);
+        await expect(page.locator('.puter-popup-frame-close')).toHaveCSS('box-shadow', 'none');
+    });
+
     test('a provider picked in the framed sign-in opens straight in the popup', async ({ page }) => {
         await page.goto('/');
         await page.waitForFunction(() => !!window.user?.username && !!window.puter?.authToken, null, { timeout: 60_000 });
