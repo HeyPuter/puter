@@ -456,6 +456,12 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             // restores its position if it comes back.
             const deleteData = $overlay.find('.myapps-modal-delete-data').is(':checked');
             const removedIndex = self._apps.findIndex(a => a.name === appName);
+            // Uninstalled from inside an open folder: where focus goes after.
+            const fromGroupId = $el_window.find('.myapps-group-panel-grid .myapps-tile').toArray()
+                .some(el => el.dataset.appName === appName) ? self._openGroupId : null;
+            const groupMates = fromGroupId
+                ? (findGroupById(self._groups, fromGroupId)?.apps ?? []).filter(name => name !== appName)
+                : [];
             const removedApp = removedIndex === -1 ? null : self._apps[removedIndex];
             // A running instance would be stranded: the tile is a headless
             // app's only switcher, so once it's gone a minimized window could
@@ -497,9 +503,19 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                 self.renderApps($el_window, { preservePage: true, instant: true });
                 // The confirm button left with the modal; keep a keyboard user on
                 // the grid, at the slot the app vacated.
-                if ( slot !== -1 && (! document.activeElement || document.activeElement === document.body) ) {
-                    const tiles = $el_window.find('.myapps-page .myapps-tile').toArray();
-                    tiles[Math.min(slot, tiles.length - 1)]?.focus({ preventScroll: true });
+                if ( ! document.activeElement || document.activeElement === document.body ) {
+                    if ( slot !== -1 ) {
+                        const tiles = $el_window.find('.myapps-page .myapps-tile').toArray();
+                        tiles[Math.min(slot, tiles.length - 1)]?.focus({ preventScroll: true });
+                    } else if ( fromGroupId ) {
+                        // The folder may still be open, closed, or dissolved
+                        // into the one app left in it.
+                        const target = $el_window.find('.myapps-group-panel-grid .myapps-tile')[0]
+                            ?? $el_window.find(`.myapps-group-tile[data-group-id="${CSS.escape(fromGroupId)}"]`)[0]
+                            ?? $el_window.find('.myapps-page .myapps-tile').toArray()
+                                .find(el => groupMates.includes(el.dataset.appName));
+                        target?.focus({ preventScroll: true });
+                    }
                 }
                 // FLIP the survivors from their old boxes into the new layout.
                 const moved = [];
