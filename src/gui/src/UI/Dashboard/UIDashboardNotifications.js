@@ -370,7 +370,17 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         if ( document.title !== wanted ) document.title = wanted;
     };
 
+    // Changes made in other tabs arrive one socket event per notification
+    // (Mark all read there sends one ack each), so they redraw once a beat.
+    // Not a frame: a hidden tab's title still carries the count.
+    let renderTimer = null;
+    const scheduleRender = () => {
+        renderTimer ??= setTimeout(render, 50);
+    };
+
     const render = () => {
+        clearTimeout(renderTimer);
+        renderTimer = null;
         const hadFocus = $panel[0].contains(document.activeElement);
         const count = unreadCount(entries);
         const label = badgeLabel(count);
@@ -851,7 +861,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         acked.set(uid, now);
         if ( ! entries.some((e) => e.uid === uid && isUnread(e)) ) return;
         entries = setReadAt(entries, uid, now);
-        render();
+        scheduleRender();
     });
     // Removed in another tab. Not gated, for the same reason as the ack.
     socket.on('notif.removed', ({ uid }) => {
@@ -859,7 +869,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         removed.set(uid, Date.now());
         const listed = entries.some((e) => e.uid === uid);
         dropEntry(uid);
-        if ( listed ) render();
+        if ( listed ) scheduleRender();
     });
     // Every (re)connection: anything read elsewhere while this tab was
     // offline is marked so in the server's list, and anything new is in it.
