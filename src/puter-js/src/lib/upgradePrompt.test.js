@@ -194,12 +194,19 @@ describe('promptIfUpgradeRequired', () => {
             expect(message).toBe('Your account does not have enough funding to complete this request.');
             expect(options).toMatchObject({ title: 'Low Balance', method: 'puter.ai.chat', reason: 'funds' });
 
-            options.onUpgrade();
+            expect(options.onUpgrade()).toBe(true);
             expect(globalThis.puter.ui.requestUpgrade).toHaveBeenCalledWith({
                 reason: 'funds',
                 method: 'puter.ai.chat',
                 message: 'Your account does not have enough funding to complete this request.',
             });
+        });
+
+        it('leaves the tab to the dialog when the page can no longer frame it by the click', () => {
+            promptIfUpgradeRequired({ code: 'insufficient_funds', status: 402 }, { method: 'puter.ai.chat' });
+            globalThis.puter.ui.canShowUpgradeFrame_ = () => false;
+            expect(showUsageLimitDialog.mock.calls[0][1].onUpgrade()).toBe(false);
+            expect(globalThis.puter.ui.requestUpgrade).not.toHaveBeenCalled();
         });
 
         it('shows no dialog over an upgrade the page already shows', () => {

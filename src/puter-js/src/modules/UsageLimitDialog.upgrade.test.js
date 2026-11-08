@@ -41,4 +41,11 @@ describe('the usage limit dialog Upgrade button', () => {
         expect(onUpgrade).toHaveBeenCalledTimes(1);
         expect(window.open).not.toHaveBeenCalled();
     });
+
+    it('opens the tab after all when onUpgrade can\'t show the upgrade', () => {
+        showUsageLimitDialog('Not enough storage space available.', { reason: 'storage', onUpgrade: () => false });
+        upgradeButton().click();
+        expect(window.open).toHaveBeenCalledWith('https://puter.com/dashboard/?upgrade=storage#home', '_blank');
+        expect(document.querySelector('usage-limit-dialog')).toBeNull();
+    });
 });

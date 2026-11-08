@@ -139,7 +139,15 @@ export const promptIfUpgradeRequired = (error, context = {}, puter = globalThis.
             method,
             reason,
             appID: appIDOf(puter),
-            ...(framed ? { onUpgrade: () => puter.ui.requestUpgrade({ reason, method, message }) } : {}),
+            ...(framed ? {
+                // The page may have stopped being able to frame it, such as
+                // by signing out, since the dialog opened.
+                onUpgrade: () => {
+                    if ( puter.ui.canShowUpgradeFrame_?.() !== true ) return false;
+                    puter.ui.requestUpgrade({ reason, method, message });
+                    return true;
+                },
+            } : {}),
         });
     }
 };
