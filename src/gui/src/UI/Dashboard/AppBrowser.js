@@ -1364,7 +1364,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                 // account dialog, the touch action sheet, or the phone drawer.
                 if ( $('.dashboard-notifications-panel.open, .dashboard-dialog-overlay, .context-menu-modal-backdrop, .dashboard-sidebar.open').length ) return;
 
-                const $panelGrid = $el_window.find('.myapps-group-panel-grid');
+                const $panelGrid = $el_window.find('.myapps-group-overlay:not([inert]) .myapps-group-panel-grid');
                 const pageTiles = ($panelGrid.length
                     ? $panelGrid
                     : $el_window.find('.myapps-page').eq(self._page)
@@ -2239,6 +2239,8 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             // removal below, so the tile a user reaches for the instant a folder
             // shuts would do nothing.
             $overlay.css('pointer-events', 'none');
+            // Nor may its tiles take focus (Tab, the arrow keys) on the way out.
+            $overlay.attr('inert', '');
 
             // Back into the tile it grew out of; if that tile is gone (the folder
             // dissolved, the page flipped) the card simply recedes where it is.
