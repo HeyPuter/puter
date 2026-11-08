@@ -47,7 +47,7 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
-import { framedPopupAction, framedPopupParams, startPopupFrame } from './helpers/popupFrame.js';
+import { closeAccountChecksOnEscape, framedPopupAction, framedPopupParams, startPopupFrame } from './helpers/popupFrame.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
@@ -1546,6 +1546,8 @@ window.initgui = async function (options) {
     // federated sign-in hop that would navigate the popup away and lose the
     // action. See util/popupAuth.js.
     window.gui_action = action;
+
+    if (window.embedded_in_frame && action === 'sign-in') closeAccountChecksOnEscape(window);
 
     if (action === 'oidc-2fa') {
         const result = oidcChallenge?.token && await UIAuth2FA(oidcChallenge.token);

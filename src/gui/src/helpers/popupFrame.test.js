@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     POPUP_FRAME_MSG,
+    closeAccountChecksOnEscape,
     framedPopupAction,
     framedPopupParams,
     startPopupFrame,
@@ -125,5 +126,50 @@ describe('startPopupFrame', () => {
         document.body.append(Object.assign(document.createElement('div'), { className: 'window' }));
         await Promise.resolve();
         expect(statesSent(win)).toEqual(['loading', 'ready']);
+    });
+});
+
+describe('closeAccountChecksOnEscape', () => {
+    /** A sign-in window with its own document, whose close() is spied on. */
+    const signInWindow = () => {
+        const win = { document: document.implementation.createHTMLDocument(), close: vi.fn() };
+        closeAccountChecksOnEscape(win);
+        return win;
+    };
+    const escapeOn = (el, init = {}) => {
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true, ...init }));
+    };
+    const showWindow = (win, className = 'window window-active window-confirm-email-using-code') => {
+        const el = Object.assign(win.document.createElement('div'), { className });
+        el.innerHTML = '<input class="digit-input">';
+        win.document.body.append(el);
+        return el;
+    };
+
+    it.each([
+        'window-confirm-email-using-code',
+        'window-confirm-phone-using-code',
+        'window-card-verification',
+    ])('closes on Escape in the %s window', (cls) => {
+        const win = signInWindow();
+        escapeOn(showWindow(win, `window window-active ${cls}`).querySelector('input'));
+        expect(win.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes on Escape with focus on the page behind an account check', () => {
+        const win = signInWindow();
+        showWindow(win);
+        escapeOn(win.document.body);
+        expect(win.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves Escape that something handled, other keys, and other windows alone', () => {
+        const win = signInWindow();
+        const input = showWindow(win).querySelector('input');
+        input.addEventListener('keydown', (e) => e.preventDefault(), { once: true });
+        escapeOn(input);
+        escapeOn(input, { key: 'Enter' });
+        escapeOn(showWindow(win, 'window window-alert').querySelector('input'));
+        expect(win.close).not.toHaveBeenCalled();
     });
 });

@@ -37,6 +37,10 @@ export const POPUP_FRAME_MSG = 'puterPopupFrame';
 // The popup's query parameters a framing page may pass, in the fragment.
 const FRAGMENT_PARAMS = ['msg_id', 'options', 'request_auth'];
 
+// The account checks a sign-in can show (email, phone, card), which are
+// windows rather than auth screens.
+const ACCOUNT_CHECK_WINDOWS = '.window-confirm-email-using-code, .window-confirm-phone-using-code, .window-card-verification';
+
 // What a framed popup shows first; until one is on the page the framing page
 // keeps the frame hidden behind its loading scrim.
 const VISIBLE_UI = '.window, .dashboard-dialog-overlay, .captcha-modal';
@@ -106,4 +110,19 @@ export const startPopupFrame = (win, hostOrigin) => {
 
     tell('loading');
     return tell;
+};
+
+/**
+ * Closes a framed sign-in on Escape in one of its account checks, as Escape
+ * on its auth screens does. Those screens handle Escape themselves; the
+ * account checks are windows, which don't.
+ *
+ * @param {Window} win
+ */
+export const closeAccountChecksOnEscape = (win) => {
+    win.document.addEventListener('keydown', (e) => {
+        if ( e.key !== 'Escape' || e.defaultPrevented ) return;
+        const el = e.target === win.document.body ? win.document.querySelector('.window-active') : e.target;
+        if ( el?.closest?.(ACCOUNT_CHECK_WINDOWS) ) win.close();
+    });
 };
