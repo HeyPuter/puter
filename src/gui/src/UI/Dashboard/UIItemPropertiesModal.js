@@ -291,10 +291,24 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
                 const $link = $(this);
                 if ( $link.prop('disabled') ) return;
                 $link.prop('disabled', true);
-                puter.hosting.update($link.attr('data-subdomain'), null).then(() => {
+                const subdomain = $link.attr('data-subdomain');
+                puter.hosting.update(subdomain, null).then(() => {
                     const $entry = $link.closest('.item-props-website-entry');
                     const $row = $entry.closest('.item-props-row');
                     $entry.remove();
+                    // Rows inside the folder carry addresses under the site:
+                    // work them out again without it (another site may still
+                    // serve them).
+                    if ( Array.isArray(window.sites) ) {
+                        window.sites = window.sites.filter((site) => site.subdomain !== subdomain);
+                    }
+                    $('.item').each(function () {
+                        const path = this.dataset.path ?? '';
+                        if ( ! path.startsWith(`${item_path}/`) ) return;
+                        const url = window.determine_website_url?.(path) || '';
+                        $(this).attr('data-website_url', url)
+                            .find('.item-has-website-url-badge').css('display', url ? 'block' : 'none');
+                    });
                     // The focused button just left the DOM; keep focus in the dialog.
                     el_modal.focus({ preventScroll: true });
                     if ( $row.find('.item-props-website-entry').length > 0 ) return;
