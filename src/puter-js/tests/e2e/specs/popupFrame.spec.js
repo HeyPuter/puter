@@ -208,6 +208,25 @@ button { margin: 0 6px 8px 0; min-width: 88px; min-height: 44px; box-shadow: 0 1
             const { red } = await screenshotRed(page, { x: width / 2, y: 0, width: 1, height: 4 });
             expect(red[0]).toBe(red[red.length - 1]);
         });
+
+        test('the framed save picker keeps its file name and buttons on screen', async ({ page }) => {
+            await page.goto('/');
+            await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+            await openFirstPartyPage(page);
+            await runFromClick(page, 'puter.auth.signIn()');
+            await frameReady(page);
+            await frame(page).locator('.auth-dialog [data-screen="accounts"] button').first().click();
+            expect((await result(page)).ok).toBe(true);
+
+            await runFromClick(page, 'puter.ui.showSaveFilePicker("x", "a-long-suggested-file-name.txt")');
+            await frameReady(page);
+            const { width } = page.viewportSize();
+            for ( const control of ['.savefiledialog-filename', '.filedialog-cancel-btn', '.savefiledialog-save-btn'] ) {
+                const box = await frame(page).locator(control).boundingBox();
+                expect(box.x).toBeGreaterThanOrEqual(0);
+                expect(box.x + box.width).toBeLessThanOrEqual(width);
+            }
+        });
     });
 
     test('a provider picked in the framed sign-in opens straight in the popup', async ({ page }) => {
