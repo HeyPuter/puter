@@ -68,6 +68,31 @@ async function mount (options = {}) {
 }
 
 describe('shared app browser', () => {
+    it('keeps an app off the grid while its uninstall is still on its way to the server', async () => {
+        const actions = { showAlert: vi.fn(), revokeAppSessions: vi.fn(async () => {}) };
+        await mount({ editable: true, actions });
+        let finishRevoke;
+        puter.perms = { revokeApp: vi.fn(() => new Promise(resolve => { finishRevoke = resolve; })) };
+        // The app's windows are closed first; the test has none.
+        $.fn.close ??= function () { return this; };
+        window.matchMedia = () => ({ matches: true });
+        browser._setReorderMode($root, true);
+        $('.myapps-tile[data-app-name="editor"] .myapps-tile-remove').trigger('click');
+        $('.myapps-modal-confirm').trigger('click');
+        expect(puter.perms.revokeApp).toHaveBeenCalled();
+
+        // A refresh before the revoke lands still lists the app as installed.
+        await browser.loadApps($root);
+        expect(browser._apps.map(app => app.name)).not.toContain('editor');
+
+        installed = installed.filter(app => app.name !== 'editor');
+        finishRevoke({});
+        await vi.waitFor(() => expect(browser._pendingUninstalls.size).toBe(0));
+        await browser.loadApps($root);
+        expect(browser._apps.map(app => app.name)).not.toContain('editor');
+        expect(actions.showAlert).not.toHaveBeenCalled();
+    });
+
     it('saves one layout at a time, sending only the newest once the last write lands', async () => {
         await mount({ editable: true });
         const writes = [];

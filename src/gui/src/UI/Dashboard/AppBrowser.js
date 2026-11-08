@@ -463,6 +463,9 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             // also consumes the app's URL entry if it owns one).
             $(`.window[data-app="${html_encode(appName)}"]`).close();
             self._invalidateInFlightLoads();
+            // Until the revoke lands the server still lists the app as
+            // installed, so loads started meanwhile leave it out themselves.
+            self._pendingUninstalls.add(appName);
             self._setAppRemoved(appName, true);
             close({ restoreFocus: false });
 
@@ -546,6 +549,9 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
             puter.perms.revokeApp(appUid, '*', { deleteData }).then(async (result) => {
                 // revokeApp resolves (never rejects) with `error` set on failure.
                 if ( result?.error ) throw result;
+                // Loads started before now may have read the app as installed.
+                self._invalidateInFlightLoads();
+                self._pendingUninstalls.delete(appName);
                 // Clearing the grants is only half of it. An app the user already
                 // opened holds a token that authenticates against a session row,
                 // and that row outlives the permission rows — so without this an
@@ -567,6 +573,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
                 }
             }).catch(async err => {
                 console.error('Failed to uninstall app:', err);
+                self._pendingUninstalls.delete(appName);
                 await removalSettled;
                 self._invalidateInFlightLoads();
                 // The uninstall didn't happen — take the name back off the
@@ -919,6 +926,8 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
         // The last uninstalled-apps list a read returned, for loads whose read fails.
         _lastRemovedApps: null,
         _launchingApps: new Set(),
+        // Apps whose uninstall was confirmed but hasn't landed on the server.
+        _pendingUninstalls: new Set(),
         // A deep-link install mid-arrival ({ name, $el_window }) — its tile is
         // parked invisible until the intro's arrival beat (see
         // _spliceDeepLinkApp); and the session's landing-installed apps, kept
@@ -3459,7 +3468,7 @@ export function createAppBrowser ({ editable = true, onLaunch, actions = {}, gue
 
                 // Append installed apps that aren't already in the list
                 for ( const app of installedApps ) {
-                    if ( seen.has(app.name) ) continue;
+                    if ( seen.has(app.name) || this._pendingUninstalls.has(app.name) ) continue;
                     seen.add(app.name);
                     merged.push(app);
                 }
