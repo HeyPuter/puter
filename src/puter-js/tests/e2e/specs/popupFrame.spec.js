@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, devices } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +28,7 @@ const openFirstPartyPage = async (page) => {
         }
         return route.fulfill({
             contentType: 'text/html',
-            body: `<!doctype html><meta charset="utf-8"><button id="go">Go</button>
+            body: `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><button id="go">Go</button>
 <script>window.PUTER_ORIGIN = ${JSON.stringify(PUTER_ORIGIN)}; window.PUTER_API_ORIGIN = ${JSON.stringify(API_ORIGIN)};</script>
 <script src="/sdk.js"></script>`,
         });
@@ -184,6 +184,24 @@ button { margin: 0 6px 8px 0; min-width: 88px; min-height: 44px; box-shadow: 0 1
             const inside = red[width - 1];
             const outside = red[red.length - width];
             expect(Math.max(...red)).toBeLessThanOrEqual(Math.max(inside, outside) + 3);
+        });
+    });
+
+    test.describe('on a phone with a fractional pixel ratio', () => {
+        // A describe group can't switch browsers; the profile's is Chromium anyway.
+        const { defaultBrowserType: _browser, ...pixel7 } = devices['Pixel 7'];
+        test.use(pixel7);
+
+        test('the framed sign-in fills the screen with no line of scrim along its edge', async ({ page }) => {
+            await openFirstPartyPage(page);
+            await runFromClick(page, 'puter.auth.signIn()');
+            await frameReady(page);
+            await boxSettled(page);
+
+            // A column down the middle of the top: the white sign-in all the way up.
+            const { width } = page.viewportSize();
+            const { red } = await screenshotRed(page, { x: width / 2, y: 0, width: 1, height: 4 });
+            expect(red[0]).toBe(red[red.length - 1]);
         });
     });
 

@@ -28,15 +28,17 @@ dialog.${cls}:focus{outline:none}
 `;
 
 // A popup frame sits in a box the size of the popup window it replaces, over
-// the scrim, and fills the screen on a phone as the popup's tab would. Its
-// white backing stops 1px inside the rounded edge, so in dark mode it doesn't
-// show as a light fringe around the frame. The close button starts from
-// `all:unset` so the page's own button styles don't reach it.
+// the scrim, and fills the screen on a phone as the popup's tab would. It's
+// centered by margins, which snap to device pixels where a translate can
+// leave its edge on a fraction of one. Its white backing stops 1px inside the
+// rounded edge, so in dark mode it doesn't show as a light fringe around the
+// frame. The close button starts from `all:unset` so the page's own button
+// styles don't reach it.
 const BOX_STYLE = `
 .puter-popup-frame .puter-popup-frame-loading{opacity:1;pointer-events:auto}
 .puter-popup-frame:not(.is-loading) .puter-popup-frame-loading span{display:none}
 .puter-popup-frame.is-loading .puter-popup-frame-box{visibility:hidden}
-.puter-popup-frame-box{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);box-sizing:border-box;width:min(var(--puter-popup-frame-width),calc(100% - 32px));height:min(var(--puter-popup-frame-height),calc(100% - 32px));border-radius:12px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.35)}
+.puter-popup-frame-box{position:absolute;inset:0;margin:auto;isolation:isolate;box-sizing:border-box;width:min(var(--puter-popup-frame-width),calc(100% - 32px));height:min(var(--puter-popup-frame-height),calc(100% - 32px));border-radius:12px;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.35)}
 .puter-popup-frame-box::before{content:"";position:absolute;inset:1px;z-index:-1;border-radius:11px;background:#fff}
 .puter-popup-frame-close{all:unset;box-sizing:border-box;position:absolute;top:10px;right:10px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:transparent;color:#6b7280;cursor:pointer}
 .puter-popup-frame-close:hover{background:rgba(127,127,127,.15)}
