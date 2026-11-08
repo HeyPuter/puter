@@ -305,7 +305,12 @@ describe('showPopupFrame', () => {
         expect(dialog.classList.contains('is-loading')).toBe(true);
         vi.advanceTimersByTime(1000);
         expect(srcSet).toHaveBeenCalledTimes(1);
-        expect(srcSet.mock.calls[0][0]).toBe(iframe.src);
+        // Not just the refused URL again, which WebKit takes as a fragment
+        // navigation of the error page: the server redirects the query away.
+        const opened = new URL(iframe.src);
+        const reopened = new URL(srcSet.mock.calls[0][0]);
+        expect(reopened.search).not.toBe('');
+        expect(reopened.origin + reopened.pathname + reopened.hash).toBe(opened.origin + opened.pathname + opened.hash);
         expect(dialog.classList.contains('is-loading')).toBe(true);
 
         // The page's own reload boots, before or after its load event.

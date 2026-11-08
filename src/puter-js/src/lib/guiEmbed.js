@@ -283,7 +283,12 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
         setLoading(true);
         // As long as its first start may take, then the popup.
         wait(READY_TIMEOUT_MS);
-        frame.src = url.href;
+        // WebKit takes the refused URL itself as a fragment navigation of its
+        // error page, which loads nothing. The server redirects a query away,
+        // and the fragment carries over the redirect.
+        const reopen = new URL(url);
+        reopen.search = 'reopen';
+        frame.src = reopen.href;
     };
     window.addEventListener('message', onWindowMessage);
     frame.addEventListener('load', () => {
