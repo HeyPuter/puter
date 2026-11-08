@@ -31,7 +31,7 @@ globalThis.i18n = key => key;
 window.icons = {};
 window.launch_apps = { recent: [] };
 
-const { default: TabHome } = await import('./TabHome.js');
+const { default: TabHome, formatTrialEnd } = await import('./TabHome.js');
 const { openAppInNewTab } = await import('../../helpers/dashboardAppLaunch.js');
 
 describe('TabHome recently used', () => {
@@ -94,5 +94,27 @@ describe('TabHome recent app clicks', () => {
         $el_window.find('.bento-recent-app[data-app-name="site"]')[0].click();
         expect(window.open).toHaveBeenCalledWith('https://site.example/', '_blank', 'noopener,noreferrer');
         expect(openAppInNewTab).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('formatTrialEnd', () => {
+    const at = (day, hour) => new Date(2026, 10, day, hour).getTime();
+
+    it('counts calendar days, so the countdown agrees with the date', () => {
+        // Ends at 3pm today: today, not "1 day left".
+        expect(formatTrialEnd(at(8, 15), at(8, 9)).days).toBe(0);
+        // Ends tomorrow at 11am: one day, not two.
+        expect(formatTrialEnd(at(9, 11), at(8, 9)).days).toBe(1);
+        expect(formatTrialEnd(at(9, 11), at(8, 23)).days).toBe(1);
+        expect(formatTrialEnd(at(15, 0), at(8, 23)).days).toBe(7);
+    });
+
+    it('reads an end that has passed as today', () => {
+        expect(formatTrialEnd(at(7, 12), at(8, 9)).days).toBe(0);
+    });
+
+    it('has nothing to say without an end date', () => {
+        expect(formatTrialEnd(undefined)).toBeNull();
+        expect(formatTrialEnd(NaN)).toBeNull();
     });
 });

@@ -37,6 +37,7 @@ import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
 import { openPublishWebsiteDialog, openPublishWorkerDialog } from './UIPublishDialogs.js';
 import { dedupedName } from '../../helpers/dedupedName.js';
+import { runLimited } from '../../helpers/runLimited.js';
 import { compareEntries, compareNames } from './sortEntries.js';
 import { middleTruncate } from './middleTruncate.js';
 import { resolveTypedPath } from './typedPath.js';
@@ -53,6 +54,14 @@ import { compareSharers, filterBySharer, fitSharedByWidth, sharedByCellHtml, sha
 import { paintAvatars } from '../../helpers/profilePictures.js';
 
 const { html_encode, SelectionArea } = window;
+
+// Permanent deletes in flight at once: a browser's connections to one host.
+const DELETE_CONCURRENCY = 6;
+
+// The "New" menu's stand-ins for window.create_file, one per create in
+// flight (newest last), and the function they stand in for.
+const createFileInterceptors = [];
+let realCreateFile = null;
 
 /**
  * `p` with the folder `from` (itself, or anything under it) moved to `to`;
@@ -1242,8 +1251,9 @@ const TabFiles = {
                 return false;
             }
 
-            // Arrow keys, Home/End and PageUp/PageDown - Navigate items
-            if ( e.which >= 33 && e.which <= 40 ) {
+            // Arrow keys, Home/End and PageUp/PageDown - Navigate items. Not
+            // with Alt or Cmd: those are the browser's (Alt+Left is Back).
+            if ( e.which >= 33 && e.which <= 40 && ! e.altKey && ! e.metaKey ) {
                 e.preventDefault();
                 e.stopPropagation();
 
@@ -1907,9 +1917,9 @@ const TabFiles = {
         if ( confirmed !== 'delete' ) return;
         // The phone selection bar acts on rows that are going away.
         this.$el_window.find('.files-selection-actions').removeClass('visible');
-        for ( const row of list ) {
-            await window.delete_item(row);
-        }
+        // A few at a time rather than one after another: a few hundred items
+        // took a round trip each. delete_item reports its own failures.
+        await runLimited(list, DELETE_CONCURRENCY, row => window.delete_item(row));
         await window.refresh_trash_state();
     },
 
@@ -2383,11 +2393,19 @@ const TabFiles = {
         };
 
         if ( isList ) {
-            for ( const el of names ) {
-                // 8px padding on each side; an auto-width column shows the
-                // full name, clipped by CSS.
-                write(el, nameWidth ? truncateFilenameToWidth(fullNameOf(el), nameWidth - 16, font) : fullNameOf(el));
-            }
+            // The name's padding (8px a side) takes room from a set width. An
+            // auto-width column fills the row, so its room is read off the
+            // name's wrapper, less the wrapper's padding: all reads before any
+            // write, so the writes don't force a layout each.
+            const paddingOf = s => (parseFloat(s.paddingLeft) || 0) + (parseFloat(s.paddingRight) || 0);
+            const padding = paddingOf(style);
+            const wrapperPadding = nameWidth ? 0 : paddingOf(getComputedStyle(names[0].parentElement));
+            const rooms = nameWidth ? null : names.map(el => el.parentElement.clientWidth - wrapperPadding);
+            names.forEach((el, i) => {
+                const room = (nameWidth || rooms[i]) - padding;
+                // A listing that isn't laid out yet (hidden tab) has no room to fit to.
+                write(el, room > 0 ? truncateFilenameToWidth(fullNameOf(el), room, font) : fullNameOf(el));
+            });
             return;
         }
 
@@ -3312,6 +3330,9 @@ const TabFiles = {
         // the directories sidebar is hidden — Home carries a row for each.
         this.renderPlaceRows();
 
+        // Something that ran while the listing loaded (a restore finishing,
+        // a failed mkdir) may have found the pane empty and said so.
+        $files.find('.files-empty-notice').remove();
         if ( directoryContents.length === 0 ) {
             this.renderEmptyPlaceholderIfNeeded();
             this.updateFooterStats();
@@ -4433,11 +4454,14 @@ const TabFiles = {
         const metadata = metadataStr ? JSON.parse(metadataStr) : {};
 
         // Only a direct child of Trash carries restore metadata.
+        const name = $(el_item).attr('data-name') || '';
         if ( path.dirname($(el_item).attr('data-path') || '') !== window.trash_path ) {
-            throw new Error('Cannot restore: only top-level Trash items can be restored');
+            throw new Error(i18n('restore_only_trash_items', { name }, false));
         }
+        // An item an app or the API moved into the Trash has no record of
+        // where it came from.
         if ( ! metadata.original_path ) {
-            throw new Error('Cannot restore: original path not found in metadata');
+            throw new Error(i18n('restore_location_unknown', { name }, false));
         }
 
         const destPath = path.dirname(metadata.original_path);
@@ -5370,10 +5394,14 @@ const TabFiles = {
                     return async () => {
                         $('.context-menu').remove();
 
+                        // Where the user was, so an upload that lands after
+                        // they've moved on neither pulls them back nor draws
+                        // its row into another folder's listing.
+                        const pathAtClick = _this.currentPath;
+
                         // Temporarily intercept create_file to capture the upload promise
                         let uploadPromise = null;
-                        const origCreateFile = window.create_file;
-                        window.create_file = (options) => {
+                        const createFile = (options) => {
                             // Counted from here, not from the click: Web Link
                             // waits on a prompt first, and other items added
                             // to the folder meanwhile must still show up.
@@ -5384,6 +5412,12 @@ const TabFiles = {
                             // a caller that awaits this.
                             return uploadPromise.catch(() => undefined);
                         };
+                        // Creates can overlap. Each one's interceptor stays
+                        // installed until it finishes, the newest on top, and
+                        // the real create_file comes back once none is left.
+                        if ( createFileInterceptors.length === 0 ) realCreateFile = window.create_file;
+                        createFileInterceptors.push(createFile);
+                        window.create_file = createFile;
 
                         try {
                             await originalOnClick();
@@ -5401,7 +5435,10 @@ const TabFiles = {
                                     operation: 'create_file',
                                     data: $('<div>').attr({ 'data-uid': result.uid, 'data-path': result.path }),
                                 });
-                                if ( targetPath === _this.currentPath ) {
+                                // Not mid-way to another folder (currentPath
+                                // only moves once its listing arrives).
+                                const settled = ! _this.loadingFolder;
+                                if ( settled && targetPath === _this.currentPath ) {
                                     // Remove empty-directory placeholder if present
                                     _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row):not(.tabfiles-selection-area)').remove();
                                     // Add the new file incrementally
@@ -5412,11 +5449,15 @@ const TabFiles = {
                                         _this.applyColumnWidths();
                                         _this.updateFooterStats();
                                     }
-                                } else {
+                                } else if ( settled && _this.currentPath === pathAtClick ) {
                                     // Same navigate-to-target treatment as New
                                     // Folder above.
                                     _this.pushNavHistory(targetPath);
                                     await _this.renderDirectory(targetPath, { consistency: 'strong' });
+                                } else {
+                                    // The user went elsewhere meanwhile; the
+                                    // file is there when they come back.
+                                    return;
                                 }
                                 const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
                                 if ( $newRow.length > 0 ) {
@@ -5427,7 +5468,8 @@ const TabFiles = {
                         } catch ( err ) {
                             UIAlert(err?.message || i18n('error_unknown_cause', [], false));
                         } finally {
-                            window.create_file = origCreateFile;
+                            createFileInterceptors.splice(createFileInterceptors.indexOf(createFile), 1);
+                            window.create_file = createFileInterceptors.at(-1) ?? realCreateFile;
                             if ( uploadPromise ) _this.doneCreating();
                         }
                     };

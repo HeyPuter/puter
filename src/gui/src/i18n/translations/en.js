@@ -550,6 +550,8 @@ const en = {
         'Resources': 'Resources',
         restart_puter_confirm: 'Are you sure you want to restart Puter?',
         restore: 'Restore',
+        restore_location_unknown: '“{{name}}” can’t be restored because where it was deleted from isn’t known.',
+        restore_only_trash_items: '“{{name}}” is inside a folder in the Trash. Restore that folder instead.',
         retry: 'Retry',
         save: 'Save',
         saturation: 'Saturation',
@@ -887,6 +889,13 @@ const en = {
         setup2fa_5_button: 'Enable 2FA',
         setup2fa_password_instructions: 'Enter your password to set up 2FA.',
         setup2fa_code_expired: 'That code has expired. Enter the current code from your authenticator app to finish.',
+        setup2fa_step_scan: 'Scan',
+        setup2fa_step_backup: 'Backup',
+        setup2fa_step_verify: 'Verify',
+        setup2fa_enabling: 'Enabling…',
+        setup2fa_success_text: 'Your account is now protected with two-factor authentication. You’ll be asked for a verification code each time you sign in.',
+        setup2fa_copy_secret: 'Copy secret key',
+        setup2fa_recovery_codes: 'Recovery Codes',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Enter 2FA Code',

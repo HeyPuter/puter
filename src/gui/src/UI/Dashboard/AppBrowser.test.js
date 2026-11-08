@@ -68,6 +68,86 @@ async function mount (options = {}) {
 }
 
 describe('shared app browser', () => {
+    it('keeps an app off the grid while its uninstall is still on its way to the server', async () => {
+        const actions = { showAlert: vi.fn(), revokeAppSessions: vi.fn(async () => {}) };
+        await mount({ editable: true, actions });
+        let finishRevoke;
+        puter.perms = { revokeApp: vi.fn(() => new Promise(resolve => { finishRevoke = resolve; })) };
+        // The app's windows are closed first; the test has none.
+        $.fn.close ??= function () { return this; };
+        window.matchMedia = () => ({ matches: true });
+        browser._setReorderMode($root, true);
+        $('.myapps-tile[data-app-name="editor"] .myapps-tile-remove').trigger('click');
+        $('.myapps-modal-confirm').trigger('click');
+        expect(puter.perms.revokeApp).toHaveBeenCalled();
+
+        // A refresh before the revoke lands still lists the app as installed.
+        await browser.loadApps($root);
+        expect(browser._apps.map(app => app.name)).not.toContain('editor');
+
+        installed = installed.filter(app => app.name !== 'editor');
+        finishRevoke({});
+        await vi.waitFor(() => expect(browser._pendingUninstalls.size).toBe(0));
+        await browser.loadApps($root);
+        expect(browser._apps.map(app => app.name)).not.toContain('editor');
+        expect(actions.showAlert).not.toHaveBeenCalled();
+    });
+
+    it('saves one layout at a time, sending only the newest once the last write lands', async () => {
+        await mount({ editable: true });
+        const writes = [];
+        puter.kv.set = vi.fn((key, value) => new Promise(resolve => writes.push({ key, value, resolve })));
+        const orderWrites = () => writes.filter(w => w.key === APPS_ORDER_KV_KEY);
+
+        browser._apps = [{ name: 'a' }, { name: 'b' }];
+        browser.saveOrder();
+        browser._apps = [{ name: 'b' }, { name: 'a' }];
+        browser.saveOrder();
+        browser._apps = [{ name: 'a' }, { name: 'b' }, { name: 'c' }];
+        browser.saveOrder();
+        expect(orderWrites()).toHaveLength(1);
+
+        orderWrites()[0].resolve();
+        await vi.waitFor(() => expect(orderWrites()).toHaveLength(2));
+        expect(orderWrites()[1].value).toBe(JSON.stringify(browser._savedOrderNames));
+        expect(orderWrites()[1].value).not.toBe(orderWrites()[0].value);
+        orderWrites()[1].resolve();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(orderWrites()).toHaveLength(2);
+    });
+
+    it('leaves the app request form open on an Escape that ends an IME composition', async () => {
+        await mount({ editable: true });
+        $('.myapps-add-tile').trigger('click');
+        $('.myapps-add-option[data-add-option="request"]').trigger('click');
+        const pane = () => $('.myapps-add-pane:not([hidden])').attr('data-pane');
+        expect(pane()).toBe('request');
+
+        $('.myapps-add-message')[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true }));
+        expect(pane()).toBe('request');
+        $('.myapps-add-message')[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        expect(pane()).toBe('options');
+        $(document).off('keydown.add-app-modal');
+    });
+
+    it('lets Tab reach the delete-data option in the Uninstall dialog', async () => {
+        // jsdom lays nothing out; the focus trap skips elements with no offsetParent.
+        vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockReturnValue(document.body);
+        await mount({ editable: true });
+        browser._setReorderMode($root, true);
+        $('.myapps-tile[data-app-name="editor"] .myapps-tile-remove').trigger('click');
+        const $overlay = $('.myapps-modal-overlay');
+        expect(document.activeElement.classList.contains('myapps-modal-cancel')).toBe(true);
+
+        // Tab from the last control wraps to the first, the checkbox.
+        $overlay.find('.myapps-modal-confirm')[0].focus();
+        $overlay.trigger($.Event('keydown', { key: 'Tab', shiftKey: false }));
+        expect(document.activeElement.classList.contains('myapps-modal-delete-data')).toBe(true);
+        // Shift+Tab from it wraps back to the last.
+        $overlay.trigger($.Event('keydown', { key: 'Tab', shiftKey: true }));
+        expect(document.activeElement.classList.contains('myapps-modal-confirm')).toBe(true);
+    });
+
     it('uses saved order, folders, and removed recommendations in read-only mode', async () => {
         await mount();
         expect(browser._apps.map(app => app.name)).toEqual(['notes', 'sheet', 'editor']);

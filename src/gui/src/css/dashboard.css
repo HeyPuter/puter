@@ -5257,7 +5257,9 @@ body.myapps-reordering .myapps-tile {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding-bottom: 30px;
+    /* Ends above the footer, not under it, so a drop outline drawn on its
+       edge shows all the way round. */
+    margin-bottom: 30px;
     overflow-y: auto;
     touch-action: pan-y;
 }
@@ -7037,7 +7039,7 @@ body.myapps-reordering .myapps-tile {
     }
 
     .dashboard-section-files .files {
-        padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+        margin-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
     }
 
     /* The grids keep their own padding and clear the footer with a margin,

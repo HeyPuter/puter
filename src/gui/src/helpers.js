@@ -224,10 +224,11 @@ window.suggest_apps_for_fsentry = async (options) => {
  */
 window.byte_format = (bytes) => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'];
-    if ( bytes === 0 ) return '0 Byte';
     let i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
-    if ( i < 0 ) i = 0;
+    if ( ! (i > 0) ) i = 0;
     if ( i >= sizes.length ) i = sizes.length - 1;
+    // Whole bytes have no fraction: "0 Bytes", "1 Byte", "512 Bytes".
+    if ( i === 0 ) return `${bytes} ${bytes === 1 ? 'Byte' : 'Bytes'}`;
     return `${(bytes / Math.pow(1024, i)).toFixed(2) } ${ sizes[i]}`;
 };
 
