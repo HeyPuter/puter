@@ -226,4 +226,28 @@ describe('UIShareModal adding people', () => {
         await settle();
         expect($('.share-modal-submit').prop('disabled')).toBe(false);
     });
+
+    it('says how many items were shared when a later run fails, and badges those rows', async () => {
+        const selection = Array.from({ length: 60 }, (_, i) => ({ path: `/alice/f${i}.txt` }));
+        document.body.insertAdjacentHTML('beforeend', selection
+            .map(item => `<div class="item" data-path="${item.path}" data-is_shared="0"></div>`).join(''));
+        let call = 0;
+        puter.fs.share = vi.fn(async ({ paths }) => {
+            if ( ++call === 2 ) throw { message: 'Daily share limit reached', code: 'share_daily_limit_reached' };
+            return paths.map(p => ({ path: p }));
+        });
+        UIShareModal({ items: selection });
+        await settle();
+        picked.recipient = { value: 'bob', label: 'bob' };
+        picked.onChange();
+
+        $('.share-modal-add').trigger('submit');
+        await settle();
+
+        expect(puter.fs.share).toHaveBeenCalledTimes(2);
+        const status = $('.share-modal-status').text();
+        expect(status).toContain('Shared with bob on 50 of 60 items');
+        expect(status).toContain('Daily share limit reached');
+        expect($('.item[data-is_shared="1"]')).toHaveLength(50);
+    });
 });
