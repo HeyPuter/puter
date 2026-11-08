@@ -582,9 +582,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             timeout: TOAST_TIMEOUT_MS,
             // With nothing to open on the dashboard, a click only dismisses;
             // it mustn't send the apps the user is working in away.
+            // A regrouped notification rewrites the toast under the same uid,
+            // so a click acts on what it says now.
             click: () => {
-                if ( notificationTarget(notification) === null ) void markRead(entry.uid);
-                else void reveal_dashboard().then(() => actOn(entry));
+                const current = entries.find((e) => e.uid === entry.uid) ?? entry;
+                if ( notificationTarget(current.notification) === null ) void markRead(current.uid);
+                else void reveal_dashboard().then(() => actOn(current));
             },
             // The ✕ is a dismissal; timing out is not, so `close` alone acks.
             close: () => void markRead(entry.uid),
