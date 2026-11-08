@@ -175,6 +175,8 @@ describe('pickers on a signed-in first-party page', () => {
         fromFrame({ msg: 'puterPopupFrame', state: 'unavailable' });
         await vi.waitFor(() => expect(document.querySelector('puter-dialog')).not.toBeNull());
         expect(window.open).not.toHaveBeenCalled();
+        expect(document.querySelector('puter-dialog').shadowRoot.querySelector('.about').textContent)
+            .toBe('This website wants you to choose a file from your Puter account.');
 
         document.querySelector('puter-dialog').shadowRoot.querySelector('#launch-auth-popup').click();
         expect(window.open).toHaveBeenCalledTimes(1);
@@ -185,6 +187,8 @@ describe('pickers on a signed-in first-party page', () => {
         await vi.waitFor(() => expect(pickerFrame()).not.toBeNull());
         fromFrame({ msg: 'puterPopupFrame', state: 'unavailable' });
         await vi.waitFor(() => expect(document.querySelector('puter-dialog')).not.toBeNull());
+        expect(document.querySelector('puter-dialog').shadowRoot.querySelector('.about').textContent)
+            .toBe('This website wants you to choose a folder from your Puter account.');
         document.querySelector('puter-dialog').shadowRoot.querySelector('#launch-auth-popup-cancel').click();
         await expect(cancelled.undefinedOnCancel).resolves.toBeUndefined();
         expect(document.querySelector('puter-dialog')).toBeNull();

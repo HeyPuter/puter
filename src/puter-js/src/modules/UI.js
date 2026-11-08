@@ -583,6 +583,13 @@ export class UIModule extends EventListener {
         if ( popup ) this.#pickerPopups.add(popup);
     }
 
+    /** What a picker's consent dialog says, when the popup needs a click to open. */
+    static #PICKER_CONSENT = {
+        'show-open-file-picker': 'This website wants you to choose a file from your Puter account.',
+        'show-save-file-picker': 'This website wants to save a file to your Puter account.',
+        'show-directory-picker': 'This website wants you to choose a folder from your Puter account.',
+    };
+
     /** Opens a picker's popup window, centered, at the pickers' size. */
     #openPickerPopup (url, title) {
         const w = 700;
@@ -639,6 +646,7 @@ export class UIModule extends EventListener {
             let consent = null;
             try {
                 consent = PuterDialog.show({
+                    message: UIModule.#PICKER_CONSENT[action],
                     onContinue: () => {
                         launched(this.#openPickerPopup(url, title));
                         consent?.remove();
