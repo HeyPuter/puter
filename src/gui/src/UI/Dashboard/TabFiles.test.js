@@ -1086,6 +1086,57 @@ describe('TabFiles names in a narrow listing', () => {
     });
 });
 
+describe('TabFiles names in an auto-width name column', () => {
+    const mountNames = (names) => {
+        document.body.innerHTML = `
+            <div class="window"><div class="files-tab">
+                <div class="header"><div class="columns"></div></div>
+                <div class="files files-list-view">${names.map(name => `
+                    <div class="row item" data-name="${name}">
+                        <div class="item-name-wrapper" style="padding: 0 40px 0 0"><pre class="item-name" style="padding: 0 8px"></pre></div>
+                    </div>`).join('')}
+                </div>
+            </div></div>`;
+        TabFiles.$el_window = $('.window');
+        TabFiles.currentView = 'list';
+        TabFiles.appliedColumnWidths = { name: null, sharedBy: 160, size: 60, modified: 80 };
+    };
+
+    beforeEach(() => {
+        // 10px a character; jsdom has no canvas.
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ measureText: text => ({ width: text.length * 10 }) });
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('cut a long name in the middle to the room its wrapper leaves, keeping the end', () => {
+        const long = `${'x'.repeat(60)} (1).txt`;
+        mountNames([long, 'short.txt']);
+        // 256px wrapper, less its 40px and the name's 16px of padding: 200px, 20 characters.
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(256);
+
+        TabFiles.fitItemNames($('.files .item-name'));
+
+        const [$long, $short] = $('.files .item-name').toArray().map(el => $(el));
+        expect($long.text().length).toBeLessThanOrEqual(20);
+        expect($long.text().length).toBeGreaterThan(15);
+        expect($long.text()).toMatch(/^x+…x* \(1\)\.txt$/);
+        expect($long.attr('title')).toBe(long);
+        expect($short.text()).toBe('short.txt');
+        expect($short.attr('title') ?? '').toBe('');
+    });
+
+    it('show the full name while the listing has no width yet', () => {
+        const long = 'y'.repeat(80);
+        mountNames([long]);
+        vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(0);
+
+        TabFiles.fitItemNames($('.files .item-name'));
+
+        expect($('.files .item-name').text()).toBe(long);
+    });
+});
+
 describe('TabFiles uploads', () => {
     beforeEach(async () => {
         vi.restoreAllMocks();

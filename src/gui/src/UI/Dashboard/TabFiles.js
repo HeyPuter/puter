@@ -2383,11 +2383,19 @@ const TabFiles = {
         };
 
         if ( isList ) {
-            for ( const el of names ) {
-                // 8px padding on each side; an auto-width column shows the
-                // full name, clipped by CSS.
-                write(el, nameWidth ? truncateFilenameToWidth(fullNameOf(el), nameWidth - 16, font) : fullNameOf(el));
-            }
+            // The name's padding (8px a side) takes room from a set width. An
+            // auto-width column fills the row, so its room is read off the
+            // name's wrapper, less the wrapper's padding: all reads before any
+            // write, so the writes don't force a layout each.
+            const paddingOf = s => (parseFloat(s.paddingLeft) || 0) + (parseFloat(s.paddingRight) || 0);
+            const padding = paddingOf(style);
+            const wrapperPadding = nameWidth ? 0 : paddingOf(getComputedStyle(names[0].parentElement));
+            const rooms = nameWidth ? null : names.map(el => el.parentElement.clientWidth - wrapperPadding);
+            names.forEach((el, i) => {
+                const room = (nameWidth || rooms[i]) - padding;
+                // A listing that isn't laid out yet (hidden tab) has no room to fit to.
+                write(el, room > 0 ? truncateFilenameToWidth(fullNameOf(el), room, font) : fullNameOf(el));
+            });
             return;
         }
 
