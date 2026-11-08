@@ -52,6 +52,8 @@ const UPGRADE_METHOD_MAX = 200;
 // it, and the frame mustn't be left covering the page.
 const UPGRADE_MODAL_UI = '.window, [aria-modal="true"]';
 const UPGRADE_GONE_MS = 500;
+// How long a hidden frame waits for the page to show it before opening anyway.
+const FRAME_SIZE_TIMEOUT_MS = 1000;
 
 /** Lifecycle messages to the framing page carry this as `msg`. */
 export const POPUP_FRAME_MSG = 'puterPopupFrame';
@@ -237,7 +239,8 @@ export const framedUpgradeDetails = (hash) => {
 
 /**
  * Shows the deployment's upgrade dialog in a framed popup and tells the
- * framing page it's ready once it's open. Resolves whether the user upgraded,
+ * framing page it's ready once it's open, or before it opens when the page
+ * still hides the frame. Resolves whether the user upgraded,
  * once the dialog closes, or false once every dialog and window it showed has
  * gone without it reporting a close.
  *
@@ -273,12 +276,54 @@ export const showFramedUpgrade = (win, attribution, tell) => new Promise((resolv
     const observer = new win.MutationObserver(check);
     observer.observe(win.document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal'] });
 
-    const dialog = new win.UIUpgradeAccount({
-        attribution,
-        onClose: (result) => settle(() => resolve(result?.upgraded === true)),
-    });
-    Promise.resolve(dialog.open_as_window()).then(() => {
-        check();
-        if ( ! settled ) tell('ready');
-    }, (e) => settle(() => reject(e)));
+    let toldReady = false;
+    const ready = () => {
+        if ( toldReady || settled ) return;
+        toldReady = true;
+        tell('ready');
+    };
+    const open = () => {
+        const dialog = new win.UIUpgradeAccount({
+            attribution,
+            onClose: (result) => settle(() => resolve(result?.upgraded === true)),
+        });
+        return dialog.open_as_window();
+    };
+    whenFrameSized(win, ready)
+        .then(open)
+        .then(() => {
+            check();
+            ready();
+        }, (e) => settle(() => reject(e)));
+});
+
+/**
+ * Resolves once the frame has a viewport. The page keeps a loading frame
+ * hidden, which Chromium and WebKit lay out at 0x0, and a GUI window opened
+ * then (such as an alert) centers itself on that. Without one, `reveal` asks
+ * the page to show the frame first.
+ *
+ * @param {Window} win
+ * @param {() => void} reveal
+ * @returns {Promise<void>}
+ */
+const whenFrameSized = (win, reveal) => new Promise((resolve) => {
+    const sized = () => win.innerWidth > 0 && win.innerHeight > 0;
+    if ( sized() ) {
+        resolve();
+        return;
+    }
+    let timer = null;
+    const done = () => {
+        win.removeEventListener('resize', onResize);
+        clearTimeout(timer);
+        resolve();
+    };
+    const onResize = () => {
+        if ( sized() ) done();
+    };
+    win.addEventListener('resize', onResize);
+    // Opening on a 0x0 viewport is better than never opening.
+    timer = setTimeout(done, FRAME_SIZE_TIMEOUT_MS);
+    reveal();
 });

@@ -130,10 +130,16 @@ describe('canShowUpgradeFrame', () => {
 });
 
 describe('showFramedUpgrade', () => {
-    const upgradeWindow = (openAsWindow) => {
+    const upgradeWindow = (openAsWindow, { width = 1280, height = 800 } = {}) => {
         const created = [];
+        const events = new EventTarget();
         const win = {
             document,
+            innerWidth: width,
+            innerHeight: height,
+            addEventListener: events.addEventListener.bind(events),
+            removeEventListener: events.removeEventListener.bind(events),
+            dispatchEvent: events.dispatchEvent.bind(events),
             MutationObserver: window.MutationObserver,
             UIUpgradeAccount: function (options) {
                 created.push(options);
@@ -161,10 +167,9 @@ describe('showFramedUpgrade', () => {
             options = o;
         });
         const result = showFramedUpgrade(win, { appUid: 'app-1', reason: 'funds' }, tell);
-        await Promise.resolve();
-        await Promise.resolve();
+        await vi.waitFor(() => expect(tell).toHaveBeenCalledWith('ready'));
         expect(created[0].attribution).toEqual({ appUid: 'app-1', reason: 'funds' });
-        expect(tell).toHaveBeenCalledWith('ready');
+        expect(tell).toHaveBeenCalledTimes(1);
 
         options.onClose({ upgraded: true });
         await expect(result).resolves.toBe(true);
@@ -225,6 +230,40 @@ describe('showFramedUpgrade', () => {
         await expect(Promise.race([result, 'pending'])).resolves.toBe('pending');
         options.onClose({ upgraded: false });
         await expect(result).resolves.toBe(false);
+    });
+
+    it('has a hidden frame shown before opening the dialog, so it lays out on a real viewport', async () => {
+        vi.useFakeTimers();
+        const tell = vi.fn();
+        const sizes = [];
+        const { win, created } = upgradeWindow(async () => {
+            sizes.push([win.innerWidth, win.innerHeight]);
+        }, { width: 0, height: 0 });
+        const result = showFramedUpgrade(win, {}, tell);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(tell).toHaveBeenCalledWith('ready');
+        expect(created).toHaveLength(0);
+
+        win.innerWidth = 1280;
+        win.innerHeight = 800;
+        win.dispatchEvent(new Event('resize'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(sizes).toEqual([[1280, 800]]);
+        // Told once, not again once it opens.
+        expect(tell).toHaveBeenCalledTimes(1);
+
+        created[0].onClose({ upgraded: false });
+        await expect(result).resolves.toBe(false);
+    });
+
+    it('opens the dialog anyway when a hidden frame never gets a viewport', async () => {
+        vi.useFakeTimers();
+        const { win, created } = upgradeWindow(async () => {}, { width: 0, height: 0 });
+        showFramedUpgrade(win, {}, vi.fn());
+        await vi.advanceTimersByTimeAsync(999);
+        expect(created).toHaveLength(0);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(created).toHaveLength(1);
     });
 
     it('rejects when the dialog fails to open', async () => {
