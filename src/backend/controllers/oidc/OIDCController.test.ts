@@ -1620,7 +1620,7 @@ describe('OIDCController signup callback', () => {
         expect(captured.redirectUrl).toContain('action=signup');
     });
 
-    it('creates a fresh user without oidc_switched on first signup', async () => {
+    it('creates a fresh user on first signup', async () => {
         const state = oidc().signState({
             provider: 'custom',
             redirect_uri: TEST_ORIGIN + '/',
@@ -1646,11 +1646,9 @@ describe('OIDCController signup callback', () => {
         );
         expect(captured.cookies).toHaveLength(1);
         expect(captured.redirectUrl).toBe(TEST_ORIGIN + '/');
-        // Fresh creation — must NOT advertise "you've actually been signed in".
-        expect(captured.redirectUrl).not.toContain('oidc_switched=login');
     });
 
-    it('adds oidc_switched=login when signup hits an already-linked account', async () => {
+    it('signs in to an already-linked account on signup, returning as a login would', async () => {
         // Seed an account linked on (provider, sub) so the signup callback
         // resolves to `linked-sub` rather than creating a new user.
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
@@ -1686,7 +1684,7 @@ describe('OIDCController signup callback', () => {
             res,
         );
         expect(captured.cookies).toHaveLength(1);
-        expect(captured.redirectUrl).toContain('oidc_switched=login');
+        expect(captured.redirectUrl).toBe(TEST_ORIGIN + '/');
     });
 
     it('redirects to action=signup with auth_error when user resolution fails (unconfirmed email)', async () => {

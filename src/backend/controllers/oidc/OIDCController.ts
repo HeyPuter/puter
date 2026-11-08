@@ -688,14 +688,7 @@ export class OIDCController extends PuterController {
                 );
             }
 
-            // If we landed on an existing account (either via the
-            // provider_sub or via email match), signal the GUI so it can
-            // render a "signed in" flow rather than "account created".
-            const extra =
-                resolved.origin === 'created'
-                    ? undefined
-                    : { oidc_switched: 'login' };
-            await this.#finishLogin(req, res, user, stateDecoded, extra);
+            await this.#finishLogin(req, res, user, stateDecoded);
         };
         router.get('/auth/oidc/callback/signup', cbOpts, signupCb);
         router.post('/auth/oidc/callback/signup', cbOpts, signupCb);
@@ -834,17 +827,14 @@ if (window.opener) {
         attempt = 0,
     ): Promise<
         | { error: string; code?: string; requestCode?: string }
-        | {
-              user: import('../../stores/user/UserStore.js').UserRow;
-              origin: 'linked-sub' | 'linked-email' | 'created';
-          }
+        | { user: import('../../stores/user/UserStore.js').UserRow }
     > {
         // 1. Existing provider/sub link.
         const linked = await this.services.oidc.findUserByProviderSub(
             provider,
             userinfo.sub,
         );
-        if (linked) return { user: linked, origin: 'linked-sub' };
+        if (linked) return { user: linked };
 
         // 2/3. Email match branch.
         const claimedEmail =
@@ -881,7 +871,7 @@ if (window.opener) {
                         error: outcome.error ?? 'Failed to link provider.',
                     };
                 }
-                return { user: byEmail, origin: 'linked-email' };
+                return { user: byEmail };
             }
         }
 
@@ -911,7 +901,7 @@ if (window.opener) {
                 requestCode: outcome.requestCode,
             };
         }
-        return { user: outcome.user, origin: 'created' };
+        return { user: outcome.user };
     }
 
     async #processCallback(
@@ -1000,7 +990,6 @@ if (window.opener) {
         res: Response,
         user: UserRow,
         stateDecoded: Record<string, unknown>,
-        extraQueryParams?: Record<string, string>,
     ): Promise<void> {
         const origin = (this.config.origin ?? '').replace(/\/$/, '');
         const continuation: OidcLoginContinuation = {
@@ -1018,7 +1007,6 @@ if (window.opener) {
                 stateDecoded.msg_id == null
                     ? null
                     : String(stateDecoded.msg_id),
-            switchedToLogin: extraQueryParams?.oidc_switched === 'login',
         };
         if (user.otp_enabled) {
             const challenge = this.services.token.sign(
