@@ -501,9 +501,15 @@ describe('page scroll behind an embed', () => {
         origin: GUI_ORIGIN,
         source: popupFrame(action).contentWindow,
     }));
-    /** Gives the page a classic scrollbar this wide, or none. */
-    const scrollbar = (width) => {
+    /**
+     * Gives the page a classic scrollbar this wide, or none, whose space comes
+     * back once the root stops scrolling unless the page keeps its gutter.
+     */
+    const scrollbar = (width, { gutterKept = false } = {}) => {
         vi.spyOn(root, 'clientWidth', 'get').mockReturnValue(window.innerWidth - width);
+        vi.spyOn(root, 'getBoundingClientRect').mockImplementation(() => ({
+            width: window.innerWidth - (root.style.overflow === 'hidden' && ! gutterKept ? 0 : width),
+        }));
     };
 
     // Earlier tests leave dialogs that never closed, which locked the page.
@@ -543,6 +549,16 @@ describe('page scroll behind an embed', () => {
         await result;
         expect(root.style.paddingRight).toBe('8px');
         expect(root.style.overflow).toBe('');
+    });
+
+    it('adds no space for a scrollbar whose gutter the page keeps', async () => {
+        scrollbar(15, { gutterKept: true });
+        const result = show('upgrade');
+        tell('upgrade', 'ready');
+        expect(root.style.overflow).toBe('hidden');
+        expect(root.style.paddingRight).toBe('');
+        tell('upgrade', 'closed');
+        await result;
     });
 
     it('stops behind the loading scrim too, and stays stopped until the last embed closes', async () => {

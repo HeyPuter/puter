@@ -69,8 +69,8 @@ let pageRootStyle = null;
 /**
  * Stops the page scrolling behind `dialog` while it shows: Firefox and WebKit
  * pass a scroll over the frame on to the page, whatever the dialog's
- * `overscroll-behavior`. The root takes a classic scrollbar's width as padding,
- * so the page doesn't shift. Returns the function that lets it scroll again.
+ * `overscroll-behavior`. The root takes the width its scrollbar gave back as
+ * padding, so the page doesn't shift. Returns the function that lets it scroll again.
  *
  * @param {HTMLDialogElement} dialog
  * @returns {() => void}
@@ -88,12 +88,16 @@ const lockPageScroll = (dialog) => {
     if ( scrollLockers.size === 0 && pageRootStyle ) unlockPage();
     if ( scrollLockers.size === 0 ) {
         pageRootStyle = { overflow: root.style.overflow, paddingRight: root.style.paddingRight };
-        const scrollbar = window.innerWidth - root.clientWidth;
-        if ( scrollbar > 0 ) {
-            const padding = parseFloat(getComputedStyle(root).paddingRight) || 0;
-            root.style.paddingRight = `${padding + scrollbar}px`;
-        }
+        const hasScrollbar = window.innerWidth > root.clientWidth;
+        const width = hasScrollbar ? root.getBoundingClientRect().width : 0;
         root.style.overflow = 'hidden';
+        // Measured, since a gutter the page keeps (`scrollbar-gutter: stable`)
+        // gives nothing back.
+        const released = hasScrollbar ? root.getBoundingClientRect().width - width : 0;
+        if ( released > 0 ) {
+            const padding = parseFloat(getComputedStyle(root).paddingRight) || 0;
+            root.style.paddingRight = `${padding + released}px`;
+        }
     }
     scrollLockers.add(dialog);
     return () => {
