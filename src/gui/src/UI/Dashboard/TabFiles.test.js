@@ -143,6 +143,64 @@ describe('TabFiles restoring from the Trash', () => {
     });
 });
 
+describe('TabFiles New menu creates', () => {
+    const menuItem = (pattern, folder) => TabFiles.generateFolderContextMenu(folder)
+        .find(item => item && item.items).items.find(item => item && pattern.test(item.html));
+    let uploads;
+
+    beforeEach(() => {
+        mountListing([], '/alice/Documents');
+        window.user = { username: 'alice' };
+        window.trash_path = TRASH;
+        window.shared_path = '/alice/Shared';
+        window.file_templates = [];
+        window.sites = [];
+        window.actions_history = [];
+        window.activate_item_name_editor = vi.fn();
+        uploads = [];
+        window.puter = { fs: { upload: vi.fn((file, dirname) => new Promise(resolve => {
+            uploads.push(() => resolve({ uid: `u${uploads.length}`, name: file.name, path: `${dirname}/${file.name}` }));
+        })) } };
+        vi.spyOn(TabFiles, 'acceptsNewItemsHere').mockReturnValue(true);
+        vi.spyOn(TabFiles, 'acceptsNewItems').mockReturnValue(true);
+        vi.spyOn(TabFiles, 'renderItem').mockResolvedValue();
+        TabFiles.loadingFolder = false;
+        TabFiles._creatingItem = 0;
+        TabFiles.trashedNames ??= new Map();
+        TabFiles.deferredAdds ??= [];
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('puts the real create_file back when two overlap, whichever finishes first', async () => {
+        const real = vi.fn();
+        window.create_file = real;
+
+        const first = menuItem(/text_document|Text/).onClick();
+        const second = menuItem(/html_document|HTML/).onClick();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(uploads).toHaveLength(2);
+        uploads[0]();
+        await first;
+        uploads[1]();
+        await second;
+
+        expect(window.create_file).toBe(real);
+        expect(TabFiles._creatingItem).toBe(0);
+
+        const third = menuItem(/text_document|Text/).onClick();
+        const fourth = menuItem(/html_document|HTML/).onClick();
+        await new Promise(resolve => setTimeout(resolve, 0));
+        uploads[3]();
+        await fourth;
+        uploads[2]();
+        await third;
+
+        expect(window.create_file).toBe(real);
+        expect(TabFiles._creatingItem).toBe(0);
+    });
+});
+
 describe('failedUploadsMessage', () => {
     it('puts each failed item on its own line', () => {
         const message = failedUploadsMessage({ failedItems: [

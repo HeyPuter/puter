@@ -58,6 +58,11 @@ const { html_encode, SelectionArea } = window;
 // Permanent deletes in flight at once: a browser's connections to one host.
 const DELETE_CONCURRENCY = 6;
 
+// The "New" menu's stand-ins for window.create_file, one per create in
+// flight (newest last), and the function they stand in for.
+const createFileInterceptors = [];
+let realCreateFile = null;
+
 /**
  * `p` with the folder `from` (itself, or anything under it) moved to `to`;
  * any other path, or a non-string, comes back as it was.
@@ -5391,8 +5396,7 @@ const TabFiles = {
 
                         // Temporarily intercept create_file to capture the upload promise
                         let uploadPromise = null;
-                        const origCreateFile = window.create_file;
-                        window.create_file = (options) => {
+                        const createFile = (options) => {
                             // Counted from here, not from the click: Web Link
                             // waits on a prompt first, and other items added
                             // to the folder meanwhile must still show up.
@@ -5403,6 +5407,12 @@ const TabFiles = {
                             // a caller that awaits this.
                             return uploadPromise.catch(() => undefined);
                         };
+                        // Creates can overlap. Each one's interceptor stays
+                        // installed until it finishes, the newest on top, and
+                        // the real create_file comes back once none is left.
+                        if ( createFileInterceptors.length === 0 ) realCreateFile = window.create_file;
+                        createFileInterceptors.push(createFile);
+                        window.create_file = createFile;
 
                         try {
                             await originalOnClick();
@@ -5446,7 +5456,8 @@ const TabFiles = {
                         } catch ( err ) {
                             UIAlert(err?.message || i18n('error_unknown_cause', [], false));
                         } finally {
-                            window.create_file = origCreateFile;
+                            createFileInterceptors.splice(createFileInterceptors.indexOf(createFile), 1);
+                            window.create_file = createFileInterceptors.at(-1) ?? realCreateFile;
                             if ( uploadPromise ) _this.doneCreating();
                         }
                     };
