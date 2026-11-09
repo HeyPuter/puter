@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import MockRedis from 'ioredis-mock';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor, type Actor } from '../../core/actor.js';
@@ -26,6 +27,16 @@ import { createTestUser, setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { kv } from '../../util/kvSingleton.js';
 import { PermissionService } from './PermissionService.js';
+
+// The servers here share one redis mock; start each on an empty one.
+const setupFreshServer = async (
+    ...args: Parameters<typeof setupTestServer>
+): Promise<PuterServer> => {
+    const redis = new MockRedis();
+    await redis.flushall();
+    redis.disconnect();
+    return setupTestServer(...args);
+};
 
 /** `default_temp_group` from config.default.json. */
 const DEFAULT_TEMP_GROUP_UID = 'b7220104-7905-4985-b996-649fdcdb3c8f';
@@ -190,7 +201,7 @@ describe('PermissionService (integration)', () => {
     let permService: PermissionService;
 
     beforeAll(async () => {
-        server = await setupTestServer();
+        server = await setupFreshServer();
         permService = server.services
             .permission as unknown as PermissionService;
     });
@@ -1641,7 +1652,7 @@ describe('PermissionService — scan paths', () => {
     let permService: PermissionService;
 
     beforeAll(async () => {
-        server = await setupTestServer();
+        server = await setupFreshServer();
         permService = server.services
             .permission as unknown as PermissionService;
     }, 60_000);
@@ -2677,7 +2688,7 @@ describe('PermissionService — default user permissions vs. group config', () =
         // Self-hosted deployments may run without default groups. The floor
         // is not group-derived, so it applies regardless — a deployment that
         // clears both no longer has every driver call fail closed.
-        const bare = await setupTestServer({
+        const bare = await setupFreshServer({
             default_user_group: '',
             default_temp_group: '',
         } as never);
