@@ -659,9 +659,11 @@ export class SessionStore extends PuterStore {
     async findActiveByAccessTokenUid(tokenUid) {
         if (!tokenUid) return null;
         const now = nowSeconds();
-        const rows = await this.clients.db.read(
+        // A token minted moments ago may not be on the replica yet.
+        const rows = await this.clients.db.tryHardRead(
             "SELECT * FROM `sessions` WHERE `kind` = 'access_token' AND (`access_token_uid` = ? OR `legacy_token_uid` = ?) AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) ORDER BY `id` DESC LIMIT 1",
             [tokenUid, tokenUid, now],
+            { race: false },
         );
         return this.#normalizeRow(rows[0]);
     }

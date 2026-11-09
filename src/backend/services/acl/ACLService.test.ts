@@ -1306,16 +1306,16 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
             [tokenUid, top],
         );
 
-        const get = vi.spyOn(server.clients.redis, 'get');
+        const list = vi.spyOn(server.stores.permission, 'listAccessTokenPerms');
         try {
             expect(await acl.check(token, deep, 'read')).toBe(true);
             expect(await acl.check(token, deep, 'write')).toBe(false);
-            const tokenReads = get.mock.calls.filter(
-                ([key]) => key === `perms:token:${tokenUid}`,
+            const tokenReads = list.mock.calls.filter(
+                ([uid]) => uid === tokenUid,
             );
             expect(tokenReads).toHaveLength(2);
         } finally {
-            get.mockRestore();
+            list.mockRestore();
         }
     });
 

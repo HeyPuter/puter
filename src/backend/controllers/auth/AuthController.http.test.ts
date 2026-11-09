@@ -25,6 +25,7 @@ import { createSecret as otpCreateSecret } from '../../services/auth/OTPUtil.js'
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import {
     createTestUser,
+    lagReadReplica,
     setupPuterTestEnv,
     type PuterTestEnv,
 } from '../../testUtil.js';
@@ -350,6 +351,66 @@ describe('revoke-own-access-token over HTTP', () => {
         expect(await tokenReadStatus(file.uid, readToken)).not.toBe(200);
     });
 
+    const ACCESS_TOKEN_QUERIES =
+        /FROM `access_token_permissions`|`access_token_uid` = \?/;
+    const tokenUidOf = (token: string) =>
+        (
+            env.server.services.token.verify('auth', token) as {
+                token_uid: string;
+            }
+        ).token_uid;
+
+    it('serves a read URL fetched right after minting while the replica lags', async () => {
+        const owner = env.users.user;
+        const file = await makeFile(owner);
+        const replica = lagReadReplica(env.server, ACCESS_TOKEN_QUERIES);
+        try {
+            const readToken = await mintReadToken(owner.token, file.uid);
+            expect(await tokenReadStatus(file.uid, readToken)).toBe(200);
+            const cached = await env.server.clients.redis.get(
+                `perms:token:${tokenUidOf(readToken)}`,
+            );
+            expect(JSON.parse(cached!)).not.toEqual([]);
+        } finally {
+            replica.catchUp();
+        }
+    });
+
+    it('mints from a just-created personal API token while the replica lags', async () => {
+        const owner = env.users.user;
+        const file = await makeFile(owner);
+        const replica = lagReadReplica(env.server, ACCESS_TOKEN_QUERIES);
+        try {
+            const pat = await mintPersonalToken(owner);
+            const readToken = await mintReadToken(pat, file.uid);
+            expect(await tokenReadStatus(file.uid, readToken)).toBe(200);
+        } finally {
+            replica.catchUp();
+        }
+    });
+
+    it('revokes a just-created token by its uuid while the replica lags', async () => {
+        const owner = env.users.user;
+        const file = await makeFile(owner);
+        const { actor } = await env.server.services.auth.authenticate(
+            owner.token,
+        );
+        const replica = lagReadReplica(env.server, ACCESS_TOKEN_QUERIES);
+        let readToken: string;
+        try {
+            readToken = await mintReadToken(owner.token, file.uid);
+            await env.server.services.auth.revokeAccessToken(
+                actor!,
+                tokenUidOf(readToken),
+            );
+            expect(await tokenReadStatus(file.uid, readToken)).not.toBe(200);
+        } finally {
+            replica.catchUp();
+        }
+        expect(await tokenReadStatus(file.uid, readToken)).not.toBe(200);
+        expect(await whoamiStatus(readToken)).toBe(401);
+    });
+
     // These three run last in the file's shared `env.users.user`: each one
     // revokes a session belonging to `owner.token` / `owner.workerToken`, so
     // later tests can't rely on those credentials still being live.
@@ -393,7 +454,10 @@ describe('revoke-own-access-token over HTTP', () => {
 
     it('a revoked GUI session still gets a reauth_token', async () => {
         const owner = env.users.user;
-        const decoded = env.server.services.token.verify('auth', owner.token) as {
+        const decoded = env.server.services.token.verify(
+            'auth',
+            owner.token,
+        ) as {
             session_uid: string;
         };
         await env.server.stores.session.removeByUuid(decoded.session_uid);
@@ -559,7 +623,6 @@ describe('2FA enrollment over HTTP', () => {
         expect(enabled.status).toBe(200);
         expect((await otpState(account.userId)).enabled).toBe(true);
     });
-
 });
 
 /**

@@ -470,3 +470,42 @@ export const inRequestScope = <T extends object>(controller: T): T =>
                 );
         },
     });
+
+/**
+ * Makes the single-node test database act like a primary with a replica that
+ * hasn't applied writes for queries matching `queries` yet: replica reads of
+ * those return no rows, primary reads return the real ones. `lag: false` keeps
+ * the replica current. `primaryReads()` counts primary reads of `queries`, and
+ * `catchUp()` restores the client.
+ */
+export const lagReadReplica = (
+    server: PuterServer,
+    queries: RegExp,
+    { lag = true }: { lag?: boolean } = {},
+) => {
+    type Read = (sql: string, params?: unknown[]) => Promise<unknown[]>;
+    const db = server.clients.db as unknown as Record<string, unknown> & {
+        read: Read;
+    };
+    const names = ['read', 'pread', 'hasReadReplica'];
+    const own = names.map((name) => Object.getOwnPropertyDescriptor(db, name));
+    const read = db.read.bind(db);
+    let primaryReads = 0;
+    db.hasReadReplica = () => true;
+    db.read = async (sql: string, params: unknown[] = []) =>
+        lag && queries.test(sql) ? [] : read(sql, params);
+    db.pread = async (sql: string, params: unknown[] = []) => {
+        if (queries.test(sql)) primaryReads++;
+        return read(sql, params);
+    };
+    return {
+        primaryReads: () => primaryReads,
+        catchUp: () => {
+            names.forEach((name, i) => {
+                const descriptor = own[i];
+                if (descriptor) Object.defineProperty(db, name, descriptor);
+                else delete db[name];
+            });
+        },
+    };
+};
