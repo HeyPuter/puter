@@ -235,6 +235,9 @@ export class S3Client extends PuterClient {
 
         const client = new AwsS3Client({
             region,
+            // Rows without a stored region are read with the server's own, so
+            // retry where S3's 301 says the bucket actually lives.
+            followRegionRedirects: true,
             requestStreamBufferSize: 32 * 1024,
             requestHandler: new NodeHttpHandler({
                 socketTimeout: 5000,
