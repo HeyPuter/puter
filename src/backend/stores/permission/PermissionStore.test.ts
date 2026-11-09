@@ -1163,9 +1163,9 @@ describe('PermissionStore', () => {
         const cachedTokenPerms = (tokenUid: string) =>
             server.clients.redis.get(`perms:token:${tokenUid}`);
 
-        it('finds a new token grants while the replica lags, and caches no empty list', async () => {
+        it("finds a new token's grants while the replica lags, and caches no empty list", async () => {
             const tokenUid = `tok-${uuidv4()}`;
-            const replica = lagReadReplica(server, TOKEN_PERM_QUERIES);
+            const replica = await lagReadReplica(server, TOKEN_PERM_QUERIES);
             try {
                 await store.insertAccessTokenPerms(
                     tokenUid,
@@ -1202,8 +1202,8 @@ describe('PermissionStore', () => {
             );
             await server.clients.redis.del(`perms:token:${tokenUid}`);
 
-            const current = lagReadReplica(server, TOKEN_PERM_QUERIES, {
-                lag: false,
+            const current = await lagReadReplica(server, TOKEN_PERM_QUERIES, {
+                mode: 'current',
             });
             try {
                 expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
@@ -1217,7 +1217,7 @@ describe('PermissionStore', () => {
                 current.catchUp();
             }
 
-            const lagging = lagReadReplica(server, TOKEN_PERM_QUERIES);
+            const lagging = await lagReadReplica(server, TOKEN_PERM_QUERIES);
             try {
                 expect(await store.getAccessTokenAuthorizerId(tokenUid)).toBe(
                     7,
@@ -1226,6 +1226,30 @@ describe('PermissionStore', () => {
             } finally {
                 lagging.catchUp();
             }
+        });
+
+        it('caches nothing when the token is deleted while its grants are being cached', async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            const db = server.clients.db;
+            const pread = db.pread.bind(db);
+            const seedRead = vi
+                .spyOn(db, 'pread')
+                .mockImplementationOnce(async (sql, params) => {
+                    const rows = await pread(sql, params);
+                    await store.deleteAccessTokenPerms(tokenUid);
+                    return rows;
+                });
+            try {
+                await store.insertAccessTokenPerms(
+                    tokenUid,
+                    { userId: 7, appId: null },
+                    [{ permission: 'fs:abc:read' }],
+                );
+            } finally {
+                seedRead.mockRestore();
+            }
+            expect(await cachedTokenPerms(tokenUid)).toBeNull();
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([]);
         });
     });
 

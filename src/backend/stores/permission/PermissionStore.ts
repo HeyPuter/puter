@@ -1540,8 +1540,7 @@ export class PermissionStore extends PuterStore {
             }
         }
 
-        // A replica can still be missing a just-minted token's rows, or still
-        // hold a just-revoked one's.
+        // A replica can lag a mint (rows missing) or a revoke (rows still there).
         const sql =
             'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?';
         const rows = tombstoned
@@ -1603,10 +1602,14 @@ export class PermissionStore extends PuterStore {
             'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
             [tokenUid],
         );
-        await this.#cacheAccessTokenPerms(
-            tokenUid,
-            rows.map((r) => String(r.permission)),
-            true,
+        await this.writeCacheUnlessDeleted(
+            [this.#tokenCacheKey(tokenUid)],
+            () =>
+                this.#cacheAccessTokenPerms(
+                    tokenUid,
+                    rows.map((r) => String(r.permission)),
+                    true,
+                ),
         );
     }
 

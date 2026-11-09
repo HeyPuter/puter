@@ -363,7 +363,7 @@ describe('revoke-own-access-token over HTTP', () => {
     it('serves a read URL fetched right after minting while the replica lags', async () => {
         const owner = env.users.user;
         const file = await makeFile(owner);
-        const replica = lagReadReplica(env.server, ACCESS_TOKEN_QUERIES);
+        const replica = await lagReadReplica(env.server, ACCESS_TOKEN_QUERIES);
         try {
             const readToken = await mintReadToken(owner.token, file.uid);
             expect(await tokenReadStatus(file.uid, readToken)).toBe(200);
@@ -379,7 +379,7 @@ describe('revoke-own-access-token over HTTP', () => {
     it('mints from a just-created personal API token while the replica lags', async () => {
         const owner = env.users.user;
         const file = await makeFile(owner);
-        const replica = lagReadReplica(env.server, ACCESS_TOKEN_QUERIES);
+        const replica = await lagReadReplica(env.server, ACCESS_TOKEN_QUERIES);
         try {
             const pat = await mintPersonalToken(owner);
             const readToken = await mintReadToken(pat, file.uid);
@@ -395,7 +395,7 @@ describe('revoke-own-access-token over HTTP', () => {
         const { actor } = await env.server.services.auth.authenticate(
             owner.token,
         );
-        const replica = lagReadReplica(env.server, ACCESS_TOKEN_QUERIES);
+        const replica = await lagReadReplica(env.server, ACCESS_TOKEN_QUERIES);
         let readToken: string;
         try {
             readToken = await mintReadToken(owner.token, file.uid);
@@ -408,6 +408,34 @@ describe('revoke-own-access-token over HTTP', () => {
             replica.catchUp();
         }
         expect(await tokenReadStatus(file.uid, readToken)).not.toBe(200);
+        expect(await whoamiStatus(readToken)).toBe(401);
+    });
+
+    it('keeps a revoked token dead while the replica still shows it live', async () => {
+        const owner = env.users.user;
+        const file = await makeFile(owner);
+        const { actor } = await env.server.services.auth.authenticate(
+            owner.token,
+        );
+        const readToken = await mintReadToken(owner.token, file.uid);
+        const tokenUid = tokenUidOf(readToken);
+        const replica = await lagReadReplica(env.server, ACCESS_TOKEN_QUERIES, {
+            mode: 'frozen',
+        });
+        try {
+            await env.server.services.auth.revokeAccessToken(actor!, tokenUid);
+            expect(await tokenReadStatus(file.uid, readToken)).not.toBe(200);
+            expect(
+                await env.server.stores.permission.listAccessTokenPerms(
+                    tokenUid,
+                ),
+            ).toEqual([]);
+            expect(
+                await env.server.clients.redis.get(`perms:token:${tokenUid}`),
+            ).toBeNull();
+        } finally {
+            replica.catchUp();
+        }
         expect(await whoamiStatus(readToken)).toBe(401);
     });
 
