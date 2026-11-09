@@ -37,7 +37,7 @@ globalThis.html_encode = value => jQuery('<div>').text(value).html();
 await import('./helpers.js');
 const { default: apply_item_added_to_containers } = await import('./helpers/applyItemAddedToContainers.js');
 const { default: UIItem } = await import('./UI/UIItem.js');
-const { retargetPaths } = await import('./helpers/pathElements.js');
+const { atPath, retargetPaths, underPath } = await import('./helpers/pathElements.js');
 
 // A plain name, then names holding characters a selector or HTML treats specially.
 const NAMES = ['Reports 2024', 'R&D', "Dan's files", 'the "big" one', 'a<b>c', 'back\\slash'];
@@ -132,5 +132,17 @@ describe('retargetPaths', () => {
         retargetPaths(undefined, '/alice/Papers', 'Papers');
 
         expect($item.attr('data-path')).toBe('/alice/Docs/a.txt');
+    });
+});
+
+describe.each([undefined, null, ''])('a lookup for the path %s', (missing) => {
+    it('matches nothing, including elements that have no path', () => {
+        el('item', { 'data-path': '/alice/a.txt', 'data-shortcut_to_path': '' });
+        el('window', { 'data-path': '' });
+        el('window', { 'data-path': '/alice/Docs' });
+
+        expect(atPath('.item', missing, 'data-shortcut_to_path')).toHaveLength(0);
+        expect(atPath('.window', missing)).toHaveLength(0);
+        expect(underPath('.window', missing)).toHaveLength(0);
     });
 });

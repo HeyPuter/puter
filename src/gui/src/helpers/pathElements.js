@@ -17,8 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const lower = value => String(value ?? '').toLowerCase();
-
 /**
  * Narrows `elements` to those whose `attr` is `path`, ignoring case. Reads the
  * attribute, because a path can hold any character a selector can't.
@@ -29,7 +27,9 @@ const lower = value => String(value ?? '').toLowerCase();
  * @returns {JQuery}
  */
 export const atPath = (elements, path, attr = 'data-path') => {
-    const wanted = lower(path);
+    // Without this, a missing path matches every element whose attribute is empty.
+    if ( ! path ) return $();
+    const wanted = String(path).toLowerCase();
     return $(elements).filter(function () {
         const value = this.getAttribute(attr);
         return value !== null && value.toLowerCase() === wanted;
@@ -44,6 +44,7 @@ export const atPath = (elements, path, attr = 'data-path') => {
  * @returns {JQuery}
  */
 export const underPath = (elements, path) => {
+    if ( ! path ) return $();
     const prefix = `${path}/`;
     return $(elements).filter(function () {
         return this.getAttribute('data-path')?.startsWith(prefix) === true;
