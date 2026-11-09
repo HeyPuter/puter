@@ -52,6 +52,16 @@ export type {
 } from './notificationTypes.js';
 export { canViewNotification } from './notificationAudience.js';
 
+/** A `notification` row as its store returns it. */
+export type NotificationRow = Record<string, unknown> & { uid: string };
+
+type NotifyOptions = {
+    type: NotificationTypeName;
+    appUid?: string | null;
+    silent?: boolean;
+    group?: string | null;
+};
+
 const RETENTION_SWEEP_JOB = 'notifications.retention';
 const RETENTION_SWEEP_EVERY_MS = 60 * 60 * 1000;
 const RETENTION_SWEEP_LEASE_MS = 15 * 60 * 1000;
@@ -152,13 +162,21 @@ export class NotificationService extends PuterService {
     async notify(
         userIds: number[],
         notification: Record<string, unknown>,
-        opts: {
-            type: NotificationTypeName;
-            appUid?: string | null;
-            silent?: boolean;
-            group?: string | null;
-        },
+        opts: NotifyOptions,
     ): Promise<string | null> {
+        const [first] = await this.notifyRows(userIds, notification, opts);
+        return first ? String(first.uid) : null;
+    }
+
+    /**
+     * `notify`, answering with each row written as the table holds it, in
+     * recipient order. A recipient whose write failed has none.
+     */
+    async notifyRows(
+        userIds: number[],
+        notification: Record<string, unknown>,
+        opts: NotifyOptions,
+    ): Promise<NotificationRow[]> {
         const appUid = opts.appUid ?? null;
         const registered = resolveNotificationWrite(opts.type, appUid);
         const payload = { ...notification, type: registered.type };
@@ -167,8 +185,9 @@ export class NotificationService extends PuterService {
         const written = await Promise.all(
             userIds.map(async (userId) => {
                 const uid = uuidv4();
+                let row: NotificationRow;
                 try {
-                    await this.stores.notification.insert({
+                    row = await this.stores.notification.create({
                         userId,
                         value: payload,
                         uid,
@@ -200,11 +219,11 @@ export class NotificationService extends PuterService {
                         { sendId: uuidv4() },
                     );
                 }
-                return uid;
+                return row;
             }),
         );
 
-        return written.find((uid) => uid !== null) ?? null;
+        return written.filter((row) => row !== null);
     }
 
     /**
@@ -230,28 +249,73 @@ export class NotificationService extends PuterService {
             replace?: boolean;
         },
     ): Promise<boolean> {
+        const replacedAt = opts.replace ? Date.now() : undefined;
+        const payload = await this.#rewrite(uid, userId, notification, {
+            type: opts.type,
+            silent: opts.silent,
+            replacedAt,
+        });
+        return payload !== null;
+    }
+
+    /**
+     * `notifyUpdate` with `replace` for a row the caller already read: answers
+     * with the row as rewritten, or null when it was shown or dismissed since.
+     */
+    async replaceUnseen(
+        row: NotificationRow,
+        userId: number,
+        notification: Record<string, unknown>,
+        opts: { type: NotificationTypeName },
+    ): Promise<NotificationRow | null> {
+        const replacedAt = Date.now();
+        const payload = await this.#rewrite(
+            String(row.uid),
+            userId,
+            notification,
+            { type: opts.type, replacedAt },
+            row,
+        );
+        if (!payload) return null;
+        return this.stores.notification.replacedRow(row, payload, replacedAt);
+    }
+
+    /** The payload written, or null; `row` saves reading its app uid. */
+    async #rewrite(
+        uid: string,
+        userId: number,
+        notification: Record<string, unknown>,
+        opts: {
+            type: NotificationTypeName;
+            silent?: boolean;
+            replacedAt?: number;
+        },
+        row?: NotificationRow,
+    ): Promise<Record<string, unknown> | null> {
         const registered = findNotificationType(opts.type);
         if (!registered?.groupable) {
             throw new Error(`notification type is not groupable: ${opts.type}`);
         }
         const payload = { ...notification, type: registered.type };
-        const replacedAt = opts.replace ? Date.now() : undefined;
+        const { replacedAt } = opts;
         const updated = await this.stores.notification.updateValue(
             uid,
             userId,
             payload,
             replacedAt === undefined ? {} : { onlyUnseen: true, replacedAt },
         );
-        if (!updated) return false;
-        if (opts.silent) return true;
+        if (!updated) return null;
+        if (opts.silent) return payload;
 
         // Before the read, so the desktop copy updates even if it fails.
         const desktop = inAccountMailbox(registered.type);
         if (desktop) this.#sendRewrite(userId, uid, payload);
-        const row = await this.stores.notification.getByUid(uid, { userId });
+        const known =
+            row ?? (await this.stores.notification.getByUid(uid, { userId }));
         const app = notification.app as { uid?: unknown } | undefined;
         const appUid =
-            row?.app_uid ?? (typeof app?.uid === 'string' ? app.uid : null);
+            (known?.app_uid as string | null | undefined) ??
+            (typeof app?.uid === 'string' ? app.uid : null);
         await this.emitWritten(
             {
                 userId,
@@ -265,7 +329,7 @@ export class NotificationService extends PuterService {
             },
             { sendId: uuidv4(), rewriteSent: desktop },
         );
-        return true;
+        return payload;
     }
 
     /**

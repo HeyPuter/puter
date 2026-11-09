@@ -161,6 +161,44 @@ describe('NotificationDriver.create', () => {
         expect(result?.value).toEqual({ type: NOTIF_TYPE, title: 'lagged' });
     });
 
+    it('writes once and returns the row without reading it back', async () => {
+        const { actor, userId } = await makeUser();
+        const db = server.clients.db;
+        const read = vi.spyOn(db, 'read');
+        const pread = vi.spyOn(db, 'pread');
+        const write = vi.spyOn(db, 'write');
+        let result: Record<string, unknown> | null;
+        let writes: unknown[][];
+        let reads: unknown[][];
+        try {
+            result = (await withActor(actor, () =>
+                driver.create({
+                    object: { value: { type: NOTIF_TYPE, title: 'once' } },
+                }),
+            )) as Record<string, unknown> | null;
+        } finally {
+            writes = write.mock.calls;
+            reads = [...read.mock.calls, ...pread.mock.calls];
+            for (const spy of [read, pread, write]) spy.mockRestore();
+        }
+
+        const touches = (q: unknown) => /`notification`/u.test(String(q));
+        expect(writes.filter(([q]) => touches(q))).toHaveLength(1);
+        expect(reads.filter(([q]) => touches(q))).toEqual([]);
+        const row = await server.stores.notification.getByUid(
+            result!.uid as string,
+            { userId, primary: true },
+        );
+        expect(result).toEqual({
+            uid: row?.uid,
+            value: row?.value,
+            app_uid: row?.app_uid ?? null,
+            shown: row?.shown ?? null,
+            acknowledged: row?.acknowledged ?? null,
+            created_at: row?.created_at ?? null,
+        });
+    });
+
     it('rejects a `value` with no `type` with 400', async () => {
         const { actor } = await makeUser();
         await expect(
@@ -340,7 +378,9 @@ describe('NotificationDriver.select', () => {
         const a = await makeUser();
         const b = await makeUser();
         await withActor(a.actor, () =>
-            driver.create({ object: { value: { type: NOTIF_TYPE, who: 'a' } } }),
+            driver.create({
+                object: { value: { type: NOTIF_TYPE, who: 'a' } },
+            }),
         );
         const result = (await withActor(b.actor, () =>
             driver.select({}),
@@ -351,10 +391,14 @@ describe('NotificationDriver.select', () => {
     it('predicate `unseen` filters out shown notifications', async () => {
         const { actor, userId } = await makeUser();
         const seen = (await withActor(actor, () =>
-            driver.create({ object: { value: { type: NOTIF_TYPE, i: 'seen' } } }),
+            driver.create({
+                object: { value: { type: NOTIF_TYPE, i: 'seen' } },
+            }),
         )) as Record<string, unknown>;
         const unseen = (await withActor(actor, () =>
-            driver.create({ object: { value: { type: NOTIF_TYPE, i: 'unseen' } } }),
+            driver.create({
+                object: { value: { type: NOTIF_TYPE, i: 'unseen' } },
+            }),
         )) as Record<string, unknown>;
 
         await server.stores.notification.markShown(seen.uid as string, userId);
@@ -371,10 +415,14 @@ describe('NotificationDriver.select', () => {
     it('predicate `acknowledged` returns only acked rows', async () => {
         const { actor, userId } = await makeUser();
         const ack = (await withActor(actor, () =>
-            driver.create({ object: { value: { type: NOTIF_TYPE, i: 'ack' } } }),
+            driver.create({
+                object: { value: { type: NOTIF_TYPE, i: 'ack' } },
+            }),
         )) as Record<string, unknown>;
         await withActor(actor, () =>
-            driver.create({ object: { value: { type: NOTIF_TYPE, i: 'pending' } } }),
+            driver.create({
+                object: { value: { type: NOTIF_TYPE, i: 'pending' } },
+            }),
         );
         await server.stores.notification.markAcknowledged(
             ack.uid as string,
@@ -860,31 +908,42 @@ describe('NotificationDriver — rows written before the scope columns', () => {
     });
 });
 
-
 describe('NotificationDriver displayed notification catch-up', () => {
     it('selects named ids within the app and user scope', async () => {
         const box = await mailbox();
-        await server.services.notification.markAcknowledged(box.rows.appUser, box.holder.userId);
-        const rows = await withActor(box.ownAppActor, () => driver.select({
-            subject: 'notif:app-user',
-            uids: Object.values(box.rows),
-            limit: 50,
-        }));
-        expect(rows).toEqual([expect.objectContaining({
-            uid: box.rows.appUser, acknowledged: expect.any(Number),
-        })]);
+        await server.services.notification.markAcknowledged(
+            box.rows.appUser,
+            box.holder.userId,
+        );
+        const rows = await withActor(box.ownAppActor, () =>
+            driver.select({
+                subject: 'notif:app-user',
+                uids: Object.values(box.rows),
+                limit: 50,
+            }),
+        );
+        expect(rows).toEqual([
+            expect.objectContaining({
+                uid: box.rows.appUser,
+                acknowledged: expect.any(Number),
+            }),
+        ]);
     });
 
     it.each([Array(51).fill('one'), [''], [7], 'one', ['x'.repeat(129)]])(
-        'rejects an invalid or oversized id batch: %s', async (uids) => {
+        'rejects an invalid or oversized id batch: %s',
+        async (uids) => {
             const { actor } = await makeUser();
-            await expect(withActor(actor, () => driver.select({ uids })))
-                .rejects.toMatchObject({ statusCode: 400 });
+            await expect(
+                withActor(actor, () => driver.select({ uids })),
+            ).rejects.toMatchObject({ statusCode: 400 });
         },
     );
 
     it('returns no rows for an empty id batch', async () => {
         const { actor } = await makeUser();
-        expect(await withActor(actor, () => driver.select({ uids: [] }))).toEqual([]);
+        expect(
+            await withActor(actor, () => driver.select({ uids: [] })),
+        ).toEqual([]);
     });
 });
