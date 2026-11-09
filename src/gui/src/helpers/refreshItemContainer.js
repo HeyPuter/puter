@@ -105,7 +105,7 @@ const refresh_item_container = function (el_item_container, options) {
             // data-name
             $(el_window).attr('data-name', html_encode(fsentry.name));
             // data-path
-            $(el_window).attr('data-path', html_encode(container_path));
+            $(el_window).attr('data-path', container_path);
             $(el_window).find('.window-navbar-path-input').val(container_path);
             $(el_window).find('.window-navbar-path-input').attr('data-path', container_path);
         }
