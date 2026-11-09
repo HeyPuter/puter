@@ -18,6 +18,7 @@
  */
 
 import download from './helpers/download.js';
+import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
 import item_icon from './helpers/itemIcon.js';
 import socialLink from './helpers/socialLink.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
@@ -31,11 +32,9 @@ import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
 import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
-import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
 import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
-import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIAuthSignup from './UI/Auth/UIAuthSignup.js';
 import UINotification from './UI/UINotification.js';
 
@@ -235,49 +234,12 @@ const ipc_listener = async (event, handled) => {
     // requestEmailConfirmation
     //--------------------------------------------------------
     else if ( event.data.msg === 'requestEmailConfirmation' ) {
-        // If the user has an email and it is confirmed, respond with success
-        if ( window.user.email && window.user.email_confirmed ) {
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-                msg: 'requestEmailConfirmationResponded',
-                response: true,
-            }, '*');
-        }
-
-        // If the user is a temporary user, show the save account window
-        if ( window.user.is_temp &&
-            !await UIWindowSaveAccount({
-                send_confirmation_code: true,
-                message: 'Please create an account to proceed.',
-                window_options: {
-                    backdrop: true,
-                    close_on_backdrop_click: false,
-                },
-            }) ) {
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-                msg: 'requestEmailConfirmationResponded',
-                response: false,
-            }, '*');
-            return;
-        }
-        else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() ) {
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-                msg: 'requestEmailConfirmationResponded',
-                response: false,
-            }, '*');
-            return;
-        }
-
-        const email_confirm_resp = await UIWindowEmailConfirmationRequired({
-            email: window.user.email,
-        });
-
+        // Above the app's window, which stays on top in the dashboard.
+        const confirmed = await ensureConfirmedEmail(i18n('save_account_to_proceed'), { stay_on_top: true });
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id,
             msg: 'requestEmailConfirmationResponded',
-            response: email_confirm_resp,
+            response: confirmed,
         }, '*');
     }
     //--------------------------------------------------------
