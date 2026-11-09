@@ -69,6 +69,14 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
         output_multiplier: number;
     };
     pricingOverrides?: ModelPricingOverride[];
+    /**
+     * A token-rate multiplier or explicit per-key rates merged with standard
+     * costs.
+     */
+    serviceSpeedRates?: Partial<
+        Record<'fast' | 'ultrafast', number | ModelCost>
+    >;
+    serviceSpeedVariants?: { fast?: string };
     /** Request-local pricing snapshot; never part of the model catalog. */
     serviceSpeedPricing?: {
         speed: ServiceSpeed;

@@ -25,25 +25,6 @@ import type {
     ServiceSpeed,
 } from '../types.js';
 
-/**
- * USD per million tokens from developers.openai.com/api/docs/pricing, input /
- * cache / output.
- */
-const openAiFastPrices: Record<string, readonly [number, number, number]> = {
-    'gpt-5.5': [12.5, 1.25, 75],
-    'gpt-5.4': [5, 0.5, 30],
-    'gpt-5.4-mini': [1.5, 0.15, 9],
-    'gpt-5.2': [3.5, 0.35, 28],
-    'gpt-5.1': [2.5, 0.25, 20],
-    'gpt-5': [2.5, 0.25, 20],
-    'gpt-5-mini': [0.45, 0.045, 3.6],
-    'gpt-4.1': [3.5, 0.875, 14],
-    'gpt-4.1-mini': [0.7, 0.175, 2.8],
-    'gpt-4o': [4.25, 2.125, 17],
-    'gpt-4o-mini': [0.25, 0.125, 1],
-    o3: [3.5, 0.875, 14],
-};
-
 export const lowerServiceSpeed = (speed: ServiceSpeed): ServiceSpeed =>
     speed === 'ultrafast' ? 'fast' : 'standard';
 
@@ -58,43 +39,18 @@ const tokenRates = (costs: ModelCost, multiplier: number): ModelCost =>
         ]),
     );
 
-const fastCosts = (model: IChatModel): ModelCost | undefined => {
-    if (model.serviceSpeeds && !model.serviceSpeeds.includes('fast'))
+const speedCosts = (
+    model: IChatModel,
+    speed: 'fast' | 'ultrafast',
+): ModelCost | undefined => {
+    if (model.serviceSpeeds && !model.serviceSpeeds.includes(speed))
         return undefined;
-    const provider = model.provider;
-    if (
-        provider === 'gemini' &&
-        /^(gemini-4-argon|gemini-3\.(8|7|6|5)-flash(?:-lite)?|gemini-3\.1-(?:flash-lite|pro-preview)|gemini-3-flash-preview|gemini-2\.5-(?:pro|flash|flash-lite))$/.test(
-            model.id,
-        )
-    )
-        return tokenRates(model.costs, 1.8);
-    if (provider === 'xai') return tokenRates(model.costs, 2);
-    if (provider === 'mistral') return tokenRates(model.costs, 1.75);
-    if (provider === 'minimax' && model.id.toLowerCase() === 'minimax-m3')
-        return tokenRates(model.costs, 1.5);
-    if (
-        provider === 'openai-completion' ||
-        provider === 'openai-responses' ||
-        provider === 'azure-openai' ||
-        provider === 'azure-openai-responses'
-    ) {
-        if (
-            /^gpt-(6(?:\.1)?-(?:sol|terra|luna|astra)|5\.6-(?:sol|terra|luna))(?:$|-\d{4}-)/.test(
-                model.id,
-            )
-        )
-            return tokenRates(model.costs, 2);
-        const base = model.id.replace(/-\d{4}-\d{2}-\d{2}$/, '');
-        const prices = openAiFastPrices[base];
-        if (prices)
-            return {
-                ...model.costs,
-                prompt_tokens: prices[0] * 100,
-                cached_tokens: prices[1] * 100,
-                completion_tokens: prices[2] * 100,
-            };
-    }
+    const rates = model.serviceSpeedRates?.[speed];
+    return typeof rates === 'number'
+        ? tokenRates(model.costs, rates)
+        : rates
+          ? { ...model.costs, ...rates }
+          : undefined;
 };
 
 export interface ServiceSpeedSelection {
@@ -135,37 +91,21 @@ export const selectServiceSpeed = (
                     ),
             ))
             ? undefined
-            : fastCosts(model));
-    const ultra =
-        offers.ultrafast?.costs ??
-        (['openai-completion', 'openai-responses'].includes(provider ?? '') &&
-        ['gpt-6.1-sol', 'gpt-6-astra'].includes(model.id)
-            ? tokenRates(model.costs, 6)
-            : undefined);
+            : speedCosts(model, 'fast'));
+    const ultra = offers.ultrafast?.costs ?? speedCosts(model, 'ultrafast');
     let speed = args.serviceSpeed;
-    const variants: Record<string, string> = {
-        moonshotai: `${model.id}-highspeed`,
-        minimax: `${model.id}-highspeed`,
-        alibaba:
-            model.id === 'glm-5.2'
-                ? 'glm-5.2-fast-preview'
-                : `${model.id}-prime`,
-        infron: `${model.id}:priority`,
-    };
+    const variantId = model.serviceSpeedVariants?.fast;
     const variant =
         offers.fast && offers.fast.id !== model.id
             ? offers.fast
-            : variants[provider ?? '']
-              ? findVariant(variants[provider!])
+            : variantId
+              ? findVariant(variantId)
               : undefined;
     while (speed !== 'standard') {
         if (speed === 'ultrafast' && ultra) break;
         if (
             speed === 'fast' &&
-            (fast ||
-                variant ||
-                (provider === 'claude' &&
-                    model.costs.fast_output_tokens !== undefined))
+            (fast || variant || model.costs.fast_output_tokens !== undefined)
         )
             break;
         speed = lowerServiceSpeed(speed);
@@ -189,7 +129,10 @@ export const selectServiceSpeed = (
         request.speed = speed === 'fast' ? 'fast' : 'standard';
     else if (provider === 'mistral')
         request.service_tier = speed === 'fast' ? 'auto' : 'default';
-    else if (provider === 'minimax' && model.id.toLowerCase() === 'minimax-m3')
+    else if (
+        provider === 'minimax' &&
+        model.serviceSpeedRates?.fast !== undefined
+    )
         request.service_tier = speed === 'fast' ? 'priority' : 'standard';
     else if (fast || ultra)
         request.service_tier =

@@ -32,10 +32,15 @@ import {
     isServiceSpeedUnavailable,
 } from './serviceSpeed.js';
 import { meterChatUsage } from './meterChatUsage.js';
+import { OPEN_AI_MODELS } from '../providers/openai/models.js';
+import { XAI_MODELS } from '../providers/xai/models.js';
+import { GEMINI_MODELS } from '../providers/gemini/models.js';
 
 const model = (provider: string, id: string): IChatModel => ({
     provider,
     id,
+    serviceSpeedRates: [...OPEN_AI_MODELS, ...XAI_MODELS, ...GEMINI_MODELS]
+        .find((entry) => entry.id === id)?.serviceSpeedRates,
     costs_currency: 'usd-cents',
     input_cost_key: 'prompt_tokens',
     output_cost_key: 'completion_tokens',
@@ -56,6 +61,20 @@ const request = (serviceSpeed?: ServiceSpeed) => ({
 const noVariant = () => undefined;
 
 describe('service speed selection', () => {
+    it.each([2, { prompt_tokens: 400, completion_tokens: 2000 }])(
+        'uses catalog rates independently of provider and model names: %j',
+        (rates) => {
+            const entry = {
+                ...model('catalog-provider', 'renamed-model'),
+                serviceSpeedRates: { fast: rates },
+            };
+            const selected = selectServiceSpeed(entry, request('ultrafast'), noVariant);
+            expect(selected.speed).toBe('fast');
+            expect(selected.model.costs.prompt_tokens).toBe(400);
+            expect(selected.model.costs.completion_tokens).toBe(2000);
+            expect(entry.costs.prompt_tokens).toBe(200);
+        },
+    );
     it('preserves an omitted option and native parameters', () => {
         const entry = model('openai-responses', 'gpt-6.1-sol');
         const args = { ...request(), service_tier: 'flex' as const };
@@ -145,7 +164,11 @@ describe('service speed selection', () => {
     ])(
         'selects an equivalent %s variant and preserves normalization policy',
         (provider, id, variantId) => {
-            const base = { ...model(provider, id), release_date: '2026-08-01' };
+            const base = {
+                ...model(provider, id),
+                serviceSpeedVariants: { fast: variantId },
+                release_date: '2026-08-01',
+            };
             const variant = {
                 ...model(provider, variantId),
                 release_date: '2026-10-01',
