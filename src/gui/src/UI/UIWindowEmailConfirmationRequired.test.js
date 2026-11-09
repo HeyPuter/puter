@@ -164,6 +164,18 @@ describe('UIWindowEmailConfirmationRequired', () => {
         expect(await settled(under)).toBe(PENDING);
     });
 
+    it.each([
+        ['the server\'s error', { status: 429, responseJSON: { error: 'Too many requests.' } }, 'Too many requests.'],
+        ['an unknown error on a network failure', { status: 0 }, 'error_unknown_cause'],
+    ])('shows %s when a new code can\'t be sent', async (_label, xhr, shown) => {
+        const ajax = vi.spyOn(jQuery, 'ajax').mockImplementation((opts) => opts.error(xhr));
+        await open();
+        win().find('.send-conf-email').trigger('click');
+
+        expect(ajax).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://api.puter.test/send-confirm-email' }));
+        expect(win().find('.error').text()).toBe(shown);
+    });
+
     it('resolves false when it closes without a confirmation', async () => {
         const { result } = await open();
         win().close();

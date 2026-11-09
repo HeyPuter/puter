@@ -205,6 +205,7 @@ function UIWindowEmailConfirmationRequired (options) {
 
         // send email confirmation
         $(el_window).find('.send-conf-email').on('click', function (e) {
+            $(el_window).find('.error').hide();
             $.ajax({
                 url: `${window.api_origin }/send-confirm-email`,
                 type: 'POST',
@@ -227,7 +228,9 @@ function UIWindowEmailConfirmationRequired (options) {
                     });
                     $(el_window).find('.digit-input').first().focus();
                 },
-                complete: function () {
+                error: function (res) {
+                    $(el_window).find('.error').html(html_encode(res.responseJSON?.error ?? i18n('error_unknown_cause')));
+                    $(el_window).find('.error').fadeIn();
                 },
             });
         });
