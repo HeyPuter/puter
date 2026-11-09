@@ -120,6 +120,26 @@ describe('UIWindowEmailConfirmationRequired', () => {
         expect(window.user.email_confirmed).toBe(false);
     });
 
+    it.each([
+        ['the server\'s error', { status: 429, responseJSON: { error: 'Too many requests.' } }, 'Too many requests.'],
+        ['an unknown error on a network failure', { status: 0 }, 'error_unknown_cause'],
+    ])('shows %s and lets the user try again', async (_label, xhr, shown) => {
+        vi.spyOn(jQuery, 'ajax').mockImplementation((opts) => {
+            opts.error(xhr);
+            opts.complete?.();
+        });
+        const { result } = await open();
+        vi.useFakeTimers();
+        enterCode();
+        await vi.advanceTimersByTimeAsync(1000);
+        vi.useRealTimers();
+
+        expect(win().find('.error').text()).toBe(shown);
+        expect(win().find('.digit-input').prop('disabled')).toBe(false);
+        expect(win().find('.email-confirm-btn').text()).toBe('Confirm Email');
+        expect(await settled(result)).toBe(PENDING);
+    });
+
     it('resolves false when it closes without a confirmation', async () => {
         const { result } = await open();
         win().close();

@@ -169,7 +169,8 @@ function UIWindowEmailConfirmationRequired (options) {
                         }
                     },
                     error: function (res) {
-                        $(el_window).find('.error').html(html_encode(res.responseJSON.error));
+                        // A network failure has no body to read.
+                        $(el_window).find('.error').html(html_encode(res.responseJSON?.error ?? i18n('error_unknown_cause')));
                         $(el_window).find('.error').fadeIn();
                         $(el_window).find('.digit-input').val('');
                         $(el_window).find('.digit-input').first().focus();
