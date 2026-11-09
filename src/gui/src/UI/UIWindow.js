@@ -3434,7 +3434,7 @@ window.update_window_path = async function (el_window, target_path) {
     }
 
     $(el_window).attr('data-path', target_path);
-    $(el_window).attr('data-name', html_encode(path.basename(target_path)));
+    $(el_window).attr('data-name', path.basename(target_path));
 
     // /stat
     if ( target_path === window.shared_path ) {
@@ -3492,7 +3492,7 @@ window.update_window_path = async function (el_window, target_path) {
                     $(el_window).find('.window-head-title').text(fsentry.name);
                 }
                 // data-name
-                $(el_window).attr('data-name', html_encode(fsentry.name));
+                $(el_window).attr('data-name', fsentry.name);
                 // data-path
                 $(el_window).attr('data-path', target_path);
                 $(el_window_navbar_path_input).val(target_path);

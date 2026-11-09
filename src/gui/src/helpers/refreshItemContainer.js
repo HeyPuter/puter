@@ -103,7 +103,7 @@ const refresh_item_container = function (el_item_container, options) {
             $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
             $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
             // data-name
-            $(el_window).attr('data-name', html_encode(fsentry.name));
+            $(el_window).attr('data-name', fsentry.name);
             // data-path
             $(el_window).attr('data-path', container_path);
             $(el_window).find('.window-navbar-path-input').val(container_path);
