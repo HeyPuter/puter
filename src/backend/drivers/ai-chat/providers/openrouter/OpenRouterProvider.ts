@@ -22,8 +22,10 @@ import { OpenAI } from 'openai';
 import { HttpError, isHttpError } from '../../../../core/http/HttpError.js';
 import { UpstreamResponseError } from '../../../util/upstreamErrors.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import type { IChatModel, ICompleteArguments } from '../../types.js';
+import type { IChatModel, ICompleteArguments, ModelCost } from '../../types.js';
+import { BoundedTtlMap } from '../../../../util/boundedTtlMap.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
+import { servedServiceSpeed } from '../../utils/serviceSpeed.js';
 import { catalogPrice } from '../../utils/pricing.js';
 import { mapOpenRouterPricing } from './pricing.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
@@ -63,6 +65,75 @@ const isPolicyBlock = (err: unknown): boolean => {
 
 export class OpenRouterProvider extends OpenAICompatProvider {
     #apiBaseUrl: string;
+
+    #speedCatalogs = new BoundedTtlMap<
+        string,
+        () => Promise<Partial<Record<'fast' | 'ultrafast', IChatModel>>>
+    >({ maxEntries: 256 });
+
+    async serviceSpeedModels(model: IChatModel) {
+        let load = this.#speedCatalogs.get(model.id);
+        if (!load) {
+            load = cachedRemoteCatalog({
+                name: 'OpenRouter speed catalog',
+                fallback: {} as Partial<
+                    Record<'fast' | 'ultrafast', IChatModel>
+                >,
+                fetch: async (signal) => {
+                    const id = model.id.replace(/^openrouter:/, '');
+                    const response = await axios.request({
+                        url: `${this.#apiBaseUrl}/models/${id}/endpoints`,
+                        method: 'GET',
+                        signal,
+                        maxContentLength: 2 * 1024 * 1024,
+                    });
+                    const offers: Partial<
+                        Record<'fast' | 'ultrafast', IChatModel>
+                    > = {};
+                    for (const endpoint of response.data?.data?.endpoints ??
+                        []) {
+                        const speed =
+                            endpoint.service_tier === 'ultrafast'
+                                ? 'ultrafast'
+                                : ['priority', 'fast'].includes(
+                                        endpoint.service_tier,
+                                    )
+                                  ? 'fast'
+                                  : undefined;
+                        if (!speed || !endpoint.pricing) continue;
+                        const pricing = mapOpenRouterPricing(endpoint.pricing);
+                        if (
+                            pricing.costs.prompt === undefined ||
+                            pricing.costs.completion === undefined
+                        )
+                            continue;
+                        // Reserve for the most expensive eligible endpoint and context tier.
+                        const costs: ModelCost = {
+                            ...offers[speed]?.costs,
+                            tokens: model.costs.tokens,
+                        };
+                        for (const rates of [
+                            pricing.costs,
+                            ...pricing.overrides.map(
+                                (override) => override.costs,
+                            ),
+                        ]) {
+                            for (const [key, value] of Object.entries(rates))
+                                costs[key] = Math.max(costs[key] ?? 0, value);
+                        }
+                        offers[speed] = {
+                            ...model,
+                            costs,
+                            pricingOverrides: [],
+                        };
+                    }
+                    return offers;
+                },
+            });
+            this.#speedCatalogs.set(model.id, load);
+        }
+        return load();
+    }
 
     constructor(config: ChatProviderConfig, meteringService: MeteringService) {
         const apiBaseUrl = config.apiBaseUrl || 'https://openrouter.ai/api/v1';
@@ -202,8 +273,17 @@ export class OpenRouterProvider extends OpenAICompatProvider {
         return { ...params, usage: { include: true } };
     }
 
-    protected override meteredUsage(source: UsageSource) {
+    protected override meteredUsage(source: UsageSource, model: IChatModel) {
         const usage = source.usage as OpenrouterUsage;
+        if (
+            model.serviceSpeedPricing &&
+            servedServiceSpeed(source) !== 'standard' &&
+            catalogPrice(usage.cost) === undefined
+        ) {
+            throw new HttpError(503, 'Service tier billing is unavailable', {
+                legacyCode: 'model_pricing_unavailable',
+            });
+        }
         return {
             usage: {
                 prompt:

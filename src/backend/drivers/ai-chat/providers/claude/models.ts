@@ -56,6 +56,46 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 128_000,
     },
     {
+        puterId: 'anthropic:anthropic/claude-fable-5-2',
+        id: 'claude-fable-5-2',
+        modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-11-09',
+        aliases: [
+            'claude-fable-5-2-latest',
+            'claude-fable-5.2',
+            'anthropic/claude-fable-5-2',
+        ],
+        name: 'Claude Fable 5.2',
+        midConversationSystem: true,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'input_tokens',
+        output_cost_key: 'output_tokens',
+        // Source: https://www.anthropic.com/claude-fable-and-mythos-5-2
+        serviceSpeedRates: {
+            fast: {
+                input_tokens: 1600,
+                output_tokens: 8000,
+                ephemeral_5m_input_tokens: 1600 * 1.25,
+                ephemeral_1h_input_tokens: 1600 * 2,
+                cache_read_input_tokens: 1600 * 0.025,
+            },
+        },
+        costs: {
+            tokens: 1_000_000,
+            input_tokens: 800,
+            ephemeral_5m_input_tokens: 800 * 1.25,
+            ephemeral_1h_input_tokens: 800 * 2,
+            // 0.025x input, not the usual 0.1x.
+            cache_read_input_tokens: 800 * 0.025,
+            output_tokens: 4000,
+            web_search_requests: 1_000_000, // $10/1k requests
+        },
+        context: 1000000,
+        max_tokens: 128000,
+    },
+    {
         puterId: 'anthropic:anthropic/claude-fable-5-1',
         id: 'claude-fable-5-1',
         modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
@@ -190,6 +230,15 @@ export const CLAUDE_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
+        serviceSpeedRates: {
+            fast: {
+                input_tokens: 800,
+                output_tokens: 4000,
+                ephemeral_5m_input_tokens: 1000,
+                ephemeral_1h_input_tokens: 1600,
+                cache_read_input_tokens: 40,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             input_tokens: 400,
@@ -199,12 +248,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
             cache_read_input_tokens: 400 * 0.05,
             output_tokens: 2000,
             web_search_requests: 1_000_000,
-            // Fast mode (`speed:'fast'`), live-verified.
-            fast_input_tokens: 800,
-            fast_output_tokens: 4000,
-            fast_ephemeral_5m_input_tokens: 1000,
-            fast_ephemeral_1h_input_tokens: 1600,
-            fast_cache_read_input_tokens: 40, // 0.05x fast_input_tokens
         },
         context: 1000000,
         max_tokens: 128000,
@@ -223,6 +266,15 @@ export const CLAUDE_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
+        serviceSpeedRates: {
+            fast: {
+                input_tokens: 1000,
+                output_tokens: 5000,
+                ephemeral_5m_input_tokens: 1250,
+                ephemeral_1h_input_tokens: 2000,
+                cache_read_input_tokens: 100,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             input_tokens: 500,
@@ -231,11 +283,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
             cache_read_input_tokens: 500 * 0.1,
             output_tokens: 2500,
             web_search_requests: 1_000_000,
-            fast_input_tokens: 1000,
-            fast_output_tokens: 5000,
-            fast_ephemeral_5m_input_tokens: 1250,
-            fast_ephemeral_1h_input_tokens: 2000,
-            fast_cache_read_input_tokens: 100,
         },
         context: 1000000,
         max_tokens: 128000,
@@ -258,6 +305,15 @@ export const CLAUDE_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
+        serviceSpeedRates: {
+            fast: {
+                input_tokens: 1000,
+                output_tokens: 5000,
+                ephemeral_5m_input_tokens: 1250,
+                ephemeral_1h_input_tokens: 2000,
+                cache_read_input_tokens: 100,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             input_tokens: 500,
@@ -266,11 +322,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
             cache_read_input_tokens: 500 * 0.1,
             output_tokens: 2500,
             web_search_requests: 1_000_000,
-            fast_input_tokens: 1000,
-            fast_output_tokens: 5000,
-            fast_ephemeral_5m_input_tokens: 1250,
-            fast_ephemeral_1h_input_tokens: 2000,
-            fast_cache_read_input_tokens: 100,
         },
         context: 1000000,
         max_tokens: 128000,
