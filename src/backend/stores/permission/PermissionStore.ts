@@ -663,6 +663,7 @@ export class PermissionStore extends PuterStore {
             `DELETE FROM \`user_to_group_permissions\` WHERE ${where}`,
             params,
         );
+        await this.#tombstoneGroupMembers(rows.map((row) => row.group_id));
         return rows;
     }
 
@@ -1332,9 +1333,6 @@ export class PermissionStore extends PuterStore {
     }
 
     // -- SQL: user-to-group permissions ------------------------------
-    //
-    // Read-only. Group grants are seeded by migration (the admin group's
-    // unrestricted `driver` access); nothing writes them at runtime.
 
     /**
      * Reads group permissions granted to groups the user is a member of, for a
@@ -1351,9 +1349,15 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return [];
         let permClause = permissions.map(() => 'p.permission = ?').join(' OR ');
         if (permissions.length > 1) permClause = `(${permClause})`;
+        const { tombstoned } = await this.readCacheUnlessDeleted(
+            this.#u2gCacheKey(userId),
+        );
+        const read: DbRead = tombstoned
+            ? this.clients.db.pread.bind(this.clients.db)
+            : this.clients.db.read.bind(this.clients.db);
         // Deletion leaves memberships and grants, so a deleted team would
         // otherwise keep resolving access nothing can withdraw.
-        const rows = await this.clients.db.read(
+        const rows = await read(
             'SELECT p.permission, p.user_id, p.group_id, p.extra FROM `user_to_group_permissions` p ' +
                 'JOIN `jct_user_group` ug ON p.group_id = ug.group_id ' +
                 'JOIN `group` g ON g.`id` = ug.group_id ' +
@@ -1406,7 +1410,14 @@ export class PermissionStore extends PuterStore {
         const holders = [...new Set(userIds)];
         const perms = [...new Set(permissions)];
         if (holders.length === 0 || perms.length === 0) return [];
-        const rows = await this.clients.db.read(
+        const changed = await this.tombstonedCacheKeys(
+            holders.map((holder) => this.#u2gCacheKey(holder)),
+        );
+        const read: DbRead =
+            changed.size > 0
+                ? this.clients.db.pread.bind(this.clients.db)
+                : this.clients.db.read.bind(this.clients.db);
+        const rows = await read(
             'SELECT ug.`user_id` AS `holder_user_id`, p.`permission`, p.`user_id` ' +
                 'FROM `user_to_group_permissions` p ' +
                 'JOIN `jct_user_group` ug ON p.`group_id` = ug.`group_id` ' +
@@ -1498,7 +1509,24 @@ export class PermissionStore extends PuterStore {
                 'WHERE `group_id` = ? AND `user_id` = ? AND `permission` = ?',
             [groupId, issuerUserId, permission],
         );
+        await this.#tombstoneGroupMembers([groupId]);
         return result.anyRowsAffected;
+    }
+
+    /** Members read the primary until a lagging replica has the delete. */
+    async #tombstoneGroupMembers(groupIds: number[]): Promise<void> {
+        const ids = [...new Set(groupIds.map(Number))].filter((id) =>
+            Number.isFinite(id),
+        );
+        if (ids.length === 0) return;
+        const rows = (await this.clients.db.pread(
+            'SELECT DISTINCT `user_id` FROM `jct_user_group` ' +
+                `WHERE \`group_id\` IN (${ids.map(() => '?').join(', ')})`,
+            ids,
+        )) as { user_id: number }[];
+        await this.tombstoneCacheKeys(
+            rows.map((row) => this.#u2gCacheKey(Number(row.user_id))),
+        );
     }
 
     async auditUserGroupPerm(
@@ -1886,6 +1914,11 @@ export class PermissionStore extends PuterStore {
 
     #u2uCacheKey(holderUserId: number): string {
         return `perms:u2u:holder:${holderUserId}`;
+    }
+
+    /** Holds only a tombstone: group reads aren't cached here. */
+    #u2gCacheKey(userId: number): string {
+        return `perms:u2g:${userId}`;
     }
 
     #u2aCacheKey(userId: number, appId: number): string {

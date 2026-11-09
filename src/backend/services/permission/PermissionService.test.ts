@@ -1898,6 +1898,77 @@ describe('PermissionService — scan paths', () => {
             expect(await permService.check(originActor, permission)).toBe(true);
             expect(await permService.check(sharerActor, permission)).toBe(true);
         }, 20_000);
+
+        it('does not read a revoked group grant back from a lagging replica', async () => {
+            const { row: issuer } = await makeGroupedUser();
+            const { row: member, actor: memberActor } = await makeGroupedUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [groupUid, issuer.id, '{}', '{}'],
+            );
+            const [group] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
+            await server.stores.group.addUsers(groupUid, [member.username]);
+
+            const permission = `zztest:lag-${uuidv4()}:ii:read`;
+            await server.stores.permission.setFlatUserPerm(
+                issuer.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+            await server.clients.db.write(
+                'INSERT INTO `user_to_group_permissions` ' +
+                    '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [issuer.id, group.id, permission, '{}'],
+            );
+            expect(await permService.check(memberActor, permission)).toBe(true);
+
+            await server.stores.permission.deleteUserGroupPerm(
+                Number(group.id),
+                issuer.id,
+                permission,
+            );
+            await permService.bumpPermissionCacheForUsernames([
+                member.username,
+            ]);
+
+            // The replica still returns the row; the primary has deleted it.
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('user_to_group_permissions')
+                        ? [
+                              {
+                                  permission,
+                                  user_id: issuer.id,
+                                  group_id: group.id,
+                                  extra: '{}',
+                              },
+                          ]
+                        : primaryRead(sql, params),
+                );
+            try {
+                expect(await permService.check(memberActor, permission)).toBe(
+                    false,
+                );
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+        });
     });
 
     describe('app-under-user grants', () => {

@@ -858,6 +858,31 @@ describe('PermissionStore', () => {
                 [userId, groupId, permission, JSON.stringify(extra)],
             );
 
+        /**
+         * The replica answers group-grant reads with `stale`; the primary stays
+         * real.
+         */
+        const lagGroupGrantReplica = (
+            stale: (sql: string) => Record<string, unknown>[],
+        ) => {
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('user_to_group_permissions')
+                        ? stale(String(sql))
+                        : primaryRead(sql, params),
+                );
+            return () => {
+                read.mockRestore();
+                pread.mockRestore();
+            };
+        };
+
         it('only surfaces grants for groups the reader actually belongs to', async () => {
             const issuer = await makeUser();
             const member = await makeUser();
@@ -909,6 +934,78 @@ describe('PermissionStore', () => {
         it('returns nothing for an empty permission list', async () => {
             const user = await makeUser();
             expect(await store.readUserGroupPerms(user.id, [])).toEqual([]);
+        });
+
+        it('does not read a revoked grant back from a lagging replica', async () => {
+            const issuer = await makeUser();
+            const member = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
+            );
+            await seedGroupPerm(issuer.id, groupId, 'fs:lag:read');
+            const [stale] = await store.readUserGroupPerms(member.id, [
+                'fs:lag:read',
+            ]);
+            const [staleForHolder] = await store.readUserGroupPermsForHolders(
+                [member.id],
+                ['fs:lag:read'],
+            );
+
+            await store.deleteUserGroupPerm(groupId, issuer.id, 'fs:lag:read');
+
+            // The replica still has the row the primary just deleted.
+            const restore = lagGroupGrantReplica((sql) =>
+                sql.includes('holder_user_id')
+                    ? [staleForHolder]
+                    : [{ ...stale, extra: '{}' }],
+            );
+            try {
+                expect(
+                    await store.readUserGroupPerms(member.id, ['fs:lag:read']),
+                ).toEqual([]);
+                expect(
+                    await store.readUserGroupPermsForHolders(
+                        [member.id],
+                        ['fs:lag:read'],
+                    ),
+                ).toEqual([]);
+            } finally {
+                restore();
+            }
+        });
+
+        it('does not read grants removed with their node back from a lagging replica', async () => {
+            const issuer = await makeUser();
+            const member = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
+            );
+            const node = uuidv4();
+            await seedGroupPerm(issuer.id, groupId, `fs:${node}:read`);
+            const [stale] = await store.readUserGroupPerms(member.id, [
+                `fs:${node}:read`,
+            ]);
+
+            await store.deleteUserGroupPermsByPermissionPrefixes([
+                `fs:${node}`,
+            ]);
+
+            const restore = lagGroupGrantReplica(() => [
+                { ...stale, extra: '{}' },
+            ]);
+            try {
+                expect(
+                    await store.readUserGroupPerms(member.id, [
+                        `fs:${node}:read`,
+                    ]),
+                ).toEqual([]);
+            } finally {
+                restore();
+            }
         });
 
         it('reads many issuer/group pairs under many prefixes at once', async () => {
