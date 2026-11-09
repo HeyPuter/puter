@@ -23,10 +23,7 @@ import type { Cluster } from 'ioredis';
 const DELETE_IF_EQUAL_SCRIPT =
     "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0";
 
-/**
- * Delete `key` only while it still holds `value`, in one step. Resolves true
- * for the one caller that removed it.
- */
+/** Atomically delete `key` if it still holds `value`; true if removed. */
 export const deleteIfEqual = async (
     redis: Pick<Cluster, 'eval'>,
     key: string,

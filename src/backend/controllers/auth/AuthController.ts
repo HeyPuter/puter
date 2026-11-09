@@ -353,16 +353,24 @@ export class AuthController extends PuterController {
         const { resolve, promise } = Promise.withResolvers<void>();
 
         let token: string | null = null;
-        const listener = (_key: string, value: { authtoken: string }) => {
+        // Only a token that `/login/set` managed to store has a copy to take.
+        let stored = true;
+        const listener = (
+            _key: string,
+            value: { authtoken: string; stored?: boolean },
+        ) => {
             token = value.authtoken;
+            stored = value.stored === true;
             resolve();
         };
         this.clients.event.on(`pubsub.login.${session}`, listener);
         try {
             // Read after subscribing, so a token set before this wait is still delivered.
-            const stored = await this.clients.redis.get(loginRelayKey(session));
-            if (stored) {
-                token = stored;
+            const kept = await this.clients.redis.get(loginRelayKey(session));
+            // A stored token for another app is skipped and the wait runs as usual.
+            if (kept && this.#tokenIsForApp(kept, expectedAppUid)) {
+                token = kept;
+                stored = true;
             } else {
                 const timeout = new Promise<void>((resolve) =>
                     setTimeout(resolve, 10000),
@@ -384,16 +392,15 @@ export class AuthController extends PuterController {
         // server-side dropped that binding; this restores it. Without it a
         // popup talked into minting for app X (see `trustsOpenerOriginParam`
         // in the GUI) hands X's token to whoever holds the session id.
-        //
-        // Taking the stored copy hands each token out once; a mismatched
-        // caller never takes it.
+        // Taking the stored copy hands each token out once; a mismatched caller never takes it.
         if (
             !this.#tokenIsForApp(token, expectedAppUid) ||
-            !(await deleteIfEqual(
-                this.clients.redis,
-                loginRelayKey(session),
-                token,
-            ))
+            (stored &&
+                !(await deleteIfEqual(
+                    this.clients.redis,
+                    loginRelayKey(session),
+                    token,
+                )))
         ) {
             // Deliberately the same 408 the no-token path returns: a caller
             // learns only that nothing arrived for them, not that a token
@@ -452,16 +459,23 @@ export class AuthController extends PuterController {
             });
         }
 
-        await this.clients.redis.set(
-            loginRelayKey(session),
-            auth_token,
-            'EX',
-            LOGIN_RELAY_TTL_SECONDS,
-        );
+        let stored = true;
+        try {
+            await this.clients.redis.set(
+                loginRelayKey(session),
+                auth_token,
+                'EX',
+                LOGIN_RELAY_TTL_SECONDS,
+            );
+        } catch (e) {
+            stored = false;
+            console.warn('[login-set] storing the relayed token failed:', e);
+        }
         this.clients.event.emit(
             `pubsub.login.${session}`,
             {
                 authtoken: auth_token,
+                stored,
             },
             {},
         );

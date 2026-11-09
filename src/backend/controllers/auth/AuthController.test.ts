@@ -8881,13 +8881,7 @@ describe('AuthController 2FA flows', () => {
             otp_recovery_codes: 'a,b,c',
         });
         const res = makeRes();
-        await controller.handleDisable2fa(
-            makeReq(
-                { code: liveTotp(user.username, 'TESTSECRETBASE32') },
-                { actor },
-            ),
-            res,
-        );
+        await controller.handleDisable2fa(makeReq({ code: liveTotp(user.username, 'TESTSECRETBASE32') }, { actor }), res);
         expect(res.body).toEqual({ success: true });
         const after = await server.stores.user.getById(user.id, {
             force: true,
@@ -10679,35 +10673,69 @@ describe('AuthController.loginWait audience binding', () => {
         controller.loginSet(makeReq({ session, auth_token: token }), makeRes());
 
     /**
-     * Run one wait with no relay alongside it, on fake timers so the 10 s
-     * window passes without real waiting. `now` pins the clock.
+     * Run waits on fake timers so the 10 s window passes without real waiting.
+     * `during` runs once every wait has subscribed; `now` pins the clock.
      */
-    const waitAlone = async (session: string, origin: string, now?: number) => {
+    const runWaits = async (
+        calls: Array<{ session: string; origin: string }>,
+        opts: { now?: number; during?: () => Promise<unknown> } = {},
+    ) => {
+        const subscribed = vi.spyOn(eventClient, 'on');
         vi.useFakeTimers({
-            toFake: now === undefined ? ['setTimeout'] : ['setTimeout', 'Date'],
+            toFake:
+                opts.now === undefined
+                    ? ['setTimeout']
+                    : ['setTimeout', 'Date'],
         });
-        if (now !== undefined) vi.setSystemTime(now);
+        if (opts.now !== undefined) vi.setSystemTime(opts.now);
+        const tick = () => new Promise((r) => setImmediate(r));
         try {
-            const res = makeRes();
-            let done = false;
-            const settled = controller
-                .loginWait(makeReq({ session }, { headers: { origin } }), res)
-                .then(
-                    () => 'ok' as const,
-                    (e: unknown) => e,
-                )
-                .finally(() => {
-                    done = true;
-                });
-            for (let i = 0; i < 200 && !done; i++) {
-                await new Promise((r) => setImmediate(r));
+            let pending = calls.length;
+            const runs = calls.map(({ session, origin }) => {
+                const res = makeRes();
+                const outcome = controller
+                    .loginWait(
+                        makeReq({ session }, { headers: { origin } }),
+                        res,
+                    )
+                    .then(
+                        () => 'ok' as const,
+                        (e: unknown) => e,
+                    )
+                    .finally(() => {
+                        pending--;
+                    });
+                return { res, outcome };
+            });
+            const allSubscribed = () =>
+                calls.every(({ session }) =>
+                    subscribed.mock.calls.some(
+                        ([key]) => key === `pubsub.login.${session}`,
+                    ),
+                );
+            for (let i = 0; i < 200 && pending > 0 && !allSubscribed(); i++) {
+                await tick();
+            }
+            for (let i = 0; i < 20; i++) await tick();
+            await opts.during?.();
+            for (let i = 0; i < 200 && pending > 0; i++) {
+                await tick();
                 await vi.advanceTimersByTimeAsync(1000);
             }
-            return { res, outcome: await settled };
+            return await Promise.all(
+                runs.map(async ({ res, outcome }) => ({
+                    res,
+                    outcome: await outcome,
+                })),
+            );
         } finally {
             vi.useRealTimers();
+            subscribed.mockRestore();
         }
     };
+
+    const waitAlone = async (session: string, origin: string, now?: number) =>
+        (await runWaits([{ session, origin }], { now }))[0];
 
     it('delivers a token set before the wait subscribes', async () => {
         const { actor } = await makeUserAndActor();
@@ -10753,7 +10781,7 @@ describe('AuthController.loginWait audience binding', () => {
         const session = uuidv4();
 
         await setToken(session, token);
-        const other = await waitAlone(session, 'https://evil.test');
+        const other = await waitAlone(session, 'https://other.test');
         expect(other.outcome).toMatchObject({ statusCode: 408 });
         expect(other.res.body).toBeUndefined();
 
@@ -10776,6 +10804,98 @@ describe('AuthController.loginWait audience binding', () => {
         );
         const expired = await waitAlone(late, OPENER, start + 121_000);
         expect(expired.outcome).toMatchObject({ statusCode: 408 });
+    });
+
+    it('keeps waiting past a stored token for another app and delivers the real one', async () => {
+        const { actor } = await makeUserAndActor();
+        const otherToken = await mintAppToken(actor, 'https://other.test');
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, otherToken);
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            {
+                during: () => setToken(session, token),
+            },
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('still relays to a subscribed wait when storing the token fails', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+        const failingSet = vi
+            .spyOn(server.clients.redis, 'set')
+            .mockRejectedValueOnce(new Error('unavailable'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            let setRes: MockRes | undefined;
+            const [{ res, outcome }] = await runWaits(
+                [{ session, origin: OPENER }],
+                {
+                    during: async () => {
+                        setRes = makeRes();
+                        await controller.loginSet(
+                            makeReq({ session, auth_token: token }),
+                            setRes,
+                        );
+                    },
+                },
+            );
+            expect(setRes?.body).toEqual({ success: true });
+            expect(outcome).toBe('ok');
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+        } finally {
+            failingSet.mockRestore();
+            warn.mockRestore();
+        }
+    });
+
+    it('removes the stored copy once a subscribed wait takes the token', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const { outcome } = await waitWithRelay(
+            session,
+            { origin: OPENER },
+            token,
+        );
+        expect(outcome).toBe('ok');
+
+        const later = await waitAlone(session, OPENER);
+        expect(later.outcome).toMatchObject({ statusCode: 408 });
+    });
+
+    it('hands a token to only one of two concurrent waits', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const results = await runWaits(
+            [
+                { session, origin: OPENER },
+                { session, origin: OPENER },
+            ],
+            { during: () => setToken(session, token) },
+        );
+        const outcomes = results.map((r) => r.outcome);
+        expect(outcomes.filter((o) => o === 'ok')).toHaveLength(1);
+        expect(outcomes.filter((o) => o !== 'ok')).toEqual([
+            expect.objectContaining({ statusCode: 408 }),
+        ]);
+    });
+
+    it('answers 400 when auth_token is not a string', async () => {
+        await expect(
+            controller.loginSet(
+                makeReq({ session: uuidv4(), auth_token: { nested: true } }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
     });
 });
 

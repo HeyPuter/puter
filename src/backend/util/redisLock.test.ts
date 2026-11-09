@@ -21,7 +21,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import { RedisClient } from '../clients/redis/RedisClient.ts';
 import type { IConfig } from '../types';
-import { withRedisLock } from './redisLock.ts';
+import { deleteIfEqual, withRedisLock } from './redisLock.ts';
 
 const redis = new RedisClient({
     port: 0,
@@ -238,5 +238,35 @@ describe('withRedisLock', () => {
             expect(fn).not.toHaveBeenCalled();
             expect(onBusy).toHaveBeenCalledWith(down);
         });
+    });
+});
+
+describe('deleteIfEqual', () => {
+    it('deletes the key while it holds the value', async () => {
+        const key = lockKey();
+        await redis.set(key, 'mine');
+        expect(await deleteIfEqual(redis, key, 'mine')).toBe(true);
+        expect(await redis.get(key)).toBeNull();
+    });
+
+    it('keeps the key when it holds another value', async () => {
+        const key = lockKey();
+        await redis.set(key, 'theirs');
+        expect(await deleteIfEqual(redis, key, 'mine')).toBe(false);
+        expect(await redis.get(key)).toBe('theirs');
+    });
+
+    it('answers false for a missing key', async () => {
+        expect(await deleteIfEqual(redis, lockKey(), 'mine')).toBe(false);
+    });
+
+    it('lets only one of two concurrent callers delete', async () => {
+        const key = lockKey();
+        await redis.set(key, 'mine');
+        const results = await Promise.all([
+            deleteIfEqual(redis, key, 'mine'),
+            deleteIfEqual(redis, key, 'mine'),
+        ]);
+        expect(results.filter(Boolean)).toHaveLength(1);
     });
 });

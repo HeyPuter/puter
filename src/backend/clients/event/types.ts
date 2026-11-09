@@ -955,7 +955,11 @@ export type EventMap = {
     // a listener that sets `allow` waives the plan requirement for that call.
     [K in `subscription.gate.${string}`]: SubscriptionGateEvent;
 } & {
-    [K in `pubsub.login.${string}`]: { authtoken: string };
+    // `stored` is true when `/login/set` also kept a copy for a later wait.
+    [K in `pubsub.login.${string}`]: {
+        authtoken: string;
+        stored?: boolean;
+    };
 } & {
     /**
      * A user's subscription now resolves to a different policy. Carried on the
@@ -1083,11 +1087,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1098,10 +1101,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    | 'received'
-    | 'unreceived'
-    | 'no-socket'
-    | 'remote-only';
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {
