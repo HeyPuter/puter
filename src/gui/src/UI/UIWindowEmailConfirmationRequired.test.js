@@ -256,6 +256,15 @@ describe('UIWindowEmailConfirmationRequired', () => {
         expect(await settled(result)).toBe(PENDING);
     });
 
+    it('stays unsettled when a logout elsewhere closes it, so a gate doesn\'t reopen it', async () => {
+        const { result } = await open();
+        // As the logout handler leaves things when it closes every window.
+        window.auth_token = null;
+        win().close();
+        expect(win()).toHaveLength(0);
+        expect(await settled(result)).toBe(PENDING);
+    });
+
     it('stays unsettled on a logout from its footer, so a gate doesn\'t reopen it', async () => {
         const { result } = await open({ logout_in_footer: true });
         win().find('.conf-email-log-out').trigger('click');

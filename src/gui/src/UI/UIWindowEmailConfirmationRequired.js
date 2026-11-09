@@ -24,8 +24,9 @@ import UIAlert from './UIAlert.js';
  * Asks for the code sent to the user's email.
  *
  * @returns {Promise<boolean>} True once the email is confirmed, false when the
- *   window closes without it. A logout from its footer leaves it unsettled, so
- *   a gate that reopens it on false doesn't race the logout.
+ *   window closes without it. A logout, from its footer or anywhere else,
+ *   leaves it unsettled, so a gate that reopens it on false doesn't race the
+ *   logout.
  */
 function UIWindowEmailConfirmationRequired (options) {
     return new Promise(async (resolve) => {
@@ -115,7 +116,7 @@ function UIWindowEmailConfirmationRequired (options) {
             },
             // A no-op after a confirmation, which resolves first.
             on_close: () => {
-                if ( ! logging_out ) resolve(false);
+                if ( ! logging_out && window.auth_token ) resolve(false);
             },
             body_css: {
                 padding: '30px',
