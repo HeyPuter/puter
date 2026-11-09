@@ -1,6 +1,22 @@
 import { test, expect } from '@playwright/test';
 import { waitForPuterReady } from '../helpers/testApp.js';
 
+// A second account: what a first-time visitor is given.
+const visitorAccount = async (browser) => {
+    const visitorContext = await browser.newContext({
+        storageState: { cookies: [], origins: [] },
+    });
+    const visitorPage = await visitorContext.newPage();
+    await visitorPage.goto('/');
+    await waitForPuterReady(visitorPage);
+    const account = await visitorPage.evaluate(() => ({
+        token: localStorage.getItem('auth_token_v2'),
+        user: JSON.parse(localStorage.getItem('user')),
+    }));
+    await visitorContext.close();
+    return account;
+};
+
 /**
  * Every tab shares one stored session, so switching accounts in one tab hands
  * the others a token for a different account. A tab that kept running would
@@ -8,18 +24,7 @@ import { waitForPuterReady } from '../helpers/testApp.js';
  */
 test.describe('an account switch in another tab', () => {
     test('reloads this tab as the new account instead of adopting its token', async ({ browser, context, page }) => {
-        // A second account: what a first-time visitor is given.
-        const visitorContext = await browser.newContext({
-            storageState: { cookies: [], origins: [] },
-        });
-        const visitorPage = await visitorContext.newPage();
-        await visitorPage.goto('/');
-        await waitForPuterReady(visitorPage);
-        const other = await visitorPage.evaluate(() => ({
-            token: localStorage.getItem('auth_token_v2'),
-            user: JSON.parse(localStorage.getItem('user')),
-        }));
-        await visitorContext.close();
+        const other = await visitorAccount(browser);
 
         const switchingTab = page;
         const otherTab = await context.newPage();
@@ -64,5 +69,43 @@ test.describe('an account switch in another tab', () => {
             user: window.user?.uuid,
             current: window.auth_token === localStorage.getItem('auth_token_v2'),
         }))).toEqual({ user: other.user.uuid, current: true });
+    });
+
+    test('reloads this tab only once the session cookie names the new account', async ({ browser, context, page }) => {
+        const other = await visitorAccount(browser);
+
+        const switchingTab = page;
+        const otherTab = await context.newPage();
+        for ( const tab of [switchingTab, otherTab] ) {
+            await tab.goto('/');
+            await waitForPuterReady(tab);
+        }
+
+        // A tab signs in from the cookie when it boots, so one that reloaded
+        // while the cookie still named the first account would stay on it.
+        await context.route('**/session/sync-cookie', async (route) => {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            await route.continue();
+        });
+        await otherTab.evaluate(() => {
+            window.__beforeSwitch = true;
+        });
+
+        await switchingTab.evaluate(
+            ({ token, user }) => window.update_auth_data(token, user),
+            other,
+        );
+
+        await otherTab.waitForFunction(
+            (uuid) => !window.__beforeSwitch && window.user?.uuid === uuid,
+            other.user.uuid,
+            { timeout: 30_000 },
+        );
+        await waitForPuterReady(otherTab);
+        await expect.poll(() => switchingTab.evaluate(() => ({
+            user: window.user?.uuid,
+            current: window.auth_token === localStorage.getItem('auth_token_v2'),
+            storedFor: JSON.parse(localStorage.getItem('user')).uuid,
+        }))).toEqual({ user: other.user.uuid, current: true, storedFor: other.user.uuid });
     });
 });

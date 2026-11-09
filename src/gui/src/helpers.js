@@ -626,10 +626,6 @@ window.refresh_user_data = async (auth_token) => {
 
 window.update_auth_data = async (auth_token, user) => {
     window.auth_token = auth_token;
-    // Write the v2 key going forward and clear any lingering v1 key so
-    // a single localStorage source-of-truth is used.
-    localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
-    localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
 
     // Set http-only session cookie when user is changing.
     // This ensures user-protected endpoints, which only refer to the http-only cookie,
@@ -654,6 +650,11 @@ window.update_auth_data = async (auth_token, user) => {
             });
         }
     }
+
+    // Stored only after the cookie sync: a peer tab reloads when it sees
+    // another account's token, and its boot signs in from the cookie.
+    localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
+    localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
 
     // Has username changed?
     if ( window.user?.username !== user.username )
