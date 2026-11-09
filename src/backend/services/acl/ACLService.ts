@@ -57,11 +57,7 @@ export interface ResourceDescriptor {
 }
 
 export type AclMode =
-    | 'see'
-    | 'list'
-    | 'read'
-    | 'write'
-    | typeof MANAGE_PERM_PREFIX;
+    'see' | 'list' | 'read' | 'write' | typeof MANAGE_PERM_PREFIX;
 
 /** Duck-typed error shape compatible with APIError consumers (fsv2). */
 export interface AclError {
@@ -296,6 +292,10 @@ export class ACLService extends PuterService {
             ) {
                 return true;
             }
+
+            // Capped by the user check above, given the app's own grant.
+            if (await this.#userAppGrantReaches(actor, await ancestors(), mode))
+                return true;
         }
 
         // Fall back to the permission scan: walk ancestors, any hit wins.
@@ -327,6 +327,27 @@ export class ACLService extends PuterService {
         // Last: a link share on the node or a folder above it. Nothing in the
         // permission tables stands behind one, so it is read on its own.
         return this.#anyoneWithLinkAllows(actor, ancestry, mode);
+    }
+
+    /** Whether the user granted this app `mode` on any node of `ancestors`. */
+    async #userAppGrantReaches(
+        actor: Actor,
+        ancestors: ReadonlyArray<{ uid: string }>,
+        mode: AclMode,
+    ): Promise<boolean> {
+        const appId = actor.app?.id;
+        const userId = actor.user?.id;
+        if (typeof appId !== 'number' || typeof userId !== 'number') {
+            return false;
+        }
+        const rows = await this.stores.permission.readUserAppPerms(
+            userId,
+            appId,
+            ancestors.flatMap((ancestor) =>
+                this.permissionsFor(ancestor.uid, mode),
+            ),
+        );
+        return rows.length > 0;
     }
 
     /**

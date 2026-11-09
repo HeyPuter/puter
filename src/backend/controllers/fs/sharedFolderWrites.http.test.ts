@@ -277,4 +277,118 @@ describe('writes inside a folder shared with write', () => {
             expect(JSON.stringify(res.json)).not.toContain(s.realDir);
         }
     }, 180_000);
+
+    describe('a file the recipient opened with an app', () => {
+        const makeApp = (ownerUserId: number) =>
+            (
+                env.server.stores.app.create as unknown as (
+                    fields: Record<string, unknown>,
+                    opts: { ownerUserId: number },
+                ) => Promise<{ uid: string; id: number }>
+            )(
+                {
+                    name: `sfw-app-${Math.random().toString(36).slice(2, 9)}`,
+                    title: 'Shared folder app',
+                    index_url: `https://sfw-${Math.random().toString(36).slice(2, 9)}.test/`,
+                },
+                { ownerUserId },
+            );
+
+        /** Opens `note.txt` with a new app, as a launch does. */
+        const openWithApp = async (
+            s: Awaited<ReturnType<typeof shareAFolder>>,
+        ) => {
+            const recipientId = (await env.server.stores.user.getByUsername(
+                s.recipient.username,
+            ))!.id;
+            const app = await makeApp(recipientId);
+            const signed = await post('/sign', s.recipient.token, {
+                items: [{ uid: s.noteUid, action: 'write' }],
+                app_uid: app.uid,
+            });
+            expect(signed.status).toBe(200);
+            return { app, appToken: signed.json!.token as string };
+        };
+
+        const read = async (token: string, query: Record<string, string>) => {
+            const res = await fetch(
+                new URL(`/read?${new URLSearchParams(query)}`, env.apiOrigin),
+                { headers: { authorization: `Bearer ${token}` } },
+            );
+            return { status: res.status, text: await res.text() };
+        };
+
+        const write = (token: string, path: string, content: string) =>
+            post('/fs/write', token, {
+                fileMetadata: {
+                    path,
+                    size: content.length,
+                    contentType: 'text/plain',
+                    overwrite: true,
+                },
+                fileContent: content,
+            });
+
+        it('reads and saves it by path and uid', async () => {
+            const s = await shareAFolder();
+            const { appToken } = await openWithApp(s);
+            const masked = `${s.maskedDir}/note.txt`;
+            const real = `${s.realDir}/note.txt`;
+
+            expect((await write(appToken, masked, 'one')).status).toBe(200);
+            expect(await read(appToken, { uid: s.noteUid })).toEqual({
+                status: 200,
+                text: 'one',
+            });
+            expect((await write(appToken, real, 'two')).status).toBe(200);
+            expect(await read(appToken, { file: real })).toEqual({
+                status: 200,
+                text: 'two',
+            });
+            expect(
+                (await post('/stat', appToken, { uid: s.noteUid })).status,
+            ).toBe(200);
+        }, 180_000);
+
+        it('only reads it once the share drops to read', async () => {
+            const s = await shareAFolder();
+            const { appToken } = await openWithApp(s);
+            const dir = await post('/stat', s.owner.token, { path: s.realDir });
+            const reshared = await post('/share', s.owner.token, {
+                recipients: [s.recipient.username],
+                items: [{ uid: dir.json!.uid }],
+                mode: 'read',
+            });
+            expect(reshared.status).toBe(200);
+
+            expect((await read(appToken, { uid: s.noteUid })).status).toBe(200);
+            expect(
+                (await write(appToken, `${s.maskedDir}/note.txt`, 'x')).status,
+            ).toBe(403);
+        }, 180_000);
+
+        it('gives nothing to another app of the recipient', async () => {
+            const s = await shareAFolder();
+            await openWithApp(s);
+            const recipientId = (await env.server.stores.user.getByUsername(
+                s.recipient.username,
+            ))!.id;
+            const other = await makeApp(recipientId);
+            const minted = await post(
+                '/auth/get-user-app-token',
+                s.recipient.token,
+                { app_uid: other.uid },
+            );
+            expect(minted.status).toBe(200);
+            const otherToken = minted.json!.token as string;
+
+            expect([403, 404]).toContain(
+                (await read(otherToken, { uid: s.noteUid })).status,
+            );
+            expect([403, 404]).toContain(
+                (await write(otherToken, `${s.maskedDir}/note.txt`, 'x'))
+                    .status,
+            );
+        }, 180_000);
+    });
 });
