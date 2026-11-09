@@ -20,6 +20,7 @@
 import download from './helpers/download.js';
 import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
 import item_icon from './helpers/itemIcon.js';
+import { atPath } from './helpers/pathElements.js';
 import socialLink from './helpers/socialLink.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
 import path from './lib/path.js';
@@ -1702,7 +1703,7 @@ const ipc_listener = async (event, handled) => {
             $(`.item[data-uid="${res.uid}"]`).removeItems();
             // now add new items
             UIItem({
-                appendTo: $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`),
+                appendTo: atPath('.item-container', path.dirname(target_path)),
                 immutable: res.immutable || res.writable === false,
                 associated_app_name: res.associated_app?.name,
                 path: target_path,
@@ -1716,7 +1717,7 @@ const ipc_listener = async (event, handled) => {
                 suggested_apps: res.suggested_apps,
             });
             // sort each window
-            $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`).each(function () {
+            atPath('.item-container', path.dirname(target_path)).each(function () {
                 window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
             });
             $(el_filedialog_window).close();

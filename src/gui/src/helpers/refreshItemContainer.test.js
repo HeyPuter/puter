@@ -167,6 +167,15 @@ describe('refresh_item_container after the window moves to another folder', () =
         expect($('.window').attr('data-uid')).toBe('pictures');
     });
 
+    it('stores a folder name holding HTML characters on the window as it is', async () => {
+        navigate('/alice/R&D');
+
+        pending.stat['/alice/R&D'].resolve({ id: 'rd', name: 'R&D' });
+        await vi.waitFor(() => expect($('.window').attr('data-uid')).toBe('rd'));
+
+        expect($('.window').attr('data-name')).toBe('R&D');
+    });
+
     it('drops a listing that arrives just before the window moves on', async () => {
         vi.useFakeTimers();
         navigate('/alice/Documents');
