@@ -232,7 +232,7 @@ Please try recreating the link.`);
                     // LEGACY SUPPORT, remove this in the future when Polotno uses the new SDK
                     // this is literally put in here to support Polotno's legacy code
                     ...(!Array.isArray(res) && res),
-                }, '*');
+                }, window.openerOrigin);
 
                 window.close();
             }

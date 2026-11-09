@@ -577,7 +577,7 @@ const postAuthActions = async (action) => {
             window.opener?.postMessage({
                 msg,
                 original_msg_id: msg_id,
-            }, '*');
+            }, window.openerOrigin);
             // Escape closes only the picker window, which would leave the
             // page's frame open over an empty desktop.
             if ( window.embedded_in_frame ) window.close();
@@ -645,7 +645,7 @@ const postAuthActions = async (action) => {
             // send 'sendMeFileData' event to parent
             window.opener.postMessage({
                 msg: 'sendMeFileData',
-            }, '*');
+            }, window.openerOrigin);
 
             // listen for 'showSaveFilePickerPopup' event from parent. Only the
             // page that asked supplies the file, once; any other window that
@@ -720,7 +720,7 @@ const postAuthActions = async (action) => {
                                         uid: file_signature.uid,
                                         path: window.privacy_aware_path(res.path),
                                     },
-                                }, '*');
+                                }, window.openerOrigin);
 
                                 window.close();
                                 window.open('', '_self').close();
