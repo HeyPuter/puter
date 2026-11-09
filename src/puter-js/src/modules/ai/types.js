@@ -55,6 +55,12 @@
  */
 
 /**
+ * Preferred service speed for a chat completion.
+ *
+ * @typedef {'standard' | 'fast' | 'ultrafast'} ServiceSpeed
+ */
+
+/**
  * Options for a chat completion request.
  *
  * @typedef {Object} ChatOptions
@@ -67,6 +73,8 @@
  * @property {boolean} [vision]
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
+ * @property {ServiceSpeed} [serviceSpeed] Preferred service speed. Falls back to
+ * fast, then standard when the requested speed is unavailable. Faster service may cost more.
  * @property {boolean} [fallback] Set to `false` to fail the request when the first provider tried
  * fails, instead of retrying it on another provider that serves the same model.
  * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
@@ -148,6 +156,7 @@
  * @property {number} [webSearchRequests]
  * @property {number} [webFetchRequests]
  * @property {'fast' | 'standard'} [speed]
+ * @property {ServiceSpeed} [serviceSpeed]
  * @property {string} [serviceTier]
  * @property {Array<{ type: string, model?: string, inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheWrite5mTokens?: number, cacheWrite30mTokens?: number, cacheWrite1hTokens?: number, cacheWrite12hTokens?: number }>} [iterations]
  * Per-pass breakdown when the upstream ran several passes (compaction, an advisor sub-call).

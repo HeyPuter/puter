@@ -650,12 +650,15 @@ export const create_chat_stream_handler =
             block.end();
         };
 
+        let serviceTier;
         let last_usage = null;
         let last_extra_content = null;
         let finish_reason = null;
         for await (let chunk of completion) {
             await chatStream.waitForDrain();
             chunk = deviations.chunk_but_like_actually(chunk);
+            if (chunk.service_tier !== undefined)
+                serviceTier = chunk.service_tier;
             const chunk_usage = deviations.index_usage_from_stream_chunk(chunk);
             if (chunk_usage) last_usage = chunk_usage;
             if (chunk.choices.length < 1) continue;
@@ -746,6 +749,7 @@ export const create_chat_stream_handler =
         const usage = last_usage
             ? usage_calculator({
                   usage: last_usage,
+                  service_tier: serviceTier,
                   extra_content: last_extra_content,
                   setUsageCosts: (c) => chatStream.setUsageCosts(c),
                   setUsageDetails: (d) => {
@@ -779,6 +783,7 @@ export const create_chat_stream_handler_responses_api =
         const message = chatStream.message();
         const textblock = message.contentBlock({ type: 'text' });
 
+        let serviceTier;
         let last_usage = null;
         let completed = false;
         let sawFunctionCall = false;
@@ -787,6 +792,8 @@ export const create_chat_stream_handler_responses_api =
         let toolUsage = null;
         for await (const chunk of completion) {
             await chatStream.waitForDrain();
+            if (chunk.response?.service_tier !== undefined)
+                serviceTier = chunk.response.service_tier;
             if (chunk.type === 'response.failed' || chunk.type === 'error') {
                 throw new Error(
                     chunk.response?.error?.message ??
@@ -918,6 +925,7 @@ export const create_chat_stream_handler_responses_api =
         const usage = last_usage
             ? usage_calculator({
                   usage: last_usage,
+                  service_tier: serviceTier,
                   webSearchCalls,
                   tool_usage: toolUsage,
                   setUsageCosts: (c) => chatStream.setUsageCosts(c),
@@ -972,6 +980,7 @@ export const handle_completion_output = async (
     /**
      * @type {Record<string, unknown> & {
      *     usage_calculator: (args: {
+     *         service_tier?: string;
      *         usage: import('openai/resources/completions.mjs').CompletionUsage;
      *         setUsageCosts: (costs: Record<string, number>) => void;
      *         setUsageDetails: (
@@ -1066,6 +1075,7 @@ export const handle_completion_output = async (
  * @param {((text: string) => Promise<{ flagged: boolean }>) | undefined} [params.moderate]
  * @param {(args: {
  *     usage: import('openai/resources/responses/responses.mjs').ResponseUsage;
+ *     service_tier?: string;
  *     webSearchCalls?: number;
  *     tool_usage?: Record<string, unknown>;
  *     setUsageCosts?: (costs: Record<string, number>) => void;

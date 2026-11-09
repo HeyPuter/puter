@@ -30,6 +30,7 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'kimi-k3.1-pro-highspeed' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200, // $2.00 per 1M
@@ -77,6 +78,7 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'kimi-k3-highspeed' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 300, // $3.00 per 1M
@@ -104,6 +106,7 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'kimi-k2.6-highspeed' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 95, // $0.95 per 1M
@@ -126,6 +129,7 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'kimi-k2.7-code-highspeed' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 95,

@@ -97,6 +97,23 @@ const textOf = (result: {
 };
 
 export default suite('ai', {
+    'service speed falls back on unsupported models without changing the normalized response': async t => {
+        useApiToken(t);
+        for (const serviceSpeed of ['standard', 'fast', 'ultrafast'] as const) {
+            const result = await t.puter.ai.chat('Hello', { model: 'fake', serviceSpeed, normalize: true });
+            t.assert.equal(typeof result.message.content, 'string');
+            t.assert.equal(result.usageDetails?.serviceSpeed, 'standard');
+        }
+    },
+    'invalid service speed returns a stable error': async t => {
+        const values = [null, false, true, 0, 1, -1, NaN, Infinity, '', 'invalid',
+            'FAST', 'fast ', ' fast', 'ultraFast', [], ['fast'], {}, { speed: 'fast' },
+            { toString: 'fast' }];
+        for (const serviceSpeed of values) {
+            const error = await errorOf(t, () => t.puter.ai.chat('Hello', { model: 'fake', serviceSpeed: serviceSpeed as never }));
+            t.assert.equal(error.code, 'invalid_service_speed');
+        }
+    },
     'chat with the fake model returns a message': async (t) => {
         useApiToken(t);
         const result = await t.puter.ai.chat('Hello there', {

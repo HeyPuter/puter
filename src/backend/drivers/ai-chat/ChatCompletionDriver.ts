@@ -79,6 +79,11 @@ import type {
 } from './types.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
 import {
+    selectServiceSpeed,
+    lowerServiceSpeed,
+    isServiceSpeedUnavailable,
+} from './utils/serviceSpeed.js';
+import {
     messagesHavePuterPaths,
     modelSupportsModality,
     normalizeMediaParts,
@@ -674,6 +679,16 @@ export class ChatCompletionDriver extends PuterDriver {
     }
 
     async complete(args: ICompleteArguments): Promise<IChatCompleteResult> {
+        if (
+            args.serviceSpeed !== undefined &&
+            !['standard', 'fast', 'ultrafast'].includes(args.serviceSpeed)
+        ) {
+            throw new HttpError(
+                400,
+                'serviceSpeed must be standard, fast, or ultrafast',
+                { legacyCode: 'invalid_service_speed' },
+            );
+        }
         const abortSignal = Context.get('abortSignal');
         abortSignal?.throwIfAborted();
         const actor = Context.get('actor');
@@ -700,15 +715,16 @@ export class ChatCompletionDriver extends PuterDriver {
             args.model = this.#providers[intendedProvider].getDefaultModel();
         }
 
-        let model = await this.#resolveLoadedModel(
+        const initialModel = await this.#resolveLoadedModel(
             args.model,
             intendedProvider,
         );
-        if (!model) {
+        if (!initialModel) {
             throw new HttpError(400, `Model not found: ${args.model}`, {
                 legacyCode: 'bad_request',
             });
         }
+        let model: IChatModel = initialModel;
         // A pinned provider without a route for the model normally resolves
         // to another vendor; with `fallback: false` that is the one thing the
         // caller asked us not to do.
@@ -840,18 +856,6 @@ export class ChatCompletionDriver extends PuterDriver {
         // The instant the current attempt is priced at, from its hold to its
         // charge, so a rate change mid-request can't split the two.
         let pricingTime = new Date();
-        if (!useFakeProvider) {
-            ({
-                hold,
-                fundsCap,
-                costFactor,
-                promptTokenEstimate: attemptPromptTokenEstimate,
-            } = await this.#applyCreditGate(actor, model, args, {
-                promptTokenEstimate,
-                requestedMaxTokens,
-                pricingTime,
-            }));
-        }
 
         // First attempt
         const provider = this.#providers[model.provider!];
@@ -899,24 +903,134 @@ export class ChatCompletionDriver extends PuterDriver {
             return attempt;
         };
 
+        let variantSpeed: ICompleteArguments['serviceSpeed'];
+        let creditGateError: unknown;
         const runAttempt = async (
             attemptProvider: IChatProvider,
-            attemptModel: IChatModel,
+            baseModel: IChatModel,
         ) => {
-            if (!useFakeProvider) {
-                await this.#resolvePuterPaths(attemptProvider, args, actor);
-            }
-            // Last point where a caller who left costs nothing.
-            abortSignal?.throwIfAborted();
-            return attemptProvider.complete(
-                {
-                    ...args,
+            const offers =
+                args.serviceSpeed !== undefined &&
+                args.serviceSpeed !== 'standard'
+                    ? ((await attemptProvider.serviceSpeedModels?.(
+                          baseModel,
+                      )) ?? {})
+                    : {};
+            let requestedSpeed =
+                args.serviceSpeed ??
+                (baseModel.provider === 'claude' && args.speed === 'fast'
+                    ? 'fast'
+                    : undefined);
+            for (;;) {
+                const selection = selectServiceSpeed(
+                    baseModel,
+                    { ...args, serviceSpeed: requestedSpeed },
+                    (id) => {
+                        const variant = this.#resolveModel(
+                            id,
+                            baseModel.provider!,
+                        );
+                        return variant &&
+                            variant.provider === baseModel.provider
+                            ? variant
+                            : undefined;
+                    },
+                    offers,
+                );
+                const attemptModel = selection.model;
+                const requestArgs = {
+                    ...selection.args,
                     model: attemptModel.id,
                     provider: attemptModel.provider,
-                },
-                this.#catalogEntries.get(attemptModel),
-                pricingTime,
-            );
+                };
+                const catalogModel = this.#resolveModel(
+                    attemptModel.id,
+                    attemptModel.provider!,
+                );
+                const rawModel = this.#catalogEntries.get(
+                    catalogModel ?? baseModel,
+                );
+                const snapshot = rawModel
+                    ? {
+                          ...rawModel,
+                          costs: attemptModel.costs,
+                          pricingOverrides: attemptModel.pricingOverrides,
+                          serviceSpeedPricing: attemptModel.serviceSpeedPricing,
+                      }
+                    : attemptModel;
+                if (!useFakeProvider) {
+                    try {
+                        ({
+                            hold,
+                            fundsCap,
+                            costFactor,
+                            promptTokenEstimate: attemptPromptTokenEstimate,
+                        } = await this.#applyCreditGate(
+                            actor,
+                            attemptModel,
+                            requestArgs,
+                            {
+                                promptTokenEstimate,
+                                requestedMaxTokens,
+                                pricingTime,
+                            },
+                        ));
+                    } catch (error) {
+                        creditGateError = error;
+                        throw error;
+                    }
+                    await this.#resolvePuterPaths(
+                        attemptProvider,
+                        requestArgs,
+                        actor,
+                    );
+                }
+                abortSignal?.throwIfAborted();
+                try {
+                    const result = await attemptProvider.complete(
+                        requestArgs,
+                        snapshot,
+                        pricingTime,
+                    );
+                    model = attemptModel;
+                    variantSpeed =
+                        attemptModel.id !== baseModel.id
+                            ? selection.speed
+                            : undefined;
+                    if (
+                        args.serviceSpeed !== undefined &&
+                        'message' in result
+                    ) {
+                        const messageResult = result as IChatMessageResult;
+                        const details =
+                            messageResult.usageDetails ??
+                            usageDetailsFromUsage(messageResult.usage, model);
+                        messageResult.usageDetails = {
+                            ...details,
+                            serviceSpeed:
+                                variantSpeed ??
+                                details?.serviceSpeed ??
+                                details?.speed ??
+                                'standard',
+                        };
+                    }
+                    return result;
+                } catch (error) {
+                    await hold.release();
+                    hold = NO_CREDIT_HOLD;
+                    if (
+                        args.serviceSpeed === undefined ||
+                        selection.speed === 'standard' ||
+                        !isServiceSpeedUnavailable(
+                            error,
+                            attemptModel.id !== baseModel.id,
+                        )
+                    )
+                        throw error;
+                    requestedSpeed = lowerServiceSpeed(selection.speed);
+                    pricingTime = new Date();
+                }
+            }
         };
 
         try {
@@ -984,29 +1098,17 @@ export class ChatCompletionDriver extends PuterDriver {
                 // The previous attempt released its hold when it failed, so
                 // this one starts from nothing held.
                 pricingTime = new Date();
-                if (!useFakeProvider) {
-                    ({
-                        hold,
-                        fundsCap,
-                        costFactor,
-                        promptTokenEstimate: attemptPromptTokenEstimate,
-                    } = await this.#applyCreditGate(actor, fallback, args, {
-                        promptTokenEstimate,
-                        requestedMaxTokens,
-                        pricingTime,
-                    }));
-                }
 
                 tried.add(routeId(fallback.provider!, fallback.id));
 
                 try {
                     res = await runAttempt(fbProvider, fallback);
-                    model = fallback;
                     lastError = null;
                     console.warn(
                         `[ai-chat] fallback served (${completionId}, ${first.provider}:${first.model} -> ${fallback.provider}:${fallback.id}, first ${first.status ?? 'none'}${first.upstreamType ? `/${first.upstreamType}` : ''})`,
                     );
                 } catch (fbErr) {
+                    if (fbErr === creditGateError) throw fbErr;
                     await hold.release();
                     hold = NO_CREDIT_HOLD;
                     abortSignal?.throwIfAborted();
@@ -1161,6 +1263,20 @@ export class ChatCompletionDriver extends PuterDriver {
                     chatStream.setUsageDetails(
                         usageDetailsFromUsage(usage, model),
                     );
+                }
+                if (
+                    args.serviceSpeed !== undefined &&
+                    chatStream.usageDetails
+                ) {
+                    const details = chatStream.usageDetails;
+                    chatStream.setUsageDetails({
+                        ...details,
+                        serviceSpeed:
+                            variantSpeed ??
+                            details.serviceSpeed ??
+                            details.speed ??
+                            'standard',
+                    });
                 }
                 withClaudeThinkingTokens(
                     enrichedUsage,
@@ -1474,12 +1590,7 @@ export class ChatCompletionDriver extends PuterDriver {
         const metering = this.services.metering;
         const { requestedMaxTokens, pricingTime } = estimates;
         let { promptTokenEstimate } = estimates;
-        // A provider can name its own cost keys for this request (Claude's
-        // fast-mode rate card), cap its output, and size an extra reservation
-        // the per-token math can't see (a web-search/advisor tool that could
-        // run several times before the model answers) — the same clamps it
-        // applies when building the request, so the hold and the request
-        // agree.
+        // Providers reserve tool calls using the same caps they send upstream.
         const pricing =
             this.#providers[model.provider!]?.requestPricing?.(args, model, {
                 promptTokenEstimate,
