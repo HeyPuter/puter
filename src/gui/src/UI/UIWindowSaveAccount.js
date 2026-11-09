@@ -117,6 +117,12 @@ async function UIWindowSaveAccount (options) {
             },
         });
 
+        // One is already open, which UIWindow focused instead of opening this.
+        if ( ! el_window ) {
+            resolve(false);
+            return;
+        }
+
         $(el_window).find('.signup-btn').on('click', function (e) {
             // todo do some basic validation client-side
 
