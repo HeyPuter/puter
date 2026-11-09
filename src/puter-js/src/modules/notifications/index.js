@@ -27,6 +27,7 @@ import { HANDLED_EVENT, ReceiptLog, handledHere } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
 import {
     currentWebPush,
+    forgetWebPushReceipt,
     removeWebPush,
     syncWebPush,
     unsubscribeWebPush,
@@ -581,7 +582,7 @@ export class NotificationsModule extends EventListener {
             return 'off';
         }
         if (state === 'revoked') {
-            await this.#recordOptIn(false);
+            await this.#dropRevoked(worker);
             return 'off';
         }
         return 'on';
@@ -820,7 +821,7 @@ export class NotificationsModule extends EventListener {
                     return;
                 if (answer.state === 'removed')
                     await this.#dropRemoved(worker, now);
-                else await this.#recordOptIn(false);
+                else await this.#dropRevoked(worker);
             });
             return true;
         }
@@ -892,7 +893,14 @@ export class NotificationsModule extends EventListener {
     async #followRefusal(error, worker) {
         if (error?.code === 'push_device_removed')
             await this.#dropRemoved(worker);
-        else if (error?.code === 'push_revoked') await this.#recordOptIn(false);
+        else if (error?.code === 'push_revoked')
+            await this.#dropRevoked(worker);
+    }
+
+    /** The user turned the app off in Puter: pushes stay off until `enable()`. */
+    async #dropRevoked(worker) {
+        await forgetWebPushReceipt(worker);
+        await this.#recordOptIn(false);
     }
 
     /**
@@ -908,6 +916,7 @@ export class NotificationsModule extends EventListener {
         } catch {
             // Already gone, or the browser can't tell.
         }
+        await forgetWebPushReceipt(worker);
         await this.#recordOptIn(false);
     }
 

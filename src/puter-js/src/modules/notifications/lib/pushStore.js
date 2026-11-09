@@ -13,6 +13,8 @@ export const SERVER_KEYS_ENTRY = 'puter:server-keys';
 export const SYNCED_PREFIX = 'puter:synced:';
 /** Per worker scope: set by `push-sw.js` when a subscription is replaced. */
 export const SUBSCRIPTION_CHANGED_PREFIX = 'puter:subscription-changed:';
+/** Per worker scope: `{ endpoint, receipt }` the server last gave. */
+export const RECEIPT_PREFIX = 'puter:receipt:';
 /** Where a tap without a URL goes, per worker scope; read by `push-sw.js`. */
 export const TAP_BASE_PREFIX = 'puter:tap-base:';
 /** How long a kept tap waits for its page, as in `push-sw.js`. */
@@ -61,12 +63,13 @@ export const setOptIn = (userUuid, on, idb = globalThis.indexedDB) =>
         ? idbPut(HANDLERS_STORE, OPT_IN_PREFIX + userUuid, true, idb)
         : idbDelete(HANDLERS_STORE, OPT_IN_PREFIX + userUuid, idb);
 
-/** Forgets every user's opt-in and sync, and every kept tap. */
+/** Forgets every user's opt-in and sync, every receipt, and every kept tap. */
 export const forgetPushState = async (idb = globalThis.indexedDB) => {
     for (const prefix of [
         OPT_IN_PREFIX,
         SYNCED_PREFIX,
         SUBSCRIPTION_CHANGED_PREFIX,
+        RECEIPT_PREFIX,
     ]) {
         await run(idb, HANDLERS_STORE, 'readwrite', (s) =>
             s.delete(globalThis.IDBKeyRange.bound(prefix, `${prefix}￿`)),
