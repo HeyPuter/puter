@@ -49,13 +49,21 @@ An object with the following properties:
 
 A `Promise` that resolves to `{ revoked }`, where `revoked` is how many grants were actually removed. It is `0` when there was nothing to withdraw, which is not an error.
 
+Each recipient/item pair is withdrawn on its own. If some pairs are refused and others go through, the promise resolves, and `revoked` counts what the others removed. It rejects only when every pair was refused.
+
 ## Errors
 
-A rejection carries `{ message, code }`.
+A rejection carries `{ message, code }`, taken from the first pair that was refused. You only see one when every pair was refused; a refused pair alongside one that went through is not reported.
 
 | `code` | Meaning |
 | --- | --- |
-| `team_share` | You tried to leave an item you hold only through a team. That access is the team's grant, not yours to drop; ask whoever shared it with the team, or leave the team. Returned with status `409`. If you also hold a share of your own, leaving drops that one and succeeds. |
+| `team_share` | You tried to leave an item you hold only through a team. That access is the team's grant, not yours to drop; ask whoever shared it with the team, or leave the team. If you also hold a share of your own, leaving drops that one and succeeds. |
+| `forbidden` | You may not withdraw shares of this item — or you tried to close its "anyone with the link" share, which only the owner may do, in person rather than through an app. |
+| `subject_does_not_exist` | No such item, or you cannot see it. |
+| `user_does_not_exist` | The username has no account. |
+| `team_not_found` | No team has that uid. |
+| `cannot_revoke_owner` | The recipient owns the item. |
+| `unshare_failed` | The pair failed for a reason the server did not name. |
 
 ## Who can withdraw what
 

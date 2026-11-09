@@ -43,6 +43,7 @@ globalThis.def = globalThis.def ?? (value => value);
 globalThis.use = globalThis.use ?? (() => class {});
 
 const { default: UIShareModal } = await import('./UIShareModal.js');
+const { unshareAnswering, allRefused } = await import('../../../tests/fixtures/sdkUnshare.js');
 
 const settle = async () => {
     for ( let i = 0; i < 5; i++ ) await new Promise(resolve => setTimeout(resolve, 0));
@@ -80,6 +81,20 @@ describe('UIShareModal general access', () => {
         await settle();
         expect(puter.fs.unshare).toHaveBeenCalledTimes(2);
         expect($('.share-modal-link-access').val()).toBe('restricted');
+    });
+
+    it('shows the error when closing the link is refused', async () => {
+        puter.fs.getShares = vi.fn(async () => [{ holder: null, anyone: true, mode: 'read', issuer: 'alice' }]);
+        puter.fs.unshare = unshareAnswering(allRefused);
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+        expect($('.share-modal-link-access').val()).toBe('anyone');
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe('Held through a team');
+        expect($('.share-modal-link-access').val()).toBe('anyone');
     });
 
     it('shows a listed selection as the listings say', async () => {
@@ -152,6 +167,21 @@ describe('UIShareModal removing access', () => {
         $('.share-modal-confirm-remove').trigger('click');
         await settle();
         expect(puter.fs.unshare).toHaveBeenCalledWith({ paths: ['/alice/a.txt'], recipient: 'bob' });
+    });
+
+    it('keeps the row and shows the error when the removal is refused', async () => {
+        puter.fs.getShares = vi.fn(async () => [{ holder: 'bob', mode: 'read', issuer: 'alice' }]);
+        puter.fs.unshare = unshareAnswering(allRefused);
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+
+        $('.share-modal-row-mode').val('__remove').trigger('change');
+        $('.share-modal-confirm-remove').trigger('click');
+        await settle();
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe('Held through a team');
+        expect($('.share-modal-row-mode').attr('data-key')).toBeTruthy();
+        expect($('.share-modal-row-mode').val()).toBe('read');
     });
 
     it('offers cancelling an invitation from its menu', async () => {

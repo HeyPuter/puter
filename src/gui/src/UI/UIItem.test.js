@@ -67,8 +67,11 @@ Object.assign(window, {
 
 const { default: UIItem } = await import('./UIItem.js');
 const { default: UIContextMenu } = await import('./UIContextMenu.js');
+const { default: UIAlert } = await import('./UIAlert.js');
+const { unshareAnswering, allRefused } =
+    await import('../../tests/fixtures/sdkUnshare.js');
 
-const menuLabels = async (options) => {
+const menuItems = async (options) => {
     document.body.innerHTML =
         '<div class="window"><div class="item-container"></div></div>';
     await UIItem({
@@ -87,8 +90,11 @@ const menuLabels = async (options) => {
     UIContextMenu.mockClear();
     $('.item').trigger('contextmenu');
     await vi.waitFor(() => expect(UIContextMenu).toHaveBeenCalled());
-    return UIContextMenu.mock.calls[0][0].items.map((item) => item?.html);
+    return UIContextMenu.mock.calls[0][0].items;
 };
+
+const menuLabels = async (options) =>
+    (await menuItems(options)).map((item) => item?.html);
 
 describe('UIItem Remove from Shared', () => {
     beforeEach(() => {
@@ -108,5 +114,18 @@ describe('UIItem Remove from Shared', () => {
         const labels = await menuLabels({ is_team_share: true });
         expect($('.item').attr('data-is_team_share')).toBe('1');
         expect(labels).not.toContain('share_remove_from_shared');
+    });
+
+    it('keeps the item and shows the error when leaving is refused', async () => {
+        puter.fs.unshare = unshareAnswering(allRefused);
+        const items = await menuItems({});
+        await items
+            .find((item) => item?.html === 'share_remove_from_shared')
+            .onClick();
+
+        expect(UIAlert).toHaveBeenCalledWith({
+            message: 'Held through a team',
+        });
+        expect($('.item').length).toBe(1);
     });
 });

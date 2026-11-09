@@ -599,6 +599,47 @@ describe('stat', () => {
     });
 });
 
+describe('unshare', () => {
+    it('rejects with the first error when every pair was refused', async () => {
+        FakeXHR.respondWith = () => ({
+            status: 'aborted',
+            revoked: 0,
+            results: [
+                { recipient: 'me', path: '/a/file.txt', status: 'error', code: 'team_share', message: 'Held through a team' },
+                { recipient: 'me', path: '/a/other.txt', status: 'error', code: 'forbidden', message: 'Not allowed' },
+            ],
+        });
+        const onSuccess = vi.fn();
+        const onError = vi.fn();
+        await expect(fs.unshare('/a/file.txt', 'me', onSuccess, onError))
+            .rejects.toEqual({ message: 'Held through a team', code: 'team_share' });
+        expect(onSuccess).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledWith({ message: 'Held through a team', code: 'team_share' });
+    });
+
+    it('resolves when some pairs were withdrawn', async () => {
+        FakeXHR.respondWith = () => ({
+            status: 'mixed',
+            revoked: 1,
+            results: [
+                { recipient: 'bob', path: '/a/file.txt', status: 'success' },
+                { recipient: 'nobody', path: '/a/file.txt', status: 'error', code: 'user_does_not_exist', message: 'No such user' },
+            ],
+        });
+        await expect(fs.unshare({ path: '/a/file.txt', recipients: ['bob', 'nobody'] }))
+            .resolves.toEqual({ revoked: 1 });
+    });
+
+    it('resolves when there was nothing to withdraw', async () => {
+        FakeXHR.respondWith = () => ({
+            status: 'success',
+            revoked: 0,
+            results: [{ recipient: 'bob', path: '/a/file.txt', status: 'success' }],
+        });
+        await expect(fs.unshare('/a/file.txt', 'bob')).resolves.toEqual({ revoked: 0 });
+    });
+});
+
 describe('readdir', () => {
     beforeEach(() => {
         FakeXHR.respondWith = () => [{ uuid: 'u1', name: 'file.txt', path: '/a/file.txt', isDir: false }];

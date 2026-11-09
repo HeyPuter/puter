@@ -52,6 +52,7 @@ const { default: generate_file_context_menu } =
     await import('./generateFileContextMenu.js');
 const { default: launch_app } = await import('./launchApp.js');
 const { default: UIAlert } = await import('../UI/UIAlert.js');
+const { unshareAnswering, allRefused } = await import('../../tests/fixtures/sdkUnshare.js');
 
 const sharedRow = () => {
     const row = document.createElement('div');
@@ -87,6 +88,27 @@ it('does not offer it on a share held through a team', async () => {
     expect(await labels({ holderTeam: team })).not.toContain(
         'share_remove_from_shared',
     );
+});
+
+it('keeps the row and shows the error when leaving the share is refused', async () => {
+    const row = sharedRow();
+    document.body.append(row);
+    const onRemovedFromShared = vi.fn();
+    window.user = { username: 'alice' };
+    globalThis.puter = { fs: { unshare: unshareAnswering(allRefused) } };
+    const items = await generate_file_context_menu({
+        element: row,
+        fsentry: { name: 'notes.txt', path: '/ann/uid-1/notes.txt' },
+        associated_app_name: 'editor',
+        onRemovedFromShared,
+    });
+    await items.find((item) => item.html === 'share_remove_from_shared').onClick();
+
+    expect(UIAlert).toHaveBeenCalledWith({ message: 'Held through a team' });
+    expect(row.isConnected).toBe(true);
+    expect(onRemovedFromShared).not.toHaveBeenCalled();
+    row.remove();
+    UIAlert.mockReset();
 });
 
 describe('Open With', () => {
