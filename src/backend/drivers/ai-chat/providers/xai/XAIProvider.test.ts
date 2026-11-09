@@ -20,13 +20,12 @@
 /**
  * Offline unit tests for XAIProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs XAIProvider directly against the live wired
- * `MeteringService` so the recording side is exercised end-to-end.
- * xAI is OpenAI-compatible so the OpenAI SDK is mocked at the module
- * boundary; that's the real network egress point. The companion
- * integration test (XAIProvider.integration.test.ts) exercises the
- * real xAI endpoint.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs XAIProvider directly against the live wired `MeteringService` so
+ * the recording side is exercised end-to-end. xAI is OpenAI-compatible so the
+ * OpenAI SDK is mocked at the module boundary; that's the real network egress
+ * point. The companion integration test (XAIProvider.integration.test.ts)
+ * exercises the real xAI endpoint.
  */
 
 import { Writable } from 'node:stream';
@@ -933,8 +932,7 @@ describe('XAIProvider.complete non-stream output', () => {
         // namespace, actor, and a costsOverride priced from
         // models.ts (grok-4.6: prompt=200, completion=600, cached=50).
         expect(recordSpy).toHaveBeenCalledTimes(1);
-        const [usage, actor, prefix, overrides] =
-            recordSpy.mock.calls[0]!;
+        const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
             prompt_tokens: 90,
             completion_tokens: 50,
@@ -1022,8 +1020,7 @@ describe('XAIProvider.complete non-stream output', () => {
             }),
         );
 
-        const [usage, , , overrides] =
-            recordSpy.mock.calls[0]!;
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
         expect(usage.cached_tokens).toBe(0);
         // 0 cached tokens × any rate = 0 metered cost.
         expect(overrides).toMatchObject({ cached_tokens: 0 });
@@ -1081,8 +1078,7 @@ describe('XAIProvider.complete streaming', () => {
 
         // grok-build-0.1 costs: prompt=100, completion=200, cached=20.
         expect(recordSpy).toHaveBeenCalledTimes(1);
-        const [, , prefix, overrides] =
-            recordSpy.mock.calls[0]!;
+        const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('xai:grok-build-0.1');
         expect(overrides).toEqual({
             prompt_tokens: 3 * 100,
@@ -1197,6 +1193,63 @@ describe('XAIProvider.checkModeration', () => {
         const { provider } = makeProvider();
         expect(() => provider.checkModeration('anything')).toThrow(
             /not implemented/i,
+        );
+    });
+});
+
+describe('xAI service speed billing', () => {
+    it('records the reported Priority charge with cached input and reasoning', async () => {
+        const { selectServiceSpeed } =
+            await import('../../utils/serviceSpeed.js');
+        const { provider } = makeProvider();
+        const base = {
+            ...(await provider.models()).find(
+                (entry) => entry.id === 'grok-4.7',
+            )!,
+            provider: 'xai',
+        };
+        const selected = selectServiceSpeed(
+            base,
+            {
+                model: base.id,
+                messages: [{ role: 'user', content: 'Hello' }],
+                serviceSpeed: 'ultrafast',
+            },
+            () => undefined,
+        );
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    index: 0,
+                    message: { role: 'assistant', content: 'OK' },
+                    finish_reason: 'stop',
+                },
+            ],
+            service_tier: 'priority',
+            usage: {
+                prompt_tokens: 1247,
+                completion_tokens: 1,
+                total_tokens: 1282,
+                prompt_tokens_details: { cached_tokens: 1152 },
+                completion_tokens_details: { reasoning_tokens: 34 },
+                cost_in_usd_ticks: 19520000,
+            },
+        });
+        const result = await withTestActor(() =>
+            provider.complete(selected.args, selected.model),
+        );
+        expect(result).toMatchObject({
+            usageDetails: {
+                serviceSpeed: 'fast',
+                outputTokens: 35,
+                reasoningTokens: 34,
+            },
+        });
+        expect(recordSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ billedUsage: 1, completion_tokens: 35 }),
+            expect.anything(),
+            'xai:grok-4.7',
+            expect.objectContaining({ billedUsage: 195200 }),
         );
     });
 });

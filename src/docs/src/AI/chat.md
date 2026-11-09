@@ -30,6 +30,7 @@ An object containing the following properties:
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | The model you want to use for the completion. If not specified, defaults to `gpt-5.4-nano`. More than 500 models are available from providers including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page. |
+| `serviceSpeed` | `String` | Preferred service speed, `"standard"`, `"fast"`, or `"ultrafast"`. Unavailable speeds fall back from ultrafast to fast, then standard. Omitting it preserves the model's default service. Faster service may cost more. See [Service speed](#service-speed) and [Model-specific features](#model-specific-features). |
 | `stream` | `Boolean` | A boolean indicating whether you want to stream the completion. Defaults to `false`. |
 | `max_tokens` | `Number` | The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used. |
 | `temperature` | `Number` | A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the model's own temperature is used. See [Model-specific features](#model-specific-features). |
@@ -137,6 +138,8 @@ by a newline. Use the async iterator to receive every chunk as an object.
 ## Errors
 
 In case of an error, the `Promise` will reject with an error message.
+
+An unrecognized `serviceSpeed` value rejects with `invalid_service_speed`.
 
 For streaming responses, an error from the AI provider is returned as a chunk
 with `type: "error"` and a `message` describing the failure. This also happens
@@ -370,9 +373,19 @@ const response = await puter.ai.chat('Hello', {
 
 With `provider` set as well, the request is answered by that provider or fails. If that provider does not serve the model, the request fails with a `400` instead of going to another provider. The error is the same one you would get if every provider had failed, for example `400 upstream_provider_unavailable` or `429 upstream_rate_limited`.
 
+## Service speed
+
+The `serviceSpeed` option selects service capacity independently of reasoning effort. If the requested speed is unavailable for the selected model, the request uses the next supported speed in the order `ultrafast`, `fast`, `standard`.
+
+A faster tier that rejects a request because its capacity or access is unavailable can retry at a lower speed on the same provider. The `fallback` option controls retries on other providers separately. Once streaming output starts, a failed stream ends with an error instead of restarting at another speed.
+
+The `usageDetails.serviceSpeed` field reports the served speed. Billing uses the tier or equivalent model that served the request. A provider downgrade is billed at the lower tier's rates. Response normalization follows the same rule as a request without this option, including when a faster equivalent model is selected.
+
 ## Model-specific features
 
 ### OpenAI models
+
+Fast service is available on models with a published Fast rate card. Ultrafast is available for GPT-6.1 Sol and GPT-6 Astra. Other models fall back to fast or standard. Cache and long-context rates apply to the served tier.
 
 #### `temperature`
 
@@ -418,6 +431,8 @@ The `usageDetails` object on every result carries the same counts under provider
 
 ### Anthropic models
 
+Fast service is available on Claude models with a Fast rate card. Ultrafast falls back to fast. When the account has no Fast quota, the request retries at standard speed. The upstream service tier and inference speed are separate fields.
+
 #### Prompt Caching
 
 Specific to Anthropic models, you can use the cache control feature, allowing you to optimize costs for repeated prompts.
@@ -441,6 +456,8 @@ Pass in the `cache_control` parameter inside the object in the `messages` array.
 You can find the implementation in our [prompt caching example](/playground/ai-claude-cache-control/). Find more details about cache control in [Anthropic documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
 
 ### Gemini models
+
+Fast service uses Priority inference on supported text and image requests. Other media use standard service to preserve input handling.
 
 #### `temperature`
 
@@ -543,6 +560,8 @@ for await (const part of resp) {
 
 ### Moonshot Kimi models
 
+Models with an equivalent Highspeed variant select that variant for fast service. Other models use standard service.
+
 #### `reasoning_effort`
 
 Kimi K3.1 Pro accepts `low`, `high` and `max`, uses `max` when you leave it unset, and fails with `400 bad_request` on any other value.
@@ -556,6 +575,30 @@ Moonshot's Kimi K3 and Kimi K3.1 Pro models cache prompt prefixes on their own a
 #### `reasoning_effort`
 
 Muse Spark always reasons, so `none` is ignored for it.
+
+### xAI models
+
+Fast service requests Priority processing. Token charges, including cached input and reasoning, follow the served tier.
+
+### MiniMax models
+
+MiniMax M3 uses Priority admission for fast service. Earlier models with an equivalent Highspeed variant use that variant. Other models use standard service.
+
+### Mistral models
+
+Fast service requests Priority when the account and model are eligible. The provider can serve the request at standard speed.
+
+### Alibaba Cloud models
+
+Models with an equivalent Prime or Fast variant select that variant for fast service. Other models use standard service.
+
+### OpenRouter models
+
+Faster tiers come from the selected model's endpoint catalog. A tier can fall back upstream. Billing uses the endpoint that serves the request.
+
+### Infron models
+
+Models with a Priority offering select that offering for fast service. Other models use standard service.
 
 ## Examples
 
@@ -1088,6 +1131,26 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
             analyzeBtn.disabled = false;
             analyzeBtn.textContent = 'Analyze My Resume';
         });
+    </script>
+</body>
+</html>
+```
+
+### Select service speed
+
+For example, request the fastest supported service:
+
+```html;ai-chat-service-speed
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script type="module">
+        const response = await puter.ai.chat('Explain closures in one paragraph.', {
+            model: 'gpt-6.1-sol',
+            serviceSpeed: 'ultrafast',
+        });
+        puter.print(response.message.content);
+        puter.print(response.usageDetails.serviceSpeed);
     </script>
 </body>
 </html>
