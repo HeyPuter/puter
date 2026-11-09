@@ -20,6 +20,7 @@
 import { createHmac } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { describe, expect, it } from 'vitest';
+import { isTokenForAnotherUser } from '../../../gui/src/helpers/tokenUser.js';
 import { TokenService } from './TokenService.js';
 
 const V2_SECRET = 'test-v2-secret';
@@ -383,4 +384,22 @@ describe('TokenService payload key handling', () => {
             expect(Object.getPrototypeOf(verified)).toBe(Object.prototype);
         },
     );
+});
+
+describe('session token read by the desktop', () => {
+    // The desktop reads the user out of a token another tab stored, to tell
+    // an account switch from a renewed token for the same account.
+    it('names its user in the form the desktop decodes', () => {
+        const svc = createTokenService();
+        const userUid = '5d4adce0-a381-4982-9c02-6e2540026238';
+        const otherUid = 'a1b2c3d4-0000-4000-8000-00000000beef';
+        const token = svc.sign('auth', {
+            type: 'gui',
+            version: '2',
+            user_uid: userUid,
+        });
+
+        expect(isTokenForAnotherUser(token, { uuid: userUid })).toBe(false);
+        expect(isTokenForAnotherUser(token, { uuid: otherUid })).toBe(true);
+    });
 });
