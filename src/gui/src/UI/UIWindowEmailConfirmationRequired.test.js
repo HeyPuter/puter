@@ -140,6 +140,27 @@ describe('UIWindowEmailConfirmationRequired', () => {
         expect(await settled(result)).toBe(PENDING);
     });
 
+    it('takes the code typed in a second window open over another', async () => {
+        const ajax = vi.spyOn(jQuery, 'ajax').mockImplementation((opts) => {
+            opts.success({ email_confirmed: true });
+            opts.complete?.();
+        });
+        const { result: under } = await open();
+        const over = UIWindowEmailConfirmationRequired();
+        await vi.waitFor(() => expect(win()).toHaveLength(2));
+        vi.useFakeTimers();
+        const first = win().get(1).querySelector('[data-number-code-input="0"]');
+        first.value = '123456';
+        first.dispatchEvent(new Event('input', { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(1000);
+        vi.useRealTimers();
+
+        await expect(over).resolves.toBe(true);
+        expect(ajax).toHaveBeenCalledWith(expect.objectContaining({ data: JSON.stringify({ code: '123456' }) }));
+        expect(win()).toHaveLength(1);
+        expect(await settled(under)).toBe(PENDING);
+    });
+
     it('resolves false when it closes without a confirmation', async () => {
         const { result } = await open();
         win().close();

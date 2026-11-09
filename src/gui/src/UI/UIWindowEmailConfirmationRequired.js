@@ -222,7 +222,7 @@ function UIWindowEmailConfirmationRequired (options) {
         });
 
         // Elements
-        const numberCodeForm = document.querySelector('[data-number-code-form]');
+        const numberCodeForm = $(el_window).find('[data-number-code-form]').get(0);
         const numberCodeInputs = [...numberCodeForm.querySelectorAll('[data-number-code-input]')];
 
         // Event listeners
