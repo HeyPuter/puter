@@ -1173,6 +1173,7 @@ describe('ClaudeProvider.complete request shape', () => {
     });
 
     it.each([
+        'claude-fable-5-2',
         'claude-fable-5-1',
         'claude-haiku-5-5',
         'claude-opus-5-5',
@@ -1198,6 +1199,7 @@ describe('ClaudeProvider.complete request shape', () => {
     );
 
     it.each([
+        'claude-fable-5-2',
         'claude-fable-5-1',
         'claude-haiku-5-5',
         'claude-opus-5-5',
@@ -1302,6 +1304,63 @@ describe('ClaudeProvider model resolution', () => {
             expect.any(Object),
         );
     });
+
+    it.each([
+        'claude-fable-5-2',
+        'claude-fable-5-2-latest',
+        'claude-fable-5.2',
+        'anthropic/claude-fable-5-2',
+    ])(
+        'routes %s to Fable 5.2 with provisional Fable 5.1 rates',
+        async (model) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                content: [{ type: 'text', text: 'ok' }],
+                usage: {
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    cache_read_input_tokens: 1000,
+                    cache_creation_input_tokens: 200,
+                    cache_creation: {
+                        ephemeral_5m_input_tokens: 150,
+                        ephemeral_1h_input_tokens: 50,
+                    },
+                },
+            });
+
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+                'claude-fable-5-2',
+            );
+            const fable52 = CLAUDE_MODELS.find(
+                (m) => m.id === 'claude-fable-5-2',
+            )!;
+            const fable51 = CLAUDE_MODELS.find(
+                (m) => m.id === 'claude-fable-5-1',
+            )!;
+            expect(fable52.costs).toEqual(fable51.costs);
+            expect(fable52.context).toBe(1_000_000);
+            expect(fable52.max_tokens).toBe(128_000);
+            const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe('claude:claude-fable-5-2');
+            expect(overrides).toMatchObject({
+                input_tokens: 100 * Number(fable51.costs.input_tokens),
+                output_tokens: 50 * Number(fable51.costs.output_tokens),
+                cache_read_input_tokens:
+                    1000 * Number(fable51.costs.cache_read_input_tokens),
+                ephemeral_5m_input_tokens:
+                    150 * Number(fable51.costs.ephemeral_5m_input_tokens),
+                ephemeral_1h_input_tokens:
+                    50 * Number(fable51.costs.ephemeral_1h_input_tokens),
+            });
+        },
+    );
 
     it('routes the bare claude-fable alias to fable 5.1 rather than fable 5', async () => {
         const { provider } = makeProvider();
