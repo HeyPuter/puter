@@ -442,7 +442,7 @@ You can find the implementation in our [prompt caching example](/playground/ai-c
 
 #### Fast mode
 
-Claude Opus 5.5, Claude Opus 5, and Claude Opus 4.8 accept a `speed` option. Set it to `"fast"` to run the model in fast mode, which generates output faster and costs more per token. Leaving it unset runs the model at standard speed. Other models ignore `speed`. The prices for both speeds are on the [AI models list](https://developer.puter.com/ai/models/).
+Claude Opus 5.5, Claude Opus 5, and Claude Opus 4.8 accept a `speed` option. Set it to `"fast"` to run the model in fast mode, which generates output faster and costs more per token. Set it to `"standard"`, or leave it unset, to run the model at standard speed. Other models ignore `speed`. The prices for both speeds are on the [AI models list](https://developer.puter.com/ai/models/).
 
 ```js
 const response = await puter.ai.chat('Explain quicksort in one paragraph', {
@@ -451,7 +451,7 @@ const response = await puter.ai.chat('Explain quicksort in one paragraph', {
 });
 ```
 
-Fast mode has its own rate limit. A request that goes over it runs at standard speed and is billed at standard prices. To check which speed a request ran at, read `usageDetails.speed` on the [`ChatResponse`](/Objects/chatresponse), or on the final `usage` chunk when streaming. See [`ChatResponseChunk`](/Objects/chatresponsechunk).
+Fast mode has its own rate limit. A request that goes over it runs at standard speed and is billed at standard prices. To check whether a request ran in fast mode, read `usageDetails.speed` on the [`ChatResponse`](/Objects/chatresponse), or on the final `usage` chunk when streaming. See [`ChatResponseChunk`](/Objects/chatresponsechunk). It's `"fast"` when the request ran in fast mode. Any other value, or no value, means it ran at standard speed.
 
 ### Gemini models
 
