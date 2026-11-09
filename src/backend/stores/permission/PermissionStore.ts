@@ -17,7 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { PuterStore } from '../types';
+import {
+    CACHE_TOMBSTONE_SUFFIX,
+    CACHE_TOMBSTONE_TTL_SECONDS,
+    PuterStore,
+} from '../types';
 import type { LayerInstances } from '../../types';
 import type { puterStores } from '../index';
 import { PermissionUtil } from '../../services/permission/permissionUtil';
@@ -652,7 +656,8 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return [];
         const { where, params } = subtreeClause(permissions);
 
-        const rows = (await this.clients.db.read(
+        // The primary: a grant made just now may not have reached a replica.
+        const rows = (await this.clients.db.pread(
             'SELECT `group_id`, `permission` FROM `user_to_group_permissions` ' +
                 `WHERE ${where}`,
             params,
@@ -689,7 +694,8 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return [];
         const { where, params } = subtreeClause(permissions);
 
-        const rows = (await this.clients.db.read(
+        // The primary: a grant made just now may not have reached a replica.
+        const rows = (await this.clients.db.pread(
             'SELECT `holder_user_id`, `issuer_user_id`, `permission` FROM `user_to_user_permissions` ' +
                 `WHERE ${where}`,
             params,
@@ -1391,6 +1397,19 @@ export class PermissionStore extends PuterStore {
             .filter((uuid): uuid is string => Boolean(uuid));
     }
 
+    /** Every member, from the primary, for a revoke that needs both forms. */
+    async listGroupMembers(
+        groupId: number,
+    ): Promise<Array<{ id: number; uuid: string | null }>> {
+        const rows = (await this.clients.db.pread(
+            'SELECT u.`id`, u.`uuid` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                'WHERE ug.`group_id` = ?',
+            [groupId],
+        )) as { id: number; uuid: string | null }[];
+        return rows.map((row) => ({ id: Number(row.id), uuid: row.uuid }));
+    }
+
     /** Whose standing access a grant to this group settles. */
     async listGroupMemberIds(groupId: number): Promise<number[]> {
         const rows = (await this.clients.db.read(
@@ -1503,17 +1522,38 @@ export class PermissionStore extends PuterStore {
         groupId: number,
         issuerUserId: number,
         permission: string,
+        memberIds?: number[],
     ): Promise<boolean> {
         const result = await this.clients.db.write(
             'DELETE FROM `user_to_group_permissions` ' +
                 'WHERE `group_id` = ? AND `user_id` = ? AND `permission` = ?',
             [groupId, issuerUserId, permission],
         );
-        await this.#tombstoneGroupMembers([groupId]);
+        if (memberIds) await this.markGroupMembershipChanged(memberIds);
+        else await this.#tombstoneGroupMembers([groupId]);
         return result.anyRowsAffected;
     }
 
-    /** Members read the primary until a lagging replica has the delete. */
+    /**
+     * These users' group reads go to the primary for a while. Call it when
+     * someone leaves a group or a group is deleted.
+     */
+    async markGroupMembershipChanged(userIds: number[]): Promise<void> {
+        const ids = [...new Set(userIds.map(Number))].filter((id) =>
+            Number.isFinite(id),
+        );
+        if (ids.length === 0) return;
+        // Only the tombstones: nothing is cached under the base key.
+        await this.publishCacheKeys({
+            keys: ids.map(
+                (id) => this.#u2gCacheKey(id) + CACHE_TOMBSTONE_SUFFIX,
+            ),
+            serializedData: '1',
+            ttlSeconds: CACHE_TOMBSTONE_TTL_SECONDS,
+            broadcast: true,
+        });
+    }
+
     async #tombstoneGroupMembers(groupIds: number[]): Promise<void> {
         const ids = [...new Set(groupIds.map(Number))].filter((id) =>
             Number.isFinite(id),
@@ -1524,8 +1564,8 @@ export class PermissionStore extends PuterStore {
                 `WHERE \`group_id\` IN (${ids.map(() => '?').join(', ')})`,
             ids,
         )) as { user_id: number }[];
-        await this.tombstoneCacheKeys(
-            rows.map((row) => this.#u2gCacheKey(Number(row.user_id))),
+        await this.markGroupMembershipChanged(
+            rows.map((row) => Number(row.user_id)),
         );
     }
 

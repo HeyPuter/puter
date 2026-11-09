@@ -64,6 +64,29 @@ describe('PermissionStore', () => {
         );
     };
 
+    /** Replica reads of `table` see `stale`; the primary stays real. */
+    const lagReplica = (
+        table: string,
+        stale: (sql: string) => Record<string, unknown>[],
+    ) => {
+        const db = server.clients.db;
+        const primaryRead = db.read.bind(db);
+        const pread = vi
+            .spyOn(db, 'pread')
+            .mockImplementation((sql, params) => primaryRead(sql, params));
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                String(sql).includes(table)
+                    ? stale(String(sql))
+                    : primaryRead(sql, params),
+            );
+        return () => {
+            read.mockRestore();
+            pread.mockRestore();
+        };
+    };
+
     // -- Flat KV view --------------------------------------------------
 
     describe('flat user permissions (KV view)', () => {
@@ -858,31 +881,6 @@ describe('PermissionStore', () => {
                 [userId, groupId, permission, JSON.stringify(extra)],
             );
 
-        /**
-         * The replica answers group-grant reads with `stale`; the primary stays
-         * real.
-         */
-        const lagGroupGrantReplica = (
-            stale: (sql: string) => Record<string, unknown>[],
-        ) => {
-            const db = server.clients.db;
-            const primaryRead = db.read.bind(db);
-            const pread = vi
-                .spyOn(db, 'pread')
-                .mockImplementation((sql, params) => primaryRead(sql, params));
-            const read = vi
-                .spyOn(db, 'read')
-                .mockImplementation(async (sql, params) =>
-                    String(sql).includes('user_to_group_permissions')
-                        ? stale(String(sql))
-                        : primaryRead(sql, params),
-                );
-            return () => {
-                read.mockRestore();
-                pread.mockRestore();
-            };
-        };
-
         it('only surfaces grants for groups the reader actually belongs to', async () => {
             const issuer = await makeUser();
             const member = await makeUser();
@@ -956,7 +954,7 @@ describe('PermissionStore', () => {
             await store.deleteUserGroupPerm(groupId, issuer.id, 'fs:lag:read');
 
             // The replica still has the row the primary just deleted.
-            const restore = lagGroupGrantReplica((sql) =>
+            const restore = lagReplica('user_to_group_permissions', (sql) =>
                 sql.includes('holder_user_id')
                     ? [staleForHolder]
                     : [{ ...stale, extra: '{}' }],
@@ -994,7 +992,7 @@ describe('PermissionStore', () => {
                 `fs:${node}`,
             ]);
 
-            const restore = lagGroupGrantReplica(() => [
+            const restore = lagReplica('user_to_group_permissions', () => [
                 { ...stale, extra: '{}' },
             ]);
             try {
@@ -1002,6 +1000,78 @@ describe('PermissionStore', () => {
                     await store.readUserGroupPerms(member.id, [
                         `fs:${node}:read`,
                     ]),
+                ).toEqual([]);
+            } finally {
+                restore();
+            }
+        });
+
+        it('removes a grant the replica has not seen yet with its node', async () => {
+            const issuer = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            const node = uuidv4();
+            await seedGroupPerm(issuer.id, groupId, `fs:${node}:read`);
+
+            const restore = lagReplica('user_to_group_permissions', () => []);
+            let removed;
+            try {
+                removed = await store.deleteUserGroupPermsByPermissionPrefixes([
+                    `fs:${node}`,
+                ]);
+            } finally {
+                restore();
+            }
+            expect(removed).toEqual([
+                { group_id: groupId, permission: `fs:${node}:read` },
+            ]);
+            expect(
+                await store.queryIssuerGroupPermsByPrefix(
+                    issuer.id,
+                    groupId,
+                    `fs:${node}`,
+                ),
+            ).toEqual([]);
+        });
+
+        it('sends a former member to the primary once membership changes', async () => {
+            const issuer = await makeUser();
+            const member = await makeUser();
+            const groupId = await seedGroup(issuer.id);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
+            );
+            await seedGroupPerm(issuer.id, groupId, 'fs:left:read');
+            const [stale] = await store.readUserGroupPerms(member.id, [
+                'fs:left:read',
+            ]);
+            await server.clients.db.write(
+                'DELETE FROM `jct_user_group` WHERE `user_id` = ? AND `group_id` = ?',
+                [member.id, groupId],
+            );
+
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await store.markGroupMembershipChanged([member.id]);
+                // Only tombstones go out; there is no cached value to drop.
+                const sent = emit.mock.calls
+                    .filter(([name]) => name === 'outer.cacheUpdate')
+                    .flatMap(
+                        ([, data]) => (data as { cacheKey: string[] }).cacheKey,
+                    );
+                expect(sent).toEqual([
+                    `perms:u2g:${member.id}${CACHE_TOMBSTONE_SUFFIX}`,
+                ]);
+            } finally {
+                emit.mockRestore();
+            }
+
+            const restore = lagReplica('user_to_group_permissions', () => [
+                { ...stale, extra: '{}' },
+            ]);
+            try {
+                expect(
+                    await store.readUserGroupPerms(member.id, ['fs:left:read']),
                 ).toEqual([]);
             } finally {
                 restore();
@@ -1568,6 +1638,34 @@ describe('PermissionStore', () => {
             expect(
                 await store.readLinkedUserUserPerms(holder.id, [keeper]),
             ).toHaveLength(1);
+        });
+
+        it('removes a grant the replica has not seen yet with its node', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const node = uuidv4();
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                `fs:${node}:read`,
+                {},
+            );
+
+            const restore = lagReplica('user_to_user_permissions', () => []);
+            let removed;
+            try {
+                removed = await store.deleteUserUserPermsByPermissionPrefixes([
+                    `fs:${node}`,
+                ]);
+            } finally {
+                restore();
+            }
+            expect(removed).toHaveLength(1);
+            expect(
+                await store.readLinkedUserUserPermsFromPrimary(holder.id, [
+                    `fs:${node}:read`,
+                ]),
+            ).toEqual([]);
         });
 
         it('does not let a wildcard in the prefix widen the match', async () => {
