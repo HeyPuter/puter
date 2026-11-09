@@ -159,6 +159,7 @@ const refresh_item_container = function (el_item_container, options) {
             shared_by: share.issuer,
             owner: share.owner,
             holder_team: share.holderTeam,
+            also_team_share: share.alsoHeldByTeam,
             metadata: '',
         })))
         : puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual' });
@@ -264,6 +265,7 @@ const refresh_item_container = function (el_item_container, options) {
                             shared_by: fsentry.shared_by,
                             is_shared: fsentry.is_shared,
                             is_team_share: !!fsentry.holder_team,
+                            is_also_team_share: fsentry.also_team_share === true,
                             owner: fsentry.owner?.username ?? fsentry.owner,
                         });
                     }
