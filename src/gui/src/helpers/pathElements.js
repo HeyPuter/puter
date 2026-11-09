@@ -31,7 +31,8 @@ const lower = value => String(value ?? '').toLowerCase();
 export const atPath = (elements, path, attr = 'data-path') => {
     const wanted = lower(path);
     return $(elements).filter(function () {
-        return $(this).attr(attr) !== undefined && lower($(this).attr(attr)) === wanted;
+        const value = this.getAttribute(attr);
+        return value !== null && value.toLowerCase() === wanted;
     });
 };
 
@@ -42,9 +43,12 @@ export const atPath = (elements, path, attr = 'data-path') => {
  * @param {string} path
  * @returns {JQuery}
  */
-export const underPath = (elements, path) => $(elements).filter(function () {
-    return String($(this).attr('data-path') ?? '').startsWith(`${path}/`);
-});
+export const underPath = (elements, path) => {
+    const prefix = `${path}/`;
+    return $(elements).filter(function () {
+        return this.getAttribute('data-path')?.startsWith(prefix) === true;
+    });
+};
 
 /**
  * Points every element at `oldPath`, or inside it, to `newPath`.
