@@ -65,6 +65,13 @@ describe('acknowledgement emission', () => {
         expect(emitted).toEqual([]);
     });
 
+    it('does not announce a repeat dismissal the replica still has', async () => {
+        const { store, emitted, db } = setup(appRow, false, appRow);
+        await expect(store.markAcknowledged('one', 7)).resolves.toBe(false);
+        expect(db.pread).not.toHaveBeenCalled();
+        expect(emitted).toEqual([]);
+    });
+
     it('preserves a committed acknowledgement if the announcement read fails', async () => {
         const { store, db, emitted } = setup(appRow);
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

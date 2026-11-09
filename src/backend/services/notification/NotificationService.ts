@@ -168,10 +168,7 @@ export class NotificationService extends PuterService {
         return first ? String(first.uid) : null;
     }
 
-    /**
-     * `notify`, answering with each row written as the table holds it, in
-     * recipient order. A recipient whose write failed has none.
-     */
+    /** `notify`, returning each row written; failed recipients are left out. */
     async notifyRows(
         userIds: number[],
         notification: Record<string, unknown>,
@@ -258,10 +255,7 @@ export class NotificationService extends PuterService {
         return payload !== null;
     }
 
-    /**
-     * `notifyUpdate` with `replace` for a row the caller already read: answers
-     * with the row as rewritten, or null when it was shown or dismissed since.
-     */
+    /** Replaces a row already read; null if it was shown or dismissed since. */
     async replaceUnseen(
         row: NotificationRow,
         userId: number,

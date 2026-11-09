@@ -566,14 +566,7 @@ export class NotificationStore extends PuterStore {
         return result.anyRowsAffected;
     }
 
-    /**
-     * The row `updateValue` leaves when it replaces `row` with `value` at
-     * `replacedAt` (epoch ms), built rather than read back.
-     *
-     * @param {Record<string, unknown>} row
-     * @param {unknown} value
-     * @param {number} replacedAt
-     */
+    /** The row `updateValue` leaves on a replacement at `replacedAt` (ms). */
     replacedRow(row, value, replacedAt) {
         const replaced = {
             ...row,
@@ -588,10 +581,7 @@ export class NotificationStore extends PuterStore {
         return this.#normalizeRow(replaced);
     }
 
-    /**
-     * The event needs only columns no write changes, so they come from a
-     * replica alongside the update, and from the primary when it lags.
-     */
+    // The event's columns never change: replica first, primary when it lags.
     async markAcknowledged(uid, userId) {
         const db = this.clients.db;
         const now = Math.floor(Date.now() / 1000);
