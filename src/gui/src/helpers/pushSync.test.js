@@ -71,11 +71,20 @@ describe('syncBrowserPush with the built-in client', () => {
         const nav = {
             serviceWorker: {
                 getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint: 'https://push.test/1' }) } }),
+                addEventListener: () => {},
             },
         };
-        registerPushClient(webPushClient({ notifications, NotificationApi: granted, nav }));
+        registerPushClient(webPushClient({ notifications, NotificationApi: granted, nav, userUid: () => 'u-1' }));
         return notifications;
     };
+
+    it('lists devices on the first launch only, once push is on', async () => {
+        const notifications = await builtIn();
+        const deps = { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => true };
+        await expect(syncBrowserPush({ appUid: 'app-1' }, deps)).resolves.toBe('on');
+        await expect(syncBrowserPush({ appUid: 'app-2' }, deps)).resolves.toBe('on');
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
 
     it('does not subscribe again, and stays off, when the user removed this browser in Puter', async () => {
         const notifications = await builtIn();

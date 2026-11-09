@@ -58,9 +58,11 @@ beforeEach(() => {
     registerPushClient({
         enable: async () => ({ deviceUid: 'd-1' }),
         disable: async () => {},
-        status: async () => {
+        status: async (options) => {
+            browser.asked = options;
             if ( browser.broken ) throw new Error('no push service');
-            return { ...browser };
+            const { asked: _, ...status } = browser;
+            return status;
         },
     });
     globalThis.fetch = vi.fn(async (url, init) => {
@@ -81,6 +83,12 @@ describe('the pushStatus IPC handler', () => {
             permissions: ['notifications:push'],
             app_uid: 'app-1',
         });
+    });
+
+    it('lets the browser answer with the on this page last read', async () => {
+        const { pushStatus } = await makeService();
+        await pushStatus({}, from('app-1'));
+        expect(browser.asked).toEqual({ cached: true });
     });
 
     it('is off for an app without the permission', async () => {

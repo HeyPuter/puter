@@ -20,19 +20,26 @@
 import { describe, expect, it, vi } from 'vitest';
 import { webPushClient } from './webPushClient.js';
 
-const make = ({ on = true, devices = [], permission = 'granted', subscription = {} } = {}) => {
+const make = ({ on = true, devices = [], permission = 'granted', subscription = { endpoint: 'https://push.test/1' }, user = 'u-1' } = {}) => {
     const notifications = {
         enable: vi.fn(async () => on),
         _enableWebPush: vi.fn(async () => {}),
         disable: vi.fn(async () => true),
         listDevices: vi.fn(async () => devices),
     };
+    const listeners = new Set();
+    const state = { subscription, user };
     const nav = {
         serviceWorker: {
-            getRegistration: vi.fn(async () => ({ pushManager: { getSubscription: async () => subscription } })),
+            getRegistration: vi.fn(async () => ({ pushManager: { getSubscription: async () => state.subscription } })),
+            addEventListener: (type, fn) => listeners.add(fn),
         },
     };
-    return { notifications, client: webPushClient({ notifications, NotificationApi: { permission }, nav }) };
+    const post = (data) => {
+        for ( const fn of listeners ) fn({ data });
+    };
+    const client = webPushClient({ notifications, NotificationApi: { permission }, nav, userUid: () => state.user });
+    return { notifications, client, post, state };
 };
 
 const current = { uid: 'd1', platform: 'webpush', current: true };
@@ -82,3 +89,90 @@ describe('webPushClient', () => {
     });
 });
 
+describe('webPushClient status with cached', () => {
+    const on = { permission: 'granted', registered: true, deviceUid: 'd1' };
+
+    /** A client whose last read was `on`. */
+    const readOn = async () => {
+        const made = make({ devices: [current] });
+        await expect(made.client.status()).resolves.toEqual(on);
+        made.notifications.listDevices.mockClear();
+        return made;
+    };
+
+    it('answers with the last on this page read, without listing devices', async () => {
+        const { notifications, client } = await readOn();
+        await expect(client.status({ cached: true })).resolves.toEqual(on);
+        expect(notifications.listDevices).not.toHaveBeenCalled();
+    });
+
+    it('lists devices for a read without cached', async () => {
+        const { notifications, client } = await readOn();
+        await client.status();
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it('lists devices when nothing was read yet', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        await expect(client.status({ cached: true })).resolves.toEqual(on);
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        ['the worker says the subscription changed', ({ post }) => post({ type: 'puter-push-subscription-changed' })],
+        ['the subscription has another endpoint', ({ state }) => {
+            state.subscription = { endpoint: 'https://push.test/2' };
+        }],
+        ['another user signed in', ({ state }) => {
+            state.user = 'u-2';
+        }],
+        ['the user signed out', ({ state }) => {
+            state.user = undefined;
+        }],
+        ['enable() ran', async ({ client }) => {
+            await client.enable();
+        }],
+        ['disable() ran', async ({ client }) => {
+            await client.disable();
+        }],
+        ['a read found this browser unregistered', async ({ client, notifications }) => {
+            notifications.listDevices.mockResolvedValueOnce([]);
+            await client.status();
+        }],
+    ])('asks the server again once %s', async (_label, change) => {
+        const made = await readOn();
+        await change(made);
+        made.notifications.listDevices.mockClear();
+        await made.client.status({ cached: true });
+        expect(made.notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports off after disable()', async () => {
+        const { notifications, client } = await readOn();
+        await client.disable();
+        notifications.listDevices.mockResolvedValue([]);
+        await expect(client.status({ cached: true })).resolves.toEqual({ permission: 'granted', registered: false });
+    });
+
+    it('keeps no on read before a disable() that ended first', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        let list;
+        notifications.listDevices.mockImplementationOnce(() => new Promise((resolve) => {
+            list = resolve;
+        }));
+        const reading = client.status();
+        await vi.waitFor(() => expect(list).toBeDefined());
+        await client.disable();
+        list([current]);
+        await reading;
+        notifications.listDevices.mockResolvedValue([]);
+        await expect(client.status({ cached: true })).resolves.toEqual({ permission: 'granted', registered: false });
+    });
+
+    it('is off without listing devices once the browser has no subscription or permission', async () => {
+        const { notifications, client, state } = await readOn();
+        state.subscription = null;
+        await expect(client.status({ cached: true })).resolves.toEqual({ permission: 'granted', registered: false });
+        expect(notifications.listDevices).not.toHaveBeenCalled();
+    });
+});

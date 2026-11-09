@@ -61,7 +61,7 @@ Apps on their own origin do the same through `push-sw.js`, which they import int
 interface PushClient {
     enable(options?: { background?: boolean }): Promise<{ deviceUid: string }>;
     disable(): Promise<void>;
-    status(): Promise<{
+    status(options?: { cached?: boolean }): Promise<{
         permission: 'default' | 'granted' | 'denied';
         registered: boolean;
         deviceUid?: string;
@@ -71,7 +71,7 @@ interface PushClient {
 
 - `enable()` may ask for notification permission, so core calls it from a click: Turn on in the Notifications tab, Allow on a permission prompt that includes `notifications:push` while this browser is off, and the "Turn on notifications" button of the `/action/enable-push` popup and the matching desktop dialog (`UIEnablePushDialog`). Core also calls it without a click, from `helpers/pushSync.js`, when `Notification.permission` is already `granted`, `status()` reports the browser as not registered, the user has not turned push off in this browser, and an app holds `notifications:push`; the browser does not prompt then. That call passes `{ background: true }`: a browser the user removed in Puter stays removed, and the built-in client rejects with code `push_device_removed`, after which core records the browser as turned off. The built-in client runs `puter.notifications.enable()`, which subscribes with the `/sw.js` registration and registers the browser through the Web Push flow above (`platform: 'webpush'`). It then resolves the `uid` of this browser's `webpush` device from `listDevices()`. It rejects when permission is refused or the browser wasn't registered.
 - `disable()` runs `puter.notifications.disable()`, which sends `DELETE /push/web/subscriptions { endpoint }` and ends the browser's subscription. The tab calls it for Turn off, and for Remove on the device marked as this browser. Remove on any other device is `DELETE /push/devices/:uid`.
-- `status()` reports the state without prompting. `permission` is `Notification.permission`. `registered` is true when this browser has a device registered for the signed-in user, and `deviceUid` is that device's `uid`.
+- `status()` reports the state without prompting. `permission` is `Notification.permission`. `registered` is true when this browser has a device registered for the signed-in user, and `deviceUid` is that device's `uid`. With `{ cached: true }` a client may answer with the last registered state it read in this page. Core passes it for the silent registration on app launch and for an app's `puter.notifications.status()`; the Notifications tab and the push dialogs read fresh. The built-in client keeps that state in memory for the same user and subscription, and drops it on `enable()`, `disable()`, an unregistered answer, and the worker's `puter-push-subscription-changed` message, so a new page load always asks the server.
 
 After `enable()` resolves, the tab calls `POST /push/devices/:uid/test` and asks the user whether a notification showed up.
 
