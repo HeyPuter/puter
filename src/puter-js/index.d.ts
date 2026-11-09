@@ -37,6 +37,7 @@ export type {
     AIMessageContent,
     ChatMessage,
     ChatOptions,
+    ServiceSpeed,
     ChatResponse,
     ChatResponseChunk,
     ChatResponseStream,

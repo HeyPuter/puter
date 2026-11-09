@@ -80,6 +80,7 @@ interface ChatParams {
     temperature?: number;
     reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
     stream?: boolean;
+    service_tier?: string;
 }
 
 /** Ids made up for calls Gemini returned without one; never sent back. */
@@ -240,6 +241,12 @@ const toGenerateContentRequest = (
         ? toolConfigOf(params.tool_choice)
         : undefined;
     const config: GenerateContentConfig = {
+        ...(params.service_tier !== undefined
+            ? {
+                  serviceTier:
+                      params.service_tier as GenerateContentConfig['serviceTier'],
+              }
+            : {}),
         ...(signal ? { abortSignal: signal } : {}),
         ...(systemInstruction ? { systemInstruction } : {}),
         ...(params.max_completion_tokens !== undefined

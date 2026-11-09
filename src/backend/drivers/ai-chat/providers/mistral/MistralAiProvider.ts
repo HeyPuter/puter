@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { HTTPClient } from '@mistralai/mistralai/lib/http.js';
+import { servedServiceSpeed } from '../../utils/serviceSpeed.js';
 import { Mistral } from '@mistralai/mistralai';
 import { ChatCompletionResponse } from '@mistralai/mistralai/models/components/chatcompletionresponse.js';
 import { MistralError } from '@mistralai/mistralai/models/errors/mistralerror.js';
@@ -26,6 +28,7 @@ import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
+    IChatModel,
     IChatCompleteResult,
     IChatProvider,
     ICompleteArguments,
@@ -106,6 +109,7 @@ const coerceMistralUsage = (usage: UsageInfo) => {
         prompt_tokens: (usage.promptTokens ?? 0) - cachedTokens,
         completion_tokens: usage.completionTokens ?? 0,
         prompt_tokens_details: { cached_tokens: cachedTokens },
+        service_tier: usage.additionalProperties?.service_tier,
     };
 };
 
@@ -115,7 +119,24 @@ export class MistralAIProvider implements IChatProvider {
     #meteringService: MeteringService;
 
     constructor(config: { apiKey: string }, meteringService: MeteringService) {
+        const httpClient = new HTTPClient();
+        // The SDK strips service_tier during body serialization.
+        httpClient.addHook('beforeRequest', async (request) => {
+            const tier = request.headers.get('x-puter-service-tier');
+            if (!tier) return;
+            const headers = new Headers(request.headers);
+            headers.delete('x-puter-service-tier');
+            const body = await request.json();
+            return new Request(request, {
+                headers,
+                body: JSON.stringify({
+                    ...body,
+                    service_tier: tier === 'auto' ? 'auto' : 'standard_only',
+                }),
+            });
+        });
         this.#client = new Mistral({
+            httpClient,
             apiKey: config.apiKey,
         });
         this.#meteringService = meteringService;
@@ -181,17 +202,22 @@ export class MistralAIProvider implements IChatProvider {
         return `mistral:${modelId}`;
     }
 
-    async complete({
-        messages,
-        stream,
-        model,
-        tools,
-        max_tokens,
-        temperature,
-        normalize,
-        response,
-        custom,
-    }: ICompleteArguments): Promise<IChatCompleteResult> {
+    async complete(
+        {
+            messages,
+            stream,
+            model,
+            tools,
+            max_tokens,
+            temperature,
+            normalize,
+            response,
+            custom,
+            service_tier,
+            serviceSpeed: requestedServiceSpeed,
+        }: ICompleteArguments,
+        resolved?: IChatModel,
+    ): Promise<IChatCompleteResult> {
         // Mistral's reasoning prompt mode: with `prompt_mode: 'reasoning'`,
         // reasoning-capable models return their thinking as structured ThinkChunk
         // content (which the splitter below separates into `reasoning`)
@@ -217,10 +243,13 @@ export class MistralAIProvider implements IChatProvider {
         }
 
         const selectedModel =
-            (await this.models()).find((m) =>
+            resolved ??
+            ((await this.models()).find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
             ) ||
-            (await this.models()).find((m) => m.id === this.getDefaultModel())!;
+                (await this.models()).find(
+                    (m) => m.id === this.getDefaultModel(),
+                )!);
         const actor = Context.get('actor');
         let completion: Awaited<
             ReturnType<Mistral['chat']['complete' | 'stream']>
@@ -242,6 +271,9 @@ export class MistralAIProvider implements IChatProvider {
                 // The SDK retries nothing by default and has no timeout once a
                 // signal is passed; a stream is bounded by its caller instead.
                 {
+                    ...(service_tier !== undefined
+                        ? { headers: { 'x-puter-service-tier': service_tier } }
+                        : {}),
                     signal: stream
                         ? Context.get('upstreamSignal')
                         : withSdkTimeout(Context.get('upstreamSignal')),
@@ -398,7 +430,8 @@ export class MistralAIProvider implements IChatProvider {
             },
             completion: completion as ChatCompletionResponse,
             stream,
-            usage_calculator: ({ usage, setUsageCosts }) => {
+            usage_calculator: ({ usage, setUsageCosts, setUsageDetails }) => {
+                const serviceSpeed = servedServiceSpeed({ usage });
                 // `coerceMistralUsage` has already taken cached reads out of
                 // `prompt_tokens`.
                 const metered = meterChatUsage(
@@ -407,8 +440,16 @@ export class MistralAIProvider implements IChatProvider {
                     this.meteringModelKey(selectedModel.id),
                     selectedModel,
                     OpenAIUtil.extractMeteredUsage(usage),
+                    { serviceSpeed },
                 );
                 setUsageCosts(metered.costs);
+                if (requestedServiceSpeed !== undefined)
+                    setUsageDetails({
+                        ...OpenAIUtil.usageDetailsFromTrackedUsage(
+                            metered.usage,
+                        )!,
+                        serviceSpeed,
+                    });
                 return metered.usage;
             },
         });

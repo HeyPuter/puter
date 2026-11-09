@@ -102,7 +102,7 @@ Extra detail on why generation stopped (e.g. a refusal classification). Provider
 
 #### `usageDetails` (Object)
 
-A provider-neutral usage breakdown, present on the final `usage` chunk. `inputTokens` excludes cache reads/writes; `outputTokens` includes reasoning tokens. Fields: `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWrite5mTokens`, `cacheWrite30mTokens`, `cacheWrite1hTokens`, `cacheWrite12hTokens`, `reasoningTokens`, `webSearchRequests`, `webFetchRequests`, `speed` (`"fast"` or `"standard"`), `serviceTier`, and `iterations` (a per-pass breakdown when the upstream ran several passes, e.g. compaction or an advisor sub-call). Each `cacheWrite*Tokens` field counts the tokens written to the cache with that lifetime: Claude and Moonshot write 5 minute and 1 hour entries, OpenAI writes 30 minute and 12 hour entries.
+A provider-neutral usage breakdown, present on the final `usage` chunk. `inputTokens` excludes cache reads/writes; `outputTokens` includes reasoning tokens. Fields: `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWrite5mTokens`, `cacheWrite30mTokens`, `cacheWrite1hTokens`, `cacheWrite12hTokens`, `reasoningTokens`, `webSearchRequests`, `webFetchRequests`, `speed` (`"fast"` or `"standard"`), `serviceTier`, `serviceSpeed` (`"standard"`, `"fast"`, or `"ultrafast"` when requested), and `iterations` (a per-pass breakdown when the upstream ran several passes, e.g. compaction or an advisor sub-call). Each `cacheWrite*Tokens` field counts the tokens written to the cache with that lifetime: Claude and Moonshot write 5 minute and 1 hour entries, OpenAI writes 30 minute and 12 hour entries.
 
 #### `message` (String)
 

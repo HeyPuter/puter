@@ -84,8 +84,14 @@ export class GeminiChatProvider extends OpenAICompatProvider {
             chat: {
                 completions: {
                     create: (params, options) => {
-                        const { model } = params as { model: string };
-                        if (!GEMINI_NATIVE_MODELS.has(model)) {
+                        const { model, service_tier } = params as {
+                            model: string;
+                            service_tier?: string;
+                        };
+                        if (
+                            !GEMINI_NATIVE_MODELS.has(model) &&
+                            (service_tier === undefined || !native)
+                        ) {
                             return compat.chat.completions.create(
                                 params,
                                 options,
@@ -103,7 +109,12 @@ export class GeminiChatProvider extends OpenAICompatProvider {
                 },
             },
         };
-        const models = native ? GEMINI_MODELS : COMPAT_ONLY_MODELS;
+        const models: IChatModel[] = native
+            ? GEMINI_MODELS
+            : COMPAT_ONLY_MODELS.map((model) => ({
+                  ...model,
+                  serviceSpeeds: ['standard'],
+              }));
         super(meteringService, {
             client,
             defaultModel: 'gemini-2.5-flash',
@@ -183,7 +194,10 @@ export class GeminiChatProvider extends OpenAICompatProvider {
     }
 
     protected override meteredUsage(source: UsageSource, model: IChatModel) {
-        if (GEMINI_NATIVE_MODELS.has(model.id)) {
+        if (
+            GEMINI_NATIVE_MODELS.has(model.id) ||
+            'promptTokenCount' in (source.usage ?? {})
+        ) {
             return nativeMeteredUsage(
                 source.usage as unknown as
                     GenerateContentResponseUsageMetadata | undefined,

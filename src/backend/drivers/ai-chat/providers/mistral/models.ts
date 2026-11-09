@@ -42,6 +42,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.75 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 136,
@@ -75,6 +76,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.75 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 150,
@@ -105,6 +107,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.75 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 50,
@@ -135,6 +138,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.75 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 15,
@@ -159,6 +163,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.75 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 140,
@@ -188,6 +193,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.75 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30,
@@ -213,6 +219,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.75 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 20,
@@ -238,6 +245,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.75 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 15,
@@ -262,6 +270,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.75 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 10,

@@ -43,6 +43,8 @@ export const MINIMAX_MODELS: MiniMaxChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.5 },
+        serviceSpeedVariants: { fast: 'minimax-m3-highspeed' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30, // $0.30 per 1M (input <= 512k tokens)
@@ -70,6 +72,7 @@ export const MINIMAX_MODELS: MiniMaxChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'minimax-m2.7-highspeed' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30, // $0.30 per 1M
@@ -122,6 +125,7 @@ export const MINIMAX_MODELS: MiniMaxChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'minimax-m2.5-highspeed' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30, // $0.30 per 1M
@@ -174,6 +178,7 @@ export const MINIMAX_MODELS: MiniMaxChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'minimax-m2.1-highspeed' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30, // $0.30 per 1M
@@ -222,6 +227,7 @@ export const MINIMAX_MODELS: MiniMaxChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedVariants: { fast: 'minimax-m2-highspeed' },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 30, // $0.30 per 1M
