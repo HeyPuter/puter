@@ -238,6 +238,33 @@ describe('SessionStore', () => {
             }
         });
 
+        it('leaves out sessions past expires_at unless includeExpired is true', async () => {
+            const user = await makeUser();
+            const now = Math.floor(Date.now() / 1000);
+            const live = await target.create(user.id, {
+                expires_at: now + 3600,
+            });
+            const expired = await target.create(user.id, {
+                expires_at: now - 1,
+            });
+            const endsNow = await target.create(user.id, { expires_at: now });
+
+            const uuids = (await target.getByUserId(user.id)).map(
+                (r: { uuid: string }) => r.uuid,
+            );
+            expect(uuids).toContain(live.uuid);
+            expect(uuids).not.toContain(expired.uuid);
+            expect(uuids).not.toContain(endsNow.uuid);
+            expect(await target.getByUuid(endsNow.uuid)).toBeNull();
+
+            const all = (
+                await target.getByUserId(user.id, { includeExpired: true })
+            ).map((r: { uuid: string }) => r.uuid);
+            expect(all).toEqual(
+                expect.arrayContaining([live.uuid, expired.uuid, endsNow.uuid]),
+            );
+        });
+
         it('returns revoked sessions when includeRevoked is true', async () => {
             const user = await makeUser();
             const active = await target.create(user.id);

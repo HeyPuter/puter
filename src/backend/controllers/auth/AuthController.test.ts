@@ -8881,7 +8881,13 @@ describe('AuthController 2FA flows', () => {
             otp_recovery_codes: 'a,b,c',
         });
         const res = makeRes();
-        await controller.handleDisable2fa(makeReq({ code: liveTotp(user.username, 'TESTSECRETBASE32') }, { actor }), res);
+        await controller.handleDisable2fa(
+            makeReq(
+                { code: liveTotp(user.username, 'TESTSECRETBASE32') },
+                { actor },
+            ),
+            res,
+        );
         expect(res.body).toEqual({ success: true });
         const after = await server.stores.user.getById(user.id, {
             force: true,
@@ -10080,6 +10086,52 @@ describe('AuthController.handleRevokeSession additional branches', () => {
         );
         const body = res.body as { sessions: unknown[] };
         expect(Array.isArray(body.sessions)).toBe(true);
+    });
+
+    const expiredSessionOf = async (user: { id: number }) => {
+        const row = await server.stores.session.create(user.id, {
+            expires_at: Math.floor(Date.now() / 1000) - 1,
+        });
+        return row.uuid as string;
+    };
+
+    it('revokes an expired session the caller owns', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const uuid = await expiredSessionOf(user);
+        const res = makeRes();
+        await controller.handleRevokeSession(makeReq({ uuid }, { actor }), res);
+
+        const body = res.body as { sessions: Array<{ uuid: string }> };
+        expect(body.sessions.map((s) => s.uuid)).not.toContain(uuid);
+        const rows = await server.clients.db.read(
+            'SELECT `revoked_at` FROM `sessions` WHERE `uuid` = ?',
+            [uuid],
+        );
+        expect(rows[0].revoked_at).not.toBeNull();
+    });
+
+    it('answers 403 for an expired session of another user', async () => {
+        const { user: owner } = await makeUserAndActor();
+        const { actor } = await makeUserAndActor();
+        const uuid = await expiredSessionOf(owner);
+        await expect(
+            controller.handleRevokeSession(
+                makeReq({ uuid }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('answers 404 for a session that is already revoked', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const row = await server.stores.session.create(user.id);
+        await server.stores.session.removeByUuid(row.uuid);
+        await expect(
+            controller.handleRevokeSession(
+                makeReq({ uuid: row.uuid }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('refuses to revoke the caller’s OWN current session row (400)', async () => {

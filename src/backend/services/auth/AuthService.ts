@@ -916,6 +916,7 @@ export class AuthService extends PuterService {
         if (!userId) return;
         const rows = await this.stores.session.getByUserId(userId, {
             primary: true,
+            includeExpired: true,
         });
         await this.#revokeCascades(rows.map((row) => row.uuid as string));
     }
@@ -1027,6 +1028,7 @@ export class AuthService extends PuterService {
         if (!userId) return;
         const rows = await this.stores.session.getByUserId(userId, {
             primary: true,
+            includeExpired: true,
         });
         await this.#revokeCascades(
             rows
@@ -1047,7 +1049,7 @@ export class AuthService extends PuterService {
         const currentUuid = actor.session?.uid;
         const rows = await this.stores.session.getByUserId(
             actor.user.id as number,
-            { primary: true },
+            { primary: true, includeExpired: true },
         );
         await this.#revokeCascades(
             rows
