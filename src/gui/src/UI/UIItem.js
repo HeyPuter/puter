@@ -18,9 +18,8 @@
  */
 
 import UIWindowItemProperties from './UIWindowItemProperties.js';
-import UIWindowSaveAccount from './UIWindowSaveAccount.js';
+import ensureConfirmedEmail from '../helpers/ensureConfirmedEmail.js';
 import UIPopover from './UIPopover.js';
-import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
 import UIContextMenu from './UIContextMenu.js';
 import UIAlert from './UIAlert.js';
 import UIWindowPublishWorker from './UIWindowPublishWorker.js';
@@ -1255,23 +1254,7 @@ async function UIItem (options) {
                 menu_items.push({
                     html: i18n('publish_as_serverless_worker'),
                     onClick: async function () {
-                        if ( window.user.is_temp &&
-                            !await UIWindowSaveAccount({
-                                send_confirmation_code: true,
-                                message: 'Please create an account to proceed.',
-                                window_options: {
-                                    backdrop: true,
-                                    close_on_backdrop_click: false,
-                                },
-                            }) )
-                        {
-                            return;
-                        }
-                        else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() )
-                        {
-                            return;
-                        }
-
+                        if ( ! await ensureConfirmedEmail(i18n('save_account_to_publish')) ) return;
                         UIWindowPublishWorker(options.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
                     },
                 });

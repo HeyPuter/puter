@@ -18,6 +18,7 @@ declare global {
 // -- Shared --
 export type {
     APILoggingConfig,
+    EmailConfirmationResult,
     ListPage,
     ListPaginationOptions,
     ListStreamOptions,

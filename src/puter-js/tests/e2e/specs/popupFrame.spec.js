@@ -514,3 +514,121 @@ test.describe('the upgrade a first-party page shows framed', () => {
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
     });
 });
+
+const EMAIL_FRAME = '/embed/request-email-confirmation';
+
+/** Has the email confirmation frame's session read as `patch` says, so the account can need a code. */
+const routeFrameSession = (page, patch) => page.context().route(`${API_ORIGIN}/whoami**`, async (route) => {
+    let frameUrl = '';
+    try {
+        frameUrl = route.request().frame().url();
+    } catch {
+        // A request from no frame, such as a service worker's.
+    }
+    if ( route.request().method() !== 'GET' || ! frameUrl.includes(EMAIL_FRAME) ) return route.fallback();
+    const response = await route.fetch();
+    return route.fulfill({ response, json: { ...(await response.json()), ...patch } });
+});
+
+/** Answers the code check as the server would for a right code, so no email has to be read. */
+const routeConfirmEmail = (page) => page.context().route(`${API_ORIGIN}/confirm-email`, (route) => route.fulfill({
+    status: route.request().method() === 'OPTIONS' ? 204 : 200,
+    headers: {
+        'access-control-allow-origin': PUTER_ORIGIN,
+        'access-control-allow-headers': '*',
+        'access-control-allow-credentials': 'true',
+    },
+    contentType: 'application/json',
+    body: JSON.stringify({ email_confirmed: true }),
+}));
+
+const UNCONFIRMED = { email_confirmed: false, requires_email_confirmation: true };
+const codeWindow = (page) => frame(page).locator('.window-confirm-email-using-code');
+
+test.describe('the email confirmation a first-party page shows framed', () => {
+    test('a confirmed email resolves true without showing anything', async ({ page }) => {
+        await routeFrameSession(page, { email_confirmed: true, requires_email_confirmation: false });
+        await signInFirstPartyPage(page);
+        const popups = [];
+        page.on('popup', (p) => popups.push(p));
+
+        await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
+        expect(await result(page)).toEqual({ ok: true, value: { response: true } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+        expect(popups).toHaveLength(0);
+    });
+
+    test('entering the code in one window over the page resolves true', async ({ page }) => {
+        await routeFrameSession(page, UNCONFIRMED);
+        await routeConfirmEmail(page);
+        await signInFirstPartyPage(page);
+        const popups = [];
+        page.on('popup', (p) => popups.push(p));
+
+        await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
+        await frameReady(page);
+        // One window the user can close, not the boot's email gate as well.
+        await expect(codeWindow(page)).toHaveCount(1);
+        await expect(codeWindow(page).locator('.generic-close-window-button')).toBeVisible();
+        const emailFrame = page.frames().find((f) => new URL(f.url()).pathname === EMAIL_FRAME);
+        // The page shows through around the window.
+        expect(await emailFrame.evaluate(() => [
+            getComputedStyle(document.documentElement).backgroundColor,
+            getComputedStyle(document.body).backgroundColor,
+        ])).toEqual(['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)']);
+
+        await codeWindow(page).locator('.digit-input').first().click();
+        await page.keyboard.type('123456');
+        expect(await result(page)).toEqual({ ok: true, value: { response: true } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+        expect(popups).toHaveLength(0);
+    });
+
+    test('closing the window resolves false', async ({ page }) => {
+        await routeFrameSession(page, UNCONFIRMED);
+        await signInFirstPartyPage(page);
+
+        await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
+        await frameReady(page);
+        await codeWindow(page).locator('.generic-close-window-button').click();
+        expect(await result(page)).toEqual({ ok: true, value: { response: false } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
+    test('Escape on the window resolves false', async ({ page }) => {
+        await routeFrameSession(page, UNCONFIRMED);
+        await signInFirstPartyPage(page);
+
+        await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
+        await frameReady(page);
+        await codeWindow(page).locator('.digit-input').first().click();
+        await page.keyboard.press('Escape');
+        expect(await result(page)).toEqual({ ok: true, value: { response: false } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
+    test('an account with another check waiting resolves false', async ({ page }) => {
+        await routeFrameSession(page, { ...UNCONFIRMED, requires_phone_verification: true });
+        await signInFirstPartyPage(page);
+
+        await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
+        expect(await result(page)).toEqual({ ok: true, value: { response: false } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
+    test('a page signed in as someone else resolves false', async ({ page }) => {
+        await routeFrameSession(page, UNCONFIRMED);
+        await signInFirstPartyPage(page);
+        await page.evaluate(async () => {
+            await puter.whoamiCache_;
+            puter.whoami = { uuid: '00000000-0000-4000-8000-000000000000' };
+        });
+        const popups = [];
+        page.on('popup', (p) => popups.push(p));
+
+        await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
+        expect(await result(page)).toEqual({ ok: true, value: { response: false } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+        expect(popups).toHaveLength(0);
+    });
+});

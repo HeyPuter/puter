@@ -48,8 +48,10 @@ import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
 import {
+    canShowEmailConfirmationFrame,
     canShowUpgradeFrame,
     closeAccountChecksOnEscape,
+    confirmEmailInFrame,
     focusOnFrameFocus,
     framedPopupAction,
     framedPopupParams,
@@ -59,6 +61,7 @@ import {
     startPopupFrame,
 } from './helpers/popupFrame.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
+import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
 import {
@@ -1023,6 +1026,25 @@ const postAuthActions = async (action) => {
     }
 
     // -------------------------------------------------------------------------------------
+    // Action: request-email-confirmation — puter.ui.requestEmailConfirmation() on the
+    // first-party page framing it, which hears whether the email is confirmed once the
+    // user is done.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'request-email-confirmation' && window.embedded_in_frame ) {
+        let confirmed = false;
+        try {
+            confirmed = await confirmEmailInFrame(
+                window,
+                () => ensureConfirmedEmail(i18n('save_account_to_proceed')),
+                window.tell_popup_frame,
+            );
+        } catch (e) {
+            console.error('request-email-confirmation action failed', e);
+        }
+        window.tell_popup_frame('closed', { confirmed });
+    }
+
+    // -------------------------------------------------------------------------------------
     // Action: attach-custom-domain — puter.hosting.attach() on a website. Hosts the custom
     // domain dialog for `subdomain` and posts the chosen domain back to the opener.
     // -------------------------------------------------------------------------------------
@@ -1587,7 +1609,9 @@ window.initgui = async function (options) {
     // action. See util/popupAuth.js.
     window.gui_action = action;
 
-    if (window.embedded_in_frame && action === 'sign-in') closeAccountChecksOnEscape(window);
+    if (window.embedded_in_frame && (action === 'sign-in' || action === 'request-email-confirmation')) {
+        closeAccountChecksOnEscape(window);
+    }
 
     if (action === 'oidc-2fa') {
         const result = oidcChallenge?.token && await UIAuth2FA(oidcChallenge.token);
@@ -1789,7 +1813,8 @@ window.initgui = async function (options) {
             if (
                 !host_user ||
                 session_user !== host_user ||
-                (action === 'upgrade' && !canShowUpgradeFrame(window, session))
+                (action === 'upgrade' && !canShowUpgradeFrame(window, session)) ||
+                (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session))
             ) {
                 window.tell_popup_frame('unavailable');
                 return;
@@ -2409,8 +2434,12 @@ window.initgui = async function (options) {
             // assertVerifiedAccount): email → phone (SMS) → card, or card →
             // phone → email when the account clears email last.
             let card_gate_cleared_by_fallback = false;
+            // A framed email confirmation asks for the code itself, in a
+            // window the user can close.
+            const confirmsEmailInAction =
+                window.embedded_in_frame && action === 'request-email-confirmation';
             const emailGate = async () => {
-                if (whoami.requires_email_confirmation) {
+                if (whoami.requires_email_confirmation && !confirmsEmailInAction) {
                     let is_verified;
                     do {
                         is_verified = await UIWindowEmailConfirmationRequired({

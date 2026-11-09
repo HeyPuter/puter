@@ -20,12 +20,20 @@
 import UIWindow from './UIWindow.js';
 import UIAlert from './UIAlert.js';
 
+/**
+ * Asks for the code sent to the user's email.
+ *
+ * @returns {Promise<boolean>} True once the email is confirmed, false when the
+ *   window closes without it. A logout from its footer leaves it unsettled, so
+ *   a gate that reopens it on false doesn't race the logout.
+ */
 function UIWindowEmailConfirmationRequired (options) {
     return new Promise(async (resolve) => {
         options = options ?? {};
         options.window_options = options.window_options ?? {};
         let final_code = '';
         let is_checking_code = false;
+        let logging_out = false;
 
         const submit_btn_txt = 'Confirm Email';
 
@@ -92,6 +100,10 @@ function UIWindowEmailConfirmationRequired (options) {
             window_css: {
                 height: 'initial',
             },
+            // A no-op after a confirmation, which resolves first.
+            on_close: () => {
+                if ( ! logging_out ) resolve(false);
+            },
             body_css: {
                 padding: '30px',
                 width: 'initial',
@@ -141,9 +153,11 @@ function UIWindowEmailConfirmationRequired (options) {
                     },
                     success: function (res) {
                         if ( res.email_confirmed ) {
+                            // Callers check window.user next, before the refresh lands.
+                            if ( window.user ) window.user.email_confirmed = true;
+                            resolve(true);
                             $(el_window).close();
                             window.refresh_user_data(window.auth_token);
-                            resolve(true);
                         } else {
                             $(el_window).find('.error').html('Invalid confirmation code.');
                             $(el_window).find('.error').fadeIn();
@@ -201,6 +215,7 @@ function UIWindowEmailConfirmationRequired (options) {
 
         // logout
         $(el_window).find('.conf-email-log-out').on('click', function (e) {
+            logging_out = true;
             window.logout();
             $(el_window).close();
         });

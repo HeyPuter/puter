@@ -30,6 +30,7 @@ export const FRAMED_POPUP_ACTIONS = new Set([
     'show-save-file-picker',
     'show-directory-picker',
     'upgrade',
+    'request-email-confirmation',
 ]);
 
 // Actions a frame shows only for the user the framing page is signed in as.
@@ -38,11 +39,12 @@ const HOST_USER_ACTIONS = new Set([
     'show-save-file-picker',
     'show-directory-picker',
     'upgrade',
+    'request-email-confirmation',
 ]);
 
 // Actions framed over the whole page with no box, which their own dialog's
 // scrim covers.
-const TRANSPARENT_ACTIONS = new Set(['upgrade']);
+const TRANSPARENT_ACTIONS = new Set(['upgrade', 'request-email-confirmation']);
 
 const UPGRADE_REASONS = new Set(['funds', 'subscription', 'storage']);
 const UPGRADE_METHOD_MAX = 200;
@@ -243,6 +245,37 @@ export const canShowUpgradeFrame = (win, session) =>
     !session.requires_phone_verification &&
     !session.requires_card_verification &&
     !session.requires_password_change;
+
+/**
+ * Whether a framed email confirmation can show for the GUI session `session`
+ * (its `/whoami`): no check other than the email is waiting, since those show
+ * at boot with no way to close the frame.
+ *
+ * @param {Record<string, unknown> | null} session
+ * @returns {boolean}
+ */
+export const canShowEmailConfirmationFrame = (session) =>
+    !!session &&
+    !session.requires_phone_verification &&
+    !session.requires_card_verification &&
+    !session.requires_password_change;
+
+/**
+ * Confirms the email of the framed user with `confirm`, which shows the GUI's
+ * windows for it. An email already confirmed resolves true without showing
+ * anything, so the page never shows the frame.
+ *
+ * @param {Window} win
+ * @param {() => Promise<boolean>} confirm
+ * @param {(state: 'ready') => void} tell
+ * @returns {Promise<boolean>}
+ */
+export const confirmEmailInFrame = async (win, confirm, tell) => {
+    if ( win.user?.email_confirmed === true ) return true;
+    // The windows center themselves when they open.
+    await whenFrameSized(win, () => tell('ready'));
+    return (await confirm()) === true;
+};
 
 /**
  * What prompted a framed upgrade, from its `reason` and `method` fragment
