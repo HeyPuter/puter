@@ -26,6 +26,8 @@
 
 export type ModelCost = Record<string, number>;
 
+export type ServiceSpeed = 'standard' | 'fast' | 'ultrafast';
+
 export interface ModelModalities {
     input: string[];
     output: string[];
@@ -67,6 +69,22 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
         output_multiplier: number;
     };
     pricingOverrides?: ModelPricingOverride[];
+    /**
+     * A token-rate multiplier or explicit per-key rates merged with standard
+     * costs.
+     */
+    serviceSpeedRates?: Partial<
+        Record<'fast' | 'ultrafast', number | ModelCost>
+    >;
+    serviceSpeedVariants?: { fast?: string };
+    /** Request-local pricing snapshot; never part of the model catalog. */
+    serviceSpeedPricing?: {
+        speed: ServiceSpeed;
+        standardCosts: ModelCost;
+        standardOverrides?: ModelPricingOverride[];
+        fastCosts?: ModelCost;
+        ultrafastCosts?: ModelCost;
+    };
     context?: number;
     max_tokens: number;
     subscriberOnly?: boolean;
@@ -76,6 +94,8 @@ export interface IChatModel<T extends ModelCost = ModelCost> extends Record<
     tool_call?: boolean;
     responses_api?: boolean;
     responses_api_only?: boolean;
+    /** Restricts service speeds for deployments with a limited API dialect. */
+    serviceSpeeds?: ServiceSpeed[];
     /**
      * Omitted preserves sampling; reasoningDisabled requires explicit effort
      * none.
@@ -163,6 +183,7 @@ export interface UsageDetails {
     webFetchRequests?: number;
     speed?: 'fast' | 'standard';
     serviceTier?: string;
+    serviceSpeed?: ServiceSpeed;
     /**
      * Per-pass breakdown when the upstream ran several passes (compaction,
      * advisor).
@@ -198,6 +219,7 @@ export interface ICompleteArguments {
      * request on another provider that serves the same model.
      */
     fallback?: boolean;
+    serviceSpeed?: ServiceSpeed;
     stream?: boolean;
     model: string;
     test_mode?: boolean;
@@ -217,10 +239,7 @@ export interface ICompleteArguments {
     taskBudget?: { total: number; remaining?: number };
     /** Claude only: top-level automatic `cache_control`. */
     cacheControl?: CacheControl;
-    /**
-     * Claude only; forwarded only when the model's catalog entry has
-     * `fast_output_tokens`.
-     */
+    /** Claude only; fast is forwarded when the catalog declares fast rates. */
     speed?: 'fast' | 'standard';
     /** Claude only. */
     safeguards?: SafeguardRequest[];
@@ -260,7 +279,15 @@ export interface ICompleteArguments {
     truncation?: 'auto' | 'disabled' | undefined;
     background?: boolean;
     service_tier?:
-        'auto' | 'default' | 'flex' | 'scale' | 'priority' | undefined;
+        | 'auto'
+        | 'default'
+        | 'flex'
+        | 'scale'
+        | 'priority'
+        | 'fast'
+        | 'ultrafast'
+        | 'standard'
+        | undefined;
     max_tokens?: number;
     temperature?: number;
     reasoning?: { effort: ReasoningEffort } | undefined;
@@ -328,6 +355,10 @@ export interface IChatMessageResult {
 export type IChatCompleteResult = IChatStreamResult | IChatMessageResult;
 
 export interface IChatProvider {
+    /** Account/catalog-specific speed offerings, fetched before the credit hold. */
+    serviceSpeedModels?(
+        model: IChatModel,
+    ): Promise<Partial<Record<'fast' | 'ultrafast', IChatModel>>>;
     models(extra_params?: unknown): IChatModel[] | Promise<IChatModel[]>;
     getDefaultModel(): string;
     /**

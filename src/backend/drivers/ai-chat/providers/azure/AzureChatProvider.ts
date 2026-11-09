@@ -20,6 +20,10 @@
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
+import {
+    serviceSpeedBillingModel,
+    servedServiceSpeed,
+} from '../../utils/serviceSpeed.js';
 import { Context } from '../../../../core/context.js';
 import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
@@ -153,6 +157,7 @@ export class AzureChatProvider implements IChatProvider {
 
     async complete(
         params: ICompleteArguments,
+        resolved?: IChatModel,
     ): ReturnType<IChatProvider['complete']> {
         const {
             max_tokens,
@@ -180,7 +185,9 @@ export class AzureChatProvider implements IChatProvider {
                     { legacyCode: 'bad_request' },
                 );
             }
-            return await this.#responsesProvider.complete(params);
+            return await (resolved
+                ? this.#responsesProvider.complete(params, resolved)
+                : this.#responsesProvider.complete(params));
         }
         // Inline compaction is a Responses-API feature; chat.completions can't
         // express `context_management` or a `compaction` content block.
@@ -194,7 +201,9 @@ export class AzureChatProvider implements IChatProvider {
                     { legacyCode: 'bad_request' },
                 );
             }
-            return await this.#responsesProvider.complete(params);
+            return await (resolved
+                ? this.#responsesProvider.complete(params, resolved)
+                : this.#responsesProvider.complete(params));
         }
         // Validate messages
         if (!Array.isArray(messages)) {
@@ -207,9 +216,11 @@ export class AzureChatProvider implements IChatProvider {
         model = model ?? this.#defaultModel;
 
         const modelUsed =
-            this.models().find((m) =>
+            resolved ??
+            (this.models().find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
-            ) || this.models().find((m) => m.id === this.getDefaultModel())!;
+            ) ||
+                this.models().find((m) => m.id === this.getDefaultModel())!);
 
         // messages.unshift({
         //     role: 'system',
@@ -279,6 +290,9 @@ export class AzureChatProvider implements IChatProvider {
                   }),
             messages: messages,
             model: modelUsed.id,
+            ...(params.service_tier !== undefined
+                ? { service_tier: params.service_tier }
+                : {}),
             ...(mappedTools?.length ? { tools: mappedTools } : {}),
             ...(max_tokens !== undefined
                 ? { max_completion_tokens: max_tokens }
@@ -315,7 +329,12 @@ export class AzureChatProvider implements IChatProvider {
         );
 
         return OpenAiUtil.handle_completion_output({
-            usage_calculator: ({ usage }) => {
+            usage_calculator: ({
+                service_tier,
+                usage,
+                setUsageCosts,
+                setUsageDetails,
+            }) => {
                 const cachedTokens =
                     usage.prompt_tokens_details?.cached_tokens ?? 0;
                 const trackedUsage = {
@@ -335,9 +354,20 @@ export class AzureChatProvider implements IChatProvider {
 
                 const costsOverrideFromModel = buildCostsOverride(
                     trackedUsage,
-                    modelUsed,
+                    serviceSpeedBillingModel(
+                        modelUsed,
+                        servedServiceSpeed({ service_tier }),
+                    ),
                 );
 
+                setUsageCosts(costsOverrideFromModel);
+                if (params.serviceSpeed !== undefined)
+                    setUsageDetails({
+                        ...OpenAiUtil.usageDetailsFromTrackedUsage(
+                            trackedUsage,
+                        )!,
+                        serviceSpeed: servedServiceSpeed({ service_tier }),
+                    });
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor!,
