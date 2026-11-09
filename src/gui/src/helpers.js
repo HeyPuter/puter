@@ -32,6 +32,7 @@ import update_username_in_gui from './helpers/updateUsernameInGui.js';
 import { notifyItemWatchers } from './helpers/watchItems.js';
 import { select_uploaded_items } from './helpers/uploadSelection.js';
 import { templateMenuItem } from './helpers/templateMenuItem.js';
+import { isTokenForAnotherUser } from './helpers/tokenUser.js';
 import { uuidv4 } from './helpers/uuidv4.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
@@ -625,10 +626,6 @@ window.refresh_user_data = async (auth_token) => {
 
 window.update_auth_data = async (auth_token, user) => {
     window.auth_token = auth_token;
-    // Write the v2 key going forward and clear any lingering v1 key so
-    // a single localStorage source-of-truth is used.
-    localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
-    localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
 
     // Set http-only session cookie when user is changing.
     // This ensures user-protected endpoints, which only refer to the http-only cookie,
@@ -653,6 +650,13 @@ window.update_auth_data = async (auth_token, user) => {
             });
         }
     }
+
+    // Stored only after the cookie sync: a peer tab reloads when it sees
+    // another account's token, and its boot signs in from the cookie.
+    // A token adopted from a peer tab during the sync must not outlive it.
+    window.auth_token = auth_token;
+    localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
+    localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
 
     // Has username changed?
     if ( window.user?.username !== user.username )
@@ -858,6 +862,12 @@ if ( typeof window !== 'undefined' && window.addEventListener ) {
     window.addEventListener('storage', (event) => {
         if ( event.key !== window.AUTH_TOKEN_KEY_V2 ) return;
         if ( event.newValue ) {
+            // A peer tab changed accounts. Reload as that account instead of
+            // sending its token from a desktop still showing this one.
+            if ( isTokenForAnotherUser(event.newValue, window.user) ) {
+                window.location.reload();
+                return;
+            }
             // A peer tab just (re)authed. Pick up the fresh token so
             // subsequent requests stop bouncing on reauth_required.
             window.auth_token = event.newValue;
