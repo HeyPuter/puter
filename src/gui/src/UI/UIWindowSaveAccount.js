@@ -164,10 +164,15 @@ async function UIWindowSaveAccount (options) {
 
                     //close this window
                     if ( data.user.requires_email_confirmation && !data.user.email_confirmed ) {
+                        // The code window brings its own backdrop; this
+                        // one under it would dim the page twice.
+                        const $backdrop = $(el_window).closest('.window-backdrop');
+                        $backdrop.css('visibility', 'hidden');
                         let is_verified = await UIWindowEmailConfirmationRequired({
                             stay_on_top: true,
                             has_head: true,
                         });
+                        $backdrop.css('visibility', '');
                         resolve(is_verified);
                     } else {
                         resolve(true);

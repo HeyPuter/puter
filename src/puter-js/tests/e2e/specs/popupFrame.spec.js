@@ -653,6 +653,43 @@ test.describe('the email confirmation a first-party page shows framed', () => {
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
     });
 
+    test('a temporary account saves itself, then enters the code in the only window showing', async ({ page }) => {
+        await routeFrameSession(page, { ...UNCONFIRMED, is_temp: true, email: null });
+        await routeConfirmEmail(page);
+        let user;
+        // Saves the account as the server would, leaving the test's own account as it is.
+        await page.context().route(`${API_ORIGIN}/save_account`, (route) => route.fulfill({
+            status: route.request().method() === 'OPTIONS' ? 204 : 200,
+            headers: {
+                'access-control-allow-origin': PUTER_ORIGIN,
+                'access-control-allow-headers': '*',
+                'access-control-allow-credentials': 'true',
+            },
+            contentType: 'application/json',
+            body: JSON.stringify({ user: { ...user, ...UNCONFIRMED, is_temp: false, email: 'saved@example.com' } }),
+        }));
+        await signInFirstPartyPage(page);
+        user = await page.evaluate(() => puter.whoamiCache_);
+        await pageReadsUnconfirmed(page);
+
+        await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
+        await frameReady(page);
+        const saveWindow = frame(page).locator('.window-save-account');
+        await saveWindow.locator('.username').fill('saved');
+        await saveWindow.locator('.email').fill('saved@example.com');
+        await saveWindow.locator('.password').fill('a long enough password');
+        await saveWindow.locator('.signup-btn').click();
+
+        await expect(codeWindow(page)).toBeVisible();
+        // One window over one scrim, not the code window over the save-account window's.
+        await expect(saveWindow).toBeHidden();
+        await expect(frame(page).locator('.window-backdrop:visible')).toHaveCount(1);
+        await codeWindow(page).locator('.digit-input').first().click();
+        await page.keyboard.type('123456');
+        expect(await result(page)).toEqual({ ok: true, value: { response: true } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
     test('an account with another check waiting resolves false', async ({ page }) => {
         await routeFrameSession(page, { ...UNCONFIRMED, requires_phone_verification: true });
         await signInFirstPartyPage(page);
