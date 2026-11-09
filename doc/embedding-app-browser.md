@@ -278,8 +278,9 @@ the user gets one code window they can close.
 The GUI then runs `ensureConfirmedEmail` (`src/gui/src/helpers/ensureConfirmedEmail.js`),
 which the desktop's handler uses too: a temporary account gets the save-account
 window first, then an unconfirmed email gets the code window, each at most
-once. An email already confirmed shows nothing, so the page never shows the
-frame. Before opening a window the GUI waits for the frame to have a viewport,
+once. When the page's whoami already reads the email as confirmed,
+`requestEmailConfirmation()` resolves `{ response: true }` without framing
+anything. An email the GUI reads as confirmed shows nothing. Before opening a window the GUI waits for the frame to have a viewport,
 as the upgrade does. It then posts
 `{ msg: 'puterPopupFrame', state: 'closed', confirmed }`, and
 `requestEmailConfirmation()` resolves `{ response: confirmed }`, the field an

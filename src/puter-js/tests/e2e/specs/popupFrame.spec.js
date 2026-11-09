@@ -543,12 +543,42 @@ const routeConfirmEmail = (page) => page.context().route(`${API_ORIGIN}/confirm-
 }));
 
 const UNCONFIRMED = { email_confirmed: false, requires_email_confirmation: true };
+
+/** Has the page's own whoami read the email as unconfirmed, as it does for such an account. */
+const pageReadsUnconfirmed = (page) => page.evaluate(async () => {
+    puter.whoami = { ...(await puter.whoamiCache_), email_confirmed: false };
+});
 const codeWindow = (page) => frame(page).locator('.window-confirm-email-using-code');
 
 test.describe('the email confirmation a first-party page shows framed', () => {
-    test('a confirmed email resolves true without showing anything', async ({ page }) => {
+    test('a confirmed email resolves true without a frame', async ({ page }) => {
+        await signInFirstPartyPage(page);
+        const popups = [];
+        page.on('popup', (p) => popups.push(p));
+        const framed = [];
+        page.on('request', (r) => {
+            if ( new URL(r.url()).pathname === EMAIL_FRAME ) framed.push(r.url());
+        });
+        await page.evaluate(() => {
+            window.__mounted = false;
+            new MutationObserver(() => {
+                if ( document.querySelector('dialog.puter-popup-frame') ) window.__mounted = true;
+            }).observe(document.body, { childList: true });
+        });
+
+        await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
+        expect(await result(page)).toEqual({ ok: true, value: { response: true } });
+        // No loading scrim flashes over the page.
+        expect(await page.evaluate(() => window.__mounted)).toBe(false);
+        expect(framed).toHaveLength(0);
+        expect(popups).toHaveLength(0);
+    });
+
+    test('an email confirmed since the page loaded resolves true without showing a window', async ({ page }) => {
         await routeFrameSession(page, { email_confirmed: true, requires_email_confirmation: false });
         await signInFirstPartyPage(page);
+        // Read before the email was confirmed.
+        await pageReadsUnconfirmed(page);
         const popups = [];
         page.on('popup', (p) => popups.push(p));
 
@@ -562,6 +592,7 @@ test.describe('the email confirmation a first-party page shows framed', () => {
         await routeFrameSession(page, UNCONFIRMED);
         await routeConfirmEmail(page);
         await signInFirstPartyPage(page);
+        await pageReadsUnconfirmed(page);
         const popups = [];
         page.on('popup', (p) => popups.push(p));
 
@@ -587,6 +618,7 @@ test.describe('the email confirmation a first-party page shows framed', () => {
     test('closing the window resolves false', async ({ page }) => {
         await routeFrameSession(page, UNCONFIRMED);
         await signInFirstPartyPage(page);
+        await pageReadsUnconfirmed(page);
 
         await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
         await frameReady(page);
@@ -598,6 +630,7 @@ test.describe('the email confirmation a first-party page shows framed', () => {
     test('Escape on the window resolves false', async ({ page }) => {
         await routeFrameSession(page, UNCONFIRMED);
         await signInFirstPartyPage(page);
+        await pageReadsUnconfirmed(page);
 
         await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
         await frameReady(page);
@@ -610,6 +643,7 @@ test.describe('the email confirmation a first-party page shows framed', () => {
     test('an account with another check waiting resolves false', async ({ page }) => {
         await routeFrameSession(page, { ...UNCONFIRMED, requires_phone_verification: true });
         await signInFirstPartyPage(page);
+        await pageReadsUnconfirmed(page);
 
         await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
         expect(await result(page)).toEqual({ ok: true, value: { response: false } });

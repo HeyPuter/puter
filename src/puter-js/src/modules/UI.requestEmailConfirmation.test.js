@@ -74,7 +74,19 @@ describe('ui.requestEmailConfirmation on a signed-in first-party page', () => {
         expect(window.open).not.toHaveBeenCalled();
     });
 
-    it('resolves true without showing the frame when the email is already confirmed', async () => {
+    it('resolves true without a frame when the page knows the email is confirmed', async () => {
+        puter.whoamiCache_ = Promise.resolve({ uuid: USER, email_confirmed: true });
+        const ui = makeUI();
+        const result = ui.requestEmailConfirmation();
+        // Mounted only after the user lookup, so a frame would be in the DOM by now.
+        await expect(result).resolves.toEqual({ response: true });
+        expect(frameDialog()).toBeNull();
+        expect(window.open).not.toHaveBeenCalled();
+        // The next call looks again rather than reusing the settled one.
+        expect(ui.requestEmailConfirmation()).not.toBe(result);
+    });
+
+    it('resolves true without showing the frame when the GUI finds the email already confirmed', async () => {
         const result = makeUI().requestEmailConfirmation();
         await vi.waitFor(() => expect(confirmFrame()).not.toBeNull());
         fromFrame({ msg: 'puterPopupFrame', state: 'loading' });

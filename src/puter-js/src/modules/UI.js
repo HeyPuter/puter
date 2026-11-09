@@ -719,7 +719,7 @@ export class UIModule extends EventListener {
      * The page's signed-in user that a frame is shown for, from the cached
      * whoami when there is one, or null without a uuid.
      *
-     * @returns {Promise<{ uuid: string } | null>}
+     * @returns {Promise<{ uuid: string, email_confirmed?: boolean } | null>}
      */
     async #frameUser () {
         const known = await Promise.resolve(puter.whoami ?? puter.whoamiCache_).catch(() => null);
@@ -1358,7 +1358,8 @@ export class UIModule extends EventListener {
 
     /**
      * The email confirmation in a frame over the page, for the page's
-     * signed-in user. A call made while one is showing settles with it.
+     * signed-in user. A call made while one is showing settles with it, and
+     * an email the page already knows is confirmed resolves without one.
      *
      * @returns {Promise<import('../lib/types.js').EmailConfirmationResult>}
      */
@@ -1367,6 +1368,9 @@ export class UIModule extends EventListener {
         this.#emailConfirmationFrame = (async () => {
             try {
                 const user = await this.#frameUser();
+                // A confirmed email never goes back to unconfirmed, so this
+                // skips the loading scrim the frame would show while it boots.
+                if ( user?.email_confirmed === true ) return { response: true };
                 const framed = user && await showPopupFrame({
                     guiOrigin: puter.defaultGUIOrigin,
                     action: 'request-email-confirmation',
