@@ -1935,6 +1935,42 @@ describe('PermissionService — scan paths', () => {
             ).toBe(true);
         });
 
+        it('scans the user for an app only when an option is implied for it', async () => {
+            const { row, actor } = await makeGroupedUser();
+            const app = await makeApp(row.id);
+            const appActor: Actor = makeActor({
+                user: actor.user,
+                app: { uid: app.uid, id: app.id },
+            });
+            const scan = vi.spyOn(permService, 'scan');
+            const userScans = () =>
+                scan.mock.calls.filter(
+                    ([scanned]) => !scanned.app && !scanned.accessToken,
+                ).length;
+            const scanAsApp = (permission: string) =>
+                permService.scan(appActor, permission, undefined, {
+                    noCache: true,
+                });
+            try {
+                expect(
+                    await scanAsApp(`zztest:none-${uuidv4()}:ii:read`),
+                ).not.toContainEqual(
+                    expect.objectContaining({ source: 'user-app-implied' }),
+                );
+                expect(userScans()).toBe(0);
+
+                expect(await scanAsApp('driver:puter-kvstore')).toContainEqual(
+                    expect.objectContaining({
+                        source: 'user-app-implied',
+                        has_terminal: true,
+                    }),
+                );
+                expect(userScans()).toBeGreaterThan(0);
+            } finally {
+                scan.mockRestore();
+            }
+        });
+
         it('resolves a user-to-app grant, and stops once revoked', async () => {
             const { row, actor } = await makeGroupedUser();
             const app = await makeApp(row.id);
