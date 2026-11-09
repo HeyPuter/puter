@@ -77,6 +77,15 @@ const answer = async ({ refuse = false } = {}) => {
     await flush();
 };
 
+/** Fails every unanswered `/whoami` as a network error, without waiting. */
+const failNetwork = () => {
+    for (const req of whoamis.filter((r) => !r.answered)) {
+        req.answered = true;
+        req.xhr.readyState = 4;
+        for (const fn of req.xhr._listeners.error ?? []) fn.call(req.xhr);
+    }
+};
+
 const origParent = Object.getOwnPropertyDescriptor(globalThis, 'parent');
 const origXHR = globalThis.XMLHttpRequest;
 
@@ -192,6 +201,46 @@ describe.each([
         expect(signIn).toHaveBeenCalledTimes(1);
     });
 
+    it('sends its own request when copying the joined user fails', async () => {
+        const puter = await bootWeb();
+        puter.setAuthToken('tok-a');
+        const user = readUser(puter);
+        await flush();
+        vi.spyOn(globalThis, 'structuredClone').mockImplementationOnce(() => {
+            throw new DOMException('Cannot clone', 'DataCloneError');
+        });
+
+        await answer();
+        expect(whoamis.map((r) => r.token)).toEqual(['tok-a', 'tok-a']);
+        await answer();
+        await expect(user).resolves.toEqual(USERS['tok-a']);
+    });
+
+    it('resends once the boot lookup gives up on a network failure', async () => {
+        const puter = await bootWeb();
+        let user;
+        vi.useFakeTimers();
+        try {
+            puter.setAuthToken('tok-a');
+            user = readUser(puter);
+            // The boot lookup retries a network failure with backoff first.
+            for (let attempt = 0; attempt < 9; attempt++) {
+                await vi.advanceTimersByTimeAsync(0);
+                failNetwork();
+                await vi.advanceTimersByTimeAsync(2000);
+            }
+        } finally {
+            vi.useRealTimers();
+        }
+        expect(whoamis.filter((r) => r.answered)).toHaveLength(9);
+        expect(whoamis.filter((r) => !r.answered).map((r) => r.token)).toEqual([
+            'tok-a',
+        ]);
+
+        await answer();
+        await expect(user).resolves.toEqual(USERS['tok-a']);
+    });
+
     it('does not join a lookup sent for a token that has since changed', async () => {
         const puter = await bootWeb();
         puter.setAuthToken('tok-a');
@@ -217,5 +266,26 @@ describe.each([
         await answer();
         await expect(late).resolves.toEqual(USERS['tok-b']);
         await expect(joined).resolves.toEqual(USERS['tok-b']);
+    });
+});
+
+describe.each([
+    ['puter.auth.getUser', (puter) => puter.auth.getUser],
+    ['puter.getUser', (puter) => puter.getUser.bind(puter)],
+])('%s(success, error)', (_label, getUser) => {
+    it('calls success with the joined user, once', async () => {
+        const puter = await bootWeb();
+        puter.setAuthToken('tok-a');
+        const success = vi.fn();
+        const error = vi.fn();
+        const user = getUser(puter)(success, error);
+        await answer();
+
+        expect(await user).toEqual(USERS['tok-a']);
+        expect(whoamis).toHaveLength(1);
+        expect(success).toHaveBeenCalledTimes(1);
+        expect(success).toHaveBeenCalledWith(USERS['tok-a']);
+        expect(success.mock.calls[0][0]).not.toBe(puter.whoami);
+        expect(error).not.toHaveBeenCalled();
     });
 });

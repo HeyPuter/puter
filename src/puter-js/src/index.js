@@ -647,16 +647,7 @@ export class Puter {
         // The in-flight boot `/whoami`, awaited by anything that wants the
         // cached user without issuing its own request.
         this.whoamiCache_ = null;
-        /**
-         * The boot `/whoami` while in flight; `getUser()` joins it for the same
-         * token.
-         *
-         * @type {{
-         *     token: string;
-         *     lookup: Promise<import('./modules/Auth.js').User | null>;
-         * } | null}
-         * @internal
-         */
+        /** @internal The boot `/whoami` while in flight, joined for the same token. */
         this.whoamiInFlight_ = null;
 
         // A user session token must never be adopted from storage, and an

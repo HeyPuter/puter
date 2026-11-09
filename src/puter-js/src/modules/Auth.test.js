@@ -362,6 +362,7 @@ describe('in a tab the GUI opened, before its token arrives', () => {
             await expect(user).resolves.toEqual({ username: 'alice' });
             expect(xhrMocks.initXhr).toHaveBeenCalledWith(
                 '/whoami', API_ORIGIN, 'app-token', 'get',
+                undefined, undefined, undefined,
             );
         } finally {
             vi.unstubAllGlobals();

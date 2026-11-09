@@ -539,26 +539,20 @@ export class AuthModule extends PuterModule {
         return puter.auth.requestUser_(options);
     };
 
-    /**
-     * `/whoami` for `getUser()` and `puter.getUser()`.
-     *
-     * @param {{
-     *     success?: (value: User) => void;
-     *     error?: (reason: unknown) => void;
-     * }} options
-     * @returns {Promise<User>}
-     * @internal
-     */
+    /** @internal `/whoami` for `getUser()` and `puter.getUser()`. */
     requestUser_(options) {
         const token = this.puter.authToken;
         const joined = this.joinBootLookup_(token);
         return new Promise((resolve, reject) => {
-            const send = () => {
+            const send = (fallbackAuthToken) => {
                 const xhr = utils.initXhr(
                     '/whoami',
                     this.puter.APIOrigin,
                     token,
                     'get',
+                    undefined,
+                    undefined,
+                    fallbackAuthToken,
                 );
                 utils.setupXhrEventHandlers(
                     xhr,
@@ -570,24 +564,24 @@ export class AuthModule extends PuterModule {
                 xhr.send();
             };
             if (!joined) return send();
-            joined.then((user) => {
-                if (!user) return send();
-                if (typeof options.success === 'function') {
-                    options.success(user);
-                }
-                resolve(user);
-            });
+            // A resend keeps the token, which the boot lookup may have dropped.
+            joined.then(
+                (user) => {
+                    if (!user) return send(token);
+                    try {
+                        if (typeof options.success === 'function') {
+                            options.success(user);
+                        }
+                    } finally {
+                        resolve(user);
+                    }
+                },
+                () => send(token),
+            );
         });
     }
 
-    /**
-     * A copy of the user from the boot `/whoami` in flight for `token`; null
-     * when it found none.
-     *
-     * @param {string | null | undefined} token
-     * @returns {Promise<User | null> | null}
-     * @internal
-     */
+    /** @internal A copy of the user from the boot `/whoami` in flight for `token`. */
     joinBootLookup_(token) {
         const inFlight = this.puter.whoamiInFlight_;
         if (!token || inFlight?.token !== token) return null;
@@ -731,13 +725,14 @@ export class AuthModule extends PuterModule {
         }
 
         const token = this.authToken;
-        const joined = await this.joinBootLookup_(token);
+        const joining = this.joinBootLookup_(token);
+        const joined = joining ? await joining.catch(() => null) : null;
         if (joined) return joined;
 
-        // The token is the fallback for when the boot lookup dropped it.
+        // A resend keeps the token, which the boot lookup may have dropped.
         const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
             includePuterAuth: true,
-            authToken: token,
+            authToken: joining ? token : undefined,
             logContext: { service: 'auth', operation: 'whoami', params: {} },
         });
         // Unchecked, an expired token resolves to an error body typed as a user.
