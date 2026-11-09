@@ -45,6 +45,16 @@ describe('mergeGrants', () => {
         ]);
     });
 
+    it('names everyone who granted the item, strongest grant first', () => {
+        const [share] = mergeGrants([
+            grant(BUDGET, 'Budget', { mode: 'read', issuer: 'jf' }),
+            grant(BUDGET, 'Budget', { mode: 'write', issuer: 'delegate' }),
+            grant(BUDGET, 'Budget', { mode: 'read', issuer: 'jf', holderTeam: TEAM }),
+        ]);
+        expect(share.issuer).toBe('delegate');
+        expect(share.issuers).toEqual(['delegate', 'jf']);
+    });
+
     it('keeps the first of two equal grants', () => {
         const [share] = mergeGrants([
             grant(BUDGET, 'Budget', { mode: 'read', issuer: 'jf' }),

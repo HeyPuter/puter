@@ -22,9 +22,10 @@
 
 import { avatarHue, avatarInitial } from '../../helpers/shareAvatar.js';
 import { avatarUserAttr } from '../../helpers/profilePictures.js';
+import { intlLocale } from '../../i18n/intlLocale.js';
 
 /**
- * @typedef {{ shared_by?: string | null, owner?: string | null }} SharedRow
+ * @typedef {{ shared_by?: string | null, shared_by_all?: string[], owner?: string | null }} SharedRow
  * @typedef {{ name: string, count: number }} Sharer
  */
 
@@ -38,6 +39,19 @@ import { avatarUserAttr } from '../../helpers/profilePictures.js';
 export const sharerOf = (row) => row?.shared_by || row?.owner || '';
 
 /**
+ * Everyone who shared a row with the user, `sharerOf` first. More than one
+ * when the item was granted by several people.
+ *
+ * @param {SharedRow} [row]
+ * @returns {string[]} usernames
+ */
+export const sharersOf = (row) => {
+    const first = sharerOf(row);
+    if ( ! row?.shared_by_all?.length ) return first ? [first] : [];
+    return [...new Set([first, ...row.shared_by_all])].filter(Boolean);
+};
+
+/**
  * Everyone who shared something in `rows`, with how many items each, most
  * items first and ties by name.
  *
@@ -47,8 +61,7 @@ export const sharerOf = (row) => row?.shared_by || row?.owner || '';
 export const summarizeSharers = (rows) => {
     const counts = new Map();
     for ( const row of rows ) {
-        const name = sharerOf(row);
-        if ( name ) counts.set(name, (counts.get(name) ?? 0) + 1);
+        for ( const name of sharersOf(row) ) counts.set(name, (counts.get(name) ?? 0) + 1);
     }
     return [...counts]
         .map(([name, count]) => ({ name, count }))
@@ -64,7 +77,7 @@ export const summarizeSharers = (rows) => {
  * @returns {T[]}
  */
 export const filterBySharer = (rows, sharer) => (sharer
-    ? rows.filter((row) => sharerOf(row) === sharer)
+    ? rows.filter((row) => sharersOf(row).includes(sharer))
     : rows);
 
 /**
@@ -79,6 +92,21 @@ export const compareSharers = (a, b) => compareNames(sharerOf(a), sharerOf(b));
 // One collator for every comparison: localeCompare with options builds a new
 // one per call, which made sorting a large Shared listing over 20x slower.
 const compareNames = new Intl.Collator(undefined, { sensitivity: 'base' }).compare;
+
+/**
+ * Names joined the way the user's language lists them ("ann and bob").
+ *
+ * @param {string[]} names
+ * @returns {string}
+ */
+const listNames = (names) => {
+    if ( names.length === 1 ) return names[0];
+    try {
+        return new Intl.ListFormat(intlLocale(window.locale ?? 'en'), { type: 'conjunction' }).format(names);
+    } catch {
+        return names.join(', ');
+    }
+};
 
 /**
  * The "Shared by" column's width beside an auto-width name column: `width`,
@@ -102,15 +130,16 @@ export const fitSharedByWidth = (width, room) => Math.max(60, Math.min(width, Ma
 const avatarHtml = (name, className) => `<span class="${className}" style="--share-avatar-hue: ${avatarHue(name)}"${avatarUserAttr(name)} aria-hidden="true">${window.html_encode(avatarInitial(name))}</span>`;
 
 /**
- * Tooltip for a row's sharer, naming the owner too when someone else re-shared it.
+ * Tooltip for a row's sharers, naming the owner too when none of them owns it.
  *
  * @param {SharedRow} row
  * @returns {string} plain text
  */
 export const sharedByTitle = (row) => {
-    const username = sharerOf(row);
-    if ( ! username ) return '';
-    return row.owner && row.owner !== username
+    const sharers = sharersOf(row);
+    if ( sharers.length === 0 ) return '';
+    const username = listNames(sharers);
+    return row.owner && ! sharers.includes(row.owner)
         ? i18n('shared_by_user_owned_by', { username, owner: row.owner }, false)
         : i18n('shared_by_user', { username }, false);
 };
@@ -137,11 +166,11 @@ export const sharedByCellHtml = (row) => {
  *
  * @param {Sharer[]} sharers - From summarizeSharers
  * @param {string | null} active - The sharer filtered to, or null for everyone
+ * @param {number} total - Items anyone shared; an item counts once however many shared it
  * @returns {string} markup
  */
-export const sharerFilterHtml = (sharers, active) => {
+export const sharerFilterHtml = (sharers, active, total) => {
     if ( sharers.length < 2 ) return '';
-    const total = sharers.reduce((sum, sharer) => sum + sharer.count, 0);
     const chip = (value, inner, count, title) => {
         const pressed = (active ?? '') === value;
         return `<button type="button" class="sharer-chip${pressed ? ' active' : ''}" data-sharer="${window.html_encode(value)}" aria-pressed="${pressed}"${title ? ` title="${window.html_encode(title)}"` : ''}>`
