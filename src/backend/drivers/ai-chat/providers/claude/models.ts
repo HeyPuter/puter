@@ -72,15 +72,24 @@ export const CLAUDE_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'input_tokens',
         output_cost_key: 'output_tokens',
-        // Provisional rates match Fable 5.1 until Anthropic publishes pricing.
+        // Source: https://www.anthropic.com/claude-fable-and-mythos-5-2
+        serviceSpeedRates: {
+            fast: {
+                input_tokens: 1600,
+                output_tokens: 8000,
+                ephemeral_5m_input_tokens: 1600 * 1.25,
+                ephemeral_1h_input_tokens: 1600 * 2,
+                cache_read_input_tokens: 1600 * 0.025,
+            },
+        },
         costs: {
             tokens: 1_000_000,
-            input_tokens: 1000,
-            ephemeral_5m_input_tokens: 1000 * 1.25,
-            ephemeral_1h_input_tokens: 1000 * 2,
+            input_tokens: 800,
+            ephemeral_5m_input_tokens: 800 * 1.25,
+            ephemeral_1h_input_tokens: 800 * 2,
             // 0.025x input, not the usual 0.1x.
-            cache_read_input_tokens: 1000 * 0.025,
-            output_tokens: 5000,
+            cache_read_input_tokens: 800 * 0.025,
+            output_tokens: 4000,
             web_search_requests: 1_000_000, // $10/1k requests
         },
         context: 1000000,

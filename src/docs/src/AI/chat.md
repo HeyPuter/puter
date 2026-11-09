@@ -433,7 +433,7 @@ The `usageDetails` object on every result carries the same counts under provider
 
 Fast service is available on Claude models with a Fast rate card. Ultrafast falls back to fast. When the account has no Fast quota, the request retries at standard speed. The upstream service tier and inference speed are separate fields.
 
-To use Claude Fable 5.2, set `model` to `"claude-fable-5-2"`. It supports adaptive thinking with `reasoning_effort` and ignores sampling options such as `temperature`.
+To use Claude Fable 5.2, set `model` to `"claude-fable-5-2"`. It supports adaptive thinking with `reasoning_effort` and ignores sampling options such as `temperature`. Set `serviceSpeed: "fast"` for faster generation at a higher token rate.
 
 #### Prompt Caching
 
