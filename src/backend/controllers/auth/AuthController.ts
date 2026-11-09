@@ -392,19 +392,25 @@ export class AuthController extends PuterController {
         // server-side dropped that binding; this restores it. Without it a
         // popup talked into minting for app X (see `trustsOpenerOriginParam`
         // in the GUI) hands X's token to whoever holds the session id.
-        // Taking the stored copy hands each token out once; a mismatched caller never takes it.
-        if (
-            !this.#tokenIsForApp(token, expectedAppUid) ||
-            (stored &&
-                !(await deleteIfEqual(
-                    this.clients.redis,
-                    loginRelayKey(session),
-                    token,
-                )))
-        ) {
+        if (!this.#tokenIsForApp(token, expectedAppUid)) {
             // Deliberately the same 408 the no-token path returns: a caller
             // learns only that nothing arrived for them, not that a token
             // for a different app went past.
+            throw new HttpError(408, 'Request timeout.', {
+                legacyCode: 'request_timeout',
+            });
+        }
+
+        // Taking the stored copy hands each token out once; any leftover copy is removed.
+        const took = await deleteIfEqual(
+            this.clients.redis,
+            loginRelayKey(session),
+            token,
+        ).catch((e: unknown) => {
+            if (stored) throw e;
+            return false;
+        });
+        if (stored && !took) {
             throw new HttpError(408, 'Request timeout.', {
                 legacyCode: 'request_timeout',
             });
@@ -469,7 +475,10 @@ export class AuthController extends PuterController {
             );
         } catch (e) {
             stored = false;
-            console.warn('[login-set] storing the relayed token failed:', e);
+            console.warn(
+                '[login-set] storing the relayed token failed:',
+                e instanceof Error ? e.message : String(e),
+            );
         }
         this.clients.event.emit(
             `pubsub.login.${session}`,

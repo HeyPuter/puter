@@ -30,6 +30,7 @@
 
 import { installSeatStub } from '../../testFixtures/seatStub.js';
 import bcrypt from 'bcrypt';
+import { inspect } from 'node:util';
 import jwt from 'jsonwebtoken';
 import { TOTP } from 'otpauth';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
@@ -10888,6 +10889,75 @@ describe('AuthController.loginWait audience binding', () => {
             expect.objectContaining({ statusCode: 408 }),
         ]);
     });
+
+    it('leaves the token out of the warning when storing it fails', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+        const failure = Object.assign(new Error('ERR unavailable'), {
+            command: { name: 'set', args: [session, token, 'EX', '120'] },
+        });
+        const failingSet = vi
+            .spyOn(server.clients.redis, 'set')
+            .mockRejectedValueOnce(failure);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const res = makeRes();
+            await controller.loginSet(
+                makeReq({ session, auth_token: token }),
+                res,
+            );
+            expect(res.body).toEqual({ success: true });
+            expect(warn).toHaveBeenCalled();
+            const logged = warn.mock.calls
+                .flat()
+                .map((arg) => inspect(arg, { depth: 10 }))
+                .join(' ');
+            expect(logged).not.toContain(token);
+        } finally {
+            failingSet.mockRestore();
+            warn.mockRestore();
+        }
+    });
+
+    it.each([
+        ['no stored flag', {}],
+        ['stored: false', { stored: false }],
+    ])(
+        'removes a leftover stored copy when a relay arrives with %s',
+        async (_label, flag) => {
+            const { actor } = await makeUserAndActor();
+            const token = await mintAppToken(actor, OPENER);
+            const session = uuidv4();
+
+            const [{ res, outcome }] = await runWaits(
+                [{ session, origin: OPENER }],
+                {
+                    during: async () => {
+                        await server.clients.redis.set(
+                            `login:relay:${session}`,
+                            token,
+                            'EX',
+                            120,
+                        );
+                        eventClient.emit(
+                            `pubsub.login.${session}`,
+                            { authtoken: token, ...flag },
+                            {},
+                        );
+                    },
+                },
+            );
+            expect(outcome).toBe('ok');
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+            expect(
+                await server.clients.redis.get(`login:relay:${session}`),
+            ).toBeNull();
+
+            const later = await waitAlone(session, OPENER);
+            expect(later.outcome).toMatchObject({ statusCode: 408 });
+        },
+    );
 
     it('answers 400 when auth_token is not a string', async () => {
         await expect(
