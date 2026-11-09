@@ -123,6 +123,8 @@
  * GPT-5.6 and later: `ttl` is the minimum lifetime of every cache entry the request writes. A `'12h'`
  * entry costs twice as much to write as the default `'30m'` one and is served through the Responses
  * API. `mode: 'explicit'` only writes at the `prompt_cache_breakpoint` markers in your messages.
+ * @property {'fast' | 'standard'} [speed] Claude Opus 5.5, Opus 5 and Opus 4.8: `'fast'` runs the
+ * model's fast mode at a higher price. Other models ignore it.
  */
 
 /**

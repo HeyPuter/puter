@@ -30,6 +30,7 @@ const PARAMS_TO_PASS = [
     'prompt_cache_key',
     'prompt_cache_retention',
     'prompt_cache_options',
+    'speed',
 ];
 
 // Parameters renamed between the SDK's camelCase option and the driver's

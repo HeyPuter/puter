@@ -185,6 +185,15 @@ describe('ai.chat driver payloads', () => {
         });
     });
 
+    it('chat(prompt, options) forwards speed for Claude fast mode', async () => {
+        await ai.chat('hello', { model: 'claude-opus-5-5', speed: 'fast' });
+        expect(lastBody().args).toEqual({
+            messages: [{ content: 'hello' }],
+            model: 'claude-opus-5-5',
+            speed: 'fast',
+        });
+    });
+
     it('chat(prompt, options) forwards temperature: 0 and max_tokens: 0', async () => {
         await ai.chat('hello', {
             temperature: 0,
