@@ -20,16 +20,10 @@
 import UIWindowSaveAccount from '../UI/UIWindowSaveAccount.js';
 import UIWindowEmailConfirmationRequired from '../UI/UIWindowEmailConfirmationRequired.js';
 
-/**
- * Walks a temporary account through saving itself, and an unconfirmed one
- * through confirming its email, showing each window at most once.
- *
- * @param {string} message - What the save-account window says to a temporary account.
- * @param {Record<string, unknown>} [window_options] - Passed to both windows, such as
- *   `stay_on_top` to show them above an app.
- * @returns {Promise<boolean>} Whether the email is confirmed; false if the user backed out of either step.
- */
-const ensureConfirmedEmail = async (message, window_options = {}) => {
+// The walk-through showing, which a call made meanwhile joins.
+let showing = null;
+
+const walkThrough = async (message, window_options) => {
     if ( window.user.is_temp && ! await UIWindowSaveAccount({
         send_confirmation_code: true,
         message,
@@ -47,6 +41,23 @@ const ensureConfirmedEmail = async (message, window_options = {}) => {
         return !! await UIWindowEmailConfirmationRequired({ window_options });
     }
     return true;
+};
+
+/**
+ * Walks a temporary account through saving itself, and an unconfirmed one
+ * through confirming its email, showing each window at most once. A call made
+ * while the windows show settles with them, without opening its own.
+ *
+ * @param {string} message - What the save-account window says to a temporary account.
+ * @param {Record<string, unknown>} [window_options] - Passed to both windows, such as
+ *   `stay_on_top` to show them above an app.
+ * @returns {Promise<boolean>} Whether the email is confirmed; false if the user backed out of either step.
+ */
+const ensureConfirmedEmail = (message, window_options = {}) => {
+    showing ??= walkThrough(message, window_options).finally(() => {
+        showing = null;
+    });
+    return showing;
 };
 
 export default ensureConfirmedEmail;

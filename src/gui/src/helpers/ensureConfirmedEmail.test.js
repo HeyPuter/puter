@@ -95,4 +95,39 @@ describe('ensureConfirmedEmail', () => {
         expect(await ensureConfirmedEmail('save it')).toBe(true);
         expect(UIWindowEmailConfirmationRequired).toHaveBeenCalledTimes(1);
     });
+
+    it('answers a call made while the code window shows with that window, without a second one', async () => {
+        window.user = { is_temp: false, email_confirmed: false };
+        let answer;
+        UIWindowEmailConfirmationRequired.mockReturnValueOnce(new Promise((resolve) => {
+            answer = resolve;
+        }));
+        const first = ensureConfirmedEmail('save it');
+        const second = ensureConfirmedEmail('save it');
+        await Promise.resolve();
+        expect(UIWindowEmailConfirmationRequired).toHaveBeenCalledTimes(1);
+        answer(true);
+        expect(await Promise.all([first, second])).toEqual([true, true]);
+    });
+
+    it('answers a call made while the save-account window shows with that window', async () => {
+        window.user = { is_temp: true };
+        let answer;
+        UIWindowSaveAccount.mockReturnValueOnce(new Promise((resolve) => {
+            answer = resolve;
+        }));
+        const first = ensureConfirmedEmail('save it');
+        const second = ensureConfirmedEmail('save it');
+        expect(UIWindowSaveAccount).toHaveBeenCalledTimes(1);
+        answer(false);
+        expect(await Promise.all([first, second])).toEqual([false, false]);
+    });
+
+    it('opens a new window for a call made after the last one answered', async () => {
+        window.user = { is_temp: false, email_confirmed: false };
+        UIWindowEmailConfirmationRequired.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+        expect(await ensureConfirmedEmail('save it')).toBe(false);
+        expect(await ensureConfirmedEmail('save it')).toBe(true);
+        expect(UIWindowEmailConfirmationRequired).toHaveBeenCalledTimes(2);
+    });
 });

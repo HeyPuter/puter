@@ -77,4 +77,37 @@ test.describe('puter.ui.requestEmailConfirmation (env=app)', () => {
         await expect(appFrame.locator('#log [data-entry="confirm:false"]')).toBeVisible();
         await expect(codeWindow(page)).toHaveCount(0);
     });
+
+    test('a call made while the dialog shows gets its answer, with no second dialog', async ({ page }) => {
+        const appFrame = await gotoTestApp(page, appName);
+        await setEmailConfirmed(page, false);
+
+        await appFrame.locator('#confirm-email').click();
+        await expect(codeWindow(page)).toHaveCount(1);
+        // The dialog covers the button, so the app calls again itself.
+        await appFrame.locator('#confirm-email').evaluate((button) => button.click());
+        await page.waitForTimeout(500);
+        await expect(codeWindow(page)).toHaveCount(1);
+        await codeWindow(page).locator('.generic-close-window-button').click();
+
+        await expect(appFrame.locator('#log [data-entry="confirm:false"]')).toHaveCount(2);
+    });
+
+    test('a temporary account calling twice gets both answers from one save-account window', async ({ page }) => {
+        const appFrame = await gotoTestApp(page, appName);
+        await page.evaluate(() => {
+            window.user.is_temp = true;
+            window.user.email_confirmed = false;
+        });
+        const saveWindow = page.locator('.window-save-account');
+
+        await appFrame.locator('#confirm-email').click();
+        await expect(saveWindow).toHaveCount(1);
+        await appFrame.locator('#confirm-email').evaluate((button) => button.click());
+        await page.waitForTimeout(500);
+        await expect(saveWindow).toHaveCount(1);
+        await saveWindow.locator('.generic-close-window-button').click();
+
+        await expect(appFrame.locator('#log [data-entry="confirm:false"]')).toHaveCount(2);
+    });
 });
