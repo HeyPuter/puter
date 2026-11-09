@@ -420,6 +420,89 @@ describe('ShareStore', () => {
             ).toBeGreaterThan(25);
         });
 
+        it('still tells peer regions when the local marker cannot be set', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            const pipeline = vi
+                .spyOn(server.clients.redis, 'pipeline')
+                .mockImplementation(() => {
+                    throw new Error('redis unavailable');
+                });
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await store.deleteByFsentryIds([entry.id], [entry.uuid]);
+                expect(emit).toHaveBeenCalledWith(
+                    'outer.share.linksRevoked',
+                    { fsentryIds: [entry.id], uuids: [entry.uuid] },
+                    {},
+                );
+            } finally {
+                emit.mockRestore();
+                pipeline.mockRestore();
+            }
+        });
+
+        it('neither marks nor tells peers when nothing was removed', async () => {
+            const entry = await makeEntry(issuer);
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                expect(await store.deleteByFsentryIds([entry.id])).toBe(0);
+                expect(emit).not.toHaveBeenCalledWith(
+                    'outer.share.linksRevoked',
+                    expect.anything(),
+                    expect.anything(),
+                );
+            } finally {
+                emit.mockRestore();
+            }
+            expect(
+                await server.clients.redis.get(
+                    ShareStore.revokedLinkKey('uuid', entry.uuid),
+                ),
+            ).toBeNull();
+        });
+
+        it("ignores its own region's event and malformed payloads", async () => {
+            const local = uuidv4();
+            const sentinel = uuidv4();
+            const emit = (data, meta) =>
+                server.clients.event.emit(
+                    'outer.share.linksRevoked',
+                    data,
+                    meta,
+                );
+            emit({ fsentryIds: [], uuids: [local] }, {});
+            for (const data of [
+                null,
+                { fsentryIds: 'x', uuids: 'y' },
+                { fsentryIds: ['7', 1.5, null], uuids: [7, '', null] },
+            ]) {
+                emit(data, { from_outside: true });
+            }
+            // Handled in order, so once this lands the ones above have too.
+            emit({ fsentryIds: [], uuids: [sentinel] }, { from_outside: true });
+            await vi.waitFor(async () => {
+                expect(
+                    await server.clients.redis.get(
+                        ShareStore.revokedLinkKey('uuid', sentinel),
+                    ),
+                ).toBe('1');
+            });
+
+            for (const key of [
+                ShareStore.revokedLinkKey('uuid', local),
+                ShareStore.revokedLinkKey('uuid', '7'),
+                ShareStore.revokedLinkKey('id', 7),
+                ShareStore.revokedLinkKey('id', 1.5),
+            ]) {
+                expect(await server.clients.redis.get(key)).toBeNull();
+            }
+        });
+
         it('reads a link past the replica once one has been withdrawn', async () => {
             const entry = await makeEntry(issuer);
             await store.upsertAnyone({
@@ -1237,6 +1320,22 @@ describe('ShareStore', () => {
                     pread.mockRestore();
                 };
             };
+
+            it('lists every share in a subtree, even one the replica lacks', async () => {
+                const entry = await makeEntry(issuer);
+                const link = await store.upsertAnyone({
+                    issuerUserId: issuer.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                const restore = lagShares([]);
+                try {
+                    const rows = await store.listAllByFsentrySubtree(entry.id);
+                    expect(rows.map((row) => row.uid)).toEqual([link.uid]);
+                } finally {
+                    restore();
+                }
+            });
 
             it('returns the rows it inserts before the replica has them', async () => {
                 const entry = await makeEntry(issuer);

@@ -370,7 +370,8 @@ export class ShareStore extends PuterStore {
      * @param {number} fsentryId
      */
     async listAllByFsentrySubtree(fsentryId) {
-        const rows = await this.clients.db.read(
+        // The primary: a share made just now must be retired too.
+        const rows = await this.clients.db.pread(
             this.#subtreeCte() +
                 'SELECT `share`.* FROM `share` ' +
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
@@ -991,8 +992,9 @@ export class ShareStore extends PuterStore {
      * its shares never fires.
      *
      * @param {number[]} fsentryIds
+     * @param {string[]} [entryUuids] The nodes' uuids; looked up when omitted.
      */
-    async deleteByFsentryIds(fsentryIds) {
+    async deleteByFsentryIds(fsentryIds, entryUuids) {
         if (fsentryIds.length === 0) return 0;
         const placeholders = fsentryIds.map(() => '?').join(', ');
         const result = await this.clients.db.write(
@@ -1000,7 +1002,9 @@ export class ShareStore extends PuterStore {
             fsentryIds,
         );
         // Which of these nodes held a link is no longer known, so mark them all.
-        if (result.anyRowsAffected) await this.#markLinksRevoked(fsentryIds);
+        if (result.anyRowsAffected) {
+            await this.#markLinksRevoked(fsentryIds, entryUuids);
+        }
         return result.affectedRows;
     }
 
@@ -1254,33 +1258,37 @@ export class ShareStore extends PuterStore {
         return removed;
     }
 
-    /**
-     * Open the window in which reads of these nodes' links go to the primary,
-     * here and in peer regions.
-     *
-     * @param {number[]} fsentryIds
-     * @param {string[]} [entryUuids] The nodes' uuids; looked up when omitted.
-     */
+    /** Reads of these nodes' links go to the primary, here and in peers. */
     async #markLinksRevoked(fsentryIds, entryUuids) {
-        try {
-            const ids = fsentryIds.map(Number);
-            let uuids = entryUuids;
-            if (!uuids) {
+        const ids = [...new Set(fsentryIds.map(Number))];
+        let uuids = entryUuids?.length >= ids.length ? entryUuids : null;
+        if (!uuids) {
+            try {
                 const rows = await this.clients.db.pread(
                     'SELECT `uuid` FROM `fsentries` WHERE `id` IN ' +
                         `(${ids.map(() => '?').join(', ')})`,
                     ids,
                 );
                 uuids = rows.map((row) => String(row.uuid));
+            } catch (e) {
+                console.warn('[share] link-revoke uuids not found:', e);
+                uuids = entryUuids ?? [];
             }
+        }
+        try {
             await this.#applyLinksRevoked(ids, uuids);
+        } catch (e) {
+            console.warn('[share] link-revoke marker not set:', e);
+        }
+        // Peers still get the ids when the local half failed.
+        try {
             this.clients.event.emit(
                 'outer.share.linksRevoked',
                 { fsentryIds: ids, uuids },
                 {},
             );
         } catch (e) {
-            console.warn('[share] link-revoke marker not set:', e);
+            console.warn('[share] link-revoke not sent to peers:', e);
         }
     }
 

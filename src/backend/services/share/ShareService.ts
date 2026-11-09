@@ -1882,7 +1882,10 @@ export class ShareService extends PuterService {
         // nothing to list or hydrate.
         if (!entry.isDir) {
             await this.onEntryDeleted([entry.uuid]);
-            await this.stores.share.deleteByFsentryIds([entry.id]);
+            await this.stores.share.deleteByFsentryIds(
+                [entry.id],
+                [entry.uuid],
+            );
             return;
         }
         const rows = await this.stores.share.listAllByFsentrySubtree(entry.id);
@@ -1898,7 +1901,7 @@ export class ShareService extends PuterService {
         const nodes = await this.stores.fsEntry.getEntriesByIds(fsentryIds);
         const uuids = [...nodes.values()].map((node) => node.uuid);
         if (uuids.length > 0) await this.onEntryDeleted(uuids);
-        await this.stores.share.deleteByFsentryIds(fsentryIds);
+        await this.stores.share.deleteByFsentryIds(fsentryIds, uuids);
     }
 
     /**

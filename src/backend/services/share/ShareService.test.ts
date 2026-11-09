@@ -1272,7 +1272,7 @@ describe('ShareService', () => {
                 const prefixes = [`fs:${file.uuid}`, `manage:fs:${file.uuid}`];
                 expect(revokeUserGrants).toHaveBeenCalledWith(prefixes);
                 expect(revokeGroupGrants).toHaveBeenCalledWith(prefixes);
-                expect(deleteRows).toHaveBeenCalledWith([file.id]);
+                expect(deleteRows).toHaveBeenCalledWith([file.id], [file.uuid]);
                 // Grants go before the rows that record them.
                 expect(
                     revokeUserGrants.mock.invocationCallOrder[0]!,

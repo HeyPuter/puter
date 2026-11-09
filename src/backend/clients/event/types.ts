@@ -736,10 +736,7 @@ export type EventMap = {
     'outer.permission.flatInvalidated': {
         entries: Array<{ holderUserId: number; permission: string }>;
     };
-    /**
-     * Link shares on these nodes were removed, so peer regions read them from
-     * the primary for a while instead of a replica that may still have them.
-     */
+    /** Links on these nodes were removed; read them from the primary. */
     'outer.share.linksRevoked': { fsentryIds: number[]; uuids: string[] };
     /**
      * A user's subscription set changed, so every process must drop its cached
