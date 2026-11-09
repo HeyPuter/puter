@@ -3,14 +3,14 @@ import { EventClient } from '../../clients/event/EventClient.js';
 import type { EventMap } from '../../clients/event/types.js';
 import { NotificationStore } from './NotificationStore.js';
 
-const setup = (row: Record<string, unknown> | null, changed = true) => {
+const setup = (row: Record<string, unknown> | null, changed = true, replica: Record<string, unknown> | null = null) => {
     const event = new EventClient({} as never);
     const emitted: EventMap['notif.acknowledged'][] = [];
     event.on('notif.acknowledged', (_key, data) => { emitted.push(data); });
     const db = {
         write: vi.fn(async () => ({ anyRowsAffected: changed })),
         pread: vi.fn(async () => row ? [row] : []),
-        read: vi.fn(async () => []),
+        read: vi.fn(async (): Promise<unknown[]> => replica ? [replica] : []),
     };
     const store = new NotificationStore({}, { event, db } as never, {});
     return { store, emitted, db };
@@ -22,12 +22,30 @@ const appRow = {
 };
 
 describe('acknowledgement emission', () => {
-    it('announces a committed app message dismissal without content', async () => {
-        const { store, emitted, db } = setup(appRow);
+    it('announces a committed app message dismissal without content, from a replica', async () => {
+        const { store, emitted, db } = setup(null, true, appRow);
         await expect(store.markAcknowledged('one', 7)).resolves.toBe(true);
         expect(db.write.mock.calls[0][0]).toContain('`acknowledged` IS NULL');
+        expect(db.read).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('`user_id` = ?'), ['one', 7]);
+        expect(db.pread).not.toHaveBeenCalled();
+        expect(emitted).toEqual([{ userId: 7, uid: 'one', type: 'app.message', audience: 'app-user', appUid: 'app-one' }]);
+    });
+
+    it('reads the primary when the replica has no row yet', async () => {
+        const { store, emitted, db } = setup(appRow);
+        await expect(store.markAcknowledged('one', 7)).resolves.toBe(true);
+        expect(db.read).toHaveBeenCalledWith(expect.stringContaining('`user_id` = ?'), ['one', 7]);
         expect(db.pread).toHaveBeenCalledWith(expect.stringContaining('`user_id` = ?'), ['one', 7]);
         expect(emitted).toEqual([{ userId: 7, uid: 'one', type: 'app.message', audience: 'app-user', appUid: 'app-one' }]);
+    });
+
+    it('reads the primary when the replica read fails', async () => {
+        const { store, emitted, db } = setup(appRow, true, appRow);
+        db.read.mockRejectedValueOnce(new Error('unavailable'));
+        await expect(store.markAcknowledged('one', 7)).resolves.toBe(true);
+        expect(db.read).toHaveBeenCalledOnce();
+        expect(db.pread).toHaveBeenCalledOnce();
+        expect(emitted).toHaveLength(1);
     });
 
     it.each([

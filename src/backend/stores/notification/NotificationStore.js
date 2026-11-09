@@ -588,18 +588,28 @@ export class NotificationStore extends PuterStore {
         return this.#normalizeRow(replaced);
     }
 
+    /**
+     * The event needs only columns no write changes, so they come from a
+     * replica alongside the update, and from the primary when it lags.
+     */
     async markAcknowledged(uid, userId) {
+        const db = this.clients.db;
         const now = Math.floor(Date.now() / 1000);
-        const result = await this.clients.db.write(
-            'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
-            [now, uid, userId],
-        );
+        const fixed =
+            'SELECT `type`, `app_uid`, `audience` FROM `notification` WHERE `uid` = ? AND `user_id` = ? LIMIT 1';
+        const [result, replica] = await Promise.all([
+            db.write(
+                'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
+                [now, uid, userId],
+            ),
+            db.read(fixed, [uid, userId]).catch(() => []),
+        ]);
         if (result.anyRowsAffected) {
             try {
-                const [row] = await this.clients.db.pread(
-                    'SELECT `type`, `app_uid`, `audience` FROM `notification` WHERE `uid` = ? AND `user_id` = ? LIMIT 1',
-                    [uid, userId],
-                );
+                const [row] =
+                    replica.length > 0
+                        ? replica
+                        : await db.pread(fixed, [uid, userId]);
                 if (row?.type === 'app.message' && row.app_uid) {
                     this.clients.event.emit(
                         'notif.acknowledged',
