@@ -1,8 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { waitForPuterReady } from '../helpers/testApp.js';
 
-// A second account: what a first-time visitor is given.
-const visitorAccount = async (browser) => {
+const createVisitorAccount = async (browser) => {
     const visitorContext = await browser.newContext({
         storageState: { cookies: [], origins: [] },
     });
@@ -16,6 +15,11 @@ const visitorAccount = async (browser) => {
     await visitorContext.close();
     return account;
 };
+
+// A second account: what a first-time visitor is given. Created once for the
+// whole file, because sign-ups are rate limited.
+let visitor;
+const visitorAccount = (browser) => (visitor ??= createVisitorAccount(browser));
 
 /**
  * Every tab shares one stored session, so switching accounts in one tab hands
