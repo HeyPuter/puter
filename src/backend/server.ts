@@ -1814,18 +1814,23 @@ export class PuterServer {
     async prepareShutdown(info: ServerDrainInfo = {}) {
         if (this.#server) {
             await this.#runDrainStartHooks(info);
-            this.#server.close(async () => {
-                console.log(
-                    'PuterServer has stopped accepting new connections',
-                );
-                try {
-                    await this.#runPrepareShutdownHooks();
-                } catch (err) {
-                    console.error(
-                        '[server] prepare-shutdown hooks failed',
-                        err,
+
+            // Wrap close in a promise so the async function actually blocks
+            await new Promise<void>((resolve) => {
+                this.#server?.close(async () => {
+                    console.log(
+                        'PuterServer has stopped accepting new connections',
                     );
-                }
+                    try {
+                        await this.#runPrepareShutdownHooks();
+                    } catch (err) {
+                        console.log(
+                            '[server] prepare-shutdown hooks failed',
+                            err,
+                        );
+                    }
+                    resolve(); // Resume execution flow once hooks finish
+                });
             });
         }
     }
