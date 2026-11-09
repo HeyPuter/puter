@@ -1379,6 +1379,9 @@ export class UIModule extends EventListener {
                     closed: (data) => ({ response: data?.confirmed === true }),
                     onMessage: () => {},
                 });
+                // The page's cached whoami still reads it as unconfirmed,
+                // and would frame the next call too.
+                if ( framed?.response ) user.email_confirmed = true;
                 return framed || { response: false };
             } finally {
                 this.#emailConfirmationFrame = null;

@@ -280,7 +280,8 @@ which the desktop's handler uses too: a temporary account gets the save-account
 window first, then an unconfirmed email gets the code window, each at most
 once. When the page's whoami already reads the email as confirmed,
 `requestEmailConfirmation()` resolves `{ response: true }` without framing
-anything. An email the GUI reads as confirmed shows nothing. Before opening a window the GUI waits for the frame to have a viewport,
+anything, and a confirmation in the frame marks that whoami confirmed for the
+calls after it. An email the GUI reads as confirmed shows nothing. Before opening a window the GUI waits for the frame to have a viewport,
 as the upgrade does. It then posts
 `{ msg: 'puterPopupFrame', state: 'closed', confirmed }`, and
 `requestEmailConfirmation()` resolves `{ response: confirmed }`, the field an

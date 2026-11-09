@@ -96,6 +96,18 @@ describe('ui.requestEmailConfirmation on a signed-in first-party page', () => {
         expect(frameDialog()).toBeNull();
     });
 
+    it('resolves the next call true without a frame once the user has confirmed in one', async () => {
+        const ui = makeUI();
+        const first = ui.requestEmailConfirmation();
+        await vi.waitFor(() => expect(confirmFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed', confirmed: true });
+        await expect(first).resolves.toEqual({ response: true });
+
+        await expect(ui.requestEmailConfirmation()).resolves.toEqual({ response: true });
+        expect(frameDialog()).toBeNull();
+    });
+
     it('resolves false when the user closes it without confirming', async () => {
         const result = makeUI().requestEmailConfirmation();
         await vi.waitFor(() => expect(confirmFrame()).not.toBeNull());
@@ -125,8 +137,8 @@ describe('ui.requestEmailConfirmation on a signed-in first-party page', () => {
         expect(second).toBe(first);
         expect(document.querySelectorAll('dialog.puter-popup-frame')).toHaveLength(1);
         fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
-        fromFrame({ msg: 'puterPopupFrame', state: 'closed', confirmed: true });
-        await expect(second).resolves.toEqual({ response: true });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed' });
+        await expect(second).resolves.toEqual({ response: false });
 
         // A later call shows a new one.
         ui.requestEmailConfirmation();
