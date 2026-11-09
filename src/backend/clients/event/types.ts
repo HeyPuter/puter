@@ -420,7 +420,11 @@ export type EventMap = {
         old_username: string;
         new_username: string;
     };
-    'user.email-changed': { user_id: number; new_email: string };
+    'user.email-changed': {
+        user_id: number;
+        old_email: string | null;
+        new_email: string;
+    };
     /** An account was suspended, or its suspension lifted. Local events. */
     'user.suspended': { userId: number };
     'user.unsuspended': { userId: number };
