@@ -8881,7 +8881,13 @@ describe('AuthController 2FA flows', () => {
             otp_recovery_codes: 'a,b,c',
         });
         const res = makeRes();
-        await controller.handleDisable2fa(makeReq({ code: liveTotp(user.username, 'TESTSECRETBASE32') }, { actor }), res);
+        await controller.handleDisable2fa(
+            makeReq(
+                { code: liveTotp(user.username, 'TESTSECRETBASE32') },
+                { actor },
+            ),
+            res,
+        );
         expect(res.body).toEqual({ success: true });
         const after = await server.stores.user.getById(user.id, {
             force: true,
@@ -10666,6 +10672,110 @@ describe('AuthController.loginWait audience binding', () => {
         );
         expect(outcome).toMatchObject({ statusCode: 408 });
         expect(res.body).toBeUndefined();
+    });
+
+    /** Post a token to `/login/set` with no wait running. */
+    const setToken = (session: string, token: string) =>
+        controller.loginSet(makeReq({ session, auth_token: token }), makeRes());
+
+    /**
+     * Run one wait with no relay alongside it, on fake timers so the 10 s
+     * window passes without real waiting. `now` pins the clock.
+     */
+    const waitAlone = async (session: string, origin: string, now?: number) => {
+        vi.useFakeTimers({
+            toFake: now === undefined ? ['setTimeout'] : ['setTimeout', 'Date'],
+        });
+        if (now !== undefined) vi.setSystemTime(now);
+        try {
+            const res = makeRes();
+            let done = false;
+            const settled = controller
+                .loginWait(makeReq({ session }, { headers: { origin } }), res)
+                .then(
+                    () => 'ok' as const,
+                    (e: unknown) => e,
+                )
+                .finally(() => {
+                    done = true;
+                });
+            for (let i = 0; i < 200 && !done; i++) {
+                await new Promise((r) => setImmediate(r));
+                await vi.advanceTimersByTimeAsync(1000);
+            }
+            return { res, outcome: await settled };
+        } finally {
+            vi.useRealTimers();
+        }
+    };
+
+    it('delivers a token set before the wait subscribes', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('delivers a token set between one wait timing out and the next', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const first = await waitAlone(session, OPENER);
+        expect(first.outcome).toMatchObject({ statusCode: 408 });
+
+        await setToken(session, token);
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('hands a token out only once', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        expect((await waitAlone(session, OPENER)).outcome).toBe('ok');
+
+        const again = await waitAlone(session, OPENER);
+        expect(again.outcome).toMatchObject({ statusCode: 408 });
+        expect(again.res.body).toBeUndefined();
+    });
+
+    it('withholds a stored token from a mismatched Origin and keeps it for the matching one', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        const other = await waitAlone(session, 'https://evil.test');
+        expect(other.outcome).toMatchObject({ statusCode: 408 });
+        expect(other.res.body).toBeUndefined();
+
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('drops a stored token after a couple of minutes', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const early = uuidv4();
+        const late = uuidv4();
+        await setToken(early, token);
+        await setToken(late, token);
+
+        const start = Date.now();
+        expect((await waitAlone(early, OPENER, start + 110_000)).outcome).toBe(
+            'ok',
+        );
+        const expired = await waitAlone(late, OPENER, start + 121_000);
+        expect(expired.outcome).toMatchObject({ statusCode: 408 });
     });
 });
 
