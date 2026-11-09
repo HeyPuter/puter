@@ -107,13 +107,13 @@ const toAnthropicMediaPart = (part: any): any => {
     return part;
 };
 
-/** A 429 from fast mode's separate quota, not the model's normal limits. */
-const isFastModeRateLimit = (e: unknown): boolean => {
+/** Fast quota or overload failures can be retried at standard speed. */
+const isFastModeUnavailable = (e: unknown): boolean => {
     const err = e as { status?: unknown; message?: unknown };
     return (
-        err?.status === 429 &&
-        typeof err.message === 'string' &&
-        /fast mode/i.test(err.message)
+        typeof err?.message === 'string' &&
+        ((err?.status === 429 && /fast mode/i.test(err.message)) ||
+            (err?.status === 529 && /overload|fast mode/i.test(err.message)))
     );
 };
 
@@ -364,11 +364,9 @@ export class ClaudeProvider implements IChatProvider {
         try {
             return await this.#completeOnce(args);
         } catch (e) {
-            // Fast mode has its own quota. Anthropic's advice on that 429 is to
-            // drop `speed` and run at standard speed; doing it here keeps the
-            // request on Claude instead of marking the route unhealthy and
-            // replaying it on a reseller.
-            if (args.speed === 'fast' && isFastModeRateLimit(e)) {
+            // Retry fast-capacity failures on Claude at standard speed before
+            // considering a different provider.
+            if (args.speed === 'fast' && isFastModeUnavailable(e)) {
                 return await this.#completeOnce({ ...args, speed: undefined });
             }
             throw e;

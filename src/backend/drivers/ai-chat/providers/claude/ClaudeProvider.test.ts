@@ -2357,13 +2357,15 @@ describe('ClaudeProvider metering', () => {
         expect('fast_input_tokens' in result.usage).toBe(false);
     });
 
-    it('retries at standard speed on Claude when fast mode is rate limited', async () => {
+    it.each([
+        [429, "This request would exceed your organization's rate limit of 0 fast mode input tokens per minute"],
+        [529, 'Overloaded'],
+        [529, 'Fast mode capacity unavailable'],
+    ])('retries at standard speed on Claude after fast capacity failure %s', async (status, message) => {
         const { provider } = makeProvider();
         const fastLimited = Object.assign(
-            new Error(
-                "This request would exceed your organization's rate limit of 0 fast mode input tokens per minute",
-            ),
-            { status: 429 },
+            new Error(message),
+            { status },
         );
         messagesCreateMock.mockRejectedValueOnce(fastLimited).mockResolvedValueOnce({
             content: [{ type: 'text', text: 'hi' }],
