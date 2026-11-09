@@ -602,26 +602,6 @@ Models with a Priority offering select that offering for fast service. Other mod
 
 ## Examples
 
-### Select service speed
-
-For example, request the fastest supported service:
-
-```html;ai-chat-service-speed
-<html>
-<body>
-    <script src="https://js.puter.com/v2/"></script>
-    <script type="module">
-        const response = await puter.ai.chat('Explain closures in one paragraph.', {
-            model: 'gpt-6.1-sol',
-            serviceSpeed: 'ultrafast',
-        });
-        puter.print(response.message.content);
-        puter.print(response.usageDetails.serviceSpeed);
-    </script>
-</body>
-</html>
-```
-
 ### Ask GPT-6 Luna a question
 
 ```html;ai-chatgpt
@@ -1151,6 +1131,26 @@ Policy 8 - Account Management: Each Enterprise and Ultimate customer is assigned
             analyzeBtn.disabled = false;
             analyzeBtn.textContent = 'Analyze My Resume';
         });
+    </script>
+</body>
+</html>
+```
+
+### Select service speed
+
+For example, request the fastest supported service:
+
+```html;ai-chat-service-speed
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script type="module">
+        const response = await puter.ai.chat('Explain closures in one paragraph.', {
+            model: 'gpt-6.1-sol',
+            serviceSpeed: 'ultrafast',
+        });
+        puter.print(response.message.content);
+        puter.print(response.usageDetails.serviceSpeed);
     </script>
 </body>
 </html>
