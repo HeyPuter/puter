@@ -6014,6 +6014,7 @@ const TabFiles = {
             shared_by_all: share.issuers,
             owner: share.owner,
             holder_team: share.holderTeam,
+            also_team_share: share.alsoHeldByTeam,
         }));
 
         const linked = this.pendingSharedLinks ?? [];

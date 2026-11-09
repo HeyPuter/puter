@@ -70,6 +70,28 @@ describe('mergeGrants', () => {
         ]);
         expect(share.mode).toBe('write');
         expect(share.holderTeam).toBeUndefined();
+        expect(share.alsoHeldByTeam).toBe(true);
+    });
+
+    it('marks only an item held both ways as also held by a team', () => {
+        const [direct, team] = mergeGrants([
+            grant(BUDGET, 'Budget', { mode: 'read', issuer: 'jf' }),
+            grant(BUDGET, 'Budget', { mode: 'write', issuer: 'delegate' }),
+            grant(REPORT, 'report.pdf', { mode: 'read', holderTeam: TEAM }),
+            grant(REPORT, 'report.pdf', { mode: 'write', holderTeam: TEAM }),
+        ]);
+        expect(direct.alsoHeldByTeam).toBe(false);
+        expect(team.alsoHeldByTeam).toBe(false);
+    });
+
+    it('still marks it when a later grant is direct again', () => {
+        const [share] = mergeGrants([
+            grant(BUDGET, 'Budget', { mode: 'read', holderTeam: TEAM }),
+            grant(BUDGET, 'Budget', { mode: 'read', issuer: 'jf' }),
+            grant(BUDGET, 'Budget', { mode: 'write', issuer: 'delegate' }),
+        ]);
+        expect(share.holderTeam).toBeUndefined();
+        expect(share.alsoHeldByTeam).toBe(true);
     });
 
     it('stays a team share when every grant is to a team', () => {

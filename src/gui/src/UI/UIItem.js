@@ -35,6 +35,7 @@ import { is_owned_by_me } from '../helpers/pathOwner.js';
 import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
 import { is_default_app } from '../helpers/defaultApp.js';
 import openWithAI from '../helpers/openWithAI.js';
+import refresh_item_container from '../helpers/refreshItemContainer.js';
 
 async function UIItem (options) {
     const matching_appendto_count = $(options.appendTo).length;
@@ -64,6 +65,7 @@ async function UIItem (options) {
     options.share_mode = options.share_mode ?? '';
     options.shared_by = options.shared_by ?? '';
     options.is_team_share = options.is_team_share ?? false;
+    options.is_also_team_share = options.is_also_team_share ?? false;
     options.owner = options.owner ?? '';
     options.metadata = options.metadata ?? '';
     options.multiselectable = (options.multiselectable === undefined || options.multiselectable === true) ? true : false;
@@ -102,6 +104,7 @@ async function UIItem (options) {
                 data-share_mode="${html_encode(options.share_mode)}"
                 data-shared_by="${html_encode(options.shared_by)}"
                 data-is_team_share="${options.is_team_share ? 1 : 0}"
+                data-is_also_team_share="${options.is_also_team_share ? 1 : 0}"
                 data-owner="${html_encode(options.owner)}"
                 data-has_website="${show_website_badge ? 1 : 0 }" 
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
@@ -1529,7 +1532,13 @@ async function UIItem (options) {
                             // Or mode lookups keep answering for a share we
                             // just walked away from.
                             invalidate_shared_roots();
-                            $(el_item).removeItems();
+                            // A team that still shares it keeps it listed,
+                            // as the team's share.
+                            if ( $(el_item).attr('data-is_also_team_share') === '1' ) {
+                                refresh_item_container($(el_item).closest('.item-container'));
+                            } else {
+                                $(el_item).removeItems();
+                            }
                         } catch (e) {
                             UIAlert({ message: e?.message ?? i18n('error_unknown_cause') });
                         }

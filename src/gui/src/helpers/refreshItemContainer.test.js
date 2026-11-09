@@ -107,6 +107,31 @@ describe('refresh_item_container in the Shared view', () => {
             is_team_share: true,
         });
     });
+
+    it('flags a direct share the team holds too', async () => {
+        list_all_shared.mockResolvedValue([
+            {
+                entryUid: 'u-1',
+                name: 'a.txt',
+                path: '/bob/u-1/a.txt',
+                isDir: false,
+                mode: 'read',
+                issuer: 'bob',
+                owner: 'bob',
+                alsoHeldByTeam: true,
+            },
+        ]);
+        document.body.innerHTML =
+            '<div class="window"><div class="item-container" data-path="/alice/Shared"></div></div>';
+
+        refresh_item_container($('.item-container'));
+
+        await vi.waitFor(() => expect(UIItem).toHaveBeenCalledTimes(1));
+        expect(UIItem.mock.calls[0][0]).toMatchObject({
+            is_team_share: false,
+            is_also_team_share: true,
+        });
+    });
 });
 
 const deferred = () => {

@@ -26,12 +26,14 @@ const PAGE_SIZE = 200;
  * One row per shared item. The API lists a row per grant and grants add up, so
  * an item granted twice keeps its strongest row. It stays a team share only
  * when no grant names the user directly, since a direct grant is theirs to leave.
- * A merged row lists everyone who granted it in `issuers`, strongest grant first.
+ * A merged row lists everyone who granted it in `issuers`, strongest grant first,
+ * and sets `alsoHeldByTeam` when leaving the direct grant leaves a team's in place.
  *
  * @param {Array<Object>} shares
  * @returns {Array<Object>}
  */
 const issuersOf = (share) => share.issuers ?? [share.issuer];
+const heldByTeam = (share) => Boolean(share.holderTeam) || share.alsoHeldByTeam === true;
 
 export const mergeGrants = (shares) => {
     const merged = new Map();
@@ -48,6 +50,7 @@ export const mergeGrants = (shares) => {
         merged.set(key, {
             ...best,
             holderTeam: teamOnly ? best.holderTeam : undefined,
+            alsoHeldByTeam: ! teamOnly && (heldByTeam(held) || heldByTeam(share)),
             issuers: [...new Set(issuers)],
         });
     }
