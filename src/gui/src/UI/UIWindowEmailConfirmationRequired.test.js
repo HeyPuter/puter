@@ -21,13 +21,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
-// Renders the body and, as the real window does, runs on_close once it's removed.
+// Renders the body and, as the real window does, asks on_before_exit before
+// closing and runs on_close once it's removed.
 vi.mock('./UIWindow.js', () => ({
     default: vi.fn(async (opts) => {
         const el = document.createElement('div');
         el.className = `window ${opts.window_class}`;
         el.innerHTML = opts.body_content;
         el.onClose = opts.on_close;
+        el.onBeforeExit = opts.on_before_exit;
         document.body.append(el);
         return el;
     }),
@@ -60,6 +62,7 @@ beforeEach(() => {
     globalThis.$ = jQuery;
     jQuery.fn.close = function () {
         this.each((_, el) => {
+            if ( ! el.isConnected || el.onBeforeExit?.() === false ) return;
             el.remove();
             el.onClose?.();
         });
@@ -165,6 +168,80 @@ describe('UIWindowEmailConfirmationRequired', () => {
         const { result } = await open();
         win().close();
         await expect(result).resolves.toBe(false);
+    });
+
+    it('sends no code when it closes before the code is sent', async () => {
+        const ajax = vi.spyOn(jQuery, 'ajax').mockImplementation(() => {});
+        const { result } = await open();
+        vi.useFakeTimers();
+        enterCode();
+        await vi.advanceTimersByTimeAsync(500);
+        win().close();
+        await vi.advanceTimersByTimeAsync(1000);
+        vi.useRealTimers();
+
+        await expect(result).resolves.toBe(false);
+        expect(ajax).not.toHaveBeenCalled();
+        expect(window.user.email_confirmed).toBe(false);
+    });
+
+    it.each([
+        ['true when the code confirms the email', { email_confirmed: true }, true],
+        ['false when it doesn\'t', { email_confirmed: false }, false],
+    ])('waits for a code already sent when asked to close, and resolves %s', async (_label, answer, expected) => {
+        let respond;
+        vi.spyOn(jQuery, 'ajax').mockImplementation((opts) => {
+            respond = () => {
+                opts.success(answer);
+                opts.complete();
+            };
+        });
+        const { result } = await open();
+        vi.useFakeTimers();
+        enterCode();
+        await vi.advanceTimersByTimeAsync(1000);
+        vi.useRealTimers();
+        win().close();
+        expect(win()).toHaveLength(1);
+        expect(await settled(result)).toBe(PENDING);
+
+        respond();
+        await expect(result).resolves.toBe(expected);
+        expect(win()).toHaveLength(0);
+        expect(window.user.email_confirmed).toBe(expected);
+    });
+
+    it('closes once a code already sent fails, when asked to close meanwhile', async () => {
+        let fail;
+        vi.spyOn(jQuery, 'ajax').mockImplementation((opts) => {
+            fail = () => {
+                opts.error({ status: 0 });
+                opts.complete();
+            };
+        });
+        const { result } = await open();
+        vi.useFakeTimers();
+        enterCode();
+        await vi.advanceTimersByTimeAsync(1000);
+        vi.useRealTimers();
+        win().close();
+        fail();
+
+        await expect(result).resolves.toBe(false);
+        expect(win()).toHaveLength(0);
+    });
+
+    it('closes for a logout from its footer while a code is being checked', async () => {
+        vi.spyOn(jQuery, 'ajax').mockImplementation(() => {});
+        const { result } = await open({ logout_in_footer: true });
+        vi.useFakeTimers();
+        enterCode();
+        await vi.advanceTimersByTimeAsync(1000);
+        vi.useRealTimers();
+        win().find('.conf-email-log-out').trigger('click');
+
+        expect(win()).toHaveLength(0);
+        expect(await settled(result)).toBe(PENDING);
     });
 
     it('stays unsettled on a logout from its footer, so a gate doesn\'t reopen it', async () => {

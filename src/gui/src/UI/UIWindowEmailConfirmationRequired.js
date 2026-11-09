@@ -34,6 +34,9 @@ function UIWindowEmailConfirmationRequired (options) {
         let final_code = '';
         let is_checking_code = false;
         let logging_out = false;
+        let submit_timer = null;
+        let code_sent = false;
+        let close_after_check = false;
 
         const submit_btn_txt = 'Confirm Email';
 
@@ -100,6 +103,16 @@ function UIWindowEmailConfirmationRequired (options) {
             window_css: {
                 height: 'initial',
             },
+            // A code on its way to the server answers for the window, so the
+            // window waits for it. One not sent yet isn't sent.
+            on_before_exit: () => {
+                if ( code_sent && ! logging_out ) {
+                    close_after_check = true;
+                    return false;
+                }
+                clearTimeout(submit_timer);
+                return true;
+            },
             // A no-op after a confirmation, which resolves first.
             on_close: () => {
                 if ( ! logging_out ) resolve(false);
@@ -134,7 +147,8 @@ function UIWindowEmailConfirmationRequired (options) {
             // set animation
             $(el_window).find('.email-confirm-btn').html('<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>');
 
-            setTimeout(() => {
+            submit_timer = setTimeout(() => {
+                code_sent = true;
                 $.ajax({
                     url: `${window.api_origin }/confirm-email`,
                     type: 'POST',
@@ -156,6 +170,8 @@ function UIWindowEmailConfirmationRequired (options) {
                             // Callers check window.user next, before the refresh lands.
                             if ( window.user ) window.user.email_confirmed = true;
                             resolve(true);
+                            code_sent = false;
+                            close_after_check = false;
                             $(el_window).close();
                             window.refresh_user_data(window.auth_token);
                         } else {
@@ -180,6 +196,8 @@ function UIWindowEmailConfirmationRequired (options) {
                     },
                     complete: function () {
                         is_checking_code = false;
+                        code_sent = false;
+                        if ( close_after_check ) $(el_window).close();
                     },
                 });
             }, 1000);
