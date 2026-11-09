@@ -934,7 +934,7 @@ async function UIWindow (options) {
                     // LEGACY SUPPORT, remove this in the future when Polotno uses the new SDK
                     // this is literally put in here to support Polotno's legacy code
                     ...(selected_files.length === 1 && selected_files[0]),
-                }, '*');
+                }, window.openerOrigin);
 
                 window.close();
                 window.open('', '_self').close();
@@ -1018,7 +1018,7 @@ async function UIWindow (options) {
                     // LEGACY SUPPORT, remove this in the future when Polotno uses the new SDK
                     // this is literally put in here to support Polotno's legacy code
                     ...(selected_dirs.length === 1 && selected_dirs[0]),
-                }, '*');
+                }, window.openerOrigin);
 
                 window.close();
                 window.open('', '_self').close();
