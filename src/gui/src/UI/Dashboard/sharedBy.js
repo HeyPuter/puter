@@ -69,7 +69,8 @@ export const summarizeSharers = (rows) => {
 };
 
 /**
- * The rows `sharer` shared; every row when `sharer` is empty.
+ * The rows `sharer` shared, each shown as shared by them; every row when
+ * `sharer` is empty.
  *
  * @template {SharedRow} T
  * @param {T[]} rows
@@ -77,7 +78,9 @@ export const summarizeSharers = (rows) => {
  * @returns {T[]}
  */
 export const filterBySharer = (rows, sharer) => (sharer
-    ? rows.filter((row) => sharersOf(row).includes(sharer))
+    ? rows
+        .filter((row) => sharersOf(row).includes(sharer))
+        .map((row) => (sharerOf(row) === sharer ? row : { ...row, shared_by: sharer }))
     : rows);
 
 /**

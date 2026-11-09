@@ -103,6 +103,14 @@ describe('filterBySharer', () => {
         expect(filterBySharer(shared, 'bob').map((r) => r.name)).toEqual(['both']);
     });
 
+    it('shows a kept item as shared by the person filtered to', () => {
+        const [both, own] = filterBySharer([multiRow(['bob', 'ann'], 'ann', 'both'), row('ann', 'ann', 'own')], 'ann');
+        expect(sharerOf(both)).toBe('ann');
+        expect(sharedByCellHtml(both)).toContain('<span class="item-shared-by-name">ann</span>');
+        expect(sharedByTitle(both)).toBe('shared_by_user:ann and bob');
+        expect(sharerOf(own)).toBe('ann');
+    });
+
     it('keeps everything without a filter', () => {
         expect(filterBySharer(rows, null)).toBe(rows);
         expect(filterBySharer(rows, '')).toBe(rows);
