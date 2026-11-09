@@ -19,6 +19,9 @@
 
 // Puter's own push client: standard Web Push through `/sw.js` via `puter.notifications`, used when the server publishes `pushWebPushKey`.
 
+/** The GUI's worker, as `puter.notifications` registers it. */
+const GUI_WORKER = { url: '/sw.js', scope: '/' };
+
 /** @returns {import('./pushClient.js').PushClient} */
 export const webPushClient = ({
     notifications = globalThis.puter?.notifications,
@@ -31,12 +34,17 @@ export const webPushClient = ({
     };
     return {
         // Not async before `enable()`: it asks the browser inside the click.
-        enable: () => notifications.enable().then(async (on) => {
-            if ( ! on ) throw new Error(`notifications ${NotificationApi?.permission ?? 'unavailable'}`);
-            const device = await currentDevice();
-            if ( ! device ) throw new Error('this browser was not registered');
-            return { deviceUid: device.uid };
-        }),
+        enable: ({ background = false } = {}) => {
+            const turningOn = background
+                ? notifications._enableWebPush(GUI_WORKER, { renewRemoved: false }).then(() => true)
+                : notifications.enable();
+            return turningOn.then(async (on) => {
+                if ( ! on ) throw new Error(`notifications ${NotificationApi?.permission ?? 'unavailable'}`);
+                const device = await currentDevice();
+                if ( ! device ) throw new Error('this browser was not registered');
+                return { deviceUid: device.uid };
+            });
+        },
         disable: async () => {
             await notifications.disable();
         },

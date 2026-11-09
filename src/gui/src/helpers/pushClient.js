@@ -21,7 +21,7 @@
 
 /** @typedef {{ permission: 'default'|'granted'|'denied', registered: boolean, deviceUid?: string }} PushClientStatus */
 
-/** @typedef {{ enable: () => Promise<{ deviceUid: string }>, disable: () => Promise<void>, status: () => Promise<PushClientStatus> }} PushClient */
+/** `background`: a call without a click, which leaves a browser removed in Puter removed (`push_device_removed`). @typedef {{ enable: (options?: { background?: boolean }) => Promise<{ deviceUid: string }>, disable: () => Promise<void>, status: () => Promise<PushClientStatus> }} PushClient */
 
 /** @typedef {'checking'|'unavailable'|'blocked'|'on'|'off'} BrowserPushState */
 

@@ -59,7 +59,7 @@ Apps on their own origin do the same through `push-sw.js`, which they import int
 
 ```ts
 interface PushClient {
-    enable(): Promise<{ deviceUid: string }>;
+    enable(options?: { background?: boolean }): Promise<{ deviceUid: string }>;
     disable(): Promise<void>;
     status(): Promise<{
         permission: 'default' | 'granted' | 'denied';
@@ -69,7 +69,7 @@ interface PushClient {
 }
 ```
 
-- `enable()` may ask for notification permission, so core calls it from a click: Turn on in the Notifications tab, Allow on a permission prompt that includes `notifications:push` while this browser is off, and the "Turn on notifications" button of the `/action/enable-push` popup and the matching desktop dialog (`UIEnablePushDialog`). Core also calls it without a click, from `helpers/pushSync.js`, when `Notification.permission` is already `granted`, `status()` reports the browser as not registered, the user has not turned push off in this browser, and an app holds `notifications:push`; the browser does not prompt then. The built-in client runs `puter.notifications.enable()`, which subscribes with the `/sw.js` registration and registers the browser through the Web Push flow above (`platform: 'webpush'`). It then resolves the `uid` of this browser's `webpush` device from `listDevices()`. It rejects when permission is refused or the browser wasn't registered.
+- `enable()` may ask for notification permission, so core calls it from a click: Turn on in the Notifications tab, Allow on a permission prompt that includes `notifications:push` while this browser is off, and the "Turn on notifications" button of the `/action/enable-push` popup and the matching desktop dialog (`UIEnablePushDialog`). Core also calls it without a click, from `helpers/pushSync.js`, when `Notification.permission` is already `granted`, `status()` reports the browser as not registered, the user has not turned push off in this browser, and an app holds `notifications:push`; the browser does not prompt then. That call passes `{ background: true }`: a browser the user removed in Puter stays removed, and the built-in client rejects with code `push_device_removed`, after which core records the browser as turned off. The built-in client runs `puter.notifications.enable()`, which subscribes with the `/sw.js` registration and registers the browser through the Web Push flow above (`platform: 'webpush'`). It then resolves the `uid` of this browser's `webpush` device from `listDevices()`. It rejects when permission is refused or the browser wasn't registered.
 - `disable()` runs `puter.notifications.disable()`, which sends `DELETE /push/web/subscriptions { endpoint }` and ends the browser's subscription. The tab calls it for Turn off, and for Remove on the device marked as this browser. Remove on any other device is `DELETE /push/devices/:uid`.
 - `status()` reports the state without prompting. `permission` is `Notification.permission`. `registered` is true when this browser has a device registered for the signed-in user, and `deviceUid` is that device's `uid`.
 
@@ -77,4 +77,4 @@ After `enable()` resolves, the tab calls `POST /push/devices/:uid/test` and asks
 
 The tab also reads `GET /push/apps` and `GET`/`POST /push/preferences`.
 
-Core keeps its own record of a browser the user turned off, `puter.push.browser-off:<user uuid>` in `localStorage`, written by Turn off and by Remove on this browser's device, and cleared when `enable()` resolves. The silent registration above skips a browser with that record, so a device removed here stays removed while one removed from another device, or a new sign-in in a browser that already allows notifications, registers again.
+Core keeps its own record of a browser the user turned off, `puter.push.browser-off:<user uuid>` in `localStorage`, written by Turn off, by Remove on this browser's device, and by a silent registration the server refuses with `push_device_removed`, and cleared when `enable()` resolves. The silent registration above skips a browser with that record, so a device removed here or from another device stays removed until the user turns it on from a click, while a new sign-in in a browser that already allows notifications registers again.

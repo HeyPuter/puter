@@ -23,6 +23,7 @@ import { webPushClient } from './webPushClient.js';
 const make = ({ on = true, devices = [], permission = 'granted', subscription = {} } = {}) => {
     const notifications = {
         enable: vi.fn(async () => on),
+        _enableWebPush: vi.fn(async () => {}),
         disable: vi.fn(async () => true),
         listDevices: vi.fn(async () => devices),
     };
@@ -61,4 +62,23 @@ describe('webPushClient', () => {
         await client.disable();
         expect(notifications.disable).toHaveBeenCalled();
     });
+
+    it('turns on from a click through enable(), which replaces a browser removed in Puter', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        await client.enable();
+        expect(notifications.enable).toHaveBeenCalledTimes(1);
+        expect(notifications._enableWebPush).not.toHaveBeenCalled();
+    });
+
+    it('turns on in the background without replacing a browser removed in Puter', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        await expect(client.enable({ background: true })).resolves.toEqual({ deviceUid: 'd1' });
+        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { renewRemoved: false });
+        expect(notifications.enable).not.toHaveBeenCalled();
+
+        const removed = Object.assign(new Error('removed'), { code: 'push_device_removed' });
+        notifications._enableWebPush.mockRejectedValue(removed);
+        await expect(client.enable({ background: true })).rejects.toBe(removed);
+    });
 });
+
