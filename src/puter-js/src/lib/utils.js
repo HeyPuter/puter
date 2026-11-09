@@ -43,8 +43,10 @@ function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType =
         headers: { 'Content-Type': contentType },
         // `includePuterAuth` re-reads the live token at build time, so a replay
         // picks up a freshly-minted token (same as the old replay path, which
-        // passed `globalThis.puter.authToken`).
+        // passed `globalThis.puter.authToken`). `authToken` is sent when there
+        // is no live token.
         includePuterAuth: !! authToken,
+        authToken,
         withCredentials: true,
         responseType: responseType ?? '',
         logId: {

@@ -14,7 +14,6 @@ import {
 import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
-import * as utils from './lib/utils.js';
 import { AI } from './modules/ai/index.js';
 import { Apps } from './modules/apps/index.js';
 import Auth from './modules/Auth.js';
@@ -648,6 +647,17 @@ export class Puter {
         // The in-flight boot `/whoami`, awaited by anything that wants the
         // cached user without issuing its own request.
         this.whoamiCache_ = null;
+        /**
+         * The boot `/whoami` while in flight; `getUser()` joins it for the same
+         * token.
+         *
+         * @type {{
+         *     token: string;
+         *     lookup: Promise<import('./modules/Auth.js').User | null>;
+         * } | null}
+         * @internal
+         */
+        this.whoamiInFlight_ = null;
 
         // A user session token must never be adopted from storage, and an
         // earlier boot may have left one behind.
@@ -1067,7 +1077,16 @@ export class Puter {
         this.request_rao_();
 
         // perform whoami and cache results
-        this.whoamiCache_ = this.cacheWhoami_();
+        const lookup = this.cacheWhoami_();
+        this.whoamiCache_ = lookup;
+        const inFlight =
+            this.authToken && this.socketEnabled
+                ? { token: this.authToken, lookup }
+                : null;
+        this.whoamiInFlight_ = inFlight;
+        void lookup.then(() => {
+            if (this.whoamiInFlight_ === inFlight) this.whoamiInFlight_ = null;
+        });
     };
 
     /**
@@ -1165,6 +1184,7 @@ export class Puter {
     _dropIdentityCaches = function () {
         this.whoami = undefined;
         this.whoamiCache_ = null;
+        this.whoamiInFlight_ = null;
         try {
             this._cache.flushall();
         } catch (e) {
@@ -1710,24 +1730,7 @@ export class Puter {
             };
         }
 
-        return new Promise((resolve, reject) => {
-            const xhr = utils.initXhr(
-                '/whoami',
-                this.APIOrigin,
-                this.authToken,
-                'get',
-            );
-            // set up event handlers for load and error events
-            utils.setupXhrEventHandlers(
-                xhr,
-                options.success,
-                options.error,
-                resolve,
-                reject,
-            );
-
-            xhr.send();
-        });
+        return this.auth.requestUser_(options);
     };
 
     print = function (...args) {

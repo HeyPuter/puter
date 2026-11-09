@@ -536,26 +536,65 @@ export class AuthModule extends PuterModule {
             };
         }
 
-        return new Promise((resolve, reject) => {
-            const xhr = utils.initXhr(
-                '/whoami',
-                puter.APIOrigin,
-                puter.authToken,
-                'get',
-            );
-
-            // set up event handlers for load and error events
-            utils.setupXhrEventHandlers(
-                xhr,
-                options.success,
-                options.error,
-                resolve,
-                reject,
-            );
-
-            xhr.send();
-        });
+        return puter.auth.requestUser_(options);
     };
+
+    /**
+     * `/whoami` for `getUser()` and `puter.getUser()`.
+     *
+     * @param {{
+     *     success?: (value: User) => void;
+     *     error?: (reason: unknown) => void;
+     * }} options
+     * @returns {Promise<User>}
+     * @internal
+     */
+    requestUser_(options) {
+        const token = this.puter.authToken;
+        const joined = this.joinBootLookup_(token);
+        return new Promise((resolve, reject) => {
+            const send = () => {
+                const xhr = utils.initXhr(
+                    '/whoami',
+                    this.puter.APIOrigin,
+                    token,
+                    'get',
+                );
+                utils.setupXhrEventHandlers(
+                    xhr,
+                    options.success,
+                    options.error,
+                    resolve,
+                    reject,
+                );
+                xhr.send();
+            };
+            if (!joined) return send();
+            joined.then((user) => {
+                if (!user) return send();
+                if (typeof options.success === 'function') {
+                    options.success(user);
+                }
+                resolve(user);
+            });
+        });
+    }
+
+    /**
+     * A copy of the user from the boot `/whoami` in flight for `token`; null
+     * when it found none.
+     *
+     * @param {string | null | undefined} token
+     * @returns {Promise<User | null> | null}
+     * @internal
+     */
+    joinBootLookup_(token) {
+        const inFlight = this.puter.whoamiInFlight_;
+        if (!token || inFlight?.token !== token) return null;
+        return inFlight.lookup.then((user) =>
+            user ? structuredClone(user) : null,
+        );
+    }
 
     /**
      * A user's profile, or `null` when none is available: the user does not
@@ -691,8 +730,14 @@ export class AuthModule extends PuterModule {
             };
         }
 
+        const token = this.authToken;
+        const joined = await this.joinBootLookup_(token);
+        if (joined) return joined;
+
+        // The token is the fallback for when the boot lookup dropped it.
         const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
             includePuterAuth: true,
+            authToken: token,
             logContext: { service: 'auth', operation: 'whoami', params: {} },
         });
         // Unchecked, an expired token resolves to an error body typed as a user.
