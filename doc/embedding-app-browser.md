@@ -270,7 +270,7 @@ windows over the app instead.
 
 Like the upgrade, the frame covers the page with no box or close button, over a
 transparent GUI page, and its fragment names `user`. Escape closes it, on the
-page or on the code window. The GUI reports `unavailable` unless its session
+page or on the save-account or code window. The GUI reports `unavailable` unless its session
 belongs to `user` and the account has no phone, card or password check waiting.
 An email check is fine: the boot skips its own email gate for this action, so
 the user gets one code window they can close.

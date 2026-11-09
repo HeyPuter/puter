@@ -571,6 +571,7 @@ describe('closeAccountChecksOnEscape', () => {
         'window-confirm-email-using-code',
         'window-confirm-phone-using-code',
         'window-card-verification',
+        'window-save-account',
     ])('closes on Escape in the %s window', (cls) => {
         const win = signInWindow();
         escapeOn(showWindow(win, `window window-active ${cls}`).querySelector('input'));

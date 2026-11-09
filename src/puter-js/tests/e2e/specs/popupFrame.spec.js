@@ -640,6 +640,19 @@ test.describe('the email confirmation a first-party page shows framed', () => {
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
     });
 
+    test('Escape on the save-account window a temporary account sees resolves false', async ({ page }) => {
+        await routeFrameSession(page, { ...UNCONFIRMED, is_temp: true, email: null });
+        await signInFirstPartyPage(page);
+        await pageReadsUnconfirmed(page);
+
+        await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
+        await frameReady(page);
+        await frame(page).locator('.window-save-account .username').click();
+        await page.keyboard.press('Escape');
+        expect(await result(page)).toEqual({ ok: true, value: { response: false } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
     test('an account with another check waiting resolves false', async ({ page }) => {
         await routeFrameSession(page, { ...UNCONFIRMED, requires_phone_verification: true });
         await signInFirstPartyPage(page);

@@ -66,9 +66,10 @@ export const POPUP_FRAME_MSG = 'puterPopupFrame';
 // The popup's query parameters a framing page may pass, in the fragment.
 const FRAGMENT_PARAMS = ['msg_id', 'options', 'request_auth'];
 
-// The account checks a sign-in can show (email, phone, card), which are
-// windows rather than auth screens.
-const ACCOUNT_CHECK_WINDOWS = '.window-confirm-email-using-code, .window-confirm-phone-using-code, .window-card-verification';
+// The account checks a sign-in can show (email, phone, card), and the
+// save-account window an email confirmation shows a temporary account first,
+// which are windows rather than auth screens.
+const ACCOUNT_CHECK_WINDOWS = '.window-confirm-email-using-code, .window-confirm-phone-using-code, .window-card-verification, .window-save-account';
 
 // What a framed popup shows first; until one is on the page the framing page
 // keeps the frame hidden behind its loading scrim.
@@ -212,9 +213,9 @@ export const focusOnFrameFocus = (win) => {
 };
 
 /**
- * Closes a framed sign-in on Escape in one of its account checks, as Escape
- * on its auth screens does. Those screens handle Escape themselves; the
- * account checks are windows, which don't.
+ * Closes a framed sign-in or email confirmation on Escape in one of its
+ * account windows, as Escape on the sign-in's auth screens does. Those
+ * screens handle Escape themselves; the account windows don't.
  *
  * @param {Window} win
  */
