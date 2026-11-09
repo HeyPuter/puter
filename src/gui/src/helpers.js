@@ -653,6 +653,8 @@ window.update_auth_data = async (auth_token, user) => {
 
     // Stored only after the cookie sync: a peer tab reloads when it sees
     // another account's token, and its boot signs in from the cookie.
+    // A token adopted from a peer tab during the sync must not outlive it.
+    window.auth_token = auth_token;
     localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
     localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
 

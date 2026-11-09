@@ -109,3 +109,47 @@ test.describe('an account switch in another tab', () => {
         }))).toEqual({ user: other.user.uuid, current: true, storedFor: other.user.uuid });
     });
 });
+
+test.describe('a token another tab stores during an account switch', () => {
+    test('does not replace the token of the account being switched to', async ({ browser, context, page }) => {
+        const other = await visitorAccount(browser);
+
+        const switchingTab = page;
+        const otherTab = await context.newPage();
+        for ( const tab of [switchingTab, otherTab] ) {
+            await tab.goto('/');
+            await waitForPuterReady(tab);
+        }
+        const firstToken = await switchingTab.evaluate(() => window.auth_token);
+
+        let releaseSync;
+        const syncHeld = new Promise((resolve) => {
+            releaseSync = resolve;
+        });
+        await context.route('**/session/sync-cookie', async (route) => {
+            await syncHeld;
+            await route.continue();
+        });
+
+        const switched = switchingTab.evaluate(
+            ({ token, user }) => window.update_auth_data(token, user),
+            other,
+        );
+
+        // Booting renews the first account's token while the switch waits.
+        // A token issued in the same second as the stored one is identical.
+        await otherTab.waitForTimeout(1100);
+        await otherTab.reload();
+        await expect.poll(() => switchingTab.evaluate(
+            () => localStorage.getItem('auth_token_v2'),
+        )).not.toBe(firstToken);
+
+        releaseSync();
+        await switched;
+
+        expect(await switchingTab.evaluate(() => ({
+            token: window.auth_token,
+            saved: window.logged_in_users.find((known) => known.uuid === window.user.uuid).auth_token,
+        }))).toEqual({ token: other.token, saved: other.token });
+    });
+});
