@@ -48,6 +48,33 @@ const SHARED_IDS_CHUNK_SIZE = 1000;
  * and no permission behind it, and is itself what the ACL reads.
  */
 export class ShareStore extends PuterStore {
+    onServerStart() {
+        // A peer region's link revokes; our own emit already applied here.
+        this.clients.event.on(
+            'outer.share.linksRevoked',
+            async (_key, data, meta) => {
+                if (!meta?.from_outside) return;
+                const fsentryIds = Array.isArray(data?.fsentryIds)
+                    ? data.fsentryIds.filter((id) => Number.isInteger(id))
+                    : [];
+                const uuids = Array.isArray(data?.uuids)
+                    ? data.uuids.filter(
+                          (uuid) => typeof uuid === 'string' && uuid !== '',
+                      )
+                    : [];
+                if (fsentryIds.length === 0 && uuids.length === 0) return;
+                try {
+                    await this.#applyLinksRevoked(fsentryIds, uuids);
+                } catch (e) {
+                    console.warn(
+                        '[share] remote link-revoke marker not set:',
+                        e,
+                    );
+                }
+            },
+        );
+    }
+
     // -- Reads --------------------------------------------------------
 
     /** Pass `primary` to read back a row just written; a replica may lag. */
@@ -972,6 +999,8 @@ export class ShareStore extends PuterStore {
             `DELETE FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders})`,
             fsentryIds,
         );
+        // Which of these nodes held a link is no longer known, so mark them all.
+        if (result.anyRowsAffected) await this.#markLinksRevoked(fsentryIds);
         return result.affectedRows;
     }
 
@@ -1216,36 +1245,60 @@ export class ShareStore extends PuterStore {
             [fsentryId],
         );
         const removed = result.anyRowsAffected;
-        if (removed) await this.#markLinkRevoked(fsentryId, entryUuid);
+        if (removed) {
+            await this.#markLinksRevoked(
+                [fsentryId],
+                entryUuid ? [entryUuid] : undefined,
+            );
+        }
         return removed;
     }
 
-    /** Open the window in which reads of this node's link go to the primary. */
-    async #markLinkRevoked(fsentryId, entryUuid) {
+    /**
+     * Open the window in which reads of these nodes' links go to the primary,
+     * here and in peer regions.
+     *
+     * @param {number[]} fsentryIds
+     * @param {string[]} [entryUuids] The nodes' uuids; looked up when omitted.
+     */
+    async #markLinksRevoked(fsentryIds, entryUuids) {
         try {
-            let uuid = entryUuid;
-            if (!uuid) {
+            const ids = fsentryIds.map(Number);
+            let uuids = entryUuids;
+            if (!uuids) {
                 const rows = await this.clients.db.pread(
-                    'SELECT `uuid` FROM `fsentries` WHERE `id` = ? LIMIT 1',
-                    [fsentryId],
+                    'SELECT `uuid` FROM `fsentries` WHERE `id` IN ' +
+                        `(${ids.map(() => '?').join(', ')})`,
+                    ids,
                 );
-                uuid = rows[0]?.uuid;
+                uuids = rows.map((row) => String(row.uuid));
             }
-            const keys = [ShareStore.revokedLinkKey('id', fsentryId)];
-            if (uuid) keys.push(ShareStore.revokedLinkKey('uuid', uuid));
-            await Promise.all(
-                keys.map((key) =>
-                    this.clients.redis.set(
-                        key,
-                        '1',
-                        'EX',
-                        ShareStore.REVOKED_LINK_PRIMARY_WINDOW_SECONDS,
-                    ),
-                ),
+            await this.#applyLinksRevoked(ids, uuids);
+            this.clients.event.emit(
+                'outer.share.linksRevoked',
+                { fsentryIds: ids, uuids },
+                {},
             );
         } catch (e) {
             console.warn('[share] link-revoke marker not set:', e);
         }
+    }
+
+    /** Local half of {@link #markLinksRevoked}; never emits. */
+    async #applyLinksRevoked(fsentryIds, uuids) {
+        const pipeline = this.clients.redis.pipeline();
+        for (const key of [
+            ...fsentryIds.map((id) => ShareStore.revokedLinkKey('id', id)),
+            ...uuids.map((uuid) => ShareStore.revokedLinkKey('uuid', uuid)),
+        ]) {
+            pipeline.set(
+                key,
+                '1',
+                'EX',
+                ShareStore.REVOKED_LINK_PRIMARY_WINDOW_SECONDS,
+            );
+        }
+        await pipeline.exec();
     }
 
     // -- Daily quota --------------------------------------------------

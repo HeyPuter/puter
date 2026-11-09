@@ -737,6 +737,11 @@ export type EventMap = {
         entries: Array<{ holderUserId: number; permission: string }>;
     };
     /**
+     * Link shares on these nodes were removed, so peer regions read them from
+     * the primary for a while instead of a replica that may still have them.
+     */
+    'outer.share.linksRevoked': { fsentryIds: number[]; uuids: string[] };
+    /**
      * A user's subscription set changed, so every process must drop its cached
      * "does this user have any subscriptions" answer. Carries the counter the
      * bump produced so a listener can order two bumps it sees out of order.
@@ -1083,11 +1088,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1098,10 +1102,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    | 'received'
-    | 'unreceived'
-    | 'no-socket'
-    | 'remote-only';
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

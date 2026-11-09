@@ -337,6 +337,89 @@ describe('ShareStore', () => {
             );
         });
 
+        it('does not read back a link removed with its node from a lagging replica', async () => {
+            const entry = await makeEntry(issuer);
+            const stale = await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await store.deleteByFsentryIds([entry.id]);
+
+            // The replica still has the link the primary just deleted.
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi.spyOn(db, 'pread').mockImplementation(primaryRead);
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (q, p) =>
+                    /FROM `share`/u.test(q)
+                        ? [
+                              {
+                                  ...stale,
+                                  data: '{}',
+                                  entry_uuid: entry.uuid,
+                                  owner_user_id: issuer.id,
+                              },
+                          ]
+                        : primaryRead(q, p),
+                );
+            try {
+                expect(await store.getAnyone(entry.id)).toBeNull();
+                expect(await store.listAnyoneOnFsentries([entry.id])).toEqual(
+                    [],
+                );
+                expect(await store.listAnyoneReaching([entry.uuid])).toEqual(
+                    [],
+                );
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+        });
+
+        it('tells peer regions when a link is removed', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await store.deleteByFsentryIds([entry.id]);
+                expect(emit).toHaveBeenCalledWith(
+                    'outer.share.linksRevoked',
+                    { fsentryIds: [entry.id], uuids: [entry.uuid] },
+                    {},
+                );
+            } finally {
+                emit.mockRestore();
+            }
+        });
+
+        it('applies a link removal broadcast by a peer region', async () => {
+            const fsentryId = 900000 + Math.floor(Math.random() * 99999);
+            const uuid = uuidv4();
+            server.clients.event.emit(
+                'outer.share.linksRevoked',
+                { fsentryIds: [fsentryId], uuids: [uuid] },
+                { from_outside: true },
+            );
+            await vi.waitFor(async () => {
+                expect(
+                    await server.clients.redis.get(
+                        ShareStore.revokedLinkKey('uuid', uuid),
+                    ),
+                ).toBe('1');
+            });
+            expect(
+                await server.clients.redis.ttl(
+                    ShareStore.revokedLinkKey('id', fsentryId),
+                ),
+            ).toBeGreaterThan(25);
+        });
+
         it('reads a link past the replica once one has been withdrawn', async () => {
             const entry = await makeEntry(issuer);
             await store.upsertAnyone({

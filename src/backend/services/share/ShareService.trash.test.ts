@@ -19,7 +19,7 @@
 
 import { dirname as pathDirname } from 'node:path/posix';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
@@ -238,6 +238,52 @@ describe('ShareService: deleting a shared item', () => {
         expect(await server.stores.share.listPendingOnFsentry(file.id)).toEqual(
             [],
         );
+    });
+
+    it("does not honour a lagging replica's copy of a link the delete removed", async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+        // The owner's plan covers link sharing.
+        const plan = vi
+            .spyOn(server.services.metering, 'getActorSubscription')
+            .mockResolvedValue({ id: 'business' } as never);
+        await server.stores.share.upsertAnyone({
+            issuerUserId: owner.user.id,
+            fsentryId: dir.id,
+            mode: 'read',
+        });
+        expect(await canRead(stranger.actor, file.path)).toBe(true);
+
+        const trash = await dirAt(`/${owner.user.username}/Trash`);
+        const moved = await move(owner, dir, trash);
+
+        // The replica still has the link row the primary just deleted.
+        const db = server.clients.db;
+        const primaryRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(primaryRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                String(sql).includes('`share`.`anyone` = 1')
+                    ? [
+                          {
+                              mode: 'read',
+                              entry_uuid: dir.uuid,
+                              owner_user_id: owner.user.id,
+                          },
+                      ]
+                    : primaryRead(sql, params),
+            );
+        try {
+            expect(
+                await canRead(stranger.actor, `${moved.path}/${file.name}`),
+            ).toBe(false);
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+            plan.mockRestore();
+        }
     });
 
     it('does not answer whether a name is already in the owner\'s Trash', async () => {
