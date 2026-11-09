@@ -35,11 +35,12 @@ import { meterChatUsage } from './meterChatUsage.js';
 import { OPEN_AI_MODELS } from '../providers/openai/models.js';
 import { XAI_MODELS } from '../providers/xai/models.js';
 import { GEMINI_MODELS } from '../providers/gemini/models.js';
+import { CLAUDE_MODELS } from '../providers/claude/models.js';
 
 const model = (provider: string, id: string): IChatModel => ({
     provider,
     id,
-    serviceSpeedRates: [...OPEN_AI_MODELS, ...XAI_MODELS, ...GEMINI_MODELS]
+    serviceSpeedRates: [...OPEN_AI_MODELS, ...XAI_MODELS, ...GEMINI_MODELS, ...CLAUDE_MODELS]
         .find((entry) => entry.id === id)?.serviceSpeedRates,
     costs_currency: 'usd-cents',
     input_cost_key: 'prompt_tokens',
@@ -140,7 +141,6 @@ describe('service speed selection', () => {
     });
     it('uses Claude speed independently of its service tier', () => {
         const entry = model('claude', 'claude-opus-5-5');
-        entry.costs.fast_output_tokens = 4000;
         expect(
             selectServiceSpeed(entry, request('ultrafast'), noVariant).args
                 .speed,

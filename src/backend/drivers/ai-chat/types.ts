@@ -239,10 +239,7 @@ export interface ICompleteArguments {
     taskBudget?: { total: number; remaining?: number };
     /** Claude only: top-level automatic `cache_control`. */
     cacheControl?: CacheControl;
-    /**
-     * Claude only; forwarded only when the model's catalog entry has
-     * `fast_output_tokens`.
-     */
+    /** Claude only; fast is forwarded when the catalog declares fast rates. */
     speed?: 'fast' | 'standard';
     /** Claude only. */
     safeguards?: SafeguardRequest[];

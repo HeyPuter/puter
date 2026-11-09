@@ -916,7 +916,11 @@ export class ChatCompletionDriver extends PuterDriver {
                           baseModel,
                       )) ?? {})
                     : {};
-            let requestedSpeed = args.serviceSpeed;
+            let requestedSpeed =
+                args.serviceSpeed ??
+                (baseModel.provider === 'claude' && args.speed === 'fast'
+                    ? 'fast'
+                    : undefined);
             for (;;) {
                 const selection = selectServiceSpeed(
                     baseModel,
@@ -1586,12 +1590,7 @@ export class ChatCompletionDriver extends PuterDriver {
         const metering = this.services.metering;
         const { requestedMaxTokens, pricingTime } = estimates;
         let { promptTokenEstimate } = estimates;
-        // A provider can name its own cost keys for this request (Claude's
-        // fast-mode rate card), cap its output, and size an extra reservation
-        // the per-token math can't see (a web-search/advisor tool that could
-        // run several times before the model answers) — the same clamps it
-        // applies when building the request, so the hold and the request
-        // agree.
+        // Providers reserve tool calls using the same caps they send upstream.
         const pricing =
             this.#providers[model.provider!]?.requestPricing?.(args, model, {
                 promptTokenEstimate,

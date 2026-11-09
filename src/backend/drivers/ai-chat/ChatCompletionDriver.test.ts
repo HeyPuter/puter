@@ -2225,6 +2225,46 @@ describe('ChatCompletionDriver.countTokens', () => {
 
 describe('ChatCompletionDriver service speed', () => {
     it.each([
+        [{ serviceSpeed: 'ultrafast' }, 'fast', 0.028],
+        [{ speed: 'fast' }, 'fast', 0.028],
+        [{ serviceSpeed: 'standard', speed: 'fast' }, 'standard', 0.014],
+    ] as const)('uses the Claude catalog rate card for %j', async (options, speed, cents) => {
+        const sent: Record<string, unknown>[] = [];
+        vi.stubGlobal('fetch', async (input: Request | string, init?: RequestInit) => {
+            const body = input instanceof Request
+                ? await input.clone().json()
+                : JSON.parse(String(init?.body));
+            sent.push(body);
+            return new Response(JSON.stringify({
+                id: 'claude-speed-test', type: 'message', role: 'assistant',
+                model: body.model, stop_reason: 'end_turn',
+                content: [{ type: 'text', text: 'OK' }],
+                usage: { input_tokens: 10, output_tokens: 5, speed },
+            }), { headers: { 'content-type': 'application/json' } });
+        });
+        const d = new ChatCompletionDriver(
+            { providers: { claude: { apiKey: 'test-key' }, ollama: { enabled: false } } } as never,
+            server.clients, server.stores, server.services,
+        );
+        try {
+            await d.onServerStart();
+            const result = await withTestActor(() => d.complete({
+                model: 'claude-opus-5-5', provider: 'claude',
+                messages: [{ role: 'user', content: 'Hello' }],
+                fallback: false, max_tokens: 32, normalize: true, ...options,
+            }));
+            expect(sent).toHaveLength(1);
+            expect(sent[0]!.speed).toBe(speed === 'fast' ? 'fast' : undefined);
+            expect(result).toMatchObject({
+                message: { content: 'OK' }, usage: { usd_cents: cents },
+            });
+        } finally {
+            d.onServerShutdown();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it.each([
         null, false, true, 0, 1, -1, NaN, Infinity, '', 'invalid', 'FAST',
         'fast ', ' fast', 'ultraFast', [], ['fast'], {}, { speed: 'fast' },
         { toString: 'fast' },

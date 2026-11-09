@@ -2315,7 +2315,11 @@ describe('ClaudeProvider metering', () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce({
             content: [{ type: 'text', text: 'hi' }],
-            usage: { input_tokens: 10, output_tokens: 5, speed: 'fast' },
+            usage: {
+                input_tokens: 10, output_tokens: 5, speed: 'fast',
+                cache_creation: { ephemeral_5m_input_tokens: 7, ephemeral_1h_input_tokens: 3 },
+                cache_read_input_tokens: 20,
+            },
         });
 
         const result = (await withTestActor(() =>
@@ -2334,8 +2338,11 @@ describe('ClaudeProvider metering', () => {
         const opus = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5-5')!;
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('claude:claude-opus-5-5');
-        expect(overrides.fast_input_tokens).toBe(10 * Number(opus.costs.fast_input_tokens));
-        expect(overrides.fast_output_tokens).toBe(5 * Number(opus.costs.fast_output_tokens));
+        expect(overrides.fast_input_tokens).toBe(10 * Number((opus.serviceSpeedRates!.fast as Record<string, number>).input_tokens));
+        expect(overrides.fast_output_tokens).toBe(5 * Number((opus.serviceSpeedRates!.fast as Record<string, number>).output_tokens));
+        expect(overrides.fast_ephemeral_5m_input_tokens).toBe(7 * 1000);
+        expect(overrides.fast_ephemeral_1h_input_tokens).toBe(3 * 1600);
+        expect(overrides.fast_cache_read_input_tokens).toBe(20 * 40);
     });
 
     it('bills at standard rates when fast mode was requested but not granted by the upstream', async () => {
@@ -2589,13 +2596,13 @@ describe('ClaudeProvider.requestPricing', () => {
     const haiku = CLAUDE_MODELS.find((m) => m.id === 'claude-haiku-4-5-20251001')!;
     const opus55 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5-5')!;
 
-    it('returns fast cost keys only when the model has fast rates and fast was requested', () => {
+    it('leaves token reservation keys to the selected catalog rate card', () => {
         const { provider } = makeProvider();
         expect(
             provider.requestPricing({ speed: 'fast', tools: [] } as never, opus55, {
                 promptTokenEstimate: 10,
             }),
-        ).toMatchObject({ inputKey: 'fast_input_tokens', outputKey: 'fast_output_tokens' });
+        ).toEqual({});
         expect(
             provider.requestPricing({ speed: 'fast', tools: [] } as never, haiku, {
                 promptTokenEstimate: 10,

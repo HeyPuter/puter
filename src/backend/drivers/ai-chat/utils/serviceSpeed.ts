@@ -39,7 +39,7 @@ const tokenRates = (costs: ModelCost, multiplier: number): ModelCost =>
         ]),
     );
 
-const speedCosts = (
+export const serviceSpeedCosts = (
     model: IChatModel,
     speed: 'fast' | 'ultrafast',
 ): ModelCost | undefined => {
@@ -91,8 +91,9 @@ export const selectServiceSpeed = (
                     ),
             ))
             ? undefined
-            : speedCosts(model, 'fast'));
-    const ultra = offers.ultrafast?.costs ?? speedCosts(model, 'ultrafast');
+            : serviceSpeedCosts(model, 'fast'));
+    const ultra =
+        offers.ultrafast?.costs ?? serviceSpeedCosts(model, 'ultrafast');
     let speed = args.serviceSpeed;
     const variantId = model.serviceSpeedVariants?.fast;
     const variant =
@@ -103,11 +104,7 @@ export const selectServiceSpeed = (
               : undefined;
     while (speed !== 'standard') {
         if (speed === 'ultrafast' && ultra) break;
-        if (
-            speed === 'fast' &&
-            (fast || variant || model.costs.fast_output_tokens !== undefined)
-        )
-            break;
+        if (speed === 'fast' && (fast || variant)) break;
         speed = lowerServiceSpeed(speed);
     }
     const request: ICompleteArguments = {
