@@ -1397,8 +1397,7 @@ export class PermissionStore extends PuterStore {
             .filter((uuid): uuid is string => Boolean(uuid));
     }
 
-    /** Every member, from the primary, for a revoke that needs both forms. */
-    async listGroupMembers(
+    async #listGroupMembers(
         groupId: number,
     ): Promise<Array<{ id: number; uuid: string | null }>> {
         const rows = (await this.clients.db.pread(
@@ -1408,15 +1407,6 @@ export class PermissionStore extends PuterStore {
             [groupId],
         )) as { id: number; uuid: string | null }[];
         return rows.map((row) => ({ id: Number(row.id), uuid: row.uuid }));
-    }
-
-    /** Whose standing access a grant to this group settles. */
-    async listGroupMemberIds(groupId: number): Promise<number[]> {
-        const rows = (await this.clients.db.read(
-            'SELECT `user_id` FROM `jct_user_group` WHERE `group_id` = ?',
-            [groupId],
-        )) as { user_id: number }[];
-        return rows.map((r) => Number(r.user_id));
     }
 
     /** Batched `readUserGroupPerms`, tagged with the user each row reached. */
@@ -1522,22 +1512,22 @@ export class PermissionStore extends PuterStore {
         groupId: number,
         issuerUserId: number,
         permission: string,
-        memberIds?: number[],
-    ): Promise<boolean> {
+    ): Promise<{
+        removed: boolean;
+        members: Array<{ id: number; uuid: string | null }>;
+    }> {
         const result = await this.clients.db.write(
             'DELETE FROM `user_to_group_permissions` ' +
                 'WHERE `group_id` = ? AND `user_id` = ? AND `permission` = ?',
             [groupId, issuerUserId, permission],
         );
-        if (memberIds) await this.markGroupMembershipChanged(memberIds);
-        else await this.#tombstoneGroupMembers([groupId]);
-        return result.anyRowsAffected;
+        // Read after the delete, so someone who joined meanwhile is included.
+        const members = await this.#listGroupMembers(groupId);
+        await this.markGroupMembershipChanged(members.map((m) => m.id));
+        return { removed: result.anyRowsAffected, members };
     }
 
-    /**
-     * These users' group reads go to the primary for a while. Call it when
-     * someone leaves a group or a group is deleted.
-     */
+    /** Group reads of these users go to the primary; for leaves and deletes. */
     async markGroupMembershipChanged(userIds: number[]): Promise<void> {
         const ids = [...new Set(userIds.map(Number))].filter((id) =>
             Number.isFinite(id),

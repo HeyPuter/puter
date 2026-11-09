@@ -469,6 +469,7 @@ describe('ShareStore', () => {
         it("ignores its own region's event and malformed payloads", async () => {
             const local = uuidv4();
             const sentinel = uuidv4();
+            const bogus = 900000 + Math.floor(Math.random() * 99999);
             const emit = (data, meta) =>
                 server.clients.event.emit(
                     'outer.share.linksRevoked',
@@ -479,7 +480,10 @@ describe('ShareStore', () => {
             for (const data of [
                 null,
                 { fsentryIds: 'x', uuids: 'y' },
-                { fsentryIds: ['7', 1.5, null], uuids: [7, '', null] },
+                {
+                    fsentryIds: [String(bogus), bogus + 0.5, null],
+                    uuids: [bogus, '', null],
+                },
             ]) {
                 emit(data, { from_outside: true });
             }
@@ -495,9 +499,9 @@ describe('ShareStore', () => {
 
             for (const key of [
                 ShareStore.revokedLinkKey('uuid', local),
-                ShareStore.revokedLinkKey('uuid', '7'),
-                ShareStore.revokedLinkKey('id', 7),
-                ShareStore.revokedLinkKey('id', 1.5),
+                ShareStore.revokedLinkKey('uuid', String(bogus)),
+                ShareStore.revokedLinkKey('id', bogus),
+                ShareStore.revokedLinkKey('id', bogus + 0.5),
             ]) {
                 expect(await server.clients.redis.get(key)).toBeNull();
             }

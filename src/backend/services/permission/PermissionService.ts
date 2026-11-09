@@ -1242,13 +1242,12 @@ export class PermissionService extends PuterService {
 
         await this.#assertCanManage(actor, permission);
 
-        const members = await this.stores.permission.listGroupMembers(groupId);
-        const revoked = await this.stores.permission.deleteUserGroupPerm(
-            groupId,
-            issuerId,
-            permission,
-            members.map((member) => member.id),
-        );
+        const { removed: revoked, members } =
+            await this.stores.permission.deleteUserGroupPerm(
+                groupId,
+                issuerId,
+                permission,
+            );
 
         this.#audit(
             this.stores.permission.auditUserGroupPerm({
