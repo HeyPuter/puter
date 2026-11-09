@@ -530,17 +530,24 @@ const routeFrameSession = (page, patch) => page.context().route(`${API_ORIGIN}/w
     return route.fulfill({ response, json: { ...(await response.json()), ...patch } });
 });
 
-/** Answers the code check as the server would for a right code, so no email has to be read. */
-const routeConfirmEmail = (page) => page.context().route(`${API_ORIGIN}/confirm-email`, (route) => route.fulfill({
-    status: route.request().method() === 'OPTIONS' ? 204 : 200,
-    headers: {
-        'access-control-allow-origin': PUTER_ORIGIN,
-        'access-control-allow-headers': '*',
-        'access-control-allow-credentials': 'true',
-    },
-    contentType: 'application/json',
-    body: JSON.stringify({ email_confirmed: true }),
-}));
+/**
+ * Answers the code check as the server would for a right code, so no email has
+ * to be read. Given `until`, it answers once that settles.
+ */
+const routeConfirmEmail = (page, until) => page.context().route(`${API_ORIGIN}/confirm-email`, async (route) => {
+    const preflight = route.request().method() === 'OPTIONS';
+    if ( ! preflight ) await until;
+    await route.fulfill({
+        status: preflight ? 204 : 200,
+        headers: {
+            'access-control-allow-origin': PUTER_ORIGIN,
+            'access-control-allow-headers': '*',
+            'access-control-allow-credentials': 'true',
+        },
+        contentType: 'application/json',
+        body: JSON.stringify({ email_confirmed: true }),
+    });
+});
 
 const UNCONFIRMED = { email_confirmed: false, requires_email_confirmation: true };
 
@@ -637,6 +644,27 @@ test.describe('the email confirmation a first-party page shows framed', () => {
         await codeWindow(page).locator('.digit-input').first().click();
         await page.keyboard.press('Escape');
         expect(await result(page)).toEqual({ ok: true, value: { response: false } });
+        await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
+    });
+
+    test('Escape while a code is being checked resolves with the check\'s answer', async ({ page }) => {
+        await routeFrameSession(page, UNCONFIRMED);
+        let answer;
+        await routeConfirmEmail(page, new Promise((resolve) => {
+            answer = resolve;
+        }));
+        await signInFirstPartyPage(page);
+        await pageReadsUnconfirmed(page);
+
+        await runFromClick(page, 'puter.ui.requestEmailConfirmation()');
+        await frameReady(page);
+        await codeWindow(page).locator('.digit-input').first().click();
+        const sent = page.waitForRequest((r) => r.method() === 'POST' && r.url() === `${API_ORIGIN}/confirm-email`);
+        await page.keyboard.type('123456');
+        await sent;
+        await page.keyboard.press('Escape');
+        answer();
+        expect(await result(page)).toEqual({ ok: true, value: { response: true } });
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
     });
 

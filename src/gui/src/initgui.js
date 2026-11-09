@@ -1609,8 +1609,10 @@ window.initgui = async function (options) {
     // action. See util/popupAuth.js.
     window.gui_action = action;
 
-    if (window.embedded_in_frame && (action === 'sign-in' || action === 'request-email-confirmation')) {
-        closeAccountChecksOnEscape(window);
+    if (window.embedded_in_frame && action === 'sign-in') closeAccountChecksOnEscape(window);
+    // Closing the window answers the frame, after any code it already sent.
+    if (window.embedded_in_frame && action === 'request-email-confirmation') {
+        closeAccountChecksOnEscape(window, (accountWindow) => $(accountWindow).close());
     }
 
     if (action === 'oidc-2fa') {

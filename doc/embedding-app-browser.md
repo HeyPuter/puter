@@ -270,8 +270,10 @@ windows over the app instead.
 
 Like the upgrade, the frame covers the page with no box or close button, over a
 transparent GUI page, and its fragment names `user`. Escape closes it, on the
-page or on the save-account or code window. The GUI reports `unavailable` unless its session
-belongs to `user` and the account has no phone, card or password check waiting.
+page or on the save-account or code window. On a window, Escape closes that
+window as its close button does, so a code already sent still answers. The GUI
+reports `unavailable` unless its session belongs to `user` and the account has
+no phone, card or password check waiting.
 An email check is fine: the boot skips its own email gate for this action, so
 the user gets one code window they can close.
 
@@ -281,8 +283,9 @@ window first, then an unconfirmed email gets the code window, each at most
 once. When the page's whoami already reads the email as confirmed,
 `requestEmailConfirmation()` resolves `{ response: true }` without framing
 anything, and a confirmation in the frame marks that whoami confirmed for the
-calls after it. An email the GUI reads as confirmed shows nothing. Before opening a window the GUI waits for the frame to have a viewport,
-as the upgrade does. It then posts
+calls after it. An email the GUI reads as confirmed shows nothing. Before
+opening a window the GUI waits for the frame to have a viewport, as the upgrade
+does. It then posts
 `{ msg: 'puterPopupFrame', state: 'closed', confirmed }`, and
 `requestEmailConfirmation()` resolves `{ response: confirmed }`, the field an
 app reads from the desktop's answer. A call made while the frame shows settles

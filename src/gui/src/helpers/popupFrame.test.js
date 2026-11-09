@@ -597,4 +597,15 @@ describe('closeAccountChecksOnEscape', () => {
         escapeOn(showWindow(win, 'window window-alert').querySelector('input'));
         expect(win.close).not.toHaveBeenCalled();
     });
+
+    it('hands the account window to the close it is given, leaving the frame open', () => {
+        const win = { document: document.implementation.createHTMLDocument(), close: vi.fn() };
+        const close = vi.fn();
+        closeAccountChecksOnEscape(win, close);
+        const el = showWindow(win);
+        escapeOn(el.querySelector('input'));
+        escapeOn(win.document.body);
+        expect(close.mock.calls).toEqual([[el], [el]]);
+        expect(win.close).not.toHaveBeenCalled();
+    });
 });

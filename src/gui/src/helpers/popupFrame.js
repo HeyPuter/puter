@@ -218,14 +218,18 @@ export const focusOnFrameFocus = (win) => {
  * screens handle Escape themselves; the account windows don't.
  *
  * @param {Window} win
+ * @param {(accountWindow: Element) => void} [close] - closes the account window
+ *   Escape was pressed in, when its own closing is what answers the frame;
+ *   without it the frame closes
  */
-export const closeAccountChecksOnEscape = (win) => {
+export const closeAccountChecksOnEscape = (win, close = () => win.close()) => {
     win.document.addEventListener('keydown', (e) => {
         // Safari sends the Escape that ends an IME conversion as keyCode 229
         // with isComposing false.
         if ( e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229 ) return;
         const el = e.target === win.document.body ? win.document.querySelector('.window-active') : e.target;
-        if ( el?.closest?.(ACCOUNT_CHECK_WINDOWS) ) win.close();
+        const accountWindow = el?.closest?.(ACCOUNT_CHECK_WINDOWS);
+        if ( accountWindow ) close(accountWindow);
     });
 };
 
