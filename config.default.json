@@ -7,8 +7,8 @@
     "cookie_name": "puter_auth_token",
     "jwt_secret_v2": "dev-jwt-secret-v2-change-me",
     "url_signature_secret": "dev-url-signature-secret-change-me",
-    "allow_all_host_values": true,
-    "allow_no_host_header": true,
+    "allow_all_host_values": false,
+    "allow_no_host_header": false,
     "no_devwatch": false,
     "enable_public_folders": true,
     "is_storage_limited": false,
@@ -44,5 +44,9 @@
             "dataDir": "volatile/runtime/fauxqs-data",
             "s3StorageDir": "volatile/runtime/fauxqs-s3-data"
         }
+    },
+    "logging": {
+        "level": "debug",
+        "file": "logs/puter.log"
     }
 }
