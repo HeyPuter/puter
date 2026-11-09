@@ -353,10 +353,7 @@ const puterKeys = async (puter, authToken) => {
     }
 };
 
-/**
- * Subscriptions with Puter's key, at `worker` or anywhere on the origin, each
- * with its registration's scope.
- */
+/** Puter's subscriptions at `worker` or anywhere here, each with its scope. */
 const puterSubscriptions = async (puter, { worker, authToken, nav }) => {
     const registrations = worker
         ? [await nav.serviceWorker.getRegistration(worker.scope ?? worker.url)]
