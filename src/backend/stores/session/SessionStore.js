@@ -134,11 +134,14 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Get sessions for a user. By default returns only rows that are neither
-     * soft-revoked nor past `expires_at` (the same test `getByUuid` applies);
-     * `includeRevoked` / `includeExpired` widen that. Revoke paths pass `{
-     * primary: true }` so a session created moments ago isn't missed, and
-     * `includeExpired` so an expired row still revokes its live children.
+     * Sessions for a user, without revoked or expired rows unless asked.
+     *
+     * @param {number} userId
+     * @param {{
+     *     includeRevoked?: boolean;
+     *     includeExpired?: boolean;
+     *     primary?: boolean;
+     * }} [opts]
      */
     async getByUserId(
         userId,

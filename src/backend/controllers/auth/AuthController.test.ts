@@ -8881,13 +8881,7 @@ describe('AuthController 2FA flows', () => {
             otp_recovery_codes: 'a,b,c',
         });
         const res = makeRes();
-        await controller.handleDisable2fa(
-            makeReq(
-                { code: liveTotp(user.username, 'TESTSECRETBASE32') },
-                { actor },
-            ),
-            res,
-        );
+        await controller.handleDisable2fa(makeReq({ code: liveTotp(user.username, 'TESTSECRETBASE32') }, { actor }), res);
         expect(res.body).toEqual({ success: true });
         const after = await server.stores.user.getById(user.id, {
             force: true,
@@ -10108,6 +10102,31 @@ describe('AuthController.handleRevokeSession additional branches', () => {
             [uuid],
         );
         expect(rows[0].revoked_at).not.toBeNull();
+    });
+
+    it('revoking an expired session ends its live child token', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const parent = await expiredSessionOf(user);
+        const child = await server.stores.session.getOrCreateGodmodeToken(
+            user.id,
+            {
+                parentSessionUid: parent,
+                appUid: `app-${uuidv4()}`,
+                expiresAt: Math.floor(Date.now() / 1000) + 3600,
+                maxAgeSeconds: 3600,
+                label: 'Godmode app',
+                auth_id: user.uuid,
+            },
+        );
+        const childUuid = child!.row.uuid as string;
+        expect(await server.stores.session.getByUuid(childUuid)).toBeTruthy();
+
+        await controller.handleRevokeSession(
+            makeReq({ uuid: parent }, { actor }),
+            makeRes(),
+        );
+
+        expect(await server.stores.session.getByUuid(childUuid)).toBeNull();
     });
 
     it('answers 403 for an expired session of another user', async () => {

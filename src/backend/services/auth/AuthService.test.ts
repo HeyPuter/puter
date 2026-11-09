@@ -771,26 +771,6 @@ describe('AuthService (integration)', () => {
                 expect(uuids).toContain(live);
                 expect(uuids).not.toContain(expired);
             });
-
-            it('revokeAllSessions still revokes the live children of an expired session', async () => {
-                const user = await makeUser();
-                const parent = await webSessionUuid(user);
-                const child = await server.stores.session.create(user.id, {
-                    kind: 'access_token',
-                    parent_session_id: parent,
-                    expires_at: nowS() + 3600,
-                });
-                await lapse(parent);
-
-                await authService.revokeAllSessions({
-                    ...userActor(user),
-                    session: { uid: 'unrelated' },
-                } as Actor);
-
-                expect(
-                    await server.stores.session.getByUuid(child.uuid),
-                ).toBeNull();
-            });
         });
 
         it('listSessions excludes kind="asset" rows', async () => {
@@ -4165,6 +4145,32 @@ describe('AuthService (integration)', () => {
                     // Only revokeAllSessions keeps app authorizations.
                     expect(revoked).toBe(name !== 'revokeAllSessions');
                 }
+            },
+        );
+
+        it.each(revokers)(
+            '%s revokes an expired session and its live children',
+            async (_name, revoke) => {
+                const user = await makeUser();
+                const sessions = server.stores.session;
+                const now = Math.floor(Date.now() / 1000);
+                const web = await sessions.create(user.id, {
+                    expires_at: now - 1,
+                });
+                const child = await sessions.create(user.id, {
+                    kind: 'access_token',
+                    parent_session_id: web.uuid,
+                    expires_at: now + 3600,
+                });
+
+                await revoke(user);
+
+                const rows = await server.clients.db.read(
+                    'SELECT `uuid`, `revoked_at` FROM `sessions` WHERE `uuid` IN (?, ?)',
+                    [web.uuid, child.uuid],
+                );
+                expect(rows).toHaveLength(2);
+                for (const row of rows) expect(row.revoked_at).not.toBeNull();
             },
         );
 
