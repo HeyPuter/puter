@@ -37,7 +37,7 @@ globalThis.html_encode = value => jQuery('<div>').text(value).html();
 await import('./helpers.js');
 const { default: apply_item_added_to_containers } = await import('./helpers/applyItemAddedToContainers.js');
 const { default: UIItem } = await import('./UI/UIItem.js');
-const { atPath, retargetPaths, underPath } = await import('./helpers/pathElements.js');
+const { atPath, retargetNavHistory, retargetPaths, underPath } = await import('./helpers/pathElements.js');
 
 // A plain name, then names holding characters a selector or HTML treats specially.
 const NAMES = ['Reports 2024', 'R&D', "Dan's files", 'the "big" one', 'a<b>c', 'back\\slash'];
@@ -144,5 +144,27 @@ describe.each([undefined, null, ''])('a lookup for the path %s', (missing) => {
         expect(atPath('.item', missing, 'data-shortcut_to_path')).toHaveLength(0);
         expect(atPath('.window', missing)).toHaveLength(0);
         expect(underPath('.window', missing)).toHaveLength(0);
+    });
+});
+
+describe('retargetNavHistory', () => {
+    it('rewrites entries at or inside the old path and leaves the rest', () => {
+        window.window_nav_history = {
+            1: ['/alice', '/alice/A', '/alice/A/sub', '/alice/AB', 'puter://shared'],
+            2: ['/alice/Documents'],
+        };
+
+        retargetNavHistory('/alice/A', '/alice/B');
+
+        expect(window.window_nav_history[1]).toEqual(['/alice', '/alice/B', '/alice/B/sub', '/alice/AB', 'puter://shared']);
+        expect(window.window_nav_history[2]).toEqual(['/alice/Documents']);
+    });
+
+    it('is applied by retargetPaths', () => {
+        window.window_nav_history = { 1: ['/alice/A/sub'] };
+
+        retargetPaths('/alice/A', '/alice/B', 'B');
+
+        expect(window.window_nav_history[1]).toEqual(['/alice/B/sub']);
     });
 });
