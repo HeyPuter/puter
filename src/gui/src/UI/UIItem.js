@@ -725,7 +725,7 @@ async function UIItem (options) {
         }
     });
 
-    $(document).on('click', function (e) {
+    $(document).on(`click.item-${item_id}`, function (e) {
         if ( !$(e.target).hasClass('item') && !$(e.target).hasClass('item-name') && !$(e.target).hasClass('item-icon') ) {
             skip_a_rename_click = true;
         }
@@ -733,6 +733,10 @@ async function UIItem (options) {
         if ( $(e.target).parents('.item').data('id') !== item_id ) {
             skip_a_rename_click = true;
         }
+    });
+    // a document handler outlives the row unless it is released with it
+    $(el_item).on('remove', function () {
+        $(document).off(`click.item-${item_id}`);
     });
 
     // --------------------------------------------------------
