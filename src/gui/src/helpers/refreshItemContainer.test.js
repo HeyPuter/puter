@@ -107,6 +107,31 @@ describe('refresh_item_container in the Shared view', () => {
             is_team_share: true,
         });
     });
+
+    it('flags a direct share the team holds too', async () => {
+        list_all_shared.mockResolvedValue([
+            {
+                entryUid: 'u-1',
+                name: 'a.txt',
+                path: '/bob/u-1/a.txt',
+                isDir: false,
+                mode: 'read',
+                issuer: 'bob',
+                owner: 'bob',
+                alsoHeldByTeam: true,
+            },
+        ]);
+        document.body.innerHTML =
+            '<div class="window"><div class="item-container" data-path="/alice/Shared"></div></div>';
+
+        refresh_item_container($('.item-container'));
+
+        await vi.waitFor(() => expect(UIItem).toHaveBeenCalledTimes(1));
+        expect(UIItem.mock.calls[0][0]).toMatchObject({
+            is_team_share: false,
+            is_also_team_share: true,
+        });
+    });
 });
 
 const deferred = () => {
@@ -165,6 +190,15 @@ describe('refresh_item_container after the window moves to another folder', () =
 
         expect($('.window').attr('data-path')).toBe('/alice/Pictures');
         expect($('.window').attr('data-uid')).toBe('pictures');
+    });
+
+    it('stores a folder name holding HTML characters on the window as it is', async () => {
+        navigate('/alice/R&D');
+
+        pending.stat['/alice/R&D'].resolve({ id: 'rd', name: 'R&D' });
+        await vi.waitFor(() => expect($('.window').attr('data-uid')).toBe('rd'));
+
+        expect($('.window').attr('data-name')).toBe('R&D');
     });
 
     it('drops a listing that arrives just before the window moves on', async () => {

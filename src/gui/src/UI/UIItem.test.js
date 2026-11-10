@@ -33,6 +33,7 @@ vi.mock('../helpers/launchApp.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openItem.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/publishAsWebsite.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openWithAI.js', () => ({ default: vi.fn() }));
+vi.mock('../helpers/refreshItemContainer.js', () => ({ default: vi.fn() }));
 
 globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
@@ -67,6 +68,8 @@ Object.assign(window, {
 
 const { default: UIItem } = await import('./UIItem.js');
 const { default: UIContextMenu } = await import('./UIContextMenu.js');
+const { default: refresh_item_container } =
+    await import('../helpers/refreshItemContainer.js');
 
 const menuLabels = async (options) => {
     document.body.innerHTML =
@@ -90,14 +93,25 @@ const menuLabels = async (options) => {
     return UIContextMenu.mock.calls[0][0].items.map((item) => item?.html);
 };
 
+const removeFromShared = async (options) => {
+    await menuLabels(options);
+    await UIContextMenu.mock.calls[0][0].items
+        .find((item) => item?.html === 'share_remove_from_shared')
+        .onClick();
+};
+
 describe('UIItem Remove from Shared', () => {
     beforeEach(() => {
         window.user = { username: 'alice' };
         window.trash_path = '/alice/Trash';
         window.puter = {
-            fs: { listShared: vi.fn(async () => ({ items: [] })) },
+            fs: {
+                listShared: vi.fn(async () => ({ items: [] })),
+                unshare: vi.fn(async () => ({ revoked: 1 })),
+            },
         };
         globalThis.puter = window.puter;
+        refresh_item_container.mockClear();
     });
 
     it('is offered on an item shared with the user directly', async () => {
@@ -108,5 +122,20 @@ describe('UIItem Remove from Shared', () => {
         const labels = await menuLabels({ is_team_share: true });
         expect($('.item').attr('data-is_team_share')).toBe('1');
         expect(labels).not.toContain('share_remove_from_shared');
+    });
+
+    it('takes the item away once the user has left it', async () => {
+        await removeFromShared({});
+        expect(puter.fs.unshare).toHaveBeenCalledWith('/bob/u-1/Photos', 'alice');
+        expect($('.item')).toHaveLength(0);
+        expect(refresh_item_container).not.toHaveBeenCalled();
+    });
+
+    it('lists the item again when a team still shares it', async () => {
+        await removeFromShared({ is_also_team_share: true });
+        expect(puter.fs.unshare).toHaveBeenCalledWith('/bob/u-1/Photos', 'alice');
+        expect($('.item')).toHaveLength(1);
+        expect(refresh_item_container).toHaveBeenCalledTimes(1);
+        expect(refresh_item_container.mock.calls[0][0][0]).toBe($('.item-container')[0]);
     });
 });

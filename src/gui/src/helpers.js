@@ -23,6 +23,7 @@ import { archiveEntryPath } from './helpers/archiveEntryPath.js';
 import get_html_element_from_options from './helpers/getHtmlElementFromOptions.js';
 import globToRegExp from './helpers/globToRegExp.js';
 import item_icon from './helpers/itemIcon.js';
+import { atPath, retargetPaths, underPath } from './helpers/pathElements.js';
 import { is_owned_by_me, trash_path_for } from './helpers/pathOwner.js';
 import { invalidate_shared_roots } from './helpers/sharedAccess.js';
 import truncate_filename from './helpers/truncateFilename.js';
@@ -31,6 +32,7 @@ import update_username_in_gui from './helpers/updateUsernameInGui.js';
 import { notifyItemWatchers } from './helpers/watchItems.js';
 import { select_uploaded_items } from './helpers/uploadSelection.js';
 import { templateMenuItem } from './helpers/templateMenuItem.js';
+import { isTokenForAnotherUser } from './helpers/tokenUser.js';
 import { uuidv4 } from './helpers/uuidv4.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
@@ -624,10 +626,6 @@ window.refresh_user_data = async (auth_token) => {
 
 window.update_auth_data = async (auth_token, user) => {
     window.auth_token = auth_token;
-    // Write the v2 key going forward and clear any lingering v1 key so
-    // a single localStorage source-of-truth is used.
-    localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
-    localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
 
     // Set http-only session cookie when user is changing.
     // This ensures user-protected endpoints, which only refer to the http-only cookie,
@@ -652,6 +650,13 @@ window.update_auth_data = async (auth_token, user) => {
             });
         }
     }
+
+    // Stored only after the cookie sync: a peer tab reloads when it sees
+    // another account's token, and its boot signs in from the cookie.
+    // A token adopted from a peer tab during the sync must not outlive it.
+    window.auth_token = auth_token;
+    localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
+    localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
 
     // Has username changed?
     if ( window.user?.username !== user.username )
@@ -857,6 +862,12 @@ if ( typeof window !== 'undefined' && window.addEventListener ) {
     window.addEventListener('storage', (event) => {
         if ( event.key !== window.AUTH_TOKEN_KEY_V2 ) return;
         if ( event.newValue ) {
+            // A peer tab changed accounts. Reload as that account instead of
+            // sending its token from a desktop still showing this one.
+            if ( isTokenForAnotherUser(event.newValue, window.user) ) {
+                window.location.reload();
+                return;
+            }
             // A peer tab just (re)authed. Pick up the fresh token so
             // subsequent requests stop bouncing on reauth_required.
             window.auth_token = event.newValue;
@@ -1178,7 +1189,7 @@ window.create_folder = async (basedir, appendto_element) => {
             rename: true,
             overwrite: false,
             success: function (data) {
-                const el_created_dir = $(appendto_element).find(`.item[data-path="${html_encode(dirname)}/${html_encode(data.name)}"]`);
+                const el_created_dir = atPath($(appendto_element).find('.item'), `${dirname}/${data.name}`);
                 if ( el_created_dir.length > 0 ) {
                     window.activate_item_name_editor(el_created_dir);
 
@@ -1211,7 +1222,7 @@ window.create_file = async (options) => {
             generateThumbnails: true,
             thumbnailGenerator: createUploadThumbnailGenerator(),
             success: async function (data) {
-                const created_file = $(appendto_element).find(`.item[data-path="${html_encode(dirname)}/${html_encode(data.name)}"]`);
+                const created_file = atPath($(appendto_element).find('.item'), `${dirname}/${data.name}`);
                 if ( created_file.length > 0 ) {
                     window.activate_item_name_editor(created_file);
 
@@ -1583,8 +1594,8 @@ window.delete_item = async function (el_item, descendants_only = false) {
         // close all windows with matching uids
         $(`.window-${ $(el_item).attr('data-uid')}`).close();
         // close all windows that belong to a descendant of this item
-        // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-        $(`.window[data-path^="${$(el_item).attr('data-path')}/"]`).close();
+        // todo this has to be case-insensitive
+        underPath('.window', $(el_item).attr('data-path')).close();
     });
 
     try {
@@ -1605,7 +1616,7 @@ window.delete_item = async function (el_item, descendants_only = false) {
                 window.update_explorer_footer_selected_items_count(this);
             });
             // update all shortcuts to this item
-            $(`.item[data-shortcut_to_path="${html_encode($(el_item).attr('data-path'))}" i]`).attr('data-shortcut_to_path', '');
+            atPath('.item', $(el_item).attr('data-path'), 'data-shortcut_to_path').attr('data-shortcut_to_path', '');
         });
     } catch ( err ) {
         // Nothing was deleted: bring back what was faded out above.
@@ -1619,7 +1630,7 @@ window.move_clipboard_items = function (el_target_container, target_path) {
     let el_items = [];
     if ( window.clipboard.length > 0 ) {
         for ( let i = 0; i < window.clipboard.length; i++ ) {
-            el_items.push($(`.item[data-path="${html_encode(window.clipboard[i])}" i]`));
+            el_items.push(atPath('.item', window.clipboard[i]));
         }
         if ( el_items.length > 0 )
         {
@@ -1961,24 +1972,18 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // skip next loop iteration because this iteration was successful
                 item_with_same_name_already_exists = false;
 
-                // update all shortcut_to_path — compare raw attribute values
-                // (item rows store paths unencoded, so an html_encode()d
-                // selector misses names containing & < > " ')
-                const moved_from_path_lc = String($(el_item).attr('data-path') || '').toLowerCase();
-                $('.item[data-shortcut_to_path]').filter(function () {
-                    return String($(this).attr('data-shortcut_to_path')).toLowerCase() === moved_from_path_lc;
-                }).attr('data-shortcut_to_path', fsentry.path);
+                const moved_from_path = $(el_item).attr('data-path');
+
+                // update all shortcut_to_path
+                atPath('.item', moved_from_path, 'data-shortcut_to_path').attr('data-shortcut_to_path', fsentry.path);
 
                 // Remove all items with matching uids from their OLD location(s).
                 // Exclude any row already at the item's new path: a concurrent
                 // item.moved socket handler may have just created a row at the
                 // destination (e.g. the dashboard file view showing the target
                 // directory), and removing by uid alone would delete it too.
-                // Raw case-insensitive compare, for the same reason as above.
-                const dest_item_path_lc = fsentry.path.toLowerCase();
-                $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).not(function () {
-                    return String($(this).attr('data-path') || '').toLowerCase() === dest_item_path_lc;
-                }).fadeOut(150, function () {
+                const $moved_items = $(`.item[data-uid='${$(el_item).attr('data-uid')}']`);
+                $moved_items.not(atPath($moved_items, fsentry.path)).fadeOut(150, function () {
                     // find all parent windows that contain this item
                     let parent_windows = $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).closest('.window');
                     // remove this item
@@ -1992,23 +1997,23 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
                 // if trashing, close windows of trashed items and its descendants
                 if ( is_trashing ) {
-                    $(`.window[data-path="${html_encode($(el_item).attr('data-path'))}" i]`).close();
-                    // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-                    $(`.window[data-path^="${html_encode($(el_item).attr('data-path'))}/"]`).close();
+                    atPath('.window', moved_from_path).close();
+                    // todo this has to be case-insensitive
+                    underPath('.window', moved_from_path).close();
                 }
 
                 // update all paths of its and its descendants' open windows
                 else {
-                    // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-                    $(`.window[data-path^="${html_encode($(el_item).attr('data-path'))}/"], .window[data-path="${html_encode($(el_item).attr('data-path'))}" i]`).each(function () {
-                        window.update_window_path(this, $(this).attr('data-path').replace($(el_item).attr('data-path'), path.join(item_dest_path, fsentry.name)));
+                    // todo this has to be case-insensitive
+                    underPath('.window', moved_from_path).add(atPath('.window', moved_from_path)).each(function () {
+                        window.update_window_path(this, path.join(item_dest_path, fsentry.name) + $(this).attr('data-path').slice(moved_from_path.length));
                     });
                 }
 
                 // The dashboard's Back/Forward follows a moved folder, and
                 // forgets a trashed one.
                 if ( $(el_item).attr('data-is_dir') === '1' ) {
-                    window.dashboard_object?.folderMoved?.($(el_item).attr('data-path'), is_trashing ? null : fsentry.path);
+                    window.dashboard_object?.folderMoved?.(moved_from_path, is_trashing ? null : fsentry.path);
                 }
 
                 if ( is_trashing ) {
@@ -2032,7 +2037,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
                 // create new item on matching containers
                 const options = {
-                    appendTo: $(`.item-container[data-path="${html_encode(item_dest_path)}" i]`),
+                    appendTo: atPath('.item-container', item_dest_path),
                     immutable: fsentry.immutable || (fsentry.writable === false),
                     associated_app_name: fsentry.associated_app?.name,
                     uid: fsentry.uid,
@@ -2063,8 +2068,8 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // see if any of the directories in the path of this file is new AND
                 // if these new path have any open parents that need to be updated
                 resp.parent_dirs_created?.forEach(async dir => {
-                    let item_container = $(`.item-container[data-path="${html_encode(path.dirname(dir.path))}" i]`);
-                    if ( item_container.length > 0 && $(`.item[data-path="${html_encode(dir.path)}" i]`).length === 0 ) {
+                    let item_container = atPath('.item-container', path.dirname(dir.path));
+                    if ( item_container.length > 0 && atPath('.item', dir.path).length === 0 ) {
                         UIItem({
                             appendTo: item_container,
                             immutable: false,
@@ -2090,7 +2095,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 });
 
                 //sort each container
-                $(`.item-container[data-path="${html_encode(item_dest_path)}" i]`).each(function () {
+                atPath('.item-container', item_dest_path).each(function () {
                     window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
                 });
             } catch ( err ) {
@@ -2285,9 +2290,7 @@ window.updateSubdomainsForItems = async function (fsentries, container) {
 
             // If not found by uid, try path-based search
             if ( $item.length === 0 && fsentry.path ) {
-                // Escape special characters in path for jQuery selector
-                const escapedPath = fsentry.path.replace(/[!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~]/g, '\\$&');
-                $item = $(document).find(`.item[data-path="${escapedPath}"]`);
+                $item = atPath('.item', fsentry.path);
             }
 
             if ( $item.length > 0 ) {
@@ -3301,20 +3304,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).attr('data-path', new_path);
             $(`.window-${options.uid}`).attr('data-path', new_path);
 
-            // Update all elements that have matching paths
-            $(`[data-path="${html_encode(old_path)}" i]`).each(function () {
-                $(this).attr('data-path', new_path);
-                if ( $(this).hasClass('window-navbar-path-dirname') )
-                {
-                    $(this).text(new_name);
-                }
-            });
-
-            // Update the paths of all elements whose paths start with `old_path`
-            $(`[data-path^="${`${html_encode(old_path) }/`}"]`).each(function () {
-                const new_el_path = $(this).attr('data-path').replace(`${old_path }/`, `${new_path}/`);
-                $(this).attr('data-path', new_el_path);
-            });
+            retargetPaths(old_path, new_path, new_name);
 
             // Update the 'Sites Cache'
             if ( $(el_item).attr('data-has_website') === '1' )

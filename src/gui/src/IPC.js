@@ -18,7 +18,9 @@
  */
 
 import download from './helpers/download.js';
+import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
 import item_icon from './helpers/itemIcon.js';
+import { atPath } from './helpers/pathElements.js';
 import socialLink from './helpers/socialLink.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
 import path from './lib/path.js';
@@ -31,11 +33,9 @@ import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
 import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
-import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
 import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
-import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIAuthSignup from './UI/Auth/UIAuthSignup.js';
 import UINotification from './UI/UINotification.js';
 
@@ -235,49 +235,12 @@ const ipc_listener = async (event, handled) => {
     // requestEmailConfirmation
     //--------------------------------------------------------
     else if ( event.data.msg === 'requestEmailConfirmation' ) {
-        // If the user has an email and it is confirmed, respond with success
-        if ( window.user.email && window.user.email_confirmed ) {
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-                msg: 'requestEmailConfirmationResponded',
-                response: true,
-            }, '*');
-        }
-
-        // If the user is a temporary user, show the save account window
-        if ( window.user.is_temp &&
-            !await UIWindowSaveAccount({
-                send_confirmation_code: true,
-                message: 'Please create an account to proceed.',
-                window_options: {
-                    backdrop: true,
-                    close_on_backdrop_click: false,
-                },
-            }) ) {
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-                msg: 'requestEmailConfirmationResponded',
-                response: false,
-            }, '*');
-            return;
-        }
-        else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() ) {
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-                msg: 'requestEmailConfirmationResponded',
-                response: false,
-            }, '*');
-            return;
-        }
-
-        const email_confirm_resp = await UIWindowEmailConfirmationRequired({
-            email: window.user.email,
-        });
-
+        // Above the app's window, which stays on top in the dashboard.
+        const confirmed = await ensureConfirmedEmail(i18n('save_account_to_proceed'), { stay_on_top: true });
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id,
             msg: 'requestEmailConfirmationResponded',
-            response: email_confirm_resp,
+            response: confirmed,
         }, '*');
     }
     //--------------------------------------------------------
@@ -1740,7 +1703,7 @@ const ipc_listener = async (event, handled) => {
             $(`.item[data-uid="${res.uid}"]`).removeItems();
             // now add new items
             UIItem({
-                appendTo: $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`),
+                appendTo: atPath('.item-container', path.dirname(target_path)),
                 immutable: res.immutable || res.writable === false,
                 associated_app_name: res.associated_app?.name,
                 path: target_path,
@@ -1754,7 +1717,7 @@ const ipc_listener = async (event, handled) => {
                 suggested_apps: res.suggested_apps,
             });
             // sort each window
-            $(`.item-container[data-path="${html_encode(path.dirname(target_path))}" i]`).each(function () {
+            atPath('.item-container', path.dirname(target_path)).each(function () {
                 window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
             });
             $(el_filedialog_window).close();
