@@ -26,6 +26,7 @@ import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
 import { atPath } from '../helpers/pathElements.js';
+import { resolve_typed_path } from '../helpers/expandHomePath.js';
 import UIWindowAppFeedback from './UIWindowAppFeedback.js';
 import launch_app from '../helpers/launchApp.js';
 import publish_as_website from '../helpers/publishAsWebsite.js';
@@ -3072,7 +3073,21 @@ $(document).on('blur', '.window-navbar-path-input', function (e) {
 
 $(document).on('keyup', '.window-navbar-path-input', function (e) {
     if ( e.key === 'Enter' || e.keyCode === 13 ) {
-        window.update_window_path($(e.target).closest('.window'), $(e.target).val());
+        const $el_window = $(e.target).closest('.window');
+        const win_id = $el_window.attr('data-id');
+        const current_path = $el_window.attr('data-path');
+        // Other code matches containers by exact path, so navigate to the canonical form.
+        const target_path = resolve_typed_path($(e.target).val(), {
+            current_path,
+            home_path: window.home_path,
+            shared_path: window.shared_path,
+        });
+        if ( target_path !== current_path && window.window_nav_history[win_id] ) {
+            window.window_nav_history[win_id] = window.window_nav_history[win_id].slice(0, window.window_nav_history_current_position[win_id] + 1);
+            window.window_nav_history[win_id].push(target_path);
+            window.window_nav_history_current_position[win_id] = window.window_nav_history[win_id].length - 1;
+        }
+        window.update_window_path($el_window, target_path);
         $(e.target).hide();
         $(e.target).siblings('.window-navbar-path').show().select();
     }
