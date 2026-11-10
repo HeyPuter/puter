@@ -50,7 +50,7 @@ import { is_default_app } from './defaultApp.js';
  * @param {Function} options.onPublishWebsite - Optional custom publish-as-website handler (used by Dashboard); receives {uid, name, path}
  * @param {Function} options.onPublishWorker - Optional custom publish-as-worker handler (used by Dashboard); receives {uid, name, path}
  * @param {Function} options.onPasteInto - Optional custom paste handler (used by Dashboard); receives the folder's path
- * @param {Function} options.onRemovedFromShared - Optional, called once Remove from Shared has taken the item's row away (used by Dashboard)
+ * @param {Function} options.onRemovedFromShared - Optional, called once Remove from Shared has dropped the user's own access (used by Dashboard)
  * @returns {Promise<Array>} Array of context menu items
  */
 const generate_file_context_menu = async function (options) {
@@ -389,7 +389,9 @@ const generate_file_context_menu = async function (options) {
                     // Or mode lookups keep answering for a share we just
                     // walked away from.
                     invalidate_shared_roots();
-                    $(el_item).remove();
+                    // A team that still shares it keeps it listed, as the
+                    // team's share; the refreshed listing shows it that way.
+                    if ( fsentry.also_team_share !== true ) $(el_item).remove();
                     options.onRemovedFromShared?.();
                 } catch (e) {
                     UIAlert({ message: e?.message ?? i18n('error_unknown_cause') });

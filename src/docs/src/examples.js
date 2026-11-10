@@ -50,6 +50,12 @@ const examples = [
                 source: '/playground/examples/ai-chatgpt.html',
             },
             {
+                title: 'Select Service Speed',
+                description: 'Request faster AI service and inspect the speed that served the response.',
+                slug: 'ai-chat-service-speed',
+                source: '/playground/examples/ai-chat-service-speed.html',
+            },
+            {
                 title: 'Image Analysis',
                 description: 'Analyze images with AI using Puter.js GPT Vision API. Run and modify this code example instantly in your browser.',
                 slug: 'ai-gpt-vision',

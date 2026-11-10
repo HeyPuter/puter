@@ -19,6 +19,10 @@
 
 import { OpenAI } from 'openai';
 import { ResponseCreateParams } from 'openai/resources/responses/responses.mjs';
+import {
+    serviceSpeedBillingModel,
+    servedServiceSpeed,
+} from '../../utils/serviceSpeed.js';
 import { Context } from '../../../../core/context.js';
 import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
@@ -152,37 +156,41 @@ export class AzureResponsesProvider implements IChatProvider {
             : {};
     }
 
-    async complete({
-        messages,
-        model,
-        max_tokens,
-        moderation,
-        tools,
-        tool_choice,
-        parallel_tool_calls,
-        include,
-        conversation,
-        compaction,
-        context_management,
-        previous_response_id,
-        instructions,
-        metadata,
-        prompt,
-        prompt_cache_key,
-        prompt_cache_retention,
-        store,
-        top_p,
-        truncation,
-        background,
-        service_tier,
-        verbosity,
-        stream,
-        reasoning,
-        reasoning_effort,
-        temperature,
-        text,
-        outputFormat,
-    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
+    async complete(
+        {
+            messages,
+            model,
+            max_tokens,
+            moderation,
+            tools,
+            tool_choice,
+            parallel_tool_calls,
+            include,
+            conversation,
+            compaction,
+            context_management,
+            previous_response_id,
+            instructions,
+            metadata,
+            prompt,
+            prompt_cache_key,
+            prompt_cache_retention,
+            store,
+            top_p,
+            truncation,
+            background,
+            service_tier,
+            serviceSpeed: requestedServiceSpeed,
+            verbosity,
+            stream,
+            reasoning,
+            reasoning_effort,
+            temperature,
+            text,
+            outputFormat,
+        }: ICompleteArguments,
+        resolved?: IChatModel,
+    ): ReturnType<IChatProvider['complete']> {
         // Validate messages
         if (!Array.isArray(messages)) {
             throw new HttpError(400, '`messages` must be an array', {
@@ -200,12 +208,13 @@ export class AzureResponsesProvider implements IChatProvider {
         model = model ?? this.#defaultModel;
 
         const modelUsed =
-            this.models({ no_restrictions: true }).find((m) =>
+            resolved ??
+            (this.models({ no_restrictions: true }).find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
             ) ||
-            this.models({ no_restrictions: true }).find(
-                (m) => m.id === this.getDefaultModel(),
-            )!;
+                this.models({ no_restrictions: true }).find(
+                    (m) => m.id === this.getDefaultModel(),
+                )!);
 
         const userIdentifier = upstreamUserIdentifier(actor);
         // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
@@ -335,9 +344,11 @@ export class AzureResponsesProvider implements IChatProvider {
         return OpenAiUtil.handle_completion_output_responses_api({
             usage_calculator: ({
                 usage,
+                service_tier,
                 webSearchCalls,
                 tool_usage,
                 setUsageCosts,
+                setUsageDetails,
             }) => {
                 const numWebSearches: number =
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -363,7 +374,10 @@ export class AzureResponsesProvider implements IChatProvider {
 
                 const costsOverrideFromModel = buildCostsOverride(
                     trackedUsage,
-                    modelUsed,
+                    serviceSpeedBillingModel(
+                        modelUsed,
+                        servedServiceSpeed({ service_tier }),
+                    ),
                 );
                 if (numWebSearches) {
                     costsOverrideFromModel.web_search_calls =
@@ -374,6 +388,14 @@ export class AzureResponsesProvider implements IChatProvider {
                     });
                 }
 
+                setUsageCosts?.(costsOverrideFromModel);
+                if (requestedServiceSpeed !== undefined)
+                    setUsageDetails?.({
+                        ...OpenAiUtil.usageDetailsFromTrackedUsage(
+                            trackedUsage,
+                        )!,
+                        serviceSpeed: servedServiceSpeed({ service_tier }),
+                    });
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
                     actor,

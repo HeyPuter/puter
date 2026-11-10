@@ -136,6 +136,65 @@ export const relationshipIsConsent = ({ hasRelationship, showedAccountPicker }) 
     hasRelationship && !showedAccountPicker;
 
 /**
+ * The result of a popup's early user-app token exchange, when it stands in for
+ * a second one: it returned a token, for the same opener and the same session.
+ *
+ * @param {{
+ *     origin: string|null;
+ *     authToken: string|null|undefined;
+ *     data: { token?: string; app_uid?: string }|null;
+ * }|null} early - The early exchange, or null when none ran.
+ * @param {string} origin - The opener origin the token is needed for.
+ * @param {string|null|undefined} authToken - The session token in use.
+ * @returns {{ token: string; app_uid?: string }|null} null means exchange again.
+ */
+export const reusableTokenExchange = (early, origin, authToken) => {
+    if ( !early?.data?.token || !origin || !authToken ) return null;
+    if ( early.origin !== origin || early.authToken !== authToken ) return null;
+    return /** @type {{ token: string; app_uid?: string }} */ (early.data);
+};
+
+/** How long a sign-in popup's first `/whoami` stays usable. */
+export const POPUP_WHOAMI_MAX_AGE_MS = 60_000;
+
+const VERIFICATION_GATE_FLAGS = [
+    'requires_email_confirmation',
+    'requires_phone_verification',
+    'requires_card_verification',
+    'requires_password_change',
+];
+
+/**
+ * Whether the `/whoami` a sign-in popup read before its account picker still
+ * describes the session, so boot can skip reading it again.
+ *
+ * A pending verification gate always gets a fresh read, and so does a session
+ * the token exchange has not just accepted.
+ *
+ * @param {{
+ *     user: Record<string, unknown>;
+ *     authToken: string|null|undefined;
+ *     fetchedAt: number;
+ * }|null} early - The early read, or null when none succeeded.
+ * @param {{
+ *     userUuid: string|null|undefined;
+ *     authToken: string|null|undefined;
+ *     exchangedAuthToken: string|null|undefined;
+ *     now: number;
+ * }} session - The signed-in user and token now, and the session token the
+ *   early token exchange succeeded with (null when it returned no token).
+ * @returns {boolean}
+ */
+export const reusablePopupUser = (early, { userUuid, authToken, exchangedAuthToken, now }) => {
+    if ( !early?.user?.uuid || !authToken ) return false;
+    if ( early.user.uuid !== userUuid ) return false;
+    if ( early.authToken !== authToken || exchangedAuthToken !== authToken ) return false;
+    if ( VERIFICATION_GATE_FLAGS.some(flag => early.user[flag]) ) return false;
+    const age = now - early.fetchedAt;
+    return age >= 0 && age <= POPUP_WHOAMI_MAX_AGE_MS;
+};
+
+/**
  * Whether a popup running `action` runs the user-app token exchange.
  *
  * The exchange (`/auth/get-user-app-token`) is a write, not a read: it

@@ -443,7 +443,10 @@ export const showFeedbackEmbed = ({ guiOrigin, userUuid }) => mountGuiEmbed({
     },
 });
 
-/** Popup actions a first-party page shows framed, each in a box its popup window's size. */
+/**
+ * Popup actions a first-party page shows framed, each in a box its popup
+ * window's size. Any other covers the page, and its dialog draws its own scrim.
+ */
 const POPUP_FRAME_BOXES = {
     'sign-in': { width: 600, height: 700 },
     'show-open-file-picker': { width: 700, height: 400 },
@@ -473,8 +476,8 @@ const UNBOXED_POPUP_FRAMES = {
  * @template T
  * @param {Object} opts
  * @param {string} opts.guiOrigin
- * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker' | 'upgrade'} opts.action
- * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for a picker or the upgrade
+ * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker' | 'upgrade' | 'request-email-confirmation'} opts.action
+ * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for a picker, the upgrade or the email confirmation
  * @param {string} opts.title - the frame's accessible name
  * @param {string} [opts.closeLabel] - puts a close button on the frame
  * @param {(data?: Record<string, unknown>) => T} opts.closed

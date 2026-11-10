@@ -20,12 +20,24 @@
 import UIWindow from './UIWindow.js';
 import UIAlert from './UIAlert.js';
 
+/**
+ * Asks for the code sent to the user's email.
+ *
+ * @returns {Promise<boolean>} True once the email is confirmed, false when the
+ *   window closes without it. A logout, from its footer or anywhere else,
+ *   leaves it unsettled, so a gate that reopens it on false doesn't race the
+ *   logout.
+ */
 function UIWindowEmailConfirmationRequired (options) {
     return new Promise(async (resolve) => {
         options = options ?? {};
         options.window_options = options.window_options ?? {};
         let final_code = '';
         let is_checking_code = false;
+        let logging_out = false;
+        let submit_timer = null;
+        let code_sent = false;
+        let close_after_check = false;
 
         const submit_btn_txt = 'Confirm Email';
 
@@ -92,6 +104,20 @@ function UIWindowEmailConfirmationRequired (options) {
             window_css: {
                 height: 'initial',
             },
+            // A code on its way to the server answers for the window, so the
+            // window waits for it. One not sent yet isn't sent.
+            on_before_exit: () => {
+                if ( code_sent && ! logging_out ) {
+                    close_after_check = true;
+                    return false;
+                }
+                clearTimeout(submit_timer);
+                return true;
+            },
+            // A no-op after a confirmation, which resolves first.
+            on_close: () => {
+                if ( ! logging_out && window.auth_token ) resolve(false);
+            },
             body_css: {
                 padding: '30px',
                 width: 'initial',
@@ -122,7 +148,8 @@ function UIWindowEmailConfirmationRequired (options) {
             // set animation
             $(el_window).find('.email-confirm-btn').html('<svg style="width:20px; margin-top: 5px;" xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#fff" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#eee" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>');
 
-            setTimeout(() => {
+            submit_timer = setTimeout(() => {
+                code_sent = true;
                 $.ajax({
                     url: `${window.api_origin }/confirm-email`,
                     type: 'POST',
@@ -141,9 +168,13 @@ function UIWindowEmailConfirmationRequired (options) {
                     },
                     success: function (res) {
                         if ( res.email_confirmed ) {
+                            // Callers check window.user next, before the refresh lands.
+                            if ( window.user ) window.user.email_confirmed = true;
+                            resolve(true);
+                            code_sent = false;
+                            close_after_check = false;
                             $(el_window).close();
                             window.refresh_user_data(window.auth_token);
-                            resolve(true);
                         } else {
                             $(el_window).find('.error').html('Invalid confirmation code.');
                             $(el_window).find('.error').fadeIn();
@@ -155,7 +186,8 @@ function UIWindowEmailConfirmationRequired (options) {
                         }
                     },
                     error: function (res) {
-                        $(el_window).find('.error').html(html_encode(res.responseJSON.error));
+                        // A network failure has no body to read.
+                        $(el_window).find('.error').html(html_encode(res.responseJSON?.error ?? i18n('error_unknown_cause')));
                         $(el_window).find('.error').fadeIn();
                         $(el_window).find('.digit-input').val('');
                         $(el_window).find('.digit-input').first().focus();
@@ -165,6 +197,8 @@ function UIWindowEmailConfirmationRequired (options) {
                     },
                     complete: function () {
                         is_checking_code = false;
+                        code_sent = false;
+                        if ( close_after_check ) $(el_window).close();
                     },
                 });
             }, 1000);
@@ -172,6 +206,7 @@ function UIWindowEmailConfirmationRequired (options) {
 
         // send email confirmation
         $(el_window).find('.send-conf-email').on('click', function (e) {
+            $(el_window).find('.error').hide();
             $.ajax({
                 url: `${window.api_origin }/send-confirm-email`,
                 type: 'POST',
@@ -194,19 +229,22 @@ function UIWindowEmailConfirmationRequired (options) {
                     });
                     $(el_window).find('.digit-input').first().focus();
                 },
-                complete: function () {
+                error: function (res) {
+                    $(el_window).find('.error').html(html_encode(res.responseJSON?.error ?? i18n('error_unknown_cause')));
+                    $(el_window).find('.error').fadeIn();
                 },
             });
         });
 
         // logout
         $(el_window).find('.conf-email-log-out').on('click', function (e) {
+            logging_out = true;
             window.logout();
             $(el_window).close();
         });
 
         // Elements
-        const numberCodeForm = document.querySelector('[data-number-code-form]');
+        const numberCodeForm = $(el_window).find('[data-number-code-form]').get(0);
         const numberCodeInputs = [...numberCodeForm.querySelectorAll('[data-number-code-input]')];
 
         // Event listeners

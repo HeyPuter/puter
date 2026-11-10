@@ -42,6 +42,7 @@ export const XAI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,
@@ -65,6 +66,7 @@ export const XAI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,
@@ -87,6 +89,7 @@ export const XAI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,
@@ -109,6 +112,7 @@ export const XAI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 125,
@@ -151,6 +155,7 @@ export const XAI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 125,
@@ -186,6 +191,7 @@ export const XAI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 125,
@@ -217,6 +223,7 @@ export const XAI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 125,
@@ -246,6 +253,7 @@ export const XAI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 100,

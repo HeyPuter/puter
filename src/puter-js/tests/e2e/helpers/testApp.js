@@ -52,6 +52,28 @@ export async function waitForPuterReady (page) {
     await page.waitForFunction(() => !!window.puter?.apps?.create, null, { timeout: 10_000 });
 }
 
+/**
+ * Creates a second account, the one a first-time visitor is given, and
+ * returns its token and user. Sign-ups are rate limited, so create one per file.
+ *
+ * @param {import('@playwright/test').Browser} browser
+ * @returns {Promise<{ token: string, user: { uuid: string, username: string } }>}
+ */
+export async function createVisitorAccount (browser) {
+    const visitorContext = await browser.newContext({
+        storageState: { cookies: [], origins: [] },
+    });
+    const visitorPage = await visitorContext.newPage();
+    await visitorPage.goto('/');
+    await waitForPuterReady(visitorPage);
+    const account = await visitorPage.evaluate(() => ({
+        token: localStorage.getItem('auth_token_v2'),
+        user: JSON.parse(localStorage.getItem('user')),
+    }));
+    await visitorContext.close();
+    return account;
+}
+
 async function assertFixtureReachable (fixtureURL) {
     let res;
     try {
