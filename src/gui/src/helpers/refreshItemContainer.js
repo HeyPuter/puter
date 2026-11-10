@@ -137,6 +137,8 @@ const refresh_item_container = function (el_item_container, options) {
 
     // remove all existing items
     $(el_item_container).find('.item').removeItems();
+    // removing the last row shows the empty message, which is wrong while the folder is loading
+    $(empty_message).hide();
 
     // get items with subdomains/workers included to avoid per-item stat calls
     const entries_promise = is_shared_view
