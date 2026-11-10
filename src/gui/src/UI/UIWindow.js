@@ -3450,6 +3450,8 @@ window.update_window_path = async function (el_window, target_path) {
 
     $(el_window).attr('data-path', target_path);
     $(el_window).attr('data-name', path.basename(target_path));
+    $(el_window_navbar_path_input).val(target_path);
+    $(el_window_navbar_path_input).attr('data-path', target_path);
 
     // /stat
     if ( target_path === window.shared_path ) {
