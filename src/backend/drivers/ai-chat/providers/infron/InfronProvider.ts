@@ -266,6 +266,15 @@ export class InfronProvider extends OpenAICompatProvider {
         return coerced_models;
     }
 
+    async serviceSpeedModels(model: IChatModel) {
+        const variant = (await this.models()).find(
+            (entry) => entry.id === `${model.id}:priority`,
+        );
+        return variant
+            ? { fast: { ...variant, provider: model.provider } }
+            : {};
+    }
+
     protected override vendorParams(
         params: Record<string, unknown>,
         _args: unknown,

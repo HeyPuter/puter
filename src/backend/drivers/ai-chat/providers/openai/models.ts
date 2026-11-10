@@ -46,6 +46,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 100,
@@ -72,6 +73,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2, ultrafast: 6 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,
@@ -98,6 +100,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,
@@ -124,6 +127,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 10,
@@ -150,6 +154,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2, ultrafast: 6 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 1000,
@@ -176,6 +181,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         // OpenAI's promotional pricing, guaranteed only through 2026-11-21.
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 400,
@@ -201,6 +207,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,
@@ -226,6 +233,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 2 },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 20,
@@ -251,6 +259,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 1250,
+                cached_tokens: 125,
+                completion_tokens: 7500,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 500,
@@ -295,6 +310,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 500,
+                cached_tokens: 50,
+                completion_tokens: 3000,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 250,
@@ -338,6 +360,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 150,
+                cached_tokens: 15,
+                completion_tokens: 900,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 75,
@@ -425,6 +454,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 350,
+                cached_tokens: 35,
+                completion_tokens: 2800,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 175,
@@ -446,6 +482,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 250,
+                cached_tokens: 25,
+                completion_tokens: 2000,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 125,
@@ -467,6 +510,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 425,
+                cached_tokens: 212.5,
+                completion_tokens: 1700,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 250,
@@ -490,6 +540,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 25,
+                cached_tokens: 12.5,
+                completion_tokens: 100,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 15,
@@ -509,6 +566,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 350,
+                cached_tokens: 87.5,
+                completion_tokens: 1400,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 200,
@@ -530,6 +594,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 70,
+                cached_tokens: 17.5,
+                completion_tokens: 280,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 40,
@@ -571,6 +642,13 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 425,
+                cached_tokens: 212.5,
+                completion_tokens: 1700,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 250,

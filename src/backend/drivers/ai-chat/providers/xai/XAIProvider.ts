@@ -19,6 +19,8 @@
 
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
+import { catalogPrice } from '../../utils/pricing.js';
+import { servedServiceSpeed } from '../../utils/serviceSpeed.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
@@ -74,7 +76,15 @@ export class XAIProvider implements IChatProvider {
     }
 
     async complete(
-        { messages, stream, model, tools, max_tokens }: ICompleteArguments,
+        {
+            messages,
+            stream,
+            model,
+            tools,
+            max_tokens,
+            service_tier,
+            serviceSpeed: requestedServiceSpeed,
+        }: ICompleteArguments,
         resolved?: IChatModel,
     ): Promise<IChatCompleteResult> {
         const actor = Context.get('actor');
@@ -88,6 +98,7 @@ export class XAIProvider implements IChatProvider {
                 {
                     messages,
                     model: modelUsed.id,
+                    ...(service_tier !== undefined ? { service_tier } : {}),
                     ...(tools ? { tools } : {}),
                     ...(max_tokens !== undefined ? { max_tokens } : {}),
                     stream,
@@ -107,18 +118,49 @@ export class XAIProvider implements IChatProvider {
         }
 
         return OpenAIUtil.handle_completion_output({
-            usage_calculator: ({ usage, setUsageCosts }) => {
+            usage_calculator: ({
+                usage,
+                service_tier: servedTier,
+                setUsageCosts,
+                setUsageDetails,
+            }) => {
+                const serviceSpeed = servedServiceSpeed({
+                    service_tier: servedTier,
+                });
                 // xAI reports cached reads inside `prompt_tokens`; bill them
                 // only at the cached rate.
                 const metered = OpenAIUtil.extractMeteredUsage(usage);
+                const reasoningTokens =
+                    usage.completion_tokens_details?.reasoning_tokens ?? 0;
+                const trackedUsage = OpenAIUtil.splitCachedPrompt(usage);
+                trackedUsage.completion_tokens += reasoningTokens;
+                const reportedTicks = catalogPrice(
+                    (usage as typeof usage & { cost_in_usd_ticks?: number })
+                        .cost_in_usd_ticks,
+                );
                 const { costs } = meterChatUsage(
                     this.#meteringService,
                     actor,
                     this.meteringModelKey(modelUsed.id),
                     modelUsed,
-                    OpenAIUtil.splitCachedPrompt(usage),
+                    trackedUsage,
+                    {
+                        serviceSpeed,
+                        authoritativeUsd:
+                            reportedTicks === undefined
+                                ? undefined
+                                : reportedTicks / 10_000_000_000,
+                    },
                 );
                 setUsageCosts(costs);
+                if (requestedServiceSpeed !== undefined)
+                    setUsageDetails?.({
+                        ...OpenAIUtil.usageDetailsFromTrackedUsage(
+                            trackedUsage,
+                        )!,
+                        serviceSpeed,
+                        ...(reasoningTokens ? { reasoningTokens } : {}),
+                    });
                 return metered;
             },
             stream,

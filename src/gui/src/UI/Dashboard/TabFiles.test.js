@@ -1667,6 +1667,34 @@ describe('TabFiles listSharedView', () => {
         });
         expect(rows[1].holder_team).toEqual(team);
     });
+
+    it('merges the grants on one item into a single row', async () => {
+        const team = { uid: 't-1', name: 'Acme', handle: 'acme' };
+        const grant = { entryUid: 'u-1', name: 'a.txt', path: '/bob/u-1/a.txt', isDir: false, owner: 'bob' };
+        window.puter = {
+            fs: {
+                listShared: vi.fn(async () => ({
+                    items: [
+                        { ...grant, mode: 'read', issuer: 'bob', holderTeam: team },
+                        { ...grant, mode: 'manage', issuer: 'bob' },
+                        { ...grant, mode: 'read', issuer: 'carol' },
+                    ],
+                })),
+            },
+        };
+
+        const rows = await TabFiles.listSharedView();
+
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+            uid: 'u-1',
+            share_mode: 'manage',
+            shared_by: 'bob',
+            shared_by_all: ['bob', 'carol'],
+            also_team_share: true,
+        });
+        expect(rows[0].holder_team).toBeUndefined();
+    });
 });
 
 describe('TabFiles path field', () => {

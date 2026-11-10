@@ -1173,6 +1173,7 @@ describe('ClaudeProvider.complete request shape', () => {
     });
 
     it.each([
+        'claude-fable-5-2',
         'claude-fable-5-1',
         'claude-haiku-5-5',
         'claude-opus-5-5',
@@ -1198,6 +1199,7 @@ describe('ClaudeProvider.complete request shape', () => {
     );
 
     it.each([
+        'claude-fable-5-2',
         'claude-fable-5-1',
         'claude-haiku-5-5',
         'claude-opus-5-5',
@@ -1302,6 +1304,73 @@ describe('ClaudeProvider model resolution', () => {
             expect.any(Object),
         );
     });
+
+    it.each([
+        'claude-fable-5-2',
+        'claude-fable-5-2-latest',
+        'claude-fable-5.2',
+        'anthropic/claude-fable-5-2',
+    ])(
+        'routes %s to Fable 5.2 with published rates',
+        async (model) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce({
+                content: [{ type: 'text', text: 'ok' }],
+                usage: {
+                    input_tokens: 100,
+                    output_tokens: 50,
+                    cache_read_input_tokens: 1000,
+                    cache_creation_input_tokens: 200,
+                    cache_creation: {
+                        ephemeral_5m_input_tokens: 150,
+                        ephemeral_1h_input_tokens: 50,
+                    },
+                },
+            });
+
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            expect(messagesCreateMock.mock.calls[0]![0].model).toBe(
+                'claude-fable-5-2',
+            );
+            const fable52 = CLAUDE_MODELS.find(
+                (m) => m.id === 'claude-fable-5-2',
+            )!;
+            expect(fable52.costs).toMatchObject({
+                input_tokens: 800,
+                output_tokens: 4000,
+                cache_read_input_tokens: 20,
+                ephemeral_5m_input_tokens: 1000,
+                ephemeral_1h_input_tokens: 1600,
+            });
+            expect(fable52.serviceSpeedRates?.fast).toMatchObject({
+                input_tokens: 1600,
+                output_tokens: 8000,
+                cache_read_input_tokens: 40,
+                ephemeral_5m_input_tokens: 2000,
+                ephemeral_1h_input_tokens: 3200,
+            });
+            expect(fable52.context).toBe(1_000_000);
+            expect(fable52.max_tokens).toBe(128_000);
+            const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
+            expect(prefix).toBe('claude:claude-fable-5-2');
+            expect(overrides).toMatchObject({
+                input_tokens: 100 * Number(fable52.costs.input_tokens),
+                output_tokens: 50 * Number(fable52.costs.output_tokens),
+                cache_read_input_tokens:
+                    1000 * Number(fable52.costs.cache_read_input_tokens),
+                ephemeral_5m_input_tokens:
+                    150 * Number(fable52.costs.ephemeral_5m_input_tokens),
+                ephemeral_1h_input_tokens:
+                    50 * Number(fable52.costs.ephemeral_1h_input_tokens),
+            });
+        },
+    );
 
     it('routes the bare claude-fable alias to fable 5.1 rather than fable 5', async () => {
         const { provider } = makeProvider();
@@ -2311,16 +2380,20 @@ describe('ClaudeProvider metering', () => {
         expect('thinking_tokens' in overrides).toBe(false);
     });
 
-    it('bills at the fast_* rates when the upstream reports usage.speed:"fast"', async () => {
+    it.each(['claude-opus-5-5', 'claude-fable-5-2'])('bills at fast rates for %s when the upstream reports fast usage', async (model) => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce({
             content: [{ type: 'text', text: 'hi' }],
-            usage: { input_tokens: 10, output_tokens: 5, speed: 'fast' },
+            usage: {
+                input_tokens: 10, output_tokens: 5, speed: 'fast',
+                cache_creation: { ephemeral_5m_input_tokens: 7, ephemeral_1h_input_tokens: 3 },
+                cache_read_input_tokens: 20,
+            },
         });
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'claude-opus-5-5',
+                model,
                 messages: [{ role: 'user', content: 'hi' }],
                 speed: 'fast',
             }),
@@ -2331,11 +2404,15 @@ describe('ClaudeProvider metering', () => {
         expect('input_tokens' in result.usage).toBe(false);
         expect(result.usageDetails.speed).toBe('fast');
 
-        const opus = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5-5')!;
+        const selectedModel = CLAUDE_MODELS.find((m) => m.id === model)!;
         const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('claude:claude-opus-5-5');
-        expect(overrides.fast_input_tokens).toBe(10 * Number(opus.costs.fast_input_tokens));
-        expect(overrides.fast_output_tokens).toBe(5 * Number(opus.costs.fast_output_tokens));
+        expect(prefix).toBe(`claude:${model}`);
+        const fastRates = selectedModel.serviceSpeedRates!.fast as Record<string, number>;
+        expect(overrides.fast_input_tokens).toBe(10 * fastRates.input_tokens);
+        expect(overrides.fast_output_tokens).toBe(5 * fastRates.output_tokens);
+        expect(overrides.fast_ephemeral_5m_input_tokens).toBe(7 * fastRates.ephemeral_5m_input_tokens);
+        expect(overrides.fast_ephemeral_1h_input_tokens).toBe(3 * fastRates.ephemeral_1h_input_tokens);
+        expect(overrides.fast_cache_read_input_tokens).toBe(20 * fastRates.cache_read_input_tokens);
     });
 
     it('bills at standard rates when fast mode was requested but not granted by the upstream', async () => {
@@ -2357,13 +2434,15 @@ describe('ClaudeProvider metering', () => {
         expect('fast_input_tokens' in result.usage).toBe(false);
     });
 
-    it('retries at standard speed on Claude when fast mode is rate limited', async () => {
+    it.each([
+        [429, "This request would exceed your organization's rate limit of 0 fast mode input tokens per minute"],
+        [529, 'Overloaded'],
+        [529, 'Fast mode capacity unavailable'],
+    ])('retries at standard speed on Claude after fast capacity failure %s', async (status, message) => {
         const { provider } = makeProvider();
         const fastLimited = Object.assign(
-            new Error(
-                "This request would exceed your organization's rate limit of 0 fast mode input tokens per minute",
-            ),
-            { status: 429 },
+            new Error(message),
+            { status },
         );
         messagesCreateMock.mockRejectedValueOnce(fastLimited).mockResolvedValueOnce({
             content: [{ type: 'text', text: 'hi' }],
@@ -2587,13 +2666,13 @@ describe('ClaudeProvider.requestPricing', () => {
     const haiku = CLAUDE_MODELS.find((m) => m.id === 'claude-haiku-4-5-20251001')!;
     const opus55 = CLAUDE_MODELS.find((m) => m.id === 'claude-opus-5-5')!;
 
-    it('returns fast cost keys only when the model has fast rates and fast was requested', () => {
+    it('leaves token reservation keys to the selected catalog rate card', () => {
         const { provider } = makeProvider();
         expect(
             provider.requestPricing({ speed: 'fast', tools: [] } as never, opus55, {
                 promptTokenEstimate: 10,
             }),
-        ).toMatchObject({ inputKey: 'fast_input_tokens', outputKey: 'fast_output_tokens' });
+        ).toEqual({});
         expect(
             provider.requestPricing({ speed: 'fast', tools: [] } as never, haiku, {
                 promptTokenEstimate: 10,

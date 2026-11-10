@@ -30,6 +30,7 @@ export const FRAMED_POPUP_ACTIONS = new Set([
     'show-save-file-picker',
     'show-directory-picker',
     'upgrade',
+    'request-email-confirmation',
 ]);
 
 // Actions a frame shows only for the user the framing page is signed in as.
@@ -38,11 +39,12 @@ const HOST_USER_ACTIONS = new Set([
     'show-save-file-picker',
     'show-directory-picker',
     'upgrade',
+    'request-email-confirmation',
 ]);
 
 // Actions framed over the whole page with no box, which their own dialog's
 // scrim covers.
-const TRANSPARENT_ACTIONS = new Set(['upgrade']);
+const TRANSPARENT_ACTIONS = new Set(['upgrade', 'request-email-confirmation']);
 
 const UPGRADE_REASONS = new Set(['funds', 'subscription', 'storage']);
 const UPGRADE_METHOD_MAX = 200;
@@ -64,9 +66,10 @@ export const POPUP_FRAME_MSG = 'puterPopupFrame';
 // The popup's query parameters a framing page may pass, in the fragment.
 const FRAGMENT_PARAMS = ['msg_id', 'options', 'request_auth'];
 
-// The account checks a sign-in can show (email, phone, card), which are
-// windows rather than auth screens.
-const ACCOUNT_CHECK_WINDOWS = '.window-confirm-email-using-code, .window-confirm-phone-using-code, .window-card-verification';
+// The account checks a sign-in can show (email, phone, card), and the
+// save-account window an email confirmation shows a temporary account first,
+// which are windows rather than auth screens.
+const ACCOUNT_CHECK_WINDOWS = '.window-confirm-email-using-code, .window-confirm-phone-using-code, .window-card-verification, .window-save-account';
 
 // What a framed popup shows first; until one is on the page the framing page
 // keeps the frame hidden behind its loading scrim.
@@ -210,19 +213,23 @@ export const focusOnFrameFocus = (win) => {
 };
 
 /**
- * Closes a framed sign-in on Escape in one of its account checks, as Escape
- * on its auth screens does. Those screens handle Escape themselves; the
- * account checks are windows, which don't.
+ * Closes a framed sign-in or email confirmation on Escape in one of its
+ * account windows, as Escape on the sign-in's auth screens does. Those
+ * screens handle Escape themselves; the account windows don't.
  *
  * @param {Window} win
+ * @param {(accountWindow: Element) => void} [close] - closes the account window
+ *   Escape was pressed in, when its own closing is what answers the frame;
+ *   without it the frame closes
  */
-export const closeAccountChecksOnEscape = (win) => {
+export const closeAccountChecksOnEscape = (win, close = () => win.close()) => {
     win.document.addEventListener('keydown', (e) => {
         // Safari sends the Escape that ends an IME conversion as keyCode 229
         // with isComposing false.
         if ( e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229 ) return;
         const el = e.target === win.document.body ? win.document.querySelector('.window-active') : e.target;
-        if ( el?.closest?.(ACCOUNT_CHECK_WINDOWS) ) win.close();
+        const accountWindow = el?.closest?.(ACCOUNT_CHECK_WINDOWS);
+        if ( accountWindow ) close(accountWindow);
     });
 };
 
@@ -243,6 +250,37 @@ export const canShowUpgradeFrame = (win, session) =>
     !session.requires_phone_verification &&
     !session.requires_card_verification &&
     !session.requires_password_change;
+
+/**
+ * Whether a framed email confirmation can show for the GUI session `session`
+ * (its `/whoami`): no check other than the email is waiting, since those show
+ * at boot with no way to close the frame.
+ *
+ * @param {Record<string, unknown> | null} session
+ * @returns {boolean}
+ */
+export const canShowEmailConfirmationFrame = (session) =>
+    !!session &&
+    !session.requires_phone_verification &&
+    !session.requires_card_verification &&
+    !session.requires_password_change;
+
+/**
+ * Confirms the email of the framed user with `confirm`, which shows the GUI's
+ * windows for it. An email already confirmed resolves true without showing
+ * anything, so the page never shows the frame.
+ *
+ * @param {Window} win
+ * @param {() => Promise<boolean>} confirm
+ * @param {(state: 'ready') => void} tell
+ * @returns {Promise<boolean>}
+ */
+export const confirmEmailInFrame = async (win, confirm, tell) => {
+    if ( win.user?.email_confirmed === true ) return true;
+    // The windows center themselves when they open.
+    await whenFrameSized(win, () => tell('ready'));
+    return (await confirm()) === true;
+};
 
 /**
  * What prompted a framed upgrade, from its `reason` and `method` fragment

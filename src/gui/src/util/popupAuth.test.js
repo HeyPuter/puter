@@ -26,7 +26,10 @@ import {
     offersFederatedSignInInPopup,
     relationshipIsConsent,
     relaysTokenAtBoot,
+    POPUP_WHOAMI_MAX_AGE_MS,
     resolveOpenerOrigin,
+    reusablePopupUser,
+    reusableTokenExchange,
     runsUserAppTokenExchange,
 } from './popupAuth.js';
 
@@ -313,5 +316,108 @@ describe('the retired opener_origin gate', () => {
         // existed for now redeems a signed proof instead; see
         // util/popupOidcReturn.js.
         expect(popupAuth.trustsOpenerOriginParam).toBeUndefined();
+    });
+});
+
+describe('reusableTokenExchange', () => {
+    const origin = 'https://app.example';
+    const early = {
+        origin,
+        authToken: 'session-a',
+        data: { token: 'app-token', app_uid: 'app-1' },
+    };
+
+    it('returns the early result for the same opener and session', () => {
+        expect(reusableTokenExchange(early, origin, 'session-a')).toBe(early.data);
+    });
+
+    it('exchanges again when no early exchange ran', () => {
+        expect(reusableTokenExchange(null, origin, 'session-a')).toBeNull();
+    });
+
+    it('exchanges again when the early one returned no token', () => {
+        // A network failure is null; an HTTP failure is the error body.
+        for ( const data of [null, { code: 'app_blocked', message: 'no' }, { token: '' }] ) {
+            expect(reusableTokenExchange({ ...early, data }, origin, 'session-a')).toBeNull();
+        }
+    });
+
+    it('exchanges again after the user switched accounts', () => {
+        expect(reusableTokenExchange(early, origin, 'session-b')).toBeNull();
+    });
+
+    it('exchanges again for another opener', () => {
+        expect(reusableTokenExchange(early, 'https://other.example', 'session-a')).toBeNull();
+        expect(reusableTokenExchange({ ...early, origin: null }, origin, 'session-a')).toBeNull();
+    });
+
+    it('exchanges again without a session token to match on', () => {
+        const unkeyed = { ...early, authToken: undefined };
+        expect(reusableTokenExchange(unkeyed, origin, undefined)).toBeNull();
+        expect(reusableTokenExchange({ ...early, authToken: null }, origin, null)).toBeNull();
+    });
+});
+
+describe('reusablePopupUser', () => {
+    const early = {
+        user: { uuid: 'user-a', username: 'a' },
+        authToken: 'session-a',
+        fetchedAt: 1_000,
+    };
+    const session = {
+        userUuid: 'user-a',
+        authToken: 'session-a',
+        exchangedAuthToken: 'session-a',
+        now: 2_000,
+    };
+
+    it('reuses the early read for the same user on a session the exchange accepted', () => {
+        expect(reusablePopupUser(early, session)).toBe(true);
+    });
+
+    it('reads again when the early read failed', () => {
+        expect(reusablePopupUser(null, session)).toBe(false);
+        expect(reusablePopupUser({ ...early, user: {} }, session)).toBe(false);
+    });
+
+    it('reads again after the user switched accounts', () => {
+        expect(reusablePopupUser(early, { ...session, userUuid: 'user-b' })).toBe(false);
+        expect(reusablePopupUser(early, {
+            ...session,
+            authToken: 'session-b',
+            exchangedAuthToken: 'session-b',
+        })).toBe(false);
+    });
+
+    it('reads again when the exchange did not accept this session', () => {
+        // A dead session has to reach the read that signs the user out.
+        expect(reusablePopupUser(early, { ...session, exchangedAuthToken: null })).toBe(false);
+        expect(reusablePopupUser(early, { ...session, exchangedAuthToken: 'session-b' })).toBe(false);
+    });
+
+    it('reads again when a verification gate is pending', () => {
+        for ( const flag of [
+            'requires_email_confirmation',
+            'requires_phone_verification',
+            'requires_card_verification',
+            'requires_password_change',
+        ] ) {
+            const gated = { ...early, user: { ...early.user, [flag]: true } };
+            expect(reusablePopupUser(gated, session)).toBe(false);
+        }
+    });
+
+    it('reads again once the early read is too old', () => {
+        const at = (now) => reusablePopupUser(early, { ...session, now });
+        expect(at(early.fetchedAt + POPUP_WHOAMI_MAX_AGE_MS)).toBe(true);
+        expect(at(early.fetchedAt + POPUP_WHOAMI_MAX_AGE_MS + 1)).toBe(false);
+        expect(at(early.fetchedAt - 1)).toBe(false);
+    });
+
+    it('reads again without a session token', () => {
+        expect(reusablePopupUser(
+            { ...early, authToken: undefined },
+            { ...session, authToken: undefined, exchangedAuthToken: undefined },
+        )).toBe(false);
     });
 });
