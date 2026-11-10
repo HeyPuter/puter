@@ -243,6 +243,7 @@ describe('<puter-user-menu>', () => {
     it.each([
         ['an account without a plan', { ...USER, subscribed: false }],
         ['a server that reports no plans', USER],
+        ['a seat whose team pays for it', { ...USER, subscribed: true, team: { uid: 'team-1', name: 'Acme' } }],
     ])('leaves Add credits out for %s, and out of the arrow keys', async (_label, user) => {
         vi.stubGlobal('puter', fakePuter({ token: 't', user }));
         const el = await mount();

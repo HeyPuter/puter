@@ -267,8 +267,9 @@ covering the host with no box or close button, allowing `payment` and
 `otp-credentials`, with Escape left to the dialog. Its fragment names `user`.
 
 puter.js frames it for the **Add credits** item of `<puter-user-menu>`, which
-shows only when whoami reports `subscribed: true`. On a page that can't frame
-the GUI, the item opens the dashboard with `?topup=` in a new tab instead.
+shows only when whoami reports `subscribed: true` and no `team` paying for the
+account. On a page that can't frame the GUI, the item opens the dashboard with
+`?topup=` in a new tab instead.
 
 The GUI reports `unavailable` unless its session belongs to `user`, the account
 has no verification or password change waiting, and the deployment defines

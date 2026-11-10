@@ -621,8 +621,10 @@ class PuterUserMenu extends PuterWebComponent {
         const email = typeof this.#user?.email === 'string' ? this.#user.email : '';
         this.$('.menu-email').textContent = email;
         this.$('.menu-email').hidden = !email;
-        // Add-on credit is sold to accounts with a plan, which whoami reports where there are plans.
-        this.$('.add-credits').hidden = this.#user?.subscribed !== true;
+        // Add-on credit is sold to accounts with a plan, which whoami reports where there are
+        // plans. A seat's plan is its team's, and so is paying for its usage.
+        const isSeat = typeof this.#user?.team?.uid === 'string' && this.#user.team.uid !== '';
+        this.$('.add-credits').hidden = this.#user?.subscribed !== true || isSeat;
         for ( const link of MENU_LINKS ) {
             this.$(`.${link.className}`).href = new URL(link.path, globalThis.puter.defaultGUIOrigin).href;
         }
