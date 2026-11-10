@@ -3891,7 +3891,7 @@ window.scale_window = (el_window) => {
 
 window.update_explorer_footer_item_count = function (el_window) {
     //update dir count in explorer footer
-    let item_count = $(el_window).find('.item').length;
+    let item_count = $(el_window).find('.item:not(.item-hidden)').length;
     $(el_window).find('.explorer-footer .explorer-footer-item-count').html(`${item_count } ${i18n('item')}${ item_count == 0 || item_count > 1 ? `${i18n('plural_suffix')}` : ''}`);
 };
 

@@ -1169,10 +1169,18 @@ window.show_or_hide_files = (item_containers) => {
     const show_hidden_files = window.user_preferences.show_hidden_files;
     const class_to_add = show_hidden_files ? 'item-revealed' : 'item-hidden';
     const class_to_remove = show_hidden_files ? 'item-hidden' : 'item-revealed';
-    $(item_containers)
+    const $dotfiles = $(item_containers)
         .find('.item')
         .filter((_, item) => item.dataset.name.startsWith('.'))
         .removeClass(class_to_remove).addClass(class_to_add);
+    // an item the user can no longer see must not stay in the selection
+    if ( ! show_hidden_files ) {
+        $dotfiles.removeClass('item-selected');
+    }
+    $(item_containers).closest('.window').each(function () {
+        window.update_explorer_footer_item_count(this);
+        window.update_explorer_footer_selected_items_count(this);
+    });
 };
 
 window.create_folder = async (basedir, appendto_element) => {
