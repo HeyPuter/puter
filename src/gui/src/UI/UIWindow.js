@@ -25,6 +25,7 @@ import UIAuthLogin from './Auth/UIAuthLogin.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
+import { atPath } from '../helpers/pathElements.js';
 import UIWindowAppFeedback from './UIWindowAppFeedback.js';
 import launch_app from '../helpers/launchApp.js';
 import publish_as_website from '../helpers/publishAsWebsite.js';
@@ -3348,7 +3349,7 @@ window.update_window_path = async function (el_window, target_path) {
 
     // update sidebar items' active status
     $(el_window).find('.window-sidebar-item').removeClass('window-sidebar-item-active');
-    $(el_window).find(`.window-sidebar-item[data-path="${html_encode(target_path)}"]`).addClass('window-sidebar-item-active');
+    atPath($(el_window).find('.window-sidebar-item'), target_path).addClass('window-sidebar-item-active');
 
     // clean
     $(el_window).find('.explore-table-headers-th > .header-sort-icon').html('');
@@ -3432,8 +3433,8 @@ window.update_window_path = async function (el_window, target_path) {
         }
     }
 
-    $(el_window).attr('data-path', html_encode(target_path));
-    $(el_window).attr('data-name', html_encode(path.basename(target_path)));
+    $(el_window).attr('data-path', target_path);
+    $(el_window).attr('data-name', path.basename(target_path));
 
     // /stat
     if ( target_path === window.shared_path ) {
@@ -3447,7 +3448,7 @@ window.update_window_path = async function (el_window, target_path) {
         try {
             puter.fs.stat({ path: target_path, consistency: 'eventual' }).then(fsentry => {
                 // the window may have moved on while this stat was in flight
-                if ( $(el_window).attr('data-path') !== html_encode(target_path) ) {
+                if ( $(el_window).attr('data-path') !== target_path ) {
                     return;
                 }
                 $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
@@ -3491,9 +3492,9 @@ window.update_window_path = async function (el_window, target_path) {
                     $(el_window).find('.window-head-title').text(fsentry.name);
                 }
                 // data-name
-                $(el_window).attr('data-name', html_encode(fsentry.name));
+                $(el_window).attr('data-name', fsentry.name);
                 // data-path
-                $(el_window).attr('data-path', html_encode(target_path));
+                $(el_window).attr('data-path', target_path);
                 $(el_window_navbar_path_input).val(target_path);
                 $(el_window_navbar_path_input).attr('data-path', target_path);
                 // update layout

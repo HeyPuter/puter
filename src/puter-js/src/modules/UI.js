@@ -538,6 +538,9 @@ export class UIModule extends EventListener {
     // The framed upgrade showing, which a call made while it's open joins.
     #upgradeFrame = null;
 
+    // The framed email confirmation showing, which a call made while it's open joins.
+    #emailConfirmationFrame = null;
+
     // Holds the callback functions for the various events
     // that are triggered when a watched item has changed.
     itemWatchCallbackFunctions = [];
@@ -716,7 +719,7 @@ export class UIModule extends EventListener {
      * The page's signed-in user that a frame is shown for, from the cached
      * whoami when there is one, or null without a uuid.
      *
-     * @returns {Promise<{ uuid: string } | null>}
+     * @returns {Promise<{ uuid: string, email_confirmed?: boolean } | null>}
      */
     async #frameUser () {
         const known = await Promise.resolve(puter.whoami ?? puter.whoamiCache_).catch(() => null);
@@ -1334,16 +1337,58 @@ export class UIModule extends EventListener {
     };
 
     /**
-     * Asks the desktop to walk the user through confirming their email.
-     * Resolves once the dialog closes.
+     * Walks the user through confirming their email: a temporary account is
+     * saved first, then the user enters the code sent to their address.
+     * Resolves once they're done, or right away when the email is already
+     * confirmed.
      *
-     * @returns {Promise<unknown>}
+     * Inside an app the desktop shows it. On a signed-in first-party page one
+     * label under the Puter origin, it shows in a frame over the page, and
+     * `response` is false when the frame can't show it. Anywhere else the
+     * promise never settles, since a website has no desktop to ask.
+     *
+     * @returns {Promise<import('../lib/types.js').EmailConfirmationResult>}
      */
     requestEmailConfirmation () {
-        return new Promise((resolve, reject) => {
+        if ( this.#canFrameForUser() ) return this.#showEmailConfirmationFrame();
+        return new Promise((resolve) => {
             this.#postMessageWithCallback('requestEmailConfirmation', resolve, { });
         });
     };
+
+    /**
+     * The email confirmation in a frame over the page, for the page's
+     * signed-in user. A call made while one is showing settles with it, and
+     * an email the page already knows is confirmed resolves without one.
+     *
+     * @returns {Promise<import('../lib/types.js').EmailConfirmationResult>}
+     */
+    #showEmailConfirmationFrame () {
+        if ( this.#emailConfirmationFrame ) return this.#emailConfirmationFrame;
+        this.#emailConfirmationFrame = (async () => {
+            try {
+                const user = await this.#frameUser();
+                // A confirmed email never goes back to unconfirmed, so this
+                // skips the loading scrim the frame would show while it boots.
+                if ( user?.email_confirmed === true ) return { response: true };
+                const framed = user && await showPopupFrame({
+                    guiOrigin: puter.defaultGUIOrigin,
+                    action: 'request-email-confirmation',
+                    fragment: { user: user.uuid },
+                    title: 'Confirm your email',
+                    closed: (data) => ({ response: data?.confirmed === true }),
+                    onMessage: () => {},
+                });
+                // The page's cached whoami still reads it as unconfirmed,
+                // and would frame the next call too.
+                if ( framed?.response ) user.email_confirmed = true;
+                return framed || { response: false };
+            } finally {
+                this.#emailConfirmationFrame = null;
+            }
+        })();
+        return this.#emailConfirmationFrame;
+    }
 
     /**
      * Asks the desktop to walk the user through clearing an account

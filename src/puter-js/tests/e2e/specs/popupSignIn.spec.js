@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { FIXTURE_URL } from '../helpers/testApp.js';
+import { FIXTURE_URL, createVisitorAccount, waitForPuterReady } from '../helpers/testApp.js';
 
 const FIXTURE = FIXTURE_URL.replace(
     'menubar-contextmenu.html',
@@ -176,5 +176,118 @@ test.describe('popup sign-in cannot be driven from a link', () => {
         await popup.close();
         await page.waitForTimeout(5000);
         expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
+    });
+});
+
+test.describe('popup sign-in after an account is picked', () => {
+    // The popup's own `/whoami` read carries `icon_size`. puter.js sends a
+    // bare one on every `setAuthToken()`, which the popup does not wait on.
+    const COUNTED = ['/auth/get-user-app-token', '/auth/check-app', '/whoami?icon_size=64'];
+
+    /**
+     * Open a sign-in popup from the fixture, pick the signed-in account, and
+     * report the API requests the popup sent after the pick. With a `session`
+     * the page waits on `/login/wait` for it, as an isolated opener does. With
+     * an `other` account, that one is signed in on the browser too, and picked.
+     */
+    const pickAccount = async (page, popupQuery, session = null, other = null) => {
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.puter?.authToken, null, {
+            timeout: 60_000,
+        });
+        if ( other ) {
+            await waitForPuterReady(page);
+            await page.evaluate(({ token, user }) => {
+                const known = JSON.parse(localStorage.getItem('logged_in_users'));
+                known.push({ ...user, auth_token: token });
+                localStorage.setItem('logged_in_users', JSON.stringify(known));
+            }, other);
+        }
+        await page.goto(FIXTURE);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.evaluate(({ query, relaySession }) => {
+                if ( relaySession ) {
+                    window.__relayed = fetch(`${puter.APIOrigin}/login/wait`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session: relaySession }),
+                    }).then(async (response) => (await response.json())?.auth_token);
+                }
+                window.__delivered = null;
+                window.addEventListener('message', (event) => {
+                    if ( event.data?.msg === 'puter.token' ) {
+                        window.__delivered = event.data;
+                    }
+                });
+                window.open(
+                    `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&${query}`,
+                    'signin-pick',
+                    'width=600,height=700',
+                );
+            }, { query: popupQuery, relaySession: session }),
+        ]);
+
+        const accounts = popup.locator('.auth-dialog [data-screen="accounts"] .auth-account');
+        await expect(accounts).toHaveCount(other ? 2 : 1, { timeout: 60_000 });
+        const account = other ? accounts.and(popup.locator(`[data-uuid="${other.user.uuid}"]`)) : accounts;
+        const requests = [];
+        popup.on('request', (request) => {
+            if ( request.method() === 'OPTIONS' ) return;
+            const { pathname, search } = new URL(request.url());
+            if ( COUNTED.includes(pathname + search) ) requests.push(pathname + search);
+        });
+        await Promise.all([popup.waitForEvent('close'), account.click()]);
+        return requests;
+    };
+
+    /** The username the API resolves `token` to, asked from the fixture page. */
+    const usernameFor = (page, token) =>
+        page.evaluate(async (bearer) => {
+            const response = await fetch(`${puter.APIOrigin}/whoami`, {
+                headers: { Authorization: `Bearer ${bearer}` },
+            });
+            return response.ok ? (await response.json()).username : null;
+        }, token);
+
+    test('hands the opener a working token after one exchange', async ({ page }) => {
+        const requests = await pickAccount(page, 'msg_id=92');
+
+        await page.waitForFunction(() => !!window.__delivered);
+        const delivered = await page.evaluate(() => window.__delivered);
+        expect(delivered.success).toBe(true);
+        expect(delivered.msg_id).toBe('92');
+        expect(delivered.app_uid).toMatch(/^app-/);
+        expect(await usernameFor(page, delivered.token)).toBe(delivered.username);
+        expect(requests).toEqual(['/auth/get-user-app-token']);
+    });
+
+    test('relays a working token to an isolated opener after one exchange', async ({ page }) => {
+        const session = '22222222-3333-4444-8555-aaaaaaaaaaaa';
+        const requests = await pickAccount(
+            page,
+            `cross_origin_isolated=true&signin_session=${session}&msg_id=93`,
+            session,
+        );
+
+        const token = await page.evaluate(() => window.__relayed);
+        expect(await usernameFor(page, token)).toBeTruthy();
+        expect(requests).toEqual(['/auth/get-user-app-token']);
+    });
+
+    test('hands over the picked account when it is not the one the popup opened with', async ({ browser, page }) => {
+        const other = await createVisitorAccount(browser);
+
+        const requests = await pickAccount(page, 'msg_id=94', null, other);
+
+        await page.waitForFunction(() => !!window.__delivered);
+        const delivered = await page.evaluate(() => window.__delivered);
+        expect(delivered.success).toBe(true);
+        expect(delivered.username).toBe(other.user.username);
+        expect(await usernameFor(page, delivered.token)).toBe(other.user.username);
+        // The popup has not read this account yet, so it reads it once.
+        expect(requests).toEqual(['/auth/get-user-app-token', '/whoami?icon_size=64']);
     });
 });

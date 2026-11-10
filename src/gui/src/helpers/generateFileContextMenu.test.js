@@ -111,6 +111,38 @@ it('keeps the row and shows the error when leaving the share is refused', async 
     UIAlert.mockReset();
 });
 
+describe('Remove from Shared', () => {
+    const remove = async (fsentry) => {
+        const row = sharedRow();
+        document.body.append(row);
+        const onRemovedFromShared = vi.fn();
+        window.user = { username: 'me' };
+        globalThis.puter = { fs: { unshare: vi.fn(async () => ({ revoked: 1 })) } };
+        const items = await generate_file_context_menu({
+            element: row,
+            fsentry: { name: 'notes.txt', path: '/ann/uid-1/notes.txt', ...fsentry },
+            associated_app_name: 'editor',
+            onRemovedFromShared,
+        });
+        await items.find((item) => item.html === 'share_remove_from_shared').onClick();
+        expect(puter.fs.unshare).toHaveBeenCalledWith('/ann/uid-1/notes.txt', 'me');
+        expect(onRemovedFromShared).toHaveBeenCalledTimes(1);
+        return row;
+    };
+
+    afterEach(() => {
+        document.body.innerHTML = '';
+    });
+
+    it('takes the row away once the user has left it', async () => {
+        expect((await remove({})).isConnected).toBe(false);
+    });
+
+    it('keeps the row for the listing to update when a team still shares it', async () => {
+        expect((await remove({ also_team_share: true })).isConnected).toBe(true);
+    });
+});
+
 describe('Open With', () => {
     const editor = { name: 'editor', title: 'Editor', uuid: 'app-editor' };
     const viewer = { name: 'viewer', title: 'Viewer', uuid: 'app-viewer' };
