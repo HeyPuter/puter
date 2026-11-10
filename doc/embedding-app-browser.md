@@ -329,7 +329,7 @@ Chromium installed), and the backend route tests:
 
 ```sh
 npx vitest run --config src/gui/vitest.config.js src/gui/src/UI/Dashboard/AppBrowser src/feedbackEmbed
-npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js src/puter-js/src/modules/Auth.signInFrame.test.js src/puter-js/src/modules/UI.pickerFrame.test.js src/puter-js/src/modules/UI.requestUpgrade.test.js src/puter-js/src/lib/upgradePrompt.test.js src/puter-js/src/modules/UsageLimitDialog.upgrade.test.js
+npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js src/puter-js/src/modules/Auth.signInFrame.test.js src/puter-js/src/modules/UI.pickerFrame.test.js src/puter-js/src/modules/UI.requestUpgrade.test.js src/puter-js/src/modules/UI.showTopUp.test.js src/puter-js/src/lib/upgradePrompt.test.js src/puter-js/src/modules/UsageLimitDialog.upgrade.test.js
 npx vitest run --config src/gui/vitest.config.js src/gui/src/helpers/popupFrame.test.js
 npx vitest run --config src/backend/vitest.config.ts src/backend/server.test.ts
 ```
