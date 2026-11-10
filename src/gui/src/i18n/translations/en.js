@@ -28,6 +28,7 @@ const en = {
         account_password: 'Verify Account Password',
         access_granted_to: 'Access Granted To',
         add_another_account: 'Add Another Account',
+        addon_credits: 'Add-on credits',
         addon_credits_available: '+ {{amount}} add-on credits left',
         addon_credits_note: 'Used once your monthly credits run out.',
         add_app: 'Add an app',
