@@ -610,8 +610,12 @@ class PuterUserMenu extends PuterWebComponent {
      * plans. A seat's plan is its team's, and so is paying for its usage.
      */
     _renderAddCredits () {
-        const isSeat = typeof this.#user?.team?.uid === 'string' && this.#user.team.uid !== '';
-        this.$('.add-credits').hidden = this.#user?.subscribed !== true || isSeat;
+        // The SDK reads whoami into a new object when the same token is set again,
+        // and an upgrade made on the page marks that one.
+        const cached = globalThis.puter.whoami;
+        const user = cached?.uuid && cached.uuid === this.#user?.uuid ? cached : this.#user;
+        const isSeat = typeof user?.team?.uid === 'string' && user.team.uid !== '';
+        this.$('.add-credits').hidden = user?.subscribed !== true || isSeat;
     }
 
     _renderState () {

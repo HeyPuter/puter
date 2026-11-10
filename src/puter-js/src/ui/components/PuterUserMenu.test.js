@@ -269,6 +269,27 @@ describe('<puter-user-menu>', () => {
         expect(shown(el, '.add-credits')).toBe(true);
     });
 
+    it('offers Add credits after an upgrade marks a whoami read again for the same token', async () => {
+        const sdk = fakePuter({ token: 't', user: { ...USER, subscribed: false } });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+
+        // Setting the token again reads whoami into a new object, which the upgrade then marks.
+        const reread = { ...USER, subscribed: false };
+        sdk.signInAs('t', reread);
+        sdk.whoami = reread;
+        await settle();
+        reread.subscribed = true;
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(true);
+
+        // Never another account's plan.
+        part(el, '.avatar').click();
+        sdk.whoami = { ...OTHER, subscribed: true };
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(false);
+    });
+
     it('stops offering Add credits once the sign-in changes to an account without a plan', async () => {
         const sdk = fakePuter({ token: 't', user: { ...USER, subscribed: true } });
         vi.stubGlobal('puter', sdk);
