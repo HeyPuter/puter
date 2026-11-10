@@ -1866,26 +1866,29 @@ export class UIModule extends EventListener {
      */
     showTopUp_ () {
         if ( this.#topUpFrame ) return this.#topUpFrame;
-        this.#topUpFrame = (async () => {
-            try {
-                // Not awaited where no frame can show, so the tab opens within the click.
-                const user = this.#canFrameForUser() ? await this.#frameUser() : null;
-                const framed = user && await showPopupFrame({
-                    guiOrigin: puter.defaultGUIOrigin,
-                    action: 'top-up',
-                    fragment: { user: user.uuid },
-                    title: 'Add credits',
-                    closed: (data) => ({ toppedUp: data?.toppedUp === true }),
-                    onMessage: () => {},
-                });
-                if ( framed ) return framed;
-                await this.#openUpgradeTab(topUpUrl(puter.defaultGUIOrigin), 'This website wants to open the Puter top-up page.');
-                return { toppedUp: false };
-            } finally {
-                this.#topUpFrame = null;
-            }
+        const showing = (async () => {
+            // Not awaited where no frame can show, so the tab opens within the click.
+            const user = this.#canFrameForUser() ? await this.#frameUser() : null;
+            const framed = user && await showPopupFrame({
+                guiOrigin: puter.defaultGUIOrigin,
+                action: 'top-up',
+                fragment: { user: user.uuid },
+                title: 'Add credits',
+                closed: (data) => ({ toppedUp: data?.toppedUp === true }),
+                onMessage: () => {},
+            });
+            if ( framed ) return framed;
+            await this.#openUpgradeTab(topUpUrl(puter.defaultGUIOrigin), 'This website wants to open the Puter top-up page.');
+            return { toppedUp: false };
         })();
-        return this.#topUpFrame;
+        this.#topUpFrame = showing;
+        // Cleared from outside: the steps above can fail before their first
+        // await, which is before the field is set.
+        const done = () => {
+            if ( this.#topUpFrame === showing ) this.#topUpFrame = null;
+        };
+        showing.then(done, done);
+        return showing;
     }
 
     /**

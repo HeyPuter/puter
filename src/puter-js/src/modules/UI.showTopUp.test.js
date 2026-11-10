@@ -62,6 +62,23 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
+describe('ui.showTopUp_ that fails before anything shows', () => {
+    it('stops saying a top-up is showing, and tries again on the next call', async () => {
+        // No scheme, so the dashboard's address can't be built.
+        fakePuter({ guiOrigin: 'puter.test' });
+        const ui = makeUI();
+        await expect(ui.showTopUp_()).rejects.toThrow();
+        expect(ui.topUpShowing_()).toBe(false);
+
+        fakePuter();
+        const result = ui.showTopUp_();
+        await vi.waitFor(() => expect(topUpFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed' });
+        await expect(result).resolves.toEqual({ toppedUp: false });
+    });
+});
+
 describe('ui.showTopUp_ on a signed-in first-party page', () => {
     it('shows the top-up in a frame over the page and resolves what the dialog reports', async () => {
         const result = makeUI().showTopUp_();
