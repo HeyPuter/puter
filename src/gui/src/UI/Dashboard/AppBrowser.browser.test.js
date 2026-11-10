@@ -69,6 +69,7 @@ beforeAll(async () => {
         [sessionToken]: { uuid: sessionUser, username: 'session-user' },
         'app-token-session-user': { uuid: sessionUser, username: 'session-user' },
         'app-token-other-user': { uuid: otherUser, username: 'other-user' },
+        'app-token-subscriber': { uuid: sessionUser, username: 'session-user', subscribed: true },
     };
     // The SDK on a sibling subdomain sends credentialed cross-origin requests.
     app.use(['/whoami', '/profile', '/rao'], (req, res, next) => {
@@ -507,6 +508,48 @@ describe('embedded app browser', () => {
                 const frame = page.frameLocator('puter-user-menu iframe');
                 await frame.locator('[data-app-name="notes"]').waitFor();
                 expect(await frame.locator('[data-app-name="app-104"]').count()).toBe(0);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
+        it('offers Add credits to an account with a plan, and frames the top-up over the page', async () => {
+            const context = await menuContext('app-token-subscriber');
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu .avatar').click();
+                const item = page.locator('puter-user-menu .add-credits');
+                await item.waitFor();
+                expect(await item.textContent()).toBe('Add credits');
+                // Under Usage, in the same row style as the links around it.
+                expect(await page.locator('puter-user-menu .usage + .add-credits').count()).toBe(1);
+                expect(await item.evaluate(el => getComputedStyle(el).height))
+                    .toBe(await page.locator('puter-user-menu .feedback').evaluate(el => getComputedStyle(el).height));
+
+                await item.click();
+                const frame = page.locator('dialog.puter-popup-frame iframe');
+                await frame.waitFor({ state: 'attached' });
+                expect(await frame.getAttribute('src')).toBe(`${origin}/embed/top-up#user=${sessionUser}`);
+                expect(await frame.getAttribute('allow')).toBe('payment; otp-credentials');
+                expect(await page.locator('puter-user-menu .menu').isHidden()).toBe(true);
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
+        it('leaves Add credits out of the menu of an account without a plan', async () => {
+            const context = await menuContext('app-token-session-user');
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu .avatar').click();
+                await page.locator('puter-user-menu .usage').waitFor();
+                expect(await page.locator('puter-user-menu .add-credits').isHidden()).toBe(true);
             } finally {
                 guestApps = [];
                 await context.close();

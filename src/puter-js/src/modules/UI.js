@@ -5,7 +5,7 @@ import PuterDialog from './PuterDialog.js';
 import { ancestorsAllowGuiEmbed, canFrameGuiEmbed, showFeedbackEmbed, showPopupFrame } from '../lib/guiEmbed.js';
 import { hasUserActivation } from '../lib/auth-popup.js';
 import { appIDOf } from '../lib/upgradePrompt.js';
-import { upgradeUrl } from './UsageLimitDialog.js';
+import { topUpUrl, upgradeUrl } from './UsageLimitDialog.js';
 import { checkPermissions } from './perms/lib/holds.js';
 
 
@@ -537,6 +537,9 @@ export class UIModule extends EventListener {
 
     // The framed upgrade showing, which a call made while it's open joins.
     #upgradeFrame = null;
+
+    // The top-up showing, framed or about to open in a tab, which a call made meanwhile joins.
+    #topUpFrame = null;
 
     // The framed email confirmation showing, which a call made while it's open joins.
     #emailConfirmationFrame = null;
@@ -1836,14 +1839,51 @@ export class UIModule extends EventListener {
     }
 
     /**
-     * Opens the upgrade page in a new tab. The click that asked for it may
-     * have expired by now, so without it the user opens it from a consent
-     * dialog. Resolves once the tab opens or the user answers the dialog.
+     * Shows the top-up flow, where a user with a plan buys add-on credit. On
+     * a signed-in first-party page one label under the Puter origin, it shows
+     * in a frame over the page, and the promise resolves once it closes. When
+     * the frame can't show it, and on any other website, it opens on the
+     * dashboard in a new tab and the promise resolves `{ toppedUp: false }`.
+     * A call made while one is showing settles with it, so a payment in
+     * progress isn't replaced.
+     *
+     * @internal
+     * @returns {Promise<{ toppedUp: boolean }>}
+     */
+    showTopUp_ () {
+        if ( this.#topUpFrame ) return this.#topUpFrame;
+        this.#topUpFrame = (async () => {
+            try {
+                // Not awaited where no frame can show, so the tab opens within the click.
+                const user = this.#canFrameForUser() ? await this.#frameUser() : null;
+                const framed = user && await showPopupFrame({
+                    guiOrigin: puter.defaultGUIOrigin,
+                    action: 'top-up',
+                    fragment: { user: user.uuid },
+                    title: 'Add credits',
+                    closed: (data) => ({ toppedUp: data?.toppedUp === true }),
+                    onMessage: () => {},
+                });
+                if ( framed ) return framed;
+                await this.#openUpgradeTab(topUpUrl(), 'This website wants to open the Puter top-up page.');
+                return { toppedUp: false };
+            } finally {
+                this.#topUpFrame = null;
+            }
+        })();
+        return this.#topUpFrame;
+    }
+
+    /**
+     * Opens the upgrade or top-up page in a new tab. The click that asked for
+     * it may have expired by now, so without it the user opens it from a
+     * consent dialog. Resolves once the tab opens or the user answers the dialog.
      *
      * @param {string} url
+     * @param {string} [message] - what the consent dialog asks
      * @returns {Promise<void>}
      */
-    #openUpgradeTab (url) {
+    #openUpgradeTab (url, message = 'This website wants to open the Puter upgrade page.') {
         if ( hasUserActivation() && window.open(url, '_blank') ) return Promise.resolve();
         return new Promise((resolve) => {
             let consent = null;
@@ -1853,7 +1893,7 @@ export class UIModule extends EventListener {
             };
             try {
                 consent = PuterDialog.show({
-                    message: 'This website wants to open the Puter upgrade page.',
+                    message,
                     onContinue: () => {
                         window.open(url, '_blank');
                         answered();

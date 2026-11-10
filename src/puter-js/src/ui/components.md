@@ -343,6 +343,7 @@ The account button and Puter's app browser for a first-party app on a Puter subd
 - Signed in, it shows the user's profile picture, or the username's initial when there is none. Clicking it opens a menu with:
   - The user's picture, username and email. The email line is hidden when whoami leaves it out, such as for an app that can't read it.
   - **Manage account**, **Usage** and **Open Puter**, links that open the GUI origin's `/dashboard/#account`, `/dashboard/#usage` and `/` in a new tab.
+  - **Add credits**, under Usage, only when whoami reports `subscribed: true`. It shows the top-up dialog in a frame over the page (`/embed/top-up`) on a page that can frame the GUI, and otherwise opens it on the dashboard in a new tab.
   - **Send feedback**, which calls `puter.ui.showFeedbackDialog()`.
   - **Sign out**, which calls `puter.auth.signOut()`.
 - The menu opens with focus on its first item. ArrowUp and ArrowDown move between items and wrap around, and Home and End jump to the first and last.
@@ -362,6 +363,7 @@ The account button and Puter's app browser for a first-party app on a Puter subd
 | `account-label` | `Account` | Account button label, read as `Account: <username>` |
 | `manage-account-label` | `Manage account` | Menu link to the account settings |
 | `usage-label` | `Usage` | Menu link to the usage page |
+| `add-credits-label` | `Add credits` | Menu item that opens the top-up dialog |
 | `open-puter-label` | `Open Puter` | Menu link to Puter |
 | `feedback-label` | `Send feedback` | Menu item that opens the feedback dialog |
 | `theme` | follows the OS | `light` or `dark`, for the component and the app browser in it |

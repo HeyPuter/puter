@@ -26,6 +26,7 @@ const fakePuter = ({ token = null, user = null, picture = null } = {}) => {
         },
         ui: {
             showFeedbackDialog: vi.fn(() => new Promise(() => {})),
+            showTopUp_: vi.fn(() => new Promise(() => {})),
         },
         auth: {
             getProfilePicture: vi.fn(async () => currentPicture),
@@ -223,6 +224,44 @@ describe('<puter-user-menu>', () => {
         part(el, '.feedback').click();
         expect(sdk.ui.showFeedbackDialog).toHaveBeenCalledTimes(1);
         expect(shown(el, '.menu')).toBe(false);
+    });
+
+    it('offers Add credits, under Usage, to an account with a plan', async () => {
+        const sdk = fakePuter({ token: 't', user: { ...USER, subscribed: true } });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(true);
+        expect(part(el, '.add-credits').textContent).toBe('Add credits');
+        expect(part(el, '.usage').nextElementSibling).toBe(part(el, '.add-credits'));
+
+        part(el, '.add-credits').click();
+        expect(sdk.ui.showTopUp_).toHaveBeenCalledTimes(1);
+        expect(shown(el, '.menu')).toBe(false);
+    });
+
+    it.each([
+        ['an account without a plan', { ...USER, subscribed: false }],
+        ['a server that reports no plans', USER],
+    ])('leaves Add credits out for %s, and out of the arrow keys', async (_label, user) => {
+        vi.stubGlobal('puter', fakePuter({ token: 't', user }));
+        const el = await mount();
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(false);
+
+        part(el, '.usage').focus();
+        part(el, '.usage').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        expect(el.shadowRoot.activeElement).toBe(part(el, '.open-puter'));
+    });
+
+    it('stops offering Add credits once the sign-in changes to an account without a plan', async () => {
+        const sdk = fakePuter({ token: 't', user: { ...USER, subscribed: true } });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        expect(part(el, '.add-credits').hidden).toBe(false);
+        sdk.signInAs('other-token', OTHER);
+        await settle();
+        expect(part(el, '.add-credits').hidden).toBe(true);
     });
 
     it('moves focus through the menu with the arrow, Home and End keys', async () => {

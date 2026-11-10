@@ -259,6 +259,31 @@ no user to name), puter.js opens the dashboard's upgrade page in a new tab with
 what was refused, through a consent dialog when the click has expired or the
 tab is blocked, and `requestUpgrade()` resolves `{ upgraded: false }`.
 
+## Top-up
+
+`GET /embed/top-up` is the deployment's top-up dialog, where a user with a plan
+buys add-on credit, served and framed like the upgrade: a transparent GUI page
+covering the host with no box or close button, allowing `payment` and
+`otp-credentials`, with Escape left to the dialog. Its fragment names `user`.
+
+puter.js frames it for the **Add credits** item of `<puter-user-menu>`, which
+shows only when whoami reports `subscribed: true`. On a page that can't frame
+the GUI, the item opens the dashboard with `?topup=` in a new tab instead.
+
+The GUI reports `unavailable` unless its session belongs to `user`, the account
+has no verification or password change waiting, and the deployment defines
+`window.UITopUp` with `UITopUp.embeddable === true`. Otherwise it runs:
+
+```js
+new UITopUp({ onClose }).open();
+```
+
+`open()` resolves once the dialog shows, and `onClose({ toppedUp })` must run
+exactly once, when the dialog closes or when it declines to open for the
+account. The GUI then posts `{ msg: 'puterPopupFrame', state: 'closed', toppedUp }`
+and the page removes the frame. When the frame can't show the top-up, puter.js
+opens the dashboard's top-up in a new tab, as it does the upgrade.
+
 ## Email confirmation
 
 `GET /embed/request-email-confirmation` walks a first-party page's user through

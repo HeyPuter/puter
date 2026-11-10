@@ -28,6 +28,18 @@ export const upgradeUrl = ({ reason, appID, method } = {}) => {
     return url.href;
 };
 
+/**
+ * The dashboard page that opens the top-up flow, for buying add-on credit.
+ *
+ * @returns {string}
+ */
+export const topUpUrl = () => {
+    const url = new URL(UPGRADE_PAGE);
+    url.searchParams.set('topup', '');
+    url.hash = 'usage';
+    return url.href;
+};
+
 class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
     /**
      * @param {string} message Plain-text line saying what was refused.
