@@ -285,6 +285,10 @@ or when it declines to open for the account. The GUI then posts `{ msg: 'puterPo
 and the page removes the frame. When the frame can't show the top-up, puter.js
 opens the dashboard's top-up in a new tab, as it does the upgrade.
 
+While the top-up shows, a call refused for funds still rejects but opens no
+usage limit dialog over it, and `requestUpgrade()` frames nothing over it: it
+resolves `{ upgraded: false }` once the top-up closes.
+
 ## Email confirmation
 
 `GET /embed/request-email-confirmation` walks a first-party page's user through

@@ -1806,13 +1806,20 @@ export class UIModule extends EventListener {
     /**
      * The upgrade in a frame over the page, for the page's signed-in user, or
      * in a new tab when the frame can't show it. A call made while one is
-     * showing settles with it, so a payment in progress isn't replaced.
+     * showing settles with it, so a payment in progress isn't replaced, and
+     * one made while the top-up shows resolves `{ upgraded: false }` once
+     * that closes.
      *
      * @param {{ reason?: string, method?: string }} details
      * @returns {Promise<import('../lib/types.js').UpgradeResult>}
      */
     #showUpgradeFrame ({ reason, method }) {
         if ( this.#upgradeFrame ) return this.#upgradeFrame;
+        // A second full-page frame would cover the top-up, and a payment in it.
+        if ( this.#topUpFrame ) {
+            const notUpgraded = () => ({ upgraded: false });
+            return this.#topUpFrame.then(notUpgraded, notUpgraded);
+        }
         this.#upgradeFrame = (async () => {
             try {
                 const user = await this.#frameUser();

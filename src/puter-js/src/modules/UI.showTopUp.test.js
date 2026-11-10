@@ -202,6 +202,24 @@ describe('ui.showTopUp_ elsewhere on the web', () => {
 });
 
 describe('ui.requestUpgrade beside the top-up', () => {
+    it('waits for the top-up showing instead of framing the upgrade over it', async () => {
+        const ui = makeUI();
+        const toppingUp = ui.showTopUp_();
+        await vi.waitFor(() => expect(topUpFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+
+        const upgrading = ui.requestUpgrade({ reason: 'funds' });
+        await expect(settled(upgrading)).resolves.toBe(PENDING);
+        expect(document.querySelectorAll('dialog.puter-popup-frame')).toHaveLength(1);
+        expect(new URL(topUpFrame().src).pathname).toBe('/embed/top-up');
+
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed', toppedUp: true });
+        await expect(toppingUp).resolves.toEqual({ toppedUp: true });
+        await expect(upgrading).resolves.toEqual({ upgraded: false });
+        expect(document.querySelector('dialog.puter-popup-frame')).toBeNull();
+        expect(window.open).not.toHaveBeenCalled();
+    });
+
     it('still asks before opening the upgrade tab in its own words', async () => {
         const result = makeUI().requestUpgrade({ reason: 'funds' });
         const frame = () => document.querySelector('dialog.puter-popup-frame iframe');
