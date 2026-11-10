@@ -1,20 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForPuterReady } from '../helpers/testApp.js';
-
-const createVisitorAccount = async (browser) => {
-    const visitorContext = await browser.newContext({
-        storageState: { cookies: [], origins: [] },
-    });
-    const visitorPage = await visitorContext.newPage();
-    await visitorPage.goto('/');
-    await waitForPuterReady(visitorPage);
-    const account = await visitorPage.evaluate(() => ({
-        token: localStorage.getItem('auth_token_v2'),
-        user: JSON.parse(localStorage.getItem('user')),
-    }));
-    await visitorContext.close();
-    return account;
-};
+import { createVisitorAccount, waitForPuterReady } from '../helpers/testApp.js';
 
 // A second account: what a first-time visitor is given. Created once for the
 // whole file, because sign-ups are rate limited.

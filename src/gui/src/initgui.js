@@ -112,6 +112,8 @@ import {
     relationshipIsConsent,
     relaysTokenAtBoot,
     resolveOpenerOrigin,
+    reusablePopupUser,
+    reusableTokenExchange,
     runsUserAppTokenExchange,
 } from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
@@ -159,6 +161,21 @@ const follow_share_recipient = async (action) => {
         reload_on_success: true,
         send_confirmation_code: true,
     }));
+};
+
+// A sign-in popup exchanges as soon as the user has chosen an account, and
+// `postAuthActions` hands over that result instead of exchanging again.
+let early_token_exchange = null;
+const exchangeUserAppTokenEarly = async () => {
+    const authToken = window.auth_token;
+    const data = await window.getUserAppToken(window.openerOrigin);
+    let origin = null;
+    try {
+        origin = new URL(window.openerOrigin).origin;
+    } catch (e) {
+        // No origin to match on, so the result is not reused.
+    }
+    early_token_exchange = { origin, authToken, data };
 };
 
 const postAuthActions = async (action) => {
@@ -440,7 +457,10 @@ const postAuthActions = async (action) => {
 
         if (isolated) {
             try {
-                const data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                const origin = new URL(window.openerOrigin).origin;
+                const data =
+                    reusableTokenExchange(early_token_exchange, origin, window.auth_token) ??
+                    await window.getUserAppToken(origin);
                 // Same two failure modes the postMessage path below guards
                 // against: `getUserAppToken` reports a network failure by
                 // returning null, and an HTTP failure (a blocked origin, an
@@ -484,7 +504,10 @@ const postAuthActions = async (action) => {
             // Its failure carries `token: null`, which the SDK sets too.
             const deliver_token_to_opener = deliversTokenAtBoot(action);
             try {
-                let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                const origin = new URL(window.openerOrigin).origin;
+                let data =
+                    reusableTokenExchange(early_token_exchange, origin, window.auth_token) ??
+                    await window.getUserAppToken(origin);
                 // `getUserAppToken` reports a network failure by returning
                 // null, and an HTTP failure (a blocked origin, a 5xx) by
                 // returning the parsed *error* body — which is truthy but
@@ -1514,6 +1537,8 @@ window.initgui = async function (options) {
     let picked_a_user_for_sdk_login = false;
     // Whether a popup put an account picker in front of the user.
     let showed_account_picker = false;
+    // The `/whoami` a sign-in popup read before its account picker.
+    let popup_whoami = null;
 
     // update SDK if auth_token is different from the one in the SDK
     if (window.auth_token && puter.authToken !== window.auth_token) {
@@ -1868,7 +1893,7 @@ window.initgui = async function (options) {
                 // Completing signup in a sign-in popup is the user asking to
                 // be signed in to the opener.
                 window.popup_signin_consent = true;
-                await window.getUserAppToken(window.openerOrigin);
+                await exchangeUserAppTokenEarly();
             }
         } else if (
             // An action-less popup is a sign-in popup — `postAuthActions`
@@ -1892,6 +1917,11 @@ window.initgui = async function (options) {
                     whoami_popup.token || window.auth_token,
                     whoami_popup,
                 );
+                popup_whoami = {
+                    user: whoami_popup,
+                    authToken: window.auth_token,
+                    fetchedAt: Date.now(),
+                };
             } catch (e) {
                 // session/auth errors will be handled further ahead;
                 // let's log the error for now in case a change in state occurred.
@@ -1917,7 +1947,7 @@ window.initgui = async function (options) {
                     String(currentUserUuid);
             if (proofMatchesCurrentUser) {
                 picked_a_user_for_sdk_login = true;
-                await window.getUserAppToken(window.openerOrigin);
+                await exchangeUserAppTokenEarly();
             } else {
                 // Show session list so user can pick which account to use
                 showed_account_picker = true;
@@ -1927,7 +1957,7 @@ window.initgui = async function (options) {
                 });
 
                 if (picked_a_user_for_sdk_login) {
-                    await window.getUserAppToken(window.openerOrigin);
+                    await exchangeUserAppTokenEarly();
                 }
             }
             // Picking an account here *is* the consent to sign the opener in.
@@ -2050,10 +2080,14 @@ window.initgui = async function (options) {
     // if not, we need to ask the user for confirmation before proceeding BUT only if the action is a file-picker action
     // -------------------------------------------------------------------------------------
     if (window.embedded_in_popup && window.openerOrigin) {
-        let response = await window.checkUserSiteRelationship(
-            window.openerOrigin,
-        );
-        window.userAppToken = response?.token;
+        // An account picked above already answers both questions below, the
+        // picker and the consent. Signup in the popup is not a pick.
+        if (!picked_a_user_for_sdk_login) {
+            let response = await window.checkUserSiteRelationship(
+                window.openerOrigin,
+            );
+            window.userAppToken = response?.token;
+        }
 
         // A framed picker or upgrade already holds the framing page's user,
         // so it doesn't offer to switch.
@@ -2410,6 +2444,22 @@ window.initgui = async function (options) {
     // Authed
     // -------------------------------------------------------------------------------------
     if (window.is_auth()) {
+        // A sign-in popup whose user kept the account it opened with, and whose
+        // exchange just proved the session, already has this user's data.
+        if (
+            !whoami &&
+            picked_a_user_for_sdk_login &&
+            reusablePopupUser(popup_whoami, {
+                userUuid: window.user?.uuid,
+                authToken: window.auth_token,
+                exchangedAuthToken: early_token_exchange?.data?.token
+                    ? early_token_exchange.authToken
+                    : null,
+                now: Date.now(),
+            })
+        ) {
+            whoami = popup_whoami.user;
+        }
         // try to get user data using /whoami, only if that data is missing
         if (!whoami) {
             try {
