@@ -290,13 +290,14 @@ $(document).bind('keydown', async function (e) {
                 if ( selected.length === 1 ) {
                     return selected.get(0);
                 }
-                if ( selected.length > 1 && window.latest_selected_item ) {
+                // only an item that is still selected in this container can anchor the move
+                if ( selected.is(window.latest_selected_item) ) {
                     return window.latest_selected_item;
                 }
-                if ( window.active_element && $(window.active_element).hasClass('item') ) {
+                if ( selected.is(window.active_element) ) {
                     return window.active_element;
                 }
-                return $(window.active_item_container).find('.item').get(0);
+                return selected.get(-1);
             }
 
             function findNeighbor (current, direction) {
@@ -363,18 +364,19 @@ $(document).bind('keydown', async function (e) {
             // select first item if none are already selected
             const selected = $(window.active_item_container).find('.item-selected');
             if ( selected.length === 0 ) {
-                const first = $(window.active_item_container).find('.item').get(0);
+                const first = $(window.active_item_container).find('.item:not(.item-hidden)').get(0);
                 if ( first ) {
                     $(first).addClass('item-selected');
                     window.active_element = first;
                     window.latest_selected_item = first;
                     first.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    window.update_explorer_footer_selected_items_count($(window.active_item_container).closest('.window'));
                 }
                 return;
             }
 
             // virtual grid layout to determine item layout and next items
-            const items = Array.from($(window.active_item_container).find('.item'));
+            const items = Array.from($(window.active_item_container).find('.item:not(.item-hidden)'));
             const grid = items.map(item => {
                 const rect = item.getBoundingClientRect();
                 return {
@@ -393,6 +395,7 @@ $(document).bind('keydown', async function (e) {
 
             const currentEl = getActiveItem();
             const current = grid.find(i => i.el === currentEl);
+            if ( ! current ) return;
             const next = findNeighbor(current, dir);
 
             // apply new selection(s)
@@ -409,6 +412,7 @@ $(document).bind('keydown', async function (e) {
                     $(next.el).addClass('item-selected');
                 }
                 next.el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                window.update_explorer_footer_selected_items_count($(window.active_item_container).closest('.window'));
             }
         }
         // ----------------------------------------------
