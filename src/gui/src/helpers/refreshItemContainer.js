@@ -72,9 +72,13 @@ const refresh_item_container = function (el_item_container, options) {
         }
 
         // show the loading spinner
+        $(loading_spinner).find('.explorer-loading-spinner-msg').text(`${i18n('loading')}...`);
         $(loading_spinner).show();
         setTimeout(function () {
-            $(loading_spinner).find('.explorer-loading-spinner-msg').html('Taking a little longer than usual. Please wait...');
+            // only a load that is still running has taken long
+            if ( is_current() && $(loading_spinner).is(':visible') ) {
+                $(loading_spinner).find('.explorer-loading-spinner-msg').text(i18n('taking_longer_than_usual'));
+            }
         }, 3000);
     }, 1000);
 
