@@ -34,7 +34,7 @@ import UIWindowProgress from './UIWindowProgress.js';
 import UITaskbar from './UITaskbar.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
-import { atPath, retargetPaths, underPath } from '../helpers/pathElements.js';
+import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers/pathElements.js';
 import changeLanguage from '../i18n/i18nChangeLanguage.js';
 import UIWindowTaskManager from './UIWindowTaskManager.js';
 import truncate_filename from '../helpers/truncateFilename.js';
@@ -233,7 +233,12 @@ async function UIDesktop (options) {
         // empty trash windows if needed
         if ( msg.is_empty )
         {
-            $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.item-container').empty();
+            // only the rows: the container also holds its empty, error and loading states
+            $(`.window[data-path="${html_encode(window.trash_path)}" i]`).each(function () {
+                $(this).find('.item-container .item').removeItems();
+                window.update_explorer_footer_item_count(this);
+                window.update_explorer_footer_selected_items_count(this);
+            });
         }
     });
 
@@ -416,14 +421,17 @@ async function UIDesktop (options) {
             return;
         }
 
-        // hide all UIItems with matching uids
+        // remove all UIItems at the removed path
         atPath('.item', item.path).fadeOut(150, function () {
-            // close all windows with matching uids
-            // $('.window-' + item.uid).close();
-            // close all windows that belong to a descendant of this item
-            // todo this has to be case-insensitive
-            underPath('.window', item.path).close();
+            const $parent_window = $(this).closest('.window');
+            $(this).removeItems();
+            window.update_explorer_footer_item_count($parent_window);
+            window.update_explorer_footer_selected_items_count($parent_window);
         });
+        // close the windows showing the removed folder or anything inside it,
+        // whether or not its own row is displayed anywhere
+        // todo this has to be case-insensitive
+        atPath('.window[data-app="explorer"]', item.path).add(underPath('.window', item.path)).close();
     });
 
     window.socket.on('item.updated', async (item) => {
@@ -454,6 +462,14 @@ async function UIDesktop (options) {
         // Set new value for item-name-editor
         $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(item.name);
         $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', item.name);
+
+        // An overwrite arrives as an update, with a new size and date
+        if ( item.size !== undefined && item.modified !== undefined ) {
+            const $updated_items = $(`.item[data-uid='${item.uid}']`);
+            $updated_items.attr({ 'data-size': item.size ?? '', 'data-modified': item.modified ?? '' });
+            $updated_items.find('.item-attr--size > span').text(item.size ? window.byte_format(item.size) : '-');
+            $updated_items.find('.item-attr--modified > span').text(item.modified === 0 ? '-' : timeago.format(item.modified * 1000));
+        }
 
         // Set new data-path
         const new_path = item.path;
@@ -523,6 +539,7 @@ async function UIDesktop (options) {
             underPath('.window', resp.old_path).add(atPath('.window', resp.old_path)).each(function () {
                 window.update_window_path(this, fsentry.path + $(this).attr('data-path').slice(resp.old_path.length));
             });
+            retargetNavHistory(resp.old_path, fsentry.path);
         }
 
         if ( dest_path === window.trash_path ) {
@@ -546,13 +563,18 @@ async function UIDesktop (options) {
         // Trashing renames the entry to its uid; the real name is in metadata.
         fsentry.name = metadata.original_name ?? fsentry.name;
 
+        const moved_item_icon = await item_icon(fsentry);
+        const $dest_containers = atPath('.item-container', dest_path);
+        // the tab that made this move renders the row itself, in either order
+        $dest_containers.find(`.item[data-uid='${fsentry.uid}']`).removeItems();
+
         // create new item on matching containers
         UIItem({
-            appendTo: atPath('.item-container', dest_path),
+            appendTo: $dest_containers,
             immutable: fsentry.immutable || fsentry.writable === false,
             uid: fsentry.uid,
             path: fsentry.path,
-            icon: await item_icon(fsentry),
+            icon: moved_item_icon,
             name: fsentry.name,
             is_dir: fsentry.is_dir,
             size: fsentry.size,
