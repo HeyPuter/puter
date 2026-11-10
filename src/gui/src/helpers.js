@@ -1693,7 +1693,7 @@ window.trigger_download = (paths) => {
     let urls = [];
     for ( let index = 0; index < paths.length; index++ ) {
         urls.push({
-            download: `${window.origin }/down?path=${ paths[index]}`,
+            download: `${window.origin }/down?path=${ encodeURIComponent(paths[index])}`,
             filename: path.basename(paths[index]),
         });
     }
