@@ -2881,13 +2881,15 @@ window.unzipItem = async function (itemPath) {
     terminateOp = fflate.unzip(file, async (err, unzipped) => {
         currentProgress += window.zippingProgressConfig.ZIPPING;
         progwin?.set_progress(currentProgress.toPrecision(2));
-        if ( err ) {
-            UIAlert(e.message);
-            // close progress window
+        const close_progwin = (hide_delay) => {
             clearTimeout(progwin_timeout);
             setTimeout(() => {
                 progwin?.close();
-            }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
+            }, Math.max(0, hide_delay - (Date.now() - start_ts)));
+        };
+        if ( err ) {
+            UIAlert(err.message);
+            close_progwin(window.copy_progress_hide_delay);
         } else {
             const rootdir = await puter.fs.mkdir(`${path.dirname(filePath) }/${ path.basename(filePath, '.zip')}`, { dedupeName: true });
             let perItemProgress = window.zippingProgressConfig.WRITING / Object.keys(unzipped).length;
@@ -2905,6 +2907,10 @@ window.unzipItem = async function (itemPath) {
                     UIAlert(e.message);
                 }
             });
+            // an archive with no files leaves nothing to upload, so nothing else would end the operation
+            if ( queuedFileWrites.length === 0 ) {
+                close_progwin(window.unzip_progress_hide_delay);
+            }
             queuedFileWrites.length && puter.fs.upload(
                 // what to upload
                 queuedFileWrites,
@@ -2916,7 +2922,7 @@ window.unzipItem = async function (itemPath) {
                     generateThumbnails: true,
                     thumbnailGenerator: createUploadThumbnailGenerator(),
                     progress: async function (operation_id, op_progress) {
-                        progwin.set_progress(op_progress);
+                        progwin?.set_progress(op_progress);
                         // update title if window is not visible
                         if ( document.visibilityState !== 'visible' ) {
                             update_title_based_on_uploads();
@@ -2924,11 +2930,10 @@ window.unzipItem = async function (itemPath) {
                     },
                     success: async function (items) {
                         progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
-                        // close progress window
-                        clearTimeout(progwin_timeout);
-                        setTimeout(() => {
-                            progwin?.close();
-                        }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                        close_progwin(window.unzip_progress_hide_delay);
+                    },
+                    error: function () {
+                        close_progwin(window.unzip_progress_hide_delay);
                     },
                 },
             );
@@ -3160,6 +3165,13 @@ window.untarItem = async function (itemPath) {
             }
         }
 
+        // an archive with no files leaves nothing to upload, so nothing else would end the operation
+        if ( queuedFileWrites.length === 0 ) {
+            clearTimeout(progwin_timeout);
+            setTimeout(() => {
+                progwin?.close();
+            }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+        }
         queuedFileWrites.length && puter.fs.upload(
             queuedFileWrites,
             `${rootdir.path }/`,
@@ -3168,7 +3180,7 @@ window.untarItem = async function (itemPath) {
                 generateThumbnails: true,
                 thumbnailGenerator: createUploadThumbnailGenerator(),
                 progress: async function (operation_id, op_progress) {
-                    progwin.set_progress(op_progress);
+                    progwin?.set_progress(op_progress);
                     if ( document.visibilityState !== 'visible' ) {
                         update_title_based_on_uploads();
                     }
