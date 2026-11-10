@@ -171,10 +171,14 @@ describe('ShareStore', () => {
             holder = await makeUser();
         });
 
-        it('says whether an owner has anything shared, legacy rows included', async () => {
+        it('says an owner with nothing shared has no shares', async () => {
             const owner = await makeUser();
+            await makeEntry(owner);
             await expect(store.ownerHasShares(owner.id)).resolves.toBe(false);
+        });
 
+        it('answers from a recorded owner without the legacy query', async () => {
+            const owner = await makeUser();
             const entry = await makeEntry(owner);
             await store.upsertActive({
                 issuerUserId: owner.id,
@@ -182,9 +186,27 @@ describe('ShareStore', () => {
                 fsentryId: entry.id,
                 mode: 'read',
             });
-            await expect(store.ownerHasShares(owner.id)).resolves.toBe(true);
 
-            // A row written before the owner column existed.
+            const read = vi.spyOn(server.clients.db, 'read');
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                await expect(store.ownerHasShares(owner.id)).resolves.toBe(
+                    true,
+                );
+                const sql = [...read.mock.calls, ...pread.mock.calls].map(
+                    ([query]) => String(query),
+                );
+                expect(sql).toHaveLength(1);
+                expect(sql.some((q) => q.includes('JOIN `fsentries`'))).toBe(
+                    false,
+                );
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+        });
+
+        it('still finds a row written before the owner column existed', async () => {
             const legacyOwner = await makeUser();
             const legacy = await makeEntry(legacyOwner);
             await store.upsertActive({
@@ -1163,7 +1185,14 @@ describe('ShareStore', () => {
                 await server.clients.db.write(
                     'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
                         '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
-                    [groupUid, issuer.id, 'team', 'Lagging replica', '{}', '{}'],
+                    [
+                        groupUid,
+                        issuer.id,
+                        'team',
+                        'Lagging replica',
+                        '{}',
+                        '{}',
+                    ],
                 );
                 const [team] = await server.clients.db.read(
                     'SELECT id FROM `group` WHERE uid = ?',
