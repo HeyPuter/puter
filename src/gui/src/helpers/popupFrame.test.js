@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     POPUP_FRAME_MSG,
     canShowEmailConfirmationFrame,
+    canShowTopUpFrame,
     canShowUpgradeFrame,
     closeAccountChecksOnEscape,
     confirmEmailInFrame,
@@ -11,6 +12,7 @@ import {
     framedPopupParams,
     framedUpgradeDetails,
     framesHostUser,
+    showFramedTopUp,
     showFramedUpgrade,
     startPopupFrame,
 } from './popupFrame.js';
@@ -50,6 +52,7 @@ describe('framedPopupAction', () => {
         ['/embed/show-save-file-picker', 'show-save-file-picker'],
         ['/embed/show-directory-picker', 'show-directory-picker'],
         ['/embed/upgrade', 'upgrade'],
+        ['/embed/top-up', 'top-up'],
         ['/embed/request-email-confirmation', 'request-email-confirmation'],
         ['/embed/apps', null],
         ['/embed/feedback', null],
@@ -85,6 +88,7 @@ describe('framesHostUser', () => {
         ['show-save-file-picker', true],
         ['show-directory-picker', true],
         ['upgrade', true],
+        ['top-up', true],
         ['request-email-confirmation', true],
         ['sign-in', false],
         [null, false],
@@ -130,6 +134,34 @@ describe('canShowUpgradeFrame', () => {
 
     it('needs a session', () => {
         expect(canShowUpgradeFrame(win, null)).toBe(false);
+    });
+});
+
+describe('canShowTopUpFrame', () => {
+    const win = { UITopUp: Object.assign(function () {}, { embeddable: true }) };
+    const session = { uuid: 'u-1' };
+
+    it('shows for a session with nothing to verify, when the dialog reports its close', () => {
+        expect(canShowTopUpFrame(win, session)).toBe(true);
+    });
+
+    it('needs a top-up dialog that reports its close, whatever the upgrade dialog does', () => {
+        expect(canShowTopUpFrame({}, session)).toBe(false);
+        expect(canShowTopUpFrame({ UITopUp: function () {} }, session)).toBe(false);
+        expect(canShowTopUpFrame({ UIUpgradeAccount: Object.assign(function () {}, { embeddable: true }) }, session)).toBe(false);
+    });
+
+    it.each([
+        'requires_email_confirmation',
+        'requires_phone_verification',
+        'requires_card_verification',
+        'requires_password_change',
+    ])('leaves an account with %s to the tab', (check) => {
+        expect(canShowTopUpFrame(win, { ...session, [check]: true })).toBe(false);
+    });
+
+    it('needs a session', () => {
+        expect(canShowTopUpFrame(win, null)).toBe(false);
     });
 });
 
@@ -361,6 +393,64 @@ describe('showFramedUpgrade', () => {
     });
 });
 
+describe('showFramedTopUp', () => {
+    const topUpWindow = (open) => {
+        const events = new EventTarget();
+        return {
+            document,
+            innerWidth: 1280,
+            innerHeight: 800,
+            addEventListener: events.addEventListener.bind(events),
+            removeEventListener: events.removeEventListener.bind(events),
+            MutationObserver: window.MutationObserver,
+            UITopUp: function (options) {
+                this.open = () => open(options);
+            },
+        };
+    };
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('tells the page it is ready once open, and resolves whether credit was bought', async () => {
+        const tell = vi.fn();
+        let options;
+        const result = showFramedTopUp(topUpWindow(async (o) => {
+            options = o;
+        }), tell);
+        await vi.waitFor(() => expect(tell).toHaveBeenCalledWith('ready'));
+        expect(tell).toHaveBeenCalledTimes(1);
+
+        options.onClose({ toppedUp: true });
+        await expect(result).resolves.toBe(true);
+    });
+
+    it('resolves false for a close without a purchase', async () => {
+        await expect(showFramedTopUp(topUpWindow(async (o) => o.onClose({ toppedUp: false })), vi.fn())).resolves.toBe(false);
+        await expect(showFramedTopUp(topUpWindow(async (o) => o.onClose()), vi.fn())).resolves.toBe(false);
+    });
+
+    it('resolves false once the dialog is gone without reporting a close', async () => {
+        vi.useFakeTimers();
+        const root = document.createElement('div');
+        root.setAttribute('aria-modal', 'true');
+        const result = showFramedTopUp(topUpWindow(async () => {
+            document.body.append(root);
+        }), vi.fn());
+        await vi.advanceTimersByTimeAsync(0);
+        root.remove();
+        await vi.advanceTimersByTimeAsync(600);
+        await expect(result).resolves.toBe(false);
+    });
+
+    it('rejects when the dialog fails to open', async () => {
+        await expect(showFramedTopUp(topUpWindow(async () => {
+            throw new Error('no dialog');
+        }), vi.fn())).rejects.toThrow('no dialog');
+    });
+});
+
 describe('startPopupFrame', () => {
     it('does nothing without a framing page to answer', () => {
         const win = frameWindow();
@@ -394,6 +484,11 @@ describe('startPopupFrame', () => {
             { url: 'https://puter.test/auth/oidc/google/start', msg: POPUP_FRAME_MSG, state: 'provider' },
             HOST,
         );
+    });
+
+    it('lets the framing page show through a top-up frame', () => {
+        startPopupFrame({ ...frameWindow(), location: { pathname: '/embed/top-up' } }, HOST);
+        expect(document.documentElement.classList.contains('popup-frame-transparent')).toBe(true);
     });
 
     it('lets the framing page show through an upgrade or email confirmation frame only', () => {

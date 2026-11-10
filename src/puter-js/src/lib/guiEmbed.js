@@ -297,7 +297,9 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     const removal = new MutationObserver(() => {
         if ( ! dialog.isConnected ) dismiss();
     });
-    const restoreFocus = document.activeElement;
+    // Down through shadow roots: a component's host can't take the focus back itself.
+    let restoreFocus = document.activeElement;
+    while ( restoreFocus?.shadowRoot?.activeElement ) restoreFocus = restoreFocus.shadowRoot.activeElement;
     const wait = (ms) => {
         clearTimeout(timer);
         timer = setTimeout(() => finish(null), ms);
@@ -454,12 +456,13 @@ const POPUP_FRAME_BOXES = {
     'show-directory-picker': { width: 700, height: 400 },
 };
 
-// The upgrade has no box: it covers the page and its dialog draws its own
-// scrim. A payment in it may use the Payment Request API, which a frame can
-// use only when allowed, and Escape is left to the dialog, which doesn't close
-// mid-entry.
+// The upgrade and the top-up have no box: each covers the page and its dialog
+// draws its own scrim. A payment in it may use the Payment Request API, which
+// a frame can use only when allowed, and Escape is left to the dialog, which
+// doesn't close mid-entry.
 const UNBOXED_POPUP_FRAMES = {
     upgrade: { allow: 'payment; otp-credentials', escapeDismisses: false },
+    'top-up': { allow: 'payment; otp-credentials', escapeDismisses: false },
 };
 
 /**
@@ -476,8 +479,8 @@ const UNBOXED_POPUP_FRAMES = {
  * @template T
  * @param {Object} opts
  * @param {string} opts.guiOrigin
- * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker' | 'upgrade' | 'request-email-confirmation'} opts.action
- * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for a picker, the upgrade or the email confirmation
+ * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker' | 'upgrade' | 'top-up' | 'request-email-confirmation'} opts.action
+ * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for a picker, the upgrade, the top-up or the email confirmation
  * @param {string} opts.title - the frame's accessible name
  * @param {string} [opts.closeLabel] - puts a close button on the frame
  * @param {(data?: Record<string, unknown>) => T} opts.closed
