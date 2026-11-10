@@ -1289,6 +1289,8 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
         let progwin;
         let latest_status;
         const arm_progwin = () => setTimeout(async () => {
+            // re-armed after a dialog while the window from before it is still open
+            if ( progwin ) return;
             progwin = await UIWindowProgress({
                 operation_id: copy_op_id,
                 on_cancel: () => {
@@ -1431,6 +1433,8 @@ window.copy_items = function (el_items, dest_path) {
         let progwin;
         let latest_status;
         const arm_progwin = () => setTimeout(async () => {
+            // re-armed after a dialog while the window from before it is still open
+            if ( progwin ) return;
             progwin = await UIWindowProgress({
                 operation_id: copy_op_id,
                 on_cancel: () => {
@@ -1799,6 +1803,8 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
     let progwin;
     let latest_status;
     const arm_progwin = () => setTimeout(async () => {
+        // re-armed after a dialog while the window from before it is still open
+        if ( progwin ) return;
         progwin = await UIWindowProgress({
             operation_id: move_op_id,
             on_cancel: () => {
