@@ -6276,6 +6276,27 @@ describe('ShareService', () => {
                 return seen;
             };
 
+            it('skips the share lookup when no owner on the chain shares', async () => {
+                const owner = await makeUser();
+                const stamped = await makeUser();
+                const { dir } = await makeDirWithFile(owner.user);
+                const file = await makeStampedFile(dir, stamped.user);
+                const reaching = vi.spyOn(server.stores.share, 'listReaching');
+                let calls = -1;
+                try {
+                    await server.clients.event.emitAndWait(
+                        'fs.write.file',
+                        { node: file },
+                        {},
+                    );
+                    await settle();
+                    calls = reaching.mock.calls.length;
+                } finally {
+                    reaching.mockRestore();
+                }
+                expect(calls).toBe(0);
+            });
+
             it('still tells the folder recipient about a write', async () => {
                 const { recipient, file } = await setup();
                 expect(

@@ -884,6 +884,11 @@ export class ShareService extends PuterService {
                 .filter((node) => typeof node.id === 'number')
                 .map((node) => [node.id, node]),
         );
+        const owners = new Set([...nodesById.values()].map((n) => n.userId));
+        const shared = await Promise.all(
+            [...owners].map((owner) => this.#ownerHasShares(owner)),
+        );
+        if (!shared.some(Boolean)) return { rows: [], nodesById };
         const ids = [...nodesById.keys()];
         const [direct, viaGroup] = await Promise.all([
             this.stores.share.listReaching(ids),
