@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { FIXTURE_URL } from '../helpers/testApp.js';
+import { FIXTURE_URL, createVisitorAccount, waitForPuterReady } from '../helpers/testApp.js';
 
 const FIXTURE = FIXTURE_URL.replace(
     'menubar-contextmenu.html',
@@ -187,13 +187,22 @@ test.describe('popup sign-in after an account is picked', () => {
     /**
      * Open a sign-in popup from the fixture, pick the signed-in account, and
      * report the API requests the popup sent after the pick. With a `session`
-     * the page waits on `/login/wait` for it, as an isolated opener does.
+     * the page waits on `/login/wait` for it, as an isolated opener does. With
+     * an `other` account, that one is signed in on the browser too, and picked.
      */
-    const pickAccount = async (page, popupQuery, session = null) => {
+    const pickAccount = async (page, popupQuery, session = null, other = null) => {
         await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, {
             timeout: 60_000,
         });
+        if ( other ) {
+            await waitForPuterReady(page);
+            await page.evaluate(({ token, user }) => {
+                const known = JSON.parse(localStorage.getItem('logged_in_users'));
+                known.push({ ...user, auth_token: token });
+                localStorage.setItem('logged_in_users', JSON.stringify(known));
+            }, other);
+        }
         await page.goto(FIXTURE);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
 
@@ -221,8 +230,9 @@ test.describe('popup sign-in after an account is picked', () => {
             }, { query: popupQuery, relaySession: session }),
         ]);
 
-        const account = popup.locator('.auth-dialog [data-screen="accounts"] .auth-account');
-        await expect(account).toHaveCount(1, { timeout: 60_000 });
+        const accounts = popup.locator('.auth-dialog [data-screen="accounts"] .auth-account');
+        await expect(accounts).toHaveCount(other ? 2 : 1, { timeout: 60_000 });
+        const account = other ? accounts.and(popup.locator(`[data-uuid="${other.user.uuid}"]`)) : accounts;
         const requests = [];
         popup.on('request', (request) => {
             if ( request.method() === 'OPTIONS' ) return;
@@ -265,5 +275,19 @@ test.describe('popup sign-in after an account is picked', () => {
         const token = await page.evaluate(() => window.__relayed);
         expect(await usernameFor(page, token)).toBeTruthy();
         expect(requests).toEqual(['/auth/get-user-app-token']);
+    });
+
+    test('hands over the picked account when it is not the one the popup opened with', async ({ browser, page }) => {
+        const other = await createVisitorAccount(browser);
+
+        const requests = await pickAccount(page, 'msg_id=94', null, other);
+
+        await page.waitForFunction(() => !!window.__delivered);
+        const delivered = await page.evaluate(() => window.__delivered);
+        expect(delivered.success).toBe(true);
+        expect(delivered.username).toBe(other.user.username);
+        expect(await usernameFor(page, delivered.token)).toBe(other.user.username);
+        // The popup has not read this account yet, so it reads it once.
+        expect(requests).toEqual(['/auth/get-user-app-token', '/whoami?icon_size=64']);
     });
 });
