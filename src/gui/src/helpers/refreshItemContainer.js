@@ -102,6 +102,8 @@ const refresh_item_container = function (el_item_container, options) {
             return;
         }
         if ( el_window ) {
+            // the class is how a deleted folder's windows are found, and a window opened by path starts without it
+            $(el_window).removeClass(`window-${$(el_window).attr('data-uid')}`).addClass(`window-${fsentry.id}`);
             $(el_window).attr('data-uid', fsentry.id);
             $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
             $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
