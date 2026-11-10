@@ -328,6 +328,7 @@ const en = {
         delete_account_description: 'Permanently delete your account and all associated data. This action cannot be undone.',
         modified: 'Modified',
         monthly_credits: 'monthly credits',
+        monthly_credits_title: 'Monthly credits',
         move: 'Move',
         moving_file: 'Moving %%',
         my_websites: 'My Websites',

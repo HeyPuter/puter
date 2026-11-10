@@ -67,7 +67,7 @@ const TabUsage = {
                 </div>
                 <div class="driver-usage-container" style="margin-top: 30px;">
                     <div class="driver-usage-header">
-                        <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('Resources')}</h3>
+                        <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('monthly_credits_title')}</h3>
                         <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
                             <span class="usage-progbar-percent">--%</span>
                             <span> &middot; </span>
