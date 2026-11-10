@@ -46,7 +46,12 @@ import {
     sharedViewLink,
 } from './shareDeepLink';
 import { NOTIFY_FANOUT_CAP } from '../../core/teams.js';
-import { abuseKey, cleanEmail, isBlockedEmail } from '../../util/email.js';
+import {
+    abuseKey,
+    cleanEmail,
+    isBlockedEmail,
+    mayEmailNotify,
+} from '../../util/email.js';
 import { blocksAllShares } from './shareBlocks.js';
 import type { ResolvedShare } from './ShareService';
 import { withRedisLock } from '../../util/redisLock.js';
@@ -718,6 +723,16 @@ export class ShareNotificationService extends PuterService {
             skipped('address is on a blocked domain', { holderId });
             return;
         }
+        if (
+            !(await mayEmailNotify(
+                this.clients.event,
+                to,
+                'file_shared_with_you',
+            ))
+        ) {
+            skipped('a listener declined the address', { holderId });
+            return;
+        }
 
         // Items are built per share before the holder is loaded; the links
         // also name the holder, so the GUI can offer this account.
@@ -1148,6 +1163,16 @@ export class ShareNotificationService extends PuterService {
             try {
                 if (isBlockedEmail(to, this.config.blockedEmailDomains)) {
                     skipped('invite address is on a blocked domain', { to });
+                    continue;
+                }
+                if (
+                    !(await mayEmailNotify(
+                        this.clients.event,
+                        to,
+                        'file_shared_invite',
+                    ))
+                ) {
+                    skipped('a listener declined the invite address', { to });
                     continue;
                 }
                 const mayOpen = await this.#claimInviteEmail(issuerId, to);

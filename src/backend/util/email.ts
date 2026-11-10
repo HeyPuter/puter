@@ -26,6 +26,8 @@
  */
 
 import validator from 'validator';
+import type { EventClient } from '../clients/event/EventClient';
+import type { EmailNotifyValidateEvent } from '../clients/event/types';
 
 type RuleName = 'dots_dont_matter' | 'remove_subaddressing';
 
@@ -196,4 +198,22 @@ export function isBlockedEmail(
     return blockedDomains.some((suffix) =>
         clean.endsWith(suffix.toLowerCase()),
     );
+}
+
+/** False only when an `email.notify.validate` listener declines `to`. */
+export async function mayEmailNotify(
+    events: Pick<EventClient, 'emitAndWait'> | undefined,
+    to: string,
+    kind: string,
+): Promise<boolean> {
+    const event: EmailNotifyValidateEvent = { to, kind, allow: true };
+    try {
+        await events?.emitAndWait('email.notify.validate', event, {});
+    } catch (e) {
+        console.warn(
+            '[email-notify] validate hook failed:',
+            (e as Error)?.message,
+        );
+    }
+    return event.allow !== false;
 }

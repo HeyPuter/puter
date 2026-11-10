@@ -298,6 +298,8 @@ export type EventMap = {
         message: string | null;
         [key: string]: unknown;
     };
+    /** Before each notification email; a listener sets `allow` false to skip it. */
+    'email.notify.validate': EmailNotifyValidateEvent;
     // Inbound mail to a feedback address (`abuse@`, `fbl@`, ...), emitted via
     // `emitAndWait`. A listener that takes it sets `handled` and it reaches no
     // mailbox; otherwise it is routed like any other message.
@@ -973,6 +975,15 @@ export type EventMap = {
      */
     'outer.pubsub.metering.credits-changed': { userUuid: string };
 } & IExtensionEventMap;
+
+/** Payload for `email.notify.validate`. */
+export type EmailNotifyValidateEvent = {
+    /** The address, as it will be sent. */
+    to: string;
+    /** The mail's template name, e.g. `file_shared_with_you`. */
+    kind: string;
+    allow: boolean;
+};
 
 /** Payload for `subscription.gate.<surface>` events. */
 export type SubscriptionGateEvent = {
