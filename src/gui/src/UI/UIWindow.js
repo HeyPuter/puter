@@ -2696,37 +2696,8 @@ async function UIWindow (options) {
                         {
                             html: i18n('empty_trash'),
                             disabled: false,
-                            onClick: async function () {
-                                // TODO: Merge this with window.empty_trash()
-                                const alert_resp = await UIAlert({
-                                    message: i18n('empty_trash_confirmation'),
-                                    buttons: [
-                                        {
-                                            label: i18n('yes'),
-                                            value: 'yes',
-                                            type: 'primary',
-                                        },
-                                        {
-                                            label: i18n('no'),
-                                            value: 'no',
-                                        },
-                                    ],
-                                });
-                                if ( alert_resp === 'no' )
-                                {
-                                    return;
-                                }
-
-                                // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-                                $(`.item[data-path^="${html_encode(window.trash_path)}/"]`).each(function () {
-                                    window.delete_item(this);
-                                });
-                                // update other clients
-                                if ( window.socket ) {
-                                    window.socket.emit('trash.is_empty', { is_empty: true });
-                                }
-                                // use the 'empty trash' icon
-                                window.update_trash_icons(true);
+                            onClick: function () {
+                                window.empty_trash();
                             },
                         },
                     ],
