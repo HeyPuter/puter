@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 98;
+const CURRENT_SCHEMA_VERSION = 99;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -699,6 +699,58 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
                     ['kvh-before-notify'],
                 ),
             ).resolves.toEqual([{ notify: 0 }]);
+            after.onServerShutdown();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('fills a share row missing its entry owner from 0103, invites left alone', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'puter-sqlite-share-owner-'));
+        const path = join(dir, 'puter.sqlite');
+        try {
+            const before = new SqliteDatabaseClient(
+                sqliteConfig({ inMemory: false, path, targetVersion: 98 }),
+            );
+            await before.onServerStart();
+            const [user] = (await before.read(
+                'SELECT MIN(`id`) AS id FROM `user`',
+            )) as { id: number }[];
+            await before.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `user_id`, `modified`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                ['22222222-2222-4222-8222-222222222222', 'owned.txt', user.id, 0],
+            );
+            const [entry] = (await before.read(
+                'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
+                ['22222222-2222-4222-8222-222222222222'],
+            )) as { id: number }[];
+            await before.write(
+                'INSERT INTO `share` (`uid`, `issuer_user_id`, ' +
+                    '`recipient_email`, `fsentry_id`) VALUES (?, ?, ?, ?)',
+                ['share-no-owner', user.id, 'held@test.local', entry.id],
+            );
+            await before.write(
+                'INSERT INTO `share` (`uid`, `issuer_user_id`, ' +
+                    '`recipient_email`) VALUES (?, ?, ?)',
+                ['share-invite', user.id, 'invite@test.local'],
+            );
+            before.onServerShutdown();
+
+            const after = new SqliteDatabaseClient(
+                sqliteConfig({ inMemory: false, path }),
+            );
+            await after.onServerStart();
+            await expect(
+                after.read(
+                    'SELECT `uid`, `entry_owner_user_id` FROM `share` ' +
+                        'WHERE `uid` IN (?, ?) ORDER BY `uid`',
+                    ['share-invite', 'share-no-owner'],
+                ),
+            ).resolves.toEqual([
+                { uid: 'share-invite', entry_owner_user_id: null },
+                { uid: 'share-no-owner', entry_owner_user_id: user.id },
+            ]);
             after.onServerShutdown();
         } finally {
             rmSync(dir, { recursive: true, force: true });
