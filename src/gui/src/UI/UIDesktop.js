@@ -233,7 +233,12 @@ async function UIDesktop (options) {
         // empty trash windows if needed
         if ( msg.is_empty )
         {
-            $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.item-container').empty();
+            // only the rows: the container also holds its empty, error and loading states
+            $(`.window[data-path="${html_encode(window.trash_path)}" i]`).each(function () {
+                $(this).find('.item-container .item').removeItems();
+                window.update_explorer_footer_item_count(this);
+                window.update_explorer_footer_selected_items_count(this);
+            });
         }
     });
 
