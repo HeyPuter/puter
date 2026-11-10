@@ -792,6 +792,26 @@ describe('PuterServer request parsing', () => {
         }
     });
 
+    it('parses a chat call above 50 MiB whose body opens with its token', async () => {
+        const fields = `"interface":"puter-chat-completion","method":"no-such-method","pad":"${'x'.repeat(51 * MiB)}"`;
+        const asText = { 'content-type': 'text/plain;actually=json' };
+        const first = await postJson(
+            '/drivers/call',
+            `{"auth_token":"${token}",${fields}}`,
+            asText,
+        );
+        expect(first.status).toBe(404);
+        expect(first.body).toContain('no-such-method');
+
+        // A token after other fields can't be read ahead of the body.
+        const last = await postJson(
+            '/drivers/call',
+            `{${fields},"auth_token":"${token}"}`,
+            asText,
+        );
+        expect(last.status).toBe(413);
+    });
+
     it('keeps the default JSON limit for other drivers', async () => {
         const payload = JSON.stringify({
             interface: 'puter-kvstore',
