@@ -451,6 +451,10 @@ export class ShareService extends PuterService {
                 fromUserId?: number;
             };
             if (!node?.uuid) return;
+            const handedOver =
+                typeof fromUserId === 'number' && fromUserId !== node.userId;
+            // The subtree's share rows were re-pointed at its new owner.
+            if (handedOver) this.#ownerShared(node.userId);
             const notify = this.#fanOutMove(node, fromPath).catch(() => {
                 // A stale window is better than a failed move.
             });
@@ -459,11 +463,7 @@ export class ShareService extends PuterService {
             // entry into its new owner's tree — leaving the new owner with
             // recipients they never agreed to. Awaited alongside the notify so
             // an `emitAndWait` caller sees both.
-            if (typeof fromUserId !== 'number' || fromUserId === node.userId) {
-                return notify;
-            }
-            // The subtree's share rows were re-pointed at its new owner.
-            this.#ownerShared(node.userId);
+            if (!handedOver) return notify;
             return Promise.all([
                 notify,
                 this.onEntryOwnerChanged(node).catch((err: unknown): void => {

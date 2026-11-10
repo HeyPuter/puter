@@ -6357,6 +6357,82 @@ describe('ShareService', () => {
             });
         });
 
+        it("reports a hand-over of a shared file as a move, new owner's cache warm", async () => {
+            const from = await makeUser();
+            const to = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(from.user);
+            await share(from.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            // Caches "nothing shared" for the new owner.
+            await server.services.fs.touch(to.user.id, {
+                path: `/${to.user.username}/warm.txt`,
+            });
+            await settle();
+
+            // What FSService.move writes before it emits the event.
+            const toHome = await server.stores.fsEntry.getRootEntryForUser(
+                to.user.id,
+            );
+            const after = `/${to.user.username}/${file.name}`;
+            await server.stores.fsEntry.updateEntry(file.uuid, {
+                path: after,
+                userId: to.user.id,
+                parentId: toHome!.id,
+                parentUid: toHome!.uuid,
+            });
+            await server.stores.share.reassignEntryOwnerUnder(
+                to.user.id,
+                after,
+            );
+            const moved = await server.stores.fsEntry.getEntryByPath(after);
+
+            const seen: string[] = [];
+            const listener = (key: string, data: unknown) => {
+                const payload = data as {
+                    user_id_list?: number[];
+                    response?: { uuid?: string };
+                };
+                if (
+                    payload.response?.uuid === file.uuid &&
+                    payload.user_id_list?.includes(recipient.user.id)
+                )
+                    seen.push(key);
+            };
+            const events = [
+                'outer.gui.item.moved',
+                'outer.gui.item.removed',
+            ] as const;
+            for (const event of events)
+                server.clients.event.on(event, listener);
+            // Holds the hand-over's revoke back, so the fan-out reads the grant.
+            const retire = vi
+                .spyOn(server.services.share, 'onEntryOwnerChanged')
+                .mockResolvedValue(undefined);
+            try {
+                await server.clients.event.emitAndWait(
+                    'fs.move.node',
+                    {
+                        node: moved!,
+                        fromPath: file.path,
+                        toPath: after,
+                        fromUserId: from.user.id,
+                    },
+                    {},
+                );
+                for (let i = 0; i < 20 && seen.length === 0; i++)
+                    await settle();
+            } finally {
+                retire.mockRestore();
+                for (const event of events)
+                    server.clients.event.off(event, listener);
+            }
+            expect(seen).toEqual(['outer.gui.item.moved']);
+        });
+
         it('still reaches a nested entry under a shared folder', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
