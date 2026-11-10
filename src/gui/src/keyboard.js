@@ -874,7 +874,8 @@ $(document).bind('keyup keydown', async function (e) {
     // Paste
     // ctrl/command + v, will paste items from the clipboard to the active element
     //----------------------------------------------
-    if ( (e.ctrlKey || e.metaKey) && e.which === 86 && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
+    // Once per press: releasing V with Ctrl still held would paste a second time.
+    if ( (e.ctrlKey || e.metaKey) && e.which === 86 && e.type === 'keydown' && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
         let target_path, target_el;
 
         // continue only if there is something in the clipboard
