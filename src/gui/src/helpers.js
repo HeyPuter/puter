@@ -1633,20 +1633,37 @@ window.delete_item = async function (el_item, descendants_only = false) {
     }
 };
 
-window.move_clipboard_items = function (el_target_container, target_path) {
+window.move_clipboard_items = async function (el_target_container, target_path) {
     let dest_path = target_path === undefined ? $(el_target_container).attr('data-path') : target_path;
-    let el_items = [];
-    if ( window.clipboard.length > 0 ) {
-        for ( let i = 0; i < window.clipboard.length; i++ ) {
-            el_items.push(atPath('.item', window.clipboard[i]));
-        }
-        if ( el_items.length > 0 )
-        {
-            window.move_items(el_items, dest_path);
-        }
-    }
-
+    const cut_paths = window.clipboard;
     window.clipboard = [];
+
+    // A cut item's row is gone once its folder is no longer displayed, so
+    // move_items gets a stand-in carrying what it reads off a row.
+    const el_items = (await Promise.all(cut_paths.map(async (cut_path) => {
+        const $el_item = atPath('.item', cut_path);
+        if ( $el_item.length > 0 ) {
+            return $el_item;
+        }
+        try {
+            const fsentry = await puter.fs.stat({ path: cut_path, consistency: 'eventual' });
+            return $('<div>').attr({
+                'data-uid': fsentry.uid,
+                'data-path': cut_path,
+                'data-name': fsentry.name,
+                'data-is_dir': fsentry.is_dir ? '1' : '0',
+                'data-immutable': (fsentry.immutable || fsentry.writable === false) ? '1' : '0',
+                'data-metadata': fsentry.metadata ?? '',
+            });
+        } catch ( e ) {
+            // the item no longer exists, so there is nothing to move
+            return null;
+        }
+    }))).filter(Boolean);
+
+    if ( el_items.length > 0 ) {
+        window.move_items(el_items, dest_path);
+    }
 };
 
 function downloadFile (url, postData = {}) {
