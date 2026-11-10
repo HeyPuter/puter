@@ -512,6 +512,7 @@ $(document).bind('keydown', async function (e) {
                 buttons: [
                     {
                         label: i18n('delete'),
+                        value: 'delete',
                         type: 'primary',
                     },
                     {
@@ -519,7 +520,7 @@ $(document).bind('keydown', async function (e) {
                     },
                 ],
             });
-            if ( (alert_resp) === 'Delete' ) {
+            if ( (alert_resp) === 'delete' ) {
                 for ( let index = 0; index < $selected_items.length; index++ ) {
                     const element = $selected_items[index];
                     await window.delete_item(element);
@@ -541,6 +542,7 @@ $(document).bind('keydown', async function (e) {
                 buttons: [
                     {
                         label: i18n('delete'),
+                        value: 'delete',
                         type: 'primary',
                     },
                     {
@@ -548,7 +550,7 @@ $(document).bind('keydown', async function (e) {
                     },
                 ],
             });
-            if ( (alert_resp) === 'Delete' ) {
+            if ( (alert_resp) === 'delete' ) {
                 for ( let index = 0; index < $selected_items.length; index++ ) {
                     const element = $selected_items[index];
                     await window.delete_item(element);
