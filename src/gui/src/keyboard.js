@@ -23,6 +23,25 @@ import launch_app from './helpers/launchApp.js';
 import open_item from './helpers/openItem.js';
 import determine_active_container_parent from './helpers/determineActiveContainerParent.js';
 
+// The item container the user is working in: around or inside the element they
+// last pressed, or elsewhere in its window. A pressed item that the window has
+// since navigated away from leaves only the container it was in.
+const selection_container = () => {
+    const $active = $(window.active_element);
+    let $container = $active.closest('.item-container');
+    if ( $container.length === 0 ) {
+        $container = $active.find('.item-container');
+    }
+    if ( $container.length === 0 ) {
+        $container = $active.closest('.window').find('.item-container');
+    }
+    if ( $container.length === 0 && window.active_element && !document.contains(window.active_element)
+        && document.contains(window.active_item_container) ) {
+        $container = $(window.active_item_container);
+    }
+    return $container;
+};
+
 $(document).bind('keydown', async function (e) {
     const focused_el = document.activeElement;
     //-----------------------------------------------------------------------------
@@ -290,13 +309,14 @@ $(document).bind('keydown', async function (e) {
                 if ( selected.length === 1 ) {
                     return selected.get(0);
                 }
-                if ( selected.length > 1 && window.latest_selected_item ) {
+                // only an item that is still selected in this container can anchor the move
+                if ( selected.is(window.latest_selected_item) ) {
                     return window.latest_selected_item;
                 }
-                if ( window.active_element && $(window.active_element).hasClass('item') ) {
+                if ( selected.is(window.active_element) ) {
                     return window.active_element;
                 }
-                return $(window.active_item_container).find('.item').get(0);
+                return selected.get(-1);
             }
 
             function findNeighbor (current, direction) {
@@ -363,18 +383,19 @@ $(document).bind('keydown', async function (e) {
             // select first item if none are already selected
             const selected = $(window.active_item_container).find('.item-selected');
             if ( selected.length === 0 ) {
-                const first = $(window.active_item_container).find('.item').get(0);
+                const first = $(window.active_item_container).find('.item:not(.item-hidden)').get(0);
                 if ( first ) {
                     $(first).addClass('item-selected');
                     window.active_element = first;
                     window.latest_selected_item = first;
                     first.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    window.update_explorer_footer_selected_items_count($(window.active_item_container).closest('.window'));
                 }
                 return;
             }
 
             // virtual grid layout to determine item layout and next items
-            const items = Array.from($(window.active_item_container).find('.item'));
+            const items = Array.from($(window.active_item_container).find('.item:not(.item-hidden)'));
             const grid = items.map(item => {
                 const rect = item.getBoundingClientRect();
                 return {
@@ -393,6 +414,7 @@ $(document).bind('keydown', async function (e) {
 
             const currentEl = getActiveItem();
             const current = grid.find(i => i.el === currentEl);
+            if ( ! current ) return;
             const next = findNeighbor(current, dir);
 
             // apply new selection(s)
@@ -409,6 +431,7 @@ $(document).bind('keydown', async function (e) {
                     $(next.el).addClass('item-selected');
                 }
                 next.el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                window.update_explorer_footer_selected_items_count($(window.active_item_container).closest('.window'));
             }
         }
         // ----------------------------------------------
@@ -500,14 +523,15 @@ $(document).bind('keydown', async function (e) {
     // Shift+Delete (win)/ option+command+delete (Mac) key pressed
     // Permanent delete bypassing trash after alert
     //-----------------------------------------------------------------------
-    if ( (e.keyCode === 46 && e.shiftKey) || (e.altKey && e.metaKey && e.keyCode === 8) ) {
-        let $selected_items = $(window.active_element).closest('.item-container').find('.item-selected');
+    if ( ((e.keyCode === 46 && e.shiftKey) || (e.altKey && e.metaKey && e.keyCode === 8)) && !$(focused_el).is('input, textarea') ) {
+        let $selected_items = selection_container().find('.item-selected');
         if ( $selected_items.length > 0 ) {
             const alert_resp = await UIAlert({
                 message: i18n('confirm_delete_multiple_items'),
                 buttons: [
                     {
                         label: i18n('delete'),
+                        value: 'delete',
                         type: 'primary',
                     },
                     {
@@ -515,7 +539,7 @@ $(document).bind('keydown', async function (e) {
                     },
                 ],
             });
-            if ( (alert_resp) === 'Delete' ) {
+            if ( (alert_resp) === 'delete' ) {
                 for ( let index = 0; index < $selected_items.length; index++ ) {
                     const element = $selected_items[index];
                     await window.delete_item(element);
@@ -528,15 +552,16 @@ $(document).bind('keydown', async function (e) {
     // Delete (win)/ ctrl+delete (Mac) / cmd+delete (Mac) key pressed
     // Permanent delete from trash after alert or move to trash
     //-----------------------------------------------------------------------
-    if ( e.keyCode === 46 || (e.keyCode === 8 && (e.ctrlKey || e.metaKey)) ) {
+    if ( (e.keyCode === 46 || (e.keyCode === 8 && (e.ctrlKey || e.metaKey))) && !$(focused_el).is('input, textarea') ) {
         // permanent delete?
-        let $selected_items = $(window.active_element).closest('.item-container').find(`.item-selected[data-path^="${`${window.trash_path }/`}"]`);
+        let $selected_items = selection_container().find(`.item-selected[data-path^="${`${window.trash_path }/`}"]`);
         if ( $selected_items.length > 0 ) {
             const alert_resp = await UIAlert({
                 message: i18n('confirm_delete_multiple_items'),
                 buttons: [
                     {
                         label: i18n('delete'),
+                        value: 'delete',
                         type: 'primary',
                     },
                     {
@@ -544,7 +569,7 @@ $(document).bind('keydown', async function (e) {
                     },
                 ],
             });
-            if ( (alert_resp) === 'Delete' ) {
+            if ( (alert_resp) === 'delete' ) {
                 for ( let index = 0; index < $selected_items.length; index++ ) {
                     const element = $selected_items[index];
                     await window.delete_item(element);
@@ -554,7 +579,7 @@ $(document).bind('keydown', async function (e) {
         }
         // regular delete?
         else {
-            $selected_items = $(window.active_element).closest('.item-container').find('.item-selected');
+            $selected_items = selection_container().find('.item-selected');
             if ( $selected_items.length > 0 ) {
                 // Only delete the items if we're not renaming one.
                 if ( $selected_items.children('.item-name-editor-active').length === 0 ) {
@@ -569,6 +594,11 @@ $(document).bind('keydown', async function (e) {
     // A letter or number is pressed and there is no context menu open: search items by name
     //-----------------------------------------------------------------------
     if ( !e.ctrlKey && !e.metaKey && !$(focused_el).is('input') && !$(focused_el).is('textarea') && $('.context-menu').length === 0 ) {
+        // Shift, arrows, Enter and other named keys are not part of a name
+        if ( e.key?.length !== 1 ) {
+            return false;
+        }
+
         if ( window.keypress_item_seach_term !== '' )
         {
             clearTimeout(window.keypress_item_seach_buffer_timeout);
@@ -589,7 +619,7 @@ $(document).bind('keydown', async function (e) {
         }
 
         // search for matches
-        let haystack = $(window.active_item_container).find('.item').not('.item-disabled');
+        let haystack = $(window.active_item_container).find('.item').not('.item-disabled, .item-hidden');
         for ( let j = 0; j < haystack.length; j++ ) {
             if ( $(haystack[j]).attr('data-name').toLowerCase().startsWith(window.keypress_item_seach_term) ) {
                 matches.push(haystack[j]);
@@ -613,7 +643,7 @@ $(document).bind('keydown', async function (e) {
             // select matching item
             $(matches[0]).not('.item-disabled').addClass('item-selected');
             matches[0].scrollIntoView(false);
-            window.update_explorer_footer_selected_items_count($(window.active_element).closest('.window'));
+            window.update_explorer_footer_selected_items_count($(window.active_item_container).closest('.window'));
         }
 
         return false;
@@ -687,11 +717,7 @@ $(document).bind('keyup keydown', async function (e) {
     // ctrl/command + a, will select all items on desktop and windows
     //-----------------------------------------------------------------------------
     if ( (e.ctrlKey || e.metaKey) && e.which === 65 && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
-        let $parent_container = $(window.active_element).closest('.item-container');
-        if ( $parent_container.length === 0 )
-        {
-            $parent_container = $(window.active_element).find('.item-container');
-        }
+        const $parent_container = selection_container();
 
         if ( $parent_container.attr('data-multiselectable') === 'false' )
         {
@@ -699,7 +725,7 @@ $(document).bind('keyup keydown', async function (e) {
         }
 
         if ( $parent_container ) {
-            $($parent_container).find('.item').not('.item-disabled').addClass('item-selected');
+            $($parent_container).find('.item').not('.item-disabled, .item-hidden').addClass('item-selected');
             window.update_explorer_footer_selected_items_count($parent_container.closest('.window'));
         }
 
@@ -732,11 +758,7 @@ $(document).bind('keyup keydown', async function (e) {
         !$(focused_el).is('textarea') ) {
         let $selected_items;
 
-        let parent_container = $(window.active_element).closest('.item-container');
-        if ( parent_container.length === 0 )
-        {
-            parent_container = $(window.active_element).find('.item-container');
-        }
+        const parent_container = selection_container();
 
         if ( parent_container !== null ) {
             $selected_items = $(parent_container).find('.item-selected');
@@ -761,11 +783,7 @@ $(document).bind('keyup keydown', async function (e) {
     //-----------------------------------------------------------------------------
     if ( (e.ctrlKey || e.metaKey) && e.which === 88 && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
         let $selected_items;
-        let parent_container = $(window.active_element).closest('.item-container');
-        if ( parent_container.length === 0 )
-        {
-            parent_container = $(window.active_element).find('.item-container');
-        }
+        const parent_container = selection_container();
 
         if ( parent_container !== null ) {
             $selected_items = $(parent_container).find('.item-selected');
@@ -863,7 +881,8 @@ $(document).bind('keyup keydown', async function (e) {
     // Paste
     // ctrl/command + v, will paste items from the clipboard to the active element
     //----------------------------------------------
-    if ( (e.ctrlKey || e.metaKey) && e.which === 86 && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
+    // Once per press: releasing V with Ctrl still held would paste a second time.
+    if ( (e.ctrlKey || e.metaKey) && e.which === 86 && e.type === 'keydown' && !$(focused_el).is('input') && !$(focused_el).is('textarea') ) {
         let target_path, target_el;
 
         // continue only if there is something in the clipboard

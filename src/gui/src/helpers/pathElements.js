@@ -70,4 +70,23 @@ export const retargetPaths = (oldPath, newPath, newName) => {
     $inside.each(function () {
         $(this).attr('data-path', newPath + $(this).attr('data-path').slice(oldPath.length));
     });
+    retargetNavHistory(oldPath, newPath);
+};
+
+/**
+ * Points every window's Back/Forward entries at `oldPath`, or inside it, to
+ * `newPath`, so they still lead somewhere after a rename or move.
+ *
+ * @param {string} oldPath
+ * @param {string} newPath
+ */
+export const retargetNavHistory = (oldPath, newPath) => {
+    if ( ! oldPath ) return;
+    const prefix = `${oldPath}/`;
+    for ( const history of Object.values(window.window_nav_history ?? {}) ) {
+        history.forEach((entry, index) => {
+            if ( entry === oldPath ) history[index] = newPath;
+            else if ( entry.startsWith(prefix) ) history[index] = newPath + entry.slice(oldPath.length);
+        });
+    }
 };

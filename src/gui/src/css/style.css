@@ -500,8 +500,9 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 
 .explore-table-headers {
     display: none;
-    width: 100%;
-    min-width: 795px;
+    /* the negative margin below shifts it left by the body's padding */
+    width: calc(100% + 10px);
+    min-width: 805px;
     height: 25px;
     border-bottom: 1px solid rgb(226, 226, 226);
     background-color: #fff;
@@ -534,6 +535,7 @@ span.header-sort-icon img {
     margin-left: 15px;
     color: #555c61;
     display: inline-block;
+    cursor: pointer;
 }
 
 .explore-table-headers-th-active {
@@ -840,6 +842,14 @@ span.header-sort-icon img {
 
 .device-desktop .item-container-details .item-selected .item-attr {
     color: white;
+}
+
+.device-desktop .item-container-details .item-selected.item-blurred {
+    background-color: #dbdada;
+}
+
+.device-desktop .item-container-details .item-selected.item-blurred .item-attr {
+    color: rgb(73, 73, 73);
 }
 
 .item-container-details .item-attr--modified {
@@ -1199,6 +1209,22 @@ span.header-sort-icon img {
     cursor: default;
 }
 
+/* A path too long for the bar is cut at the root end, so the current folder stays visible. */
+.window-navbar-path {
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    min-height: 37px;
+}
+
+.window-navbar-path > * {
+    flex: none;
+}
+
+.window-navbar-path > :last-child {
+    margin-right: auto;
+}
+
 .device-phone .window-navbar-path {
     display: none;
 }
@@ -1208,6 +1234,7 @@ span.header-sort-icon img {
     height: 30px;
     margin-left: 10px;
     margin-top: 3px;
+    cursor: pointer;
 }
 
 .device-phone .window-navbar-layout-settings {

@@ -72,9 +72,13 @@ const refresh_item_container = function (el_item_container, options) {
         }
 
         // show the loading spinner
+        $(loading_spinner).find('.explorer-loading-spinner-msg').text(`${i18n('loading')}...`);
         $(loading_spinner).show();
         setTimeout(function () {
-            $(loading_spinner).find('.explorer-loading-spinner-msg').html('Taking a little longer than usual. Please wait...');
+            // only a load that is still running has taken long
+            if ( is_current() && $(loading_spinner).is(':visible') ) {
+                $(loading_spinner).find('.explorer-loading-spinner-msg').text(i18n('taking_longer_than_usual'));
+            }
         }, 3000);
     }, 1000);
 
@@ -98,6 +102,8 @@ const refresh_item_container = function (el_item_container, options) {
             return;
         }
         if ( el_window ) {
+            // the class is how a deleted folder's windows are found, and a window opened by path starts without it
+            $(el_window).removeClass(`window-${$(el_window).attr('data-uid')}`).addClass(`window-${fsentry.id}`);
             $(el_window).attr('data-uid', fsentry.id);
             $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
             $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
@@ -120,6 +126,8 @@ const refresh_item_container = function (el_item_container, options) {
         if ( fsentry.layout === 'details' ) {
             window.update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
         }
+    }).catch(() => {
+        // The listing request below reports the failure to the user.
     });
 
     // is_directoryPicker
@@ -135,6 +143,8 @@ const refresh_item_container = function (el_item_container, options) {
 
     // remove all existing items
     $(el_item_container).find('.item').removeItems();
+    // removing the last row shows the empty message, which is wrong while the folder is loading
+    $(empty_message).hide();
 
     // get items with subdomains/workers included to avoid per-item stat calls
     const entries_promise = is_shared_view
@@ -351,6 +361,11 @@ const refresh_item_container = function (el_item_container, options) {
         // show error message
         $(error_message).html(`Failed to load directory${ html_encode((e && e.message ? `: ${ e.message}` : ''))}`);
         $(error_message).show();
+
+        // the previous folder's items are gone, so its count must not linger
+        if ( el_window ) {
+            window.update_explorer_footer_item_count(el_window);
+        }
 
         // Call onComplete callback even in error case, since the "loading" is technically complete
         if ( options.onComplete && typeof options.onComplete === 'function' ) {

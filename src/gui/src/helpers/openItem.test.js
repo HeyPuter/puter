@@ -23,7 +23,6 @@ import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 vi.mock('../UI/UIWindow.js', () => ({ default: vi.fn() }));
 vi.mock('../UI/UIAlert.js', () => ({ default: vi.fn(async () => undefined) }));
-vi.mock('../i18n/i18n.js', () => ({ default: key => key }));
 vi.mock('./launchApp.js', () => ({ default: vi.fn(async () => ({ launchResult: { launched: true } })) }));
 vi.mock('./itemIcon.js', () => ({ default: vi.fn() }));
 vi.mock('./defaultApp.js', () => ({ resolve_default_app: vi.fn(async () => null) }));
@@ -113,3 +112,18 @@ describe('open_item with a new tab', () => {
         expect(tab.close).not.toHaveBeenCalled();
     });
 });
+
+describe('open_item with no app for the file', () => {
+    it('offers to download it', async () => {
+        window.is_dashboard_mode = false;
+        window.trigger_download = vi.fn();
+        UIAlert.mockResolvedValueOnce('download_file');
+
+        await open_item({ item: row({ name: 'data.bin', path: '/user/data.bin' }) });
+
+        expect(UIAlert).toHaveBeenCalledTimes(1);
+        expect(UIAlert.mock.calls[0][1].map(button => button.value ?? button.label)).toEqual(['download_file', 'Cancel']);
+        expect(window.trigger_download).toHaveBeenCalledWith(['/user/data.bin']);
+    });
+});
+
