@@ -145,9 +145,14 @@ const new_context_menu_item = function (dirname, append_to_element) {
                 canvas.width = 800;
                 canvas.height = 600;
 
+                // JPEG has no transparency, so the blank image needs a background
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
                 canvas.toBlob((blob) => {
                     window.create_file({ dirname: dirname, append_to_element: append_to_element, name: 'New Image.jpg', content: blob });
-                });
+                }, 'image/jpeg');
             },
         },
         // Worker

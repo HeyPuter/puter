@@ -1067,6 +1067,7 @@ const en = {
         'window_click_to_go_back': 'Click to go back.',
         'window_click_to_go_forward': 'Click to go forward.',
         'window_click_to_go_up': 'Click to go one directory up.',
+        'window_click_to_change_layout': 'Click to change the layout.',
         'window_title_public': 'Public',
         'window_title_videos': 'Videos',
         'window_title_pictures': 'Pictures',
