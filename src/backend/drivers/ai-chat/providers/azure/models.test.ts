@@ -40,7 +40,11 @@ const STANDALONE = [
 ];
 
 // Fields an Azure deployment genuinely differs from its source on, by puterId.
-const OVERRIDES: Record<string, string[]> = {};
+const OVERRIDES: Record<string, string[]> = {
+    'azure:x-ai/grok-4.3': ['serviceSpeedRates'],
+    'azure:x-ai/grok-4-20-non-reasoning': ['serviceSpeedRates'],
+    'azure:x-ai/grok-4-20-reasoning': ['serviceSpeedRates'],
+};
 
 const IDENTITY = ['id', 'puterId', 'aliases'];
 
@@ -65,6 +69,18 @@ const mirrored = AZURE_MODELS.filter(
 ).map((m) => [m.puterId!, m] as const);
 
 describe('AZURE_MODELS mirroring', () => {
+    it('inherits OpenAI fast rates without enabling direct-only speed tiers', () => {
+        for (const model of AZURE_MODELS) {
+            expect(model.serviceSpeedRates?.ultrafast).toBeUndefined();
+            if (model.puterId?.startsWith('azure:x-ai/')) {
+                expect(model.serviceSpeedRates?.fast).toBeUndefined();
+            }
+        }
+        const azure = AZURE_MODELS.find((model) => model.id === 'gpt-5.4')!;
+        expect(azure.serviceSpeedRates).toEqual({
+            fast: sourceOf(azure)!.serviceSpeedRates!.fast,
+        });
+    });
     it('has a direct-provider source for every entry not listed as standalone', () => {
         const orphans = mirrored
             .filter(([, m]) => !sourceOf(m))

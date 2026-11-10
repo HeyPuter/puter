@@ -43,6 +43,7 @@ import {
 } from '../../utils/mediaParts.js';
 import { isToolChoice, toolChoiceFromWire } from '../../utils/openaiParams.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
+import { serviceSpeedCosts } from '../../utils/serviceSpeed.js';
 import type {
     AIChatStream,
     AIChatTextStream,
@@ -107,20 +108,21 @@ const toAnthropicMediaPart = (part: any): any => {
     return part;
 };
 
-/** A 429 from fast mode's separate quota, not the model's normal limits. */
-const isFastModeRateLimit = (e: unknown): boolean => {
+/** Fast quota or overload failures can be retried at standard speed. */
+const isFastModeUnavailable = (e: unknown): boolean => {
     const err = e as { status?: unknown; message?: unknown };
     return (
-        err?.status === 429 &&
-        typeof err.message === 'string' &&
-        /fast mode/i.test(err.message)
+        typeof err?.message === 'string' &&
+        ((err?.status === 429 && /fast mode/i.test(err.message)) ||
+            (err?.status === 529 && /overload|fast mode/i.test(err.message)))
     );
 };
 
 // Models whose current turn rejects a non-default temperature/top_p/top_k
-// outright. Fable 5/5.1, Sonnet 5/5.5, Haiku 5.5, and Opus 4.7+.
+// outright. Fable 5/5.1/5.2, Sonnet 5/5.5, Haiku 5.5, and Opus 4.7+.
 const OMITS_SAMPLING_PARAMS = new Set([
     'claude-haiku-5-5',
+    'claude-fable-5-2',
     'claude-fable-5-1',
     'claude-fable-5',
     'claude-sonnet-5-5',
@@ -133,6 +135,7 @@ const OMITS_SAMPLING_PARAMS = new Set([
 
 const SUPPORTS_EFFORT = new Set([
     'claude-haiku-5-5',
+    'claude-fable-5-2',
     'claude-fable-5-1',
     'claude-fable-5',
     'claude-sonnet-5-5',
@@ -298,20 +301,12 @@ export class ClaudeProvider implements IChatProvider {
         return `claude:${modelId}`;
     }
 
-    /**
-     * Sizes the credit hold for Claude-only extras the generic per-token math
-     * can't see: fast mode's own rate card, and a web-search/advisor tool that
-     * could run several times before the model answers.
-     */
+    /** Reserves tools that can run several times before the model answers. */
     requestPricing(
         args: ICompleteArguments,
         model: IChatModel,
         est: { promptTokenEstimate: number },
-    ): { inputKey?: string; outputKey?: string; extraCost?: number } {
-        const fast =
-            args.speed === 'fast' &&
-            model.costs?.fast_output_tokens !== undefined;
-
+    ): { extraCost?: number } {
         let extraCost = 0;
         for (const raw of args.tools ?? []) {
             const tool = raw as Record<string, unknown>;
@@ -350,12 +345,6 @@ export class ClaudeProvider implements IChatProvider {
         }
 
         return {
-            ...(fast
-                ? {
-                      inputKey: 'fast_input_tokens',
-                      outputKey: 'fast_output_tokens',
-                  }
-                : {}),
             ...(extraCost > 0 ? { extraCost } : {}),
         };
     }
@@ -364,11 +353,9 @@ export class ClaudeProvider implements IChatProvider {
         try {
             return await this.#completeOnce(args);
         } catch (e) {
-            // Fast mode has its own quota. Anthropic's advice on that 429 is to
-            // drop `speed` and run at standard speed; doing it here keeps the
-            // request on Claude instead of marking the route unhealthy and
-            // replaying it on a reseller.
-            if (args.speed === 'fast' && isFastModeRateLimit(e)) {
+            // Retry fast-capacity failures on Claude at standard speed before
+            // considering a different provider.
+            if (args.speed === 'fast' && isFastModeUnavailable(e)) {
                 return await this.#completeOnce({ ...args, speed: undefined });
             }
             throw e;
@@ -637,7 +624,7 @@ export class ClaudeProvider implements IChatProvider {
             : undefined;
         const fast =
             args.speed === 'fast' &&
-            modelUsed.costs?.fast_output_tokens !== undefined;
+            modelUsed.serviceSpeedRates?.fast !== undefined;
         const safeguardsPolicy = applySafeguardsPolicy(
             args.safeguards,
             args.anthropicBetas,
@@ -1071,6 +1058,7 @@ export class ClaudeProvider implements IChatProvider {
         // keeps reasoning visible in the stream.
         if (
             modelId === 'claude-haiku-5-5' ||
+            modelId === 'claude-fable-5-2' ||
             modelId === 'claude-fable-5-1' ||
             modelId === 'claude-fable-5' ||
             modelId === 'claude-sonnet-5-5' ||
@@ -1505,7 +1493,8 @@ export class ClaudeProvider implements IChatProvider {
 
         const fast =
             raw.speed === 'fast' &&
-            modelUsed.costs?.fast_output_tokens !== undefined;
+            modelUsed.serviceSpeedRates?.fast !== undefined;
+        // Keep published usage keys while resolving rates from the common catalog shape.
         const executorUsage: Record<string, number> = fast
             ? Object.fromEntries(
                   Object.entries(exec).map(([k, v]) => [`fast_${k}`, v]),
@@ -1517,7 +1506,24 @@ export class ClaudeProvider implements IChatProvider {
         const fetches = raw.server_tool_use?.web_fetch_requests ?? 0;
         if (fetches) executorUsage.web_fetch_requests = fetches;
 
-        const executorCosts = buildCostsOverride(executorUsage, modelUsed);
+        const fastRates = fast
+            ? serviceSpeedCosts(modelUsed, 'fast')
+            : undefined;
+        const billingModel = fastRates
+            ? {
+                  ...modelUsed,
+                  costs: {
+                      ...modelUsed.costs,
+                      ...Object.fromEntries(
+                          Object.keys(exec).map((key) => [
+                              `fast_${key}`,
+                              fastRates[key],
+                          ]),
+                      ),
+                  },
+              }
+            : modelUsed;
+        const executorCosts = buildCostsOverride(executorUsage, billingModel);
 
         let advisorUsage: Record<string, number> | undefined;
         let advisorCosts: Record<string, number> | undefined;

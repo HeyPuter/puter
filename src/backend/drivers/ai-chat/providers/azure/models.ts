@@ -22,10 +22,8 @@ import { OPEN_AI_MODELS } from '../openai/models.js';
 import { XAI_MODELS } from '../xai/models.js';
 
 /**
- * An Azure deployment of a model we also serve direct. Every field but the
- * identity comes from the source entry, so prices, long-context tiers and
- * limits can't drift from it. `name` is the vendor-qualified name both catalogs
- * share (`openai/gpt-5.4`); extra fields override the source.
+ * Azure shares its source model's list prices, context tiers, and limits.
+ * Identity and available service speeds belong to the deployment.
  */
 const mirror = (
     source: readonly IChatModel[],
@@ -41,6 +39,11 @@ const mirror = (
         puterId: `azure:${name}`,
         id: azure.id,
         ...shared,
+        serviceSpeedRates:
+            source === OPEN_AI_MODELS &&
+            shared.serviceSpeedRates?.fast !== undefined
+                ? { fast: shared.serviceSpeedRates.fast }
+                : undefined,
         aliases: [name],
         ...azure,
     };
@@ -127,6 +130,13 @@ export const AZURE_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 250,
+                cached_tokens: 25,
+                completion_tokens: 2000,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 125,
@@ -171,6 +181,13 @@ export const AZURE_MODELS: IChatModel[] = [
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
+        serviceSpeedRates: {
+            fast: {
+                prompt_tokens: 45,
+                cached_tokens: 4.5,
+                completion_tokens: 360,
+            },
+        },
         costs: {
             tokens: 1_000_000,
             prompt_tokens: 25,

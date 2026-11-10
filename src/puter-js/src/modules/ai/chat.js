@@ -20,6 +20,7 @@ const PARAMS_TO_PASS = [
     'verbosity',
     'provider',
     'fallback',
+    'serviceSpeed',
     'image_config',
     'compaction',
     'context_management',
@@ -234,6 +235,10 @@ export async function chat (
     // the first object argument is the user parameters object
     /** @type {ChatOptions & { stream?: boolean }} */
     const userParams = extras.find(isPlainObject) ?? {};
+
+    if (userParams.serviceSpeed !== undefined && !['standard', 'fast', 'ultrafast'].includes(userParams.serviceSpeed)) {
+        throw { code: 'invalid_service_speed', message: 'serviceSpeed must be standard, fast, or ultrafast' };
+    }
 
     // Copy relevant parameters from userParams to requestParams.
     // Use `!== undefined` so legitimate zeros (temperature: 0, max_tokens: 0)

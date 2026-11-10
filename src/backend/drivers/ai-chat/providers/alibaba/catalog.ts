@@ -174,6 +174,9 @@ export const mapAlibabaCatalogModel = (
             : undefined;
     return {
         ...existing,
+        serviceSpeedVariants: {
+            fast: id === 'glm-5.2' ? 'glm-5.2-fast-preview' : `${id}-prime`,
+        },
         id,
         puterId,
         name: raw.name ?? existing?.name ?? id,

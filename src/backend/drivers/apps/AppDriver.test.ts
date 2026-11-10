@@ -509,7 +509,7 @@ describe('AppDriver.read', () => {
 // ── select ──────────────────────────────────────────────────────────
 
 describe('AppDriver.select', () => {
-    it('returns visible apps including those owned by other users', async () => {
+    it("returns only the caller's apps when no predicate is sent", async () => {
         const a = await makeUser();
         const b = await makeUser();
         const aName = uniqueName('a');
@@ -538,7 +538,7 @@ describe('AppDriver.select', () => {
         )) as Array<Record<string, unknown>>;
         const names = result.map((r) => r.name);
         expect(names).toContain(aName);
-        expect(names).toContain(bName);
+        expect(names).not.toContain(bName);
     });
 
     it('predicate `user-can-edit` filters to actor-owned apps only', async () => {
@@ -1670,11 +1670,10 @@ describe('AppDriver.select pagination', () => {
         expect(page.total).toBe(names.length);
     });
 
-    it("hides other users' protected apps from paginated catalog listings", async () => {
+    it("pages through only the caller's apps, protected ones included", async () => {
         const a = await makeApps(3);
-        const [visible1, hidden, visible2] = a.names;
         const created = await withActor(a.actor, () =>
-            driver.read({ id: { name: hidden } }),
+            driver.read({ id: { name: a.names[1] } }),
         );
         const row = await server.stores.app.getByUid(
             (created as Record<string, unknown>).uid as string,
@@ -1685,20 +1684,29 @@ describe('AppDriver.select pagination', () => {
         );
         await server.stores.app.invalidateByUid(row!.uid as string);
 
-        const b = await makeUser();
-        const seen: string[] = [];
-        let cursor: string | null | undefined = null;
-        do {
-            const page = (await withActor(b.actor, () =>
-                driver.select({ limit: 50, cursor }),
-            )) as { items: Array<{ name: string }>; cursor?: string };
-            seen.push(...page.items.map((r) => r.name));
-            cursor = page.cursor;
-        } while (cursor);
+        const listAll = async (actor: Actor) => {
+            const seen: string[] = [];
+            let total: number | undefined;
+            let cursor: string | null | undefined = null;
+            do {
+                const page = (await withActor(actor, () =>
+                    driver.select({ limit: 2, cursor, includeTotal: true }),
+                )) as {
+                    items: Array<{ name: string }>;
+                    cursor?: string;
+                    total?: number;
+                };
+                seen.push(...page.items.map((r) => r.name));
+                total ??= page.total;
+                cursor = page.cursor;
+            } while (cursor);
+            return { seen, total };
+        };
 
-        expect(seen).toContain(visible1);
-        expect(seen).toContain(visible2);
-        expect(seen).not.toContain(hidden);
+        expect(await listAll(a.actor)).toEqual({ seen: a.names, total: 3 });
+
+        const b = await makeUser();
+        expect(await listAll(b.actor)).toEqual({ seen: [], total: 0 });
     });
 });
 
@@ -2517,22 +2525,6 @@ describe('AppDriver.select query-count regression', () => {
 // -- select / read parity --
 
 describe('AppDriver.select / read parity', () => {
-    const findViaBroadSelect = async (
-        actor: Actor,
-        uid: string,
-    ): Promise<Record<string, unknown> | undefined> => {
-        let cursor: string | null | undefined = null;
-        do {
-            const page = (await withActor(actor, () =>
-                driver.select({ limit: 50, cursor }),
-            )) as { items: Array<Record<string, unknown>>; cursor?: string };
-            const found = page.items.find((r) => r.uid === uid);
-            if (found) return found;
-            cursor = page.cursor;
-        } while (cursor);
-        return undefined;
-    };
-
     it('every select item (minus stats) deep-equals the corresponding read', async () => {
         const { actor } = await makeUser();
         const names: string[] = [];
@@ -2640,7 +2632,7 @@ describe('AppDriver.select / read parity', () => {
         ).toBe(false);
     });
 
-    it('dangling hosted app via select: owner keeps index_url, others do not', async () => {
+    it('dangling hosted app: owner keeps index_url in select, others do not in read', async () => {
         const owner = await makeUser();
         const other = await makeUser();
         const sub = uniqueName('qcdangsel');
@@ -2672,13 +2664,12 @@ describe('AppDriver.select / read parity', () => {
                 ?.reason,
         ).toBe('hosted_backing_unavailable');
 
-        const otherItem = await findViaBroadSelect(
-            other.actor,
-            created.uid as string,
-        );
-        expect(otherItem?.index_url).toBeUndefined();
+        const otherItem = (await withActor(other.actor, () =>
+            driver.read({ uid: created.uid }),
+        )) as Record<string, unknown>;
+        expect(otherItem.index_url).toBeUndefined();
         expect(
-            (otherItem?.privateAccess as { hasAccess?: boolean } | undefined)
+            (otherItem.privateAccess as { hasAccess?: boolean } | undefined)
                 ?.hasAccess,
         ).toBe(false);
     });

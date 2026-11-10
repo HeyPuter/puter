@@ -2,8 +2,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     POPUP_FRAME_MSG,
+    canShowEmailConfirmationFrame,
     canShowUpgradeFrame,
     closeAccountChecksOnEscape,
+    confirmEmailInFrame,
     focusOnFrameFocus,
     framedPopupAction,
     framedPopupParams,
@@ -48,6 +50,7 @@ describe('framedPopupAction', () => {
         ['/embed/show-save-file-picker', 'show-save-file-picker'],
         ['/embed/show-directory-picker', 'show-directory-picker'],
         ['/embed/upgrade', 'upgrade'],
+        ['/embed/request-email-confirmation', 'request-email-confirmation'],
         ['/embed/apps', null],
         ['/embed/feedback', null],
         ['/embed/request-permission', null],
@@ -82,6 +85,7 @@ describe('framesHostUser', () => {
         ['show-save-file-picker', true],
         ['show-directory-picker', true],
         ['upgrade', true],
+        ['request-email-confirmation', true],
         ['sign-in', false],
         [null, false],
     ])('%s serves only the framing page\'s user: %s', (action, expected) => {
@@ -126,6 +130,83 @@ describe('canShowUpgradeFrame', () => {
 
     it('needs a session', () => {
         expect(canShowUpgradeFrame(win, null)).toBe(false);
+    });
+});
+
+describe('canShowEmailConfirmationFrame', () => {
+    const session = { uuid: 'u-1' };
+
+    it('shows for a session with nothing to verify, or only the email', () => {
+        expect(canShowEmailConfirmationFrame(session)).toBe(true);
+        expect(canShowEmailConfirmationFrame({ ...session, requires_email_confirmation: true })).toBe(true);
+    });
+
+    it.each([
+        'requires_phone_verification',
+        'requires_card_verification',
+        'requires_password_change',
+    ])('leaves an account with %s unavailable', (check) => {
+        expect(canShowEmailConfirmationFrame({ ...session, [check]: true })).toBe(false);
+    });
+
+    it('needs a session', () => {
+        expect(canShowEmailConfirmationFrame(null)).toBe(false);
+    });
+});
+
+describe('confirmEmailInFrame', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    const confirmWindow = ({ user, width = 1280, height = 800 } = {}) =>
+        Object.assign(new EventTarget(), { user, innerWidth: width, innerHeight: height });
+
+    it('resolves true for a confirmed email without showing anything', async () => {
+        const confirm = vi.fn();
+        const tell = vi.fn();
+        await expect(confirmEmailInFrame(confirmWindow({ user: { email_confirmed: true } }), confirm, tell))
+            .resolves.toBe(true);
+        expect(confirm).not.toHaveBeenCalled();
+        expect(tell).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['confirms', true, true],
+        ['backs out', false, false],
+        ['gets no answer', undefined, false],
+    ])('resolves whether the email is confirmed when the user %s', async (_label, answer, expected) => {
+        const confirm = vi.fn(async () => answer);
+        await expect(confirmEmailInFrame(confirmWindow({ user: { email_confirmed: false } }), confirm, vi.fn()))
+            .resolves.toBe(expected);
+        expect(confirm).toHaveBeenCalledTimes(1);
+    });
+
+    it('walks a temporary account through it', async () => {
+        const confirm = vi.fn(async () => true);
+        await expect(confirmEmailInFrame(confirmWindow({ user: { is_temp: true } }), confirm, vi.fn()))
+            .resolves.toBe(true);
+        expect(confirm).toHaveBeenCalledTimes(1);
+    });
+
+    it('has a hidden frame shown before its windows open', async () => {
+        vi.useFakeTimers();
+        const win = confirmWindow({ user: {}, width: 0, height: 0 });
+        const sizes = [];
+        const tell = vi.fn();
+        const result = confirmEmailInFrame(win, async () => {
+            sizes.push([win.innerWidth, win.innerHeight]);
+            return true;
+        }, tell);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(tell).toHaveBeenCalledWith('ready');
+        expect(sizes).toEqual([]);
+
+        win.innerWidth = 1280;
+        win.innerHeight = 800;
+        win.dispatchEvent(new Event('resize'));
+        await expect(result).resolves.toBe(true);
+        expect(sizes).toEqual([[1280, 800]]);
     });
 });
 
@@ -315,11 +396,15 @@ describe('startPopupFrame', () => {
         );
     });
 
-    it('lets the framing page show through an upgrade frame only', () => {
+    it('lets the framing page show through an upgrade or email confirmation frame only', () => {
         startPopupFrame({ ...frameWindow(), location: { pathname: '/embed/sign-in' } }, HOST);
         expect(document.documentElement.classList.contains('popup-frame-transparent')).toBe(false);
 
         startPopupFrame({ ...frameWindow(), location: { pathname: '/embed/upgrade' } }, HOST);
+        expect(document.documentElement.classList.contains('popup-frame-transparent')).toBe(true);
+
+        document.documentElement.classList.remove('popup-frame-transparent');
+        startPopupFrame({ ...frameWindow(), location: { pathname: '/embed/request-email-confirmation' } }, HOST);
         expect(document.documentElement.classList.contains('popup-frame-transparent')).toBe(true);
     });
 
@@ -486,6 +571,7 @@ describe('closeAccountChecksOnEscape', () => {
         'window-confirm-email-using-code',
         'window-confirm-phone-using-code',
         'window-card-verification',
+        'window-save-account',
     ])('closes on Escape in the %s window', (cls) => {
         const win = signInWindow();
         escapeOn(showWindow(win, `window window-active ${cls}`).querySelector('input'));
@@ -509,6 +595,17 @@ describe('closeAccountChecksOnEscape', () => {
         // Safari ends a conversion with keyCode 229 and isComposing false.
         escapeOn(input, { keyCode: 229 });
         escapeOn(showWindow(win, 'window window-alert').querySelector('input'));
+        expect(win.close).not.toHaveBeenCalled();
+    });
+
+    it('hands the account window to the close it is given, leaving the frame open', () => {
+        const win = { document: document.implementation.createHTMLDocument(), close: vi.fn() };
+        const close = vi.fn();
+        closeAccountChecksOnEscape(win, close);
+        const el = showWindow(win);
+        escapeOn(el.querySelector('input'));
+        escapeOn(win.document.body);
+        expect(close.mock.calls).toEqual([[el], [el]]);
         expect(win.close).not.toHaveBeenCalled();
     });
 });

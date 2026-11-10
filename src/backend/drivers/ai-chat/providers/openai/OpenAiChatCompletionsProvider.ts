@@ -20,6 +20,7 @@
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
+import { servedServiceSpeed } from '../../utils/serviceSpeed.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
@@ -117,6 +118,7 @@ export class OpenAiChatProvider implements IChatProvider {
 
     async complete(
         params: ICompleteArguments,
+        resolved?: IChatModel,
     ): ReturnType<IChatProvider['complete']> {
         const {
             max_tokens,
@@ -134,6 +136,11 @@ export class OpenAiChatProvider implements IChatProvider {
         } = params;
         let { messages, model } = params;
         const cacheOptions = promptCacheOptionsToWire(prompt_cache_options);
+        if (params.service_tier === 'ultrafast' && this.#responsesProvider) {
+            return resolved
+                ? this.#responsesProvider.complete(params, resolved)
+                : this.#responsesProvider.complete(params);
+        }
         if (
             tools?.filter((e) => isWebSearchTool(e as Record<string, unknown>))
                 .length
@@ -147,7 +154,9 @@ export class OpenAiChatProvider implements IChatProvider {
                     { legacyCode: 'bad_request' },
                 );
             }
-            return await this.#responsesProvider.complete(params);
+            return await (resolved
+                ? this.#responsesProvider.complete(params, resolved)
+                : this.#responsesProvider.complete(params));
         }
         // Inline compaction is a Responses-API feature; chat.completions can't
         // express `context_management` or a `compaction` content block.
@@ -161,7 +170,9 @@ export class OpenAiChatProvider implements IChatProvider {
                     { legacyCode: 'bad_request' },
                 );
             }
-            return await this.#responsesProvider.complete(params);
+            return await (resolved
+                ? this.#responsesProvider.complete(params, resolved)
+                : this.#responsesProvider.complete(params));
         }
         // Only the Responses API writes 12h cache entries or takes a lifetime
         // on a `prompt_cache_breakpoint`; Chat Completions rejects both.
@@ -176,7 +187,9 @@ export class OpenAiChatProvider implements IChatProvider {
                     { legacyCode: 'bad_request' },
                 );
             }
-            return await this.#responsesProvider.complete(params);
+            return await (resolved
+                ? this.#responsesProvider.complete(params, resolved)
+                : this.#responsesProvider.complete(params));
         }
         // Validate messages
         if (!Array.isArray(messages)) {
@@ -189,9 +202,11 @@ export class OpenAiChatProvider implements IChatProvider {
         model = model ?? this.#defaultModel;
 
         const modelUsed =
-            this.models().find((m) =>
+            resolved ??
+            (this.models().find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
-            ) || this.models().find((m) => m.id === this.getDefaultModel())!;
+            ) ||
+                this.models().find((m) => m.id === this.getDefaultModel())!);
 
         // messages.unshift({
         //     role: 'system',
@@ -248,6 +263,9 @@ export class OpenAiChatProvider implements IChatProvider {
                 : {}),
             messages: messages,
             model: modelUsed.id,
+            ...(params.service_tier !== undefined
+                ? { service_tier: params.service_tier }
+                : {}),
             ...(mappedTools?.length ? { tools: mappedTools } : {}),
             ...(max_tokens !== undefined
                 ? { max_completion_tokens: max_tokens }
@@ -284,7 +302,13 @@ export class OpenAiChatProvider implements IChatProvider {
         );
 
         return OpenAiUtil.handle_completion_output({
-            usage_calculator: ({ usage, setUsageCosts, setUsageDetails }) => {
+            usage_calculator: ({
+                usage,
+                service_tier,
+                setUsageCosts,
+                setUsageDetails,
+            }) => {
+                const serviceSpeed = servedServiceSpeed({ service_tier });
                 // GPT-5.6 and later report cache writes inside
                 // `prompt_tokens`, like cached reads; Chat Completions only
                 // writes the default 30m entries, billed at 1.25x input.
@@ -296,13 +320,17 @@ export class OpenAiChatProvider implements IChatProvider {
                     this.meteringModelKey(modelUsed.id),
                     modelUsed,
                     trackedUsage,
+                    { serviceSpeed },
                 );
                 setUsageCosts(metered.costs);
-                setUsageDetails(
-                    OpenAiUtil.usageDetailsFromTrackedUsage(metered.usage, {
+                setUsageDetails({
+                    ...OpenAiUtil.usageDetailsFromTrackedUsage(metered.usage, {
                         writeTtl: '30m',
                     })!,
-                );
+                    ...(params.serviceSpeed !== undefined
+                        ? { serviceSpeed }
+                        : {}),
+                });
                 return metered.usage;
             },
             stream,
