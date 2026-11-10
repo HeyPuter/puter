@@ -174,6 +174,11 @@ describe('ShareStore', () => {
         it('says an owner with nothing shared has no shares', async () => {
             const owner = await makeUser();
             await makeEntry(owner);
+            // An invite row that names no node is not a share of an entry.
+            await store.create({
+                issuerUserId: owner.id,
+                recipientEmail: `${owner.username}-invite@test.local`,
+            });
             await expect(store.ownerHasShares(owner.id)).resolves.toBe(false);
         });
 
@@ -204,24 +209,6 @@ describe('ShareStore', () => {
                 read.mockRestore();
                 pread.mockRestore();
             }
-        });
-
-        it('still finds a row written before the owner column existed', async () => {
-            const legacyOwner = await makeUser();
-            const legacy = await makeEntry(legacyOwner);
-            await store.upsertActive({
-                issuerUserId: legacyOwner.id,
-                holderUserId: holder.id,
-                fsentryId: legacy.id,
-                mode: 'read',
-            });
-            await server.clients.db.write(
-                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `fsentry_id` = ?',
-                [legacy.id],
-            );
-            await expect(store.ownerHasShares(legacyOwner.id)).resolves.toBe(
-                true,
-            );
         });
 
         it('finds a subtree share even when the descendant has no path yet', async () => {
@@ -711,12 +698,6 @@ describe('ShareStore', () => {
             await groupRow(member.id, await makeEntry(member));
             // A teammate's share of the member's item.
             await groupRow(mate.id, await makeEntry(member));
-            // As that, from before `entry_owner_user_id` was recorded.
-            const legacy = await groupRow(mate.id, await makeEntry(member));
-            await server.clients.db.write(
-                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `uid` = ?',
-                [legacy.uid],
-            );
             const theirs = await groupRow(mate.id, await makeEntry(mate));
             const direct = await store.upsertActive({
                 issuerUserId: mate.id,
