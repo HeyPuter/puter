@@ -1839,6 +1839,17 @@ export class UIModule extends EventListener {
     }
 
     /**
+     * Whether {@link showTopUp_} is showing the top-up in a frame, about to,
+     * or asking to open it in a tab instead.
+     *
+     * @internal
+     * @returns {boolean}
+     */
+    topUpShowing_ () {
+        return this.#topUpFrame !== null;
+    }
+
+    /**
      * Shows the top-up flow, where a user with a plan buys add-on credit. On
      * a signed-in first-party page one label under the Puter origin, it shows
      * in a frame over the page, and the promise resolves once it closes. When

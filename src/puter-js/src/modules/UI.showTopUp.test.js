@@ -91,6 +91,19 @@ describe('ui.showTopUp_ on a signed-in first-party page', () => {
         await expect(result).resolves.toEqual({ toppedUp: false });
     });
 
+    it('says a top-up is showing until it closes', async () => {
+        const ui = makeUI();
+        expect(ui.topUpShowing_()).toBe(false);
+        const result = ui.showTopUp_();
+        expect(ui.topUpShowing_()).toBe(true);
+        await vi.waitFor(() => expect(topUpFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        expect(ui.topUpShowing_()).toBe(true);
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed' });
+        await result;
+        expect(ui.topUpShowing_()).toBe(false);
+    });
+
     it('leaves Escape on the page to the dialog once it shows', async () => {
         const result = makeUI().showTopUp_();
         await vi.waitFor(() => expect(topUpFrame()).not.toBeNull());
