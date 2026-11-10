@@ -267,6 +267,22 @@ describe.each([
         await expect(late).resolves.toEqual(USERS['tok-b']);
         await expect(joined).resolves.toEqual(USERS['tok-b']);
     });
+
+    it('does not join a lookup sent to another API origin', async () => {
+        const puter = await bootWeb();
+        puter.setAuthToken('tok-a');
+        await flush();
+        expect(whoamis).toHaveLength(1);
+
+        puter.setAPIOrigin('http://other-origin.test');
+        const user = readUser(puter);
+        await flush();
+        expect(whoamis).toHaveLength(2);
+        expect(whoamis[1].xhr.url).toBe('http://other-origin.test/whoami');
+
+        await answer();
+        await expect(user).resolves.toEqual(USERS['tok-a']);
+    });
 });
 
 describe.each([

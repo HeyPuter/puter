@@ -1072,7 +1072,7 @@ export class Puter {
         this.whoamiCache_ = lookup;
         const inFlight =
             this.authToken && this.socketEnabled
-                ? { token: this.authToken, lookup }
+                ? { token: this.authToken, origin: this.APIOrigin, lookup }
                 : null;
         this.whoamiInFlight_ = inFlight;
         void lookup.then(() => {

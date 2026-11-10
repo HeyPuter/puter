@@ -581,10 +581,11 @@ export class AuthModule extends PuterModule {
         });
     }
 
-    /** @internal A copy of the user from the boot `/whoami` in flight for `token`. */
+    /** @internal A copy of the user from the boot `/whoami` in flight for `token` at this origin. */
     joinBootLookup_(token) {
         const inFlight = this.puter.whoamiInFlight_;
         if (!token || inFlight?.token !== token) return null;
+        if (inFlight.origin !== this.puter.APIOrigin) return null;
         return inFlight.lookup.then((user) =>
             user ? structuredClone(user) : null,
         );
