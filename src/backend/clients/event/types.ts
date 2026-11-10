@@ -20,6 +20,7 @@ import type {
     Response as ExpressResponse,
 } from 'express';
 import { Actor } from '../../core';
+import type { EmailTemplateName } from '../email/templates';
 import type { UsageInput } from '../../services/metering/types';
 import { FSEntry } from '../../stores/fs/FSEntry';
 
@@ -981,7 +982,7 @@ export type EmailNotifyValidateEvent = {
     /** The address, as it will be sent. */
     to: string;
     /** The mail's template name, e.g. `file_shared_with_you`. */
-    kind: string;
+    kind: EmailTemplateName;
     allow: boolean;
 };
 
