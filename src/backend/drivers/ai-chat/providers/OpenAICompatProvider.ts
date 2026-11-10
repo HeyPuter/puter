@@ -41,6 +41,7 @@ import {
     meterChatUsage,
     type MeterChatUsageOptions,
 } from '../utils/meterChatUsage.js';
+import { servedServiceSpeed } from '../utils/serviceSpeed.js';
 import { catalogPrice, costKeys } from '../utils/pricing.js';
 import { normalizeModelKey } from '../utils/modelRouting.js';
 import * as OpenAIUtil from '../utils/OpenAIUtil.js';
@@ -232,6 +233,8 @@ export class OpenAICompatProvider implements IChatProvider {
                   )
                 : {}),
         };
+        if (args.serviceSpeed !== undefined && args.service_tier !== undefined)
+            shared.service_tier = args.service_tier;
         const params = this.vendorParams(shared, args, model, actor);
 
         let pricingTime = attemptPricingTime ?? new Date();
@@ -271,15 +274,29 @@ export class OpenAICompatProvider implements IChatProvider {
                     source,
                     model,
                 );
-                if (usageDetails) source.setUsageDetails?.(usageDetails);
+                const serviceSpeed = servedServiceSpeed(source);
+                if (usageDetails)
+                    source.setUsageDetails?.({
+                        ...usageDetails,
+                        ...(args.serviceSpeed !== undefined
+                            ? { serviceSpeed }
+                            : {}),
+                    });
                 const metered = meterChatUsage(
                     this.#metering,
                     actor,
                     this.meteringModelKey(model.id),
                     model,
                     usage,
-                    { ...meterOptions, pricingTime },
+                    { ...meterOptions, pricingTime, serviceSpeed },
                 );
+                if (args.serviceSpeed !== undefined && !usageDetails) {
+                    const details = OpenAIUtil.usageDetailsFromTrackedUsage(
+                        metered.usage,
+                    );
+                    if (details)
+                        source.setUsageDetails?.({ ...details, serviceSpeed });
+                }
                 source.setUsageCosts(metered.costs);
                 return this.reportedUsage(metered.usage);
             },

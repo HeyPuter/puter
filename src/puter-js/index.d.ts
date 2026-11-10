@@ -18,6 +18,7 @@ declare global {
 // -- Shared --
 export type {
     APILoggingConfig,
+    EmailConfirmationResult,
     ListPage,
     ListPaginationOptions,
     ListStreamOptions,
@@ -37,6 +38,7 @@ export type {
     AIMessageContent,
     ChatMessage,
     ChatOptions,
+    ServiceSpeed,
     ChatResponse,
     ChatResponseChunk,
     ChatResponseStream,

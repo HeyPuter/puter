@@ -6,12 +6,12 @@ import { decode, encode } from 'html-entities';
 globalThis.window = globalThis.window ?? {};
 globalThis.html_encode = (str) => encode(str);
 
-let MODES, mode_label, options_for;
+let MODES, mode_label, options_for, strongerMode;
 
 beforeAll(async () => {
     await import('../i18n/i18n.js'); // installs window.i18n
     globalThis.i18n = window.i18n;
-    ({ MODES, mode_label, options_for } = await import('./shareModes.js'));
+    ({ MODES, mode_label, options_for, strongerMode } = await import('./shareModes.js'));
 });
 
 // What the browser renders for a fragment of HTML-safe markup.
@@ -38,6 +38,21 @@ describe('mode_label', () => {
 
     it('encodes an unrecognized mode rather than trusting it', () => {
         expect(mode_label('<img src=x onerror=alert(1)>')).not.toContain('<img');
+    });
+});
+
+describe('strongerMode', () => {
+    it('ranks all five API modes', () => {
+        const modes = ['see', 'list', 'read', 'write', 'manage'];
+        for ( let i = 1; i < modes.length; i++ ) {
+            expect(strongerMode(modes[i - 1], modes[i])).toBe(modes[i]);
+            expect(strongerMode(modes[i], modes[i - 1])).toBe(modes[i]);
+        }
+    });
+
+    it('never lets an unrecognized mode beat a known one', () => {
+        expect(strongerMode('see', 'owner')).toBe('see');
+        expect(strongerMode('owner', 'see')).toBe('see');
     });
 });
 
