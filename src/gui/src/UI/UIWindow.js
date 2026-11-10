@@ -1526,7 +1526,7 @@ async function UIWindow (options) {
                 window.update_explorer_footer_selected_items_count(el_window);
 
                 // If this is openFileDialog, enable/disable the Open button accordingly
-                if ( options.is_openFileDialog && $(el_window).find('.item-selected').length )
+                if ( options.is_openFileDialog && $(el_window).find('.item-selected[data-is_dir="0"]').length )
                 {
                     $(el_openfiledialog_open_btn).removeClass('disabled');
                 }
@@ -1537,7 +1537,7 @@ async function UIWindow (options) {
             })
             .on('stop', ({ store, event }) => {
             // If this is openFileDialog, enable/disable the Open button accordingly
-                if ( options.is_openFileDialog && $(el_window).find('.item-selected').length )
+                if ( options.is_openFileDialog && $(el_window).find('.item-selected[data-is_dir="0"]').length )
                 {
                     $(el_openfiledialog_open_btn).removeClass('disabled');
                 }
@@ -3406,6 +3406,8 @@ window.update_window_path = async function (el_window, target_path) {
 
         // empty body to be filled with the results of /readdir
         $(el_window_body).find('.item').removeItems();
+        // nothing is selected in the folder being opened
+        $(el_window).find('.openfiledialog-open-btn').addClass('disabled');
 
         // add the 'Detail View' table header
         if ( $(el_window).find('.explore-table-headers').length === 0 )
