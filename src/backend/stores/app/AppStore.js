@@ -26,6 +26,7 @@ import {
     PuterStore,
 } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
+import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
     validateUrl,
@@ -89,6 +90,8 @@ const STATS_CACHE_TTL_SECONDS = 30 * 60;
 // `app-` + a UUID. ClickHouse's `app_opens.app_uid` is FixedString(40) and
 // fails the whole query on a longer value.
 const APP_UID_MAX_BYTES = 40;
+// ClickHouse caps the size of one query parameter, and the uid list is one.
+const CLICKHOUSE_UIDS_PER_QUERY = 1000;
 
 // Period helpers for detailed/grouped stats. Ported from v1
 // AppInformationService — queries go straight to ClickHouse/MySQL on demand
@@ -1727,20 +1730,30 @@ export class AppStore extends PuterStore {
 
         const clickhouse = this.clients.clickhouse;
         if (clickhouse) {
-            const res = await clickhouse.query({
-                query: `
-                    SELECT app_uid,
-                           uniqExact((user_id, intDiv(ts, ${APP_OPEN_COUNT_PERIOD_SECONDS}))) AS open_count,
-                           count(DISTINCT user_id) AS user_count
-                    FROM app_opens
-                    WHERE app_uid IN {uids:Array(String)}
-                    GROUP BY app_uid
-                `,
-                query_params: { uids: uids.map((u) => String(u)) },
-                format: 'JSONEachRow',
-            });
-            const rows = await res.json();
-            for (const row of rows) {
+            const chunks = [];
+            for (let i = 0; i < uids.length; i += CLICKHOUSE_UIDS_PER_QUERY) {
+                chunks.push(uids.slice(i, i + CLICKHOUSE_UIDS_PER_QUERY));
+            }
+            const results = await runWithConcurrencyLimit(
+                chunks,
+                4,
+                async (chunk) => {
+                    const res = await clickhouse.query({
+                        query: `
+                            SELECT app_uid,
+                                   uniqExact((user_id, intDiv(ts, ${APP_OPEN_COUNT_PERIOD_SECONDS}))) AS open_count,
+                                   count(DISTINCT user_id) AS user_count
+                            FROM app_opens
+                            WHERE app_uid IN {uids:Array(String)}
+                            GROUP BY app_uid
+                        `,
+                        query_params: { uids: chunk.map((u) => String(u)) },
+                        format: 'JSONEachRow',
+                    });
+                    return res.json();
+                },
+            );
+            for (const row of results.flat()) {
                 out.set(row.app_uid, {
                     open_count: parseInt(row.open_count, 10) || 0,
                     user_count: parseInt(row.user_count, 10) || 0,
