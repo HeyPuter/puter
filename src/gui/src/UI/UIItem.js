@@ -745,6 +745,7 @@ async function UIItem (options) {
     function rename () {
         if ( rename_cancelled ) {
             rename_cancelled = false;
+            $(el_item_name_editor).removeClass('item-name-editor-active');
             return;
         }
 
@@ -768,6 +769,8 @@ async function UIItem (options) {
             $(el_item_name).show();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name_editor).hide();
+            // the Delete shortcut skips an item whose editor is marked active
+            $(el_item_name_editor).removeClass('item-name-editor-active');
             return;
         }
         // deactivate item name editable
@@ -813,6 +816,7 @@ async function UIItem (options) {
             e.stopPropagation();
             e.preventDefault();
             rename_cancelled = true;
+            $(el_item_name_editor).removeClass('item-name-editor-active');
             $(el_item_name_editor).hide();
             $(el_item_name_editor).val(options.name);
             $(el_item_name).show();
