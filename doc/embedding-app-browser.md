@@ -279,9 +279,9 @@ has no verification or password change waiting, and the deployment defines
 new UITopUp({ onClose }).open();
 ```
 
-`open()` resolves once the dialog shows, and `onClose({ toppedUp })` must run
-exactly once, when the dialog closes or when it declines to open for the
-account. The GUI then posts `{ msg: 'puterPopupFrame', state: 'closed', toppedUp }`
+`open()` resolves once the dialog has loaded the account and shows what it can
+buy, and `onClose({ toppedUp })` must run exactly once, when the dialog closes
+or when it declines to open for the account. The GUI then posts `{ msg: 'puterPopupFrame', state: 'closed', toppedUp }`
 and the page removes the frame. When the frame can't show the top-up, puter.js
 opens the dashboard's top-up in a new tab, as it does the upgrade.
 
