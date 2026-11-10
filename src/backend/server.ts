@@ -1824,7 +1824,7 @@ export class PuterServer {
                     try {
                         await this.#runPrepareShutdownHooks();
                     } catch (err) {
-                        console.log(
+                        console.error(
                             '[server] prepare-shutdown hooks failed',
                             err,
                         );
