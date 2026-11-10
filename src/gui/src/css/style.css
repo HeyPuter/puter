@@ -842,6 +842,14 @@ span.header-sort-icon img {
     color: white;
 }
 
+.device-desktop .item-container-details .item-selected.item-blurred {
+    background-color: #dbdada;
+}
+
+.device-desktop .item-container-details .item-selected.item-blurred .item-attr {
+    color: rgb(73, 73, 73);
+}
+
 .item-container-details .item-attr--modified {
     left: 350px;
 }
