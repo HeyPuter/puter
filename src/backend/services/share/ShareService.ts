@@ -451,21 +451,19 @@ export class ShareService extends PuterService {
                 fromUserId?: number;
             };
             if (!node?.uuid) return;
-            const handedOver =
-                typeof fromUserId === 'number' && fromUserId !== node.userId;
-            // The subtree's share rows were re-pointed at its new owner.
-            if (handedOver) this.#ownerShared(node.userId);
-            const notify = this.#fanOutMove(node, fromPath, fromUserId).catch(
-                () => {
-                    // A stale window is better than a failed move.
-                },
-            );
+            const notify = this.#fanOutMove(node, fromPath).catch(() => {
+                // A stale window is better than a failed move.
+            });
 
             // Grants are keyed on uuid, so they would otherwise follow the
             // entry into its new owner's tree — leaving the new owner with
             // recipients they never agreed to. Awaited alongside the notify so
             // an `emitAndWait` caller sees both.
-            if (!handedOver) return notify;
+            if (typeof fromUserId !== 'number' || fromUserId === node.userId) {
+                return notify;
+            }
+            // The subtree's share rows were re-pointed at its new owner.
+            this.#ownerShared(node.userId);
             return Promise.all([
                 notify,
                 this.onEntryOwnerChanged(node).catch((err: unknown): void => {
@@ -702,16 +700,11 @@ export class ShareService extends PuterService {
      * easily as into it: both ends is a move, only the destination an arrival,
      * only the origin a removal.
      */
-    async #fanOutMove(
-        entry: FSEntry,
-        fromPath?: string,
-        /** The owner before the move; the origin's shares are theirs. */
-        fromUserId?: number,
-    ): Promise<void> {
+    async #fanOutMove(entry: FSEntry, fromPath?: string): Promise<void> {
         const destination = await this.#reachingRoots(entry);
         const origin =
             fromPath && fromPath !== entry.path
-                ? await this.#reachingRoots(entry, fromPath, fromUserId)
+                ? await this.#reachingRoots(entry, fromPath)
                 : destination;
 
         const rootsBySide = (
@@ -824,14 +817,8 @@ export class ShareService extends PuterService {
         entry: FSEntry,
         /** Where to look from; the former path once the entry has moved. */
         realPath: string = entry.path,
-        /** Who owned `realPath` when the entry was there, if not its owner. */
-        realOwnerId?: number,
     ): Promise<Array<{ root: FSEntry; holders: number[] }>> {
-        const { rows, nodesById } = await this.#sharesReaching(
-            entry,
-            realPath,
-            realOwnerId,
-        );
+        const { rows, nodesById } = await this.#sharesReaching(entry, realPath);
         // An index row outlives the grant it records, so a recipient revoked
         // through the ACL alone would keep receiving pushes. Free when nothing
         // is shared, which is the path every write takes.
@@ -878,19 +865,13 @@ export class ShareService extends PuterService {
     async #sharesReaching(
         entry: FSEntry,
         realPath: string = entry.path,
-        realOwnerId?: number,
     ): Promise<{
         rows: ShareIndexRow[];
         nodesById: Map<number, FSEntry>;
     }> {
-        const owners = new Set([entry.userId]);
-        if (typeof realOwnerId === 'number') owners.add(realOwnerId);
-        const shared = await Promise.all(
-            [...owners].map((owner) => this.#ownerHasShares(owner)),
-        );
         // Under another user's home an ancestor may belong to someone else.
         if (
-            !shared.some(Boolean) &&
+            !(await this.#ownerHasShares(entry.userId)) &&
             (await this.#underOwnHome(entry.userId, realPath))
         ) {
             return { rows: [], nodesById: new Map() };

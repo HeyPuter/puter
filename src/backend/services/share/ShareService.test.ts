@@ -33,7 +33,6 @@ import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
-import { SUBSCRIPTION_CACHE_TTL_MS } from '../events/subscriptionCache.js';
 
 describe('ShareService', () => {
     let server: PuterServer;
@@ -4277,59 +4276,6 @@ describe('ShareService', () => {
 
             expect(audiences.flat()).toContain(recipient.user.id);
         });
-
-        it("tells both owners' recipients when a move hands an item over", async () => {
-            const from = await makeUser();
-            const to = await makeUser();
-            const fromRecipient = await makeUser();
-            const toRecipient = await makeUser();
-            const { dir: fromDir, file } = await makeDirWithFile(from.user);
-            const { dir: toDir } = await makeDirWithFile(to.user);
-
-            await share(from.actor, {
-                uid: fromDir.uuid,
-                recipient: { email: fromRecipient.email },
-                mode: 'read',
-            });
-            for (const [who, mode] of [
-                [toRecipient, 'read'],
-                [from, 'write'],
-            ] as const) {
-                await share(to.actor, {
-                    uid: toDir.uuid,
-                    recipient: { email: who.email },
-                    mode,
-                });
-            }
-            // Past the owner-shares cache's lifetime, so both owners are read.
-            await new Promise((resolve) =>
-                setTimeout(resolve, SUBSCRIPTION_CACHE_TTL_MS + 100),
-            );
-
-            const removed = await captureAudiences(
-                'outer.gui.item.removed',
-                file.uuid,
-                async () => {
-                    const added = await captureAudiences(
-                        'outer.gui.item.added',
-                        file.uuid,
-                        async () => {
-                            await runWithContext({ actor: from.actor }, () =>
-                                server.services.fs.move(from.user.id, {
-                                    source: file,
-                                    destinationParent: toDir,
-                                }),
-                            );
-                        },
-                    );
-                    expect(added.flat()).toContain(toRecipient.user.id);
-                    expect(added.flat()).not.toContain(fromRecipient.user.id);
-                },
-            );
-
-            expect(removed.flat()).toContain(fromRecipient.user.id);
-            expect(removed.flat()).not.toContain(toRecipient.user.id);
-        }, 15_000);
 
         it("tells the former owner's recipients when the new owner shares nothing", async () => {
             const from = await makeUser();
