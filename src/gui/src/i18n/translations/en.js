@@ -557,6 +557,7 @@ const en = {
         saturation: 'Saturation',
         save_account: 'Save account',
         save_account_to_get_copy_link: 'Please create an account to proceed.',
+        save_account_to_proceed: 'Please create an account to proceed.',
         save_account_to_publish: 'Please create an account to proceed.',
         save_session: 'Save session',
         save_session_c2a: 'Create an account to save your current session and avoid losing your work.',

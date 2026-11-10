@@ -60,6 +60,14 @@
  */
 
 /**
+ * How `puter.ui.requestEmailConfirmation()` ended.
+ *
+ * @typedef {Object} EmailConfirmationResult
+ * @property {boolean} response `true` when the user's email is confirmed, including when it already
+ * was. `false` when the user closed the dialog first, or when a website couldn't show it.
+ */
+
+/**
  * The legacy positional callbacks most methods accept alongside the promise
  * they return.
  *

@@ -50,7 +50,7 @@ import { parent_path_for, parse_shared_path, shared_crumbs_for, shared_uids_from
 import resolve_shared_item from '../../helpers/resolveSharedItem.js';
 import { is_owned_by_me } from '../../helpers/pathOwner.js';
 import parse_item_metadata from '../../helpers/parseItemMetadata.js';
-import { compareSharers, filterBySharer, fitSharedByWidth, sharedByCellHtml, sharerFilterHtml, summarizeSharers } from './sharedBy.js';
+import { compareSharers, filterBySharer, fitSharedByWidth, sharedByCellHtml, sharerFilterHtml, sharerOf, summarizeSharers } from './sharedBy.js';
 import { paintAvatars } from '../../helpers/profilePictures.js';
 
 const { html_encode, SelectionArea } = window;
@@ -2983,7 +2983,7 @@ const TabFiles = {
         // Rebuilding the chips drops focus and scroll; carry both across.
         const focused = $bar.find('.sharer-chip:focus').attr('data-sharer');
         const scrollLeft = bar.scrollLeft;
-        const html = sharerFilterHtml(sharers, this.sharerFilter);
+        const html = sharerFilterHtml(sharers, this.sharerFilter, rows.filter((row) => sharerOf(row)).length);
         $bar.html(html).prop('hidden', ! html);
         paintAvatars(bar);
         bar.scrollLeft = scrollLeft;
@@ -6011,8 +6011,10 @@ const TabFiles = {
             shared_with_me: true,
             share_mode: share.mode,
             shared_by: share.issuer,
+            shared_by_all: share.issuers,
             owner: share.owner,
             holder_team: share.holderTeam,
+            also_team_share: share.alsoHeldByTeam,
         }));
 
         const linked = this.pendingSharedLinks ?? [];
