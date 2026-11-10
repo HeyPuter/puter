@@ -32,6 +32,7 @@ import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
+import type { FSEntry } from '../../stores/fs/FSEntry';
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 
 describe('ShareService', () => {
@@ -6431,6 +6432,90 @@ describe('ShareService', () => {
                     server.clients.event.off(event, listener);
             }
             expect(seen).toEqual(['outer.gui.item.moved']);
+        });
+
+        describe("when the path may not be the owner's own home", () => {
+            /** Whether a write of `node` read the ancestors above it. */
+            const readsAncestors = async (node: FSEntry) => {
+                const ancestors = vi.spyOn(
+                    server.stores.fsEntry,
+                    'getAncestors',
+                );
+                const parent = node.path.slice(0, node.path.lastIndexOf('/'));
+                let calls = -1;
+                try {
+                    await server.clients.event.emitAndWait(
+                        'fs.write.file',
+                        { node },
+                        {},
+                    );
+                    await settle();
+                    calls = ancestors.mock.calls.filter(
+                        ([path]) => path === parent,
+                    ).length;
+                } finally {
+                    ancestors.mockRestore();
+                }
+                return calls > 0;
+            };
+
+            it('reads ancestors for an owner with no account', async () => {
+                const owner = await makeUser();
+                const file = await makeFile(owner.user);
+                expect(
+                    await readsAncestors({ ...file, userId: 2_000_000_000 }),
+                ).toBe(true);
+            });
+
+            it('reads ancestors when the home differs only in case', async () => {
+                const owner = await makeUser();
+                const file = await makeFile(owner.user);
+                const upper = `/${owner.user.username.toUpperCase()}/${file.name}`;
+                expect(await readsAncestors({ ...file, path: upper })).toBe(
+                    true,
+                );
+            });
+
+            it('reads ancestors under the new name after a rename', async () => {
+                const owner = await makeUser();
+                const file = await makeFile(owner.user);
+                // Caches the old name.
+                expect(await readsAncestors(file)).toBe(false);
+                const renamed = `${owner.user.username}r`;
+                await server.stores.user.update(owner.user.id, {
+                    username: renamed,
+                });
+                const moved = { ...file, path: `/${renamed}/${file.name}` };
+                expect(await readsAncestors(moved)).toBe(true);
+            });
+
+            it('looks an unknown owner up once, misses included', async () => {
+                const owner = await makeUser();
+                const file = await makeFile(owner.user);
+                const ghost = 2_000_000_001;
+                const lookups = vi.spyOn(server.stores.user, 'getById');
+                let calls = -1;
+                try {
+                    for (let round = 0; round < 2; round++) {
+                        await Promise.all(
+                            Array.from({ length: 3 }, () =>
+                                server.clients.event.emitAndWait(
+                                    'fs.write.file',
+                                    { node: { ...file, userId: ghost } },
+                                    {},
+                                ),
+                            ),
+                        );
+                        await settle();
+                    }
+                    calls = lookups.mock.calls.filter(
+                        ([id]) => id === ghost,
+                    ).length;
+                } finally {
+                    lookups.mockRestore();
+                }
+                expect(calls).toBe(1);
+            });
         });
 
         it('still reaches a nested entry under a shared folder', async () => {

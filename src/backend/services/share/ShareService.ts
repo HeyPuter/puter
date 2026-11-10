@@ -58,6 +58,7 @@ import {
 } from '../metering/enforcement.js';
 import { carriesClosedAppData } from '../permission/appDataScopes';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
+import { isOwnHomePath } from '../permission/fsPathPermission.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { SubscriptionCache } from '../events/subscriptionCache.js';
 import { KV_SHARE_ACCESS_LEVELS, kvShareRoot } from '../kvShare/kvShares.js';
@@ -403,10 +404,11 @@ export class ShareService extends PuterService {
      */
     readonly #ownerShares = new SubscriptionCache();
     readonly #ownerLookups = new Map<string, Promise<boolean>>();
-    readonly #usernames = new BoundedTtlMap<number, string>({
+    readonly #usernames = new BoundedTtlMap<number, string | null>({
         maxEntries: USERNAME_CACHE_MAX_ENTRIES,
         ttlMs: USERNAME_CACHE_TTL_MS,
     });
+    readonly #usernameLookups = new Map<number, Promise<string | null>>();
 
     /**
      * FS mutations only notify the owner, leaving a recipient's open window
@@ -899,15 +901,32 @@ export class ShareService extends PuterService {
 
     /** Whether `path` sits in `userId`'s own home directory. */
     async #underOwnHome(userId: number, path: string): Promise<boolean> {
-        const home = path.split('/')[1];
-        if (!home) return false;
-        let username = this.#usernames.get(userId);
-        if (username === undefined) {
-            username = (await this.stores.user.getById(userId))?.username;
-            if (!username) return false;
-            this.#usernames.set(userId, username);
+        const username = await this.#usernameOf(userId);
+        return username !== null && isOwnHomePath(path, username);
+    }
+
+    /** `userId`'s username, or null for none; cached per process. */
+    #usernameOf(userId: number): Promise<string | null> {
+        if (this.#usernames.has(userId)) {
+            return Promise.resolve(this.#usernames.get(userId) ?? null);
         }
-        return username === home;
+        const inFlight = this.#usernameLookups.get(userId);
+        if (inFlight) return inFlight;
+        const lookup = (async () => {
+            try {
+                const user = await this.stores.user.getById(userId);
+                const username = user?.username || null;
+                this.#usernames.set(userId, username);
+                return username;
+            } catch {
+                // Unknown reads as someone else's home: the full lookup runs.
+                return null;
+            } finally {
+                this.#usernameLookups.delete(userId);
+            }
+        })();
+        this.#usernameLookups.set(userId, lookup);
+        return lookup;
     }
 
     /** Whether `ownerUserId` has anything shared, cached per process. */
