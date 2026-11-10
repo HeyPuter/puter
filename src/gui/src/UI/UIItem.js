@@ -396,7 +396,7 @@ async function UIItem (options) {
                 // do not highlight if the target is the same as the item being moved
                 $(el_item).attr('data-path') !== $(window.mouseover_item_container).attr('data-path') &&
                 // do not highlight if item is being moved to where it already is
-                $(el_item).attr('data-path') !== $(window.mouseover_item_container).attr('data-path') ) {
+                path.dirname($(el_item).attr('data-path')) !== $(window.mouseover_item_container).attr('data-path') ) {
 
                 // highlight item container
                 $(window.mouseover_item_container).addClass('item-container-active');
@@ -416,7 +416,8 @@ async function UIItem (options) {
         },
         stop: function (event, ui) {
             // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
-            if ( $(el_item).closest('.item-container').attr('data-path') === window.desktop_path &&
+            // the desktop itself, not a window showing the Desktop folder
+            if ( $(el_item).closest('.item-container').hasClass('desktop') &&
                 !window.is_auto_arrange_enabled && $(el_item).attr('data-path') !== window.trash_path && !ui.helper.data('dropped') &&
                 // Item must be dropped on the Desktop and not on the taskbar
                 window.mouseover_window === undefined && ui.position.top <= window.desktop_height - window.taskbar_height - 15 ) {
@@ -434,7 +435,9 @@ async function UIItem (options) {
             // re-enable all droppable UIItems that are not a dir
             $('.item[data-is_dir=\'0\']:not(.item-selected)').droppable('enable');
             // remove active item-container border highlights
-            $('.item-container').removeClass('item-container-active');
+            $('.item-container').removeClass('item-container-active item-container-transparent-border');
+            // a drop that bailed out early never re-enables the containers an item's hover disabled
+            $('.item-container.ui-droppable').droppable('enable');
             // reset longer hover timeout and last window dragged over
             clearTimeout(longer_hover_timeout);
             last_window_dragged_over = null;
@@ -548,11 +551,14 @@ async function UIItem (options) {
                 }
                 // Otherwise, move items
                 else if ( options.is_dir ) {
+                    // a selected folder can be the drop target of its own selection; it stays where it is
+                    const items_to_drop = items_to_move.filter(item => $(item).attr('data-uid') !== $(el_item).attr('data-uid'));
                     if ( $(el_item).closest('.item-container').attr('data-path') === window.desktop_path ) {
-                        delete window.desktop_item_positions[$(el_item).attr('data-uid')];
+                        // the items leaving the desktop lose their saved positions, not the folder they land in
+                        items_to_drop.forEach(item => delete window.desktop_item_positions[$(item).attr('data-uid')]);
                         window.save_desktop_item_positions();
                     }
-                    window.move_items(items_to_move, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
+                    window.move_items(items_to_drop, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
                 }
             }
 
@@ -563,8 +569,9 @@ async function UIItem (options) {
         },
         over: function (event, ui) {
             // Check hovering over an item that is VISIBILE
+            // A desktop item has no window, so it only counts while the pointer is over the desktop itself
             const $event_parent_win = $(event.target).closest('.window');
-            if ( $event_parent_win.length > 0 && $event_parent_win.attr('data-id') !== $(window.mouseover_window).attr('data-id') )
+            if ( $event_parent_win.attr('data-id') !== $(window.mouseover_window).attr('data-id') )
             {
                 return;
             }
@@ -722,7 +729,7 @@ async function UIItem (options) {
         }
     });
 
-    $(document).on('click', function (e) {
+    $(document).on(`click.item-${item_id}`, function (e) {
         if ( !$(e.target).hasClass('item') && !$(e.target).hasClass('item-name') && !$(e.target).hasClass('item-icon') ) {
             skip_a_rename_click = true;
         }
@@ -731,6 +738,10 @@ async function UIItem (options) {
             skip_a_rename_click = true;
         }
     });
+    // a document handler outlives the row unless it is released with it
+    $(el_item).on('remove', function () {
+        $(document).off(`click.item-${item_id}`);
+    });
 
     // --------------------------------------------------------
     // Rename
@@ -738,6 +749,7 @@ async function UIItem (options) {
     function rename () {
         if ( rename_cancelled ) {
             rename_cancelled = false;
+            $(el_item_name_editor).removeClass('item-name-editor-active');
             return;
         }
 
@@ -757,10 +769,12 @@ async function UIItem (options) {
                 UIAlert('The name ".." is not allowed, because it is a reserved name. Please choose another name.');
             }
 
-            $(el_item_name).html(html_encode(truncate_filename(options.name)));
+            $(el_item_name).html(html_encode(truncate_filename($(el_item).attr('data-name'))));
             $(el_item_name).show();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name_editor).hide();
+            // the Delete shortcut skips an item whose editor is marked active
+            $(el_item_name_editor).removeClass('item-name-editor-active');
             return;
         }
         // deactivate item name editable
@@ -806,8 +820,9 @@ async function UIItem (options) {
             e.stopPropagation();
             e.preventDefault();
             rename_cancelled = true;
+            $(el_item_name_editor).removeClass('item-name-editor-active');
             $(el_item_name_editor).hide();
-            $(el_item_name_editor).val(options.name);
+            $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name).show();
         }
     });
@@ -865,6 +880,11 @@ async function UIItem (options) {
         {
             return;
         }
+
+        // The menu is built after lookups that take time, so it opens where the pointer was when it was asked for.
+        const menu_position = (isMobile.phone || isMobile.tablet)
+            ? { left: window.last_touch_x, top: window.last_touch_y }
+            : { left: window.mouseX, top: window.mouseY };
 
         // if editing item name, preserve native context menu
         if ( event.target === el_item_name_editor )
@@ -1137,7 +1157,7 @@ async function UIItem (options) {
                     // try to find suitable apps
                     const suitable_apps = await window.suggest_apps_for_fsentry({
                         uid: options.uid,
-                        path: options.path,
+                        path: $(el_item).attr('data-path'),
                     });
                     if ( suitable_apps && suitable_apps.length > 0 ) {
                         options.suggested_apps = suitable_apps;
@@ -1275,7 +1295,7 @@ async function UIItem (options) {
                             file_path: $(el_item).attr('data-path'),
                             file_uid: $(el_item).attr('data-uid'),
                             params: {
-                                source_path: options.path,
+                                source_path: $(el_item).attr('data-path'),
                             },
                         });
                     },
@@ -1322,7 +1342,7 @@ async function UIItem (options) {
                         }
                         else
                         {
-                            window.trigger_download([options.path]);
+                            window.trigger_download([$(el_item).attr('data-path')]);
                         }
                     },
                 });
@@ -1437,12 +1457,13 @@ async function UIItem (options) {
             // -------------------------------------------
             // Cut
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' ) {
+            // Trashed items leave the Trash through Restore; moved any other way, they'd keep their uid as their name.
+            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && may_restructure ) {
                 menu_items.push({
                     html: i18n('cut'),
                     onClick: function () {
                         window.clipboard_op = 'move';
-                        window.clipboard = [options.path];
+                        window.clipboard = [$(el_item).attr('data-path')];
                     },
                 });
             }
@@ -1454,7 +1475,7 @@ async function UIItem (options) {
                     html: i18n('copy'),
                     onClick: function () {
                         window.clipboard_op = 'copy';
-                        window.clipboard = [{ path: options.path }];
+                        window.clipboard = [{ path: $(el_item).attr('data-path') }];
                     },
                 });
             }
@@ -1502,7 +1523,7 @@ async function UIItem (options) {
                             base_dir,
                             options.appendTo,
                             options.shortcut_to === '' ? options.uid : options.shortcut_to,
-                            options.shortcut_to_path === '' ? options.path : options.shortcut_to_path,
+                            options.shortcut_to_path === '' ? $(el_item).attr('data-path') : options.shortcut_to_path,
                         );
                     },
                 });
@@ -1631,6 +1652,7 @@ async function UIItem (options) {
         // Create ContextMenu
         UIContextMenu({
             parent_element: ($(options.appendTo).hasClass('desktop') ? undefined : options.appendTo),
+            position: menu_position,
             items: menu_items,
         });
 
