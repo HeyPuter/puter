@@ -1334,6 +1334,8 @@ async function UIWindow (options) {
     $(el_window).on('remove', function (e) {
         // if on_close callback is set, call it
         options.on_close?.();
+        delete window.window_nav_history[win_id];
+        delete window.window_nav_history_current_position[win_id];
     });
 
     // --------------------------------------------------------
@@ -1533,6 +1535,20 @@ async function UIWindow (options) {
                     $(el_openfiledialog_open_btn).addClass('disabled');
                 }
             });
+
+        $(document).on(`mouseup.window-selection-${win_id}`, function () {
+            if ( selection_area ) {
+                $(selection_area).hide();
+                $(selection_area).remove();
+                selection_area = null;
+            }
+        });
+
+        // viselect and the handler above listen on document, so they outlive the window unless released
+        $(el_window).on('remove', function () {
+            $(document).off(`mouseup.window-selection-${win_id}`);
+            selection.destroy();
+        });
     }
 
     // --------------------------------------------------------
@@ -2845,14 +2861,6 @@ async function UIWindow (options) {
             $item.removeClass('grabbing');
         });
     }
-
-    $(document).on('mouseup', function (e) {
-        if ( selection_area ) {
-            $(selection_area).hide();
-            $(selection_area).remove();
-            selection_area = null;
-        }
-    });
 
     //set styles
     $(el_window_body).css(options.body_css);
