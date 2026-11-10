@@ -1429,18 +1429,18 @@ async function UIWindow (options) {
             .on('beforedrag', evt => {
             })
             .on('start', ({ store, event }) => {
-                if ( !event.ctrlKey && !event.metaKey ) {
                 // Get the scroll position of the window body
-                    const scrollLeft = $(el_window_body).scrollLeft();
-                    const scrollTop = $(el_window_body).scrollTop();
+                const scrollLeft = $(el_window_body).scrollLeft();
+                const scrollTop = $(el_window_body).scrollTop();
 
-                    // Get the window body's bounding rect relative to the viewport
-                    const windowBodyRect = el_window_body.getBoundingClientRect();
+                // Get the window body's bounding rect relative to the viewport
+                const windowBodyRect = el_window_body.getBoundingClientRect();
 
-                    // Calculate position relative to the window body (accounting for scroll)
-                    selection_area_start_x = window.mouseX - windowBodyRect.left + scrollLeft;
-                    selection_area_start_y = window.mouseY - windowBodyRect.top + scrollTop;
+                // Calculate position relative to the window body (accounting for scroll)
+                selection_area_start_x = window.mouseX - windowBodyRect.left + scrollLeft;
+                selection_area_start_y = window.mouseY - windowBodyRect.top + scrollTop;
 
+                if ( !event.ctrlKey && !event.metaKey ) {
                     for ( const el of store.stored ) {
                         el.classList.remove('item-selected');
                     }
