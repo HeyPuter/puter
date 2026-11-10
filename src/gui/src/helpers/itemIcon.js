@@ -100,7 +100,7 @@ const item_icon = async (fsentry) => {
     // --------------------------------------------------
     // .app files
     // --------------------------------------------------
-    else if ( fsentry.name && fsentry.name.toLowerCase().endsWith('.app') ) {
+    else if ( !fsentry.is_dir && fsentry.name && fsentry.name.toLowerCase().endsWith('.app') ) {
         try {
             const content = await puter.fs.read({ path: fsentry.path });
             const text = typeof content === 'string' ? content : await content.text();

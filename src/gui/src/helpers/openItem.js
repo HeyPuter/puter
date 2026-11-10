@@ -19,8 +19,9 @@
 
 import UIWindow from '../UI/UIWindow.js';
 import UIAlert from '../UI/UIAlert.js';
-import i18n from '../i18n/i18n.js';
 import launch_app from './launchApp.js';
+// installs the global i18n()
+import '../i18n/i18n.js';
 import path from '../lib/path.js';
 import item_icon from './itemIcon.js';
 import { resolve_default_app } from './defaultApp.js';

@@ -26,6 +26,7 @@ import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
 import { atPath } from '../helpers/pathElements.js';
+import { resolve_typed_path } from '../helpers/expandHomePath.js';
 import UIWindowAppFeedback from './UIWindowAppFeedback.js';
 import launch_app from '../helpers/launchApp.js';
 import publish_as_website from '../helpers/publishAsWebsite.js';
@@ -347,7 +348,18 @@ async function UIWindow (options) {
             if ( ! items.some(item => item.path === window.home_path) ) {
                 items.unshift({ path: window.home_path, name: i18n('home') });
             }
+            // A saved order stores the label it was rendered with; system folders follow the current language instead.
+            const system_folder_labels = {
+                [window.home_path]: i18n('home'),
+                [window.docs_path]: i18n('documents'),
+                [window.public_path]: i18n('public'),
+                [window.pictures_path]: i18n('pictures'),
+                [window.desktop_path]: i18n('desktop'),
+                [window.videos_path]: i18n('videos'),
+                [window.shared_path]: i18n('shared'),
+            };
             for ( let item of items ) {
+                const label = system_folder_labels[item.path] ?? item.name;
                 let icon;
                 if ( item.path === window.home_path )
                 {
@@ -381,7 +393,7 @@ async function UIWindow (options) {
                 {
                     icon = window.icons['sidebar-folder.svg'];
                 }
-                h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${options.path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
+                h += `<div title="${html_encode(label)}" class="window-sidebar-item disable-user-select ${options.path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(label)}</div>`;
             }
         }
         h += '</div>';
@@ -406,7 +418,7 @@ async function UIWindow (options) {
         // Path editor
         h += `<input class="window-navbar-path-input" data-path="${html_encode(options.path)}" value="${html_encode(options.path)}" spellcheck="false"/>`;
         // Layout settings
-        h += `<img class="window-navbar-layout-settings" src="${html_encode(options.layout === 'icons' ? window.icons['layout-icons.svg'] : window.icons['layout-list.svg'])}" draggable="false">`;
+        h += `<img class="window-navbar-layout-settings" src="${html_encode(options.layout === 'icons' ? window.icons['layout-icons.svg'] : window.icons['layout-list.svg'])}" draggable="false" title="${i18n('window_click_to_change_layout')}">`;
         h += '</div>';
     }
 
@@ -466,7 +478,7 @@ async function UIWindow (options) {
 
         // Loading spinner
         h += '<div class="explorer-loading-spinner">';
-        h += '<svg style="display:block; margin: 0 auto; " xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><title>circle anim</title><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>';
+        h += '<svg style="display:block; margin: 0 auto; " xmlns="http://www.w3.org/2000/svg" height="24" width="24" viewBox="0 0 24 24"><g fill="#212121" class="nc-icon-wrapper"><g class="nc-loop-circle-24-icon-f"><path d="M12 24a12 12 0 1 1 12-12 12.013 12.013 0 0 1-12 12zm0-22a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2z" fill="#212121" opacity=".4"></path><path d="M24 12h-2A10.011 10.011 0 0 0 12 2V0a12.013 12.013 0 0 1 12 12z" data-color="color-2"></path></g><style>.nc-loop-circle-24-icon-f{--animation-duration:0.5s;transform-origin:12px 12px;animation:nc-loop-circle-anim var(--animation-duration) infinite linear}@keyframes nc-loop-circle-anim{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style></g></svg>';
         h += `<p class="explorer-loading-spinner-msg">${i18n('loading')}...</p>`;
         h += '</div>';
     }
@@ -1114,7 +1126,7 @@ async function UIWindow (options) {
 
                 // build item for context menu
                 items.push({
-                    html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
+                    html: `<span>${html_encode(nav_history_label(history_item))}</span>`,
                     val: index,
                     onClick: async function (e) {
                         let history_index = e.value;
@@ -1187,7 +1199,7 @@ async function UIWindow (options) {
 
                 // build item for context menu
                 items.push({
-                    html: `<span>${history_item === window.home_path ? 'Home' : html_encode(path.basename(history_item))}</span>`,
+                    html: `<span>${html_encode(nav_history_label(history_item))}</span>`,
                     val: index,
                     onClick: async function (e) {
                         let history_index = e.value;
@@ -1333,6 +1345,8 @@ async function UIWindow (options) {
     $(el_window).on('remove', function (e) {
         // if on_close callback is set, call it
         options.on_close?.();
+        delete window.window_nav_history[win_id];
+        delete window.window_nav_history_current_position[win_id];
     });
 
     // --------------------------------------------------------
@@ -1426,18 +1440,18 @@ async function UIWindow (options) {
             .on('beforedrag', evt => {
             })
             .on('start', ({ store, event }) => {
-                if ( !event.ctrlKey && !event.metaKey ) {
                 // Get the scroll position of the window body
-                    const scrollLeft = $(el_window_body).scrollLeft();
-                    const scrollTop = $(el_window_body).scrollTop();
+                const scrollLeft = $(el_window_body).scrollLeft();
+                const scrollTop = $(el_window_body).scrollTop();
 
-                    // Get the window body's bounding rect relative to the viewport
-                    const windowBodyRect = el_window_body.getBoundingClientRect();
+                // Get the window body's bounding rect relative to the viewport
+                const windowBodyRect = el_window_body.getBoundingClientRect();
 
-                    // Calculate position relative to the window body (accounting for scroll)
-                    selection_area_start_x = window.mouseX - windowBodyRect.left + scrollLeft;
-                    selection_area_start_y = window.mouseY - windowBodyRect.top + scrollTop;
+                // Calculate position relative to the window body (accounting for scroll)
+                selection_area_start_x = window.mouseX - windowBodyRect.left + scrollLeft;
+                selection_area_start_y = window.mouseY - windowBodyRect.top + scrollTop;
 
+                if ( !event.ctrlKey && !event.metaKey ) {
                     for ( const el of store.stored ) {
                         el.classList.remove('item-selected');
                     }
@@ -1512,7 +1526,7 @@ async function UIWindow (options) {
                 window.update_explorer_footer_selected_items_count(el_window);
 
                 // If this is openFileDialog, enable/disable the Open button accordingly
-                if ( options.is_openFileDialog && $(el_window).find('.item-selected').length )
+                if ( options.is_openFileDialog && $(el_window).find('.item-selected[data-is_dir="0"]').length )
                 {
                     $(el_openfiledialog_open_btn).removeClass('disabled');
                 }
@@ -1523,7 +1537,7 @@ async function UIWindow (options) {
             })
             .on('stop', ({ store, event }) => {
             // If this is openFileDialog, enable/disable the Open button accordingly
-                if ( options.is_openFileDialog && $(el_window).find('.item-selected').length )
+                if ( options.is_openFileDialog && $(el_window).find('.item-selected[data-is_dir="0"]').length )
                 {
                     $(el_openfiledialog_open_btn).removeClass('disabled');
                 }
@@ -1532,6 +1546,20 @@ async function UIWindow (options) {
                     $(el_openfiledialog_open_btn).addClass('disabled');
                 }
             });
+
+        $(document).on(`mouseup.window-selection-${win_id}`, function () {
+            if ( selection_area ) {
+                $(selection_area).hide();
+                $(selection_area).remove();
+                selection_area = null;
+            }
+        });
+
+        // viselect and the handler above listen on document, so they outlive the window unless released
+        $(el_window).on('remove', function () {
+            $(document).off(`mouseup.window-selection-${win_id}`);
+            selection.destroy();
+        });
     }
 
     // --------------------------------------------------------
@@ -2679,37 +2707,8 @@ async function UIWindow (options) {
                         {
                             html: i18n('empty_trash'),
                             disabled: false,
-                            onClick: async function () {
-                                // TODO: Merge this with window.empty_trash()
-                                const alert_resp = await UIAlert({
-                                    message: i18n('empty_trash_confirmation'),
-                                    buttons: [
-                                        {
-                                            label: i18n('yes'),
-                                            value: 'yes',
-                                            type: 'primary',
-                                        },
-                                        {
-                                            label: i18n('no'),
-                                            value: 'no',
-                                        },
-                                    ],
-                                });
-                                if ( alert_resp === 'no' )
-                                {
-                                    return;
-                                }
-
-                                // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-                                $(`.item[data-path^="${html_encode(window.trash_path)}/"]`).each(function () {
-                                    window.delete_item(this);
-                                });
-                                // update other clients
-                                if ( window.socket ) {
-                                    window.socket.emit('trash.is_empty', { is_empty: true });
-                                }
-                                // use the 'empty trash' icon
-                                window.update_trash_icons(true);
+                            onClick: function () {
+                                window.empty_trash();
                             },
                         },
                     ],
@@ -2844,14 +2843,6 @@ async function UIWindow (options) {
             $item.removeClass('grabbing');
         });
     }
-
-    $(document).on('mouseup', function (e) {
-        if ( selection_area ) {
-            $(selection_area).hide();
-            $(selection_area).remove();
-            selection_area = null;
-        }
-    });
 
     //set styles
     $(el_window_body).css(options.body_css);
@@ -3072,7 +3063,21 @@ $(document).on('blur', '.window-navbar-path-input', function (e) {
 
 $(document).on('keyup', '.window-navbar-path-input', function (e) {
     if ( e.key === 'Enter' || e.keyCode === 13 ) {
-        window.update_window_path($(e.target).closest('.window'), $(e.target).val());
+        const $el_window = $(e.target).closest('.window');
+        const win_id = $el_window.attr('data-id');
+        const current_path = $el_window.attr('data-path');
+        // Other code matches containers by exact path, so navigate to the canonical form.
+        const target_path = resolve_typed_path($(e.target).val(), {
+            current_path,
+            home_path: window.home_path,
+            shared_path: window.shared_path,
+        });
+        if ( target_path !== current_path && window.window_nav_history[win_id] ) {
+            window.window_nav_history[win_id] = window.window_nav_history[win_id].slice(0, window.window_nav_history_current_position[win_id] + 1);
+            window.window_nav_history[win_id].push(target_path);
+            window.window_nav_history_current_position[win_id] = window.window_nav_history[win_id].length - 1;
+        }
+        window.update_window_path($el_window, target_path);
         $(e.target).hide();
         $(e.target).siblings('.window-navbar-path').show().select();
     }
@@ -3336,6 +3341,14 @@ window.navbar_path = (abs_path) => {
     return str;
 };
 
+// The root and the Shared view have no basename to show in the Back/Forward menus.
+const nav_history_label = (history_path) => {
+    if ( history_path === window.home_path ) return i18n('home');
+    if ( history_path === '/' ) return window.root_dirname;
+    if ( history_path === window.shared_path ) return i18n('shared');
+    return path.basename(history_path);
+};
+
 window.update_window_path = async function (el_window, target_path) {
     const win_id = $(el_window).attr('data-id');
     const el_window_navbar_forward_btn = $(el_window).find('.window-navbar-btn-forward');
@@ -3393,6 +3406,8 @@ window.update_window_path = async function (el_window, target_path) {
 
         // empty body to be filled with the results of /readdir
         $(el_window_body).find('.item').removeItems();
+        // nothing is selected in the folder being opened
+        $(el_window).find('.openfiledialog-open-btn').addClass('disabled');
 
         // add the 'Detail View' table header
         if ( $(el_window).find('.explore-table-headers').length === 0 )
@@ -3435,6 +3450,8 @@ window.update_window_path = async function (el_window, target_path) {
 
     $(el_window).attr('data-path', target_path);
     $(el_window).attr('data-name', path.basename(target_path));
+    $(el_window_navbar_path_input).val(target_path);
+    $(el_window_navbar_path_input).attr('data-path', target_path);
 
     // /stat
     if ( target_path === window.shared_path ) {
@@ -3445,72 +3462,72 @@ window.update_window_path = async function (el_window, target_path) {
         $(el_window).find('.window-head-icon').attr('src', window.icons['shared.svg']);
     }
     else if ( target_path !== '/' ) {
-        try {
-            puter.fs.stat({ path: target_path, consistency: 'eventual' }).then(fsentry => {
-                // the window may have moved on while this stat was in flight
-                if ( $(el_window).attr('data-path') !== target_path ) {
-                    return;
-                }
-                $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
-                $(el_window).addClass(`window-${ fsentry.id}`);
-                $(el_window).attr('data-uid', fsentry.id);
-                $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
-                $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
-                $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
-                $(el_window_item_container).attr('data-uid', fsentry.id);
-                // title - use i18n for system directories
-                if ( target_path === window.home_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('home'));
-                }
-                else if ( target_path === window.desktop_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('desktop'));
-                }
-                else if ( target_path === window.docs_path || target_path === window.documents_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('documents'));
-                }
-                else if ( target_path === window.pictures_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('pictures'));
-                }
-                else if ( target_path === window.videos_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('videos'));
-                }
-                else if ( target_path === window.public_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('public'));
-                }
-                else if ( target_path === window.trash_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('trash'));
-                }
-                else
-                {
-                    $(el_window).find('.window-head-title').text(fsentry.name);
-                }
-                // data-name
-                $(el_window).attr('data-name', fsentry.name);
-                // data-path
-                $(el_window).attr('data-path', target_path);
-                $(el_window_navbar_path_input).val(target_path);
-                $(el_window_navbar_path_input).attr('data-path', target_path);
-                // update layout
-                window.update_window_layout(el_window, fsentry.layout);
-                // update explore header if in details view
-                if ( fsentry.layout === 'details' ) {
-                    window.update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
-                }
-            });
-        } catch ( err ) {
-            UIAlert(err.responseText);
-
-            // todo optim: this is dumb because updating the window should only happen if this /readdir request is successful,
-            // in that case there is no need for using update_window_path on error!!
-            window.update_window_path(el_window, old_path);
-        }
+        puter.fs.stat({ path: target_path, consistency: 'eventual' }).then(fsentry => {
+            // the window may have moved on while this stat was in flight
+            if ( $(el_window).attr('data-path') !== target_path ) {
+                return;
+            }
+            $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
+            $(el_window).addClass(`window-${ fsentry.id}`);
+            $(el_window).attr('data-uid', fsentry.id);
+            $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
+            $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
+            $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
+            $(el_window_item_container).attr('data-uid', fsentry.id);
+            // title - use i18n for system directories
+            if ( target_path === window.home_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('home'));
+            }
+            else if ( target_path === window.desktop_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('desktop'));
+            }
+            else if ( target_path === window.docs_path || target_path === window.documents_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('documents'));
+            }
+            else if ( target_path === window.pictures_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('pictures'));
+            }
+            else if ( target_path === window.videos_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('videos'));
+            }
+            else if ( target_path === window.public_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('public'));
+            }
+            else if ( target_path === window.trash_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('trash'));
+            }
+            else
+            {
+                $(el_window).find('.window-head-title').text(fsentry.name);
+            }
+            // data-name
+            $(el_window).attr('data-name', fsentry.name);
+            // data-path
+            $(el_window).attr('data-path', target_path);
+            $(el_window_navbar_path_input).val(target_path);
+            $(el_window_navbar_path_input).attr('data-path', target_path);
+            // update layout
+            window.update_window_layout(el_window, fsentry.layout);
+            // update explore header if in details view
+            if ( fsentry.layout === 'details' ) {
+                window.update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
+            }
+        }).catch(() => {
+            if ( $(el_window).attr('data-path') !== target_path ) {
+                return;
+            }
+            // The folder couldn't be read, so the window must stop identifying as the previous one.
+            $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
+            $(el_window).attr('data-uid', 'null');
+            $(el_window).find('.window-head-title').text(path.basename(target_path));
+        });
     }
     // path is '/' (global root)
     else {
@@ -3866,7 +3883,7 @@ window.scale_window = (el_window) => {
 
 window.update_explorer_footer_item_count = function (el_window) {
     //update dir count in explorer footer
-    let item_count = $(el_window).find('.item').length;
+    let item_count = $(el_window).find('.item:not(.item-hidden)').length;
     $(el_window).find('.explorer-footer .explorer-footer-item-count').html(`${item_count } ${i18n('item')}${ item_count == 0 || item_count > 1 ? `${i18n('plural_suffix')}` : ''}`);
 };
 
