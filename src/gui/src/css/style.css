@@ -1199,6 +1199,22 @@ span.header-sort-icon img {
     cursor: default;
 }
 
+/* A path too long for the bar is cut at the root end, so the current folder stays visible. */
+.window-navbar-path {
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    min-height: 37px;
+}
+
+.window-navbar-path > * {
+    flex: none;
+}
+
+.window-navbar-path > :last-child {
+    margin-right: auto;
+}
+
 .device-phone .window-navbar-path {
     display: none;
 }
