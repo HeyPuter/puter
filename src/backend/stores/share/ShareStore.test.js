@@ -991,6 +991,7 @@ describe('ShareStore', () => {
             expect(applied.holder_user_id).toBe(holder.id);
             expect(applied.mode).toBe('read');
             expect(applied.applied_at).toBeTruthy();
+            expect(Number(applied.entry_owner_user_id)).toBe(issuer.id);
             // Second claim finds nothing left to claim.
             expect(
                 await store.applyPending({

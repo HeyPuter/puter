@@ -893,12 +893,15 @@ export class ShareStore extends PuterStore {
         }
         const result = await this.clients.db.write(
             'UPDATE `share` SET `holder_user_id` = ?, `applied_at` = CURRENT_TIMESTAMP' +
-                (fsentryId === null ? '' : ', `fsentry_id` = ?') +
+                (fsentryId === null
+                    ? ''
+                    : ', `fsentry_id` = ?, `entry_owner_user_id` = ' +
+                      '(SELECT `user_id` FROM `fsentries` WHERE `id` = ?)') +
                 (mode === null ? '' : ', `mode` = ?') +
                 ' WHERE `uid` = ? AND `holder_user_id` IS NULL',
             [
                 holderUserId,
-                ...(fsentryId === null ? [] : [fsentryId]),
+                ...(fsentryId === null ? [] : [fsentryId, fsentryId]),
                 ...(mode === null ? [] : [mode]),
                 uid,
             ],
