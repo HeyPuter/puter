@@ -1852,7 +1852,8 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
         if ( path.dirname($(el_item).attr('data-path')) === item_dest_path ) {
             // pause the progress-window timer while waiting for the user
             clearTimeout(progwin_timeout);
-            await UIAlert(`<p>Moving <strong>${html_encode($(el_item).attr('data-name'))}</strong></p>Cannot move item to its current location.`);
+            // UIAlert escapes the message itself
+            await UIAlert(`<p>Moving <strong>${$(el_item).attr('data-name')}</strong></p>Cannot move item to its current location.`);
             progwin_timeout = arm_progwin();
 
             continue;
@@ -2146,7 +2147,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     item_with_same_name_already_exists = false;
                     // error message after source item has reappeared
                     $(el_item).show(0, function () {
-                        UIAlert(`<p>Moving <strong>${html_encode($(el_item).attr('data-name'))}</strong></p>${err.message ?? ''}`);
+                        UIAlert(`<p>Moving <strong>${$(el_item).attr('data-name')}</strong></p>${err.message ?? ''}`);
                     });
 
                     break;
