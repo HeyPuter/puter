@@ -418,7 +418,7 @@ async function UIWindow (options) {
         // Path editor
         h += `<input class="window-navbar-path-input" data-path="${html_encode(options.path)}" value="${html_encode(options.path)}" spellcheck="false"/>`;
         // Layout settings
-        h += `<img class="window-navbar-layout-settings" src="${html_encode(options.layout === 'icons' ? window.icons['layout-icons.svg'] : window.icons['layout-list.svg'])}" draggable="false">`;
+        h += `<img class="window-navbar-layout-settings" src="${html_encode(options.layout === 'icons' ? window.icons['layout-icons.svg'] : window.icons['layout-list.svg'])}" draggable="false" title="${i18n('window_click_to_change_layout')}">`;
         h += '</div>';
     }
 

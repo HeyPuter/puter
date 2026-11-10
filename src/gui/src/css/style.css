@@ -1234,6 +1234,7 @@ span.header-sort-icon img {
     height: 30px;
     margin-left: 10px;
     margin-top: 3px;
+    cursor: pointer;
 }
 
 .device-phone .window-navbar-layout-settings {
