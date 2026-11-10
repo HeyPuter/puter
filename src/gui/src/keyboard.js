@@ -573,6 +573,11 @@ $(document).bind('keydown', async function (e) {
     // A letter or number is pressed and there is no context menu open: search items by name
     //-----------------------------------------------------------------------
     if ( !e.ctrlKey && !e.metaKey && !$(focused_el).is('input') && !$(focused_el).is('textarea') && $('.context-menu').length === 0 ) {
+        // Shift, arrows, Enter and other named keys are not part of a name
+        if ( e.key?.length !== 1 ) {
+            return false;
+        }
+
         if ( window.keypress_item_seach_term !== '' )
         {
             clearTimeout(window.keypress_item_seach_buffer_timeout);
@@ -593,7 +598,7 @@ $(document).bind('keydown', async function (e) {
         }
 
         // search for matches
-        let haystack = $(window.active_item_container).find('.item').not('.item-disabled');
+        let haystack = $(window.active_item_container).find('.item').not('.item-disabled, .item-hidden');
         for ( let j = 0; j < haystack.length; j++ ) {
             if ( $(haystack[j]).attr('data-name').toLowerCase().startsWith(window.keypress_item_seach_term) ) {
                 matches.push(haystack[j]);
@@ -617,7 +622,7 @@ $(document).bind('keydown', async function (e) {
             // select matching item
             $(matches[0]).not('.item-disabled').addClass('item-selected');
             matches[0].scrollIntoView(false);
-            window.update_explorer_footer_selected_items_count($(window.active_element).closest('.window'));
+            window.update_explorer_footer_selected_items_count($(window.active_item_container).closest('.window'));
         }
 
         return false;
