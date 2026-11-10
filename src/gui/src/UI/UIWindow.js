@@ -1115,7 +1115,7 @@ async function UIWindow (options) {
 
                 // build item for context menu
                 items.push({
-                    html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
+                    html: `<span>${html_encode(nav_history_label(history_item))}</span>`,
                     val: index,
                     onClick: async function (e) {
                         let history_index = e.value;
@@ -1188,7 +1188,7 @@ async function UIWindow (options) {
 
                 // build item for context menu
                 items.push({
-                    html: `<span>${history_item === window.home_path ? 'Home' : html_encode(path.basename(history_item))}</span>`,
+                    html: `<span>${html_encode(nav_history_label(history_item))}</span>`,
                     val: index,
                     onClick: async function (e) {
                         let history_index = e.value;
@@ -3328,6 +3328,14 @@ window.navbar_path = (abs_path) => {
         str += `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
     }
     return str;
+};
+
+// The root and the Shared view have no basename to show in the Back/Forward menus.
+const nav_history_label = (history_path) => {
+    if ( history_path === window.home_path ) return i18n('home');
+    if ( history_path === '/' ) return window.root_dirname;
+    if ( history_path === window.shared_path ) return i18n('shared');
+    return path.basename(history_path);
 };
 
 window.update_window_path = async function (el_window, target_path) {
