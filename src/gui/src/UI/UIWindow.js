@@ -348,7 +348,18 @@ async function UIWindow (options) {
             if ( ! items.some(item => item.path === window.home_path) ) {
                 items.unshift({ path: window.home_path, name: i18n('home') });
             }
+            // A saved order stores the label it was rendered with; system folders follow the current language instead.
+            const system_folder_labels = {
+                [window.home_path]: i18n('home'),
+                [window.docs_path]: i18n('documents'),
+                [window.public_path]: i18n('public'),
+                [window.pictures_path]: i18n('pictures'),
+                [window.desktop_path]: i18n('desktop'),
+                [window.videos_path]: i18n('videos'),
+                [window.shared_path]: i18n('shared'),
+            };
             for ( let item of items ) {
+                const label = system_folder_labels[item.path] ?? item.name;
                 let icon;
                 if ( item.path === window.home_path )
                 {
@@ -382,7 +393,7 @@ async function UIWindow (options) {
                 {
                     icon = window.icons['sidebar-folder.svg'];
                 }
-                h += `<div title="${html_encode(item.label)}" class="window-sidebar-item disable-user-select ${options.path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(item.name)}</div>`;
+                h += `<div title="${html_encode(label)}" class="window-sidebar-item disable-user-select ${options.path === item.path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(item.path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(icon)}">${html_encode(label)}</div>`;
             }
         }
         h += '</div>';
