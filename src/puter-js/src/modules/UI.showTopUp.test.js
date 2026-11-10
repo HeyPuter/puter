@@ -14,7 +14,8 @@ HTMLDialogElement.prototype.close = function () {
 
 const GUI_ORIGIN = 'https://puter.test';
 const USER = '0b1c9a52-3f0e-4c7a-9a65-2f6d1e8b7c40';
-const TOP_UP_TAB = 'https://puter.com/dashboard/?topup=#usage';
+// On the deployment the page belongs to, where the frame would have shown it.
+const TOP_UP_TAB = `${GUI_ORIGIN}/dashboard/?topup=#usage`;
 
 const topUpDialog = () => document.querySelector('dialog.puter-popup-frame');
 const topUpFrame = () => topUpDialog()?.querySelector('iframe') ?? null;
@@ -177,7 +178,7 @@ describe('ui.showTopUp_ elsewhere on the web', () => {
 
         // Before anything is awaited, so the browser still counts the click.
         expect(window.open).toHaveBeenCalledTimes(1);
-        expect(window.open).toHaveBeenCalledWith(TOP_UP_TAB, '_blank');
+        expect(window.open).toHaveBeenCalledWith(`${globalThis.puter.defaultGUIOrigin}/dashboard/?topup=#usage`, '_blank');
         expect(topUpFrame()).toBeNull();
         await expect(result).resolves.toEqual({ toppedUp: false });
     });

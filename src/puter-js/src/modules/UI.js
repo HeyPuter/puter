@@ -1876,7 +1876,7 @@ export class UIModule extends EventListener {
                     onMessage: () => {},
                 });
                 if ( framed ) return framed;
-                await this.#openUpgradeTab(topUpUrl(), 'This website wants to open the Puter top-up page.');
+                await this.#openUpgradeTab(topUpUrl(puter.defaultGUIOrigin), 'This website wants to open the Puter top-up page.');
                 return { toppedUp: false };
             } finally {
                 this.#topUpFrame = null;
