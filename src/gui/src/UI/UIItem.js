@@ -881,6 +881,11 @@ async function UIItem (options) {
             return;
         }
 
+        // The menu is built after lookups that take time, so it opens where the pointer was when it was asked for.
+        const menu_position = (isMobile.phone || isMobile.tablet)
+            ? { left: window.last_touch_x, top: window.last_touch_y }
+            : { left: window.mouseX, top: window.mouseY };
+
         // if editing item name, preserve native context menu
         if ( event.target === el_item_name_editor )
         {
@@ -1647,6 +1652,7 @@ async function UIItem (options) {
         // Create ContextMenu
         UIContextMenu({
             parent_element: ($(options.appendTo).hasClass('desktop') ? undefined : options.appendTo),
+            position: menu_position,
             items: menu_items,
         });
 
