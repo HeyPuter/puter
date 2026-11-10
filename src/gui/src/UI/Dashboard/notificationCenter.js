@@ -346,20 +346,26 @@ export const badgeLabel = (count) => {
     return count > 99 ? '99+' : String(count);
 };
 
-const TITLE_BADGE = /^\((\d+\+?)\) /;
+/** What the unread count puts in front of the title: "(3) ", or nothing. */
+export const titleBadge = (count) => {
+    const label = badgeLabel(count);
+    return label ? `(${label}) ` : '';
+};
 
 /**
- * The document title with the unread count in front, replacing any count
- * already there so repeated application never stacks prefixes.
+ * The document title with the unread count in front. Only `applied`, the
+ * badge this page last put there, is replaced, so repeated application never
+ * stacks prefixes and an app's own "(3) Inbox" title keeps its count.
  *
  * @param {string} title
  * @param {number} count
+ * @param {string} [applied]
  * @returns {string}
  */
-export const titleWithBadge = (title, count) => {
-    const base = String(title ?? '').replace(TITLE_BADGE, '');
-    const label = badgeLabel(count);
-    return label ? `(${label}) ${base}` : base;
+export const titleWithBadge = (title, count, applied = '') => {
+    let base = String(title ?? '');
+    if ( applied && base.startsWith(applied) ) base = base.slice(applied.length);
+    return titleBadge(count) + base;
 };
 
 /**
@@ -370,16 +376,17 @@ export const titleWithBadge = (title, count) => {
 export const MAX_BURST_TOASTS = 3;
 
 /**
- * Split a burst into the entries that get their own toast and the number
- * that don't.
+ * Split a burst into the entries that get their own toast, newest first, and
+ * the number that don't. Bursts arrive in either order (a catch-up listing is
+ * oldest first), and the newest are the ones worth a toast.
  *
- * @param {NotificationEntry[]} entries - Newest first
+ * @param {NotificationEntry[]} entries
  * @param {number} [max]
  * @returns {{ shown: NotificationEntry[], folded: number }}
  */
 export const planBurstToasts = (entries, max = MAX_BURST_TOASTS) => {
-    if ( entries.length <= max ) return { shown: entries, folded: 0 };
+    const newestFirst = sortEntries(entries);
     // One over the cap is no quieter shown as a summary than as a toast.
-    if ( entries.length === max + 1 ) return { shown: entries, folded: 0 };
-    return { shown: entries.slice(0, max), folded: entries.length - max };
+    if ( newestFirst.length <= max + 1 ) return { shown: newestFirst, folded: 0 };
+    return { shown: newestFirst.slice(0, max), folded: newestFirst.length - max };
 };

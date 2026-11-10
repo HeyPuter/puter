@@ -53,7 +53,7 @@ jobs:
             # step above fails; the tests skip themselves without the key.
             - name: Run live realtime conversation tests
               if: ${{ !cancelled() }}
-              run: npm run setupExtensions && (cd src/puter-js && npm run build) && npx vitest run --config src/puter-js/tests/api/vitest.config.ts src/puter-js/tests/api/realtime/convoLive.test.ts
+              run: npm run setupExtensions && (cd src/puter-js && npm run build) && npx vitest run --config src/puter-js/tests/api/vitest.config.ts src/puter-js/tests/api/realtime/realtimeLive.test.ts
               env:
                   CI: 'true'
                   PUTER_TEST_AI_OPENAI_API_KEY: ${{ secrets.PUTER_TEST_AI_OPENAI_API_KEY }}

@@ -176,7 +176,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      # Missing when the PR leg failed; `coverage (pr)` already reports that.
       - name: Download PR coverage
+        id: pr-coverage
+        continue-on-error: true
         uses: actions/download-artifact@v8
         with:
           name: puterjs-coverage-pr
@@ -186,6 +189,7 @@ jobs:
       # base run) — then report without the comparison column.
       - name: Download base coverage
         id: base-coverage
+        if: steps.pr-coverage.outcome == 'success'
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
@@ -193,7 +197,7 @@ jobs:
           path: coverage-base
 
       - name: Report coverage on PR
-        if: steps.base-coverage.outcome == 'success'
+        if: steps.pr-coverage.outcome == 'success' && steps.base-coverage.outcome == 'success'
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           name: puter.js SDK
@@ -202,7 +206,7 @@ jobs:
           json-summary-compare-path: coverage-base/coverage-summary.json
 
       - name: Report coverage on PR (no base comparison)
-        if: steps.base-coverage.outcome != 'success'
+        if: steps.pr-coverage.outcome == 'success' && steps.base-coverage.outcome != 'success'
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           name: puter.js SDK

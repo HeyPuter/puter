@@ -30,6 +30,7 @@ const COMPONENT_TAGS = [
     'puter-menubar',
     'puter-color-picker',
     'puter-font-picker',
+    'puter-user-menu',
 ];
 
 const raf = (): Promise<void> =>

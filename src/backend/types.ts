@@ -269,12 +269,7 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        | 'sms'
-        | 'rcs'
-        | 'whatsapp'
-        | 'viber'
-        | 'zalo'
-        | 'telegram';
+        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
 }
 
 /**
@@ -1119,7 +1114,11 @@ interface IConfigOptional {
     builtin_apps: Record<string, string>;
     /** Force the bundled GUI even in dev. Default: false. */
     use_bundled_gui: boolean;
-    /** Override the GUI bundle JS path. Default: `/dist/bundle.min.js`. */
+    /**
+     * Override the GUI bundle JS path. Default: `/dist/bundle.min.js`. The
+     * `/embed/*` pages load `apps-embed.min.js` and `feedback-embed.min.js`
+     * from the same directory.
+     */
     gui_bundle: string;
     /** Override the GUI CSS path when bundled. Default: `/dist/bundle.min.css`. */
     gui_css: string;
@@ -1406,7 +1405,8 @@ export interface ServerDrainInfo {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

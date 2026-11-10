@@ -651,17 +651,25 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     // One request per run of MAX_ITEMS_PER_REQUEST, in series so a large
     // selection can't burst through the share rate limit. Resolves with every
     // grant that landed, the way a single call would.
+    // A run that fails after others landed rejects with those grants on the
+    // error as `landed`.
     const grant_access = async (recipient, mode, paths) => {
         const created = [];
-        for ( const run of chunk(paths, MAX_ITEMS_PER_REQUEST) ) {
-            created.push(...(await with_verification_gate(
-                () => puter.fs.share({ paths: run, recipient, mode }),
-            ) ?? []));
-        }
-        // A selection too large to list again (see refresh) learns which rows
-        // are now shared from the grants themselves.
-        if ( total > MAX_ITEMS_PER_REQUEST ) {
-            for ( const share of created ) mark_item_shared(share.path, true);
+        try {
+            for ( const run of chunk(paths, MAX_ITEMS_PER_REQUEST) ) {
+                created.push(...(await with_verification_gate(
+                    () => puter.fs.share({ paths: run, recipient, mode }),
+                ) ?? []));
+            }
+        } catch (err) {
+            if ( created.length && err && typeof err === 'object' ) err.landed = created;
+            throw err;
+        } finally {
+            // A selection too large to list again (see refresh) learns which
+            // rows are now shared from the grants themselves.
+            if ( total > MAX_ITEMS_PER_REQUEST ) {
+                for ( const share of created ) mark_item_shared(share.path, true);
+            }
         }
         return created;
     };
@@ -848,8 +856,16 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             if ( ! focus_moved_on() ) $recipient.get(0)?.focus({ preventScroll: true });
         } catch (err) {
             sharing = false;
-            show_error(error_html(err));
+            // Runs that landed before the failure are shared all the same.
+            const landed = err?.landed?.length ?? 0;
+            show_error(landed
+                ? `${i18n('share_shared_with_partial', { recipient, count: landed, total })}. ${error_html(err)}`
+                : error_html(err));
             sync_add_actions();
+            if ( landed ) {
+                invalidate_shared_roots();
+                await refresh();
+            }
             // Disabling the clicked button dropped focus to <body>; put it
             // where the correction happens.
             $recipient.get(0)?.focus({ preventScroll: true });

@@ -140,6 +140,21 @@ body {
     background-color: #ccccccbe !important;
 }
 
+/* A popup framed over its whole page, such as the upgrade, shows the page
+   around its own dialog. The root's color scheme matches the frame's, or the
+   browser paints the frame opaque; the GUI inside keeps the light scheme it
+   has everywhere else, so its form fields don't turn dark. */
+html.popup-frame-transparent,
+html.popup-frame-transparent body {
+    background: transparent !important;
+}
+html.popup-frame-transparent {
+    color-scheme: light dark;
+}
+html.popup-frame-transparent body {
+    color-scheme: light;
+}
+
 .disable-user-select {
     cursor: default;
     -webkit-touch-callout: none !important;
@@ -179,6 +194,20 @@ input[type=text], input[type=password], input[type=email], select {
     -webkit-font-smoothing: antialiased;
     color: #393f46;
     font-size: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+    input[type=text], input[type=password], input[type=email], select {
+        background-color: #2d2d2d;
+        border: 1px solid #555;
+        color: #e6e6e6;
+    }
+
+    input[type=text]::placeholder,
+    input[type=password]::placeholder,
+    input[type=email]::placeholder {
+        color: #999;
+    }
 }
 
 /* to prevent auto-zoom on input focus in mobile */
@@ -471,8 +500,9 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 
 .explore-table-headers {
     display: none;
-    width: 100%;
-    min-width: 795px;
+    /* the negative margin below shifts it left by the body's padding */
+    width: calc(100% + 10px);
+    min-width: 805px;
     height: 25px;
     border-bottom: 1px solid rgb(226, 226, 226);
     background-color: #fff;
@@ -505,6 +535,7 @@ span.header-sort-icon img {
     margin-left: 15px;
     color: #555c61;
     display: inline-block;
+    cursor: pointer;
 }
 
 .explore-table-headers-th-active {
@@ -811,6 +842,14 @@ span.header-sort-icon img {
 
 .device-desktop .item-container-details .item-selected .item-attr {
     color: white;
+}
+
+.device-desktop .item-container-details .item-selected.item-blurred {
+    background-color: #dbdada;
+}
+
+.device-desktop .item-container-details .item-selected.item-blurred .item-attr {
+    color: rgb(73, 73, 73);
 }
 
 .item-container-details .item-attr--modified {
@@ -1170,6 +1209,22 @@ span.header-sort-icon img {
     cursor: default;
 }
 
+/* A path too long for the bar is cut at the root end, so the current folder stays visible. */
+.window-navbar-path {
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    min-height: 37px;
+}
+
+.window-navbar-path > * {
+    flex: none;
+}
+
+.window-navbar-path > :last-child {
+    margin-right: auto;
+}
+
 .device-phone .window-navbar-path {
     display: none;
 }
@@ -1179,6 +1234,7 @@ span.header-sort-icon img {
     height: 30px;
     margin-left: 10px;
     margin-top: 3px;
+    cursor: pointer;
 }
 
 .device-phone .window-navbar-layout-settings {
@@ -1478,6 +1534,18 @@ span.header-sort-icon img {
     align-items: center;
 }
 
+/* The file name shrinks so the buttons stay on one line, on screen, in a narrow dialog. */
+.window-filedialog-prompt > div {
+    min-width: 0;
+    white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+    .window-filedialog-prompt .button-small {
+        padding: 0 16px;
+    }
+}
+
 .savefiledialog-filename {
     float: left;
     margin-right: 10px;
@@ -1485,10 +1553,21 @@ span.header-sort-icon img {
     border-width: 1px !important;
     height: 31px;
     flex-grow: 1;
+    min-width: 0;
     width: initial !important;
 }
 
+/* In a narrow open dialog, the upload label gives way so its buttons stay whole. */
+.window-filedialog-upload-here + div {
+    flex-shrink: 0;
+}
+
 .window-filedialog-upload-here {
+    min-width: 0;
+    margin-right: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     -webkit-font-smoothing: antialiased;
     opacity: 0.7;
     font-size: 14px;
@@ -1925,6 +2004,60 @@ span.header-sort-icon img {
     background: transparent;
 }
 
+/* Dark mode: same surfaces as the dashboard's dark cards. The translucent
+   background is also set in the backdrop-filter @supports block below. */
+@media (prefers-color-scheme: dark) {
+    .context-menu {
+        color: #d4d4d4;
+        background-color: rgb(38 38 38 / 85%);
+        border-color: #3d3d3d;
+        box-shadow: 0px 3px 20px #00000066;
+    }
+
+    .context-menu .context-menu-divider>hr {
+        border-top-color: #ffffff26;
+    }
+
+    .context-menu .has-open-context-menu-submenu {
+        background-color: #3a3a3a;
+    }
+
+    /* `color: initial` resolves to black, unreadable on the dark surface. */
+    .context-menu .context-menu-item-active-blurred {
+        background-color: #404650;
+        color: inherit;
+    }
+
+    .context-menu .context-menu-item-disabled, .context-menu .context-menu-item-disabled:hover {
+        color: inherit;
+    }
+
+    /* The resting chevron is black; the active one is already white. */
+    .context-menu .submenu-arrow:not(.submenu-arrow-active) {
+        filter: invert(1);
+    }
+
+    /* Full-color icons (file types, app icons) keep their colors; only
+       monochrome dark glyphs are inverted. */
+    .context-menu .context-menu-item .ctx-item-icon-monochrome {
+        filter: invert(1);
+    }
+
+    .context-menu.context-menu-sheet {
+        background-color: rgba(38, 38, 38, 0.96) !important;
+        box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.5) !important;
+    }
+
+    .context-menu.context-menu-sheet .context-menu-item-active:not(.context-menu-divider) {
+        background-color: rgba(10, 132, 255, 0.24) !important;
+        color: #d4d4d4 !important;
+    }
+
+    .context-menu.context-menu-sheet .context-menu-divider > hr {
+        border-top-color: rgba(235, 235, 245, 0.18);
+    }
+}
+
 .draggable-count-badge {
     background-color: red;
     border: 2px solid white;
@@ -2258,13 +2391,6 @@ label {
 .signup-bonus-notice-invalid {
     background-color: #fdecea;
     color: #611a15;
-}
-
-.signup-oidc-only-notice {
-    text-align: center;
-    margin: 0 0 10px;
-    font-size: 14px;
-    color: #5f6368;
 }
 
 /* -- Logo strip above the login / signup forms -- */
@@ -2660,32 +2786,6 @@ label {
     position: relative;
     color: green;
     -webkit-font-smoothing: antialiased;
-}
-
-.session-entry {
-    cursor: pointer;
-    padding: 20px;
-    border: 1px solid #CCC;
-    border-radius: 3px;
-    margin-bottom: 10px;
-    background-color: white;
-    font-weight: 500;
-    color: #394d5c;
-}
-
-.session-entry:hover {
-    border-color: #00a6ff;
-}
-
-.login-c2a-session-list, .signup-c2a-session-list {
-    cursor: pointer;
-    font-size: 15px;
-    color: #636363;
-}
-
-.login-c2a-session-list:hover, .signup-c2a-session-list:hover {
-    text-decoration: underline;
-    ;
 }
 
 /*****************************************************
@@ -3958,6 +4058,12 @@ fieldset[name=number-code] {
         backdrop-filter: blur(3px);
     }
 
+    @media (prefers-color-scheme: dark) {
+        .context-menu {
+            background-color: rgb(38 38 38 / 92%);
+        }
+    }
+
     .popover:not(.device-phone .popover) {
         background-color: rgb(238, 243, 248);
         backdrop-filter: blur(10px);
@@ -5142,10 +5248,15 @@ html.dark-mode .usage-table-fade-overlay {
 }
 
 /* On a phone, units and cost keep every digit; the resource name is the
-   column that gives way. */
+   column that gives way, wrapping rather than cut off, since a touch screen
+   has no hover to show the rest. */
 @media (max-width: 480px) {
     .dashboard-section-usage .driver-usage-details-content-table td:not(:first-child) {
         max-width: none;
+    }
+    .dashboard-section-usage .driver-usage-details-content-table td:first-child {
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 }
 .version {
@@ -6139,13 +6250,6 @@ html.dark-mode .usage-table-fade-overlay {
     border-radius: 0;
 }
 
-.device-phone .window.window-login-2fa {
-    left: 50% !important;
-    transform: translate(-50%) !important;
-    height: initial !important;
-    max-width: calc(100% - 30px);
-}
-
 .device-phone .window.window-explorer {
     transform: none;
     width: 100%;
@@ -6162,15 +6266,6 @@ html.dark-mode .usage-table-fade-overlay {
     left: 0 !important;
     height: 100dvh;
     top: 0 !important;
-    border-radius: 0;
-}
-
-.device-phone .window-signup {
-    transform: none;
-    width: 100%;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
     border-radius: 0;
 }
 
@@ -6404,17 +6499,6 @@ html.dark-mode .usage-table-fade-overlay {
     height: 20px;
 }
 
-.window-recover-password.window-cover-page .window-body{
-    background-color: white !important;
-}
-.window-recover-password .window-body{
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    height: 100%;
-    width: 100%;
-}
 /* -------------------------------------------------------------------------
    Permission Request Dialog (UIPermissionDialog)
    Standalone top-layer <dialog>; follows the OS light/dark scheme.

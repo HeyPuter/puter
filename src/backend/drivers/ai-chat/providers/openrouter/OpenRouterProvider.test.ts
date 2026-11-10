@@ -20,15 +20,14 @@
 /**
  * Offline unit tests for OpenRouterProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs OpenRouterProvider directly against the live
- * wired `MeteringService` so the recording side is exercised end-to-
- * end. OpenRouter is OpenAI-compatible, so the OpenAI SDK is mocked
- * at the module boundary; the model catalog is fetched via `axios`
- * which is mocked at its module boundary too. Both are the real
- * network egress points.
- * The companion integration test (OpenRouterProvider.integration.test.ts)
- * exercises the real OpenRouter endpoint.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs OpenRouterProvider directly against the live wired
+ * `MeteringService` so the recording side is exercised end-to- end. OpenRouter
+ * is OpenAI-compatible, so the OpenAI SDK is mocked at the module boundary; the
+ * model catalog is fetched via `axios` which is mocked at its module boundary
+ * too. Both are the real network egress points. The companion integration test
+ * (OpenRouterProvider.integration.test.ts) exercises the real OpenRouter
+ * endpoint.
  */
 
 import { Writable } from 'node:stream';
@@ -300,16 +299,20 @@ describe('OpenRouterProvider model catalog', () => {
     it('coerces string prices and normalizes conditional tiers', async () => {
         const { provider } = makeProvider();
         const models = await provider.models();
-        const sol = models.find((m) => m.id === 'openrouter:openai/gpt-6.1-sol')!;
+        const sol = models.find(
+            (m) => m.id === 'openrouter:openai/gpt-6.1-sol',
+        )!;
         expect(sol.costs).toEqual({
             tokens: 1_000_000,
             prompt: 200,
             completion: 1000,
         });
-        expect(sol.pricingOverrides).toEqual([{
-            minPromptTokens: 272000,
-            costs: { prompt: 400, completion: 1500 },
-        }]);
+        expect(sol.pricingOverrides).toEqual([
+            {
+                minPromptTokens: 272000,
+                costs: { prompt: 400, completion: 1500 },
+            },
+        ]);
     });
 
     it('caches the coerced model list after the first axios round-trip', async () => {
@@ -368,9 +371,12 @@ describe('OpenRouterProvider model catalog', () => {
 
     it('does not reinterpret catalog-added timestamps as release dates', async () => {
         const { provider } = makeProvider();
-        expect((await provider.models()).every(model => model.release_date === undefined)).toBe(true);
+        expect(
+            (await provider.models()).every(
+                (model) => model.release_date === undefined,
+            ),
+        ).toBe(true);
     });
-
 });
 
 // ── Disallowed model gate ───────────────────────────────────────────
@@ -868,11 +874,14 @@ describe('OpenRouterProvider billed cost through the driver', () => {
             event.factor = factor;
         };
         server.clients.event.on('ai.cost.factor.*', listener as never);
-        return () => server.clients.event.off('ai.cost.factor.*', listener as never);
+        return () =>
+            server.clients.event.off('ai.cost.factor.*', listener as never);
     };
 
-    /** µ¢ the ledger was handed for every usage recorded so far. */
-    const ledgerTotal = (spy: MockInstance<MeteringService['batchIncrementUsages']>) =>
+    /** Μ¢ the ledger was handed for every usage recorded so far. */
+    const ledgerTotal = (
+        spy: MockInstance<MeteringService['batchIncrementUsages']>,
+    ) =>
         spy.mock.calls
             .flatMap(([, usages]) => usages)
             .reduce((total, usage) => total + (usage.costOverride ?? 0), 0);
@@ -928,7 +937,10 @@ describe('OpenRouterProvider billed cost through the driver', () => {
     it('reports what a billed completion was charged, after the cost factor', async () => {
         const driver = await makeDriver();
         const stopFactor = withCostFactor(1.6);
-        const recorded = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        const recorded = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
         createMock.mockResolvedValueOnce({
             choices: [
                 {
@@ -1023,7 +1035,10 @@ describe('OpenRouterProvider billed cost through the driver', () => {
     it('ends a stream with what it was charged at the catalog rates, after the cost factor', async () => {
         const driver = await makeDriver();
         const stopFactor = withCostFactor(1.6);
-        const recorded = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        const recorded = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
         createMock.mockReturnValueOnce(
             asAsyncIterable([
                 { choices: [{ delta: { content: 'hello' } }] },
@@ -1126,31 +1141,180 @@ describe('OpenRouterProvider.checkModeration', () => {
     });
 });
 
-
 describe('OpenRouter catalog refresh validation', () => {
     it('keeps missing model fields and prices unknown and blocks unpriced inference', async () => {
-        axiosRequestMock.mockResolvedValue({ data: { data: [{ id: 'fixture/model', name: 'Fixture' }] } });
+        axiosRequestMock.mockResolvedValue({
+            data: { data: [{ id: 'fixture/model', name: 'Fixture' }] },
+        });
         const { provider } = makeProvider();
         const [model] = await provider.models();
         expect(model.costs).toEqual({ tokens: 1_000_000 });
         expect(model.context).toBeUndefined();
         expect(model.max_tokens).toBe(0);
-        await expect(withTestActor(() => provider.complete({ model: 'openrouter:fixture/model', messages: [] })))
-            .rejects.toMatchObject({ legacyCode: 'model_pricing_unavailable' });
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'openrouter:fixture/model',
+                    messages: [],
+                }),
+            ),
+        ).rejects.toMatchObject({ legacyCode: 'model_pricing_unavailable' });
         expect(createMock).not.toHaveBeenCalled();
     });
 
-    it.each(['malformed', 'failed', 'ambiguous conditional price'])('retains last-good data after a %s refresh', async failure => {
-        vi.useFakeTimers({ toFake: ['Date'] });
-        vi.spyOn(console, 'warn').mockImplementation(() => {});
+    it.each(['malformed', 'failed', 'ambiguous conditional price'])(
+        'retains last-good data after a %s refresh',
+        async (failure) => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const { provider } = makeProvider();
+            const good = await provider.models();
+            vi.advanceTimersByTime(15 * 60 * 1000 + 1);
+            if (failure === 'failed')
+                axiosRequestMock.mockRejectedValueOnce(
+                    new Error('unavailable'),
+                );
+            else if (failure === 'malformed')
+                axiosRequestMock.mockResolvedValueOnce({ data: {} });
+            else
+                axiosRequestMock.mockResolvedValueOnce({
+                    data: {
+                        data: [
+                            {
+                                ...SAMPLE_API_MODELS[0],
+                                pricing: {
+                                    prompt: '0.000002',
+                                    overrides: [
+                                        { min_prompt_tokens: 10, prompt: '' },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                });
+            expect(await provider.models()).toBe(good);
+        },
+    );
+});
+
+describe('OpenRouter service speed offerings', () => {
+    it('loads and caches tier prices while reserving for endpoint and context differences', async () => {
         const { provider } = makeProvider();
-        const good = await provider.models();
-        vi.advanceTimersByTime(15 * 60 * 1000 + 1);
-        if (failure === 'failed') axiosRequestMock.mockRejectedValueOnce(new Error('unavailable'));
-        else if (failure === 'malformed') axiosRequestMock.mockResolvedValueOnce({ data: {} });
-        else axiosRequestMock.mockResolvedValueOnce({ data: { data: [{ ...SAMPLE_API_MODELS[0], pricing: {
-            prompt: '0.000002', overrides: [{ min_prompt_tokens: 10, prompt: '' }],
-        } }] } });
-        expect(await provider.models()).toBe(good);
+        const base = {
+            ...(await provider.models())[0],
+            provider: 'openrouter',
+        };
+        axiosRequestMock.mockClear();
+        axiosRequestMock.mockResolvedValueOnce({
+            data: {
+                data: {
+                    endpoints: [
+                        {
+                            service_tier: 'priority',
+                            pricing: {
+                                prompt: '0.000004',
+                                completion: '0.00002',
+                                input_cache_read: '0.0000002',
+                            },
+                        },
+                        {
+                            service_tier: 'priority',
+                            pricing: {
+                                prompt: '0.000005',
+                                completion: '0.00001',
+                            },
+                        },
+                        {
+                            service_tier: 'ultrafast',
+                            pricing: {
+                                prompt: '0.000012',
+                                completion: '0.00006',
+                                overrides: [
+                                    {
+                                        min_prompt_tokens: 272000,
+                                        prompt: '0.000024',
+                                        completion: '0.00009',
+                                    },
+                                ],
+                            },
+                        },
+                        {
+                            service_tier: 'priority',
+                            pricing: { prompt: 'invalid' },
+                        },
+                    ],
+                },
+            },
+        });
+        const offers = await provider.serviceSpeedModels(base);
+        expect(offers.fast?.costs).toMatchObject({
+            prompt: 500,
+            completion: 2000,
+            input_cache_read: 20,
+        });
+        expect(offers.ultrafast?.costs).toMatchObject({
+            prompt: 2400,
+            completion: 9000,
+        });
+        expect(await provider.serviceSpeedModels(base)).toBe(offers);
+        expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses standard when the tier catalog cannot be fetched', async () => {
+        const { provider } = makeProvider();
+        const base = {
+            ...(await provider.models())[0],
+            provider: 'openrouter',
+        };
+        axiosRequestMock.mockRejectedValueOnce(new Error('Unavailable'));
+        expect(await provider.serviceSpeedModels(base)).toEqual({});
+    });
+});
+
+describe('OpenRouter speed billing', () => {
+    it('requires an authoritative bill instead of charging the reservation ceiling', async () => {
+        const { selectServiceSpeed } =
+            await import('../../utils/serviceSpeed.js');
+        const { provider } = makeProvider();
+        const base = {
+            ...(await provider.models())[0],
+            provider: 'openrouter',
+        };
+        const selected = selectServiceSpeed(
+            base,
+            {
+                model: base.id,
+                messages: [{ role: 'user', content: 'Hello' }],
+                serviceSpeed: 'fast',
+            },
+            () => undefined,
+            {
+                fast: {
+                    ...base,
+                    costs: { ...base.costs, prompt: 500, completion: 2000 },
+                },
+            },
+        );
+        const completion = {
+            choices: [
+                {
+                    index: 0,
+                    message: { role: 'assistant', content: 'OK' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 1 },
+        };
+        createMock.mockResolvedValueOnce({
+            ...completion,
+            service_tier: 'priority',
+            usage: { ...completion.usage, cost: undefined },
+        });
+        await expect(
+            withTestActor(() =>
+                provider.complete(selected.args, selected.model),
+            ),
+        ).rejects.toMatchObject({ legacyCode: 'model_pricing_unavailable' });
+        expect(recordSpy).not.toHaveBeenCalled();
     });
 });

@@ -4,7 +4,9 @@ description: Check whether access has already been granted, without prompting th
 platforms: [websites, apps]
 ---
 
-Ask whether access is already granted. Nothing is prompted and nothing is changed; this only reports what the user has already allowed.
+Ask whether access is already granted.
+
+Nothing is prompted and nothing is changed; this only reports what the user has already allowed.
 
 Use it to keep prompts out of the way until they are needed: show a feature as available when the access is in place, and offer an opt-in only where it is not.
 
@@ -30,11 +32,13 @@ A `Promise` that resolves to `true` if the access is already granted, or `false`
 
 Where a resource needs more than one permission, such as `'appData'` with several scopes, the answer is `true` only when the whole set is granted. A partly-granted set answers `false`, since a prompt is still needed.
 
+## Errors
+
 The promise rejects if the check itself cannot be made (for example when the caller isn't signed in). A failure is not reported as `false`: an app that couldn't tell the two apart would prompt someone who had already granted it.
 
 ## Examples
 
-<strong class="example-title">Only ask when the access is missing</strong>
+### Only ask when the access is missing
 
 ```html
 <html>
@@ -59,7 +63,7 @@ The promise rejects if the check itself cannot be made (for example when the cal
 </html>
 ```
 
-<strong class="example-title">Report what is still missing</strong>
+### Report what is still missing
 
 ```html
 <html>

@@ -187,9 +187,9 @@ describe('createUserSubdomainNotFound', () => {
     });
 
     it('passes through reserved subdomains (api, js, native apps, etc.)', () => {
-        // `api`, `js`, `dav`, `docs`, `developer`, `editor`, `pdf`,
+        // `api`, `js`, `dav`, `docs`, `developer`, `about`, `apps`,
         // `puter-app-icons`, etc. all pass through.
-        for (const sub of ['api', 'js', 'docs', 'editor', 'puter-app-icons']) {
+        for (const sub of ['api', 'js', 'docs', 'about', 'puter-app-icons']) {
             const { out, next } = run(
                 createUserSubdomainNotFound(config),
                 makeReq({
@@ -865,13 +865,13 @@ describe('createNativeAppStatic', () => {
 
     beforeAll(() => {
         root = mkdtempSync(nodePath.join(tmpdir(), 'native-apps-'));
-        mkdirSync(nodePath.join(root, 'editor', 'assets'), { recursive: true });
+        mkdirSync(nodePath.join(root, 'about', 'assets'), { recursive: true });
         writeFileSync(
-            nodePath.join(root, 'editor', 'index.html'),
-            '<h1>editor</h1>',
+            nodePath.join(root, 'about', 'index.html'),
+            '<h1>about</h1>',
         );
         writeFileSync(
-            nodePath.join(root, 'editor', 'assets', 'app.js'),
+            nodePath.join(root, 'about', 'assets', 'app.js'),
             'console.log(1);',
         );
         mkdirSync(nodePath.join(root, 'docs', 'dist'), { recursive: true });
@@ -893,7 +893,7 @@ describe('createNativeAppStatic', () => {
 
     it('leaves a native app name alone on a host outside our domains', async () => {
         const req = staticReq({
-            subdomains: ['com', 'example', 'editor'],
+            subdomains: ['com', 'example', 'about'],
             path: '/index.html',
         });
         (req as Request & { is_custom_domain?: boolean }).is_custom_domain =
@@ -907,7 +907,7 @@ describe('createNativeAppStatic', () => {
         const { out, next } = await runStatic(
             createNativeAppStatic(config),
             staticReq({
-                subdomains: ['localhost', 'puter', 'editor'],
+                subdomains: ['localhost', 'puter', 'about'],
                 path: '/index.html',
             }),
         );
@@ -915,17 +915,24 @@ describe('createNativeAppStatic', () => {
         expect(next).toHaveBeenCalledTimes(1);
     });
 
-    it('passes through subdomains that are not native apps', async () => {
-        const { out, next } = await runStatic(
-            withRoot(),
-            staticReq({
-                subdomains: ['localhost', 'puter', 'api'],
-                path: '/index.html',
-            }),
-        );
-        expect(out.sent).toBeUndefined();
-        expect(next).toHaveBeenCalledTimes(1);
-    });
+    // `editor`, `markus` and `pdf` are web apps on standard host routing,
+    // even with a folder of their own under the native apps root.
+    it.each(['api', 'editor', 'markus', 'pdf'])(
+        'passes %s through, as it is not a native app',
+        async (sub) => {
+            mkdirSync(nodePath.join(root, sub), { recursive: true });
+            writeFileSync(nodePath.join(root, sub, 'index.html'), sub);
+            const { out, next } = await runStatic(
+                withRoot(),
+                staticReq({
+                    subdomains: ['localhost', 'puter', sub],
+                    path: '/index.html',
+                }),
+            );
+            expect(out.sent).toBeUndefined();
+            expect(next).toHaveBeenCalledTimes(1);
+        },
+    );
 
     it('passes through when there is no subdomain at all', async () => {
         const { next } = await runStatic(
@@ -939,13 +946,13 @@ describe('createNativeAppStatic', () => {
         const { out, next } = await runStatic(
             withRoot(),
             staticReq({
-                subdomains: ['localhost', 'puter', 'editor'],
+                subdomains: ['localhost', 'puter', 'about'],
                 path: '/index.html',
             }),
         );
         expect(out.sent).toEqual({
             path: '/index.html',
-            root: nodePath.join(root, 'editor'),
+            root: nodePath.join(root, 'about'),
         });
         expect(next).not.toHaveBeenCalled();
     });
@@ -954,11 +961,11 @@ describe('createNativeAppStatic', () => {
         const { out } = await runStatic(
             withRoot(),
             staticReq({
-                subdomains: ['localhost', 'puter', 'EDITOR'],
+                subdomains: ['localhost', 'puter', 'ABOUT'],
                 path: '/index.html',
             }),
         );
-        expect(out.sent?.root).toBe(nodePath.join(root, 'editor'));
+        expect(out.sent?.root).toBe(nodePath.join(root, 'about'));
     });
 
     it('serves docs out of its dist/ subdirectory, not the app root', async () => {
@@ -979,7 +986,7 @@ describe('createNativeAppStatic', () => {
         const { out, next } = await runStatic(
             withRoot(),
             staticReq({
-                subdomains: ['localhost', 'puter', 'editor'],
+                subdomains: ['localhost', 'puter', 'about'],
                 path: '/assets',
                 originalUrl: '/assets?v=2',
             }),
@@ -995,7 +1002,7 @@ describe('createNativeAppStatic', () => {
         const { out } = await runStatic(
             withRoot(),
             staticReq({
-                subdomains: ['localhost', 'puter', 'editor'],
+                subdomains: ['localhost', 'puter', 'about'],
                 path: '/assets/',
             }),
         );
@@ -1007,7 +1014,7 @@ describe('createNativeAppStatic', () => {
         const { out, next } = await runStatic(
             withRoot(),
             staticReq({
-                subdomains: ['localhost', 'puter', 'editor'],
+                subdomains: ['localhost', 'puter', 'about'],
                 path: '/nope.html',
             }),
         );
@@ -1019,7 +1026,7 @@ describe('createNativeAppStatic', () => {
         const { next } = await runStatic(
             withRoot(),
             staticReq({
-                subdomains: ['localhost', 'puter', 'editor'],
+                subdomains: ['localhost', 'puter', 'about'],
                 path: '/index.html',
             }),
             new Error('send failed'),
@@ -1032,7 +1039,7 @@ describe('createNativeAppStatic', () => {
             runStatic(
                 withRoot(),
                 staticReq({
-                    subdomains: ['localhost', 'puter', 'editor'],
+                    subdomains: ['localhost', 'puter', 'about'],
                     path: '/../../etc/passwd',
                 }),
             ),

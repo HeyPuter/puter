@@ -24,6 +24,8 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
      *   navigates (and hijacks) a popup another pending flow is waiting on.
      * @param {Function} [options.onLaunch] - Called with the opened popup
      *   window (or null if the browser blocked it) right after launch.
+     * @param {Function} [options.onContinue] - Runs inside the Continue click
+     *   in place of a popup, for a browser API that needs the click.
      * @param {Function} [options.onCancel] - Called when the user dismisses
      *   the dialog without completing authentication.
      */
@@ -510,13 +512,18 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         return `${puter.defaultGUIOrigin}/?embedded_in_popup=true&request_auth=true&msg_id=${this.#messageID}${window.crossOriginIsolated ? '&cross_origin_isolated=true' : ''}`;
     }
 
+    /** Launcher mode: the caller owns the outcome, not the implicit-auth flow. */
+    #isLauncher () {
+        return !! (this.options.popupURL || this.options.onContinue);
+    }
+
     // Optional: Handle dialog cancellation as rejection
     cancelListener = () => {
         this.close();
         window.removeEventListener('message', this.messageListener);
 
         // Launcher mode: the caller owns the auth promise and any state.
-        if ( this.options.popupURL ) {
+        if ( this.#isLauncher() ) {
             if ( typeof this.options.onCancel === 'function' ) {
                 this.options.onCancel();
             }
@@ -542,6 +549,11 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         // Wire the "Continue" button to open the auth popup. Opening here is
         // safe from being popup-blocked because it happens inside a click.
         this.shadowRoot.querySelector('#launch-auth-popup')?.addEventListener('click', () => {
+            if ( this.options.onContinue ) {
+                this.options.onContinue();
+                this.close();
+                return;
+            }
             const popup = this.#openPopup();
             // Pinned as the expected event.source in messageListener.
             this.authPopup = popup;
@@ -558,7 +570,7 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
 
         // The implicit-auth flow listens for the token message from the popup.
         // In launcher mode the caller registers its own message handler.
-        if ( ! this.options.popupURL ) {
+        if ( ! this.#isLauncher() ) {
             window.addEventListener('message', this.messageListener);
         }
 
@@ -621,6 +633,16 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
                 return null;
             }
         }
+        return PuterDialog.show(options);
+    }
+
+    /**
+     * Shows a launcher-mode consent dialog; throws where modals are blocked.
+     *
+     * @param {Object} options - Launcher-mode options, as for the constructor.
+     * @returns {PuterDialog}
+     */
+    static show (options) {
         const dialog = new PuterDialog(() => {}, () => {}, options);
         document.body.appendChild(dialog);
         try {

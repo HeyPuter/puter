@@ -117,7 +117,7 @@ export type EventMap = {
         model_used: string;
         service_used: string;
         intended_service: string;
-        model_details: {
+        model_details?: {
             id: string;
             provider: string;
             input_cost_key: string;
@@ -426,7 +426,11 @@ export type EventMap = {
         old_username: string;
         new_username: string;
     };
-    'user.email-changed': { user_id: number; new_email: string };
+    'user.email-changed': {
+        user_id: number;
+        old_email: string | null;
+        new_email: string;
+    };
     /** An account was suspended, or its suspension lifted. Local events. */
     'user.suspended': { userId: number };
     'user.unsuspended': { userId: number };

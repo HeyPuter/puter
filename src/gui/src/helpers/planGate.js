@@ -28,14 +28,21 @@ export const is_plan_gate_error = (error) =>
     Boolean(error && typeof error === 'object' && error.code === 'subscription_required');
 
 /**
- * Open the upgrade flow, where the deployment has one. Hosted puter.com
- * attaches `UIUpgradeAccount`; a self-hosted install has no plan to offer,
- * and the caller explains the refusal in its own words instead.
+ * Whether the deployment has an upgrade flow. Hosted puter.com attaches
+ * `UIUpgradeAccount`; a self-hosted install has no plan to offer.
+ *
+ * @returns {boolean}
+ */
+export const has_upgrade_flow = () => typeof window.UIUpgradeAccount === 'function';
+
+/**
+ * Open the upgrade flow, where the deployment has one. Without one, the
+ * caller explains the refusal in its own words instead.
  *
  * @returns {boolean} Whether the upgrade flow was opened.
  */
 export const open_upgrade_flow = () => {
-    if ( typeof window.UIUpgradeAccount !== 'function' ) return false;
+    if ( ! has_upgrade_flow() ) return false;
     (new window.UIUpgradeAccount()).open_as_window();
     return true;
 };

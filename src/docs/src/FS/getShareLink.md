@@ -4,7 +4,9 @@ description: Build a link that opens a file in an app on Puter, for the people t
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Builds the link that opens a file in an app on Puter, of the form `https://puter.com/app/<appName>?file=<uid>`. Send it to whoever the file is shared with: following it signs them in if needed, then opens the app with the file — after Puter has asked them to allow the app to open it.
+Builds a link that opens a file in an app on Puter.
+
+The link has the form `https://puter.com/app/<appName>?file=<uid>`. Send it to whoever the file is shared with. Following it signs them in if needed. Puter then asks them to allow the app to open the file, and opens the app with the file.
 
 The link carries no access of its own. It works for the file's owner, for anyone the file was shared with through [`share()`](/FS/share/), and for any signed-in account once the file is open to **anyone with the link**. For everyone else the file is not found, and the app opens without it.
 
@@ -30,9 +32,11 @@ The name of the app the link opens the file with. Defaults to the app the code i
 
 An object with the following properties:
 
-- `path` (String) - The file. Required when passing options as the only argument, unless `uid` is given.
-- `uid` (String) - The file, by UID. Can be used instead of `path`.
-- `appName` (String) - As above.
+| Option | Type | Description |
+|--------|------|-------------|
+| `path` | `String` | The file. Required when passing options as the only argument, unless `uid` is given. |
+| `appName` | `String` | The name of the app the link opens the file with. Same as the `appName` argument. |
+| `uid` | `String` | The file, by UID. Can be used instead of `path`. |
 
 ## Return value
 
@@ -52,9 +56,14 @@ A file that does not exist, or that you cannot see, rejects the way [`stat()`](/
 
 The app opens on the recipient's Puter, and before it is handed the file Puter shows them what is being asked — which app, which file — and lets them refuse. Refused, the app still opens, just without the file. The app receives the access the recipient has: a file shared read-only opens read-only.
 
+## Related
+
+- [`puter.fs.share()`](/FS/share/) - Grant access, or open the file to anyone with the link
+- [`puter.fs.getReadURL()`](/FS/getReadURL/) - A URL that reads the file's bytes without signing in
+
 ## Examples
 
-<strong class="example-title">Open a shared file in an app</strong>
+### Open a shared file in an app
 
 ```html;fs-getShareLink
 <html>
@@ -74,15 +83,10 @@ The app opens on the recipient's Puter, and before it is handed the file Puter s
 </html>
 ```
 
-<strong class="example-title">Send a collaborator straight into your app</strong>
+### Send a collaborator straight into your app
 
 ```js
 // Inside a Puter app, the link opens the file in this app.
 await puter.fs.share('draft.md', 'friend@example.com', 'write');
 const link = await puter.fs.getShareLink('draft.md');
 ```
-
-## Related
-
-- [`puter.fs.share()`](/FS/share/) - Grant access, or open the file to anyone with the link
-- [`puter.fs.getReadURL()`](/FS/getReadURL/) - A URL that reads the file's bytes without signing in

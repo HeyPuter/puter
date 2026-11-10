@@ -4,7 +4,9 @@ description: Initiate sign in process in your application with user's Puter acco
 platforms: [websites]
 ---
 
-Initiates the sign in process for the user. This will open a popup window with the appropriate authentication method. Puter automatically handles the authentication process and will resolve the promise when the user has signed in.
+Initiates the sign in process for the user.
+
+This will open a popup window with the appropriate authentication method. Puter automatically handles the authentication process and will resolve the promise when the user has signed in. Puter's own apps on puter.com subdomains show the sign-in in a frame over the page instead, and open the popup when the user picks a sign-in provider such as Google.
 
 It is important to note that all essential methods in Puter handle authentication automatically. This method is only necessary if you want to handle authentication manually, for example if you want to build your own custom authentication flow.
 
@@ -27,11 +29,12 @@ puter.auth.signIn(options)
 
 #### `options` (optional)
 
-`options` is an object with the following properties:
+An object with the following properties:
 
-- `attempt_temp_user_creation`: A boolean value that indicates whether to Puter should automatically create a temporary user. This is useful if you want to quickly onboard a user without requiring them to sign up. They can always sign up later if they want to.
-
-- `request_auth`: A boolean value that asks the popup to let the user re-pick their account, even when your site already holds a token for them. Puter otherwise skips that prompt for a site it has seen before. Useful for an explicit "switch account" button.
+| Option | Type | Description |
+|--------|------|-------------|
+| `attempt_temp_user_creation` | `Boolean` | Whether Puter should automatically create a temporary user. This is useful if you want to quickly onboard a user without requiring them to sign up. They can always sign up later if they want to. |
+| `request_auth` | `Boolean` | Asks the popup to let the user re-pick their account, even when your site already holds a token for them. Puter otherwise skips that prompt for a site it has seen before. Useful for an explicit "switch account" button. |
 
 Each call completes from its own sign-in window, including when multiple calls run at once.
 
@@ -39,7 +42,7 @@ Each call completes from its own sign-in window, including when multiple calls r
 
 A `Promise` that will resolve to a [`SignInResult`](/Objects/signinresult/) object when the user has signed in.
 
-## Rejection
+## Errors
 
 The promise will reject with an object containing an `error` code and a human-readable `msg` in the following cases:
 
@@ -53,7 +56,9 @@ The promise will reject with an object containing an `error` code and a human-re
 
 The promise may also reject with the failure response returned by the authentication window itself.
 
-## Example
+## Examples
+
+### Sign in from a button click
 
 ```html;auth-sign-in
 <html>

@@ -19,6 +19,7 @@
 
 import { OpenAI } from 'openai';
 import { ResponseCreateParams } from 'openai/resources/responses/responses.mjs';
+import { servedServiceSpeed } from '../../utils/serviceSpeed.js';
 import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
@@ -134,38 +135,42 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         return rate ? { extraCost: rate } : {};
     }
 
-    async complete({
-        messages,
-        model,
-        max_tokens,
-        moderation,
-        tools,
-        tool_choice,
-        parallel_tool_calls,
-        include,
-        conversation,
-        compaction,
-        context_management,
-        previous_response_id,
-        instructions,
-        metadata,
-        prompt,
-        prompt_cache_key,
-        prompt_cache_retention,
-        prompt_cache_options,
-        store,
-        top_p,
-        truncation,
-        background,
-        service_tier,
-        verbosity,
-        stream,
-        reasoning,
-        reasoning_effort,
-        temperature,
-        text,
-        outputFormat,
-    }: ICompleteArguments): ReturnType<IChatProvider['complete']> {
+    async complete(
+        {
+            messages,
+            model,
+            max_tokens,
+            moderation,
+            tools,
+            tool_choice,
+            parallel_tool_calls,
+            include,
+            conversation,
+            compaction,
+            context_management,
+            previous_response_id,
+            instructions,
+            metadata,
+            prompt,
+            prompt_cache_key,
+            prompt_cache_retention,
+            prompt_cache_options,
+            store,
+            top_p,
+            truncation,
+            background,
+            service_tier,
+            serviceSpeed: requestedServiceSpeed,
+            verbosity,
+            stream,
+            reasoning,
+            reasoning_effort,
+            temperature,
+            text,
+            outputFormat,
+        }: ICompleteArguments,
+        resolved?: IChatModel,
+    ): ReturnType<IChatProvider['complete']> {
         // Validate messages
         if (!Array.isArray(messages)) {
             throw new HttpError(400, '`messages` must be an array', {
@@ -183,12 +188,13 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         model = model ?? this.#defaultModel;
 
         const modelUsed =
-            this.models({ no_restrictions: true }).find((m) =>
+            resolved ??
+            (this.models({ no_restrictions: true }).find((m) =>
                 [m.id, ...(m.aliases || [])].includes(model),
             ) ||
-            this.models({ no_restrictions: true }).find(
-                (m) => m.id === this.getDefaultModel(),
-            )!;
+                this.models({ no_restrictions: true }).find(
+                    (m) => m.id === this.getDefaultModel(),
+                )!);
 
         // messages.unshift({
         //     role: 'system',
@@ -322,6 +328,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         return OpenAiUtil.handle_completion_output_responses_api({
             usage_calculator: ({
                 usage,
+                service_tier,
                 webSearchCalls,
                 setUsageCosts,
                 setUsageDetails,
@@ -347,23 +354,31 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                     // model is a reasoning model, not a static per-model
                     // cost-table entry — the model's rates would otherwise
                     // price it (wrongly) at the input/output token rate.
-                    webSearchCalls
-                        ? {
-                              costOverrides: {
-                                  web_search_calls:
-                                      webSearchCalls *
-                                      (webSearchCallRate(tools, modelUsed.id) ??
-                                          0),
-                              },
-                          }
-                        : {},
+                    {
+                        serviceSpeed: servedServiceSpeed({ service_tier }),
+                        ...(webSearchCalls
+                            ? {
+                                  costOverrides: {
+                                      web_search_calls:
+                                          webSearchCalls *
+                                          (webSearchCallRate(
+                                              tools,
+                                              modelUsed.id,
+                                          ) ?? 0),
+                                  },
+                              }
+                            : {}),
+                    },
                 );
                 setUsageCosts?.(metered.costs);
-                setUsageDetails?.(
-                    OpenAiUtil.usageDetailsFromTrackedUsage(metered.usage, {
+                setUsageDetails?.({
+                    ...(requestedServiceSpeed !== undefined
+                        ? { serviceSpeed: servedServiceSpeed({ service_tier }) }
+                        : {}),
+                    ...OpenAiUtil.usageDetailsFromTrackedUsage(metered.usage, {
                         writeTtl: '30m',
                     })!,
-                );
+                });
                 return metered.usage;
             },
             stream,

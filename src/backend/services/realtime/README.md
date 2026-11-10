@@ -1,11 +1,11 @@
 # OpenAI Realtime relay
 
 The relay serves `/puterai/openai/v1/realtime` on the API host. The SDK exposes
-it through [`puter.ai.convo()`](../../../docs/src/AI/convo.md).
+it through [`puter.ai.realtime()`](../../../docs/src/AI/realtime.md).
 
 **Beta:** This API is incomplete. Its methods, options, events, and behavior may change abruptly, including breaking changes without notice.
 
-Direct clients are documented in the [Realtime WebSocket API reference](../../../docs/src/AI/realtime.md).
+Direct clients are documented in the [Realtime WebSocket API reference](../../../docs/src/AI/realtime-websocket.md).
 
 ## Transport
 
@@ -27,7 +27,7 @@ The socket opens before authentication completes. Authentication and model
 failures arrive as OpenAI-shaped error events followed by a close frame.
 
 ```js
-const conversation = await puter.ai.convo({ output: ['text'] });
+const conversation = await puter.ai.realtime({ output: ['text'] });
 conversation.on('error', (event) => console.error(event));
 conversation.on('text', ({ delta }) => console.log(delta));
 conversation.on('turn.done', () => conversation.close());
@@ -105,11 +105,13 @@ excludes outstanding holds and accepts fractional positive credit. Admission of
 new billable work continues to use the atomic hold path, which includes every
 outstanding reservation.
 
-Text, transcripts and raw audio are forwarded without new content logging.
-The relay does not invoke `ai.prompt.validate`. A realtime adapter needs the host
-listeners' chat payload and denial contracts before that hook can safely apply
-to instructions and conversation text. Raw audio and generated transcripts need
-separate policy decisions.
+When the host listens for `ai.prompt.validate`, each response that starts runs
+it on the text the client sent since the previous check: session and response
+instructions, message text and transcripts, and function call output, as chat
+messages. The response's cost follows as `ai.prompt.cost-calculated` under the
+same completion id. A refusal closes the session with `permission_denied`; the
+response may already be streaming by then. Pending text past 64 KiB is checked
+on its own. Audio is not checked.
 
 Credential checks run in batches of at most 16 with no overlapping sweeps.
 Session and access-token revocation events close affected sockets and invalidate

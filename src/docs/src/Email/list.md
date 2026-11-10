@@ -4,7 +4,9 @@ description: List the messages in the user's mailbox, newest first, one page at 
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Lists the messages in one folder of the user's mailbox, newest first. Every call returns one page of `items` plus, while more pages exist, a `cursor` to pass back for the next one. Listing reads the mailbox's folder structure only, so it never downloads a message: each item carries the subject, date, and size, and `puter.email.get()` fetches the rest.
+Lists the messages in one folder of the user's mailbox, newest first.
+
+Every call returns one page of `items` plus, while more pages exist, a `cursor` to pass back for the next one. Listing reads the mailbox's folder structure only, so it never downloads a message: each item carries the subject, date, and size, and `puter.email.get()` fetches the rest.
 
 The mailbox belongs to the user, so it is protected like the rest of their files. An app reads it only after the user grants read access to the `~/.mail` folder. To ask for it, call [`puter.perms.request()`](/Perms/request/):
 
@@ -23,10 +25,12 @@ puter.email.list(options)
 
 #### `options` (Object) (optional)
 
-- `folder` (String): `'inbox'` for mail received at the user's address, `'sent'` for their outgoing copies. Default `'inbox'`.
-- `limit` (Number): Maximum messages per page. Default `50`, capped at `1000`.
-- `cursor` (String | null): The `cursor` from the previous page. `null` or absent fetches the first page.
-- `stream` (Boolean): When `true`, returns an async iterator of pages for `for await ... of` instead of a single page.
+| Option | Type | Description |
+|--------|------|-------------|
+| `limit` | `Number` | Maximum messages per page. Default `50`, capped at `1000`. |
+| `folder` | `String` | Use `'inbox'` for mail received at the user's address, or `'sent'` for their outgoing copies. Default `'inbox'`. |
+| `cursor` | `String \| null` | The `cursor` from the previous page. Pass `null` or leave it out to fetch the first page. |
+| `stream` | `Boolean` | When `true`, returns an async iterator of pages for `for await ... of` instead of a single page. |
 
 `offset` and `includeTotal` are not supported for mailboxes; passing either rejects with `invalid_request`.
 
@@ -45,7 +49,7 @@ Rejects with an object carrying a `code`:
 
 ## Examples
 
-<strong class="example-title">List the ten newest messages</strong>
+### List the ten newest messages
 
 ```html
 <html>
@@ -64,7 +68,7 @@ Rejects with an object carrying a `code`:
 </html>
 ```
 
-<strong class="example-title">Walk the whole sent folder with a cursor</strong>
+### Walk the whole sent folder with a cursor
 
 ```html
 <html>
@@ -86,7 +90,7 @@ Rejects with an object carrying a `code`:
 </html>
 ```
 
-<strong class="example-title">Stream pages</strong>
+### Stream pages
 
 ```html
 <html>

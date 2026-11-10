@@ -4,7 +4,9 @@ description: Retrieve details of your Puter app.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Returns an app with the given name. If the app does not exist, the promise will be rejected.
+Returns an app with the given name.
+
+If the app does not exist, the promise will be rejected.
 
 ## Syntax
 
@@ -19,13 +21,14 @@ puter.apps.get(name, options)
 
 The name of the app to get.
 
-### options (optional)
+#### `options` (Object) (optional)
 
 An object containing the following properties:
 
-- `stats_period` (optional): A string representing the period for which to get the user and open count. Possible values are `today`, `yesterday`, `7d`, `30d`, `this_month`, `last_month`, `this_year`, `last_year`, `month_to_date`, `year_to_date`, `last_12_months`. Default is `all` (all time).
-
-- `icon_size` (optional): An integer representing the size of the icons to return. Possible values are `null`, `16`, `32`, `64`, `128`, `256`, and `512`. Default is `null` (the original size).
+| Option | Type | Description |
+|--------|------|-------------|
+| `icon_size` | `Number \| null` | An integer representing the size of the icons to return. Possible values are `null`, `16`, `32`, `64`, `128`, `256`, and `512`. Default is `null` (the original size). |
+| `stats_period` | `String` | The period for which to get the user and open count. Possible values are `today`, `yesterday`, `7d`, `30d`, `this_month`, `last_month`, `this_year`, `last_year`, `month_to_date`, `year_to_date`, `last_12_months`. Default is `all` (all time). |
 
 ## Return value
 
@@ -33,7 +36,7 @@ A `Promise` that will resolve to the [`App`](/Objects/app/) object with the give
 
 ## Examples
 
-<strong class="example-title">Create a random app then get it</strong>
+### Create a random app then get it
 
 ```html;app-get
 <html>

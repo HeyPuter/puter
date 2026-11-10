@@ -70,7 +70,7 @@ if ( window.logged_in_users.length === 0 && window.user !== null ) {
     let tuser = window.user;
     tuser.auth_token = window.auth_token;
     window.logged_in_users.push(tuser);
-    localStorage.setItem('logged_in_users', window.logged_in_users);
+    localStorage.setItem('logged_in_users', JSON.stringify(window.logged_in_users));
 }
 
 window.last_window_zindex = 1;

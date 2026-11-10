@@ -27,13 +27,14 @@ import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIWindowDesktopBGSettings from './UIWindowDesktopBGSettings.js';
 import UIWindowMyWebsites from './UIWindowMyWebsites.js';
 import UIWindowFeedback from './UIWindowFeedback.js';
-import UIWindowLogin from './UIWindowLogin.js';
+import UIAuthLogin from './Auth/UIAuthLogin.js';
 import UIWindowQR from './UIWindowQR.js';
 
 import UIWindowProgress from './UIWindowProgress.js';
 import UITaskbar from './UITaskbar.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
+import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers/pathElements.js';
 import changeLanguage from '../i18n/i18nChangeLanguage.js';
 import UIWindowTaskManager from './UIWindowTaskManager.js';
 import truncate_filename from '../helpers/truncateFilename.js';
@@ -232,7 +233,12 @@ async function UIDesktop (options) {
         // empty trash windows if needed
         if ( msg.is_empty )
         {
-            $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.item-container').empty();
+            // only the rows: the container also holds its empty, error and loading states
+            $(`.window[data-path="${html_encode(window.trash_path)}" i]`).each(function () {
+                $(this).find('.item-container .item').removeItems();
+                window.update_explorer_footer_item_count(this);
+                window.update_explorer_footer_selected_items_count(this);
+            });
         }
     });
 
@@ -415,14 +421,17 @@ async function UIDesktop (options) {
             return;
         }
 
-        // hide all UIItems with matching uids
-        $(`.item[data-path='${item.path}']`).fadeOut(150, function () {
-            // close all windows with matching uids
-            // $('.window-' + item.uid).close();
-            // close all windows that belong to a descendant of this item
-            // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-            $(`.window[data-path^="${item.path}/"]`).close();
+        // remove all UIItems at the removed path
+        atPath('.item', item.path).fadeOut(150, function () {
+            const $parent_window = $(this).closest('.window');
+            $(this).removeItems();
+            window.update_explorer_footer_item_count($parent_window);
+            window.update_explorer_footer_selected_items_count($parent_window);
         });
+        // close the windows showing the removed folder or anything inside it,
+        // whether or not its own row is displayed anywhere
+        // todo this has to be case-insensitive
+        atPath('.window[data-app="explorer"]', item.path).add(underPath('.window', item.path)).close();
     });
 
     window.socket.on('item.updated', async (item) => {
@@ -454,25 +463,20 @@ async function UIDesktop (options) {
         $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(item.name);
         $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', item.name);
 
+        // An overwrite arrives as an update, with a new size and date
+        if ( item.size !== undefined && item.modified !== undefined ) {
+            const $updated_items = $(`.item[data-uid='${item.uid}']`);
+            $updated_items.attr({ 'data-size': item.size ?? '', 'data-modified': item.modified ?? '' });
+            $updated_items.find('.item-attr--size > span').text(item.size ? window.byte_format(item.size) : '-');
+            $updated_items.find('.item-attr--modified > span').text(item.modified === 0 ? '-' : timeago.format(item.modified * 1000));
+        }
+
         // Set new data-path
         const new_path = item.path;
         $(`.item[data-uid='${item.uid}']`).attr('data-path', new_path);
         $(`.window-${item.uid}`).attr('data-path', new_path);
 
-        // Update all elements that have matching paths
-        $(`[data-path="${html_encode(item.old_path)}" i]`).each(function () {
-            $(this).attr('data-path', new_path);
-            if ( $(this).hasClass('window-navbar-path-dirname') )
-            {
-                $(this).text(item.name);
-            }
-        });
-
-        // Update all elements whose paths start with old_path
-        $(`[data-path^="${`${html_encode(item.old_path) }/`}"]`).each(function () {
-            const new_el_path = $(this).attr('data-path').replace(`${item.old_path }/`, `${new_path }/`);
-            $(this).attr('data-path', new_el_path);
-        });
+        retargetPaths(item.old_path, new_path, item.name);
 
         // Update all exact-matching windows
         $(`.window-${item.uid}`).each(function () {
@@ -507,7 +511,7 @@ async function UIDesktop (options) {
         const metadata = parse_item_metadata(fsentry.metadata);
 
         // update all shortcut_to_path
-        $(`.item[data-shortcut_to_path="${html_encode(resp.old_path)}" i]`).attr('data-shortcut_to_path', html_encode(fsentry.path));
+        atPath('.item', resp.old_path, 'data-shortcut_to_path').attr('data-shortcut_to_path', fsentry.path);
 
         // remove all items with matching uids
         $(`.item[data-uid='${fsentry.uid}']`).fadeOut(150, function () {
@@ -524,17 +528,18 @@ async function UIDesktop (options) {
 
         // if trashing, close windows of trashed items and its descendants
         if ( dest_path === window.trash_path ) {
-            $(`.window[data-path="${html_encode(resp.old_path)}" i]`).close();
-            // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-            $(`.window[data-path^="${html_encode(resp.old_path)}/"]`).close();
+            atPath('.window', resp.old_path).close();
+            // todo this has to be case-insensitive
+            underPath('.window', resp.old_path).close();
         }
 
         // update all paths of its and its descendants' open windows
         else {
-            // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
-            $(`.window[data-path^="${html_encode(resp.old_path)}/"], .window[data-path="${html_encode(resp.old_path)}" i]`).each(function () {
-                window.update_window_path(this, $(this).attr('data-path').replace(resp.old_path, fsentry.path));
+            // todo this has to be case-insensitive
+            underPath('.window', resp.old_path).add(atPath('.window', resp.old_path)).each(function () {
+                window.update_window_path(this, fsentry.path + $(this).attr('data-path').slice(resp.old_path.length));
             });
+            retargetNavHistory(resp.old_path, fsentry.path);
         }
 
         if ( dest_path === window.trash_path ) {
@@ -558,13 +563,18 @@ async function UIDesktop (options) {
         // Trashing renames the entry to its uid; the real name is in metadata.
         fsentry.name = metadata.original_name ?? fsentry.name;
 
+        const moved_item_icon = await item_icon(fsentry);
+        const $dest_containers = atPath('.item-container', dest_path);
+        // the tab that made this move renders the row itself, in either order
+        $dest_containers.find(`.item[data-uid='${fsentry.uid}']`).removeItems();
+
         // create new item on matching containers
         UIItem({
-            appendTo: $(`.item-container[data-path='${html_encode(dest_path)}' i]`),
+            appendTo: $dest_containers,
             immutable: fsentry.immutable || fsentry.writable === false,
             uid: fsentry.uid,
             path: fsentry.path,
-            icon: await item_icon(fsentry),
+            icon: moved_item_icon,
             name: fsentry.name,
             is_dir: fsentry.is_dir,
             size: fsentry.size,
@@ -585,8 +595,8 @@ async function UIDesktop (options) {
             // if these new path have any open parents that need to be updated
 
             fsentry.parent_dirs_created.forEach(async dir => {
-                let item_container = $(`.item-container[data-path='${html_encode(path.dirname(dir.path))}' i]`);
-                if ( item_container.length > 0 && $(`.item[data-path="${html_encode(dir.path)}" i]`).length === 0 ) {
+                let item_container = atPath('.item-container', path.dirname(dir.path));
+                if ( item_container.length > 0 && atPath('.item', dir.path).length === 0 ) {
                     UIItem({
                         appendTo: item_container,
                         immutable: false,
@@ -606,7 +616,7 @@ async function UIDesktop (options) {
             });
         }
         //sort each container
-        $(`.item-container[data-path='${html_encode(dest_path)}' i]`).each(function () {
+        atPath('.item-container', dest_path).each(function () {
             window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
         });
     });
@@ -693,20 +703,7 @@ async function UIDesktop (options) {
         $(`.item[data-uid='${item.uid}']`).attr('data-path', new_path);
         $(`.window-${item.uid}`).attr('data-path', new_path);
 
-        // Update all elements that have matching paths
-        $(`[data-path="${html_encode(item.old_path)}" i]`).each(function () {
-            $(this).attr('data-path', new_path);
-            if ( $(this).hasClass('window-navbar-path-dirname') )
-            {
-                $(this).text(item.name);
-            }
-        });
-
-        // Update all elements whose paths start with old_path
-        $(`[data-path^="${`${html_encode(item.old_path) }/`}"]`).each(function () {
-            const new_el_path = $(this).attr('data-path').replace(`${item.old_path }/`, `${new_path }/`);
-            $(this).attr('data-path', new_el_path);
-        });
+        retargetPaths(item.old_path, new_path, item.name);
 
         // Update all exact-matching windows
         $(`.window-${item.uid}`).each(function () {
@@ -1901,9 +1898,9 @@ async function UIDesktop (options) {
                 await open_path_target(stat.path ?? shared_path, stat);
                 return;
             }
-            await UIWindowLogin({
+            await UIAuthLogin({
                 reload_on_success: true,
-                window_options: { cover_page: true, has_head: false },
+                page: true,
             });
             // Dismissed without signing in: drop the link rather than loop.
             if ( window.user?.is_temp ) clear_shared_param();
@@ -2235,12 +2232,9 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
             html: i18n('add_another_account'),
             // icon: l_user.username === user.username ? '✓' : '',
             onClick: async function (val) {
-                await UIWindowLogin({
+                await UIAuthLogin({
                     reload_on_success: true,
                     send_confirmation_code: false,
-                    window_options: {
-                        has_head: true,
-                    },
                 });
             },
         });
@@ -2423,16 +2417,12 @@ $(document).on('click', '.user-options-login-btn', async function (e) {
         });
         if ( saved )
         {
-            UIWindowLogin({ show_signup_button: false, reload_on_success: true });
+            UIAuthLogin({ show_signup_button: false, reload_on_success: true });
         }
     } else if ( alert_resp === 'login' ) {
-        UIWindowLogin({
+        UIAuthLogin({
             show_signup_button: false,
             reload_on_success: true,
-            window_options: {
-                backdrop: true,
-                close_on_backdrop_click: false,
-            },
         });
     }
 });

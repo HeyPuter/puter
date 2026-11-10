@@ -1,124 +1,151 @@
 ---
-title: Realtime WebSocket API (Beta)
-description: Connect to OpenAI realtime conversations through Puter without puter.js.
+title: puter.ai.realtime()
+description: Prepare an OpenAI realtime conversation with optional audio and text helpers.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-The Realtime WebSocket API lets your client send and receive native OpenAI realtime JSON events through Puter. Puter authenticates the user and charges their account for usage.
+Prepares a realtime OpenAI conversation that your app can connect to when it's ready.
+
+Preparing the conversation verifies Puter sign-in. Realtime conversations require a paid Puter plan, and usage is billed to the signed-in user. Native OpenAI events and convenience methods use the same session. Microphone capture and speaker playback start when your app requests them.
+
+In Node.js, the SDK requires a global `WebSocket`, available in Node.js 22 or later.
 
 **Beta:** This API is incomplete. Its methods, options, events, and behavior may change abruptly, including breaking changes without notice.
 
-For optional text, microphone, playback, and interruption helpers, use [`puter.ai.convo()`](/AI/convo/).
+To connect without puter.js, see the [Realtime WebSocket API](/AI/realtime-websocket/).
 
-## Connection and authentication
-
-Connect to this URL on the Puter API host:
-
-```text
-wss://api.puter.com/puterai/openai/v1/realtime?model=gpt-realtime-2.1-mini
-```
-
-The `model` query parameter defaults to `gpt-realtime-2.1-mini`. The model is fixed for the connection. A session update that changes it is rejected. It also accepts `gpt-realtime-2.1`, `gpt-realtime-2`, `gpt-realtime-1.5`, `gpt-realtime`, and `gpt-realtime-mini`.
-
-Authenticate with a Puter session, app, or full-access API token. Puter supplies the provider credential. Server clients pass this header:
-
-```text
-Authorization: Bearer <PUTER_TOKEN>
-```
-
-Browser WebSocket clients pass `realtime` and `openai-insecure-api-key.<PUTER_TOKEN>` as subprotocols. The server echoes only `realtime`. The endpoint also accepts an `auth_token` query parameter. Prefer the authorization header where supported because URLs and subprotocols can appear in logs. Authentication takes precedence in this order, header, subprotocol, then query parameter.
-
-The socket can open before authentication and provider setup finish. Listen for errors and closure immediately. Wait for `session.created`, send your session settings, then wait for `session.updated` before submitting a turn.
-
-To open a replacement while another connection remains healthy, set the optional `purpose=handover` query parameter. These attempts share a smaller per-credential budget, checked before the general connection-attempt budget. Initial connections and dropped-connection recovery use the URL without this parameter. The limits are listed in [rate limits and quotas](/rate-limits-and-quotas/).
-
-## Text example
-
-Install the `ws` package and set `PUTER_TOKEN` to your Puter token. Run this example as a Node.js ES module:
+## Syntax
 
 ```js
-import WebSocket from 'ws';
+const conversation = await puter.ai.realtime(options = {});
+await conversation.connect();
+```
 
-const socket = new WebSocket(
-    'wss://api.puter.com/puterai/openai/v1/realtime?model=gpt-realtime-2.1-mini',
-    { headers: { Authorization: `Bearer ${process.env.PUTER_TOKEN}` } },
-);
-const send = (event) => socket.send(JSON.stringify(event));
+## Parameters
 
-socket.on('message', (data) => {
-    const event = JSON.parse(data.toString());
+#### `options` (Object) (Optional)
 
-    if (event.type === 'session.created') {
-        send({
-            type: 'session.update',
-            session: {
-                type: 'realtime',
-                output_modalities: ['text'],
-                instructions: 'Keep replies short.',
-            },
-        });
-    }
-    if (event.type === 'session.updated') {
-        send({
-            type: 'conversation.item.create',
-            item: {
-                type: 'message',
-                role: 'user',
-                content: [{ type: 'input_text', text: 'Hello!' }],
-            },
-        });
-        send({ type: 'response.create' });
-    }
-    if (event.type === 'response.output_text.delta')
-        process.stdout.write(event.delta);
-    if (event.type === 'error')
-        console.error(event.error);
-    if (event.type === 'response.done')
-        socket.close();
+The options object accepts these fields.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | The realtime model. Defaults to `gpt-realtime-2.1-mini`. Also accepts `gpt-realtime-2.1`, `gpt-realtime-2`, `gpt-realtime-1.5`, `gpt-realtime`, and `gpt-realtime-mini`. |
+| `instructions` | `String` | Session instructions, up to 8192 characters. Defaults to the provider's default. |
+| `output` | `Array<String>` | Accepts `['text']`, `['audio']`, or both. Defaults to `['audio']`. Audio includes a transcript. Requesting both uses audio output and emits transcript deltas through the `text` event. |
+| `voice` | `String` | OpenAI voice identifier, up to 128 characters. Defaults to the provider's default. |
+| `turnDetection` | `Boolean` | Whether the provider detects the end of spoken turns automatically. Defaults to `true`. Set to `false` for manual audio commits. |
+
+## Return value
+
+A Promise resolves to a prepared conversation after options and sign-in are checked. In a browser, preparation opens the Puter sign-in prompt if needed. Preparation opens no realtime connection and requests no microphone access.
+
+The conversation exposes these properties and methods.
+
+| Member | Behavior |
+| --- | --- |
+| `state` | `prepared`, `connecting`, `connected`, or `closed`. |
+| `model` | Resolved model name. |
+| `connect()` | Opens the connection and applies settings. Resolves after the provider acknowledges session configuration. Concurrent calls share one connection Promise, including bounded retries for transient setup failures. Calling it while connected opens no additional connection. During a reconnection, it resolves when the reconnection succeeds and rejects if the conversation closes instead. |
+| `configure(options)` | Updates the given session settings and resolves after the provider acknowledges this update. Settings it isn't given, including ones set through native events, are left alone. Accepts the factory options except `model`. One update can be pending at a time. Provider rules apply to changes such as switching a voice after audio has been generated. |
+| `sendText(text)` | Adds a user message and requests a response. Text must be nonempty and at most 8192 characters. |
+| `appendAudio(pcm)` | Appends an `Int16Array` containing PCM16, 24 kHz mono audio. A chunk contains at most 12000 samples. |
+| `commitAudio()` | Commits buffered audio and requests a response. Requires turn detection to be off, through `turnDetection: false` or a native session update. The provider requires at least 100 ms of buffered audio. |
+| `interrupt(position?)` | Stops built-in playback immediately and waits for cancellation and playback-history synchronization. A reply requested but not yet started is cancelled as soon as it starts. Custom players provide `{ itemId, contentIndex, playedMs }`. An idle call resolves immediately. Readiness failures reject the returned Promise with `session_not_ready` or `session_closed`. |
+| `send(event)` | Sends a native OpenAI JSON event. |
+| `on(type, handler)` | Registers a listener and returns an unsubscribe function. Use `'*'` to receive every native and convenience event. |
+| `off(type, handler)` | Removes a listener. |
+| `close()` | Closes the session, rejects pending operations, and releases SDK-owned capture and playback resources. Repeated calls have no additional effect. |
+
+Attach listeners before connecting to receive initial session events. Closing during connection rejects the pending attempt.
+
+If the connection drops because of network loss, a server restart or a provider error, the conversation reconnects on its own. Normal closes with code 1000 end the conversation. While it reconnects, `state` is `connecting`, a `reconnecting` event fires, and pending operations reject with `connection_lost`. The new session gets every setting the provider acknowledged, from the factory options, `configure()` and native `session.update` events. Then `ready` fires again with `reconnected: true`. Listeners, the microphone and the speaker carry over. Microphone audio captured while reconnecting is dropped.
+
+The conversation also restores recent context. Before `ready` fires, it adds back up to 40 of the most recent conversation items, 48 KiB in total. Restored items are user text, user speech that has a transcript, assistant replies as text, and function calls with their outputs. User speech has a transcript only when input transcription is configured through native session settings. An assistant reply that was interrupted, or still playing when the connection dropped, is cut to what the user saw or heard. The cut is estimated from how much of the audio played, so it can be off by a few words. Images, speech without a transcript, deleted items, and replies still generating when the connection dropped are left out. Restored items get new item IDs, don't fire item events, and count as input tokens on the next response. Item IDs from before the reconnect don't work in later events. Restoration uses a contiguous suffix of restorable items. An oversized newest item leaves that suffix empty. Older items left out to fit the window fire a `context_trimmed` event with the count in `omittedItems`; this is routine and not an error. A provider refusal or a failure to send the restored items fires one `error` event with code `context_restore_failed` per restoration. In both cases the conversation stays connected. Items are preserved without truncating text, function arguments or function results.
+
+When Puter knows ahead of time that the server a session runs on will restart, it sends a `puter.reconnect` event, which also reaches your listeners. Without that notice, a restart drops the connection and the conversation reconnects as above. Within a few seconds, the conversation opens a replacement session in the background while the current one keeps working. It switches once no reply is generating or playing, no user turn is being spoken or transcribed, no function call is waiting for its output, and nothing you sent is waiting on the provider. The switch goes through the same steps as a reconnect, and the `reconnecting` event has code 1012. If the replacement can't open yet, the conversation keeps the current session and tries again later. A refusal that retrying can't fix, such as `insufficient_funds`, stops the attempts. If the server closes the session first, the conversation switches to the replacement, or reconnects if none is open.
+
+The conversation makes up to ten attempts over about a minute. In a browser that reports being offline, it first waits up to two minutes for the connection to come back. If every attempt fails, or the server refuses with an error such as `insufficient_funds`, the conversation closes. A closed conversation cannot reconnect. To start another session, prepare a new one.
+
+Native event definitions are listed in the [OpenAI realtime reference](https://developers.openai.com/api/reference/resources/realtime/server-events). Native events retain their provider fields. Sending native events preserves direct control of the session. Puter refuses `conversation.item.retrieve` events and MCP tools (`"type": "mcp"`) in `session.update` and `response.create` events. Sending one fires an `error` event with code `invalid_event`, and the conversation closes with code 1008. Audio helpers expect the session to use PCM16 at 24 kHz.
+
+## Errors and limits
+
+Failures use objects containing `code` and `message`. Preparation can reject with `invalid_argument`, `model_not_found`, `auth_required`, `auth_canceled`, or `auth_failed`. Connection can reject with `subscription_required` or `insufficient_funds`, which also show the Puter upgrade prompt. Connection and asynchronous operations can reject with provider errors, `session_closed`, `connection_lost`, `operation_timeout`, or `operation_in_progress`. Sending before readiness, or while reconnecting, throws `session_not_ready`.
+
+Invalid input throws `invalid_argument`, `invalid_event`, or `input_too_large`. A full SDK send queue throws `queue_full`. Media helpers report `unsupported_environment`, `permission_denied`, `media_error`, `media_timeout`, or `queue_full`. Runtime media errors and `context_restore_failed` arrive through the `error` event. Provider errors also arrive as native `error` events with a nested `error` object.
+
+Each native event is capped at 64 KiB. The SDK bounds JSON traversal, outgoing queues, acknowledgment waits, microphone work, and playback. All numeric limits are listed on [rate limits and quotas](/rate-limits-and-quotas/).
+
+## Convenience events
+
+The conversation emits these events alongside native events.
+
+| Event | Fields |
+| --- | --- |
+| `ready` | `model`, `provider`, and `reconnected: true` after a reconnection |
+| `reconnecting` | `code`, `reason` of the dropped connection. After a `puter.reconnect` event, `code` is 1012. |
+| `context_trimmed` | `omittedItems`, the number of restorable items left out of the restored context after a reconnection. Fires before `ready`. |
+| `text` | `delta`, `responseId` |
+| `transcript` | `role`, `text`, `final`. Assistant deltas use `final: false`. Completed assistant and user transcripts use `final: true`. User transcripts require transcription to be configured through native session settings. |
+| `audio` | `pcm`, `sampleRate`, `responseId`, `itemId`, `contentIndex`. The PCM chunk is an `Int16Array`. |
+| `interrupted` | `source` (`manual` or `speech`), `responseId` |
+| `turn.done` | `responseId`, native provider `usage`, `status` |
+| `close` | `code`, `reason` |
+
+Each event includes its `type`. When the provider event leaves out an ID, `responseId` and `itemId` are empty strings and `contentIndex` is `0`. The `interrupted` event signals local interruption immediately. Its corresponding operation resolves after the provider acknowledges cancellation and any requested truncation. Late audio from a canceled response remains visible as native events and is excluded from convenience audio and built-in playback.
+
+## Browser media
+
+The optional microphone and speaker helpers require a browser with Web Audio support. Microphone capture also requires media permissions and a secure context. Start audio from a user action so the browser can allow playback.
+
+| Member | Behavior |
+| --- | --- |
+| `microphone.start()` | Requests microphone access and streams PCM16, resampled to 24 kHz, in 20 ms chunks through an AudioWorklet. If the page or network falls behind, chunks are dropped rather than stopping capture. |
+| `microphone.mute()` | Disables capture tracks and stops forwarding captured chunks. |
+| `microphone.unmute()` | Enables capture tracks and forwarding. |
+| `microphone.stop()` | Stops capture tracks and releases capture resources. A `start()` still waiting on the permission prompt rejects with `session_closed`. |
+| `speaker.start({ bargeIn: true })` | Starts playback. Barge-in defaults to `true`. With barge-in enabled, provider speech-start events interrupt playback and synchronize played audio with conversation history. Starting the speaker requests no microphone access. |
+| `speaker.stop()` | Clears playback and releases its audio context. |
+
+Both start methods require a connected session. Capture and playback are independent, so custom audio input can use the built-in speaker, and built-in capture can use custom playback.
+
+## Examples
+
+### Have a text conversation
+
+A text conversation uses convenience methods for input and streamed output.
+
+```js
+const conversation = await puter.ai.realtime({
+    output: ['text'],
+    instructions: 'Keep replies short.',
 });
-socket.on('error', console.error);
-socket.on('close', (code, reason) => console.log(code, reason.toString()));
+
+conversation.on('text', ({ delta }) => console.log(delta));
+conversation.on('turn.done', () => conversation.close());
+conversation.on('error', (event) => console.error(event));
+
+await conversation.connect();
+conversation.sendText('Say hello in three words.');
 ```
 
-## Events, audio, and interruption
+### Have a voice conversation
 
-Each message contains one JSON object with a nonempty string `type` of at most 128 characters. Binary messages are rejected. Native events retain their provider fields. The endpoint doesn't deliver `rate_limits.updated`, which describes Puter's provider account rather than yours, and it removes provider organization IDs from error messages. The endpoint exposes the WebSocket event protocol. Your client manages capture, playback, acknowledgments, and timeouts.
+A voice conversation enables the microphone and speaker after connection.
 
-The endpoint refuses `conversation.item.retrieve` events and MCP tools (`"type": "mcp"`) in `session.update` and `response.create` events. A refused event isn't sent to the provider. The session gets an `invalid_event` error and closes with 1008.
+```js
+const conversation = await puter.ai.realtime();
+conversation.on('transcript', ({ role, text }) => console.log(role, text));
+conversation.on('error', (event) => console.error(event));
 
-PCM16 audio configured at 24 kHz mono is sent as base64 chunks in `input_audio_buffer.append` events. Output arrives in `response.output_audio.delta` events. With manual turn detection, commit buffered input with `input_audio_buffer.commit`, then request a reply with `response.create`.
+await conversation.connect();
+await conversation.speaker.start();
+await conversation.microphone.start();
 
-To interrupt, stop local playback immediately and send `response.cancel` with the active `response_id`. If some generated audio was not played, send `conversation.item.truncate` with its `item_id`, `content_index`, and `audio_end_ms` set to the amount actually played. Wait for `response.done` and any requested `conversation.item.truncated` acknowledgment before submitting a replacement turn.
+// To interrupt a response and submit a replacement text turn:
+await conversation.interrupt();
+conversation.sendText('Actually, make it Wednesday.');
 
-Connection loss ends the session. Reconnecting creates a new conversation. Tool execution and automatic reconnection belong to your client.
-
-## Server restarts
-
-When Puter knows ahead of time that the server a session runs on will restart, it sends each open session this event, at most once a minute:
-
-```json
-{
-    "type": "puter.reconnect",
-    "event_id": "event_puter_1767225600000",
-    "reason": "server_restarting",
-    "close_in_ms": 90000
-}
+// When the user ends the conversation:
+conversation.close();
 ```
-
-The `reason` field is `server_restarting`. The `close_in_ms` field, when present, is about how long until the server closes the session itself. The session keeps working until then. Open a new connection after a short, randomized delay, and once it gets `session.created` and your client is idle, with no response generating and no user turn in progress, move to it and close the old one. A connection that reaches a server that is also restarting gets a `server_restarting` error and closes with 1012. In that case keep the old session and try again after a short, randomized delay. If the server closes the old session first, the close code is 1012, and your client reconnects the same way. A restart can also drop the connection without any notice, so treat an unexpected close the same way.
-
-A new connection starts an empty conversation. To keep context, add earlier items back with `conversation.item.create` before you request a response. Event types that start with `puter.` come from Puter, not the provider.
-
-## Errors, billing, and limits
-
-API errors arrive as `{ "type": "error", "error": { "code": "...", "message": "..." } }`. Handle socket errors and close frames too. Invalid, missing, or revoked credentials use `invalid_api_key`. If Puter can't check a credential or the account's plan, the error is `internal_error` and the session closes with 1011, so try again after a short, randomized delay. Other relay codes include `permission_denied`, `model_not_found`, `insufficient_funds`, `subscription_required`, `rate_limit_exceeded`, `invalid_event`, `connection_timeout`, `provider_unavailable`, `upstream_error`, and `server_restarting`.
-
-Policy failures generally close with 1008, oversized client messages with 1009, upstream or setup failures with 1011, server restarts with 1012, and temporary server overload with 1013. Reconnect after 1011, 1012, or 1013. Authentication and model failures can arrive after the WebSocket handshake succeeds.
-
-The endpoint requires a paid Puter plan. Usage is charged after completed responses and input transcriptions. While a response generates, part of your balance is held for it, so a session opens only if your balance covers one response. If the provider connection closes before a response reports its usage, the response is charged the full amount held for it. Each account can open 20 sessions at once by default. Each JSON message you send is limited to 64 KiB, including reassembled fragments. Messages from the provider can be up to 4 MiB. Stream audio in small chunks. All message rates, queue caps, timeouts, and other bounds are published in [rate limits and quotas](/rate-limits-and-quotas/).
-
-Input transcription holds a small amount of your balance per transcribed item, priced at the transcription model you select. Two items are reserved ahead of your audio and replenished as the provider commits them, so a session holds only its spare items plus the items still awaiting a transcript. Changing the transcription model reprices the spare items. If your balance can't cover another item, audio waits while earlier items settle; once none are left to settle, the session closes with `insufficient_funds`. Failed transcriptions, items without final usage, and audio whose commit the provider never acknowledges before the connection closes are each charged that model's fixed per-item amount. Unacknowledged audio is charged one item per started 160 seconds. With server turn detection, only detected speech counts, so silence is never charged. The amounts, timeout and audio limits are listed in [rate limits and quotas](/rate-limits-and-quotas/).
-
-Provider-reported realtime models must have a known price. A missing model uses the last known model. An explicitly unpriced model closes the connection with `upstream_error`.
-
-After recording usage, the connection can continue while settled credit is positive, including a fractional balance. Each new billable operation still needs its full reservation after accounting for other outstanding holds.

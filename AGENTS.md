@@ -159,7 +159,9 @@ The reference has two kinds of page:
 
 An overview page answers "what is this API and is it what I need?", and a function page answers "how exactly does this call behave?". A change to one function usually only touches that function's page, so a new `kv.list()` option goes in `KV/list.md` without a matching update to `KV.md`. Don't copy a function's options, limits, or edge cases onto the overview page for completeness. Where a detail goes is a judgment call, not a hard rule: update the overview when a change affects how someone would describe the API as a whole.
 
-When you add a page, add it to [src/docs/src/sidebar.js](src/docs/src/sidebar.js) under its area, or it won't show up in the navigation. When you add a runnable example, add its HTML to `src/docs/src/playground/examples/<slug>.html`, register the slug in [src/docs/src/examples.js](src/docs/src/examples.js), and link the code block to it by putting the slug after the language with a semicolon (` ```html;kv-set `).
+When you add a page, add it to [src/docs/src/sidebar.js](src/docs/src/sidebar.js) under its area, or it won't show up in the navigation.
+
+**Sidebar order.** Order the API areas in the sidebar by how often developers use them, most common first. Overview stays first and Objects stays last. Inside an area, order the pages by use too, and keep pages that make up one feature next to each other, such as `share()`, `unshare()`, `listShared()`, and `listSharedByMe()`. A group goes where its most-used page would go. A helper that only supports another function, such as `listModels()` for `chat()`, goes by its own use. Put create, list, get, update, and delete in that order, and constants such as `MAX_KEY_SIZE` last. The function list on the area's overview page uses the sidebar's order. When you add a runnable example, add its HTML to `src/docs/src/playground/examples/<slug>.html`, register the slug in [src/docs/src/examples.js](src/docs/src/examples.js), and link the code block to it by putting the slug after the language with a semicolon (` ```html;kv-set `).
 
 ### Function page layout
 
@@ -200,6 +202,7 @@ These apply to reference pages and recipes alike.
 - **Describe behavior directly.** No quoted inner-voice phrases. Write "`isNew` is `true` when the person did not have access before", not "this tells 'I just gave this to someone' from 'they already had it'".
 - **Keep references easy to follow.** Name what a list or code block belongs to in the sentence directly above it. Name a thing once and keep that name. Introduce an actor as "a user" before giving them a role: "A user can create a team. The user who creates the team becomes its owner."
 - **Sentence mechanics.** Never start a sentence with inline code: write "To store data, use the [`set()`](/KV/set/) method." Link every inline mention of an API to its page, every time. No em dashes, and no colons or semicolons mid-sentence; a colon that introduces a code block is fine.
+- **No `##` or `###` headings inside tabs.** The table of contents lists every `##` and `###` heading on the page, including the ones in a hidden tab (an `example-content` block switched by the `example-group` pills), so its links lead to content the reader can't see. Put the heading above the tabs, or use `####` inside a tab, which the table of contents skips.
 - **Show the correct way.** No "don't" and no wrong-way-first examples, in recipes and playground examples alike. Mention a wrong approach only when developers already hit it in practice, and state how it fails as a fact: "`add()` reads a plain object as a path map, so the call rejects with …".
 
 ### Recipes

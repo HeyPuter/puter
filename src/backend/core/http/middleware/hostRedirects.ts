@@ -27,15 +27,7 @@ import { HttpError, isHttpError } from '../HttpError';
 import { isLocalWorkerHost } from './localWorkerProxy';
 
 /** Native-app subdomains served via `nativeAppStatic`. */
-const NATIVE_APP_SUBDOMAINS = [
-    'about',
-    'developer',
-    'docs',
-    'editor',
-    'markus',
-    'pdf',
-    'apps',
-] as const;
+const NATIVE_APP_SUBDOMAINS = ['about', 'developer', 'docs', 'apps'] as const;
 
 /** Subset served out of a `dist/` subdirectory rather than the app root. */
 const NATIVE_APPS_WITH_DIST = new Set(['docs', 'developer']);
@@ -111,6 +103,10 @@ export const subdomainLabelOf = (
     return label && !label.includes('.') ? label : undefined;
 };
 
+/** Whether core itself answers `<name>.<domain>` (`www` redirects to the root). */
+export const isReservedSubdomain = (name: string): boolean =>
+    name === 'www' || RESERVED_SUBDOMAINS.has(name);
+
 /**
  * Record a claim on `<name>.<domain>`. Throws on a malformed or uppercase
  * label, a subdomain core already handles, or a name that is already claimed.
@@ -123,7 +119,7 @@ export const addClaimedSubdomain = (
     if (typeof name !== 'string' || !SUBDOMAIN_LABEL.test(name)) {
         throw new Error(`Invalid subdomain label: ${JSON.stringify(name)}`);
     }
-    if (name === 'www' || RESERVED_SUBDOMAINS.has(name)) {
+    if (isReservedSubdomain(name)) {
         throw new Error(`Subdomain '${name}' is reserved`);
     }
     if (claims.has(name)) {

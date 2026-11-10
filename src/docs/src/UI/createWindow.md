@@ -16,21 +16,25 @@ puter.ui.createWindow(options)
 
 #### `options` (optional)
 A set of key/value pairs that configure the window.
-    
-* `center` (Boolean): if set to `true`, window will be placed at the center of the screen.
-* `content` (String): content of the window.
-* `disable_parent_window` (Boolean): if set to `true`, the parent window will be blocked until current window is closed. 
-* `has_head` (Boolean): if set to `true`, window will have a head which contains the icon and close, minimize, and maximize buttons.
-* `height` (Float): height of window in pixels.
-* `is_resizable` (Boolean): if set to `true`, user will be able to resize the window.
-* `show_in_taskbar` (Boolean): if set to `true`, window will be represented in the taskbar.
-* `title` (String): title of the window.
-* `width` (Float): width of window in pixels.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `title` | `String` | Title of the window. |
+| `content` | `String` | Content of the window. |
+| `width` | `Number` | Width of the window in pixels. |
+| `height` | `Number` | Height of the window in pixels. |
+| `center` | `Boolean` | If set to `true`, the window is placed at the center of the screen. |
+| `is_resizable` | `Boolean` | If set to `true`, the user can resize the window. |
+| `has_head` | `Boolean` | If set to `true`, the window has a head which contains the icon and the close, minimize, and maximize buttons. |
+| `disable_parent_window` | `Boolean` | If set to `true`, the parent window is blocked until the current window is closed. |
+| `show_in_taskbar` | `Boolean` | If set to `true`, the window is represented in the taskbar. |
 
 ## Return value
 A `Promise` that resolves to a window handle object with an `id` (String) property identifying the created window. This `id` can be passed as the `window_id` argument to the `setWindow*` methods.
 
 ## Examples
+### Create a window
+
 ```html
 <html>
 <body>

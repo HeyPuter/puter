@@ -4,7 +4,7 @@ description: Create a raw TCP socket directly in the browser.
 platforms: [websites, apps]
 ---
 
-The Socket API lets you create a raw TCP socket which can be used directly in the browser.
+Creates a raw TCP socket that can be used directly in the browser.
 
 ## Syntax
 
@@ -88,7 +88,7 @@ Fired when the socket encounters an error. The close event is fired shortly afte
 
 ## Examples
 
-<strong class="example-title">Connect to a server and print the response</strong>
+### Connect to a server and print the response
 
 ```html;net-basic
 <html>

@@ -183,9 +183,9 @@ These Apps API are supported out of the box when using Puter.js:
 
 - **[`puter.apps.create()`](/Apps/create/)** - Create a new application
 - **[`puter.apps.list()`](/Apps/list/)** - List all applications
-- **[`puter.apps.delete()`](/Apps/delete/)** - Delete an application
-- **[`puter.apps.update()`](/Apps/update/)** - Update application settings
 - **[`puter.apps.get()`](/Apps/get/)** - Get information about a specific application
+- **[`puter.apps.update()`](/Apps/update/)** - Update application settings
+- **[`puter.apps.delete()`](/Apps/delete/)** - Delete an application
 - **[`puter.apps.checkName()`](/Apps/checkName/)** - Check whether an app name is available
 
 ## Examples

@@ -7479,6 +7479,11 @@ describe('AuthController user-protected mutations (validation paths)', () => {
             { expiresIn: '1h' },
         );
 
+        const heard: Array<Record<string, unknown>> = [];
+        eventClient.on('user.email-changed', (_k, data) => {
+            heard.push(data as Record<string, unknown>);
+        });
+
         const req = makeReq({});
         (req as unknown as { query: Record<string, string> }).query = {
             token: linkJwt,
@@ -7486,6 +7491,11 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         const res = makeRes();
         await controller.handleChangeEmailConfirm(req, res);
         expect(res.sent).toMatch(/Email changed successfully/);
+        expect(heard).toContainEqual({
+            user_id: user.id,
+            old_email: user.email ?? null,
+            new_email: newEmail,
+        });
 
         const after = await server.stores.user.getById(user.id, {
             force: true,

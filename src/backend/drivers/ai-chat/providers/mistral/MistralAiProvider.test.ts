@@ -20,13 +20,12 @@
 /**
  * Offline unit tests for MistralAIProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs MistralAIProvider directly against the live
- * wired `MeteringService` so the recording side is exercised end-to-
- * end. The Mistral SDK is mocked at the module boundary (the real
- * network egress point) so the provider never reaches the network.
- * The companion integration test (MistralAiProvider.integration.test.ts)
- * exercises the real Mistral endpoint.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs MistralAIProvider directly against the live wired
+ * `MeteringService` so the recording side is exercised end-to- end. The Mistral
+ * SDK is mocked at the module boundary (the real network egress point) so the
+ * provider never reaches the network. The companion integration test
+ * (MistralAiProvider.integration.test.ts) exercises the real Mistral endpoint.
  */
 
 import { Context } from '../../../../core/context.js';
@@ -147,7 +146,9 @@ describe('MistralAIProvider construction', () => {
     it('constructs the Mistral SDK with the configured API key', () => {
         makeProvider();
         expect(mistralCtor).toHaveBeenCalledTimes(1);
-        expect(mistralCtor).toHaveBeenCalledWith({ apiKey: 'test-key' });
+        expect(mistralCtor).toHaveBeenCalledWith(
+            expect.objectContaining({ apiKey: 'test-key' }),
+        );
     });
 });
 
@@ -606,7 +607,11 @@ describe('MistralAIProvider.complete non-stream output', () => {
             if (stream) {
                 streamMock.mockResolvedValueOnce(
                     asAsyncIterable([
-                        { data: { choices: [{ delta: { content: 'hello' } }] } },
+                        {
+                            data: {
+                                choices: [{ delta: { content: 'hello' } }],
+                            },
+                        },
                         { data: { choices: [], usage } },
                     ]),
                 );
@@ -643,7 +648,11 @@ describe('MistralAIProvider.complete non-stream output', () => {
                 expect(result).toMatchObject({ message: { content: 'hello' } });
             }
             expect(recordSpy).toHaveBeenCalledWith(
-                { prompt_tokens: 5, cached_tokens: 1008, completion_tokens: 30 },
+                {
+                    prompt_tokens: 5,
+                    cached_tokens: 1008,
+                    completion_tokens: 30,
+                },
                 SYSTEM_ACTOR,
                 `mistral:${model}`,
                 {
@@ -688,8 +697,7 @@ describe('MistralAIProvider.complete non-stream output', () => {
         });
 
         expect(recordSpy).toHaveBeenCalledTimes(1);
-        const [usage, actor, prefix, overrides] =
-            recordSpy.mock.calls[0]!;
+        const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(usage).toEqual({
             prompt_tokens: 100,
             completion_tokens: 50,
@@ -718,15 +726,11 @@ describe('MistralAIProvider.complete non-stream output', () => {
                         content: [
                             {
                                 type: 'thinking',
-                                thinking: [
-                                    { type: 'text', text: 'step one.' },
-                                ],
+                                thinking: [{ type: 'text', text: 'step one.' }],
                             },
                             {
                                 type: 'thinking',
-                                thinking: [
-                                    { type: 'text', text: 'step two.' },
-                                ],
+                                thinking: [{ type: 'text', text: 'step two.' }],
                             },
                             { type: 'text', text: 'the answer' },
                         ],
@@ -916,8 +920,7 @@ describe('MistralAIProvider.complete streaming', () => {
 
         // mistral-small-2603: prompt=15, completion=60.
         expect(recordSpy).toHaveBeenCalledTimes(1);
-        const [, , prefix, overrides] =
-            recordSpy.mock.calls[0]!;
+        const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(prefix).toBe('mistral:mistral-small-2603');
         expect(overrides).toMatchObject({
             prompt_tokens: 4 * 15,
@@ -1115,7 +1118,7 @@ describe('MistralAIProvider image_url coercion', () => {
         usage: { promptTokens: 1, completionTokens: 1 },
     };
 
-    it('rewrites canonical image_url parts to the SDK\'s camelCase imageUrl', async () => {
+    it("rewrites canonical image_url parts to the SDK's camelCase imageUrl", async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce(baseCompletion);
 
@@ -1175,7 +1178,8 @@ describe('MistralAIProvider image_url coercion', () => {
                             },
                             {
                                 type: 'image_url',
-                                image_url: 'https://example.com/already-flat.png',
+                                image_url:
+                                    'https://example.com/already-flat.png',
                             },
                         ],
                     },
@@ -1251,7 +1255,9 @@ describe('MistralAIProvider image_url coercion', () => {
                             { type: 'text', text: 'what is in this image?' },
                             {
                                 type: 'image_url',
-                                image_url: { url: 'https://example.com/photo.jpg' },
+                                image_url: {
+                                    url: 'https://example.com/photo.jpg',
+                                },
                             },
                         ],
                     },
@@ -1260,7 +1266,11 @@ describe('MistralAIProvider image_url coercion', () => {
         );
 
         const [args] = completeMock.mock.calls[0]!;
-        const parts = args.messages[0].content as { type: string; text?: string; imageUrl?: unknown }[];
+        const parts = args.messages[0].content as {
+            type: string;
+            text?: string;
+            imageUrl?: unknown;
+        }[];
         const textPart = parts.find((p) => p.type === 'text');
         const imgPart = parts.find((p) => p.type === 'image_url');
         expect(textPart?.text).toBe('what is in this image?');
@@ -1298,5 +1308,43 @@ describe('MistralAIProvider.checkModeration', () => {
         expect(() => provider.checkModeration('anything')).toThrow(
             /not implemented/i,
         );
+    });
+});
+
+describe('Mistral service speed wire mapping', () => {
+    it('adds the tier after SDK serialization and removes its internal header', async () => {
+        makeProvider();
+        const options = mistralCtor.mock.calls[0][0] as {
+            httpClient: import('@mistralai/mistralai/lib/http.js').HTTPClient;
+        };
+        let sent: Request | undefined;
+        vi.stubGlobal('fetch', async (input: Request) => {
+            sent = input;
+            return new Response('{}', {
+                headers: { 'content-type': 'application/json' },
+            });
+        });
+        try {
+            await options.httpClient.request(
+                new Request('https://api.mistral.ai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        'x-puter-service-tier': 'auto',
+                    },
+                    body: JSON.stringify({
+                        model: 'mistral-medium-latest',
+                        messages: [],
+                    }),
+                }),
+            );
+            expect(sent?.headers.has('x-puter-service-tier')).toBe(false);
+            expect(await sent?.json()).toMatchObject({
+                model: 'mistral-medium-latest',
+                service_tier: 'auto',
+            });
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

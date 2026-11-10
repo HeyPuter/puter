@@ -18,9 +18,15 @@ None.
 
 ## Return value
 
-A `Promise` that resolves once the user is authenticated with their Puter account. If the user cancels the dialog, the promise will be rejected with an error.
+A `Promise` that resolves once the user is authenticated with their Puter account.
+
+## Errors
+
+If the user cancels the dialog, the promise will be rejected with an error.
 
 ## Examples
+
+### Ask the user to sign in with Puter
 
 ```html
 <html>

@@ -1292,31 +1292,14 @@ describe('AppStore CRUD and cache invalidation', () => {
         ).toBe('Bumped');
     });
 
-    it('counts apps by owner, creator and per-caller visibility', async () => {
+    it('counts apps by owner and creator', async () => {
         const countOwner = 4600;
-        const viewer = 4601;
         const open = await createApp({}, { ownerUserId: countOwner });
         await createApp({}, { ownerUserId: countOwner, appOwner: open.id });
-        const hidden = await createApp({}, { ownerUserId: countOwner });
-        await db.write('UPDATE `apps` SET `protected` = 1 WHERE `id` = ?', [
-            hidden.id,
-        ]);
+        await createApp({}, { ownerUserId: countOwner });
 
         expect(await appStore.count({ ownerUserId: countOwner })).toBe(3);
         expect(await appStore.count({ appOwner: open.id })).toBe(1);
-
-        // The protected app is invisible to a stranger but visible to its
-        // owner.
-        const strangerView = await appStore.count({
-            ownerUserId: countOwner,
-            visibleToUserId: viewer,
-        });
-        expect(strangerView).toBe(2);
-        const ownerView = await appStore.count({
-            ownerUserId: countOwner,
-            visibleToUserId: countOwner,
-        });
-        expect(ownerView).toBe(3);
     });
 
     // -- filetype association batch + recent opens ----------------------
@@ -1542,18 +1525,22 @@ describe('AppStore detailed stats', () => {
     let db;
 
     const APP_UID = `app-stats-${Date.now()}`;
-    const nowSeconds = Math.floor(Date.now() / 1000);
+    // The windows come from the clock, so it is pinned: mid-week and
+    // mid-month, and minutes clear of midnight in any time zone.
+    const NOW = new Date('2026-06-17T12:07:30Z');
+    const nowSeconds = Math.floor(NOW.getTime() / 1000);
 
     beforeAll(async () => {
         server = await setupTestServer();
         appStore = server.stores.app;
         db = server.clients.db;
         await clearAppCache(server.clients.redis);
+        vi.useFakeTimers({ toFake: ['Date'], now: NOW });
 
-        // Two users; the repeat shares a timestamp so it is always same-hour.
+        // Two users in one hour. Windows end at now, exclusive.
         for (const [userId, offset] of [
-            [1, 0],
-            [1, 0],
+            [1, 60],
+            [1, 60],
             [2, 120],
         ]) {
             await db.write(
@@ -1564,6 +1551,7 @@ describe('AppStore detailed stats', () => {
     });
 
     afterAll(async () => {
+        vi.useRealTimers();
         await server?.shutdown();
     });
 

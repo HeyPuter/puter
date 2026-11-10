@@ -139,7 +139,7 @@ describe('OIDC account second-factor login', () => {
             expect(await response.json()).toMatchObject({
                 proceed: true,
                 next_step: 'complete',
-                redirectUrl: `${env.origin}/dashboard${flow === 'signup' ? '?oidc_switched=login' : ''}`,
+                redirectUrl: `${env.origin}/dashboard`,
             });
             expect(
                 response.headers

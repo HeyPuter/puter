@@ -4,7 +4,9 @@ description: Returns the maximum value size (in bytes) for the key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-The largest value the key-value store accepts, in bytes. It's `408576` (399 KB). A value is measured as the UTF-8 bytes of `JSON.stringify(value)`, so a string's quotes and escapes count.
+The largest value the key-value store accepts, in bytes.
+
+It's `408576` (399 KB). A value is measured as the UTF-8 bytes of `JSON.stringify(value)`, so a string's quotes and escapes count.
 
 ## Syntax
 
@@ -14,7 +16,7 @@ puter.kv.MAX_VALUE_SIZE
 
 ## Examples
 
-<strong class="example-title">Get the max value size</strong>
+### Get the max value size
 
 ```html
 <html>

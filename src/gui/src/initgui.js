@@ -33,20 +33,35 @@ import UIWindowPasswordChangeRequired from './UI/UIWindowPasswordChangeRequired.
 import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationRequired.js';
 import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
-import UIWindowLogin from './UI/UIWindowLogin.js';
-import UIWindowLogin2FA from './UI/UIWindowLogin2FA.js';
+import UIAuthLogin from './UI/Auth/UIAuthLogin.js';
+import UIAuth2FA from './UI/Auth/UIAuth2FA.js';
 import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
 import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
-import UIWindowSessionList from './UI/UIWindowSessionList.js';
-import UIWindowSignup from './UI/UIWindowSignup.js';
-import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
+import UIAuthAccountPicker from './UI/Auth/UIAuthAccountPicker.js';
+import UIAuthSignup from './UI/Auth/UIAuthSignup.js';
+import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
+import { embedHostUser } from './helpers/embedHostUser.js';
+import {
+    canShowEmailConfirmationFrame,
+    canShowUpgradeFrame,
+    closeAccountChecksOnEscape,
+    confirmEmailInFrame,
+    focusOnFrameFocus,
+    framedPopupAction,
+    framedPopupParams,
+    framedUpgradeDetails,
+    framesHostUser,
+    showFramedUpgrade,
+    startPopupFrame,
+} from './helpers/popupFrame.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
+import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
 import {
@@ -97,6 +112,8 @@ import {
     relationshipIsConsent,
     relaysTokenAtBoot,
     resolveOpenerOrigin,
+    reusablePopupUser,
+    reusableTokenExchange,
     runsUserAppTokenExchange,
 } from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
@@ -140,10 +157,25 @@ const follow_share_recipient = async (action) => {
     });
     if ( choice !== 'sign_in' ) return false;
     // Reloads on success; closing it carries on as the current account.
-    return Boolean(await UIWindowLogin({
+    return Boolean(await UIAuthLogin({
         reload_on_success: true,
         send_confirmation_code: true,
     }));
+};
+
+// A sign-in popup exchanges as soon as the user has chosen an account, and
+// `postAuthActions` hands over that result instead of exchanging again.
+let early_token_exchange = null;
+const exchangeUserAppTokenEarly = async () => {
+    const authToken = window.auth_token;
+    const data = await window.getUserAppToken(window.openerOrigin);
+    let origin = null;
+    try {
+        origin = new URL(window.openerOrigin).origin;
+    } catch (e) {
+        // No origin to match on, so the result is not reused.
+    }
+    early_token_exchange = { origin, authToken, data };
 };
 
 const postAuthActions = async (action) => {
@@ -425,7 +457,10 @@ const postAuthActions = async (action) => {
 
         if (isolated) {
             try {
-                const data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                const origin = new URL(window.openerOrigin).origin;
+                const data =
+                    reusableTokenExchange(early_token_exchange, origin, window.auth_token) ??
+                    await window.getUserAppToken(origin);
                 // Same two failure modes the postMessage path below guards
                 // against: `getUserAppToken` reports a network failure by
                 // returning null, and an HTTP failure (a blocked origin, an
@@ -469,7 +504,10 @@ const postAuthActions = async (action) => {
             // Its failure carries `token: null`, which the SDK sets too.
             const deliver_token_to_opener = deliversTokenAtBoot(action);
             try {
-                let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                const origin = new URL(window.openerOrigin).origin;
+                let data =
+                    reusableTokenExchange(early_token_exchange, origin, window.auth_token) ??
+                    await window.getUserAppToken(origin);
                 // `getUserAppToken` reports a network failure by returning
                 // null, and an HTTP failure (a blocked origin, a 5xx) by
                 // returning the parsed *error* body — which is truthy but
@@ -565,7 +603,10 @@ const postAuthActions = async (action) => {
             window.opener?.postMessage({
                 msg,
                 original_msg_id: msg_id,
-            }, '*');
+            }, window.openerOrigin);
+            // Escape closes only the picker window, which would leave the
+            // page's frame open over an empty desktop.
+            if ( window.embedded_in_frame ) window.close();
         };
 
         if ( action === 'show-open-file-picker' ) {
@@ -630,14 +671,17 @@ const postAuthActions = async (action) => {
             // send 'sendMeFileData' event to parent
             window.opener.postMessage({
                 msg: 'sendMeFileData',
-            }, '*');
+            }, window.openerOrigin);
 
-            // listen for 'showSaveFilePickerPopup' event from parent
-            window.addEventListener('message', async (event) => {
-                if ( event.data.msg !== 'showSaveFilePickerPopup' )
+            // listen for 'showSaveFilePickerPopup' event from parent. Only the
+            // page that asked supplies the file, once; any other window that
+            // can reach this one (a sibling frame of the framing page) can't.
+            window.addEventListener('message', async function onFileData (event) {
+                if ( event.data?.msg !== 'showSaveFilePickerPopup' || event.source !== window.opener )
                 {
                     return;
                 }
+                window.removeEventListener('message', onFileData);
 
                 // Open dialog
                 UIWindow({
@@ -650,6 +694,7 @@ const postAuthActions = async (action) => {
                     title: 'Save',
                     is_dir: true,
                     is_saveFileDialog: true,
+                    saveFileDialog_default_filename: event.data.suggestedName ?? '',
                     is_resizable: false,
                     has_head: false,
                     cover_page: true,
@@ -701,7 +746,7 @@ const postAuthActions = async (action) => {
                                         uid: file_signature.uid,
                                         path: window.privacy_aware_path(res.path),
                                     },
-                                }, '*');
+                                }, window.openerOrigin);
 
                                 window.close();
                                 window.open('', '_self').close();
@@ -709,7 +754,14 @@ const postAuthActions = async (action) => {
                             catch ( err ) {
                                 // item with same name exists
                                 if ( err.code === 'item_with_same_name_exists' ) {
-                                    const alert_resp = await UIAlert({
+                                    // Escape closes the alert without an answer,
+                                    // which counts as Cancel, so the picker isn't
+                                    // left behind its busy mask.
+                                    let alert_closed;
+                                    const alert_dismissed = new Promise((resolve) => {
+                                        alert_closed = () => resolve('cancel');
+                                    });
+                                    const alert_resp = await Promise.race([UIAlert({
                                         message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                                         buttons: [
                                             {
@@ -723,10 +775,11 @@ const postAuthActions = async (action) => {
                                             },
                                         ],
                                         parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
-                                    });
+                                        window_options: { on_close: alert_closed },
+                                    }), alert_dismissed]);
                                     if ( alert_resp === 'replace' ) {
                                         overwrite = true;
-                                    } else if ( alert_resp === 'cancel' ) {
+                                    } else {
                                         // enable parent window
                                         $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
                                         return;
@@ -941,6 +994,7 @@ const postAuthActions = async (action) => {
             sent = await UIWindowAppFeedback({
                 origin,
                 source: 'web',
+                fullpage: window.embedded_in_popup === true,
             });
         } catch (e) {
             console.error('send-feedback action failed', e);
@@ -971,6 +1025,46 @@ const postAuthActions = async (action) => {
             window.close();
             window.open('', '_self').close();
         }
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Action: upgrade — the deployment's upgrade dialog for the first-party page framing
+    // it, which hears whether the user upgraded once the dialog closes. The app it credits
+    // is the one the framing page's origin resolves to, never one the fragment names.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'upgrade' && window.embedded_in_frame ) {
+        let upgraded;
+        try {
+            upgraded = await showFramedUpgrade(window, {
+                ...(window.host_app_uid ? { appUid: window.host_app_uid } : {}),
+                ...framedUpgradeDetails(window.location.hash),
+            }, window.tell_popup_frame);
+        } catch (e) {
+            // A dialog that failed to open leaves the page to open the upgrade in a tab.
+            console.error('upgrade action failed', e);
+            window.tell_popup_frame('unavailable');
+            return;
+        }
+        window.tell_popup_frame('closed', { upgraded });
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Action: request-email-confirmation — puter.ui.requestEmailConfirmation() on the
+    // first-party page framing it, which hears whether the email is confirmed once the
+    // user is done.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'request-email-confirmation' && window.embedded_in_frame ) {
+        let confirmed = false;
+        try {
+            confirmed = await confirmEmailInFrame(
+                window,
+                () => ensureConfirmedEmail(i18n('save_account_to_proceed')),
+                window.tell_popup_frame,
+            );
+        } catch (e) {
+            console.error('request-email-confirmation action failed', e);
+        }
+        window.tell_popup_frame('closed', { confirmed });
     }
 
     // -------------------------------------------------------------------------------------
@@ -1154,9 +1248,17 @@ if (jQuery) {
 {
     const pathname = window.location.pathname;
     const search_params = new URLSearchParams(window.location.search);
-    if (['true', '1'].includes(search_params.get('embedded_in_popup'))) {
+    // A popup a first-party page frames at `/embed/<action>` boots as one.
+    if (['true', '1'].includes(search_params.get('embedded_in_popup')) || framedPopupAction(pathname)) {
         window.embedded_in_popup = true;
     }
+    // Called by the bootstrap in index.js, which can't import.
+    window.start_popup_frame = (hostOrigin) => {
+        if (!framedPopupAction(pathname)) return;
+        window.tell_popup_frame = startPopupFrame(window, hostOrigin);
+        window.embedded_in_frame = !!window.tell_popup_frame;
+        if (window.embedded_in_frame) focusOnFrameFocus(window);
+    };
     // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
     const in_iframe = window.location !== window.parent.location;
     const needs_desktop_at_root =
@@ -1411,8 +1513,16 @@ window.initgui = async function (options) {
     const url_paths = parse_url_paths(window.location.pathname);
     window.url_paths = url_paths;
 
-    // GET query params provided
-    window.url_query_params = new URLSearchParams(window.location.search);
+    // A framed popup without a framing page to answer (opened on its own, or
+    // framed by a page the server refused) has nothing to do.
+    const framed_action = framedPopupAction(window.location.pathname);
+    if (framed_action && !window.embedded_in_frame) return;
+
+    // GET query params provided. A framed popup takes the popup's parameters
+    // from its fragment; its route refuses a query string.
+    window.url_query_params = framed_action
+        ? framedPopupParams(window.location.hash)
+        : new URLSearchParams(window.location.search);
     window.signup_bonus_code = readSignupBonusCode(window.url_query_params);
 
     // Install device signal helpers; collection is lazy. The fingerprint is
@@ -1427,6 +1537,8 @@ window.initgui = async function (options) {
     let picked_a_user_for_sdk_login = false;
     // Whether a popup put an account picker in front of the user.
     let showed_account_picker = false;
+    // The `/whoami` a sign-in popup read before its account picker.
+    let popup_whoami = null;
 
     // update SDK if auth_token is different from the one in the SDK
     if (window.auth_token && puter.authToken !== window.auth_token) {
@@ -1506,7 +1618,9 @@ window.initgui = async function (options) {
     // Extract 'action' from URL
     //--------------------------------------------------------------------------------------
     let action;
-    if (
+    if (framed_action) {
+        action = framed_action;
+    } else if (
         window.url_paths[0]?.toLocaleLowerCase() === 'action' &&
         window.url_paths[1]
     ) {
@@ -1520,8 +1634,14 @@ window.initgui = async function (options) {
     // action. See util/popupAuth.js.
     window.gui_action = action;
 
+    if (window.embedded_in_frame && action === 'sign-in') closeAccountChecksOnEscape(window);
+    // Closing the window answers the frame, after any code it already sent.
+    if (window.embedded_in_frame && action === 'request-email-confirmation') {
+        closeAccountChecksOnEscape(window, (accountWindow) => $(accountWindow).close());
+    }
+
     if (action === 'oidc-2fa') {
-        const result = oidcChallenge?.token && await UIWindowLogin2FA(oidcChallenge.token);
+        const result = oidcChallenge?.token && await UIAuth2FA(oidcChallenge.token);
         if (result?.redirectUrl) {
             const target = new URL(result.redirectUrl, window.location.origin);
             if (target.origin === window.location.origin) {
@@ -1643,7 +1763,9 @@ window.initgui = async function (options) {
             action,
         );
         try {
-            window.openerOrigin = await resolveOpenerOrigin({
+            // A framed popup's opener is the page the server read from the
+            // referrer and pinned with frame-ancestors.
+            window.openerOrigin = window.embedded_in_frame ? window.gui_params.embed_host_origin : await resolveOpenerOrigin({
                 relaysToken: relaysTokenAtBoot(
                     action,
                     window.url_query_params.get('cross_origin_isolated') ===
@@ -1700,6 +1822,32 @@ window.initgui = async function (options) {
         // this is the referrer in terms of user acquisition
         window.referrerStr = window.openerOrigin;
 
+        // A framed picker or upgrade shows only the Puter session of the user
+        // the framing page is signed in as; for anyone else the page uses the
+        // popup or tab, which can sign in and switch accounts.
+        if (window.embedded_in_frame && framesHostUser(action)) {
+            const host_user = embedHostUser(window.location.hash);
+            let session = null;
+            let session_user = null;
+            if (host_user && window.is_auth()) {
+                try {
+                    session = await puter.os.user({ query: 'icon_size=64' });
+                    session_user = String(session?.uuid ?? '').toLowerCase();
+                } catch (e) {
+                    session_user = null;
+                }
+            }
+            if (
+                !host_user ||
+                session_user !== host_user ||
+                (action === 'upgrade' && !canShowUpgradeFrame(window, session)) ||
+                (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session))
+            ) {
+                window.tell_popup_frame('unavailable');
+                return;
+            }
+        }
+
         // Tell a request-permission opener that this popup can reach it. Sent
         // here, before any sign-in gate, because the SDK reads its absence as
         // "the opener link was severed by COOP" — where a close means the
@@ -1736,20 +1884,16 @@ window.initgui = async function (options) {
         ) {
             // show signup window
             if (
-                await UIWindowSignup({
+                await UIAuthSignup({
                     reload_on_success: false,
                     send_confirmation_code: true,
-                    show_close_button: false,
-                    window_options: {
-                        has_head: false,
-                        cover_page: true,
-                    },
+                    page: true,
                 })
             ) {
                 // Completing signup in a sign-in popup is the user asking to
                 // be signed in to the opener.
                 window.popup_signin_consent = true;
-                await window.getUserAppToken(window.openerOrigin);
+                await exchangeUserAppTokenEarly();
             }
         } else if (
             // An action-less popup is a sign-in popup — `postAuthActions`
@@ -1773,6 +1917,11 @@ window.initgui = async function (options) {
                     whoami_popup.token || window.auth_token,
                     whoami_popup,
                 );
+                popup_whoami = {
+                    user: whoami_popup,
+                    authToken: window.auth_token,
+                    fetchedAt: Date.now(),
+                };
             } catch (e) {
                 // session/auth errors will be handled further ahead;
                 // let's log the error for now in case a change in state occurred.
@@ -1798,19 +1947,17 @@ window.initgui = async function (options) {
                     String(currentUserUuid);
             if (proofMatchesCurrentUser) {
                 picked_a_user_for_sdk_login = true;
-                await window.getUserAppToken(window.openerOrigin);
+                await exchangeUserAppTokenEarly();
             } else {
                 // Show session list so user can pick which account to use
                 showed_account_picker = true;
-                picked_a_user_for_sdk_login = await UIWindowSessionList({
+                picked_a_user_for_sdk_login = await UIAuthAccountPicker({
                     reload_on_success: false,
-                    draggable_body: false,
-                    has_head: false,
-                    cover_page: true,
+                    page: true,
                 });
 
                 if (picked_a_user_for_sdk_login) {
-                    await window.getUserAppToken(window.openerOrigin);
+                    await exchangeUserAppTokenEarly();
                 }
             }
             // Picking an account here *is* the consent to sign the opener in.
@@ -1830,25 +1977,6 @@ window.initgui = async function (options) {
         await UIAlert({
             message: window.url_query_params.get('message'),
         });
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Inform the user if they chose "signup" but were logged into an existing account
-    //--------------------------------------------------------------------------------------
-    if (
-        window.url_query_params.get('oidc_switched') === 'login' &&
-        window.is_auth()
-    ) {
-        await UIAlert({
-            message: i18n('oidc_switched_to_login_message'),
-        });
-        const params = new URLSearchParams(window.location.search);
-        params.delete('oidc_switched');
-        const cleanSearch = params.toString();
-        const cleanUrl = cleanSearch
-            ? `${window.location.pathname}?${cleanSearch}`
-            : window.location.pathname || '/';
-        window.history.replaceState(null, document.title, cleanUrl);
     }
 
     //--------------------------------------------------------------------------------------
@@ -1880,9 +2008,13 @@ window.initgui = async function (options) {
 
     //--------------------------------------------------------------------------------------
     // Desktop background (early)
-    // Set before action=login/signup so OIDC error redirects show the background behind the form.
+    // Set before action=login/signup so the signed-in dialog has the desktop behind it.
+    // Skipped for the full-page form, which it would only flash behind before covering.
     // -------------------------------------------------------------------------------------
-    if (!window.is_fullpage_mode && !window.embedded_in_popup) {
+    const authActionIsPage =
+        action === 'password-recovery' ||
+        (!window.is_auth() && (action === 'login' || action === 'signup'));
+    if (!window.is_fullpage_mode && !window.embedded_in_popup && !authActionIsPage) {
         window.refresh_desktop_background();
     }
 
@@ -1912,20 +2044,15 @@ window.initgui = async function (options) {
             ? { authError: authErrorDisplayMessage() }
             : {};
         if (!window.is_auth()) {
-            opts.window_options = { cover_page: true, has_head: false };
+            opts.page = true;
         }
-        await UIWindowLogin(Object.keys(opts).length ? opts : undefined);
+        await UIAuthLogin(opts);
     }
     //--------------------------------------------------------------------------------------
     // Action: Password recovery
     //--------------------------------------------------------------------------------------
     else if (action === 'password-recovery') {
-        await UIWindowRecoverPassword({
-            window_options: {
-                cover_page: true,
-                has_head: false,
-            },
-        });
+        await UIAuthRecoverPassword({ page: true });
     }
     //--------------------------------------------------------------------------------------
     // Action: Signup
@@ -1935,10 +2062,10 @@ window.initgui = async function (options) {
             ? { authError: authErrorDisplayMessage() }
             : {};
         if (!window.is_auth()) {
-            opts.window_options = { cover_page: true, has_head: false };
+            opts.page = true;
         }
         opts.send_confirmation_code = true;
-        await UIWindowSignup(Object.keys(opts).length ? opts : undefined);
+        await UIAuthSignup(opts);
     }
     // Which URL parameter (if any) is carrying a token to sign in with —
     // `auth_token`, or `token` when returning from a remote backend's AuthMe.
@@ -1953,23 +2080,28 @@ window.initgui = async function (options) {
     // if not, we need to ask the user for confirmation before proceeding BUT only if the action is a file-picker action
     // -------------------------------------------------------------------------------------
     if (window.embedded_in_popup && window.openerOrigin) {
-        let response = await window.checkUserSiteRelationship(
-            window.openerOrigin,
-        );
-        window.userAppToken = response?.token;
+        // An account picked above already answers both questions below, the
+        // picker and the consent. Signup in the popup is not a pick.
+        if (!picked_a_user_for_sdk_login) {
+            let response = await window.checkUserSiteRelationship(
+                window.openerOrigin,
+            );
+            window.userAppToken = response?.token;
+        }
 
+        // A framed picker or upgrade already holds the framing page's user,
+        // so it doesn't offer to switch.
         if (
             !picked_a_user_for_sdk_login &&
+            !(window.embedded_in_frame && framesHostUser(action)) &&
             window.logged_in_users.length > 1 &&
             (!window.userAppToken ||
                 window.url_query_params.get('request_auth'))
         ) {
             showed_account_picker = true;
-            picked_a_user_for_sdk_login = await UIWindowSessionList({
+            picked_a_user_for_sdk_login = await UIAuthAccountPicker({
                 reload_on_success: false,
-                draggable_body: false,
-                has_head: false,
-                cover_page: true,
+                page: true,
             });
             if (picked_a_user_for_sdk_login) {
                 window.popup_signin_consent = true;
@@ -2312,6 +2444,22 @@ window.initgui = async function (options) {
     // Authed
     // -------------------------------------------------------------------------------------
     if (window.is_auth()) {
+        // A sign-in popup whose user kept the account it opened with, and whose
+        // exchange just proved the session, already has this user's data.
+        if (
+            !whoami &&
+            picked_a_user_for_sdk_login &&
+            reusablePopupUser(popup_whoami, {
+                userUuid: window.user?.uuid,
+                authToken: window.auth_token,
+                exchangedAuthToken: early_token_exchange?.data?.token
+                    ? early_token_exchange.authToken
+                    : null,
+                now: Date.now(),
+            })
+        ) {
+            whoami = popup_whoami.user;
+        }
         // try to get user data using /whoami, only if that data is missing
         if (!whoami) {
             try {
@@ -2338,8 +2486,12 @@ window.initgui = async function (options) {
             // assertVerifiedAccount): email → phone (SMS) → card, or card →
             // phone → email when the account clears email last.
             let card_gate_cleared_by_fallback = false;
+            // A framed email confirmation asks for the code itself, in a
+            // window the user can close.
+            const confirmsEmailInAction =
+                window.embedded_in_frame && action === 'request-email-confirmation';
             const emailGate = async () => {
-                if (whoami.requires_email_confirmation) {
+                if (whoami.requires_email_confirmation && !confirmsEmailInAction) {
                     let is_verified;
                     do {
                         is_verified = await UIWindowEmailConfirmationRequired({
@@ -2439,12 +2591,23 @@ window.initgui = async function (options) {
             window.update_sites_cache();
         }
     }
+    // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
+    // real account even on a first visit — never a temp user. So does a share
+    // link: a share only ever reaches a real account, so a temporary one could
+    // never see what it points at.
+    const is_app_landing_page = window.url_paths[0] === 'app' && !!window.url_paths[1];
+    const is_share_link = window.url_query_params.has('shared');
+    const needsSignIn =
+        !window.is_auth() &&
+        (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link);
+
     // -------------------------------------------------------------------------------------
     // Desktop Background
     // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background
-    // because it's not visible anyway and it's a waste of bandwidth
+    // because it's not visible anyway and it's a waste of bandwidth. Same behind the sign-in page.
     // -------------------------------------------------------------------------------------
-    if (!window.is_fullpage_mode && !window.embedded_in_popup) {
+    const showsSignInPage = needsSignIn && window.logged_in_users.length === 0;
+    if (!window.is_fullpage_mode && !window.embedded_in_popup && !showsSignInPage) {
         window.refresh_desktop_background();
     }
     // -------------------------------------------------------------------------------------
@@ -2455,16 +2618,7 @@ window.initgui = async function (options) {
     // then failed to authenticate.
     if (!window.is_auth()) reveal_anonymous_markup(true);
 
-    // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
-    // real account even on a first visit — never a temp user. So does a share
-    // link: a share only ever reaches a real account, so a temporary one could
-    // never see what it points at.
-    const is_app_landing_page = window.url_paths[0] === 'app' && !!window.url_paths[1];
-    const is_share_link = window.url_query_params.has('shared');
-    if (
-        !window.is_auth() &&
-        (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link)
-    ) {
+    if (needsSignIn) {
         // `npm start --server=<remote>` serves this GUI locally while pointing
         // `gui_origin` at a remote Puter. There is nothing here to log into:
         // `/login` accepts only its own origin, because it answers with a full
@@ -2509,26 +2663,24 @@ window.initgui = async function (options) {
         const needs_action = action === 'authme' || action === 'copyauth';
         const reload_on_success = needs_action;
         if (window.logged_in_users.length > 0) {
-            // dashboard mode skips the wallpaper (fullpage), but the session list
-            // has no cover page — restore the wallpaper so it isn't on a blank page
+            // dashboard mode skips the wallpaper (fullpage), but the account
+            // picker is a dialog, not a page — restore the wallpaper so it
+            // isn't on a blank page
             if (window.is_dashboard_mode) {
                 window.refresh_desktop_background();
             }
-            await UIWindowSessionList({
+            await UIAuthAccountPicker({
                 redirect_url: needs_action ? window.location.href : undefined,
             });
         } else {
             const resp = await fetch(`${window.gui_origin}/whoarewe`);
             const whoarewe = await resp.json();
-            await UIWindowLogin({
+            await UIAuthLogin({
                 reload_on_success: !window.embedded_in_popup,
                 send_confirmation_code: true,
                 show_signup_button: !whoarewe.disable_user_signup,
                 redirect_url: needs_action ? window.location.href : undefined,
-                window_options: {
-                    cover_page: true,
-                    has_head: false,
-                },
+                page: true,
             });
         }
         if (!reload_on_success && window.is_auth()) {
@@ -2717,13 +2869,10 @@ window.initgui = async function (options) {
                         // hide Turnstile challenge
                         $('.captcha-modal').hide();
 
-                        await UIWindowSignup({
+                        await UIAuthSignup({
                             reload_on_success: !window.embedded_in_popup,
                             send_confirmation_code: true,
-                            window_options: {
-                                has_head: false,
-                                cover_page: true,
-                            },
+                            page: true,
                         });
 
                         // Popup-only: it posts to `window.opener` and closes the
@@ -3087,14 +3236,6 @@ $(window).on('resize', function () {
     $('.window-login').css({
         left: (window.desktop_width - width) / 2,
         top: top / ratio,
-    });
-
-    // Re-center the create account window
-    const top2 = $('.window-signup').position()?.top;
-    const width2 = $('.window-signup').width();
-    $('.window-signup').css({
-        left: (window.desktop_width - width2) / 2,
-        top: top2 / ratio,
     });
 });
 

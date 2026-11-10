@@ -686,12 +686,7 @@ export class AppStore extends PuterStore {
         return apps;
     }
 
-    /**
-     * Count apps matching the same equality filters as `list`.
-     * `visibleToUserId` counts the public catalog for one caller —
-     * non-protected apps plus their own; apps visible only via explicit
-     * permission grants are not included.
-     */
+    /** Count apps matching the same equality filters as `list`. */
     async count(filters = {}) {
         const where = [];
         const params = [];
@@ -703,12 +698,6 @@ export class AppStore extends PuterStore {
         if (filters.appOwner !== undefined) {
             where.push('`app_owner` = ?');
             params.push(filters.appOwner);
-        }
-        if (filters.visibleToUserId !== undefined) {
-            where.push(
-                '(`protected` IS NULL OR `protected` = false OR `owner_user_id` = ?)',
-            );
-            params.push(filters.visibleToUserId);
         }
 
         const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';

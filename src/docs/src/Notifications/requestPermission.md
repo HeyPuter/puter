@@ -4,7 +4,9 @@ description: Ask the user to allow push notifications from your app.
 platforms: [websites, apps]
 ---
 
-Asks the user to let your app send push notifications. Your notifications always reach your app live while it's open. This permission decides whether they also go out as pushes.
+Asks the user to let your app send push notifications.
+
+Your notifications always reach your app live while it's open. This permission decides whether they also go out as pushes.
 
 It asks for the `'pushNotifications'` resource of [`puter.perms.request()`](/Perms/request/#push-notifications). To ask in the same prompt as other access, such as `'backgroundEvents'` for an [events handler](/Events/handlers/), pass both to [`puter.perms.request()`](/Perms/request/#batching) instead.
 
@@ -29,7 +31,7 @@ A `Promise` that resolves to `true` if your app may send pushes, and `false` if 
 
 ## Examples
 
-<strong class="example-title">Ask from a button</strong>
+### Ask from a button
 
 ```html
 <html>

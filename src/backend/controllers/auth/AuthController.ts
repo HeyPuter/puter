@@ -2650,6 +2650,7 @@ export class AuthController extends PuterController {
                 'user.email-changed' as never,
                 {
                     user_id: user.id,
+                    old_email: user.email ?? null,
                     new_email: newEmail,
                 } as never,
                 {},

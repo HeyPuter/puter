@@ -91,7 +91,7 @@ Gemini speech-to-text first counts the audio's tokens, which times out after 30 
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
-Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtime`) require a paid plan, like the other OpenAI-compatible endpoints, and are capped at 20 open at once per account. An account without a plan gets an `error` event with code `subscription_required`. A session over the cap gets `rate_limit_exceeded`. Both close with 1008.
+Realtime sessions ([`puter.ai.realtime()`](/AI/realtime/), `/puterai/openai/v1/realtime`) require a paid plan, like the other OpenAI-compatible endpoints, and are capped at 20 open at once per account. An account without a plan gets an `error` event with code `subscription_required`. A session over the cap gets `rate_limit_exceeded`. Both close with 1008.
 
 | Realtime transport limit | Value | Behavior at the limit |
 | --- | --- | --- |
@@ -131,7 +131,7 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 
 Send audio as a stream of small chunks. The message cap applies to text, configuration, tool output, and audio alike.
 
-The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sending or retaining data.
+The [`puter.ai.realtime()`](/AI/realtime/) SDK also applies these limits before sending or retaining data.
 
 | Conversation SDK limit | Value | Behavior at the limit |
 | --- | --- | --- |
@@ -225,6 +225,11 @@ Image and video inputs to [`txt2img()`](/AI/txt2img/) and [`txt2vid()`](/AI/txt2
 | Source video file | See the model's source video limits above |
 
 puter.js uploads a `Blob`, a `File` or a `data:` URI over 1 MiB to a temporary Puter file for the call. It counts against the user's storage until puter.js deletes it after the call.
+
+
+### Chat service speed catalogs
+
+OpenRouter speed endpoint catalogs are cached for 15 minutes, with at most 256 model entries per backend process. A catalog fetch times out after 10 seconds and accepts at most 2 MiB. Failed fetches are remembered for 30 seconds. If no usable speed offering is available, the request uses standard service.
 
 ### Remote chat image inlining
 

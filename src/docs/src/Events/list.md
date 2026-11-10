@@ -4,9 +4,11 @@ description: List the persistent subscriptions this caller holds.
 platforms: [websites, apps, nodejs, workers]
 ---
 
+Lists the persistent subscriptions created with [`puter.events.onPersistent()`](/Events/onPersistent/).
+
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Lists the persistent subscriptions created with [`puter.events.onPersistent()`](/Events/onPersistent/). Session subscriptions from [`onLocal()`](/Events/onLocal/) aren't stored, so they aren't listed.
+Session subscriptions from [`onLocal()`](/Events/onLocal/) aren't stored, so they aren't listed.
 
 An app sees only the subscriptions it created. Outside an app, such as in Node.js with an account token, you see all of them. Deleting an app deletes its subscriptions. A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, sees none, whether the account or an app created it.
 
@@ -22,10 +24,12 @@ puter.events.list(options)
 
 #### `options` (Object) (optional)
 
-- `limit` (Number): Maximum subscriptions per request. Defaults to 50, max 200.
-- `cursor` (String | null): The cursor from a previous page. Passing it, even as `null`, returns a single page instead of the full list.
-- `includeTotal` (Boolean): Adds `total` to the page. Ask for it on the first page only, since it gets slower as the count grows.
-- `stream` (Boolean): Returns an async iterator of pages instead of a promise.
+| Option | Type | Description |
+|--------|------|-------------|
+| `limit` | `Number` | Maximum subscriptions per request. Defaults to 50, max 200. |
+| `cursor` | `String \| null` | The cursor from a previous page. Passing it, even as `null`, returns a single page instead of the full list. |
+| `stream` | `Boolean` | Returns an async iterator of pages instead of a promise. |
+| `includeTotal` | `Boolean` | Adds `total` to the page. Ask for it on the first page only, since it gets slower as the count grows. |
 
 ## Return value
 
@@ -40,6 +44,8 @@ Each subscription is the object [`onPersistent()`](/Events/onPersistent/#return-
 - `contextKeys` (Array | null) and `contextHash` (String | null) describe the stored `context`. The values are never returned, since context often holds secrets. The hash changes whenever a value does.
 - `suspendedAt` (Number | null) and `suspendedReason` (String | null) are set when a subscription is [suspended](/Events/onPersistent/#suspended-subscriptions), with `handler_not_found`, `failures`, `no_credit`, or `permission_revoked`.
 
+## Errors
+
 The promise rejects with `{ message, code }`:
 
 | `code` | Meaning |
@@ -51,7 +57,7 @@ The promise rejects with `{ message, code }`:
 
 ## Examples
 
-<strong class="example-title">List everything this account is watching</strong>
+### List everything this account is watching
 
 ```html;events-list
 <html>
@@ -78,7 +84,7 @@ The promise rejects with `{ message, code }`:
 </html>
 ```
 
-<strong class="example-title">Find the ones that stopped, and why</strong>
+### Find the ones that stopped, and why
 
 ```html;events-list-suspended
 <html>

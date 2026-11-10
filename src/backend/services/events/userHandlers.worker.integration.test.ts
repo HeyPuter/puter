@@ -144,11 +144,22 @@ const createInline = async (
     return String(response.body.subId);
 };
 
-const delivered = (count = 1): Promise<void> =>
-    vi.waitFor(() => expect(sinkPosts.length).toBeGreaterThanOrEqual(count), {
-        timeout: 30_000,
-        interval: 50,
-    });
+/**
+ * The post each label made, in order, once all have arrived. Matched by label
+ * since earlier tests' subscriptions stay live and post to the same sink.
+ */
+const delivered = async (...labels: string[]): Promise<SinkPost[]> => {
+    await vi.waitFor(
+        () =>
+            expect(sinkPosts.map((post) => post.label)).toEqual(
+                expect.arrayContaining(labels),
+            ),
+        { timeout: 30_000, interval: 50 },
+    );
+    return labels.map((label) =>
+        sinkPosts.find((post) => post.label === label)!,
+    );
+};
 
 beforeAll(async () => {
     env = await setupPuterTestEnv({
@@ -255,14 +266,11 @@ describe('an inline handler in a user scope, end to end', () => {
             await env.server.services.fs.touch(holder.id, {
                 path: `${holder.anchor}/note.txt`,
             });
-            await delivered();
+            const [post] = await delivered('inline');
 
-            expect(sinkPosts[0]).toMatchObject({
-                label: 'inline',
-                path: `${holder.anchor}/note.txt`,
-            });
+            expect(post.path).toBe(`${holder.anchor}/note.txt`);
             const { actor } = await env.server.services.auth.authenticate(
-                sinkPosts[0].token!,
+                post.token!,
             );
             expect(actor!.user?.id).toBe(holder.id);
             expect(actor!.effectiveApp?.uid).toBe(appUid);
@@ -297,14 +305,14 @@ describe('an inline handler in a user scope, end to end', () => {
                 await env.server.services.fs.touch(holder.id, {
                     path: `${holder.anchor}/shared-${i}.txt`,
                 });
-            await delivered(2);
-            const runAs = new Set<number>();
-            for (const post of sinkPosts)
-                runAs.add(
-                    (await env.server.services.auth.authenticate(post.token!))
-                        .actor!.user!.id,
+            // The first test's 'inline' handler also posts for holders[0].
+            const posts = await delivered('first', 'second');
+            for (const [i, post] of posts.entries()) {
+                const { actor } = await env.server.services.auth.authenticate(
+                    post.token!,
                 );
-            expect(runAs).toEqual(new Set(holders.map((h) => h.id)));
+                expect(actor!.user!.id).toBe(holders[i].id);
+            }
             create.mockRestore();
         },
     );

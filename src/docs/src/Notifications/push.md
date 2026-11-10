@@ -86,7 +86,7 @@ The handler runs in the page as each notification arrives, and in your service w
 
 ### 3. Let the user turn pushes on
 
-Call [`enable()`](/Notifications/enable/) from a click. Browsers only show their permission prompt from a user gesture.
+Call [`enable()`](/Notifications/enable/) from a click. Browsers only show their permission prompt from a user gesture. Called without one, it shows a Puter dialog first, and the browser's prompt opens from its **Continue** button.
 
 ```js
 document.getElementById('enable').addEventListener('click', async () => {
@@ -118,7 +118,7 @@ document.getElementById('enable').addEventListener('click', async () => {
 });
 ```
 
-[`enable()`](/Notifications/enable/#return-value) lists every error it rejects with. When nobody is signed in, it opens the Puter sign-in after the browser's prompt. Sign the user in first, from its own button, so the sign-in window isn't blocked as a popup.
+[`enable()`](/Notifications/enable/#errors) lists every error it rejects with. When nobody is signed in, it opens the Puter sign-in after the browser's prompt. Sign the user in first, from its own button, so the sign-in window isn't blocked as a popup.
 
 To turn pushes off in this browser again, call [`disable()`](/Notifications/disable/). Page loads don't turn pushes back on after [`disable()`](/Notifications/disable/), after the user turns your app off or removes this browser in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/). Signing out also ends this browser's push subscription for your app and removes it from Puter. Signing in as a different user does the same, so pushes stay off in this browser until the new user calls [`enable()`](/Notifications/enable/). Only the subscription Puter made is removed. A subscription another push service made on your site, under any service worker, stays as it is.
 
@@ -331,6 +331,7 @@ The browser can be allowed to show notifications while the operating system hide
 | What you see | Likely cause |
 | --- | --- |
 | [`enable()`](/Notifications/enable/) resolves `false` | The user blocked notifications for your site, the page is in a private window, the browser has no Web Push, or on iOS the page isn't opened from the Home Screen. The user unblocks your site in the browser's site settings. |
+| The browser's prompt doesn't show | Chrome stops showing it for a week after the user closes it three times. With quieter messaging on, Chrome shows a bell icon in the address bar instead. The user can allow notifications in the browser's site settings. |
 | It rejects with `push_worker_unavailable` | `/puter-sw.js` isn't on your origin, returns a `404`, isn't served as JavaScript, is redirected, or throws when it loads. Open its URL in a tab to check. |
 | It rejects with `push_subscribe_failed` | The browser couldn't reach its push service. In Brave, turn on Google services for push messaging. |
 | It rejects with `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click first. |

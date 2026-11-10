@@ -22,6 +22,8 @@ A `Promise` that will resolve to an array of string containing each AI providers
 
 ## Examples
 
+### List all model providers
+
 ```html;ai-list-model-providers
 <html>
 <body>

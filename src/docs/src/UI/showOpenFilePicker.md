@@ -16,13 +16,14 @@ puter.ui.showOpenFilePicker(options)
 
 #### `options` (optional)
 A set of key/value pairs that configure the file picker dialog.
-* `multiple` (Boolean): if set to `true`, user will be able to select multiple files. Default is `false`.
-* `accept` (String): The list of MIME types or file extensions that are accepted by the file picker. Default is `*/*`.
-    - Example: `image/*` will allow the user to select any image file.
-    - Example: `['.jpg', '.png']` will allow the user to select files with `.jpg` or `.png` extensions.
-* `path` (String): The initial directory to open the file picker in. Default is the user's Desktop. The special prefix `%appdata%` resolves to your app's private appdata directory (for example, `%appdata%/saves` opens that subdirectory inside your appdata).
 
-## Return value 
+| Option | Type | Description |
+|--------|------|-------------|
+| `accept` | `String` | The list of MIME types or file extensions that are accepted by the file picker. Defaults to `*/*`. For example, `image/*` allows the user to select any image file, and `['.jpg', '.png']` allows files with `.jpg` or `.png` extensions. |
+| `multiple` | `Boolean` | If set to `true`, the user can select multiple files. Defaults to `false`. |
+| `path` | `String` | The initial directory to open the file picker in. Defaults to the user's Desktop. The special prefix `%appdata%` resolves to your app's private appdata directory (for example, `%appdata%/saves` opens that subdirectory inside your appdata). |
+
+## Return value
 A `Promise` that resolves to either one [`FSItem`](/Objects/fsitem) or an array of [`FSItem`](/Objects/fsitem) objects, depending on how many files were selected by the user. If the user cancels, the promise stays pending.
 
 The returned promise also has an `undefinedOnCancel` property. It holds a second promise that resolves to the same result, or to `undefined` if the user cancels:
@@ -35,6 +36,8 @@ if (file === undefined) {
 ```
 
 ## Examples
+
+### Show the contents of a picked file
 
 ```html
 <html>

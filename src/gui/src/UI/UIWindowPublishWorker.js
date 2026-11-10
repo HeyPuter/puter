@@ -19,6 +19,7 @@
 
 import UIWindow from './UIWindow.js';
 import UIWindowMyWebsites from './UIWindowMyWebsites.js';
+import { underPath } from '../helpers/pathElements.js';
 
 async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_dir_path) {
     let h = '';
@@ -117,7 +118,7 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
             });
 
             // find all items whose path starts with target_dir_path
-            $(`.item[data-path^="${target_dir_path}/"]`).each(function () {
+            underPath('.item', target_dir_path).each(function () {
                 // show the link badge
                 // $(this).find('.item-has-website-url-badge').show();
                 // update item's website_url attribute

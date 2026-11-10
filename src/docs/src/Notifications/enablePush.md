@@ -4,7 +4,9 @@ description: Turn on push notifications through Puter in the browser the user is
 platforms: [websites, apps]
 ---
 
-Offers to turn on Puter's push notifications in the browser the user is in, so your app's pushes can reach that browser through Puter. Puter shows them with your app's name and icon, and a tap opens your app inside the Puter desktop. [Where a push goes](/Notifications/push/#where-a-push-goes) says when pushes go through Puter. Call it from a user gesture such as a click.
+Offers to turn on Puter's push notifications in the browser the user is in, so your app's pushes can reach that browser through Puter.
+
+Puter shows them with your app's name and icon, and a tap opens your app inside the Puter desktop. [Where a push goes](/Notifications/push/#where-a-push-goes) says when pushes go through Puter. Call it from a user gesture such as a click.
 
 Inside the Puter desktop, it shows a dialog with a "Turn on notifications" button, and [`enable()`](/Notifications/enable/) is the same call. When your app doesn't hold the permission yet, it shows Puter's permission dialog instead, and allowing it also turns pushes on in this browser, so the user answers one dialog.
 
@@ -27,7 +29,7 @@ On a website that is cross-origin isolated, the popup can't report back, so the 
 
 ## Examples
 
-<strong class="example-title">Turn on pushes in this browser from a button</strong>
+### Turn on pushes in this browser from a button
 
 ```html
 <html>

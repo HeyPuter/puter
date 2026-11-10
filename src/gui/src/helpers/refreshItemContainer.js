@@ -32,6 +32,13 @@ const refresh_item_container = function (el_item_container, options) {
     options = options || {};
 
     let container_path =  $(el_item_container).attr('data-path');
+
+    // Only the newest refresh of a container may write to it or its window;
+    // an older one's responses belong to a folder the window has since left.
+    const refresh_id = ($(el_item_container).data('refreshId') ?? 0) + 1;
+    $(el_item_container).data('refreshId', refresh_id);
+    const is_current = () => $(el_item_container).data('refreshId') === refresh_id;
+
     let el_window = $(el_item_container).closest('.window');
     let el_window_head_icon = $(el_window).find('.window-head-icon');
     const loading_spinner = $(el_item_container).find('.explorer-loading-spinner');
@@ -60,16 +67,18 @@ const refresh_item_container = function (el_item_container, options) {
     // A timeout that will show the loading spinner if the folder is not loaded
     // after 1000ms
     let loading_timeout = setTimeout(function () {
-        // make sure the same folder is still loading
-        if ( $(loading_spinner).closest('.item-container').attr('data-path') !== container_path )
-        {
+        if ( ! is_current() ) {
             return;
         }
 
         // show the loading spinner
+        $(loading_spinner).find('.explorer-loading-spinner-msg').text(`${i18n('loading')}...`);
         $(loading_spinner).show();
         setTimeout(function () {
-            $(loading_spinner).find('.explorer-loading-spinner-msg').html('Taking a little longer than usual. Please wait...');
+            // only a load that is still running has taken long
+            if ( is_current() && $(loading_spinner).is(':visible') ) {
+                $(loading_spinner).find('.explorer-loading-spinner-msg').text(i18n('taking_longer_than_usual'));
+            }
         }, 3000);
     }, 1000);
 
@@ -89,15 +98,20 @@ const refresh_item_container = function (el_item_container, options) {
     }
 
     if ( !is_shared_view ) puter.fs.stat({ path: container_path, consistency: options.consistency ?? 'eventual' }).then(fsentry => {
+        if ( ! is_current() ) {
+            return;
+        }
         if ( el_window ) {
+            // the class is how a deleted folder's windows are found, and a window opened by path starts without it
+            $(el_window).removeClass(`window-${$(el_window).attr('data-uid')}`).addClass(`window-${fsentry.id}`);
             $(el_window).attr('data-uid', fsentry.id);
             $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
             $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
             $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
             // data-name
-            $(el_window).attr('data-name', html_encode(fsentry.name));
+            $(el_window).attr('data-name', fsentry.name);
             // data-path
-            $(el_window).attr('data-path', html_encode(container_path));
+            $(el_window).attr('data-path', container_path);
             $(el_window).find('.window-navbar-path-input').val(container_path);
             $(el_window).find('.window-navbar-path-input').attr('data-path', container_path);
         }
@@ -112,6 +126,8 @@ const refresh_item_container = function (el_item_container, options) {
         if ( fsentry.layout === 'details' ) {
             window.update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
         }
+    }).catch(() => {
+        // The listing request below reports the failure to the user.
     });
 
     // is_directoryPicker
@@ -127,6 +143,8 @@ const refresh_item_container = function (el_item_container, options) {
 
     // remove all existing items
     $(el_item_container).find('.item').removeItems();
+    // removing the last row shows the empty message, which is wrong while the folder is loading
+    $(empty_message).hide();
 
     // get items with subdomains/workers included to avoid per-item stat calls
     const entries_promise = is_shared_view
@@ -151,15 +169,14 @@ const refresh_item_container = function (el_item_container, options) {
             shared_by: share.issuer,
             owner: share.owner,
             holder_team: share.holderTeam,
+            also_team_share: share.alsoHeldByTeam,
             metadata: '',
         })))
         : puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual' });
 
     entries_promise.then(async (fsentries) => {
-        // Check if the same folder is still loading since el_item_container's
-        // data-path might have changed by other operations while waiting for the response to this `readdir`.
-        if ( $(el_item_container).attr('data-path') !== container_path )
-        {
+        if ( ! is_current() ) {
+            clearTimeout(loading_timeout);
             return;
         }
 
@@ -167,6 +184,11 @@ const refresh_item_container = function (el_item_container, options) {
             async function () {
             // clear loading timeout
                 clearTimeout(loading_timeout);
+
+                // a newer refresh may have started during the spinner delay
+                if ( ! is_current() ) {
+                    return;
+                }
 
                 // hide loading spinner
                 $(loading_spinner).hide();
@@ -187,6 +209,10 @@ const refresh_item_container = function (el_item_container, options) {
 
                 // add each item to window
                 for ( let index = 0; index < fsentries.length; index++ ) {
+                    // item_icon() is awaited below, so a newer refresh can start mid-loop
+                    if ( ! is_current() ) {
+                        return;
+                    }
                     const fsentry = fsentries[index];
                     let is_disabled = false;
 
@@ -249,6 +275,7 @@ const refresh_item_container = function (el_item_container, options) {
                             shared_by: fsentry.shared_by,
                             is_shared: fsentry.is_shared,
                             is_team_share: !!fsentry.holder_team,
+                            is_also_team_share: fsentry.also_team_share === true,
                             owner: fsentry.owner?.username ?? fsentry.owner,
                         });
                     }
@@ -258,6 +285,9 @@ const refresh_item_container = function (el_item_container, options) {
                 if ( $(el_item_container).hasClass('desktop') ) {
                     try {
                         const trash = await puter.fs.stat({ path: window.trash_path, consistency: options.consistency ?? 'eventual' });
+                        if ( ! is_current() ) {
+                            return;
+                        }
                         UIItem({
                             appendTo: el_item_container,
                             uid: trash.id,
@@ -319,6 +349,11 @@ const refresh_item_container = function (el_item_container, options) {
         // clear loading timeout
         clearTimeout(loading_timeout);
 
+        // don't show a folder's error in the folder the window moved to
+        if ( ! is_current() ) {
+            return;
+        }
+
         // hide other messages/indicators
         $(loading_spinner).hide();
         $(empty_message).hide();
@@ -326,6 +361,11 @@ const refresh_item_container = function (el_item_container, options) {
         // show error message
         $(error_message).html(`Failed to load directory${ html_encode((e && e.message ? `: ${ e.message}` : ''))}`);
         $(error_message).show();
+
+        // the previous folder's items are gone, so its count must not linger
+        if ( el_window ) {
+            window.update_explorer_footer_item_count(el_window);
+        }
 
         // Call onComplete callback even in error case, since the "loading" is technically complete
         if ( options.onComplete && typeof options.onComplete === 'function' ) {

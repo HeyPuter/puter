@@ -18,31 +18,25 @@
  */
 
 import { isPlausibleHostname, normalizeHostnameInput } from '../helpers/customDomainHostname.js';
+import {
+    customDomainErrorText,
+    customDomainsRequest,
+    customDomainStatus as statusOf,
+    formatCustomDomainPrice,
+    mergeCustomDomainRefresh,
+} from '../helpers/customDomains.js';
 
 let attach_modal_seq = 0;
 
 const SUCCESS_AUTOCLOSE_MS = 1800;
 const COPIED_RESET_MS = 1400;
 
-/** API error code → message key; anything unlisted gets the generic error. */
-const ERROR_KEYS = {
-    invalid_hostname: 'custom_domain_error_invalid',
-    custom_domain_taken: 'custom_domain_error_taken',
-    custom_domain_limit_reached: 'custom_domain_error_limit',
-    custom_domain_rejected: 'custom_domain_error_rejected',
-    site_not_found: 'custom_domain_error_site',
-    custom_domain_not_found: 'custom_domain_error_not_found',
-    custom_domains_not_enabled: 'custom_domain_not_enabled',
-    custom_domains_permission_required: 'custom_domain_error_generic',
-};
-
-/** Domain status → the badge shown for it; anything else reads as pending. */
+/** Domain status → the badge shown for it. */
 const STATUS_BADGE_KEYS = {
     active: 'custom_domain_badge_active',
     pending: 'custom_domain_badge_pending',
     failed: 'custom_domain_badge_failed',
 };
-const statusOf = (domain) => (domain?.status in STATUS_BADGE_KEYS ? domain.status : 'pending');
 
 const svg = (body, strokeWidth = 2) =>
     `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -54,19 +48,6 @@ const ICON_CLOCK = svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>')
 const ICON_ALERT = svg('<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5"/><path d="M12 16.5h.01"/>', 2.2);
 const ICON_PLUS = svg('<path d="M12 5v14M5 12h14"/>', 2.2);
 const ICON_X = svg('<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>', 2.2);
-
-const format_price = (pricing) => {
-    if ( ! pricing || typeof pricing.amount !== 'number' ) return null;
-    try {
-        return new Intl.NumberFormat(undefined, {
-            style: 'currency',
-            currency: pricing.currency || 'USD',
-            minimumFractionDigits: 2,
-        }).format(pricing.amount);
-    } catch {
-        return null;
-    }
-};
 
 /**
  * "Connect a custom domain to this site" modal, behind
@@ -102,7 +83,7 @@ async function UIWindowAttachCustomDomain (options) {
         const titleId = `${modal_id}-title`;
         const closeLabel = html_encode(i18n('close'));
         const h = `
-            <div class="app-feedback-overlay custom-domain-overlay${options.fullpage ? ' custom-domain-fullpage' : ''}" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
+            <div class="app-feedback-overlay custom-domain-overlay${options.fullpage ? ' app-feedback-fullpage' : ''}" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
                 <div class="app-feedback-modal custom-domain-modal" tabindex="-1">
                     <div class="app-feedback-head custom-domain-head">
                         <div class="custom-domain-head-icon">${ICON_GLOBE}</div>
@@ -114,13 +95,13 @@ async function UIWindowAttachCustomDomain (options) {
                         <button type="button" class="app-feedback-x" aria-label="${closeLabel}" title="${closeLabel}">${ICON_X}</button>
                     </div>
                     <div class="app-feedback-body custom-domain-body">
-                        <div class="custom-domain-pane" data-pane="loading" aria-busy="true">
+                        <div class="app-feedback-pane custom-domain-pane" data-pane="loading" aria-busy="true">
                             <span class="custom-domain-sr">${i18n('loading')}…</span>
                             <div class="custom-domain-skeleton"><span></span><span></span></div>
                             <div class="custom-domain-skeleton"><span></span><span></span></div>
                         </div>
 
-                        <div class="custom-domain-pane custom-domain-state" data-pane="unavailable" style="display:none;">
+                        <div class="app-feedback-pane custom-domain-pane custom-domain-state" data-pane="unavailable" style="display:none;">
                             <div class="custom-domain-state-icon">${ICON_ALERT}</div>
                             <p class="app-feedback-unavailable-message"></p>
                             <div class="app-feedback-actions">
@@ -128,7 +109,7 @@ async function UIWindowAttachCustomDomain (options) {
                             </div>
                         </div>
 
-                        <div class="custom-domain-pane" data-pane="list" style="display:none;">
+                        <div class="app-feedback-pane custom-domain-pane" data-pane="list" style="display:none;">
                             <ul class="custom-domain-list"></ul>
                             <div class="custom-domain-state custom-domain-empty" style="display:none;">
                                 <div class="custom-domain-state-icon">${ICON_GLOBE}</div>
@@ -143,7 +124,7 @@ async function UIWindowAttachCustomDomain (options) {
                             </div>
                         </div>
 
-                        <form class="custom-domain-pane" data-pane="add" style="display:none;" novalidate>
+                        <form class="app-feedback-pane custom-domain-pane" data-pane="add" style="display:none;" novalidate>
                             <label class="custom-domain-label" for="${modal_id}-hostname">${i18n('custom_domain_hostname_label')}</label>
                             <div class="custom-domain-field">
                                 ${ICON_GLOBE}
@@ -162,7 +143,7 @@ async function UIWindowAttachCustomDomain (options) {
                             </div>
                         </form>
 
-                        <div class="custom-domain-pane" data-pane="records" style="display:none;">
+                        <div class="app-feedback-pane custom-domain-pane" data-pane="records" style="display:none;">
                             <div class="custom-domain-status-card">
                                 <div class="custom-domain-status-icon"></div>
                                 <div class="custom-domain-status-main">
@@ -184,7 +165,7 @@ async function UIWindowAttachCustomDomain (options) {
                             </div>
                         </div>
 
-                        <div class="custom-domain-pane app-feedback-success custom-domain-success" data-pane="success" role="status" style="display:none;">
+                        <div class="app-feedback-pane custom-domain-pane app-feedback-success custom-domain-success" data-pane="success" role="status" style="display:none;">
                             <div class="app-feedback-success-check">${ICON_CHECK}</div>
                             <p class="app-feedback-success-text custom-domain-success-text"></p>
                             <p class="app-feedback-note custom-domain-success-note"></p>
@@ -254,35 +235,7 @@ async function UIWindowAttachCustomDomain (options) {
             focusedBeforeBusy = null;
         };
 
-        const api = async (method, path = '', body) => {
-            const res = await fetch(`${window.api_origin}/custom-domains${path}`, {
-                method,
-                headers: {
-                    'Authorization': `Bearer ${authToken}`,
-                    ...(body ? { 'Content-Type': 'application/json' } : {}),
-                },
-                body: body ? JSON.stringify(body) : undefined,
-            });
-            let data = null;
-            try {
-                data = await res.json();
-            } catch {
-                // Non-JSON body; callers go by the status.
-            }
-            return { status: res.status, ok: res.ok, data };
-        };
-        // A known code gets our wording; anything else shows what the server
-        // said, which beats a generic message when something is misconfigured.
-        const errorFor = (res) => {
-            if ( res.status === 402 ) return text('custom_domain_error_plan');
-            if ( res.status === 429 ) return text('custom_domain_error_rate_limited');
-            const key = ERROR_KEYS[res.data?.code];
-            if ( key ) return text(key);
-            if ( typeof res.data?.message === 'string' && res.data.message ) {
-                return res.data.message;
-            }
-            return `${text('custom_domain_error_generic')} (HTTP ${res.status})`;
-        };
+        const api = (method, path = '', body) => customDomainsRequest(method, path, body, authToken);
 
         // Escape backs out of a pending confirmation first. Escape, the
         // backdrop and the close buttons all dismiss, except while a request
@@ -503,7 +456,7 @@ async function UIWindowAttachCustomDomain (options) {
             try {
                 const res = await api('PATCH', `/${encodeURIComponent(item.uuid)}`, { site: subdomain });
                 if ( ! res.ok ) {
-                    showError('list', errorFor(res));
+                    showError('list', customDomainErrorText(res));
                     return;
                 }
                 settleOn(res.data);
@@ -524,7 +477,7 @@ async function UIWindowAttachCustomDomain (options) {
             try {
                 const res = await api('DELETE', `/${encodeURIComponent(item.uuid)}`);
                 if ( ! res.ok && res.status !== 404 ) {
-                    showError(pane, errorFor(res));
+                    showError(pane, customDomainErrorText(res));
                     return false;
                 }
                 // A removed domain is no answer to hand the caller.
@@ -611,7 +564,7 @@ async function UIWindowAttachCustomDomain (options) {
                     return;
                 }
                 if ( ! res.ok ) {
-                    showError('add', errorFor(res));
+                    showError('add', customDomainErrorText(res));
                     return;
                 }
                 hideClaim();
@@ -650,7 +603,7 @@ async function UIWindowAttachCustomDomain (options) {
                 .toggle(!!domain.statusDetail && status !== 'active');
             const $redirect = $overlay.find('.custom-domain-redirect').toggle(!!domain.redirectFrom);
             if ( domain.redirectFrom ) {
-                $redirect.html(i18n('custom_domain_redirect_note', [domain.redirectFrom, domain.hostname]));
+                $redirect.html(i18n('custom_domain_redirect_note', [domain.hostname, domain.redirectFrom]));
             }
             $overlay.find('.custom-domain-apex').toggle(domain.isApex === true);
             $overlay.find('.custom-domain-use-www').toggle(domain.isApex === true && status !== 'active');
@@ -670,22 +623,10 @@ async function UIWindowAttachCustomDomain (options) {
             try {
                 const res = await api('GET', `/${encodeURIComponent(chosen.uuid)}`);
                 if ( ! res.ok ) {
-                    showError('records', errorFor(res));
+                    showError('records', customDomainErrorText(res));
                     return;
                 }
-                // A domain that is no longer pending comes back with only its
-                // routing record, and a GET never repeats the provider or the
-                // redirect; keep what was shown when it was added.
-                const known = chosen.records ?? [];
-                const redirect = known.filter((r) => r.purpose === 'redirect');
-                const fresh = (res.data.records?.length > 1 ? res.data.records : known)
-                    .filter((r) => r.purpose !== 'redirect');
-                const next = {
-                    ...res.data,
-                    dnsProvider: chosen.dnsProvider,
-                    redirectFrom: chosen.redirectFrom,
-                    records: [...fresh.slice(0, 1), ...redirect, ...fresh.slice(1)],
-                };
+                const next = mergeCustomDomainRefresh(chosen, res.data);
                 if ( statusOf(next) === 'active' ) {
                     showSuccess(next);
                     return;
@@ -706,7 +647,7 @@ async function UIWindowAttachCustomDomain (options) {
             try {
                 const res = await api('POST', `/${encodeURIComponent(chosen.uuid)}/use-www`);
                 if ( ! res.ok ) {
-                    showError('records', errorFor(res));
+                    showError('records', customDomainErrorText(res));
                     return;
                 }
                 chosen = res.data;
@@ -758,7 +699,7 @@ async function UIWindowAttachCustomDomain (options) {
                     return;
                 }
                 renderList(res.data?.items ?? []);
-                const price = format_price(res.data?.pricing);
+                const price = formatCustomDomainPrice(res.data?.pricing);
                 if ( price ) {
                     $overlay.find('.custom-domain-price').text(text('custom_domain_price_note', [price])).show();
                 }

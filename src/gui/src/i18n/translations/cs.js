@@ -623,7 +623,6 @@ const cs = {
         "window_title_open": "Otevřít",
         "window_title_change_password": "Změnit heslo",
         "login_email_username_required": "E-mail nebo uživatelské jméno je povinné",
-        "oidc_switched_to_login_message": "Byli jste přihlášeni ke stávajícímu účtu.",
         "sign_in_with_provider": "Přihlásit se pomocí %%",
         "sign_up_with_provider": "Zaregistrujte se pomocí %%",
         "welcome_description": "Ukládejte soubory, hrajte hry, najděte úžasné aplikace a mnoho dalšího! Vše na jednom místě, dostupné odkudkoli a kdykoli.",

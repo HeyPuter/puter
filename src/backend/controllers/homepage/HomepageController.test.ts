@@ -27,6 +27,7 @@ import type { Actor } from '../../core/actor.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { embedFrameAncestors, embedHostOrigin } from './HomepageController.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 //
@@ -527,5 +528,48 @@ describe('HomepageController GET /sw.js', () => {
             (r) => r.method === 'get' && r.path === '/sw.js',
         );
         expect(route?.options.subdomain).toBe('');
+    });
+});
+
+describe('embedFrameAncestors', () => {
+    const config = {
+        origin: 'https://example.test',
+        domain: 'example.test',
+        api_base_url: 'https://backend.example.test',
+    };
+
+    it('names a sibling subdomain that embeds the browser', () => {
+        expect(
+            embedFrameAncestors(config, 'https://sheets.example.test/doc/1'),
+        ).toBe("'self' https://sheets.example.test");
+    });
+
+    it('refuses the configured API host even off the api label', () => {
+        expect(
+            embedFrameAncestors(config, 'https://backend.example.test/x'),
+        ).toBe("'self'");
+    });
+});
+
+describe('embedHostOrigin', () => {
+    const config = {
+        origin: 'https://example.test',
+        domain: 'example.test',
+        api_base_url: 'https://backend.example.test',
+        static_hosting_domain: 'site.example.test',
+    };
+
+    it.each([
+        ['https://sheets.example.test/doc/1', 'https://sheets.example.test'],
+        ['https://backend.example.test/x', null],
+        ['https://api.example.test/', null],
+        ['https://someone.site.example.test/', null],
+        ['https://a.sheets.example.test/', null],
+        ['http://sheets.example.test/', null],
+        ['https://example.test/', null],
+        ['not a url', null],
+        [undefined, null],
+    ])('%s frames as %s', (referer, expected) => {
+        expect(embedHostOrigin(config, referer)).toBe(expected);
     });
 });

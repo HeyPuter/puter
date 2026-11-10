@@ -55,6 +55,12 @@
  */
 
 /**
+ * Preferred service speed for a chat completion.
+ *
+ * @typedef {'standard' | 'fast' | 'ultrafast'} ServiceSpeed
+ */
+
+/**
  * Options for a chat completion request.
  *
  * @typedef {Object} ChatOptions
@@ -67,6 +73,8 @@
  * @property {boolean} [vision]
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
+ * @property {ServiceSpeed} [serviceSpeed] Preferred service speed. Falls back to
+ * fast, then standard when the requested speed is unavailable. Faster service may cost more.
  * @property {boolean} [fallback] Set to `false` to fail the request when the first provider tried
  * fails, instead of retrying it on another provider that serves the same model.
  * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
@@ -148,6 +156,7 @@
  * @property {number} [webSearchRequests]
  * @property {number} [webFetchRequests]
  * @property {'fast' | 'standard'} [speed]
+ * @property {ServiceSpeed} [serviceSpeed]
  * @property {string} [serviceTier]
  * @property {Array<{ type: string, model?: string, inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheWrite5mTokens?: number, cacheWrite30mTokens?: number, cacheWrite1hTokens?: number, cacheWrite12hTokens?: number }>} [iterations]
  * Per-pass breakdown when the upstream ran several passes (compaction, an advisor sub-call).
@@ -602,7 +611,7 @@ export {};
 /**
  * Session settings for a live conversation.
  *
- * @typedef {Object} ConvoSessionOptions
+ * @typedef {Object} RealtimeSessionOptions
  * @property {string} [instructions] Instructions, up to 8192 characters.
  * @property {('text' | 'audio')[]} [output] Defaults to audio. Audio includes transcript events.
  * @property {string} [voice] OpenAI voice identifier, up to 128 characters.
@@ -611,12 +620,12 @@ export {};
 /**
  * Options for preparing a conversation.
  *
- * @typedef {ConvoSessionOptions & { model?: string }} ConvoOptions
+ * @typedef {RealtimeSessionOptions & { model?: string }} RealtimeOptions
  */
 /**
  * How much of an assistant audio item a custom player has played.
  *
- * @typedef {Object} ConvoPlaybackPosition
+ * @typedef {Object} RealtimePlaybackPosition
  * @property {string} itemId Assistant message item ID.
  * @property {number} contentIndex Audio content index.
  * @property {number} playedMs Played duration in milliseconds.
@@ -624,24 +633,24 @@ export {};
 /**
  * Built-in speaker options.
  *
- * @typedef {Object} ConvoSpeakerOptions
+ * @typedef {Object} RealtimeSpeakerOptions
  * @property {boolean} [bargeIn] Stop replies when user speech is detected. Defaults to true.
  */
 
 /**
- * @typedef {{ type: 'text'; delta: string; responseId: string }} ConvoTextEvent */
+ * @typedef {{ type: 'text'; delta: string; responseId: string }} RealtimeTextEvent */
 /**
- * @typedef {{ type: 'audio'; pcm: Int16Array; sampleRate: number; responseId: string; itemId: string; contentIndex: number }} ConvoAudioEvent */
+ * @typedef {{ type: 'audio'; pcm: Int16Array; sampleRate: number; responseId: string; itemId: string; contentIndex: number }} RealtimeAudioEvent */
 /**
- * @typedef {{ type: 'transcript'; role: 'user' | 'assistant'; text: string; final: boolean }} ConvoTranscriptEvent */
+ * @typedef {{ type: 'transcript'; role: 'user' | 'assistant'; text: string; final: boolean }} RealtimeTranscriptEvent */
 /**
- * @typedef {{ type: 'interrupted'; source: 'manual' | 'speech'; responseId: string }} ConvoInterruptedEvent */
+ * @typedef {{ type: 'interrupted'; source: 'manual' | 'speech'; responseId: string }} RealtimeInterruptedEvent */
 /**
  * A finished reply. `usage` and `status` are OpenAI's, unchanged.
- * @typedef {{ type: 'turn.done'; responseId: string | undefined; usage: unknown; status: unknown }} ConvoTurnDoneEvent */
+ * @typedef {{ type: 'turn.done'; responseId: string | undefined; usage: unknown; status: unknown }} RealtimeTurnDoneEvent */
 /**
  * An OpenAI `error` event, or an SDK media failure, which also carries `code` and `message` at the
  * top level.
- * @typedef {{ type: 'error'; error: { code?: string; message?: string } & Record<string, unknown>; code?: string; message?: string }} ConvoErrorEvent */
+ * @typedef {{ type: 'error'; error: { code?: string; message?: string } & Record<string, unknown>; code?: string; message?: string }} RealtimeErrorEvent */
 /** Native provider events retain their provider-owned fields.
- * @typedef {Record<string, RealtimeServerEvent> & { text: ConvoTextEvent; audio: ConvoAudioEvent; transcript: ConvoTranscriptEvent; interrupted: ConvoInterruptedEvent; 'turn.done': ConvoTurnDoneEvent; error: ConvoErrorEvent; ready: { type: 'ready'; model: string; provider: 'openai'; reconnected?: boolean }; reconnecting: { type: 'reconnecting'; code: number; reason: string }; context_trimmed: { type: 'context_trimmed'; omittedItems: number }; close: { type: 'close'; code: number; reason: string } }} ConvoEventMap */
+ * @typedef {Record<string, RealtimeServerEvent> & { text: RealtimeTextEvent; audio: RealtimeAudioEvent; transcript: RealtimeTranscriptEvent; interrupted: RealtimeInterruptedEvent; 'turn.done': RealtimeTurnDoneEvent; error: RealtimeErrorEvent; ready: { type: 'ready'; model: string; provider: 'openai'; reconnected?: boolean }; reconnecting: { type: 'reconnecting'; code: number; reason: string }; context_trimmed: { type: 'context_trimmed'; omittedItems: number }; close: { type: 'close'; code: number; reason: string } }} RealtimeEventMap */

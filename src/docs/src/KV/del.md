@@ -4,7 +4,9 @@ description: Remove keys from the user's own key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Removes a key from the user's key-value store. Deleting a key that doesn't exist does nothing and resolves the same way.
+Removes a key from the user's key-value store.
+
+Deleting a key that doesn't exist does nothing and resolves the same way.
 
 ## Syntax
 
@@ -25,8 +27,10 @@ The key to remove.
 
 The last argument. It takes these properties:
 
-- `handle` (String): Deletes from data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. A key the owner's app keeps private reads as missing through the share, so deleting it resolves to `true` and leaves it in place. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Deletes from another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+| Option | Type | Description |
+|--------|------|-------------|
+| `handle` | `String` | Deletes from data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. A key the owner's app keeps private reads as missing through the share, so deleting it resolves to `true` and leaves it in place. See [Sharing with other users](/KV/#sharing-with-other-users). |
+| `appUuid` | `String` | Deletes from another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`. |
 
 ## Return value
 
@@ -46,7 +50,7 @@ With `handle`, the promise can reject with these codes:
 
 ## Examples
 
-<strong class="example-title">Delete the key 'name'</strong>
+### Delete the key 'name'
 
 ```html;kv-del
 <html>

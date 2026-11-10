@@ -4,7 +4,9 @@ description: Cancel a notification your app stored to send later, before it goes
 platforms: [websites, apps]
 ---
 
-Cancels a notification your app stored to send later with [`notify()`](/Notifications/notify/#send-it-later) and `sendAt`. It isn't sent, and it stops counting toward the [limit on what your app has waiting](/rate-limits-and-quotas/#schedules) for the user.
+Cancels a notification your app stored to send later with [`notify()`](/Notifications/notify/#send-it-later) and `sendAt`.
+
+The cancelled notification isn't sent, and it stops counting toward the [limit on what your app has waiting](/rate-limits-and-quotas/#schedules) for the user.
 
 It does the same thing as [`puter.events.removeSchedule()`](/Events/removeSchedule/), and shares its rate limit with it. The cancelled notification stays in [`puter.events.listSchedules()`](/Events/listSchedules/) for 7 days, with `state: 'ended'` and `endReason: 'removed'`.
 
@@ -26,7 +28,9 @@ The `scheduleId` that [`notify()`](/Notifications/notify/#send-it-later) resolve
 
 A `Promise` that resolves when the notification is cancelled.
 
-It rejects with an error carrying `message` and `code`:
+## Errors
+
+The promise rejects with an error carrying `message` and `code`:
 
 | `code` | Meaning |
 | --- | --- |
@@ -39,7 +43,7 @@ It rejects with an error carrying `message` and `code`:
 
 ## Examples
 
-<strong class="example-title">Store a reminder, then cancel it</strong>
+### Store a reminder, then cancel it
 
 ```html;notifications-send-later
 <html>
