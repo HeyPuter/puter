@@ -550,11 +550,14 @@ async function UIItem (options) {
                 }
                 // Otherwise, move items
                 else if ( options.is_dir ) {
+                    // a selected folder can be the drop target of its own selection; it stays where it is
+                    const items_to_drop = items_to_move.filter(item => $(item).attr('data-uid') !== $(el_item).attr('data-uid'));
                     if ( $(el_item).closest('.item-container').attr('data-path') === window.desktop_path ) {
-                        delete window.desktop_item_positions[$(el_item).attr('data-uid')];
+                        // the items leaving the desktop lose their saved positions, not the folder they land in
+                        items_to_drop.forEach(item => delete window.desktop_item_positions[$(item).attr('data-uid')]);
                         window.save_desktop_item_positions();
                     }
-                    window.move_items(items_to_move, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
+                    window.move_items(items_to_drop, $(el_item).attr('data-shortcut_to_path') !== '' ? $(el_item).attr('data-shortcut_to_path') : $(el_item).attr('data-path'));
                 }
             }
 
