@@ -182,7 +182,7 @@ describe('ShareStore', () => {
             await expect(store.ownerHasShares(owner.id)).resolves.toBe(false);
         });
 
-        it('answers from a recorded owner without the legacy query', async () => {
+        it('answers with one indexed read', async () => {
             const owner = await makeUser();
             const entry = await makeEntry(owner);
             await store.upsertActive({
@@ -1167,14 +1167,7 @@ describe('ShareStore', () => {
                 await server.clients.db.write(
                     'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
                         '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
-                    [
-                        groupUid,
-                        issuer.id,
-                        'team',
-                        'Lagging replica',
-                        '{}',
-                        '{}',
-                    ],
+                    [groupUid, issuer.id, 'team', 'Lagging replica', '{}', '{}'],
                 );
                 const [team] = await server.clients.db.read(
                     'SELECT id FROM `group` WHERE uid = ?',

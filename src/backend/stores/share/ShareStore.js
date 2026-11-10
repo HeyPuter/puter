@@ -119,7 +119,7 @@ export class ShareStore extends PuterStore {
     async listOutbound(userId, { limit, cursor, appUid } = {}) {
         const size = this.#pageSize(limit);
         const afterId = this.#afterId(cursor);
-        const own = this.#appFilter(appUid, '`data`');
+        const own = this.#appFilter(appUid);
 
         const [issued, delegated] = await Promise.all([
             this.clients.db.read(
@@ -159,7 +159,7 @@ export class ShareStore extends PuterStore {
      * @param {{ appUid?: string | null }} [opts]
      */
     async countOutbound(userId, { appUid } = {}) {
-        const own = this.#appFilter(appUid, '`data`');
+        const own = this.#appFilter(appUid);
         const [issued, delegated] = await Promise.all([
             this.clients.db.read(
                 'SELECT COUNT(*) AS `count` FROM `share` WHERE ' +
@@ -1301,13 +1301,13 @@ export class ShareStore extends PuterStore {
      * whatever it was handed and legacy rows carry plain strings — extracting
      * from one of those aborts the whole query, so there the read is guarded.
      */
-    #issuedByAppExpr(dataColumn) {
+    #issuedByAppExpr() {
         const extracts = ['issuedByApp', 'issuerAppUid'].map((key) =>
-            this.clients.db.jsonTextExtract(dataColumn, [key]),
+            this.clients.db.jsonTextExtract('`data`', [key]),
         );
         const coalesced = `COALESCE(${extracts.join(', ')})`;
         return this.clients.db.case({
-            sqlite: `CASE WHEN json_valid(${dataColumn}) THEN ${coalesced} END`,
+            sqlite: `CASE WHEN json_valid(\`data\`) THEN ${coalesced} END`,
             otherwise: coalesced,
         });
     }
@@ -1317,11 +1317,10 @@ export class ShareStore extends PuterStore {
      * app, `null` the rows no app issued.
      *
      * @param {string | null | undefined} appUid
-     * @param {string} dataColumn
      */
-    #appFilter(appUid, dataColumn) {
+    #appFilter(appUid) {
         if (appUid === undefined) return { sql: '', params: [] };
-        const expr = this.#issuedByAppExpr(dataColumn);
+        const expr = this.#issuedByAppExpr();
         if (appUid === null) return { sql: ` AND ${expr} IS NULL`, params: [] };
         return { sql: ` AND ${expr} = ?`, params: [appUid] };
     }
@@ -1331,10 +1330,7 @@ export class ShareStore extends PuterStore {
      * three bound user ids as `listOutbound`, in that order.
      */
     #outboundAppsSql() {
-        const own = this.clients.db.nullCoalesce(
-            this.#issuedByAppExpr('`data`'),
-            "''",
-        );
+        const own = this.clients.db.nullCoalesce(this.#issuedByAppExpr(), "''");
         return (
             `SELECT ${own} AS \`app_uid\` FROM \`share\` WHERE ` +
             '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL UNION ALL ' +
