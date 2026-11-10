@@ -2060,14 +2060,19 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // if this is trash, get original name from item metadata
                 fsentry.name = metadata?.original_name || fsentry.name;
 
+                const moved_item_icon = await item_icon(fsentry);
+                const $dest_containers = atPath('.item-container', item_dest_path);
+                // the item.moved echo of this move can render the row first
+                $dest_containers.find(`.item[data-uid='${fsentry.uid}']`).removeItems();
+
                 // create new item on matching containers
                 const options = {
-                    appendTo: atPath('.item-container', item_dest_path),
+                    appendTo: $dest_containers,
                     immutable: fsentry.immutable || (fsentry.writable === false),
                     associated_app_name: fsentry.associated_app?.name,
                     uid: fsentry.uid,
                     path: fsentry.path,
-                    icon: await item_icon(fsentry),
+                    icon: moved_item_icon,
                     name: is_trashing ? $(el_item).attr('data-name') : fsentry.name,
                     is_dir: fsentry.is_dir,
                     size: fsentry.size,

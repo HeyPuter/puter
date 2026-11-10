@@ -546,13 +546,18 @@ async function UIDesktop (options) {
         // Trashing renames the entry to its uid; the real name is in metadata.
         fsentry.name = metadata.original_name ?? fsentry.name;
 
+        const moved_item_icon = await item_icon(fsentry);
+        const $dest_containers = atPath('.item-container', dest_path);
+        // the tab that made this move renders the row itself, in either order
+        $dest_containers.find(`.item[data-uid='${fsentry.uid}']`).removeItems();
+
         // create new item on matching containers
         UIItem({
-            appendTo: atPath('.item-container', dest_path),
+            appendTo: $dest_containers,
             immutable: fsentry.immutable || fsentry.writable === false,
             uid: fsentry.uid,
             path: fsentry.path,
-            icon: await item_icon(fsentry),
+            icon: moved_item_icon,
             name: fsentry.name,
             is_dir: fsentry.is_dir,
             size: fsentry.size,
