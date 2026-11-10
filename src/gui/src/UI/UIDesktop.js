@@ -421,14 +421,17 @@ async function UIDesktop (options) {
             return;
         }
 
-        // hide all UIItems with matching uids
+        // remove all UIItems at the removed path
         atPath('.item', item.path).fadeOut(150, function () {
-            // close all windows with matching uids
-            // $('.window-' + item.uid).close();
-            // close all windows that belong to a descendant of this item
-            // todo this has to be case-insensitive
-            underPath('.window', item.path).close();
+            const $parent_window = $(this).closest('.window');
+            $(this).removeItems();
+            window.update_explorer_footer_item_count($parent_window);
+            window.update_explorer_footer_selected_items_count($parent_window);
         });
+        // close the windows showing the removed folder or anything inside it,
+        // whether or not its own row is displayed anywhere
+        // todo this has to be case-insensitive
+        atPath('.window[data-app="explorer"]', item.path).add(underPath('.window', item.path)).close();
     });
 
     window.socket.on('item.updated', async (item) => {
