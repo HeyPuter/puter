@@ -259,6 +259,39 @@ no user to name), puter.js opens the dashboard's upgrade page in a new tab with
 what was refused, through a consent dialog when the click has expired or the
 tab is blocked, and `requestUpgrade()` resolves `{ upgraded: false }`.
 
+## Email confirmation
+
+`GET /embed/request-email-confirmation` walks a first-party page's user through
+confirming their email, served like the upgrade: the GUI shell with the same
+framing rules, redirects and `no-store`, run only when framed by an allowed
+page. puter.js frames it on a signed-in first-party page for
+`puter.ui.requestEmailConfirmation()`. Inside an app the desktop shows the same
+windows over the app instead.
+
+Like the upgrade, the frame covers the page with no box or close button, over a
+transparent GUI page, and its fragment names `user`. Escape closes it, on the
+page or on the save-account or code window. On a window, Escape closes that
+window as its close button does, so a code already sent still answers. The GUI
+reports `unavailable` unless its session belongs to `user` and the account has
+no phone, card or password check waiting.
+An email check is fine: the boot skips its own email gate for this action, so
+the user gets one code window they can close.
+
+The GUI then runs `ensureConfirmedEmail` (`src/gui/src/helpers/ensureConfirmedEmail.js`),
+which the desktop's handler uses too: a temporary account gets the save-account
+window first, then an unconfirmed email gets the code window, each at most
+once. When the page's whoami already reads the email as confirmed,
+`requestEmailConfirmation()` resolves `{ response: true }` without framing
+anything, and a confirmation in the frame marks that whoami confirmed for the
+calls after it. An email the GUI reads as confirmed shows nothing. Before
+opening a window the GUI waits for the frame to have a viewport, as the upgrade
+does. It then posts
+`{ msg: 'puterPopupFrame', state: 'closed', confirmed }`, and
+`requestEmailConfirmation()` resolves `{ response: confirmed }`, the field an
+app reads from the desktop's answer. A call made while the frame shows settles
+with it. A frame that is refused, never ready, or `unavailable` resolves
+`{ response: false }`, since there's no popup to fall back to.
+
 ## Checks
 
 Run the GUI component/browser tests (with the SDK bundle built and Playwright

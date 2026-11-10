@@ -1339,7 +1339,7 @@ async function saveEditedApp (mode) {
         // Update title
         $(`.app-title[data-uid="${uid}"]`).html(html_encode(app.title));
         // Update app link
-        $(`.app-url[data-uid="${uid}"]`).html(applink(app));
+        $(`.app-url[data-uid="${uid}"]`).html(html_encode(applink(app)));
         $(`.app-url[data-uid="${uid}"]`).attr('href', applink(app));
         // Update icons
         $(`.app-icon[data-uid="${uid}"]`).attr('src', html_encode(app.icon ? app.icon : './img/app.svg'));

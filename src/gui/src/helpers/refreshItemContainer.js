@@ -103,9 +103,9 @@ const refresh_item_container = function (el_item_container, options) {
             $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
             $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
             // data-name
-            $(el_window).attr('data-name', html_encode(fsentry.name));
+            $(el_window).attr('data-name', fsentry.name);
             // data-path
-            $(el_window).attr('data-path', html_encode(container_path));
+            $(el_window).attr('data-path', container_path);
             $(el_window).find('.window-navbar-path-input').val(container_path);
             $(el_window).find('.window-navbar-path-input').attr('data-path', container_path);
         }
@@ -159,6 +159,7 @@ const refresh_item_container = function (el_item_container, options) {
             shared_by: share.issuer,
             owner: share.owner,
             holder_team: share.holderTeam,
+            also_team_share: share.alsoHeldByTeam,
             metadata: '',
         })))
         : puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual' });
@@ -264,6 +265,7 @@ const refresh_item_container = function (el_item_container, options) {
                             shared_by: fsentry.shared_by,
                             is_shared: fsentry.is_shared,
                             is_team_share: !!fsentry.holder_team,
+                            is_also_team_share: fsentry.also_team_share === true,
                             owner: fsentry.owner?.username ?? fsentry.owner,
                         });
                     }

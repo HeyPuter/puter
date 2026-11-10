@@ -40,6 +40,13 @@ const {
 } = await import('./sharedBy.js');
 
 const row = (shared_by, owner = shared_by, name = 'f') => ({ shared_by, owner, name });
+// An item granted by more than one person: `shared_by` holds the strongest grant's.
+const multiRow = (shared_by_all, owner = shared_by_all[0], name = 'f') => ({
+    shared_by: shared_by_all[0],
+    shared_by_all,
+    owner,
+    name,
+});
 
 describe('sharerOf', () => {
     it('names whoever granted the share', () => {
@@ -74,6 +81,13 @@ describe('summarizeSharers', () => {
     it('skips rows that name nobody', () => {
         expect(summarizeSharers([{}, row('ann')])).toEqual([{ name: 'ann', count: 1 }]);
     });
+
+    it('counts an item for everyone who shared it', () => {
+        expect(summarizeSharers([multiRow(['bob', 'ann']), row('ann')])).toEqual([
+            { name: 'ann', count: 2 },
+            { name: 'bob', count: 1 },
+        ]);
+    });
 });
 
 describe('filterBySharer', () => {
@@ -81,6 +95,20 @@ describe('filterBySharer', () => {
 
     it('keeps only what that person shared, owner fallback included', () => {
         expect(filterBySharer(rows, 'ann').map((r) => r.name)).toEqual(['a', 'c']);
+    });
+
+    it('keeps an item for each person who shared it', () => {
+        const shared = [multiRow(['bob', 'ann'], 'ann', 'both'), row('cy', 'cy', 'c')];
+        expect(filterBySharer(shared, 'ann').map((r) => r.name)).toEqual(['both']);
+        expect(filterBySharer(shared, 'bob').map((r) => r.name)).toEqual(['both']);
+    });
+
+    it('shows a kept item as shared by the person filtered to', () => {
+        const [both, own] = filterBySharer([multiRow(['bob', 'ann'], 'ann', 'both'), row('ann', 'ann', 'own')], 'ann');
+        expect(sharerOf(both)).toBe('ann');
+        expect(sharedByCellHtml(both)).toContain('<span class="item-shared-by-name">ann</span>');
+        expect(sharedByTitle(both)).toBe('shared_by_user:ann and bob');
+        expect(sharerOf(own)).toBe('ann');
     });
 
     it('keeps everything without a filter', () => {
@@ -123,6 +151,11 @@ describe('sharedByTitle', () => {
     it('names the owner too when someone else re-shared it', () => {
         expect(sharedByTitle(row('ann', 'bob'))).toBe('shared_by_user_owned_by:ann,bob');
     });
+
+    it('names everyone who shared the item', () => {
+        expect(sharedByTitle(multiRow(['bob', 'ann'], 'ann'))).toBe('shared_by_user:bob and ann');
+        expect(sharedByTitle(multiRow(['bob', 'cy'], 'ann'))).toBe('shared_by_user_owned_by:bob and cy,ann');
+    });
 });
 
 describe('sharedByCellHtml', () => {
@@ -155,7 +188,7 @@ describe('sharerFilterHtml', () => {
     });
 
     it('leads with Everyone, counting every item', () => {
-        const h = sharerFilterHtml([{ name: 'bob', count: 2 }, { name: 'ann', count: 1 }], null);
+        const h = sharerFilterHtml([{ name: 'bob', count: 2 }, { name: 'ann', count: 1 }], null, 3);
         const chips = h.match(/<button[^>]*>/g);
         expect(chips).toHaveLength(3);
         expect(chips[0]).toContain('data-sharer=""');
@@ -163,6 +196,11 @@ describe('sharerFilterHtml', () => {
         expect(h).toContain('shared_filter_everyone:</span><span class="sharer-chip-count">3</span>');
         expect(chips[1]).toContain('data-sharer="bob"');
         expect(h).toContain('data-avatar-user="bob"');
+    });
+
+    it('counts an item shared by two people once under Everyone', () => {
+        const h = sharerFilterHtml([{ name: 'ann', count: 2 }, { name: 'bob', count: 1 }], null, 2);
+        expect(h).toContain('shared_filter_everyone:</span><span class="sharer-chip-count">2</span>');
     });
 
     it('presses the active sharer only', () => {
