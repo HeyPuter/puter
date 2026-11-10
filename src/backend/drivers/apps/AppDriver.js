@@ -330,14 +330,11 @@ export class AppDriver extends PuterDriver {
     }
 
     /**
-     * Paged app listing. Unlike `/query/app`, which answers only for apps named
-     * by the caller and so must not confirm ones it may not see, this is the
-     * listing surface a launcher reads: `protected` apps are filtered by the
-     * permission check below, and everything else is listable by design. Narrow
-     * it with `predicate: ['user-can-edit']` to the caller's own.
+     * Paged listing of the caller's own apps. Apps owned by anyone else are
+     * reachable only by name or uid, through `read` and `/query/app`.
      */
     async select(args = {}) {
-        const { predicate, params = {} } = args;
+        const { params = {} } = args;
         const actor = requireContextActor();
         this.#requireUserOrAppActor(actor);
 
@@ -353,16 +350,12 @@ export class AppDriver extends PuterDriver {
         const includeTotal = args.includeTotal === true;
         const paginated = hasCursor || offset !== undefined || includeTotal;
 
-        const filters = {};
-        // predicate: ['user-can-edit'] → scope to owner
-        const ownerScoped =
-            Array.isArray(predicate) && predicate[0] === 'user-can-edit';
-        if (ownerScoped) {
-            filters.ownerUserId = actor.user.id;
-        }
+        // Always the caller's own. `predicate: ['user-can-edit']` asks for the
+        // same thing and is accepted for older clients.
+        const ownerUserId = actor.user.id;
 
         let apps = await this.appStore.list({
-            ...filters,
+            ownerUserId,
             limit: paginated ? limit + 1 : limit,
             offset,
             afterId: payload?.id !== undefined ? Number(payload.id) : undefined,
@@ -371,23 +364,18 @@ export class AppDriver extends PuterDriver {
         let cursor;
         if (paginated && apps.length > limit) {
             apps = apps.slice(0, limit);
-            // The cursor tracks the last fetched row, not the last visible
-            // one, so rows hidden by the permission filter below aren't
-            // re-scanned on the next page.
             cursor = sealCursor(
                 { id: Number(apps[apps.length - 1].id) },
                 this.config.jwt_secret_v2,
             );
         }
 
-        // Protected apps are filtered by one batched grant check; stats and
-        // the shared views are each one batched lookup across the page.
-        const visible = await this.services.app.filterReadable(apps, actor);
+        // Stats and the shared views are each one batched lookup per page.
         const [statsByUid, views] = await Promise.all([
-            this.appStore.getAppsStats(visible.map((a) => a.uid)),
-            this.services.app.views(visible, actor),
+            this.appStore.getAppsStats(apps.map((a) => a.uid)),
+            this.services.app.views(apps, actor),
         ]);
-        const items = visible.map((app, i) =>
+        const items = apps.map((app, i) =>
             toAppReadView(app, views[i], {
                 viewer: actor.user,
                 stats: statsByUid.get(app.uid),
@@ -396,14 +384,9 @@ export class AppDriver extends PuterDriver {
         );
         if (!paginated) return items;
 
-        let total;
-        if (includeTotal) {
-            total = ownerScoped
-                ? await this.appStore.count({ ownerUserId: actor.user.id })
-                : await this.appStore.count({
-                      visibleToUserId: actor.user?.id ?? null,
-                  });
-        }
+        const total = includeTotal
+            ? await this.appStore.count({ ownerUserId })
+            : undefined;
 
         return {
             items,

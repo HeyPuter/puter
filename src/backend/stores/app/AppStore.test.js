@@ -1292,31 +1292,14 @@ describe('AppStore CRUD and cache invalidation', () => {
         ).toBe('Bumped');
     });
 
-    it('counts apps by owner, creator and per-caller visibility', async () => {
+    it('counts apps by owner and creator', async () => {
         const countOwner = 4600;
-        const viewer = 4601;
         const open = await createApp({}, { ownerUserId: countOwner });
         await createApp({}, { ownerUserId: countOwner, appOwner: open.id });
-        const hidden = await createApp({}, { ownerUserId: countOwner });
-        await db.write('UPDATE `apps` SET `protected` = 1 WHERE `id` = ?', [
-            hidden.id,
-        ]);
+        await createApp({}, { ownerUserId: countOwner });
 
         expect(await appStore.count({ ownerUserId: countOwner })).toBe(3);
         expect(await appStore.count({ appOwner: open.id })).toBe(1);
-
-        // The protected app is invisible to a stranger but visible to its
-        // owner.
-        const strangerView = await appStore.count({
-            ownerUserId: countOwner,
-            visibleToUserId: viewer,
-        });
-        expect(strangerView).toBe(2);
-        const ownerView = await appStore.count({
-            ownerUserId: countOwner,
-            visibleToUserId: countOwner,
-        });
-        expect(ownerView).toBe(3);
     });
 
     // -- filetype association batch + recent opens ----------------------
