@@ -23,7 +23,7 @@ import { archiveEntryPath } from './helpers/archiveEntryPath.js';
 import get_html_element_from_options from './helpers/getHtmlElementFromOptions.js';
 import globToRegExp from './helpers/globToRegExp.js';
 import item_icon from './helpers/itemIcon.js';
-import { atPath, retargetPaths, underPath } from './helpers/pathElements.js';
+import { atPath, retargetNavHistory, retargetPaths, underPath } from './helpers/pathElements.js';
 import { is_owned_by_me, trash_path_for } from './helpers/pathOwner.js';
 import { invalidate_shared_roots } from './helpers/sharedAccess.js';
 import truncate_filename from './helpers/truncateFilename.js';
@@ -38,6 +38,7 @@ import mime from './lib/mime.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
 import UIItem from './UI/UIItem.js';
+import { compareEntries, compareNames } from './UI/Dashboard/sortEntries.js';
 import UIAuthLogin from './UI/Auth/UIAuthLogin.js';
 import UIWindowProgress from './UI/UIWindowProgress.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
@@ -1120,48 +1121,19 @@ window.sort_items = (item_container, sort_by, sort_order) => {
         sort_order = 'asc';
     }
 
+    const direction = sort_order === 'asc' ? 1 : -1;
     $(item_container).find('.item[data-sortable="true"]').detach().sort(function (a, b) {
-        // Name
-        if ( !sort_by || sort_by === 'name' ) {
-            if ( a.dataset.name.toLowerCase() < b.dataset.name.toLowerCase() ) {
-                return (sort_order === 'asc' ? -1 : 1);
-            }
-            if ( a.dataset.name.toLowerCase() > b.dataset.name.toLowerCase() ) {
-                return (sort_order === 'asc' ? 1 : -1);
-            }
-            return 0;
+        const name_a = a.dataset.name;
+        const name_b = b.dataset.name;
+        if ( sort_by === 'type' ) {
+            const by_extension = compareNames(path.extname(name_a).toLowerCase(), path.extname(name_b).toLowerCase());
+            return direction * (by_extension || compareNames(name_a, name_b));
         }
-        // Size
-        else if ( sort_by === 'size' ) {
-            if ( parseInt(a.dataset.size) < parseInt(b.dataset.size) ) {
-                return (sort_order === 'asc' ? -1 : 1);
-            }
-            if ( parseInt(a.dataset.size) > parseInt(b.dataset.size) ) {
-                return (sort_order === 'asc' ? 1 : -1);
-            }
-            return 0;
-        }
-        // Modified
-        else if ( sort_by === 'modified' ) {
-            if ( parseInt(a.dataset.modified) < parseInt(b.dataset.modified) ) {
-                return (sort_order === 'asc' ? -1 : 1);
-            }
-            if ( parseInt(a.dataset.modified) > parseInt(b.dataset.modified) ) {
-                return (sort_order === 'asc' ? 1 : -1);
-            }
-            return 0;
-        }
-        // Type
-        else if ( sort_by === 'type' ) {
-            if ( path.extname(a.dataset.name.toLowerCase()) < path.extname(b.dataset.name.toLowerCase()) ) {
-                return (sort_order === 'asc' ? -1 : 1);
-            }
-            if ( path.extname(a.dataset.name.toLowerCase()) > path.extname(b.dataset.name.toLowerCase()) ) {
-                return (sort_order === 'asc' ? 1 : -1);
-            }
-            return 0;
-        }
-
+        return direction * compareEntries(
+            { name: name_a, size: parseInt(a.dataset.size), modified: parseInt(a.dataset.modified) },
+            { name: name_b, size: parseInt(b.dataset.size), modified: parseInt(b.dataset.modified) },
+            sort_by,
+        );
     }).appendTo(item_container);
 };
 
@@ -1169,10 +1141,18 @@ window.show_or_hide_files = (item_containers) => {
     const show_hidden_files = window.user_preferences.show_hidden_files;
     const class_to_add = show_hidden_files ? 'item-revealed' : 'item-hidden';
     const class_to_remove = show_hidden_files ? 'item-hidden' : 'item-revealed';
-    $(item_containers)
+    const $dotfiles = $(item_containers)
         .find('.item')
         .filter((_, item) => item.dataset.name.startsWith('.'))
         .removeClass(class_to_remove).addClass(class_to_add);
+    // an item the user can no longer see must not stay in the selection
+    if ( ! show_hidden_files ) {
+        $dotfiles.removeClass('item-selected');
+    }
+    $(item_containers).closest('.window').each(function () {
+        window.update_explorer_footer_item_count(this);
+        window.update_explorer_footer_selected_items_count(this);
+    });
 };
 
 window.create_folder = async (basedir, appendto_element) => {
@@ -1275,6 +1255,9 @@ window.available_templates = () => {
 };
 
 window.create_shortcut = async (filename, is_dir, basedir, appendto_element, shortcut_to, shortcut_to_path) => {
+    // The Shared view is a query, not a directory — nothing can be created in it.
+    if ( basedir === window.shared_path ) return;
+
     const extname = path.extname(filename);
     const basename = `${path.basename(filename, extname) } - Shortcut`;
     filename = basename + extname;
@@ -1309,6 +1292,8 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
         let progwin;
         let latest_status;
         const arm_progwin = () => setTimeout(async () => {
+            // re-armed after a dialog while the window from before it is still open
+            if ( progwin ) return;
             progwin = await UIWindowProgress({
                 operation_id: copy_op_id,
                 on_cancel: () => {
@@ -1442,6 +1427,9 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
  * @param {string} dest_path - Destination path to copy items to
  */
 window.copy_items = function (el_items, dest_path) {
+    // The Shared view is a query, not a directory — nothing can be copied into it.
+    if ( dest_path === window.shared_path ) return;
+
     let copy_op_id = window.operation_id++;
     let overwrite_all = false;
     (async () => {
@@ -1451,6 +1439,8 @@ window.copy_items = function (el_items, dest_path) {
         let progwin;
         let latest_status;
         const arm_progwin = () => setTimeout(async () => {
+            // re-armed after a dialog while the window from before it is still open
+            if ( progwin ) return;
             progwin = await UIWindowProgress({
                 operation_id: copy_op_id,
                 on_cancel: () => {
@@ -1625,20 +1615,37 @@ window.delete_item = async function (el_item, descendants_only = false) {
     }
 };
 
-window.move_clipboard_items = function (el_target_container, target_path) {
+window.move_clipboard_items = async function (el_target_container, target_path) {
     let dest_path = target_path === undefined ? $(el_target_container).attr('data-path') : target_path;
-    let el_items = [];
-    if ( window.clipboard.length > 0 ) {
-        for ( let i = 0; i < window.clipboard.length; i++ ) {
-            el_items.push(atPath('.item', window.clipboard[i]));
-        }
-        if ( el_items.length > 0 )
-        {
-            window.move_items(el_items, dest_path);
-        }
-    }
-
+    const cut_paths = window.clipboard;
     window.clipboard = [];
+
+    // A cut item's row is gone once its folder is no longer displayed, so
+    // move_items gets a stand-in carrying what it reads off a row.
+    const el_items = (await Promise.all(cut_paths.map(async (cut_path) => {
+        const $el_item = atPath('.item', cut_path);
+        if ( $el_item.length > 0 ) {
+            return $el_item;
+        }
+        try {
+            const fsentry = await puter.fs.stat({ path: cut_path, consistency: 'eventual' });
+            return $('<div>').attr({
+                'data-uid': fsentry.uid,
+                'data-path': cut_path,
+                'data-name': fsentry.name,
+                'data-is_dir': fsentry.is_dir ? '1' : '0',
+                'data-immutable': (fsentry.immutable || fsentry.writable === false) ? '1' : '0',
+                'data-metadata': fsentry.metadata ?? '',
+            });
+        } catch ( e ) {
+            // the item no longer exists, so there is nothing to move
+            return null;
+        }
+    }))).filter(Boolean);
+
+    if ( el_items.length > 0 ) {
+        window.move_items(el_items, dest_path);
+    }
 };
 
 function downloadFile (url, postData = {}) {
@@ -1696,7 +1703,7 @@ window.trigger_download = (paths) => {
     let urls = [];
     for ( let index = 0; index < paths.length; index++ ) {
         urls.push({
-            download: `${window.origin }/down?path=${ paths[index]}`,
+            download: `${window.origin }/down?path=${ encodeURIComponent(paths[index])}`,
             filename: path.basename(paths[index]),
         });
     }
@@ -1802,6 +1809,8 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
     let progwin;
     let latest_status;
     const arm_progwin = () => setTimeout(async () => {
+        // re-armed after a dialog while the window from before it is still open
+        if ( progwin ) return;
         progwin = await UIWindowProgress({
             operation_id: move_op_id,
             on_cancel: () => {
@@ -1849,7 +1858,8 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
         if ( path.dirname($(el_item).attr('data-path')) === item_dest_path ) {
             // pause the progress-window timer while waiting for the user
             clearTimeout(progwin_timeout);
-            await UIAlert(`<p>Moving <strong>${html_encode($(el_item).attr('data-name'))}</strong></p>Cannot move item to its current location.`);
+            // UIAlert escapes the message itself
+            await UIAlert(`<p>Moving <strong>${$(el_item).attr('data-name')}</strong></p>Cannot move item to its current location.`);
             progwin_timeout = arm_progwin();
 
             continue;
@@ -1923,7 +1933,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 }
 
                 // moving an item into a trashed directory? deny.
-                else if ( dest_path.startsWith(window.trash_path) ) {
+                else if ( dest_path === window.trash_path || dest_path.startsWith(`${window.trash_path}/`) ) {
                     // the pending timer would otherwise open an orphan
                     // progress window after the operation already bailed
                     clearTimeout(progwin_timeout);
@@ -2008,6 +2018,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     underPath('.window', moved_from_path).add(atPath('.window', moved_from_path)).each(function () {
                         window.update_window_path(this, path.join(item_dest_path, fsentry.name) + $(this).attr('data-path').slice(moved_from_path.length));
                     });
+                    retargetNavHistory(moved_from_path, fsentry.path);
                 }
 
                 // The dashboard's Back/Forward follows a moved folder, and
@@ -2035,14 +2046,19 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // if this is trash, get original name from item metadata
                 fsentry.name = metadata?.original_name || fsentry.name;
 
+                const moved_item_icon = await item_icon(fsentry);
+                const $dest_containers = atPath('.item-container', item_dest_path);
+                // the item.moved echo of this move can render the row first
+                $dest_containers.find(`.item[data-uid='${fsentry.uid}']`).removeItems();
+
                 // create new item on matching containers
                 const options = {
-                    appendTo: atPath('.item-container', item_dest_path),
+                    appendTo: $dest_containers,
                     immutable: fsentry.immutable || (fsentry.writable === false),
                     associated_app_name: fsentry.associated_app?.name,
                     uid: fsentry.uid,
                     path: fsentry.path,
-                    icon: await item_icon(fsentry),
+                    icon: moved_item_icon,
                     name: is_trashing ? $(el_item).attr('data-name') : fsentry.name,
                     is_dir: fsentry.is_dir,
                     size: fsentry.size,
@@ -2137,7 +2153,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     item_with_same_name_already_exists = false;
                     // error message after source item has reappeared
                     $(el_item).show(0, function () {
-                        UIAlert(`<p>Moving <strong>${html_encode($(el_item).attr('data-name'))}</strong></p>${err.message ?? ''}`);
+                        UIAlert(`<p>Moving <strong>${$(el_item).attr('data-name')}</strong></p>${err.message ?? ''}`);
                     });
 
                     break;
@@ -2399,6 +2415,9 @@ window.init_upload_using_dialog = function (el_target_container, target_path = n
 window.upload_items = async function (items, dest_path) {
     let upload_progress_window;
     let opid;
+
+    // The Shared view is a query, not a directory — nothing can be uploaded into it.
+    if ( dest_path === window.shared_path ) return;
 
     if ( dest_path == window.trash_path ) {
         UIAlert('Uploading to trash is not allowed!');
@@ -2879,13 +2898,15 @@ window.unzipItem = async function (itemPath) {
     terminateOp = fflate.unzip(file, async (err, unzipped) => {
         currentProgress += window.zippingProgressConfig.ZIPPING;
         progwin?.set_progress(currentProgress.toPrecision(2));
-        if ( err ) {
-            UIAlert(e.message);
-            // close progress window
+        const close_progwin = (hide_delay) => {
             clearTimeout(progwin_timeout);
             setTimeout(() => {
                 progwin?.close();
-            }, Math.max(0, window.copy_progress_hide_delay - (Date.now() - start_ts)));
+            }, Math.max(0, hide_delay - (Date.now() - start_ts)));
+        };
+        if ( err ) {
+            UIAlert(err.message);
+            close_progwin(window.copy_progress_hide_delay);
         } else {
             const rootdir = await puter.fs.mkdir(`${path.dirname(filePath) }/${ path.basename(filePath, '.zip')}`, { dedupeName: true });
             let perItemProgress = window.zippingProgressConfig.WRITING / Object.keys(unzipped).length;
@@ -2903,6 +2924,10 @@ window.unzipItem = async function (itemPath) {
                     UIAlert(e.message);
                 }
             });
+            // an archive with no files leaves nothing to upload, so nothing else would end the operation
+            if ( queuedFileWrites.length === 0 ) {
+                close_progwin(window.unzip_progress_hide_delay);
+            }
             queuedFileWrites.length && puter.fs.upload(
                 // what to upload
                 queuedFileWrites,
@@ -2914,7 +2939,7 @@ window.unzipItem = async function (itemPath) {
                     generateThumbnails: true,
                     thumbnailGenerator: createUploadThumbnailGenerator(),
                     progress: async function (operation_id, op_progress) {
-                        progwin.set_progress(op_progress);
+                        progwin?.set_progress(op_progress);
                         // update title if window is not visible
                         if ( document.visibilityState !== 'visible' ) {
                             update_title_based_on_uploads();
@@ -2922,11 +2947,10 @@ window.unzipItem = async function (itemPath) {
                     },
                     success: async function (items) {
                         progwin?.set_progress(window.zippingProgressConfig.TOTAL.toPrecision(2));
-                        // close progress window
-                        clearTimeout(progwin_timeout);
-                        setTimeout(() => {
-                            progwin?.close();
-                        }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+                        close_progwin(window.unzip_progress_hide_delay);
+                    },
+                    error: function () {
+                        close_progwin(window.unzip_progress_hide_delay);
                     },
                 },
             );
@@ -3158,6 +3182,13 @@ window.untarItem = async function (itemPath) {
             }
         }
 
+        // an archive with no files leaves nothing to upload, so nothing else would end the operation
+        if ( queuedFileWrites.length === 0 ) {
+            clearTimeout(progwin_timeout);
+            setTimeout(() => {
+                progwin?.close();
+            }, Math.max(0, window.unzip_progress_hide_delay - (Date.now() - start_ts)));
+        }
         queuedFileWrites.length && puter.fs.upload(
             queuedFileWrites,
             `${rootdir.path }/`,
@@ -3166,7 +3197,7 @@ window.untarItem = async function (itemPath) {
                 generateThumbnails: true,
                 thumbnailGenerator: createUploadThumbnailGenerator(),
                 progress: async function (operation_id, op_progress) {
-                    progwin.set_progress(op_progress);
+                    progwin?.set_progress(op_progress);
                     if ( document.visibilityState !== 'visible' ) {
                         update_title_based_on_uploads();
                     }
@@ -3385,7 +3416,9 @@ window.undo_last_action = async () => {
         delete: () => window.undo_delete(data),
         rename: () => {
             const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, onDone } = data;
-            window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true, onDone);
+            // the item now sits at its renamed path, which is what this rename moves away from
+            const renamed_path = path.join(path.dirname(old_path), new_name);
+            window.rename_file(options, old_name, new_name, renamed_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true, onDone);
         },
     };
 
