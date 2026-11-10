@@ -69,6 +69,51 @@ describe('the popup token hand-off in postAuthActions', () => {
     });
 });
 
+describe('the requests a sign-in popup makes after an account is picked', () => {
+    const postAuthActions = src.slice(
+        src.indexOf('const postAuthActions = async'),
+        src.indexOf('window.initgui = async'),
+    );
+
+    it('matches the early exchange before every exchange in postAuthActions', () => {
+        const exchanges = postAuthActions.split('await window.getUserAppToken(origin)').length - 1;
+        const matched = postAuthActions.split(
+            'reusableTokenExchange(early_token_exchange, origin, window.auth_token) ??',
+        ).length - 1;
+        expect(exchanges).toBe(2);
+        expect(matched).toBe(2);
+        expect(postAuthActions.split('getUserAppToken(').length - 1).toBe(2);
+    });
+
+    it('records every early exchange, so none is repeated unmatched', () => {
+        const boot = src.slice(src.indexOf('window.initgui = async'));
+        const sdkLogin = boot.slice(
+            boot.indexOf('// show signup window'),
+            boot.indexOf('window.popup_signin_consent = !!picked_a_user_for_sdk_login;'),
+        );
+        expect(sdkLogin.split('await exchangeUserAppTokenEarly();').length - 1).toBe(3);
+        expect(sdkLogin).not.toContain('getUserAppToken(');
+    });
+
+    it('skips the relationship check only for a picked account', () => {
+        // Signup in the popup sets consent without a pick, and still needs
+        // the check to keep a second account picker away.
+        const check = src.indexOf('await window.checkUserSiteRelationship(');
+        const guard = src.lastIndexOf('if (', check);
+        expect(src.slice(guard, check)).toContain('if (!picked_a_user_for_sdk_login) {');
+        expect(src.slice(guard, check)).not.toContain('popup_signin_consent');
+    });
+
+    it('reuses the early whoami only through reusablePopupUser', () => {
+        const reuse = src.indexOf('whoami = popup_whoami.user;');
+        expect(reuse).toBeGreaterThan(-1);
+        expect(src.split('popup_whoami.user').length - 1).toBe(1);
+        const guard = src.slice(src.lastIndexOf('if (', reuse), reuse);
+        expect(guard).toContain('picked_a_user_for_sdk_login &&');
+        expect(guard).toContain('reusablePopupUser(popup_whoami, {');
+    });
+});
+
 describe('the permission popup and browser push', () => {
     const postAuthActions = src.slice(
         src.indexOf('const postAuthActions = async'),
