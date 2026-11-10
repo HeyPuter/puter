@@ -6239,6 +6239,67 @@ describe('ShareService', () => {
             expect(reachingCalls).toBe(0);
         });
 
+        it('does not read ancestors for an owner with nothing shared', async () => {
+            const owner = await makeUser();
+            const { file } = await makeDirWithFile(owner.user);
+            const ancestors = vi.spyOn(server.stores.fsEntry, 'getAncestors');
+            let calls = -1;
+            try {
+                await server.clients.event.emitAndWait(
+                    'fs.write.file',
+                    { node: file },
+                    {},
+                );
+                await settle();
+                calls = ancestors.mock.calls.length;
+            } finally {
+                ancestors.mockRestore();
+            }
+            expect(calls).toBe(0);
+        });
+
+        it('still reaches a nested entry under a shared folder', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            const nested = await server.services.fs.touch(owner.user.id, {
+                path: `${dir.path}/a/b/deep.txt`,
+                createMissingParents: true,
+            });
+            await settle();
+
+            const seen: unknown[] = [];
+            const listener = (_key: string, data: unknown) => {
+                const payload = data as {
+                    user_id_list?: number[];
+                    response?: { uuid?: string };
+                };
+                if (
+                    payload.response?.uuid === nested.uuid &&
+                    payload.user_id_list?.includes(recipient.user.id)
+                )
+                    seen.push(data);
+            };
+            server.clients.event.on('outer.gui.item.updated', listener);
+            try {
+                await server.clients.event.emitAndWait(
+                    'fs.write.file',
+                    { node: nested },
+                    {},
+                );
+                for (let i = 0; i < 50 && seen.length === 0; i++)
+                    await settle();
+            } finally {
+                server.clients.event.off('outer.gui.item.updated', listener);
+            }
+            expect(seen).toHaveLength(1);
+        });
+
         it('fans out on the next write once something is shared', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();

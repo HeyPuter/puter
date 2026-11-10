@@ -874,6 +874,13 @@ export class ShareService extends PuterService {
         rows: ShareIndexRow[];
         nodesById: Map<number, FSEntry>;
     }> {
+        // A subtree's entries share its owner, so theirs alone can rule it out.
+        const owners = new Set([entry.userId]);
+        if (typeof realOwnerId === 'number') owners.add(realOwnerId);
+        const shared = await Promise.all(
+            [...owners].map((owner) => this.#ownerHasShares(owner)),
+        );
+        if (!shared.some(Boolean)) return { rows: [], nodesById: new Map() };
         const ancestors = await this.stores.fsEntry.getAncestors(
             pathPosix.dirname(realPath),
         );
@@ -882,12 +889,6 @@ export class ShareService extends PuterService {
                 .filter((node) => typeof node.id === 'number')
                 .map((node) => [node.id, node]),
         );
-        const owners = new Set([...nodesById.values()].map((n) => n.userId));
-        if (typeof realOwnerId === 'number') owners.add(realOwnerId);
-        const shared = await Promise.all(
-            [...owners].map((owner) => this.#ownerHasShares(owner)),
-        );
-        if (!shared.some(Boolean)) return { rows: [], nodesById };
         const ids = [...nodesById.keys()];
         const [direct, viaGroup] = await Promise.all([
             this.stores.share.listReaching(ids),
