@@ -3462,72 +3462,72 @@ window.update_window_path = async function (el_window, target_path) {
         $(el_window).find('.window-head-icon').attr('src', window.icons['shared.svg']);
     }
     else if ( target_path !== '/' ) {
-        try {
-            puter.fs.stat({ path: target_path, consistency: 'eventual' }).then(fsentry => {
-                // the window may have moved on while this stat was in flight
-                if ( $(el_window).attr('data-path') !== target_path ) {
-                    return;
-                }
-                $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
-                $(el_window).addClass(`window-${ fsentry.id}`);
-                $(el_window).attr('data-uid', fsentry.id);
-                $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
-                $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
-                $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
-                $(el_window_item_container).attr('data-uid', fsentry.id);
-                // title - use i18n for system directories
-                if ( target_path === window.home_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('home'));
-                }
-                else if ( target_path === window.desktop_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('desktop'));
-                }
-                else if ( target_path === window.docs_path || target_path === window.documents_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('documents'));
-                }
-                else if ( target_path === window.pictures_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('pictures'));
-                }
-                else if ( target_path === window.videos_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('videos'));
-                }
-                else if ( target_path === window.public_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('public'));
-                }
-                else if ( target_path === window.trash_path )
-                {
-                    $(el_window).find('.window-head-title').text(i18n('trash'));
-                }
-                else
-                {
-                    $(el_window).find('.window-head-title').text(fsentry.name);
-                }
-                // data-name
-                $(el_window).attr('data-name', fsentry.name);
-                // data-path
-                $(el_window).attr('data-path', target_path);
-                $(el_window_navbar_path_input).val(target_path);
-                $(el_window_navbar_path_input).attr('data-path', target_path);
-                // update layout
-                window.update_window_layout(el_window, fsentry.layout);
-                // update explore header if in details view
-                if ( fsentry.layout === 'details' ) {
-                    window.update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
-                }
-            });
-        } catch ( err ) {
-            UIAlert(err.responseText);
-
-            // todo optim: this is dumb because updating the window should only happen if this /readdir request is successful,
-            // in that case there is no need for using update_window_path on error!!
-            window.update_window_path(el_window, old_path);
-        }
+        puter.fs.stat({ path: target_path, consistency: 'eventual' }).then(fsentry => {
+            // the window may have moved on while this stat was in flight
+            if ( $(el_window).attr('data-path') !== target_path ) {
+                return;
+            }
+            $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
+            $(el_window).addClass(`window-${ fsentry.id}`);
+            $(el_window).attr('data-uid', fsentry.id);
+            $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
+            $(el_window).attr('data-sort_order', fsentry.sort_order ?? 'asc');
+            $(el_window).attr('data-layout', fsentry.layout ?? 'icons');
+            $(el_window_item_container).attr('data-uid', fsentry.id);
+            // title - use i18n for system directories
+            if ( target_path === window.home_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('home'));
+            }
+            else if ( target_path === window.desktop_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('desktop'));
+            }
+            else if ( target_path === window.docs_path || target_path === window.documents_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('documents'));
+            }
+            else if ( target_path === window.pictures_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('pictures'));
+            }
+            else if ( target_path === window.videos_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('videos'));
+            }
+            else if ( target_path === window.public_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('public'));
+            }
+            else if ( target_path === window.trash_path )
+            {
+                $(el_window).find('.window-head-title').text(i18n('trash'));
+            }
+            else
+            {
+                $(el_window).find('.window-head-title').text(fsentry.name);
+            }
+            // data-name
+            $(el_window).attr('data-name', fsentry.name);
+            // data-path
+            $(el_window).attr('data-path', target_path);
+            $(el_window_navbar_path_input).val(target_path);
+            $(el_window_navbar_path_input).attr('data-path', target_path);
+            // update layout
+            window.update_window_layout(el_window, fsentry.layout);
+            // update explore header if in details view
+            if ( fsentry.layout === 'details' ) {
+                window.update_details_layout_sort_visuals(el_window, fsentry.sort_by, fsentry.sort_order);
+            }
+        }).catch(() => {
+            if ( $(el_window).attr('data-path') !== target_path ) {
+                return;
+            }
+            // The folder couldn't be read, so the window must stop identifying as the previous one.
+            $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
+            $(el_window).attr('data-uid', 'null');
+            $(el_window).find('.window-head-title').text(path.basename(target_path));
+        });
     }
     // path is '/' (global root)
     else {
