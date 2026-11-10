@@ -255,6 +255,20 @@ describe('<puter-user-menu>', () => {
         expect(el.shadowRoot.activeElement).toBe(part(el, '.open-puter'));
     });
 
+    it('offers Add credits the next time the menu opens after an upgrade made on the page', async () => {
+        const account = { ...USER, subscribed: false };
+        vi.stubGlobal('puter', fakePuter({ token: 't', user: account }));
+        const el = await mount();
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(false);
+        part(el, '.avatar').click();
+
+        // What the SDK does to its cached whoami when a framed upgrade reports a plan.
+        account.subscribed = true;
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(true);
+    });
+
     it('stops offering Add credits once the sign-in changes to an account without a plan', async () => {
         const sdk = fakePuter({ token: 't', user: { ...USER, subscribed: true } });
         vi.stubGlobal('puter', sdk);

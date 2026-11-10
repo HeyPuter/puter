@@ -1828,6 +1828,9 @@ export class UIModule extends EventListener {
                     closed: (data) => ({ upgraded: data?.upgraded === true }),
                     onMessage: () => {},
                 });
+                // The page's cached whoami still reads it as having no plan,
+                // which is what the user menu offers Add credits by.
+                if ( framed?.upgraded ) user.subscribed = true;
                 if ( framed ) return framed;
                 await this.#openUpgradeTab(upgradeUrl({ reason, method, appID: appIDOf(puter) }));
                 return { upgraded: false };

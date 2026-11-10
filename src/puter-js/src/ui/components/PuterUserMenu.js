@@ -605,6 +605,15 @@ class PuterUserMenu extends PuterWebComponent {
         this.$('.avatar').setAttribute('aria-label', username ? `${account}: ${username}` : account);
     }
 
+    /**
+     * Add-on credit is sold to accounts with a plan, which whoami reports where there are
+     * plans. A seat's plan is its team's, and so is paying for its usage.
+     */
+    _renderAddCredits () {
+        const isSeat = typeof this.#user?.team?.uid === 'string' && this.#user.team.uid !== '';
+        this.$('.add-credits').hidden = this.#user?.subscribed !== true || isSeat;
+    }
+
     _renderState () {
         const signedIn = this._signedIn();
         const username = this._username();
@@ -621,10 +630,7 @@ class PuterUserMenu extends PuterWebComponent {
         const email = typeof this.#user?.email === 'string' ? this.#user.email : '';
         this.$('.menu-email').textContent = email;
         this.$('.menu-email').hidden = !email;
-        // Add-on credit is sold to accounts with a plan, which whoami reports where there are
-        // plans. A seat's plan is its team's, and so is paying for its usage.
-        const isSeat = typeof this.#user?.team?.uid === 'string' && this.#user.team.uid !== '';
-        this.$('.add-credits').hidden = this.#user?.subscribed !== true || isSeat;
+        this._renderAddCredits();
         for ( const link of MENU_LINKS ) {
             this.$(`.${link.className}`).href = new URL(link.path, globalThis.puter.defaultGUIOrigin).href;
         }
@@ -716,6 +722,8 @@ class PuterUserMenu extends PuterWebComponent {
      */
     _openMenu ({ fromKeyboard = false } = {}) {
         const menu = this.$('.menu');
+        // An upgrade made on the page since the account loaded gives it a plan.
+        this._renderAddCredits();
         this._showPanel(menu);
         (fromKeyboard ? this.$('.menu-item') : menu).focus({ preventScroll: true });
     }
