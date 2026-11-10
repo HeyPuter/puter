@@ -434,7 +434,9 @@ async function UIItem (options) {
             // re-enable all droppable UIItems that are not a dir
             $('.item[data-is_dir=\'0\']:not(.item-selected)').droppable('enable');
             // remove active item-container border highlights
-            $('.item-container').removeClass('item-container-active');
+            $('.item-container').removeClass('item-container-active item-container-transparent-border');
+            // a drop that bailed out early never re-enables the containers an item's hover disabled
+            $('.item-container.ui-droppable').droppable('enable');
             // reset longer hover timeout and last window dragged over
             clearTimeout(longer_hover_timeout);
             last_window_dragged_over = null;
@@ -563,8 +565,9 @@ async function UIItem (options) {
         },
         over: function (event, ui) {
             // Check hovering over an item that is VISIBILE
+            // A desktop item has no window, so it only counts while the pointer is over the desktop itself
             const $event_parent_win = $(event.target).closest('.window');
-            if ( $event_parent_win.length > 0 && $event_parent_win.attr('data-id') !== $(window.mouseover_window).attr('data-id') )
+            if ( $event_parent_win.attr('data-id') !== $(window.mouseover_window).attr('data-id') )
             {
                 return;
             }
