@@ -34,7 +34,7 @@ import UIWindowProgress from './UIWindowProgress.js';
 import UITaskbar from './UITaskbar.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
-import { atPath, retargetPaths, underPath } from '../helpers/pathElements.js';
+import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers/pathElements.js';
 import changeLanguage from '../i18n/i18nChangeLanguage.js';
 import UIWindowTaskManager from './UIWindowTaskManager.js';
 import truncate_filename from '../helpers/truncateFilename.js';
@@ -539,6 +539,7 @@ async function UIDesktop (options) {
             underPath('.window', resp.old_path).add(atPath('.window', resp.old_path)).each(function () {
                 window.update_window_path(this, fsentry.path + $(this).attr('data-path').slice(resp.old_path.length));
             });
+            retargetNavHistory(resp.old_path, fsentry.path);
         }
 
         if ( dest_path === window.trash_path ) {

@@ -23,7 +23,7 @@ import { archiveEntryPath } from './helpers/archiveEntryPath.js';
 import get_html_element_from_options from './helpers/getHtmlElementFromOptions.js';
 import globToRegExp from './helpers/globToRegExp.js';
 import item_icon from './helpers/itemIcon.js';
-import { atPath, retargetPaths, underPath } from './helpers/pathElements.js';
+import { atPath, retargetNavHistory, retargetPaths, underPath } from './helpers/pathElements.js';
 import { is_owned_by_me, trash_path_for } from './helpers/pathOwner.js';
 import { invalidate_shared_roots } from './helpers/sharedAccess.js';
 import truncate_filename from './helpers/truncateFilename.js';
@@ -2005,6 +2005,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     underPath('.window', moved_from_path).add(atPath('.window', moved_from_path)).each(function () {
                         window.update_window_path(this, path.join(item_dest_path, fsentry.name) + $(this).attr('data-path').slice(moved_from_path.length));
                     });
+                    retargetNavHistory(moved_from_path, fsentry.path);
                 }
 
                 // The dashboard's Back/Forward follows a moved folder, and
@@ -3399,7 +3400,9 @@ window.undo_last_action = async () => {
         delete: () => window.undo_delete(data),
         rename: () => {
             const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, onDone } = data;
-            window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true, onDone);
+            // the item now sits at its renamed path, which is what this rename moves away from
+            const renamed_path = path.join(path.dirname(old_path), new_name);
+            window.rename_file(options, old_name, new_name, renamed_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true, onDone);
         },
     };
 
