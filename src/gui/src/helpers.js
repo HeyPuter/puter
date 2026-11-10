@@ -38,6 +38,7 @@ import mime from './lib/mime.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
 import UIItem from './UI/UIItem.js';
+import { compareEntries, compareNames } from './UI/Dashboard/sortEntries.js';
 import UIAuthLogin from './UI/Auth/UIAuthLogin.js';
 import UIWindowProgress from './UI/UIWindowProgress.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
@@ -1120,48 +1121,19 @@ window.sort_items = (item_container, sort_by, sort_order) => {
         sort_order = 'asc';
     }
 
+    const direction = sort_order === 'asc' ? 1 : -1;
     $(item_container).find('.item[data-sortable="true"]').detach().sort(function (a, b) {
-        // Name
-        if ( !sort_by || sort_by === 'name' ) {
-            if ( a.dataset.name.toLowerCase() < b.dataset.name.toLowerCase() ) {
-                return (sort_order === 'asc' ? -1 : 1);
-            }
-            if ( a.dataset.name.toLowerCase() > b.dataset.name.toLowerCase() ) {
-                return (sort_order === 'asc' ? 1 : -1);
-            }
-            return 0;
+        const name_a = a.dataset.name;
+        const name_b = b.dataset.name;
+        if ( sort_by === 'type' ) {
+            const by_extension = compareNames(path.extname(name_a).toLowerCase(), path.extname(name_b).toLowerCase());
+            return direction * (by_extension || compareNames(name_a, name_b));
         }
-        // Size
-        else if ( sort_by === 'size' ) {
-            if ( parseInt(a.dataset.size) < parseInt(b.dataset.size) ) {
-                return (sort_order === 'asc' ? -1 : 1);
-            }
-            if ( parseInt(a.dataset.size) > parseInt(b.dataset.size) ) {
-                return (sort_order === 'asc' ? 1 : -1);
-            }
-            return 0;
-        }
-        // Modified
-        else if ( sort_by === 'modified' ) {
-            if ( parseInt(a.dataset.modified) < parseInt(b.dataset.modified) ) {
-                return (sort_order === 'asc' ? -1 : 1);
-            }
-            if ( parseInt(a.dataset.modified) > parseInt(b.dataset.modified) ) {
-                return (sort_order === 'asc' ? 1 : -1);
-            }
-            return 0;
-        }
-        // Type
-        else if ( sort_by === 'type' ) {
-            if ( path.extname(a.dataset.name.toLowerCase()) < path.extname(b.dataset.name.toLowerCase()) ) {
-                return (sort_order === 'asc' ? -1 : 1);
-            }
-            if ( path.extname(a.dataset.name.toLowerCase()) > path.extname(b.dataset.name.toLowerCase()) ) {
-                return (sort_order === 'asc' ? 1 : -1);
-            }
-            return 0;
-        }
-
+        return direction * compareEntries(
+            { name: name_a, size: parseInt(a.dataset.size), modified: parseInt(a.dataset.modified) },
+            { name: name_b, size: parseInt(b.dataset.size), modified: parseInt(b.dataset.modified) },
+            sort_by,
+        );
     }).appendTo(item_container);
 };
 
