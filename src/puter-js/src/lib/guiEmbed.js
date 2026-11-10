@@ -297,7 +297,9 @@ const mountGuiEmbed = ({ guiOrigin, path, fragment, className, title, stateMsg, 
     const removal = new MutationObserver(() => {
         if ( ! dialog.isConnected ) dismiss();
     });
-    const restoreFocus = document.activeElement;
+    // Down through shadow roots: a component's host can't take the focus back itself.
+    let restoreFocus = document.activeElement;
+    while ( restoreFocus?.shadowRoot?.activeElement ) restoreFocus = restoreFocus.shadowRoot.activeElement;
     const wait = (ms) => {
         clearTimeout(timer);
         timer = setTimeout(() => finish(null), ms);

@@ -541,6 +541,39 @@ describe('embedded app browser', () => {
             }
         });
 
+        it('returns keyboard focus to the account button when Add credits is chosen', async () => {
+            const context = await menuContext('app-token-subscriber');
+            try {
+                const page = await context.newPage();
+                page.setDefaultTimeout(6000);
+                await page.goto(`http://spreadsheet.puter.localhost:${port}/menu-host`);
+                await page.locator('puter-user-menu .avatar').focus();
+                await page.keyboard.press('Enter');
+                await page.locator('puter-user-menu .add-credits').waitFor();
+                await page.locator('puter-user-menu .add-credits').focus();
+                await page.keyboard.press('Enter');
+                await page.locator('dialog.puter-popup-frame iframe').waitFor({ state: 'attached' });
+                const focused = () => page.evaluate(() => document.activeElement.shadowRoot?.activeElement?.className ?? document.activeElement.tagName);
+                expect(await focused()).toBe('avatar');
+
+                // The dialog hands the focus back when it closes.
+                const fromFrame = (state) => page.evaluate(([guiOrigin, frameState]) => {
+                    const source = document.querySelector('dialog.puter-popup-frame iframe').contentWindow;
+                    window.dispatchEvent(new MessageEvent('message', {
+                        data: { msg: 'puterPopupFrame', state: frameState }, origin: guiOrigin, source,
+                    }));
+                }, [origin, state]);
+                await fromFrame('ready');
+                expect(await page.locator('dialog.puter-popup-frame').evaluate(el => el.open)).toBe(true);
+                await fromFrame('closed');
+                await page.locator('dialog.puter-popup-frame').waitFor({ state: 'detached' });
+                expect(await focused()).toBe('avatar');
+            } finally {
+                guestApps = [];
+                await context.close();
+            }
+        });
+
         it('leaves Add credits out of the menu of an account without a plan', async () => {
             const context = await menuContext('app-token-session-user');
             try {

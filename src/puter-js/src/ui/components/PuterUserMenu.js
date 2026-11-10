@@ -798,7 +798,8 @@ class PuterUserMenu extends PuterWebComponent {
     }
 
     _addCredits () {
-        this._closePanels();
+        // Focus goes back to the account button, where the dialog leaves it when it closes.
+        this._closePanels({ returnFocus: true });
         // Called inside the click, so a tab it falls back to isn't blocked.
         void globalThis.puter.ui.showTopUp_();
     }
