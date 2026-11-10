@@ -6258,6 +6258,138 @@ describe('ShareService', () => {
             expect(calls).toBe(0);
         });
 
+        describe('an entry stamped with another owner in a shared folder', () => {
+            /** A file under `dir` whose row names `stamped` as its owner. */
+            const makeStampedFile = async (
+                dir: { id: number; uuid: string; path: string },
+                stamped: { id: number },
+            ) => {
+                const uuid = uuidv4();
+                const name = `stamped-${uuid.slice(0, 8)}.txt`;
+                const path = `${dir.path}/${name}`;
+                await server.clients.db.write(
+                    'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        uuid,
+                        name,
+                        path,
+                        stamped.id,
+                        server.clients.db.booleanValue(false),
+                        Math.floor(Date.now() / 1000),
+                        dir.id,
+                        dir.uuid,
+                    ],
+                );
+                const entry = await server.stores.fsEntry.getEntryByPath(path);
+                if (!entry) throw new Error('fsentry not created');
+                return entry;
+            };
+
+            const setup = async () => {
+                const owner = await makeUser();
+                const stamped = await makeUser();
+                const recipient = await makeUser();
+                const { dir } = await makeDirWithFile(owner.user);
+                await share(owner.actor, {
+                    uid: dir.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'read',
+                });
+                const file = await makeStampedFile(dir, stamped.user);
+                return { recipient, file };
+            };
+
+            const heard = async (
+                event:
+                    | 'outer.gui.item.updated'
+                    | 'outer.gui.item.renamed'
+                    | 'outer.gui.item.removed',
+                uuid: string,
+                userId: number,
+                fn: () => Promise<unknown>,
+            ) => {
+                let seen = false;
+                const listener = (_key: string, data: unknown) => {
+                    const payload = data as {
+                        user_id_list?: number[];
+                        response?: { uuid?: string };
+                    };
+                    if (
+                        payload.response?.uuid === uuid &&
+                        payload.user_id_list?.includes(userId)
+                    )
+                        seen = true;
+                };
+                server.clients.event.on(event, listener);
+                try {
+                    await fn();
+                    for (let i = 0; i < 20 && !seen; i++) await settle();
+                } finally {
+                    server.clients.event.off(event, listener);
+                }
+                return seen;
+            };
+
+            it('still tells the folder recipient about a write', async () => {
+                const { recipient, file } = await setup();
+                expect(
+                    await heard(
+                        'outer.gui.item.updated',
+                        file.uuid,
+                        recipient.user.id,
+                        () =>
+                            server.clients.event.emitAndWait(
+                                'fs.write.file',
+                                { node: file },
+                                {},
+                            ),
+                    ),
+                ).toBe(true);
+            });
+
+            it('still tells the folder recipient about a rename', async () => {
+                const { recipient, file } = await setup();
+                const renamed = `${file.path}.renamed`;
+                expect(
+                    await heard(
+                        'outer.gui.item.renamed',
+                        file.uuid,
+                        recipient.user.id,
+                        () =>
+                            server.clients.event.emitAndWait(
+                                'fs.rename',
+                                {
+                                    node: {
+                                        ...file,
+                                        path: renamed,
+                                        name: `${file.name}.renamed`,
+                                    },
+                                    old_path: file.path,
+                                },
+                                {},
+                            ),
+                    ),
+                ).toBe(true);
+            });
+
+            it('still tells the folder recipient about a delete', async () => {
+                const { recipient, file } = await setup();
+                expect(
+                    await heard(
+                        'outer.gui.item.removed',
+                        file.uuid,
+                        recipient.user.id,
+                        () =>
+                            server.clients.event.emitAndWait(
+                                'fs.remove.node',
+                                { node: file, entry: file, target: file },
+                                {},
+                            ),
+                    ),
+                ).toBe(true);
+            });
+        });
+
         it('still reaches a nested entry under a shared folder', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();

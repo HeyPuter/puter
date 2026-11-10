@@ -32,6 +32,7 @@ import {
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import {
     abuseKey,
     cleanEmail,
@@ -292,6 +293,10 @@ export const modeFromEntryPermission = (permission: string): string | null => {
  */
 const RETIRE_CHUNK_SIZE = 100;
 
+/** Owner usernames kept per process, so the home check rarely reads a user. */
+const USERNAME_CACHE_MAX_ENTRIES = 10_000;
+const USERNAME_CACHE_TTL_MS = 60_000;
+
 /** Shares one user may create per UTC day, absent a config override. */
 export const DEFAULT_DAILY_SHARE_LIMIT = 200;
 
@@ -398,6 +403,10 @@ export class ShareService extends PuterService {
      */
     readonly #ownerShares = new SubscriptionCache();
     readonly #ownerLookups = new Map<string, Promise<boolean>>();
+    readonly #usernames = new BoundedTtlMap<number, string>({
+        maxEntries: USERNAME_CACHE_MAX_ENTRIES,
+        ttlMs: USERNAME_CACHE_TTL_MS,
+    });
 
     /**
      * FS mutations only notify the owner, leaving a recipient's open window
@@ -874,13 +883,18 @@ export class ShareService extends PuterService {
         rows: ShareIndexRow[];
         nodesById: Map<number, FSEntry>;
     }> {
-        // A subtree's entries share its owner, so theirs alone can rule it out.
         const owners = new Set([entry.userId]);
         if (typeof realOwnerId === 'number') owners.add(realOwnerId);
         const shared = await Promise.all(
             [...owners].map((owner) => this.#ownerHasShares(owner)),
         );
-        if (!shared.some(Boolean)) return { rows: [], nodesById: new Map() };
+        // Under another user's home an ancestor may belong to someone else.
+        if (
+            !shared.some(Boolean) &&
+            (await this.#underOwnHome(entry.userId, realPath))
+        ) {
+            return { rows: [], nodesById: new Map() };
+        }
         const ancestors = await this.stores.fsEntry.getAncestors(
             pathPosix.dirname(realPath),
         );
@@ -895,6 +909,19 @@ export class ShareService extends PuterService {
             this.stores.share.listGroupReachingMembers(ids),
         ]);
         return { rows: [...direct, ...viaGroup], nodesById };
+    }
+
+    /** Whether `path` sits in `userId`'s own home directory. */
+    async #underOwnHome(userId: number, path: string): Promise<boolean> {
+        const home = path.split('/')[1];
+        if (!home) return false;
+        let username = this.#usernames.get(userId);
+        if (username === undefined) {
+            username = (await this.stores.user.getById(userId))?.username;
+            if (!username) return false;
+            this.#usernames.set(userId, username);
+        }
+        return username === home;
     }
 
     /** Whether `ownerUserId` has anything shared, cached per process. */
