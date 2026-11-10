@@ -23,6 +23,7 @@
 import PuterWebComponent from '../PuterWebComponent.js';
 import { defaultFontFamily } from '../PuterDefaultStyles.js';
 import { canFrameGuiEmbed } from '../../lib/guiEmbed.js';
+import { canTopUp } from '../../lib/topUp.js';
 
 const APPS_ICON = `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">${
     [5, 12, 19].flatMap(y => [5, 12, 19].map(x => `<circle cx="${x}" cy="${y}" r="2"/>`)).join('')
@@ -614,8 +615,7 @@ class PuterUserMenu extends PuterWebComponent {
         // and an upgrade made on the page marks that one.
         const cached = globalThis.puter.whoami;
         const user = cached?.uuid && cached.uuid === this.#user?.uuid ? cached : this.#user;
-        const isSeat = typeof user?.team?.uid === 'string' && user.team.uid !== '';
-        this.$('.add-credits').hidden = user?.subscribed !== true || isSeat;
+        this.$('.add-credits').hidden = !canTopUp(user);
     }
 
     _renderState () {

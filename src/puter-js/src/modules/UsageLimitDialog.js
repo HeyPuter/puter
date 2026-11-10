@@ -8,6 +8,8 @@ import { escapeHtml } from '../lib/html.js';
  * @property {string} [appID] The app the refused call ran as.
  * @property {() => boolean} [onUpgrade] Runs when the user clicks Upgrade, instead of
  *   opening the dashboard's upgrade page in a new tab. Returning false opens the tab anyway.
+ * @property {() => void} [onTopUp] Makes Add Credits the dialog's main button, for an account
+ *   that can buy add-on credit, and runs when the user clicks it. Upgrade stays beside it.
  */
 
 const UPGRADE_PAGE = 'https://puter.com/dashboard/';
@@ -46,7 +48,7 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
      * @param {string} message Plain-text line saying what was refused.
      * @param {UsageLimitDialogOptions} [options]
      */
-    constructor (message, { title = 'Low Balance', method, reason, appID, onUpgrade } = {}) {
+    constructor (message, { title = 'Low Balance', method, reason, appID, onUpgrade, onTopUp } = {}) {
         super();
         this.message = message || 'You have reached your usage limit for this account.';
         // Not `this.title`: on an HTMLElement that is the tooltip attribute.
@@ -54,6 +56,7 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
         this.method = method;
         this.upgradeUrl = upgradeUrl({ reason, appID, method });
         this.onUpgrade = onUpgrade;
+        this.onTopUp = onTopUp;
 
         this.attachShadow({ mode: 'open' });
 
@@ -196,6 +199,10 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
             color: #bedef5;
         }
 
+        .button-secondary {
+            margin-bottom: 10px;
+        }
+
         .button-cancel {
             background: none;
         }
@@ -263,10 +270,13 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
                     </svg>
                 </div>
                 <h2>${escapeHtml(this.heading)}</h2>
-                <p class="message">${escapeHtml(this.message)}<br>Please upgrade to continue.</p>
+                <p class="message">${escapeHtml(this.message)}<br>${onTopUp ? 'Add credits to continue.' : 'Please upgrade to continue.'}</p>
                 ${this.method ? `<p class="method">${escapeHtml(this.method)}</p>` : ''}
                 <div class="buttons">
-                    <button class="button button-primary" id="upgrade-btn">Upgrade Now</button>
+                    ${onTopUp ? `
+                    <button class="button button-primary" id="top-up-btn">Add Credits</button>
+                    <button class="button button-secondary" id="upgrade-btn">Upgrade Plan</button>` : `
+                    <button class="button button-primary" id="upgrade-btn">Upgrade Now</button>`}
                     <button class="button button-cancel" id="close-btn">Close</button>
                 </div>
             </div>
@@ -290,6 +300,12 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
             this.close();
             const shown = this.onUpgrade ? this.onUpgrade() !== false : false;
             if ( ! shown ) window.open(this.upgradeUrl, '_blank');
+        });
+
+        this.shadowRoot.querySelector('#top-up-btn')?.addEventListener('click', () => {
+            // Closed first, so the frame the top-up shows in isn't under this modal.
+            this.close();
+            this.onTopUp();
         });
 
         // Close on backdrop click
@@ -322,7 +338,7 @@ if ( typeof globalThis.HTMLElement !== 'undefined' && globalThis.customElements 
  * dropped, so racing requests can't stack dialogs.
  *
  * @param {string} message Plain-text line saying what was refused; the dialog
- *   adds the "upgrade to continue" line itself.
+ *   adds the "upgrade to continue" or "add credits to continue" line itself.
  * @param {UsageLimitDialogOptions} [options]
  */
 export function showUsageLimitDialog (message, options = {}) {

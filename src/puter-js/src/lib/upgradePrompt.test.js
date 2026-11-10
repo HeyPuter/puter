@@ -238,6 +238,49 @@ describe('promptIfUpgradeRequired', () => {
         });
     });
 
+    describe('on a website, for an account with a plan', () => {
+        const funds = { code: 'insufficient_funds', status: 402 };
+        const web = (whoami, ui = {}) => {
+            globalThis.puter = {
+                env: 'web',
+                whoami,
+                ui: { requestUpgrade: vi.fn(), showTopUp_: vi.fn(async () => ({ toppedUp: false })), ...ui },
+            };
+        };
+
+        it('has the dialog offer the top-up when credit ran out', () => {
+            web({ subscribed: true });
+            promptIfUpgradeRequired(funds, { method: 'puter.ai.chat' });
+            const [, options] = showUsageLimitDialog.mock.calls[0];
+            expect(globalThis.puter.ui.showTopUp_).not.toHaveBeenCalled();
+            options.onTopUp();
+            expect(globalThis.puter.ui.showTopUp_).toHaveBeenCalledTimes(1);
+        });
+
+        it.each([
+            ['an account without a plan', { subscribed: false }],
+            ['a seat whose team pays for it', { subscribed: true, team: { uid: 'team-1' } }],
+            ['an account not read yet', undefined],
+        ])('offers only the upgrade to %s', (_label, whoami) => {
+            web(whoami);
+            promptIfUpgradeRequired(funds, { method: 'puter.ai.chat' });
+            expect(showUsageLimitDialog.mock.calls[0][1]).not.toHaveProperty('onTopUp');
+        });
+
+        it('offers only the upgrade for a refusal credit would not clear', () => {
+            web({ subscribed: true });
+            promptIfUpgradeRequired({ code: 'storage_limit_reached' }, { method: 'puter.fs.upload' });
+            promptIfUpgradeRequired({ code: 'subscription_required' }, { method: 'puter.hosting.create' });
+            for ( const [, options] of showUsageLimitDialog.mock.calls ) expect(options).not.toHaveProperty('onTopUp');
+        });
+
+        it('offers only the upgrade where the SDK has no top-up to show', () => {
+            web({ subscribed: true }, { showTopUp_: undefined });
+            promptIfUpgradeRequired(funds, { method: 'puter.ai.chat' });
+            expect(showUsageLimitDialog.mock.calls[0][1]).not.toHaveProperty('onTopUp');
+        });
+    });
+
     it('does nothing for a rejection an upgrade would not clear', () => {
         promptIfUpgradeRequired({ status: 403 });
         promptIfUpgradeRequired(new Error('offline'));
