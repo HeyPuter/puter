@@ -765,7 +765,7 @@ async function UIItem (options) {
                 UIAlert('The name ".." is not allowed, because it is a reserved name. Please choose another name.');
             }
 
-            $(el_item_name).html(html_encode(truncate_filename(options.name)));
+            $(el_item_name).html(html_encode(truncate_filename($(el_item).attr('data-name'))));
             $(el_item_name).show();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name_editor).hide();
@@ -818,7 +818,7 @@ async function UIItem (options) {
             rename_cancelled = true;
             $(el_item_name_editor).removeClass('item-name-editor-active');
             $(el_item_name_editor).hide();
-            $(el_item_name_editor).val(options.name);
+            $(el_item_name_editor).val($(el_item).attr('data-name'));
             $(el_item_name).show();
         }
     });
@@ -1148,7 +1148,7 @@ async function UIItem (options) {
                     // try to find suitable apps
                     const suitable_apps = await window.suggest_apps_for_fsentry({
                         uid: options.uid,
-                        path: options.path,
+                        path: $(el_item).attr('data-path'),
                     });
                     if ( suitable_apps && suitable_apps.length > 0 ) {
                         options.suggested_apps = suitable_apps;
@@ -1286,7 +1286,7 @@ async function UIItem (options) {
                             file_path: $(el_item).attr('data-path'),
                             file_uid: $(el_item).attr('data-uid'),
                             params: {
-                                source_path: options.path,
+                                source_path: $(el_item).attr('data-path'),
                             },
                         });
                     },
@@ -1333,7 +1333,7 @@ async function UIItem (options) {
                         }
                         else
                         {
-                            window.trigger_download([options.path]);
+                            window.trigger_download([$(el_item).attr('data-path')]);
                         }
                     },
                 });
@@ -1453,7 +1453,7 @@ async function UIItem (options) {
                     html: i18n('cut'),
                     onClick: function () {
                         window.clipboard_op = 'move';
-                        window.clipboard = [options.path];
+                        window.clipboard = [$(el_item).attr('data-path')];
                     },
                 });
             }
@@ -1465,7 +1465,7 @@ async function UIItem (options) {
                     html: i18n('copy'),
                     onClick: function () {
                         window.clipboard_op = 'copy';
-                        window.clipboard = [{ path: options.path }];
+                        window.clipboard = [{ path: $(el_item).attr('data-path') }];
                     },
                 });
             }
@@ -1513,7 +1513,7 @@ async function UIItem (options) {
                             base_dir,
                             options.appendTo,
                             options.shortcut_to === '' ? options.uid : options.shortcut_to,
-                            options.shortcut_to_path === '' ? options.path : options.shortcut_to_path,
+                            options.shortcut_to_path === '' ? $(el_item).attr('data-path') : options.shortcut_to_path,
                         );
                     },
                 });
