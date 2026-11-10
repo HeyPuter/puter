@@ -1255,6 +1255,9 @@ window.available_templates = () => {
 };
 
 window.create_shortcut = async (filename, is_dir, basedir, appendto_element, shortcut_to, shortcut_to_path) => {
+    // The Shared view is a query, not a directory — nothing can be created in it.
+    if ( basedir === window.shared_path ) return;
+
     const extname = path.extname(filename);
     const basename = `${path.basename(filename, extname) } - Shortcut`;
     filename = basename + extname;
@@ -1424,6 +1427,9 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
  * @param {string} dest_path - Destination path to copy items to
  */
 window.copy_items = function (el_items, dest_path) {
+    // The Shared view is a query, not a directory — nothing can be copied into it.
+    if ( dest_path === window.shared_path ) return;
+
     let copy_op_id = window.operation_id++;
     let overwrite_all = false;
     (async () => {
@@ -2409,6 +2415,9 @@ window.init_upload_using_dialog = function (el_target_container, target_path = n
 window.upload_items = async function (items, dest_path) {
     let upload_progress_window;
     let opid;
+
+    // The Shared view is a query, not a directory — nothing can be uploaded into it.
+    if ( dest_path === window.shared_path ) return;
 
     if ( dest_path == window.trash_path ) {
         UIAlert('Uploading to trash is not allowed!');
