@@ -500,8 +500,9 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 
 .explore-table-headers {
     display: none;
-    width: 100%;
-    min-width: 795px;
+    /* the negative margin below shifts it left by the body's padding */
+    width: calc(100% + 10px);
+    min-width: 805px;
     height: 25px;
     border-bottom: 1px solid rgb(226, 226, 226);
     background-color: #fff;
@@ -534,6 +535,7 @@ span.header-sort-icon img {
     margin-left: 15px;
     color: #555c61;
     display: inline-block;
+    cursor: pointer;
 }
 
 .explore-table-headers-th-active {
