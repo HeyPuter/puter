@@ -396,7 +396,7 @@ async function UIItem (options) {
                 // do not highlight if the target is the same as the item being moved
                 $(el_item).attr('data-path') !== $(window.mouseover_item_container).attr('data-path') &&
                 // do not highlight if item is being moved to where it already is
-                $(el_item).attr('data-path') !== $(window.mouseover_item_container).attr('data-path') ) {
+                path.dirname($(el_item).attr('data-path')) !== $(window.mouseover_item_container).attr('data-path') ) {
 
                 // highlight item container
                 $(window.mouseover_item_container).addClass('item-container-active');
