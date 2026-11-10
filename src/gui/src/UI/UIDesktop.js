@@ -463,6 +463,14 @@ async function UIDesktop (options) {
         $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(item.name);
         $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', item.name);
 
+        // An overwrite arrives as an update, with a new size and date
+        if ( item.size !== undefined && item.modified !== undefined ) {
+            const $updated_items = $(`.item[data-uid='${item.uid}']`);
+            $updated_items.attr({ 'data-size': item.size ?? '', 'data-modified': item.modified ?? '' });
+            $updated_items.find('.item-attr--size > span').text(item.size ? window.byte_format(item.size) : '-');
+            $updated_items.find('.item-attr--modified > span').text(item.modified === 0 ? '-' : timeago.format(item.modified * 1000));
+        }
+
         // Set new data-path
         const new_path = item.path;
         $(`.item[data-uid='${item.uid}']`).attr('data-path', new_path);
