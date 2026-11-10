@@ -1920,7 +1920,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 }
 
                 // moving an item into a trashed directory? deny.
-                else if ( dest_path.startsWith(window.trash_path) ) {
+                else if ( dest_path === window.trash_path || dest_path.startsWith(`${window.trash_path}/`) ) {
                     // the pending timer would otherwise open an orphan
                     // progress window after the operation already bailed
                     clearTimeout(progwin_timeout);
