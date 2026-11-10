@@ -416,7 +416,8 @@ async function UIItem (options) {
         },
         stop: function (event, ui) {
             // Allow rearranging only if item is on desktop, not trash container, auto arrange is disabled and item is not dropped into another item
-            if ( $(el_item).closest('.item-container').attr('data-path') === window.desktop_path &&
+            // the desktop itself, not a window showing the Desktop folder
+            if ( $(el_item).closest('.item-container').hasClass('desktop') &&
                 !window.is_auto_arrange_enabled && $(el_item).attr('data-path') !== window.trash_path && !ui.helper.data('dropped') &&
                 // Item must be dropped on the Desktop and not on the taskbar
                 window.mouseover_window === undefined && ui.position.top <= window.desktop_height - window.taskbar_height - 15 ) {
