@@ -955,11 +955,7 @@ export type EventMap = {
     // a listener that sets `allow` waives the plan requirement for that call.
     [K in `subscription.gate.${string}`]: SubscriptionGateEvent;
 } & {
-    // `stored` is true when `/login/set` also kept a copy for a later wait.
-    [K in `pubsub.login.${string}`]: {
-        authtoken: string;
-        stored?: boolean;
-    };
+    [K in `pubsub.login.${string}`]: { authtoken: string };
 } & {
     /**
      * A user's subscription now resolves to a different policy. Carried on the

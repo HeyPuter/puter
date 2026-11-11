@@ -10563,10 +10563,10 @@ describe('AuthController.loginWait audience binding', () => {
         // party holding the session id is somewhere else entirely.
         const token = await mintAppToken(actor, OPENER);
 
-        const { res, outcome } = await waitWithRelay(
-            uuidv4(),
-            { origin: 'https://evil.test' },
-            token,
+        const session = uuidv4();
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: 'https://evil.test' }],
+            { during: () => setToken(session, token) },
         );
         // Same 408 the empty path returns — a mismatched caller must not be
         // able to tell "nothing arrived" from "something arrived for someone
@@ -10642,10 +10642,10 @@ describe('AuthController.loginWait audience binding', () => {
         );
         const guiToken = (loginRes.body as { token: string }).token;
 
-        const { res, outcome } = await waitWithRelay(
-            uuidv4(),
-            { origin: OPENER },
-            guiToken,
+        const session = uuidv4();
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            { during: () => setToken(session, guiToken) },
         );
         expect(outcome).toMatchObject({ statusCode: 408 });
         expect(res.body).toBeUndefined();
@@ -10660,10 +10660,10 @@ describe('AuthController.loginWait audience binding', () => {
             { keyid: 'v2' },
         );
 
-        const { res, outcome } = await waitWithRelay(
-            uuidv4(),
-            { origin: OPENER },
-            forged,
+        const session = uuidv4();
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            { during: () => setToken(session, forged) },
         );
         expect(outcome).toMatchObject({ statusCode: 408 });
         expect(res.body).toBeUndefined();
@@ -10678,7 +10678,7 @@ describe('AuthController.loginWait audience binding', () => {
      * `during` runs once every wait has subscribed; `now` pins the clock.
      */
     const runWaits = async (
-        calls: Array<{ session: string; origin: string }>,
+        calls: Array<{ session: string; origin: string; clientGone?: boolean }>,
         opts: { now?: number; during?: () => Promise<unknown> } = {},
     ) => {
         const subscribed = vi.spyOn(eventClient, 'on');
@@ -10692,13 +10692,14 @@ describe('AuthController.loginWait audience binding', () => {
         const tick = () => new Promise((r) => setImmediate(r));
         try {
             let pending = calls.length;
-            const runs = calls.map(({ session, origin }) => {
+            const runs = calls.map(({ session, origin, clientGone }) => {
                 const res = makeRes();
+                const req = makeReq({ session }, { headers: { origin } });
+                if (clientGone) {
+                    Object.assign(req.socket, { destroyed: true });
+                }
                 const outcome = controller
-                    .loginWait(
-                        makeReq({ session }, { headers: { origin } }),
-                        res,
-                    )
+                    .loginWait(req, res)
                     .then(
                         () => 'ok' as const,
                         (e: unknown) => e,
@@ -10871,7 +10872,24 @@ describe('AuthController.loginWait audience binding', () => {
         expect(later.outcome).toMatchObject({ statusCode: 408 });
     });
 
-    it('hands a token to only one of two concurrent waits', async () => {
+    it('hands a stored token to only one of two concurrent waits', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        const results = await runWaits([
+            { session, origin: OPENER },
+            { session, origin: OPENER },
+        ]);
+        const outcomes = results.map((r) => r.outcome);
+        expect(outcomes.filter((o) => o === 'ok')).toHaveLength(1);
+        expect(outcomes.filter((o) => o !== 'ok')).toEqual([
+            expect.objectContaining({ statusCode: 408 }),
+        ]);
+    });
+
+    it('relays a token to every wait already subscribed', async () => {
         const { actor } = await makeUserAndActor();
         const token = await mintAppToken(actor, OPENER);
         const session = uuidv4();
@@ -10883,11 +10901,125 @@ describe('AuthController.loginWait audience binding', () => {
             ],
             { during: () => setToken(session, token) },
         );
-        const outcomes = results.map((r) => r.outcome);
-        expect(outcomes.filter((o) => o === 'ok')).toHaveLength(1);
-        expect(outcomes.filter((o) => o !== 'ok')).toEqual([
-            expect.objectContaining({ statusCode: 408 }),
-        ]);
+        expect(results.map((r) => r.outcome)).toEqual(['ok', 'ok']);
+        for (const { res } of results) {
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+        }
+    });
+
+    it('keeps the stored copy when the subscribed wait has lost its client', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await runWaits([{ session, origin: OPENER, clientGone: true }], {
+            during: () => setToken(session, token),
+        });
+
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('still relays to a subscribed wait when the stored copy cannot be read or removed', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+        const failingGet = vi
+            .spyOn(server.clients.redis, 'get')
+            .mockRejectedValue(new Error('unavailable'));
+        const failingEval = vi
+            .spyOn(server.clients.redis, 'eval')
+            .mockRejectedValue(new Error('unavailable'));
+        try {
+            const [{ res, outcome }] = await runWaits(
+                [{ session, origin: OPENER }],
+                { during: () => setToken(session, token) },
+            );
+            expect(outcome).toBe('ok');
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+        } finally {
+            failingGet.mockRestore();
+            failingEval.mockRestore();
+        }
+    });
+
+    it('answers a subscribed wait when a second token is set right after the first', async () => {
+        const { actor } = await makeUserAndActor();
+        const first = await mintAppToken(actor, OPENER);
+        // A later `iat` makes the second token differ from the first.
+        await new Promise((r) => setTimeout(r, 1100));
+        const second = await mintAppToken(actor, OPENER);
+        expect(second).not.toBe(first);
+        const session = uuidv4();
+
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            {
+                during: async () => {
+                    await setToken(session, first);
+                    await setToken(session, second);
+                },
+            },
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(first);
+    });
+
+    it('keeps a subscribed wait listening past a token for another app', async () => {
+        const { actor } = await makeUserAndActor();
+        const otherToken = await mintAppToken(actor, 'https://other.test');
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            {
+                during: async () => {
+                    await setToken(session, otherToken);
+                    await setToken(session, token);
+                },
+            },
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it("keeps a stored token when a later set carries another app's token or an unsigned one", async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const otherToken = await mintAppToken(actor, 'https://other.test');
+        const session = uuidv4();
+
+        await setToken(session, token);
+        await setToken(session, otherToken);
+        await setToken(session, 'x'.repeat(100_000));
+
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('stores only a token this server signed for an app', async () => {
+        const { actor } = await makeUserAndActor();
+        const real = await mintAppToken(actor, OPENER);
+        const forged = jwt.sign(
+            jwt.decode(real) as object,
+            'not-the-server-secret',
+            { keyid: 'v2' },
+        );
+        const set = vi.spyOn(server.clients.redis, 'set');
+        try {
+            const session = uuidv4();
+            await setToken(session, forged);
+            await setToken(session, 'x'.repeat(100_000));
+            expect(set).not.toHaveBeenCalled();
+
+            await setToken(session, real);
+            expect(set).toHaveBeenCalledTimes(1);
+        } finally {
+            set.mockRestore();
+        }
     });
 
     it('leaves the token out of the warning when storing it fails', async () => {
@@ -10919,45 +11051,6 @@ describe('AuthController.loginWait audience binding', () => {
             warn.mockRestore();
         }
     });
-
-    it.each([
-        ['no stored flag', {}],
-        ['stored: false', { stored: false }],
-    ])(
-        'removes a leftover stored copy when a relay arrives with %s',
-        async (_label, flag) => {
-            const { actor } = await makeUserAndActor();
-            const token = await mintAppToken(actor, OPENER);
-            const session = uuidv4();
-
-            const [{ res, outcome }] = await runWaits(
-                [{ session, origin: OPENER }],
-                {
-                    during: async () => {
-                        await server.clients.redis.set(
-                            `login:relay:${session}`,
-                            token,
-                            'EX',
-                            120,
-                        );
-                        eventClient.emit(
-                            `pubsub.login.${session}`,
-                            { authtoken: token, ...flag },
-                            {},
-                        );
-                    },
-                },
-            );
-            expect(outcome).toBe('ok');
-            expect((res.body as { auth_token: string }).auth_token).toBe(token);
-            expect(
-                await server.clients.redis.get(`login:relay:${session}`),
-            ).toBeNull();
-
-            const later = await waitAlone(session, OPENER);
-            expect(later.outcome).toMatchObject({ statusCode: 408 });
-        },
-    );
 
     it('answers 400 when auth_token is not a string', async () => {
         await expect(
