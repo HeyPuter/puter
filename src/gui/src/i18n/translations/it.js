@@ -41,7 +41,6 @@ const it = {
         change_email: 'Modifica Email',
         change_language: 'Cambia lingua',
         change_password: 'Modifica password',
-        change_ui_colors: "Cambia i colori dell'interfaccia",
         change_username: 'Modifica Nome Utente',
         close: 'Chiudi',
         close_all_windows: 'Chiudi tutte le finestre',
@@ -254,7 +253,6 @@ const it = {
         replace: 'Sostituisci',
         replace_all: 'Sostituisci tutto',
         resend_confirmation_code: 'Invia di nuovo il codice di conferma',
-        reset_colors: 'Ripristina i colori',
         restart_puter_confirm: 'Sei sicuro di voler riavviare Puter?',
         restore: 'Ripristina',
         save: 'Salva',
@@ -318,7 +316,6 @@ const it = {
         type: 'Tipo',
         type_confirm_to_delete_account:
       "Scrivi 'conferma' per eliminare il tuo account.",
-        ui_colors: "Colori dell'interfaccia",
         ui_manage_sessions: 'Session Manager',
         ui_revoke: 'Revoca',
         undo: 'Annulla',

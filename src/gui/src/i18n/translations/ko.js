@@ -41,7 +41,6 @@ const ko = {
         change_email: '이메일 변경',
         change_language: '언어 변경',
         change_password: '비밀번호 변경',
-        change_ui_colors: 'UI 색상 변경',
         change_username: '사용자 이름 변경',
         close: '닫기',
         close_all_windows: '모든 창 닫기',
@@ -257,7 +256,6 @@ const ko = {
         replace: '교체',
         replace_all: '모두 교체',
         resend_confirmation_code: '인증 코드 재전송',
-        reset_colors: '색상 초기화',
         restart_puter_confirm: 'Puter를 다시 시작하시겠습니까?',
         restore: '복원',
         save: '저장',
@@ -324,7 +322,6 @@ const ko = {
         type: '유형',
         type_confirm_to_delete_account:
       "계정을 삭제하려면 'confirm'을 입력해주세요.",
-        ui_colors: 'UI 색상',
         ui_manage_sessions: '세션 관리자',
         ui_revoke: '해제',
         undo: '실행 취소',

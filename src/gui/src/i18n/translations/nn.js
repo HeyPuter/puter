@@ -179,7 +179,6 @@ const nn = {
         change: 'Endre', // In English: "Change"
         change_always_open_with: 'Vil du alltid opne denne filtypen med', // In English: "Do you want to always open this type of file with"
         change_email: 'Endre e-post', // In English: "Change Email"
-        change_ui_colors: 'Endre fargar på brukargrensesnitt', // In English: "Change UI Colors"
         close: 'Lukk', // In English: "Close"
         close_all_windows_confirm: 'Er du sikker på at du vil lukke alle vindauge?', // In English: "Are you sure you want to close all windows?"
         close_all_windows_and_log_out: 'Lukk vindauge og logg ut', // In English: "Close Windows and Log Out"
@@ -284,7 +283,6 @@ const nn = {
         recommended: 'Anbefalt',
         replace: 'Erstatt',
         replace_all: 'Erstatt alle',
-        reset_colors: 'Nullstill fargar',
         restart_puter_confirm: 'Er du sikker på at du vil starte Puter på nytt?',
         save: 'Lagre',
         saturation: 'Metting',
@@ -316,7 +314,6 @@ const nn = {
         two_factor_disabled: '2FA deaktivert',
         two_factor_enabled: '2FA aktivert',
         type_confirm_to_delete_account: "Skriv inn 'konfirmer' for å slette kontoen din.",
-        ui_colors: 'Fargar på brukargrensesnitt',
         ui_manage_sessions: 'Øktbehandler',
         ui_revoke: 'Trekk tilbake',
         unlimited: 'Ubegrensa',
