@@ -36,9 +36,9 @@ import type {
 
 /**
  * GUI popups a first-party page can show in a frame at `/embed/<action>`,
- * instead of opening `/action/<action>` in a window, plus the upgrade dialog,
- * which it would otherwise open in a dashboard tab, and the email confirmation,
- * which it otherwise can't show.
+ * instead of opening `/action/<action>` in a window, plus the upgrade and
+ * top-up dialogs, which it would otherwise open in a dashboard tab, and the
+ * email confirmation, which it otherwise can't show.
  */
 export const FRAMED_POPUP_ACTIONS = [
     'sign-in',
@@ -46,7 +46,9 @@ export const FRAMED_POPUP_ACTIONS = [
     'show-save-file-picker',
     'show-directory-picker',
     'upgrade',
+    'top-up',
     'request-email-confirmation',
+    'attach-custom-domain',
 ] as const;
 
 /** Longest description/og:description/twitter:description on `/app/<name>`. */

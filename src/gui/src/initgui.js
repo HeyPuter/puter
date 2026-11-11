@@ -47,8 +47,11 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
+import { overlayGone } from './helpers/overlayGone.js';
 import {
+    canShowCustomDomainFrame,
     canShowEmailConfirmationFrame,
+    canShowTopUpFrame,
     canShowUpgradeFrame,
     closeAccountChecksOnEscape,
     confirmEmailInFrame,
@@ -57,6 +60,7 @@ import {
     framedPopupParams,
     framedUpgradeDetails,
     framesHostUser,
+    showFramedTopUp,
     showFramedUpgrade,
     startPopupFrame,
 } from './helpers/popupFrame.js';
@@ -1049,6 +1053,23 @@ const postAuthActions = async (action) => {
     }
 
     // -------------------------------------------------------------------------------------
+    // Action: top-up — the deployment's top-up dialog for the first-party page framing it,
+    // which hears whether the user bought credit once the dialog closes.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'top-up' && window.embedded_in_frame ) {
+        let toppedUp;
+        try {
+            toppedUp = await showFramedTopUp(window, window.tell_popup_frame);
+        } catch (e) {
+            // A dialog that failed to open leaves the page to open the top-up in a tab.
+            console.error('top-up action failed', e);
+            window.tell_popup_frame('unavailable');
+            return;
+        }
+        window.tell_popup_frame('closed', { toppedUp });
+    }
+
+    // -------------------------------------------------------------------------------------
     // Action: request-email-confirmation — puter.ui.requestEmailConfirmation() on the
     // first-party page framing it, which hears whether the email is confirmed once the
     // user is done.
@@ -1069,7 +1090,8 @@ const postAuthActions = async (action) => {
 
     // -------------------------------------------------------------------------------------
     // Action: attach-custom-domain — puter.hosting.attach() on a website. Hosts the custom
-    // domain dialog for `subdomain` and posts the chosen domain back to the opener.
+    // domain dialog for `subdomain` and posts the chosen domain back to the opener, or to
+    // the first-party page framing it.
     // -------------------------------------------------------------------------------------
     if ( action === 'attach-custom-domain' ) {
         const msg_id = window.url_query_params.get('msg_id');
@@ -1092,11 +1114,16 @@ const postAuthActions = async (action) => {
             if ( ! subdomain ) {
                 throw new Error('no subdomain');
             }
-            domain = await UIWindowAttachCustomDomain({
+            // A frame covers its page, which shows around the floating dialog.
+            const dialog = UIWindowAttachCustomDomain({
                 subdomain,
                 requester: target_origin,
-                fullpage: window.embedded_in_popup === true,
+                fullpage: window.embedded_in_popup === true && !window.embedded_in_frame,
             });
+            if ( window.embedded_in_frame ) window.tell_popup_frame('ready');
+            domain = await dialog;
+            // The answer removes the frame, so the dialog's exit plays first.
+            if ( window.embedded_in_frame ) await overlayGone(document, '.custom-domain-overlay');
         } catch (e) {
             console.error('attach-custom-domain action failed', e);
         }
@@ -1841,7 +1868,9 @@ window.initgui = async function (options) {
                 !host_user ||
                 session_user !== host_user ||
                 (action === 'upgrade' && !canShowUpgradeFrame(window, session)) ||
-                (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session))
+                (action === 'top-up' && !canShowTopUpFrame(window, session)) ||
+                (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session)) ||
+                (action === 'attach-custom-domain' && !canShowCustomDomainFrame(session))
             ) {
                 window.tell_popup_frame('unavailable');
                 return;

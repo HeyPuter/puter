@@ -5037,15 +5037,19 @@ fieldset[name=number-code] {
     align-items: stretch;
 }
 
-#storage-bar, #storage-bar-host, .usage-progbar {
+#storage-bar, #storage-bar-host, .usage-progbar, .usage-addon-bar {
     height: 100%;
     background-color: var(--dashboard-bento-usage-bar-fill, #ea580c);
     width: 0;
     transition: width 0.4s ease, background-color 0.4s ease;
 }
 
-#storage-used-percent, .usage-progbar-percent {
+#storage-used-percent, .usage-progbar-percent, .usage-addon-percent {
     font-weight: 500;
+}
+
+.usage-addon {
+    margin-top: 18px;
 }
 
 .usage-addon-credits {
