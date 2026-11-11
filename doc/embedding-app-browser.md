@@ -322,6 +322,36 @@ app reads from the desktop's answer. A call made while the frame shows settles
 with it. A frame that is refused, never ready, or `unavailable` resolves
 `{ response: false }`, since there's no popup to fall back to.
 
+## Custom domains
+
+`GET /embed/attach-custom-domain` is the custom domain dialog of
+`puter.hosting.attach()`, the popup at `/action/attach-custom-domain`, served
+like the upgrade: the GUI shell with the same framing rules, redirects and
+`no-store`, run only when framed by an allowed page. puter.js frames it on a
+signed-in first-party page (the same pages as the pickers).
+
+The frame covers the page with no box or close button, over a transparent GUI
+page, so the dialog floats over the host with its own scrim as it does on the
+desktop. The frame allows `clipboard-write`, for the dialog's copy buttons, as
+well as `otp-credentials`. Escape on the page is left to the dialog, which
+doesn't close while a request is in flight. Its fragment names `user` (the
+page's signed-in user), `subdomain` (the site to attach a domain to) and
+`msg_id`.
+
+The GUI reports `unavailable` unless its session belongs to `user` and the
+account has no verification or password change waiting. It then runs the
+popup's action unchanged, with the framing page as the requester the dialog
+names: it posts `ready` once the dialog is on the page, answers
+`{ msg: 'customDomainAttached', domain, original_msg_id }` once the dialog has
+closed and its exit has played, and then posts `closed`. `domain` is the domain the user chose, or
+null. `attach()` resolves it. A frame that closes without an answer, or a
+loading scrim the user dismisses, resolves null.
+
+A call made while the frame shows resolves null without replacing it, as a
+second call does on the desktop. A frame that is refused, never ready, or
+`unavailable` falls back to the popup, which can sign in, through a consent
+dialog when the click has expired.
+
 ## Checks
 
 Run the GUI component/browser tests (with the SDK bundle built and Playwright
@@ -329,7 +359,7 @@ Chromium installed), and the backend route tests:
 
 ```sh
 npx vitest run --config src/gui/vitest.config.js src/gui/src/UI/Dashboard/AppBrowser src/feedbackEmbed
-npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js src/puter-js/src/modules/Auth.signInFrame.test.js src/puter-js/src/modules/UI.pickerFrame.test.js src/puter-js/src/modules/UI.requestUpgrade.test.js src/puter-js/src/modules/UI.showTopUp.test.js src/puter-js/src/lib/upgradePrompt.test.js src/puter-js/src/modules/UsageLimitDialog.upgrade.test.js
+npx vitest run src/puter-js/src/lib/guiEmbed.test.js src/puter-js/src/modules/UI.showFeedbackDialog.test.js src/puter-js/src/modules/Auth.signInFrame.test.js src/puter-js/src/modules/UI.pickerFrame.test.js src/puter-js/src/modules/UI.requestUpgrade.test.js src/puter-js/src/modules/UI.showTopUp.test.js src/puter-js/src/modules/UI.attachCustomDomainFrame.test.js src/puter-js/src/lib/upgradePrompt.test.js src/puter-js/src/modules/UsageLimitDialog.upgrade.test.js
 npx vitest run --config src/gui/vitest.config.js src/gui/src/helpers/popupFrame.test.js
 npx vitest run --config src/backend/vitest.config.ts src/backend/server.test.ts
 ```

@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     POPUP_FRAME_MSG,
+    canShowCustomDomainFrame,
     canShowEmailConfirmationFrame,
     canShowTopUpFrame,
     canShowUpgradeFrame,
@@ -54,6 +55,7 @@ describe('framedPopupAction', () => {
         ['/embed/upgrade', 'upgrade'],
         ['/embed/top-up', 'top-up'],
         ['/embed/request-email-confirmation', 'request-email-confirmation'],
+        ['/embed/attach-custom-domain', 'attach-custom-domain'],
         ['/embed/apps', null],
         ['/embed/feedback', null],
         ['/embed/request-permission', null],
@@ -68,11 +70,12 @@ describe('framedPopupAction', () => {
 
 describe('framedPopupParams', () => {
     it('keeps only the popup parameters a framing page may pass', () => {
-        const params = framedPopupParams('#msg_id=7&options=%7B%22multiple%22%3Atrue%7D&request_auth=true&user=abc&auth_token=x&attempt_temp_user_creation=true&api_origin=https%3A%2F%2Fevil.test');
+        const params = framedPopupParams('#msg_id=7&options=%7B%22multiple%22%3Atrue%7D&request_auth=true&subdomain=mysite&user=abc&auth_token=x&attempt_temp_user_creation=true&api_origin=https%3A%2F%2Fevil.test');
         expect(Object.fromEntries(params)).toEqual({
             msg_id: '7',
             options: '{"multiple":true}',
             request_auth: 'true',
+            subdomain: 'mysite',
         });
     });
 
@@ -90,6 +93,7 @@ describe('framesHostUser', () => {
         ['upgrade', true],
         ['top-up', true],
         ['request-email-confirmation', true],
+        ['attach-custom-domain', true],
         ['sign-in', false],
         [null, false],
     ])('%s serves only the framing page\'s user: %s', (action, expected) => {
@@ -162,6 +166,27 @@ describe('canShowTopUpFrame', () => {
 
     it('needs a session', () => {
         expect(canShowTopUpFrame(win, null)).toBe(false);
+    });
+});
+
+describe('canShowCustomDomainFrame', () => {
+    const session = { uuid: 'u-1' };
+
+    it('shows for a session with nothing to verify', () => {
+        expect(canShowCustomDomainFrame(session)).toBe(true);
+    });
+
+    it.each([
+        'requires_email_confirmation',
+        'requires_phone_verification',
+        'requires_card_verification',
+        'requires_password_change',
+    ])('leaves an account with %s to the popup', (check) => {
+        expect(canShowCustomDomainFrame({ ...session, [check]: true })).toBe(false);
+    });
+
+    it('needs a session', () => {
+        expect(canShowCustomDomainFrame(null)).toBe(false);
     });
 });
 
@@ -500,6 +525,10 @@ describe('startPopupFrame', () => {
 
         document.documentElement.classList.remove('popup-frame-transparent');
         startPopupFrame({ ...frameWindow(), location: { pathname: '/embed/request-email-confirmation' } }, HOST);
+        expect(document.documentElement.classList.contains('popup-frame-transparent')).toBe(true);
+
+        document.documentElement.classList.remove('popup-frame-transparent');
+        startPopupFrame({ ...frameWindow(), location: { pathname: '/embed/attach-custom-domain' } }, HOST);
         expect(document.documentElement.classList.contains('popup-frame-transparent')).toBe(true);
     });
 

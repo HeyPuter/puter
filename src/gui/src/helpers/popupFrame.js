@@ -32,6 +32,7 @@ export const FRAMED_POPUP_ACTIONS = new Set([
     'upgrade',
     'top-up',
     'request-email-confirmation',
+    'attach-custom-domain',
 ]);
 
 // Actions a frame shows only for the user the framing page is signed in as.
@@ -42,11 +43,12 @@ const HOST_USER_ACTIONS = new Set([
     'upgrade',
     'top-up',
     'request-email-confirmation',
+    'attach-custom-domain',
 ]);
 
 // Actions framed over the whole page with no box, which their own dialog's
 // scrim covers.
-const TRANSPARENT_ACTIONS = new Set(['upgrade', 'top-up', 'request-email-confirmation']);
+const TRANSPARENT_ACTIONS = new Set(['upgrade', 'top-up', 'request-email-confirmation', 'attach-custom-domain']);
 
 const UPGRADE_REASONS = new Set(['funds', 'subscription', 'storage']);
 const UPGRADE_METHOD_MAX = 200;
@@ -66,7 +68,7 @@ const FOCUS_RETRIES = 20;
 export const POPUP_FRAME_MSG = 'puterPopupFrame';
 
 // The popup's query parameters a framing page may pass, in the fragment.
-const FRAGMENT_PARAMS = ['msg_id', 'options', 'request_auth'];
+const FRAGMENT_PARAMS = ['msg_id', 'options', 'request_auth', 'subdomain'];
 
 // The account checks a sign-in can show (email, phone, card), and the
 // save-account window an email confirmation shows a temporary account first,
@@ -236,6 +238,20 @@ export const closeAccountChecksOnEscape = (win, close = () => win.close()) => {
 };
 
 /**
+ * Whether the GUI session `session` (its `/whoami`) has no account check
+ * waiting. Those show at boot with no way to close the frame.
+ *
+ * @param {Record<string, unknown> | null} session
+ * @returns {boolean}
+ */
+const hasNoAccountCheck = (session) =>
+    !!session &&
+    !session.requires_email_confirmation &&
+    !session.requires_phone_verification &&
+    !session.requires_card_verification &&
+    !session.requires_password_change;
+
+/**
  * Whether a framed upgrade can show for the GUI session `session` (its
  * `/whoami`): the deployment has an upgrade dialog that reports when it
  * closes, and no account check is waiting, which a frame couldn't be closed
@@ -246,12 +262,17 @@ export const closeAccountChecksOnEscape = (win, close = () => win.close()) => {
  * @returns {boolean}
  */
 export const canShowUpgradeFrame = (win, session) =>
-    win.UIUpgradeAccount?.embeddable === true &&
-    !!session &&
-    !session.requires_email_confirmation &&
-    !session.requires_phone_verification &&
-    !session.requires_card_verification &&
-    !session.requires_password_change;
+    win.UIUpgradeAccount?.embeddable === true && hasNoAccountCheck(session);
+
+/**
+ * Whether a framed custom domain dialog can show for the GUI session
+ * `session` (its `/whoami`): no account check is waiting, which a frame
+ * couldn't be closed from.
+ *
+ * @param {Record<string, unknown> | null} session
+ * @returns {boolean}
+ */
+export const canShowCustomDomainFrame = (session) => hasNoAccountCheck(session);
 
 /**
  * Whether a framed top-up can show for the GUI session `session` (its
@@ -263,12 +284,7 @@ export const canShowUpgradeFrame = (win, session) =>
  * @returns {boolean}
  */
 export const canShowTopUpFrame = (win, session) =>
-    win.UITopUp?.embeddable === true &&
-    !!session &&
-    !session.requires_email_confirmation &&
-    !session.requires_phone_verification &&
-    !session.requires_card_verification &&
-    !session.requires_password_change;
+    win.UITopUp?.embeddable === true && hasNoAccountCheck(session);
 
 /**
  * Whether a framed email confirmation can show for the GUI session `session`

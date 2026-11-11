@@ -416,6 +416,7 @@ describe('PuterServer host header validation', () => {
         'upgrade',
         'top-up',
         'request-email-confirmation',
+        'attach-custom-domain',
     ])('lets a deployment subdomain frame the %s popup and names it to the GUI', async (action) => {
         const parent = `http://spreadsheet.puter.localhost:${port}`;
         const guiParams = (body: string) =>
