@@ -39,13 +39,32 @@ describe('acknowledgement emission', () => {
         expect(emitted).toEqual([{ userId: 7, uid: 'one', type: 'app.message', audience: 'app-user', appUid: 'app-one' }]);
     });
 
-    it('reads the primary when the replica read fails', async () => {
+    it('reads the primary and logs when the replica read fails', async () => {
         const { store, emitted, db } = setup(appRow, true, appRow);
-        db.read.mockRejectedValueOnce(new Error('unavailable'));
-        await expect(store.markAcknowledged('one', 7)).resolves.toBe(true);
+        const failure = new Error('unavailable');
+        db.read.mockRejectedValueOnce(failure);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            await expect(store.markAcknowledged('one', 7)).resolves.toBe(true);
+            expect(warn).toHaveBeenCalledExactlyOnceWith('[notification] dismissal replica read failed', failure);
+        } finally {
+            warn.mockRestore();
+        }
         expect(db.read).toHaveBeenCalledOnce();
         expect(db.pread).toHaveBeenCalledOnce();
         expect(emitted).toHaveLength(1);
+    });
+
+    it('answers a repeat dismissal without waiting for the replica read', async () => {
+        const { store, emitted, db } = setup(appRow, false, appRow);
+        db.read.mockReturnValueOnce(new Promise(() => {}));
+        const settled = await Promise.race([
+            store.markAcknowledged('one', 7),
+            new Promise((resolve) => setTimeout(resolve, 200, 'waiting')),
+        ]);
+        expect(settled).toBe(false);
+        expect(db.pread).not.toHaveBeenCalled();
+        expect(emitted).toEqual([]);
     });
 
     it.each([

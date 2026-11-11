@@ -587,18 +587,21 @@ export class NotificationStore extends PuterStore {
         const now = Math.floor(Date.now() / 1000);
         const fixed =
             'SELECT `type`, `app_uid`, `audience` FROM `notification` WHERE `uid` = ? AND `user_id` = ? LIMIT 1';
-        const [result, replica] = await Promise.all([
-            db.write(
-                'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
-                [now, uid, userId],
-            ),
-            db.read(fixed, [uid, userId]).catch(() => []),
-        ]);
+        // Starts with the UPDATE; awaited only when a row changed.
+        const replica = db.read(fixed, [uid, userId]).catch((error) => {
+            console.warn('[notification] dismissal replica read failed', error);
+            return [];
+        });
+        const result = await db.write(
+            'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
+            [now, uid, userId],
+        );
         if (result.anyRowsAffected) {
             try {
+                const found = await replica;
                 const [row] =
-                    replica.length > 0
-                        ? replica
+                    found.length > 0
+                        ? found
                         : await db.pread(fixed, [uid, userId]);
                 if (row?.type === 'app.message' && row.app_uid) {
                     this.clients.event.emit(
