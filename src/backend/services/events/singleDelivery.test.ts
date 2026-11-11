@@ -71,6 +71,12 @@ let sent: DeliveryEnvelope[];
 let sentTo: SocketSpecifier[];
 /** Connections modelled one by one, for the tests that need several. */
 let tabs: FakeTab[];
+/** The region-wide handler-room probe, which costs a request to every node. */
+const probed = vi.fn(async (room: string) =>
+    tabs.length === 0
+        ? socketConnected
+        : tabs.some((tab) => tab.rooms.has(room)),
+);
 let delivered: DeliveryEnvelope[];
 let invoked: WorkerInvocation[];
 let rows: Map<string, DurableSubscription>;
@@ -214,6 +220,7 @@ beforeEach(async () => {
     sent = [];
     sentTo = [];
     tabs = [];
+    probed.mockClear();
     delivered = [];
     invoked = [];
     rows = new Map();
@@ -323,13 +330,13 @@ beforeEach(async () => {
                         if (tab.rooms.has(String(spec.room)))
                             tab.receive(data as DeliveryEnvelope);
                 }),
-                has: () => socketConnected,
-                // With no tabs modelled, a connection here is one that runs
-                // the handler.
-                occupied: async (room: string) =>
+                has: (spec: SocketSpecifier) =>
                     tabs.length === 0
                         ? socketConnected
-                        : tabs.some((tab) => tab.rooms.has(room)),
+                        : tabs.some((tab) => tab.rooms.has(String(spec.room))),
+                // With no tabs modelled, a connection here is one that runs
+                // the handler.
+                occupied: probed,
             },
             acl: {
                 check: async () => true,
@@ -1428,6 +1435,19 @@ describe('a queued delivery with several connections of the app open', () => {
         expect(metered).toHaveLength(1);
     });
 
+    it('asks no other node about a pair with no connection in the region', async () => {
+        socketConnected = false;
+        workerOutcome = 'settled';
+        const row = await register();
+
+        await dispatch();
+
+        expect(probed).not.toHaveBeenCalled();
+        expect(sent).toEqual([]);
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+
     it('goes straight to the worker when no open tab has the handler', async () => {
         workerOutcome = 'settled';
         const row = await register();
@@ -1435,6 +1455,7 @@ describe('a queued delivery with several connections of the app open', () => {
 
         await dispatch();
 
+        expect(probed).toHaveBeenCalledTimes(1);
         expect(tab.received).toEqual([]);
         expect(invoked).toHaveLength(1);
         await expect(pending.depth(row.subId)).resolves.toBe(0);

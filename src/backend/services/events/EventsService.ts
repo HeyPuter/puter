@@ -6370,20 +6370,26 @@ export class EventsService extends PuterService {
         if (!(await this.#chargeable(meter, row.subId))) return false;
 
         const hasWorkerFallback = runsInWorker(row);
+        const appTarget = deliveryTarget(row);
         const target: SocketSpecifier = hasWorkerFallback
             ? { room: handlerTarget(row) }
-            : deliveryTarget(row);
+            : appTarget;
         // Region-wide: `has` only sees this node's sockets, and the room send
         // below reaches a sibling node's just the same.
-        const heldHere = hasWorkerFallback
-            ? await this.services.socket.occupied(String(target.room), {
-                  timeoutMs: HANDLER_PROBE_TIMEOUT_MS,
-              })
-            : this.services.socket.has(target) ||
-              (await this.services.eventForward.heldInRegion(
-                  row.holderUserId,
-                  row.appUid,
-              ));
+        const appHeld =
+            this.services.socket.has(appTarget) ||
+            (await this.services.eventForward.heldInRegion(
+                row.holderUserId,
+                row.appUid,
+            ));
+        // A handler connection is always in the app's room too, so the cluster
+        // probe only runs once some connection of the app is open here.
+        const heldHere =
+            appHeld &&
+            (!hasWorkerFallback ||
+                (await this.services.socket.occupied(String(target.room), {
+                    timeoutMs: HANDLER_PROBE_TIMEOUT_MS,
+                })));
 
         // A row with no worker to fall back to has nothing left to try once
         // its socket budget is spent. Without this, a socket that disappeared
