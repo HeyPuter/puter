@@ -25,28 +25,20 @@ const nn = {
         access_granted_to: 'Tilgang gjeven til',
         add_another_account: 'Legg til ein annan konto',
         all_fields_required: 'Alle felt er obligatoriske.',
-        apply: 'Bruk',
         ascending: 'Stigande',
-        background: 'Bakgrunn',
-        browse: 'Bla gjennom',
         cancel: 'Avbryt',
-        center: 'Sentrer',
-        change_desktop_background: 'Endre skrivebordsbakgrunn…',
         change_language: 'Endre språk',
         change_password: 'Endre passord',
         change_username: 'Endre brukarnamn',
         close_all_windows: 'Lukk alle vindauge',
-        color: 'Farge',
         confirm_account_for_free_referral_storage_c2a:
       'Opprett ein konto og stadfest e-postadressa di for å få 1 GB gratis lagringsplass. Vennen din vil òg få 1 GB gratis lagringsplass.',
         confirm_new_password: 'Stadfest nytt passord',
         contact_us: 'Kontakt oss',
-        contain: 'Inneheld',
         continue: 'Hald fram',
         copy: 'Kopier',
         copy_link: 'Kopier lenkje',
         copying: 'Kopierer',
-        cover: 'Dekk',
         create_account: 'Opprett konto',
         create_free_account: 'Opprett gratis konto',
         create_shortcut: 'Opprett snarveg',
@@ -78,7 +70,6 @@ const nn = {
         get_copy_link: 'Få kopilenkje',
         hide_all_windows: 'Skjul alle vindauge',
         html_document: 'HTML-dokument',
-        image: 'Bilete',
         invite_link: 'Invitasjonslenkje',
         items_in_trash_cannot_be_renamed:
       'Dette elementet kan ikkje omdøypast fordi det er i papirkorga. For å omdøype dette elementet, dra det først ut av papirkorga.',
@@ -110,7 +101,6 @@ const nn = {
         paste: 'Lim inn',
         paste_into_folder: 'Lim inn i mappe',
         pick_name_for_website: 'Vel eit namn for nettstaden din:',
-        picture: 'Bilete',
         powered_by_puter_js: 'Dreve av {{link=docs}}Puter.js{{/link}}',
         preparing: 'Førebur…',
         preparing_for_upload: 'Førebur opplasting…',
@@ -125,7 +115,6 @@ const nn = {
         refresh: 'Oppdater',
         remove_from_taskbar: 'Fjern frå oppgåvelinja',
         rename: 'Gje nytt namn',
-        repeat: 'Gjenta',
         resend_confirmation_code: 'Send stadfestingskoden på nytt',
         restore: 'Gjenopprett',
         save_account_to_get_copy_link: 'Vennligst opprett ein konto for å halde fram.',
@@ -198,7 +187,6 @@ const nn = {
         credits: 'Bidragsytarar', // In English: "Credits"
         close_all: 'Lukk alle', // In English: "Close All"
         created: 'Oppretta', // In English: "Created"
-        default: 'Standard', // In English: "Default"
         delete_account: 'Slett konto', // In English: "Delete Account"
         deleting_file: 'Slettar %%', // In English: "Deleting %%"
         desktop: 'Skrivebord', // In English: "Desktop"
@@ -222,7 +210,6 @@ const nn = {
         error_unknown_cause: 'Ein ukjent feil oppstod.', // In English: "An unknown error occurred."
         error_uploading_files: 'Klarte ikkje å laste opp filer.', // In English: "Failed to upload files"
         favorites: 'Favorittar', // In English: "Favorites"
-        fit: 'Tilpass',
         folder: 'Mappe', // In English: "Folder"
         // In English: "Force Quit"
         home: 'Heim',

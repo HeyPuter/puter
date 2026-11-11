@@ -29,7 +29,6 @@ const fi = {
         add_another_account: 'Lisää toinen tili',
         all_fields_required: 'Kaikki kentät on täytettävä.',
         allow: 'Salli',
-        apply: 'Käytä', // TODO: Ambiguous meaning
         // To apply(a principle) => "Sovella" or
         // Apply for(a job) "Hae" or
         // Apply as(an engineer) => "Hakeudu" or
@@ -39,11 +38,7 @@ const fi = {
         ascending: 'Nouseva',
         associated_websites: 'Tähän liittyvät verkkosivustot',
         auto_arrange: 'Järjestä automaattisesti',
-        background: 'Tausta',
-        browse: 'Selaa',
         cancel: 'Peruuta',
-        center: 'Keskitä',
-        change_desktop_background: 'Vaihda työpöydän taustakuvaa…',
         change_email: 'Vaihda sähköpostiosoite',
         change_language: 'Vaihda kieli',
         change_password: 'Vaihda salasana',
@@ -53,7 +48,6 @@ const fi = {
         close_all_windows_and_log_out: 'Sulje ikkunat ja kirjaudu ulos',
         change_always_open_with:
       'Haluatko aina avata tämän tyyppisen tiedoston sovelluksella',
-        color: 'Väri',
         confirm: 'Vahvista',
         confirm_2fa_setup: 'Olen lisännyt koodin todennussovellukseeni',
         confirm_2fa_recovery:
@@ -84,7 +78,6 @@ const fi = {
         contact_us: 'Ota yhteyttä',
         contact_us_verification_required:
       'Sinulla on oltava vahvistettu sähköpostiosoite, jotta voit käyttää tätä.',
-        contain: 'Sisällytä', // TODO: Ambiguous meaning
         // "inside(a house)" => "Sisällä" - probably more appropriate
         // "contain within" => "Sisältää"
 
@@ -97,7 +90,6 @@ const fi = {
         copy_link: 'Kopioi linkki',
         copying: 'Kopioidaan',
         copying_file: 'Kopioidaan %%',
-        cover: 'Kansi', // TODO: Lexical categories
         // Noun (shelter) => 'Suoja' or
         // Noun (lid) => 'Kansi' or
         // Intransitive Verb (To occlude something) => 'Peitä' or
@@ -112,7 +104,6 @@ const fi = {
         close_all: 'Sulje kaikki',
         created: 'Luotu',
         date_modified: 'Muokkauspäivämäärä',
-        default: 'Oletus',
         delete: 'Poista',
         delete_account: 'Poista tilisi',
         delete_permanently: 'Poista pysyvästi',
@@ -157,7 +148,6 @@ const fi = {
       'Käytä alla olevaa lomaketta lähettääksesi meille palautetta, kommentteja ja vikailmoituksia.',
         feedback_sent_confirmation:
       'Kiitos yhteydenotostasi. Jos tiliisi on liitetty sähköpostiosoite, saat meiltä vastauksen mahdollisimman pian.',
-        fit: 'Sovita',
         folder: 'Kansio',
         forgot_pass_c2a: 'Unohditko salasanasi?',
 
@@ -181,7 +171,6 @@ const fi = {
         home: 'Koti',
         html_document: 'HTML-dokumentti',
         hue: 'Sävy',
-        image: 'Kuva',
         incorrect_password: 'Väärä salasana',
         invite_link: 'Kutsulinkki',
         item: 'kohde',
@@ -252,7 +241,6 @@ const fi = {
         path: 'Polku',
         personalization: 'Personointi',
         pick_name_for_website: 'Valitse nimi verkkosivustollesi:',
-        picture: 'Kuva',
         pictures: 'Kuvat',
         plural_suffix: 't',
         powered_by_puter_js: 'Palvelun tarjoaa {{link=docs}}Puter.js{{/link}}',
@@ -281,7 +269,6 @@ const fi = {
 
         remove_from_taskbar: 'Poista tehtäväpalkista',
         rename: 'Nimeä uudelleen',
-        repeat: 'Toista',
         replace: 'Replace',
         replace_all: 'Korvaa kaikki',
         resend_confirmation_code: 'Lähetä vahvistuskoodi Uudelleen',

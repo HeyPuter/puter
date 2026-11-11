@@ -3095,21 +3095,6 @@ label {
     margin-right: auto;
 }
 
-.desktop-bg-settings-wrapper {
-    display: none;
-    overflow: hidden;
-}
-
-.desktop-bg-color-block {
-    width: 25px;
-    height: 25px;
-    float: left;
-    margin: 5px;
-    border: 1px solid #898989;
-    box-sizing: border-box;
-    border-radius: 2px;
-}
-
 @supports ((backdrop-filter: blur())) {
     .taskbar {
         background-color: hsla(var(--taskbar-hue),

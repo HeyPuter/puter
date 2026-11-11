@@ -24,7 +24,6 @@ import UIItem from './UIItem.js';
 import UIAlert from './UIAlert.js';
 import UIWindow from './UIWindow.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
-import UIWindowDesktopBGSettings from './UIWindowDesktopBGSettings.js';
 import UIWindowFeedback from './UIWindowFeedback.js';
 import UIAuthLogin from './Auth/UIAuthLogin.js';
 
@@ -1106,20 +1105,6 @@ async function UIDesktop (options) {
                             window.init_upload_using_dialog(el_desktop);
                         },
                     },
-                    // -------------------------------------------
-                    // -
-                    // -------------------------------------------
-                    '-',
-                    // -------------------------------------------
-                    // Change Desktop Background…
-                    // -------------------------------------------
-                    {
-                        html: i18n('change_desktop_background'),
-                        onClick: function () {
-                            UIWindowDesktopBGSettings();
-                        },
-                    },
-
                 ],
             });
         }
