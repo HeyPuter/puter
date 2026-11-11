@@ -653,123 +653,54 @@ describe('AuthService (integration)', () => {
         describe('listSessions and expiry', () => {
             const nowS = () => Math.floor(Date.now() / 1000);
 
-            // Moves the row's expiry into the past, as if its window lapsed.
-            const lapse = async (uuid: string) => {
-                await server.clients.db.write(
-                    'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
-                    [nowS() - 1, uuid],
-                );
-                await server.clients.redis.del(`sessions:v2:uuid:${uuid}`);
-            };
-
-            const listedUuids = async (actor: Actor) =>
-                (await authService.listSessions(actor)).map(
+            const listedUuids = async (user: { id: number }) =>
+                (await authService.listSessions({ user } as Actor)).map(
                     (r) => (r as { uuid: string }).uuid,
                 );
 
-            const userActor = (user: {
-                id: number;
-                uuid: string;
-                username: string;
-            }) =>
-                ({
-                    user: {
-                        id: user.id,
-                        uuid: user.uuid,
-                        username: user.username,
-                    },
-                }) as Actor;
+            it.each(['web', 'app', 'access_token'])(
+                'leaves out an expired %s session and lists a live one',
+                async (kind) => {
+                    const user = await makeUser();
+                    const sessions = server.stores.session;
+                    const live = await sessions.create(user.id, {
+                        kind,
+                        expires_at: nowS() + 3600,
+                    });
+                    const expired = await sessions.create(user.id, {
+                        kind,
+                        expires_at: nowS() - 1,
+                    });
 
-            const webSessionUuid = async (
-                user: Awaited<ReturnType<typeof makeUser>>,
-            ) => {
-                const { session } = await authService.createSessionToken(
-                    user,
-                    {},
-                );
-                return (session as { uuid: string }).uuid;
-            };
+                    const uuids = await listedUuids(user);
+                    expect(uuids).toContain(live.uuid);
+                    expect(uuids).not.toContain(expired.uuid);
+                },
+            );
 
-            it('leaves out an expired web session and lists a live one', async () => {
+            it('leaves out a token whose parent session has expired or is gone', async () => {
                 const user = await makeUser();
-                const live = await webSessionUuid(user);
-                const expired = await webSessionUuid(user);
-                await lapse(expired);
+                const sessions = server.stores.session;
+                const token = (parent: string) =>
+                    sessions.create(user.id, {
+                        kind: 'access_token',
+                        parent_session_id: parent,
+                        expires_at: nowS() + 3600,
+                    });
+                const liveParent = await sessions.create(user.id);
+                const expiredParent = await sessions.create(user.id, {
+                    expires_at: nowS() - 1,
+                });
+                const listed = await token(liveParent.uuid);
+                const underExpired = await token(expiredParent.uuid);
+                const underMissing = await token(uuidv4());
 
-                const uuids = await listedUuids(userActor(user));
-                expect(uuids).toContain(live);
-                expect(uuids).not.toContain(expired);
-            });
-
-            it('leaves out an expired app session and lists a live one', async () => {
-                const user = await makeUser();
-                const actor = userActor(user);
-                const sessionOf = async (appUid: string) =>
-                    (
-                        server.services.token.verify(
-                            'auth',
-                            await authService.getUserAppToken(actor, appUid),
-                        ) as { session_uid: string }
-                    ).session_uid;
-                const live = await sessionOf(`app-${uuidv4()}`);
-                const expired = await sessionOf(`app-${uuidv4()}`);
-                await lapse(expired);
-
-                const uuids = await listedUuids(actor);
-                expect(uuids).toContain(live);
-                expect(uuids).not.toContain(expired);
-            });
-
-            it('leaves out an expired godmode app token and lists a live one', async () => {
-                const user = await makeUser();
-                const parent = await webSessionUuid(user);
-                const mint = async (appUid: string, expiresAt: number) =>
-                    (
-                        await server.stores.session.getOrCreateGodmodeToken(
-                            user.id,
-                            {
-                                parentSessionUid: parent,
-                                appUid,
-                                expiresAt,
-                                maxAgeSeconds: 3600,
-                                label: 'Godmode app',
-                                auth_id: user.uuid,
-                            },
-                        )
-                    ).row.uuid as string;
-                const live = await mint(`app-${uuidv4()}`, nowS() + 3600);
-                const expired = await mint(`app-${uuidv4()}`, nowS() - 1);
-
-                const uuids = await listedUuids({
-                    ...userActor(user),
-                    session: { uid: parent },
-                } as Actor);
-                expect(uuids).toContain(parent);
-                expect(uuids).toContain(live);
-                expect(uuids).not.toContain(expired);
-            });
-
-            it('leaves out an expired access token and lists a live one', async () => {
-                const user = await makeUser();
-                const actor = userActor(user);
-                const mint = async () =>
-                    (
-                        server.services.token.verify(
-                            'auth',
-                            await authService.createAccessToken(
-                                actor,
-                                [[`user:${user.uuid}:email:read`]],
-                                { expiresIn: '1h' },
-                            ),
-                        ) as { session_uid: string }
-                    ).session_uid;
-                const live = await mint();
-                const expired = await mint();
-                await lapse(expired);
-
-                const uuids = await listedUuids(actor);
-                expect(uuids).toContain(live);
-                expect(uuids).not.toContain(expired);
+                const uuids = await listedUuids(user);
+                expect(uuids).toContain(liveParent.uuid);
+                expect(uuids).toContain(listed.uuid);
+                expect(uuids).not.toContain(expiredParent.uuid);
+                expect(uuids).not.toContain(underExpired.uuid);
+                expect(uuids).not.toContain(underMissing.uuid);
             });
         });
 

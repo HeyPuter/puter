@@ -134,34 +134,20 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Sessions for a user, without revoked or expired rows unless asked.
-     *
-     * @param {number} userId
-     * @param {{
-     *     includeRevoked?: boolean;
-     *     includeExpired?: boolean;
-     *     primary?: boolean;
-     * }} [opts]
+     * Get sessions for a user. By default returns only active rows; pass `{
+     * includeRevoked: true }` to include soft-revoked rows. Revoke paths pass
+     * `{ primary: true }` so a session created moments ago isn't missed.
      */
     async getByUserId(
         userId,
-        {
-            includeRevoked = false,
-            includeExpired = false,
-            primary = false,
-        } = {},
+        { includeRevoked = false, primary = false } = {},
     ) {
-        let sql = 'SELECT * FROM `sessions` WHERE `user_id` = ?';
-        const params = [userId];
-        if (!includeRevoked) sql += ' AND `revoked_at` IS NULL';
-        if (!includeExpired) {
-            sql += ' AND (`expires_at` IS NULL OR `expires_at` > ?)';
-            params.push(nowSeconds());
-        }
-        const rows = await this.clients.db[primary ? 'pread' : 'read'](
-            sql,
-            params,
-        );
+        const sql = includeRevoked
+            ? 'SELECT * FROM `sessions` WHERE `user_id` = ?'
+            : 'SELECT * FROM `sessions` WHERE `user_id` = ? AND `revoked_at` IS NULL';
+        const rows = await this.clients.db[primary ? 'pread' : 'read'](sql, [
+            userId,
+        ]);
         return rows.map((r) => this.#normalizeRow(r)).filter(Boolean);
     }
 

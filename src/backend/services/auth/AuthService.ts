@@ -743,9 +743,24 @@ export class AuthService extends PuterService {
 
         const rows = (await this.stores.session.getByUserId(
             actor.user.id,
-        )) as Array<Record<string, unknown>>;
+        )) as SessionRow[];
 
-        const visible = rows.filter((row) => row.kind !== 'asset');
+        // Listed while authentication still accepts it: not expired, and for
+        // a token minted under another session, that session live as well.
+        const live = new Map(
+            rows
+                .filter((row) => !this.#endedSession(row))
+                .map((row) => [row.uuid, row]),
+        );
+        const visible = (
+            [...live.values()] as Array<Record<string, unknown>>
+        ).filter(
+            (row) =>
+                row.kind !== 'asset' &&
+                (row.kind !== 'access_token' ||
+                    !row.parent_session_id ||
+                    live.has(row.parent_session_id as string)),
+        );
 
         const appUids = [
             ...new Set(
@@ -916,7 +931,6 @@ export class AuthService extends PuterService {
         if (!userId) return;
         const rows = await this.stores.session.getByUserId(userId, {
             primary: true,
-            includeExpired: true,
         });
         await this.#revokeCascades(rows.map((row) => row.uuid as string));
     }
@@ -1028,7 +1042,6 @@ export class AuthService extends PuterService {
         if (!userId) return;
         const rows = await this.stores.session.getByUserId(userId, {
             primary: true,
-            includeExpired: true,
         });
         await this.#revokeCascades(
             rows
@@ -1049,7 +1062,7 @@ export class AuthService extends PuterService {
         const currentUuid = actor.session?.uid;
         const rows = await this.stores.session.getByUserId(
             actor.user.id as number,
-            { primary: true, includeExpired: true },
+            { primary: true },
         );
         await this.#revokeCascades(
             rows
