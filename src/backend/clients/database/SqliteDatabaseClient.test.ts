@@ -710,7 +710,7 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
         const path = join(dir, 'puter.sqlite');
         try {
             const before = new SqliteDatabaseClient(
-                sqliteConfig({ inMemory: false, path, targetVersion: 98 }),
+                sqliteConfig({ inMemory: false, path }),
             );
             await before.onServerStart();
             const [user] = (await before.read(
@@ -735,6 +735,8 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
                     '`recipient_email`) VALUES (?, ?, ?)',
                 ['share-invite', user.id, 'invite@test.local'],
             );
+            // The full schema as it stood before 0103, so only 0103 reruns.
+            await before.write('PRAGMA user_version = 98');
             before.onServerShutdown();
 
             const after = new SqliteDatabaseClient(
