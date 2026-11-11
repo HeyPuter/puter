@@ -251,7 +251,6 @@ const my = {
         set_new_password: 'Tetapkan Kata Laluan Baru',
         share: 'Kongsi',
         share_to: 'Kongsi kepada',
-        share_with: 'Kongsi dengan:',
         shortcut_to: 'Pintasan ke',
         show_all_windows: 'Tunjukkan Semua Tetingkap',
         show_hidden: 'Tunjukkan yang tersembunyi',

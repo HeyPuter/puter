@@ -223,7 +223,6 @@ const sv = {
         set_new_password: 'Ange nytt lösenord',
         share: 'Dela',
         share_to: 'Dela till',
-        share_with: 'Dela med:',
         shortcut_to: 'Genväg till',
         show_all_windows: 'Visa alla fönster',
         show_hidden: 'Visa dolda',

@@ -242,7 +242,6 @@ const ar = {
         set_new_password: 'تعيين كلمة مرور جديدة',
         share: 'مشاركة',
         share_to: 'مشاركة إلى',
-        share_with: ':مشاركة مع',
         shortcut_to: 'اختصار إلى',
         show_all_windows: 'عرض جميع النوافذ',
         show_hidden: 'إظهار المخفي',

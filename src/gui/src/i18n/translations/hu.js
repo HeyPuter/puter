@@ -223,7 +223,6 @@ const hu = {
         set_new_password: 'Új jelszó beállítása',
         share: 'Megosztás',
         share_to: 'Megosztás ide:',
-        share_with: 'Megosztás valakivel:',
         shortcut_to: 'Parancsikon ide:',
         show_all_windows: 'Összes ablak megjelenítése',
         show_hidden: 'Rejtett megjelenítése',

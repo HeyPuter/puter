@@ -246,7 +246,6 @@ const it = {
         set_new_password: 'Imposta una nuova Password',
         share: 'Condividi',
         share_to: 'Condividi con',
-        share_with: 'Condividi con',
         shortcut_to: 'Scorciatoia per',
         show_all_windows: 'Mostra tutte le finestre',
         show_hidden: 'Mostra nascosti',

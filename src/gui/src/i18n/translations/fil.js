@@ -235,7 +235,6 @@ const fil = {
         set_new_password: 'Magtakda ng bagong password',
         share: 'Ibahagi',
         share_to: 'Ibahagi kay',
-        share_with: 'Ibahagi kay:',
         shortcut_to: 'Shortcut papunta sa',
         show_all_windows: 'Ipakita ang lahat ng window',
         show_hidden: 'Ipakita ang nakatago',

@@ -250,7 +250,6 @@ const ru = {
         set_new_password: 'Установить новый пароль',
         share: 'Поделиться',
         share_to: 'Поделиться',
-        share_with: 'Поделиться с: ',
         shortcut_to: 'Ярлык для',
         show_all_windows: 'Показать Все Окна',
         show_hidden: 'Показать скрытые',

@@ -223,7 +223,6 @@ const da = {
         set_new_password: 'Indstil ny adgangskode',
         share: 'Del',
         share_to: 'Del til',
-        share_with: 'Del med:',
         shortcut_to: 'Genvej til',
         show_all_windows: 'Vis alle vinduer',
         show_hidden: 'Vis skjulte',

@@ -223,7 +223,6 @@ const ja = {
         set_new_password: '新しいパスワードを設定',
         share: '共有',
         share_to: '共有先',
-        share_with: '共有相手：',
         shortcut_to: 'ショートカット先',
         show_all_windows: 'すべてのウィンドウを表示',
         show_hidden: '隠しファイルを表示',

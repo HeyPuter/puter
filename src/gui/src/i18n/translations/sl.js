@@ -234,7 +234,6 @@ const sl = {
         set_new_password: 'Nastavi novo geslo',
         share: 'Deli',
         share_to: 'Deli na',
-        share_with: 'Deli z:',
         shortcut_to: 'Bližnjica do',
         show_all_windows: 'Pokaži vsa okna',
         show_hidden: 'Prikaži skrito',

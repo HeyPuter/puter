@@ -262,7 +262,6 @@ const nn = {
         sessions: 'Økter',
         settings: 'Innstillingar',
         share: 'Del',
-        share_with: 'Del med:',
         shortcut_to: 'Snarveg til',
         skip: 'Hopp over',
         something_went_wrong: 'Noko gjekk galt.',

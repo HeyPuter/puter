@@ -223,7 +223,6 @@ const vi = {
         set_new_password: 'Đặt mật khẩu mới',
         share: 'Chia sẻ',
         share_to: 'Chia sẻ đến',
-        share_with: 'Chia sẻ với:',
         shortcut_to: 'Lối tắt đến',
         show_all_windows: 'Hiển thị tất cả cửa sổ',
         show_hidden: 'Hiển thị mục ẩn',

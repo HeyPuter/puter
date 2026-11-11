@@ -241,7 +241,6 @@ const zhtw = {
         set_new_password: '設定新密碼',
         share: '分享',
         share_to: '分享到',
-        share_with: '分享給：',
         shortcut_to: '捷徑到',
         show_all_windows: '顯示所有視窗',
         show_hidden: '顯示隱藏項目',

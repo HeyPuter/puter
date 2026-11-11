@@ -220,7 +220,6 @@ const th = {
         set_new_password: 'ตั้งรหัสผ่านใหม่',
         share: 'แชร์',
         share_to: 'แชร์ไปยัง',
-        share_with: 'แชร์ไปให้:',
         shortcut_to: 'ทางลัดไป',
         show_all_windows: 'แสดงหน้าต่างทั้งหมด',
         show_hidden: 'แสดงที่ซ่อนไว้',

@@ -222,7 +222,6 @@ const tr = {
         set_new_password: 'Yeni Parola Belirle',
         share: 'Paylaş',
         share_to: 'Şuna paylaş',
-        share_with: 'Şununla paylaş',
         shortcut_to: 'Şuna kısayol oluştur',
         show_all_windows: 'Tüm Pencereleri Göster',
         show_hidden: 'Gizli dosyaları göster',

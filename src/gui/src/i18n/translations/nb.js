@@ -234,7 +234,6 @@ const nb = {
         set_new_password: 'Angi nytt passord',
         share: 'Dele',
         share_to: 'Del',
-        share_with: 'Del med:',
         shortcut_to: 'Snarvei til',
         show_all_windows: 'Vis alle vinduer',
         show_hidden: 'Vis skjulte',

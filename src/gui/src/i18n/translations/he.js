@@ -238,7 +238,6 @@ const he = {
         set_new_password: 'הגדרת סיסמה חדשה',
         share: 'שיתוף',
         share_to: 'שתף אל',
-        share_with: 'שתף עם:',
         shortcut_to: 'קיצור דרך אל',
         show_all_windows: 'הצג את כל החלונות',
         show_hidden: 'הצג מוסתר',

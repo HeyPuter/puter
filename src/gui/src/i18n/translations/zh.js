@@ -223,7 +223,6 @@ const zh = {
         set_new_password: '设置新密码',
         share: '分享',
         share_to: '分享到',
-        share_with: '分享:',
         shortcut_to: '快捷方式',
         show_all_windows: '显示所有窗口',
         show_hidden: '显示隐藏',

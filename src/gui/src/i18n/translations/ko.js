@@ -250,7 +250,6 @@ const ko = {
         set_new_password: '새 비밀번호 설정',
         share: '공유',
         share_to: '공유처',
-        share_with: '공유 대상',
         shortcut_to: '바로 가기',
         show_all_windows: '모든 창 표시',
         show_hidden: '숨김 항목 표시',

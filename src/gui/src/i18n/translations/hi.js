@@ -222,7 +222,6 @@ const hi = {
         set_new_password: 'नया पासवर्ड सेट करें',
         share: 'आदान-प्रदान',
         share_to: 'साझा',
-        share_with: 'के साथ साझा करें',
         shortcut_to: 'के लिए शॉर्टकट',
         show_all_windows: 'सभी विंडोज़ दिखाएँ',
         show_hidden: 'छिपा हुआ दिखाएं',

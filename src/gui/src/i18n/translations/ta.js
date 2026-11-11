@@ -250,7 +250,6 @@ const ta = {
         set_new_password: 'புதிய கடவுச்சொல்லை அமை',
         share: 'பகிர்',
         share_to: 'பகிரவும்',
-        share_with: 'இவர்களுடன் பகிரவும்:',
         shortcut_to: 'குறுக்குவழி',
         show_all_windows: 'அனைத்து விண்டோஸையும் காட்டு',
         show_hidden: 'மறைக்கப்பட்டதைக் காட்டு',

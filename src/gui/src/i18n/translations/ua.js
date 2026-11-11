@@ -226,7 +226,6 @@ const ua = {
         set_new_password: 'Встановити Новий Пароль',
         share: 'Поділитися',
         share_to: 'Поділитися з',
-        share_with: 'Поділитися з',
         shortcut_to: 'Ярлик для',
         show_all_windows: 'Показати Всі Вікна',
         show_hidden: 'Показати приховані',

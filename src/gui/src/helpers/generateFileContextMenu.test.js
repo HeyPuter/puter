@@ -24,7 +24,6 @@ import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 vi.mock('../UI/UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../UI/UIWindowItemProperties.js', () => ({ default: vi.fn() }));
 vi.mock('../UI/UIWindowPublishWorker.js', () => ({ default: vi.fn() }));
-vi.mock('../UI/UIWindowShare.js', () => ({ default: vi.fn() }));
 vi.mock('./publishAsWebsite.js', () => ({ default: vi.fn() }));
 vi.mock('./ensureCanPublish.js', () => ({ default: vi.fn() }));
 vi.mock('./openItem.js', () => ({ default: vi.fn() }));
@@ -34,7 +33,7 @@ vi.mock('./pathOwner.js', () => ({ is_owned_by_me: () => false }));
 vi.mock('./sharedAccess.js', () => ({
     can_rename: async () => false,
     can_restructure: async () => false,
-    can_share: async () => false,
+    can_share: vi.fn(async () => false),
     invalidate_shared_roots: vi.fn(),
 }));
 
@@ -52,6 +51,7 @@ const { default: generate_file_context_menu } =
     await import('./generateFileContextMenu.js');
 const { default: launch_app } = await import('./launchApp.js');
 const { default: UIAlert } = await import('../UI/UIAlert.js');
+const { can_share } = await import('./sharedAccess.js');
 
 const sharedRow = () => {
     const row = document.createElement('div');
@@ -87,6 +87,32 @@ it('does not offer it on a share held through a team', async () => {
     expect(await labels({ holderTeam: team })).not.toContain(
         'share_remove_from_shared',
     );
+});
+
+describe('Share', () => {
+    const shareItem = async (options) => {
+        can_share.mockResolvedValueOnce(true);
+        const items = await generate_file_context_menu({
+            element: sharedRow(),
+            fsentry: { name: 'notes.txt', path: '/ann/uid-1/notes.txt' },
+            associated_app_name: 'editor',
+            ...options,
+        });
+        return items.find((item) => item !== '-' && item.html === 'share_ellipsis');
+    };
+
+    it('hands the item to onShare', async () => {
+        const onShare = vi.fn();
+        await (await shareItem({ onShare })).onClick();
+        expect(onShare).toHaveBeenCalledWith(expect.objectContaining({
+            name: 'notes.txt',
+            path: '/ann/uid-1/notes.txt',
+        }));
+    });
+
+    it('is left out without onShare', async () => {
+        expect(await shareItem({})).toBeUndefined();
+    });
 });
 
 describe('Remove from Shared', () => {

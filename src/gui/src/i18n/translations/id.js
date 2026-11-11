@@ -240,7 +240,6 @@ const id = {
         set_new_password: 'Tetapkan Kata Sandi Baru',
         share: 'Bagikan',
         share_to: 'Bagikan ke',
-        share_with: 'Bagikan dengan:',
         shortcut_to: 'Pintasan ke',
         show_all_windows: 'Tampilkan Semua Jendela',
         show_hidden: 'Tampilkan yang tersembunyi',

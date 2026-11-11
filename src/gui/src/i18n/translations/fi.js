@@ -295,7 +295,6 @@ const fi = {
         // The base form of "Share" is "Jaa". So maybe "Jaa..." is appropriate?
         // If "share to" is followed by the name of a user, it will not make any sense, as the name can be suffixed by for example "Jaa %%lle".
 
-        share_with: 'Jaa:',
         shortcut_to: 'Pikakuvake',
         show_all_windows: 'Näytä kaikki ikkunat',
         show_hidden: 'Näytä piilotetut',

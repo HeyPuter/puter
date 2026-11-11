@@ -224,7 +224,6 @@ const nl = {
         set_new_password: 'Nieuw wachtwoord instellen',
         share: 'Delen',
         share_to: 'Delen met',
-        share_with: 'Delen met:',
         shortcut_to: 'Snelkoppeling naar',
         show_all_windows: 'Toon alle vensters',
         show_hidden: 'Toon verborgen',

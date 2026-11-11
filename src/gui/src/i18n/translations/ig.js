@@ -242,7 +242,6 @@ const ig = {
         set_new_password: 'Tinye paswọọdụ ọhụrụ',
         share: 'ike',
         share_to: 'ike nye',
-        share_with: 'ji ike nye:',
         shortcut_to: 'Ụzọ mkpirisi ka',
         show_all_windows: 'Gosi Windows niile',
         show_hidden: 'Gosi ihe ezozo',

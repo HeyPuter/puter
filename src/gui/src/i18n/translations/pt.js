@@ -226,7 +226,6 @@ const pt = {
         set_new_password: 'Definir nova Password',
         share: 'Partilhar',
         share_to: 'Partilhar com',
-        share_with: ' Partilhar com:',
         shortcut_to: 'Atalho para',
         show_all_windows: 'Mostrar Todas as Janelas',
         show_hidden: 'Exibir janelas ocultas',

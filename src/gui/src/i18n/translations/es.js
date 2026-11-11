@@ -252,7 +252,6 @@ const es = {
         settings: 'Opciones',
         share: 'Compartir',
         share_to: 'Compartir a',
-        share_with: 'Compartir con:',
         shortcut_to: 'Acceso directo a',
         show_all_windows: 'Mostrar todas las ventanas',
         show_hidden: 'Mostrar ocultos',

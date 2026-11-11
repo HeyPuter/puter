@@ -254,7 +254,6 @@ const fr = {
         set_new_password: 'Definir un nouveau mot de passe',
         share: 'Partager',
         share_to: 'Partager à',
-        share_with: 'Partager avec :',
         shortcut_to: 'Raccourci vers',
         show_all_windows: 'Afficher toutes les fenêtres',
         show_hidden: 'Afficher les fichiers cachés',

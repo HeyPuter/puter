@@ -663,10 +663,8 @@ const en = {
         blocked_failed: 'Could not update your blocked list.',
         share_you: 'you',
         share_inherited_via: 'via {{folder}}',
-        share_with: 'Share with:',
         share_team_note:
             'Everyone in the team gets access, including anyone added to it later.',
-        share_row_team: 'team',
         share_row_anyone: 'Anyone with the link',
         share_general_access: 'General access',
         share_link_restricted: 'Restricted',

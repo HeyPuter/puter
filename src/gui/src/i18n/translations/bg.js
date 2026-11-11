@@ -258,7 +258,6 @@ const bg = {
         set_new_password: 'Задай нова парола',
         share: 'Сподели',
         share_to: 'Сподели с',
-        share_with: 'Сподели с:',
         shortcut_to: 'Пряк път до',
         show_all_windows: 'Покажи всички прозорци',
         show_hidden: 'Покажи скритите',

@@ -247,7 +247,6 @@ const fa = {
         set_new_password: 'تنظیم رمز عبور جدید',
         share: 'به اشتراک گذاری',
         share_to: 'اشتراک گذاری به',
-        share_with: 'اشتراک با',
         shortcut_to: 'میانبر به',
         show_all_windows: 'نمایش همه پنجره ها',
         show_hidden: 'نمایش مخفی',

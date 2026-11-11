@@ -224,7 +224,6 @@ const ro = {
         set_new_password: 'Setează o parolă Nouă',
         share: 'Distribuie',
         share_to: 'Distribuie către',
-        share_with: 'Distribuie cu',
         shortcut_to: 'Comandă rapidă către',
         show_all_windows: 'Afișați toate ferestrele',
         show_hidden: 'Arată ascuns',

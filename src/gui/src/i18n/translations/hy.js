@@ -248,7 +248,6 @@ const hy = {
         set_new_password: 'Սահմանել նոր գաղտնաբառ',
         share: 'Տարածել',
         share_to: 'Տարածել դեպի',
-        share_with: 'Տարածել հետ՝',
         shortcut_to: 'Դյուրանցում դեպի',
         show_all_windows: 'Ցույց տալ բոլոր պատուհանները',
         show_hidden: 'Ցույց տալ թաքնված տարրերը',

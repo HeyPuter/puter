@@ -222,7 +222,6 @@ const de = {
         set_new_password: 'Neues Passwort festlegen',
         share: 'Teilen',
         share_to: 'Teilen mit',
-        share_with: 'Teilen mit:',
         shortcut_to: 'Verknüpfung zu',
         show_all_windows: 'Alle Fenster anzeigen',
         show_hidden: 'Zeige versteckte',

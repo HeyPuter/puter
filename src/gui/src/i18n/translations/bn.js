@@ -226,7 +226,6 @@ const bn = {
         set_new_password: 'নতুন পাসওয়ার্ড সেট করুন',
         share: 'শেয়ার করুন',
         share_to: 'শেয়ার করুন প্রতি',
-        share_with: 'সঙ্গে ভাগাভাগি করুন:',
         shortcut_to: 'শর্টকাট',
         show_all_windows: 'সমস্ত উইন্ডো দেখান',
         show_hidden: 'লুকানো দেখান',

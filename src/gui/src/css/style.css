@@ -6110,7 +6110,7 @@ html.dark-mode .usage-table-fade-overlay {
 }
 
 /**
- * Share dialog
+ * Share dialog layout, used by the Blocked Senders window
  */
 .share-dialog {
     padding: 20px;
@@ -6122,29 +6122,10 @@ html.dark-mode .usage-table-fade-overlay {
     margin-bottom: 15px;
 }
 
-.share-dialog .share-recipient {
-    flex: 1;
-}
-
-.share-dialog .share-mode {
-    width: 130px;
-    flex: none;
-}
-
 /* -- Recipient suggestions --
-   Shared by this dialog and the Dashboard's share modal; each host sets the
-   palette below through its own tokens (dashboard.css restates them for
-   .share-modal). The list is anchored to the recipient row and floats over
-   what follows it, so opening and closing it never resizes the dialog. */
-.share-dialog {
-    --share-suggest-bg: #fff;
-    --share-suggest-border: #dfe3e8;
-    --share-suggest-hover: #eef1f4;
-    --share-suggest-shadow: rgba(15, 23, 42, 0.12);
-    --share-suggest-fg: #3e5362;
-    --share-suggest-muted: #7f8b99;
-    --share-suggest-picked-bg: #eef4fb;
-}
+   Used by the Dashboard's share modal, which sets the palette through its own
+   tokens in dashboard.css. The list is anchored to the recipient row and floats
+   over what follows it, so opening and closing it never resizes the modal. */
 
 .share-suggest-field {
     position: relative;
@@ -6342,28 +6323,6 @@ html.dark-mode .usage-table-fade-overlay {
     letter-spacing: 0.04em;
 }
 
-/* General access: the owner's switch between people-only and anyone with
-   the link. */
-.share-general-access {
-    margin-top: 18px;
-}
-
-.share-dialog .share-link-access {
-    flex: 1;
-    min-width: 0;
-}
-
-.share-dialog .share-link-mode {
-    width: 130px;
-    flex: none;
-}
-
-.share-link-note {
-    font-size: 12px;
-    color: #7f8b99;
-    margin: -8px 0 12px;
-}
-
 .share-dialog-empty {
     font-size: 13px;
     color: #7f8b99;
@@ -6412,64 +6371,3 @@ html.dark-mode .usage-table-fade-overlay {
     white-space: nowrap;
 }
 
-.share-row-mode {
-    color: #7f8b99;
-    font-size: 12px;
-    margin-left: auto;
-    flex: none;
-}
-
-.share-dialog .share-row-mode-select {
-    width: auto;
-    min-width: 110px;
-    margin-left: auto;
-    flex: none;
-    padding: 4px 6px;
-    font-size: 13px;
-}
-
-.share-row-inherited {
-    color: #7f8b99;
-}
-
-.share-row-via {
-    font-size: 12px;
-    color: #9aa5b1;
-    flex: none;
-}
-
-.share-row-inherited .share-row-mode {
-    margin-left: 0;
-}
-
-.share-dialog .share-revoke {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    flex: none;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: #6b7785;
-    cursor: pointer;
-}
-
-.share-dialog .share-revoke:hover:not(:disabled) {
-    background-color: #eceff2;
-    color: #d1242f;
-}
-
-.share-dialog .share-revoke:disabled {
-    opacity: 0.4;
-    cursor: default;
-}
-
-.share-row-owner {
-    color: #7f8b99;
-    font-size: 12px;
-    flex: none;
-    padding-right: 4px;
-}

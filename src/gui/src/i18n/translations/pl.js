@@ -223,7 +223,6 @@ const pl = {
         set_new_password: 'Ustaw nowe hasło.',
         share: 'Udostępnij',
         share_to: 'Udostępnij do',
-        share_with: 'Udostępnij dla:',
         shortcut_to: 'Skrót do',
         show_all_windows: 'Pokaż wszystkie okna',
         show_hidden: 'Pokaż ukryte',

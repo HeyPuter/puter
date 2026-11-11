@@ -241,7 +241,6 @@ const ku = {
         set_new_password: 'وشەی تێپەڕی نوێ دانان',
         share: 'هاوبەشکردن',
         share_to: 'هاوبەشکردن بۆ',
-        share_with: 'هاوبەشکردن بە:',
         shortcut_to: 'شارتی بۆ',
         show_all_windows: 'پیشاندانی هەموو پەنجەکان',
         show_hidden: 'پیشاندانی شاردراوەکان',
