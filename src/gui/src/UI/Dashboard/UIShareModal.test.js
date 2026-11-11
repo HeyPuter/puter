@@ -43,7 +43,7 @@ globalThis.def = globalThis.def ?? (value => value);
 globalThis.use = globalThis.use ?? (() => class {});
 
 const { default: UIShareModal } = await import('./UIShareModal.js');
-const { unshareAnswering, allRefused } = await import('../../../tests/fixtures/sdkUnshare.js');
+const { unshareAnswering, allRefused, refusing } = await import('../../../tests/fixtures/sdkUnshare.js');
 
 const settle = async () => {
     for ( let i = 0; i < 5; i++ ) await new Promise(resolve => setTimeout(resolve, 0));
@@ -95,6 +95,49 @@ describe('UIShareModal general access', () => {
         expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
         expect($('.share-modal-status').text()).toBe('Held through a team');
         expect($('.share-modal-link-access').val()).toBe('anyone');
+    });
+
+    it('says how many items the link was closed on when some were refused', async () => {
+        puter.fs.getShares = vi.fn(async () => [{ holder: null, anyone: true, mode: 'read', issuer: 'alice' }]);
+        puter.fs.unshare = unshareAnswering((request) => refusing(
+            request,
+            (path) => path === '/alice/f1.txt',
+            { code: 'forbidden', message: 'Not allowed' },
+        ));
+        UIShareModal({ items: items(3) });
+        await settle();
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe(
+            'Only people with access can open 2 of 3 items now. Not allowed',
+        );
+    });
+
+    it('goes on past a run that was refused whole, and counts every refused item', async () => {
+        const requests = [];
+        // Runs of 50: the second is refused whole, the third loses one item.
+        puter.fs.unshare = unshareAnswering((request) => {
+            requests.push(request.items.length);
+            const run = requests.length;
+            return refusing(
+                request,
+                (path) => run === 2 || path === '/alice/f119.txt',
+                { code: 'forbidden', message: 'Not allowed' },
+            );
+        });
+        UIShareModal({ items: items(120) });
+        await settle();
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect(requests).toEqual([50, 50, 20]);
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe(
+            'Only people with access can open 69 of 120 items now. Not allowed',
+        );
+        expect($('.share-modal-link-access')[0].value).toBe('mixed');
     });
 
     it('shows a listed selection as the listings say', async () => {
@@ -185,25 +228,12 @@ describe('UIShareModal removing access', () => {
     });
 
     it('says how many items a person was removed from when one was refused', async () => {
-        const held = new Set(['/alice/f0.txt', '/alice/f1.txt', '/alice/f2.txt']);
-        puter.fs.getShares = vi.fn(async (path) => (held.has(path)
-            ? [{ holder: 'bob', mode: 'read', issuer: 'alice' }]
-            : []));
-        const mixed = unshareAnswering({
-            status: 'mixed',
-            revoked: 2,
-            results: [
-                { recipient: 'bob', path: '/alice/f0.txt', status: 'success' },
-                { recipient: 'bob', path: '/alice/f1.txt', status: 'success' },
-                { recipient: 'bob', path: '/alice/f2.txt', status: 'error', code: 'forbidden', message: 'Not allowed' },
-            ],
-        });
-        puter.fs.unshare = async (...args) => {
-            const result = await mixed(...args);
-            held.delete('/alice/f0.txt');
-            held.delete('/alice/f1.txt');
-            return result;
-        };
+        puter.fs.getShares = vi.fn(async () => [{ holder: 'bob', mode: 'read', issuer: 'alice' }]);
+        puter.fs.unshare = unshareAnswering((request) => refusing(
+            request,
+            (path) => path === '/alice/f2.txt',
+            { code: 'forbidden', message: 'Not allowed' },
+        ));
         UIShareModal({ items: [0, 1, 2].map((i) => ({ path: `/alice/f${i}.txt` })) });
         await settle();
 
@@ -211,7 +241,7 @@ describe('UIShareModal removing access', () => {
         $('.share-modal-confirm-remove').trigger('click');
         await settle();
         expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
-        expect($('.share-modal-status').text()).toBe('Removed bob from 2 of 3 items');
+        expect($('.share-modal-status').text()).toBe('Removed bob from 2 of 3 items. Not allowed');
         expect($('.share-modal-row-mode').length).toBe(1);
     });
 

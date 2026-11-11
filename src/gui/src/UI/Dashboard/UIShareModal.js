@@ -674,10 +674,21 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         return created;
     };
 
+    // Same runs as grant_access. Resolves with the items that were refused,
+    // each with its error; a run refused whole doesn't stop the ones after it.
+    // Rejects with the first error when every item was refused.
     const revoke_access = async (recipient, paths) => {
+        const failed = [];
         for ( const run of chunk(paths, MAX_ITEMS_PER_REQUEST) ) {
-            await puter.fs.unshare({ paths: run, recipient });
+            try {
+                const result = await puter.fs.unshare({ paths: run, recipient });
+                failed.push(...(result?.failed ?? []));
+            } catch (err) {
+                failed.push(...run.map(() => err));
+            }
         }
+        if ( failed.length >= paths.length ) throw failed[0];
+        return failed;
     };
 
     /**
@@ -694,9 +705,14 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                 link_state = { access: 'anyone', mode };
                 show_success(i18n(`share_link_on_${mode === 'write' ? 'write' : 'read'}${is_multi ? '_items' : ''}`));
             } else {
-                await revoke_access({ anyone: true }, target_paths);
-                link_state = { access: 'restricted', mode: null };
-                show_success(i18n(is_multi ? 'share_link_off_items' : 'share_link_off'));
+                const failed = await revoke_access({ anyone: true }, target_paths);
+                if ( failed.length ) {
+                    link_state = { access: 'mixed', mode: null };
+                    show_error(`${i18n('share_link_off_partial', { count: total - failed.length, total })}. ${error_html(failed[0])}`);
+                } else {
+                    link_state = { access: 'restricted', mode: null };
+                    show_success(i18n(is_multi ? 'share_link_off_items' : 'share_link_off'));
+                }
             }
         } catch (err) {
             // A plan gate gets the flow that clears it, where the deployment
@@ -980,7 +996,20 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         const revoke_paths = group.pending ? group.pendingPaths : group.directPaths;
         $(this).closest('.share-modal-row-confirm').find('button').prop('disabled', true);
         try {
-            await revoke_access(recipient_of(group), revoke_paths);
+            const failed = await revoke_access(recipient_of(group), revoke_paths);
+            // Some items were refused: say how many went through, and stay
+            // open on what the listing now shows.
+            if ( failed.length ) {
+                show_error(`${i18n('share_access_removed_partial', {
+                    recipient: group.name,
+                    count: revoke_paths.length - failed.length,
+                    total: revoke_paths.length,
+                })}. ${error_html(failed[0])}`);
+                invalidate_shared_roots();
+                await refresh();
+                focus_list_control('.share-modal-row-mode', key) || focus_dialog();
+                return;
+            }
             // Leaving takes away the access this list is read with, and the
             // items may leave the listing behind it (the Shared view) too.
             if ( ! group.teamUid && ! group.pending && group.name === window.user.username ) {
@@ -998,20 +1027,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                     : i18n('share_access_removed', { recipient: group.name }));
             }
             invalidate_shared_roots();
-            const listed_before = last_groups;
             await refresh();
-            // A refused item next to ones that went through still resolves;
-            // a fresh listing says how many they still hold.
-            const after = last_groups === listed_before ? null : group_for(key);
-            const held = new Set(after?.[group.pending ? 'pendingPaths' : 'directPaths']);
-            const kept = revoke_paths.filter((path) => held.has(path)).length;
-            if ( kept && revoke_paths.length > 1 ) {
-                show_error(i18n('share_access_removed_partial', {
-                    recipient: group.name,
-                    count: revoke_paths.length - kept,
-                    total: revoke_paths.length,
-                }));
-            }
             // The focused row is gone; the dialog itself takes focus (the
             // input would pop the on-screen keyboard on touch devices).
             if ( ! focus_moved_on() ) focus_dialog();

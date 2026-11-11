@@ -69,7 +69,7 @@ Object.assign(window, {
 const { default: UIItem } = await import('./UIItem.js');
 const { default: UIContextMenu } = await import('./UIContextMenu.js');
 const { default: UIAlert } = await import('./UIAlert.js');
-const { unshareAnswering, allRefused } =
+const { unshareAnswering, allRefused, goneRefused } =
     await import('../../tests/fixtures/sdkUnshare.js');
 const { default: refresh_item_container } =
     await import('../helpers/refreshItemContainer.js');
@@ -140,6 +140,16 @@ describe('UIItem Remove from Shared', () => {
 
         expect(UIAlert).toHaveBeenCalledWith({
             message: 'Held through a team',
+        });
+        expect($('.item').length).toBe(1);
+    });
+
+    it('keeps the item and shows why when the unshare resolves with the pair refused', async () => {
+        puter.fs.unshare = unshareAnswering(goneRefused);
+        await removeFromShared({});
+
+        expect(UIAlert).toHaveBeenCalledWith({
+            message: 'Subject does not exist',
         });
         expect($('.item').length).toBe(1);
     });

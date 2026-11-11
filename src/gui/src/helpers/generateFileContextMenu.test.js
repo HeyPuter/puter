@@ -52,7 +52,7 @@ const { default: generate_file_context_menu } =
     await import('./generateFileContextMenu.js');
 const { default: launch_app } = await import('./launchApp.js');
 const { default: UIAlert } = await import('../UI/UIAlert.js');
-const { unshareAnswering, allRefused } = await import('../../tests/fixtures/sdkUnshare.js');
+const { unshareAnswering, allRefused, goneRefused } = await import('../../tests/fixtures/sdkUnshare.js');
 
 const sharedRow = () => {
     const row = document.createElement('div');
@@ -114,12 +114,15 @@ describe('Remove from Shared', () => {
         UIAlert.mockReset();
     });
 
-    it('keeps the row and shows the error when leaving the share is refused', async () => {
+    it.each([
+        ['is refused', allRefused, 'Held through a team'],
+        ['resolves with the pair refused', goneRefused, 'Subject does not exist'],
+    ])('keeps the row and shows the error when leaving the share %s', async (_, answer, message) => {
         const row = sharedRow();
         document.body.append(row);
         const onRemovedFromShared = vi.fn();
         window.user = { username: 'alice' };
-        globalThis.puter = { fs: { unshare: unshareAnswering(allRefused) } };
+        globalThis.puter = { fs: { unshare: unshareAnswering(answer) } };
         const items = await generate_file_context_menu({
             element: row,
             fsentry: { name: 'notes.txt', path: '/ann/uid-1/notes.txt' },
@@ -128,7 +131,7 @@ describe('Remove from Shared', () => {
         });
         await items.find((item) => item.html === 'share_remove_from_shared').onClick();
 
-        expect(UIAlert).toHaveBeenCalledWith({ message: 'Held through a team' });
+        expect(UIAlert).toHaveBeenCalledWith({ message });
         expect(row.isConnected).toBe(true);
         expect(onRemovedFromShared).not.toHaveBeenCalled();
     });

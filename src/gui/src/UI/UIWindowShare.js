@@ -301,7 +301,8 @@ async function UIWindowShare (options) {
                 item_uid ??= created?.[0]?.entryUid ?? null;
                 show_success(i18n(mode === 'write' ? 'share_link_on_write' : 'share_link_on_read'));
             } else {
-                await puter.fs.unshare(item_path, { anyone: true });
+                const closed = await puter.fs.unshare(item_path, { anyone: true });
+                if ( closed?.failed?.length ) throw closed.failed[0];
                 show_success(i18n('share_link_off'));
             }
         } catch (e) {
@@ -416,7 +417,8 @@ async function UIWindowShare (options) {
         if ( ! confirmed ) return;
         $(this).prop('disabled', true);
         try {
-            await puter.fs.unshare(item_path, team ? { team: team.uid } : holder);
+            const removed = await puter.fs.unshare(item_path, team ? { team: team.uid } : holder);
+            if ( removed?.failed?.length ) throw removed.failed[0];
             // `i18n()` encodes what it returns, replacements included, so the
             // raw value goes in — encoding first would show the entities to
             // anyone whose address or username contains one.
