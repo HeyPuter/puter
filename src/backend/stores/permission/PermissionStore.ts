@@ -1598,18 +1598,21 @@ export class PermissionStore extends PuterStore {
             );
         }
         // Seeded from the primary so a check right after the mint finds it.
-        const rows = await this.clients.db.pread(
-            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
-            [tokenUid],
-        );
-        await this.writeCacheUnlessDeleted(
-            [this.#tokenCacheKey(tokenUid)],
-            () =>
-                this.#cacheAccessTokenPerms(
-                    tokenUid,
-                    rows.map((r) => String(r.permission)),
-                    true,
-                ),
+        const cacheKey = this.#tokenCacheKey(tokenUid);
+        let perms: string[];
+        try {
+            const rows = await this.clients.db.pread(
+                'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
+                [tokenUid],
+            );
+            perms = rows.map((r) => String(r.permission));
+        } catch {
+            // The grants are stored; the next read fills the cache.
+            await this.publishCacheKeys({ keys: [cacheKey], broadcast: true });
+            return;
+        }
+        await this.writeCacheUnlessDeleted([cacheKey], () =>
+            this.#cacheAccessTokenPerms(tokenUid, perms, true),
         );
     }
 

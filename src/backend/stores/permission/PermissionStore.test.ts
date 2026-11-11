@@ -1228,6 +1228,28 @@ describe('PermissionStore', () => {
             }
         });
 
+        it('records the grants when they cannot be read back to cache', async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            await server.clients.redis.set(`perms:token:${tokenUid}`, '[]');
+            const pread = vi
+                .spyOn(server.clients.db, 'pread')
+                .mockRejectedValueOnce(new Error('primary unavailable'));
+            try {
+                await store.insertAccessTokenPerms(
+                    tokenUid,
+                    { userId: 7, appId: null },
+                    [{ permission: 'fs:abc:read' }],
+                );
+                expect(pread).toHaveBeenCalledTimes(1);
+            } finally {
+                pread.mockRestore();
+            }
+            expect(await cachedTokenPerms(tokenUid)).toBeNull();
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                'fs:abc:read',
+            ]);
+        });
+
         it('caches nothing when the token is deleted while its grants are being cached', async () => {
             const tokenUid = `tok-${uuidv4()}`;
             const db = server.clients.db;
