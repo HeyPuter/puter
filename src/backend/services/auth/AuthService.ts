@@ -1889,7 +1889,7 @@ export class AuthService extends PuterService {
         }
         if (row.access_token_uid) {
             this.clients.event?.emit(
-                'auth.access-token.revoked',
+                'outer.auth.access-token.revoked',
                 { token_uid: row.access_token_uid },
                 {},
             );
@@ -2511,7 +2511,7 @@ export class AuthService extends PuterService {
         // Only a token the handshake admits has a socket to drop.
         if (mayBeFullAccess) {
             this.clients.event?.emit(
-                'auth.access-token.revoked',
+                'outer.auth.access-token.revoked',
                 { token_uid: tokenUid },
                 {},
             );
