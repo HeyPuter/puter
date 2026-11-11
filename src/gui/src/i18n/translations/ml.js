@@ -216,7 +216,6 @@ const ml = {
         security: 'സുരക്ഷ',
         select: 'തിരഞ്ഞെടുക്കുക',
         selected: 'തിരഞ്ഞെടുത്തു',
-        select_color: 'നിറം തിരഞ്ഞെടുക്കുക…',
         sessions: 'സെഷനുകൾ',
         send: 'അയയ്ക്കുക',
         send_password_recovery_email: 'പാസ്‌വേഡ് വീണ്ടെടുക്കൽ ഇമെയിൽ അയയ്ക്കുക',

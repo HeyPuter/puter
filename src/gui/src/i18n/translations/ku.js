@@ -232,7 +232,6 @@ const ku = {
         security: 'پاراستن',
         select: 'دیاریکردن',
         selected: 'دیاریکراو',
-        select_color: 'دیاریکردنی ڕەنگ …',
         sessions: 'دانیشتنەکان',
         send: 'ناردن',
         send_password_recovery_email: 'پەیامی ڕێکخستنەوەی وشەی تێپەڕ ناردن',

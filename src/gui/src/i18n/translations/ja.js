@@ -214,7 +214,6 @@ const ja = {
         security: 'セキュリティ',
         select: '選択',
         selected: '選択済み',
-        select_color: '色を選択…',
         sessions: 'セッション',
         send: '送信',
         send_password_recovery_email: 'パスワード回復メールを送信',

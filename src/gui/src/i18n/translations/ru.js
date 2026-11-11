@@ -239,7 +239,6 @@ const ru = {
         security: 'Безопасность',
         select: 'Выбрать',
         selected: 'выбрано',
-        select_color: 'Выбрать цвет…',
         sessions: 'Сеансы',
         send: 'Отправить',
         send_password_recovery_email:

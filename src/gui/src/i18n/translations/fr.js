@@ -244,7 +244,6 @@ const fr = {
         security: 'Sécurité',
         select: 'Sélectionner',
         selected: 'sélectionné',
-        select_color: 'Sélectionnez la couleur…',
         sessions: 'Sessions',
         send: 'Envoyer',
         send_password_recovery_email: 'Envoyer un e-mail de récupération de mot de passe',

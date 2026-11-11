@@ -233,7 +233,6 @@ const ig = {
         security: 'nche',
         select: 'Họrọ',
         selected: 'họrọ',
-        select_color: 'Họrọ agba…',
         sessions: 'Oge',
         send: 'Ziga',
         send_password_recovery_email: 'Zipu ozi-e mgbake paswọọdụ ',

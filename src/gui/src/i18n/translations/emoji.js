@@ -130,7 +130,6 @@ const emoji = {
         save_session_c2a: '💾👤🔄',
         select: '👉',
         selected: '✅',
-        select_color: '🎨👉',
         send: '📤',
         send_password_recovery_email: '📧🔑🔄',
         session_saved: '👤💾🔄',

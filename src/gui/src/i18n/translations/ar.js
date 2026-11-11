@@ -233,7 +233,6 @@ const ar = {
         security: 'الأمان',
         select: 'تحديد',
         selected: 'محدد',
-        select_color: '…اختر لونًا',
         sessions: 'جلسات',
         send: 'إرسال',
         send_password_recovery_email: 'إرسال بريد استعادة كلمة المرور',

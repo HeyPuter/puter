@@ -214,7 +214,6 @@ const br = {
         'security': 'Segurança',
         'select': 'Selecionar',
         'selected': 'selecionado',
-        'select_color': 'Selecionar cor…',
         'sessions': 'Sessões',
         'send': 'Enviar',
         'send_password_recovery_email': 'Enviar E-mail de Recuperação de Senha',

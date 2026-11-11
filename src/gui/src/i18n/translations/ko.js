@@ -241,7 +241,6 @@ const ko = {
         security: '보안',
         select: '선택',
         selected: '선택됨',
-        select_color: '색상 선택…',
         sessions: '세션',
         send: '보내기',
         send_password_recovery_email: '비밀번호 복구 이메일 보내기',

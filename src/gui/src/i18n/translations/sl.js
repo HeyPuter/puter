@@ -225,7 +225,6 @@ const sl = {
         security: 'Varnost',
         select: 'Izberi',
         selected: 'izbrano',
-        select_color: 'Izberite barvo …',
         sessions: 'Seje',
         send: 'Pošlji',
         send_password_recovery_email: 'Pošlji e-pošto za obnovitev gesla',

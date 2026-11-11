@@ -119,7 +119,6 @@ const nn = {
         save_account_to_publish: 'Vennligst opprett ein konto for å halde fram.',
         save_session_c2a: 'Opprett ein konto for å lagre gjeldande økt og unngå å miste arbeidet ditt.',
         select: 'Vel',
-        select_color: 'Vel farge…',
         send: 'Send',
         send_password_recovery_email: 'Send e-post for gjenoppretting av passord',
         session_saved: 'Takk for at du oppretta ein konto. Denne økta er lagra.',

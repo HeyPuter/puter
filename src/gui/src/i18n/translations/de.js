@@ -213,7 +213,6 @@ const de = {
         security: 'Sicherheit',
         select: 'Auswählen',
         selected: 'ausgewählt',
-        select_color: 'Farbe auswählen…',
         sessions: 'Sitzungen',
         send: 'Senden',
         send_password_recovery_email: 'Sende eine E-Mail, um Ihr Passwort wiederherzustellen',

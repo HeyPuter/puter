@@ -242,7 +242,6 @@ const my = {
         security: 'Keselamatan',
         select: 'Pilih',
         selected: 'dipilih',
-        select_color: 'Pilih warna…',
         sessions: 'Sesi',
         send: 'Hantar',
         send_password_recovery_email: 'Hantar Emel Pemulihan Kata Laluan',

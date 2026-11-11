@@ -214,7 +214,6 @@ const da = {
         security: 'Sikkerhed',
         select: 'Vælg',
         selected: 'valgt',
-        select_color: 'Vælg farve…',
         sessions: 'Sessioner',
         send: 'Send',
         send_password_recovery_email: 'Send e-mail til gendannelse af adgangskode',

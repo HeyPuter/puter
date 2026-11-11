@@ -213,7 +213,6 @@ const tr = {
         security: 'Güvenlik',
         select: 'Seç',
         selected: 'seçildi',
-        select_color: 'Renk seç…',
         sessions: 'Oturumlar',
         send: 'Gönder',
         send_password_recovery_email: 'Parola Kurtarma E-postası Gönder',

@@ -215,7 +215,6 @@ const nl = {
         security: 'Beveiliging',
         select: 'Selecteren',
         selected: 'geselecteerd',
-        select_color: 'Selecteer kleur…',
         sessions: 'Sessies',
         send: 'Verzenden',
         send_password_recovery_email: 'Wachtwoordherstelsmail verzenden',

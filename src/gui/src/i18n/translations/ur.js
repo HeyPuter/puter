@@ -220,7 +220,6 @@ const ur = {
         security: 'سیکورٹی',
         select: 'منتخب کریں',
         selected: 'منتخب شدہ',
-        select_color: 'رنگ منتخب کریں',
         send: 'بھیجیں',
         send_password_recovery_email: 'پاس ورڈ بحالی ای میل بھیجیں',
         session_saved: 'سیشن محفوظ ہوگیا ہے ',

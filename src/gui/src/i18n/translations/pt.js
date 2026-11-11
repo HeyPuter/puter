@@ -217,7 +217,6 @@ const pt = {
         security: 'Segurança',
         select: 'Selecionar',
         selected: 'selecionado',
-        select_color: 'Selecionar cor…',
         sessions: 'Sessions',
         send: 'Enviar',
         send_password_recovery_email: 'Enviar Email de Recuperação de Password',

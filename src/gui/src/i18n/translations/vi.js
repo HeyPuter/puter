@@ -214,7 +214,6 @@ const vi = {
         security: 'Bảo mật',
         select: 'Chọn',
         selected: 'đã chọn',
-        select_color: 'Chọn màu…',
         sessions: 'Phiên',
         send: 'Gửi',
         send_password_recovery_email: 'Gửi email khôi phục mật khẩu',

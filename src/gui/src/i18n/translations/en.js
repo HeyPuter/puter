@@ -535,7 +535,6 @@ const en = {
         security: 'Security',
         select: 'Select',
         selected: 'selected',
-        select_color: 'Select color…',
         sessions: 'Sessions',
         send: 'Send',
         send_password_recovery_email: 'Send Password Recovery Email',

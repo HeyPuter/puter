@@ -217,7 +217,6 @@ const bn = {
         security: 'নিরাপত্তা',
         select: 'নির্বাচন করুন',
         selected: 'নির্বাচিত',
-        select_color: 'রঙ নির্বাচন করুন…',
         sessions: 'সেশনগুলি',
         send: 'প্রেরণ করুন',
         send_password_recovery_email: 'পাসওয়ার্ড পুনরুদ্ধারের ইমেল প্রেরণ করুন',

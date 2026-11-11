@@ -235,7 +235,6 @@ const it = {
         security: 'Sicurezza',
         select: 'Seleziona',
         selected: 'Selezionato',
-        select_color: 'Seleziona un colore…',
         sessions: 'Sessioni',
         send: 'Invia',
         send_password_recovery_email:

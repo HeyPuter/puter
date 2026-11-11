@@ -214,7 +214,6 @@ const zh = {
         security: '安全',
         select: '选择',
         selected: '已选择',
-        select_color: '选择颜色…',
         sessions: '会话',
         send: '发送',
         send_password_recovery_email: '发送密码恢复电子邮件',

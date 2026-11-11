@@ -213,7 +213,6 @@ const hi = {
         security: 'सुरक्षा',
         select: 'चुने',
         selected: 'चयनित',
-        select_color: 'रंग चुने…',
         sessions: 'सत्र',
         send: 'भेजे',
         send_password_recovery_email: 'पासवर्ड पुनर्प्राप्ति ईमेल भेजें',

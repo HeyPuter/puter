@@ -238,7 +238,6 @@ const fa = {
         security: 'امنیت',
         select: 'انتخاب',
         selected: 'انتخاب شده',
-        select_color: 'انتخاب رنگ…',
         sessions: 'نشست ها',
         send: 'ارسال',
         send_password_recovery_email: 'ارسال ایمیل بازیابی رمز عبور',

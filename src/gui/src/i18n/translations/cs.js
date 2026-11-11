@@ -321,7 +321,6 @@ const cs = {
         "keyboard_shortcuts_undo": "Vrátit zpět poslední akci",
         "keyboard_shortcuts_open_item": "Otevřít vybranou položku",
         "keyboard_shortcuts_close_window": "Zavřít aktivní okno",
-        "select_color": "Vyberte barvu…",
         "keyboard_shortcuts_arrow_navigation": "Procházet nabídky a výběry",
         "keyboard_shortcuts_type_to_select": "Zadat název položky a přejít na ni",
         "keyboard_shortcuts_open_help": "Otevřít tuto příručku klávesových zkratek",

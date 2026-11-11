@@ -226,7 +226,6 @@ const fil = {
         security: 'Seguridad',
         select: 'Piliin',
         selected: 'napili',
-        select_color: 'Pumili ng kulay…',
         sessions: 'Mga session',
         send: 'Ipadala',
         send_password_recovery_email: 'Ipadala ang email sa pag-recover ng password',

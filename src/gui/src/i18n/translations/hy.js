@@ -237,7 +237,6 @@ const hy = {
         security: 'Անվտանգություն',
         select: 'Ընտրել',
         selected: 'ընտրված',
-        select_color: 'Ընտրել գույնը…',
         sessions: 'Սեսիաներ',
         send: 'Ուղարկել',
         send_password_recovery_email:

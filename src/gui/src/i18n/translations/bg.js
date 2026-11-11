@@ -248,7 +248,6 @@ const bg = {
         security: 'Сигурност',
         select: 'Избери',
         selected: 'избрано',
-        select_color: 'Избери цвят…',
         sessions: 'Сесии',
         send: 'Изпрати',
         send_password_recovery_email: 'Изпрати имейл за възстановяване на парола',

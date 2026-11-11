@@ -225,7 +225,6 @@ const nb = {
         security: 'Sikkerhet',
         select: 'Velg',
         selected: 'valgt',
-        select_color: 'Velg farge…',
         sessions: 'Økter',
         send: 'Send',
         send_password_recovery_email: 'Send e-post for gjenoppretting av passord',

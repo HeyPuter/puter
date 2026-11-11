@@ -231,7 +231,6 @@ const id = {
         security: 'Keamanan',
         select: 'Pilih',
         selected: 'dipilih',
-        select_color: 'Pilih warna…',
         sessions: 'Sesi',
         send: 'Kirim',
         send_password_recovery_email: 'Kirim Email Pemulihan Kata Sandi',

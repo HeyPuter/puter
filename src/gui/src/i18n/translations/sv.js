@@ -214,7 +214,6 @@ const sv = {
         security: 'Säkerhet',
         select: 'Välj',
         selected: 'vald',
-        select_color: 'Välj färg…',
         sessions: 'Sessioner',
         send: 'Skicka',
         send_password_recovery_email: 'Skicka e-post för återställning av lösenord',

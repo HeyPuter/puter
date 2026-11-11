@@ -214,7 +214,6 @@ const pl = {
         security: 'Bezpieczeństwo',
         select: 'Wybierz',
         selected: 'Wybrany',
-        select_color: 'Wybierz kolor…',
         sessions: 'Sesje',
         send: 'Wyślij',
         send_password_recovery_email: 'Wyślij email do odzyskiwania hasła',

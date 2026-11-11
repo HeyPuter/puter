@@ -211,7 +211,6 @@ const th = {
         security: 'ความปลอดภัย',
         select: 'เลือก',
         selected: 'ที่เลือก',
-        select_color: 'เลือกสี...',
         sessions: 'เซสชั่น',
         send: 'ส่ง',
         send_password_recovery_email: 'ส่งอีเมลกู้คืนรหัสผ่าน',

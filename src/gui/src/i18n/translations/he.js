@@ -229,7 +229,6 @@ const he = {
         security: 'אבטחה',
         select: 'לבחירה',
         selected: 'נבחר',
-        select_color: 'בחירת צבע…',
         sessions: 'חיבורים',
         send: 'שלח',
         send_password_recovery_email: 'שלח אימייל שחזור סיסמה',

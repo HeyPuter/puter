@@ -232,7 +232,6 @@ const zhtw = {
         security: '安全性',
         select: '選擇',
         selected: '已選擇',
-        select_color: '選擇顏色…',
         sessions: '工作階段',
         send: '發送',
         send_password_recovery_email: '發送密碼恢復電子郵件',

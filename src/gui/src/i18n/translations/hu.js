@@ -214,7 +214,6 @@ const hu = {
         security: 'Biztonság',
         select: 'Kiválasztás',
         selected: 'kiválasztva',
-        select_color: 'Szín kiválasztása...',
         sessions: 'Munkamenetek',
         send: 'Küldés',
         send_password_recovery_email: 'Jelszó visszaállító email küldése',

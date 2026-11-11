@@ -215,7 +215,6 @@ const ro = {
         security: 'Securitate',
         select: 'Selectează',
         selected: 'Selectat',
-        select_color: 'Selectează culoare…',
         sessions: 'Sesiuni',
         send: 'Trimite',
         send_password_recovery_email: 'Trimite mail de recuperare parolă',

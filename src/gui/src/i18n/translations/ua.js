@@ -217,7 +217,6 @@ const ua = {
         security: 'Безпека',
         select: 'Вибрати',
         selected: 'вибрано',
-        select_color: 'Вибрати колір…',
         sessions: 'Сеанси',
         send: 'Надіслати',
         send_password_recovery_email: 'Надіслати електронний лист для відновлення пароля',

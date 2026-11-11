@@ -242,7 +242,6 @@ const es = {
         security: 'Seguridad',
         select: 'Seleccionar',
         selected: 'seleccionado',
-        select_color: 'Seleccionar color…',
         sessions: 'Sesión',
         send: 'Enviar',
         send_password_recovery_email:

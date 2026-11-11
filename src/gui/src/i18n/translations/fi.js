@@ -282,7 +282,6 @@ const fi = {
         security: 'Turvallisuus',
         select: 'Valitse',
         selected: 'valitut',
-        select_color: 'Valitse väri…',
         sessions: 'Istunnot',
         send: 'Lähetä',
         send_password_recovery_email: 'Lähetä salasanan palautussähköposti',

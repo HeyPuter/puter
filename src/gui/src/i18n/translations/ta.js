@@ -240,7 +240,6 @@ const ta = {
         security: 'பாதுகாப்பு',
         select: 'தேர்ந்தெடு',
         selected: 'தேர்ந்தெடுக்கப்பட்டது',
-        select_color: 'வண்ணத்தைத் தேர்ந்தெடுக்கவும்…',
         sessions: 'அமர்வுகள்',
         send: 'அனுப்பு',
         send_password_recovery_email: 'கடவுச்சொல் மீட்பு மின்னஞ்சலை அனுப்பவும்',
