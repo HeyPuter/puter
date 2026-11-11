@@ -1021,7 +1021,7 @@ describe('PermissionStore', () => {
             } finally {
                 restore();
             }
-            expect(removed).toEqual([
+            expect(removed?.rows).toEqual([
                 { group_id: groupId, permission: `fs:${node}:read` },
             ]);
             expect(
@@ -1075,6 +1075,190 @@ describe('PermissionStore', () => {
                 ).toEqual([]);
             } finally {
                 restore();
+            }
+        });
+
+        const seedMember = async (issuerId: number, permission: string) => {
+            const member = await makeUser();
+            const groupId = await seedGroup(issuerId);
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [member.id, groupId],
+            );
+            await seedGroupPerm(issuerId, groupId, permission);
+            return { member, groupId };
+        };
+
+        const tombstoneSet = async (userId: number) =>
+            (await server.clients.redis.exists(
+                `perms:u2g:${userId}${CACHE_TOMBSTONE_SUFFIX}`,
+            )) > 0;
+
+        it('sends member reads to the primary before the grant is deleted', async () => {
+            const issuer = await makeUser();
+            const node = uuidv4();
+            const one = await seedMember(issuer.id, 'fs:order:read');
+            const many = await seedMember(issuer.id, `fs:${node}:read`);
+
+            const db = server.clients.db;
+            const primaryWrite = db.write.bind(db);
+            const seen: boolean[] = [];
+            const write = vi
+                .spyOn(db, 'write')
+                .mockImplementation(async (sql, params) => {
+                    if (String(sql).startsWith('DELETE FROM')) {
+                        seen.push(
+                            (await tombstoneSet(one.member.id)) ||
+                                (await tombstoneSet(many.member.id)),
+                        );
+                    }
+                    return primaryWrite(sql, params);
+                });
+            try {
+                await store.deleteUserGroupPerm(
+                    one.groupId,
+                    issuer.id,
+                    'fs:order:read',
+                );
+                await store.deleteUserGroupPermsByPermissionPrefixes([
+                    `fs:${node}`,
+                ]);
+            } finally {
+                write.mockRestore();
+            }
+            expect(seen).toEqual([true, true]);
+        });
+
+        it('leaves the grant in place when the member read fails', async () => {
+            const issuer = await makeUser();
+            const node = uuidv4();
+            const one = await seedMember(issuer.id, 'fs:retry:read');
+            const many = await seedMember(issuer.id, `fs:${node}:read`);
+
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation(async (sql, params) => {
+                    if (String(sql).includes('`jct_user_group` ug')) {
+                        throw new Error('primary unavailable');
+                    }
+                    return primaryRead(sql, params);
+                });
+            try {
+                await expect(
+                    store.deleteUserGroupPerm(
+                        one.groupId,
+                        issuer.id,
+                        'fs:retry:read',
+                    ),
+                ).rejects.toThrow('primary unavailable');
+                await expect(
+                    store.deleteUserGroupPermsByPermissionPrefixes([
+                        `fs:${node}`,
+                    ]),
+                ).rejects.toThrow('primary unavailable');
+            } finally {
+                pread.mockRestore();
+            }
+
+            // The retry still finds the grants and whose they were.
+            expect(
+                await store.deleteUserGroupPerm(
+                    one.groupId,
+                    issuer.id,
+                    'fs:retry:read',
+                ),
+            ).toEqual({
+                removed: true,
+                members: [{ id: one.member.id, uuid: expect.any(String) }],
+            });
+            expect(
+                await store.deleteUserGroupPermsByPermissionPrefixes([
+                    `fs:${node}`,
+                ]),
+            ).toEqual({
+                rows: [
+                    { group_id: many.groupId, permission: `fs:${node}:read` },
+                ],
+                members: [{ id: many.member.id, uuid: expect.any(String) }],
+            });
+        });
+
+        it('includes someone who joined while the grant was deleted', async () => {
+            const issuer = await makeUser();
+            const joiner = await makeUser();
+            const { member, groupId } = await seedMember(
+                issuer.id,
+                'fs:joined:read',
+            );
+
+            const db = server.clients.db;
+            const primaryWrite = db.write.bind(db);
+            const write = vi
+                .spyOn(db, 'write')
+                .mockImplementation(async (sql, params) => {
+                    if (String(sql).startsWith('DELETE FROM')) {
+                        await primaryWrite(
+                            'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                            [joiner.id, groupId],
+                        );
+                    }
+                    return primaryWrite(sql, params);
+                });
+            let result;
+            try {
+                result = await store.deleteUserGroupPerm(
+                    groupId,
+                    issuer.id,
+                    'fs:joined:read',
+                );
+            } finally {
+                write.mockRestore();
+            }
+            expect(result.removed).toBe(true);
+            expect(result.members.map((m) => m.id).sort()).toEqual(
+                [member.id, joiner.id].sort(),
+            );
+            expect(await tombstoneSet(joiner.id)).toBe(true);
+        });
+
+        it('still reports the removal when the second member read fails', async () => {
+            const issuer = await makeUser();
+            const { member, groupId } = await seedMember(
+                issuer.id,
+                'fs:reread:read',
+            );
+
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            let memberReads = 0;
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation(async (sql, params) => {
+                    if (
+                        String(sql).includes('`jct_user_group` ug') &&
+                        ++memberReads > 1
+                    ) {
+                        throw new Error('primary unavailable');
+                    }
+                    return primaryRead(sql, params);
+                });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            try {
+                expect(
+                    await store.deleteUserGroupPerm(
+                        groupId,
+                        issuer.id,
+                        'fs:reread:read',
+                    ),
+                ).toEqual({
+                    removed: true,
+                    members: [{ id: member.id, uuid: expect.any(String) }],
+                });
+            } finally {
+                pread.mockRestore();
+                warn.mockRestore();
             }
         });
 

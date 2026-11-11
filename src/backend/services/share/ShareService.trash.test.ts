@@ -286,6 +286,55 @@ describe('ShareService: deleting a shared item', () => {
         }
     });
 
+    it("drops a team member's cached access when the replica lacks them", async () => {
+        const owner = await makeUser();
+        const member = await makeUser();
+        const file = await makeFile(owner.user);
+        const groupUid = uuidv4();
+        await server.clients.db.write(
+            'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, `name`, ' +
+                '`extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+            [groupUid, owner.user.id, 'team', 'Team', '{}', '{}'],
+        );
+        const [group] = (await server.clients.db.read(
+            'SELECT id FROM `group` WHERE uid = ?',
+            [groupUid],
+        )) as { id: number }[];
+        await server.clients.db.write(
+            'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+            [member.user.id, group.id],
+        );
+        await server.stores.permission.upsertUserGroupPerm(
+            Number(group.id),
+            owner.user.id,
+            `fs:${file.uuid}:read`,
+            {},
+        );
+
+        // The replica has not seen the member join yet.
+        const db = server.clients.db;
+        const primaryRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(primaryRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                String(sql).includes('jct_user_group')
+                    ? []
+                    : primaryRead(sql, params),
+            );
+        const bump = vi.spyOn(server.stores.permission, 'bumpCacheGenerations');
+        try {
+            await server.services.share.onEntryDeleted(file.uuid);
+            expect(bump.mock.calls.flat(2)).toContain(
+                `user:${member.user.uuid}`,
+            );
+        } finally {
+            bump.mockRestore();
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    });
+
     it('does not answer whether a name is already in the owner\'s Trash', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();

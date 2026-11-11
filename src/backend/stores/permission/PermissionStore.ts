@@ -102,6 +102,11 @@ type DbRead = (
     params: unknown[],
 ) => Promise<Record<string, unknown>[]>;
 
+export interface GroupMember {
+    id: number;
+    uuid: string | null;
+}
+
 export interface LinkedUserUserPermRow {
     holder_user_id: number;
     issuer_user_id: number;
@@ -652,8 +657,11 @@ export class PermissionStore extends PuterStore {
     /** The group analogue: a deleted node's group grants must go with it. */
     async deleteUserGroupPermsByPermissionPrefixes(
         permissions: string[],
-    ): Promise<Array<{ group_id: number; permission: string }>> {
-        if (permissions.length === 0) return [];
+    ): Promise<{
+        rows: Array<{ group_id: number; permission: string }>;
+        members: GroupMember[];
+    }> {
+        if (permissions.length === 0) return { rows: [], members: [] };
         const { where, params } = subtreeClause(permissions);
 
         // The primary: a grant made just now may not have reached a replica.
@@ -662,14 +670,17 @@ export class PermissionStore extends PuterStore {
                 `WHERE ${where}`,
             params,
         )) as Array<{ group_id: number; permission: string }>;
-        if (rows.length === 0) return [];
+        if (rows.length === 0) return { rows, members: [] };
 
-        await this.clients.db.write(
-            `DELETE FROM \`user_to_group_permissions\` WHERE ${where}`,
-            params,
+        const { members } = await this.#deleteGroupGrants(
+            rows.map((row) => row.group_id),
+            () =>
+                this.clients.db.write(
+                    `DELETE FROM \`user_to_group_permissions\` WHERE ${where}`,
+                    params,
+                ),
         );
-        await this.#tombstoneGroupMembers(rows.map((row) => row.group_id));
-        return rows;
+        return { rows, members };
     }
 
     /**
@@ -1355,9 +1366,9 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return [];
         let permClause = permissions.map(() => 'p.permission = ?').join(' OR ');
         if (permissions.length > 1) permClause = `(${permClause})`;
-        const { tombstoned } = await this.readCacheUnlessDeleted(
+        const tombstoned = await this.isCacheKeyTombstoned([
             this.#u2gCacheKey(userId),
-        );
+        ]);
         const read: DbRead = tombstoned
             ? this.clients.db.pread.bind(this.clients.db)
             : this.clients.db.read.bind(this.clients.db);
@@ -1397,16 +1408,44 @@ export class PermissionStore extends PuterStore {
             .filter((uuid): uuid is string => Boolean(uuid));
     }
 
-    async #listGroupMembers(
-        groupId: number,
-    ): Promise<Array<{ id: number; uuid: string | null }>> {
+    async #listGroupMembers(groupIds: number[]): Promise<GroupMember[]> {
+        const ids = [...new Set(groupIds.map(Number))].filter((id) =>
+            Number.isFinite(id),
+        );
+        if (ids.length === 0) return [];
         const rows = (await this.clients.db.pread(
-            'SELECT u.`id`, u.`uuid` FROM `jct_user_group` ug ' +
+            'SELECT DISTINCT u.`id`, u.`uuid` FROM `jct_user_group` ug ' +
                 'JOIN `user` u ON u.`id` = ug.`user_id` ' +
-                'WHERE ug.`group_id` = ?',
-            [groupId],
+                `WHERE ug.\`group_id\` IN (${ids.map(() => '?').join(', ')})`,
+            ids,
         )) as { id: number; uuid: string | null }[];
         return rows.map((row) => ({ id: Number(row.id), uuid: row.uuid }));
+    }
+
+    /**
+     * Runs a delete of these groups' grants with their members' group reads
+     * already on the primary. Returns the members, later joiners included.
+     */
+    async #deleteGroupGrants<T>(
+        groupIds: number[],
+        deleteGrants: () => Promise<T>,
+    ): Promise<{ result: T; members: GroupMember[] }> {
+        // Before the delete: a failed member read leaves the grants to retry.
+        const members = await this.#listGroupMembers(groupIds);
+        await this.markGroupMembershipChanged(members.map((m) => m.id));
+        const result = await deleteGrants();
+        try {
+            const known = new Set(members.map((m) => m.id));
+            const joined = (await this.#listGroupMembers(groupIds)).filter(
+                (m) => !known.has(m.id),
+            );
+            await this.markGroupMembershipChanged(joined.map((m) => m.id));
+            members.push(...joined);
+        } catch (e) {
+            // The grants are gone; only someone who joined meanwhile is missed.
+            console.warn('[permission] group members not re-read:', e);
+        }
+        return { result, members };
     }
 
     /** Batched `readUserGroupPerms`, tagged with the user each row reached. */
@@ -1512,18 +1551,16 @@ export class PermissionStore extends PuterStore {
         groupId: number,
         issuerUserId: number,
         permission: string,
-    ): Promise<{
-        removed: boolean;
-        members: Array<{ id: number; uuid: string | null }>;
-    }> {
-        const result = await this.clients.db.write(
-            'DELETE FROM `user_to_group_permissions` ' +
-                'WHERE `group_id` = ? AND `user_id` = ? AND `permission` = ?',
-            [groupId, issuerUserId, permission],
+    ): Promise<{ removed: boolean; members: GroupMember[] }> {
+        const { result, members } = await this.#deleteGroupGrants(
+            [groupId],
+            () =>
+                this.clients.db.write(
+                    'DELETE FROM `user_to_group_permissions` ' +
+                        'WHERE `group_id` = ? AND `user_id` = ? AND `permission` = ?',
+                    [groupId, issuerUserId, permission],
+                ),
         );
-        // Read after the delete, so someone who joined meanwhile is included.
-        const members = await this.#listGroupMembers(groupId);
-        await this.markGroupMembershipChanged(members.map((m) => m.id));
         return { removed: result.anyRowsAffected, members };
     }
 
@@ -1542,21 +1579,6 @@ export class PermissionStore extends PuterStore {
             ttlSeconds: CACHE_TOMBSTONE_TTL_SECONDS,
             broadcast: true,
         });
-    }
-
-    async #tombstoneGroupMembers(groupIds: number[]): Promise<void> {
-        const ids = [...new Set(groupIds.map(Number))].filter((id) =>
-            Number.isFinite(id),
-        );
-        if (ids.length === 0) return;
-        const rows = (await this.clients.db.pread(
-            'SELECT DISTINCT `user_id` FROM `jct_user_group` ' +
-                `WHERE \`group_id\` IN (${ids.map(() => '?').join(', ')})`,
-            ids,
-        )) as { user_id: number }[];
-        await this.markGroupMembershipChanged(
-            rows.map((row) => Number(row.user_id)),
-        );
     }
 
     async auditUserGroupPerm(

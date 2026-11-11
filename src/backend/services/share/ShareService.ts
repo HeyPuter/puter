@@ -1808,19 +1808,13 @@ export class ShareService extends PuterService {
 
         // Group grants on the same node, and their members' caches: without
         // this they outlive the file and keep answering "allowed".
-        const removedGroups =
+        const { members } =
             await this.stores.permission.deleteUserGroupPermsByPermissionPrefixes(
                 uids.flatMap((uid) => [`fs:${uid}`, `manage:fs:${uid}`]),
             );
-        const memberUuids = (
-            await Promise.all(
-                [...new Set(removedGroups.map((row) => Number(row.group_id)))]
-                    .filter((id) => Number.isFinite(id))
-                    .map((id) =>
-                        this.stores.permission.listGroupMemberUuids(id),
-                    ),
-            )
-        ).flat();
+        const memberUuids = members
+            .map((member) => member.uuid)
+            .filter((uuid): uuid is string => Boolean(uuid));
 
         await this.stores.permission.bumpCacheGenerations([
             ...new Set([
