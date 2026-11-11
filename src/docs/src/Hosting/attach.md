@@ -12,7 +12,7 @@ When the user adds a new domain, the dialog shows the DNS records to set at thei
 
 Your app doesn't need any permission to call this method. The user makes the choice in the dialog, and your app only receives the domain they chose. Custom domains are billed to the user's Puter account, and the dialog shows the price before the user adds one.
 
-Inside Puter, the dialog is rendered by the desktop environment. On a website, a puter.com popup hosts the dialog and signs the user in first if needed.
+Inside Puter, the dialog is rendered by the desktop environment. On a website, a puter.com popup hosts the dialog and signs the user in first if needed. Puter's own apps on puter.com subdomains show it in a frame over the page instead, when the user is signed in to both.
 
 ## Syntax
 

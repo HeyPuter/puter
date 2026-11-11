@@ -51,6 +51,10 @@ const MAX_AUDIO_FILE_SIZE = 25 * 1024 * 1024;
 // Covers the upload as well as the conversion.
 const CONVERT_TIMEOUT_MS = 10 * 60 * 1000;
 
+const SUPPORTED_MODELS = Object.keys(VOICE_CHANGER_COSTS).map(
+    (key) => key.split(':')[1]!,
+);
+
 const VOICE_CHANGER_CATALOG: ProviderCatalog = {
     label: 'Speech-to-speech',
     ids: ['elevenlabs'],
@@ -165,14 +169,6 @@ export class VoiceChangerDriver extends PuterDriver {
             });
         }
 
-        const loaded = await loadFileInput(
-            this.stores,
-            this.services.fs,
-            actor,
-            args.audio,
-            { maxBytes: MAX_AUDIO_FILE_SIZE, acceptWebInput: true },
-        );
-
         const modelId =
             args.model_id || args.model || elevenlabs.defaultModelId;
         const voiceId =
@@ -184,21 +180,41 @@ export class VoiceChangerDriver extends PuterDriver {
             throw new HttpError(400, '`voice` is required', {
                 legacyCode: 'bad_request',
             });
-        // `voiceId` lands in the request URL path; `modelId` lands in a
-        // multipart field. Both are forwarded to ElevenLabs with our
-        // long-lived API key, so anything other than a strict alphanumeric
-        // shape lets a caller steer the request at a different endpoint or
-        // inject parameters. ElevenLabs voice/model IDs are always
-        // `[A-Za-z0-9_-]+` in practice.
-        const ID_REGEX = /^[A-Za-z0-9_-]+$/;
-        if (!ID_REGEX.test(voiceId))
+        // `voiceId` lands in the request URL path, which carries our API key,
+        // so anything outside ElevenLabs' `[A-Za-z0-9_-]+` id shape could
+        // steer the request at a different endpoint.
+        if (!/^[A-Za-z0-9_-]+$/.test(voiceId))
             throw new HttpError(400, '`voice` must be alphanumeric', {
                 legacyCode: 'bad_request',
             });
-        if (!ID_REGEX.test(modelId))
-            throw new HttpError(400, '`model` must be alphanumeric', {
-                legacyCode: 'bad_request',
-            });
+
+        // Gate on the cost table: an id we can't price is one we can't bill
+        // for, and ElevenLabs bills us for it either way. This also keeps
+        // anything but a known id out of the multipart `model_id` field.
+        const usageKey = `elevenlabs:${modelId}:second`;
+        if (!Object.hasOwn(VOICE_CHANGER_COSTS, usageKey)) {
+            throw new HttpError(
+                400,
+                `Invalid model: ${modelId}. Expected: ${SUPPORTED_MODELS.join(', ')}`,
+                {
+                    legacyCode: 'field_invalid',
+                    fields: {
+                        key: 'model',
+                        expected: SUPPORTED_MODELS,
+                        got: modelId,
+                    },
+                },
+            );
+        }
+        const ucentsPerSecond = VOICE_CHANGER_COSTS[usageKey]!;
+
+        const loaded = await loadFileInput(
+            this.stores,
+            this.services.fs,
+            actor,
+            args.audio,
+            { maxBytes: MAX_AUDIO_FILE_SIZE, acceptWebInput: true },
+        );
 
         // The hold estimates seconds from the input at 128 kbps: compact audio
         // is under-held rather than refused. Usage is metered from the length
@@ -207,8 +223,6 @@ export class VoiceChangerDriver extends PuterDriver {
             1,
             Math.ceil(loaded.buffer.byteLength / 16000),
         );
-        const usageKey = `elevenlabs:${modelId}:second`;
-        const ucentsPerSecond = VOICE_CHANGER_COSTS[usageKey] ?? 0;
         const estimatedCost = ucentsPerSecond * estimatedSeconds;
 
         const formData = new FormData();

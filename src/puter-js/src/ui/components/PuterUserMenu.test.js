@@ -26,6 +26,7 @@ const fakePuter = ({ token = null, user = null, picture = null } = {}) => {
         },
         ui: {
             showFeedbackDialog: vi.fn(() => new Promise(() => {})),
+            showTopUp_: vi.fn(() => new Promise(() => {})),
         },
         auth: {
             getProfilePicture: vi.fn(async () => currentPicture),
@@ -223,6 +224,80 @@ describe('<puter-user-menu>', () => {
         part(el, '.feedback').click();
         expect(sdk.ui.showFeedbackDialog).toHaveBeenCalledTimes(1);
         expect(shown(el, '.menu')).toBe(false);
+    });
+
+    it('offers Add credits, under Usage, to an account with a plan', async () => {
+        const sdk = fakePuter({ token: 't', user: { ...USER, subscribed: true } });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(true);
+        expect(part(el, '.add-credits').textContent).toBe('Add credits');
+        expect(part(el, '.usage').nextElementSibling).toBe(part(el, '.add-credits'));
+
+        part(el, '.add-credits').click();
+        expect(sdk.ui.showTopUp_).toHaveBeenCalledTimes(1);
+        expect(shown(el, '.menu')).toBe(false);
+    });
+
+    it.each([
+        ['an account without a plan', { ...USER, subscribed: false }],
+        ['a server that reports no plans', USER],
+        ['a seat whose team pays for it', { ...USER, subscribed: true, team: { uid: 'team-1', name: 'Acme' } }],
+    ])('leaves Add credits out for %s, and out of the arrow keys', async (_label, user) => {
+        vi.stubGlobal('puter', fakePuter({ token: 't', user }));
+        const el = await mount();
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(false);
+
+        part(el, '.usage').focus();
+        part(el, '.usage').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+        expect(el.shadowRoot.activeElement).toBe(part(el, '.open-puter'));
+    });
+
+    it('offers Add credits the next time the menu opens after an upgrade made on the page', async () => {
+        const account = { ...USER, subscribed: false };
+        vi.stubGlobal('puter', fakePuter({ token: 't', user: account }));
+        const el = await mount();
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(false);
+        part(el, '.avatar').click();
+
+        // What the SDK does to its cached whoami when a framed upgrade reports a plan.
+        account.subscribed = true;
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(true);
+    });
+
+    it('offers Add credits after an upgrade marks a whoami read again for the same token', async () => {
+        const sdk = fakePuter({ token: 't', user: { ...USER, subscribed: false } });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+
+        // Setting the token again reads whoami into a new object, which the upgrade then marks.
+        const reread = { ...USER, subscribed: false };
+        sdk.signInAs('t', reread);
+        sdk.whoami = reread;
+        await settle();
+        reread.subscribed = true;
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(true);
+
+        // Never another account's plan.
+        part(el, '.avatar').click();
+        sdk.whoami = { ...OTHER, subscribed: true };
+        part(el, '.avatar').click();
+        expect(shown(el, '.add-credits')).toBe(false);
+    });
+
+    it('stops offering Add credits once the sign-in changes to an account without a plan', async () => {
+        const sdk = fakePuter({ token: 't', user: { ...USER, subscribed: true } });
+        vi.stubGlobal('puter', sdk);
+        const el = await mount();
+        expect(part(el, '.add-credits').hidden).toBe(false);
+        sdk.signInAs('other-token', OTHER);
+        await settle();
+        expect(part(el, '.add-credits').hidden).toBe(true);
     });
 
     it('moves focus through the menu with the arrow, Home and End keys', async () => {

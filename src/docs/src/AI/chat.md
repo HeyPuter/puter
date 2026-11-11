@@ -385,6 +385,10 @@ The `usageDetails.serviceSpeed` field reports the served speed. Billing uses the
 
 ### OpenAI models
 
+Passing `service_tier: "priority"` selects fast service, and `service_tier: "ultrafast"` selects ultrafast service. These requests use the same prices and supported-speed selection as `serviceSpeed`. An explicit `serviceSpeed` takes precedence.
+
+Input and reasoning tokens reported by a non-streaming Responses API call are billed even when its output is empty. These charges apply whether the request fails or retries another provider.
+
 Fast service is available on models with a published Fast rate card. Ultrafast is available for GPT-6.1 Sol and GPT-6 Astra. Other models fall back to fast or standard. Cache and long-context rates apply to the served tier.
 
 #### `temperature`
@@ -587,6 +591,8 @@ MiniMax M3 uses Priority admission for fast service. Earlier models with an equi
 ### Mistral models
 
 Fast service requests Priority when the account and model are eligible. The provider can serve the request at standard speed.
+
+Passing `service_tier: "auto"` selects fast service, with the same prices as `serviceSpeed: "fast"`. An explicit `serviceSpeed` takes precedence.
 
 ### Alibaba Cloud models
 

@@ -1149,15 +1149,18 @@ const DRIVER_CONTENT_TYPE = 'text/plain;actually=json';
 
 const callInstance = (call) => call.puter ?? globalThis.puter;
 
-/** The wire body. Fields left `undefined` drop out of the JSON. */
+/**
+ * The wire body. Fields left `undefined` drop out of the JSON. The token goes
+ * first, where the server can read it before it has the rest of a large body.
+ */
 const callBody = (call, puter) =>
     JSON.stringify({
+        auth_token: puter.authToken,
         interface: call.iface,
         driver: call.driver,
         test_mode: call.testMode,
         method: call.method,
         args: call.args,
-        auth_token: puter.authToken,
     });
 
 const logCall = (call, fields) => {
