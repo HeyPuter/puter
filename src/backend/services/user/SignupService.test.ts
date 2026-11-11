@@ -435,6 +435,48 @@ describe('SignupService confirmation stream', () => {
         );
     });
 
+    it('drops the stream a claimed row held when the signup names none', async () => {
+        const username = `clm_${slug()}`;
+        const email = `${username}@example.com`;
+        const placeholder = await server.stores.user.create({
+            username: `ph_${slug()}`,
+            uuid: crypto.randomUUID(),
+            password: null,
+            email,
+        });
+        await server.stores.user.updateMetadata(placeholder.id, {
+            emailStream: 'review',
+        });
+        const send = vi.fn(async () => true);
+        const clients = server.clients as unknown as { email: unknown };
+        const realEmail = clients.email;
+        clients.email = { send };
+        try {
+            const { user } = await server.services.signup.signup({
+                req,
+                body: { username, email, password: 'correct horse battery' },
+                isTemp: false,
+                fingerprint: null,
+                bonusCode: null,
+            });
+            expect(user.id).toBe(placeholder.id);
+            expect(send).toHaveBeenCalledWith(
+                email,
+                'email_verification_code',
+                expect.anything(),
+                { stream: 'signup' },
+            );
+            const stored = await server.stores.user.getById(user.id, {
+                force: true,
+            });
+            expect(server.services.signup.confirmationStream(stored!)).toBe(
+                'signup',
+            );
+        } finally {
+            clients.email = realEmail;
+        }
+    });
+
     it('falls back to the signup stream for an account without one', () => {
         expect(
             server.services.signup.confirmationStream({

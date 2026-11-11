@@ -2816,7 +2816,7 @@ export class AuthController extends PuterController {
 
         await this.services.signup.sendConfirmationEmail(
             { ...user, username, email },
-            'signup',
+            'save-account',
             { code: email_confirm_code },
         );
 

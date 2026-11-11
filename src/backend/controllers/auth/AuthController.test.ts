@@ -7537,6 +7537,9 @@ describe('AuthController.handleSaveAccount', () => {
         const send = vi
             .spyOn(server.clients.email, 'send')
             .mockResolvedValue(null);
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
         try {
             const username = `s_${uniq()}`;
             await controller.handleSaveAccount(
@@ -7556,8 +7559,13 @@ describe('AuthController.handleSaveAccount', () => {
                 expect.anything(),
                 { stream: 'review' },
             );
+            // The dropped send is reported under its own stage.
+            expect(alarm.mock.calls.map((c) => c[0])).toEqual([
+                'auth:confirmation-email-send-failed:save-account',
+            ]);
         } finally {
             send.mockRestore();
+            alarm.mockRestore();
         }
     });
 

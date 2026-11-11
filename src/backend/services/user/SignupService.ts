@@ -52,6 +52,10 @@ const emailStreamName = (value: unknown): string | null => {
     return null;
 };
 
+/** Where a confirmation email was sent from; names its failure alarm. */
+export type ConfirmationEmailStage =
+    'signup' | 'save-account' | 'resend' | 'deferred';
+
 /** What `puter.signup.validate` and the bonus hooks decided about a signup. */
 export type SignupGateOutcome =
     | {
@@ -593,9 +597,13 @@ export class SignupService extends PuterService {
         }
 
         const emailGateLast = !isTemp && gate.emailGateLast;
+        // A claimed row may hold the stream of an earlier signup.
+        const storedStream = user.metadata?.emailStream ?? null;
         const metadataPatch = {
             ...(emailGateLast ? { emailGateLast: true } : {}),
-            ...(gate.emailStream ? { emailStream: gate.emailStream } : {}),
+            ...(gate.emailStream !== storedStream
+                ? { emailStream: gate.emailStream }
+                : {}),
         };
         if (Object.keys(metadataPatch).length > 0) {
             await this.stores.user.updateMetadata(user.id, metadataPatch);
@@ -726,7 +734,7 @@ export class SignupService extends PuterService {
      */
     async sendConfirmationEmail(
         user: UserRow,
-        stage: 'signup' | 'resend' | 'deferred',
+        stage: ConfirmationEmailStage,
         message: { code: string } | { token: string },
     ): Promise<boolean> {
         if (!this.clients.email || !user.email) return false;
@@ -908,7 +916,7 @@ export class SignupService extends PuterService {
      * phone/card gate is outstanding either.
      */
     #confirmationEmailFailed(
-        stage: 'signup' | 'resend' | 'deferred',
+        stage: ConfirmationEmailStage,
         user: UserRow,
         cause: unknown,
     ): void {
@@ -919,10 +927,13 @@ export class SignupService extends PuterService {
                 : cause === null
                   ? 'no transport configured (message dropped)'
                   : String(cause);
-        console.warn(
-            `[${stage === 'resend' ? 'send-confirm-email' : 'signup'}] ` +
-                `confirmation email not delivered: ${detail}`,
-        );
+        const route =
+            stage === 'resend'
+                ? 'send-confirm-email'
+                : stage === 'save-account'
+                  ? stage
+                  : 'signup';
+        console.warn(`[${route}] confirmation email not delivered: ${detail}`);
         // Best-effort: failing to alarm must not fail the signup.
         try {
             this.clients.alarm?.create(
