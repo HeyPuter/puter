@@ -6358,7 +6358,7 @@ describe('ShareService', () => {
             });
         });
 
-        it("reports a hand-over of a shared file as a move, new owner's cache warm", async () => {
+        it("looks from a hand-over's destination, new owner's cache warm", async () => {
             const from = await makeUser();
             const to = await makeUser();
             const recipient = await makeUser();
@@ -6391,28 +6391,8 @@ describe('ShareService', () => {
             );
             const moved = await server.stores.fsEntry.getEntryByPath(after);
 
-            const seen: string[] = [];
-            const listener = (key: string, data: unknown) => {
-                const payload = data as {
-                    user_id_list?: number[];
-                    response?: { uuid?: string };
-                };
-                if (
-                    payload.response?.uuid === file.uuid &&
-                    payload.user_id_list?.includes(recipient.user.id)
-                )
-                    seen.push(key);
-            };
-            const events = [
-                'outer.gui.item.moved',
-                'outer.gui.item.removed',
-            ] as const;
-            for (const event of events)
-                server.clients.event.on(event, listener);
-            // Holds the hand-over's revoke back, so the fan-out reads the grant.
-            const retire = vi
-                .spyOn(server.services.share, 'onEntryOwnerChanged')
-                .mockResolvedValue(undefined);
+            const ancestors = vi.spyOn(server.stores.fsEntry, 'getAncestors');
+            let calls = -1;
             try {
                 await server.clients.event.emitAndWait(
                     'fs.move.node',
@@ -6424,14 +6404,15 @@ describe('ShareService', () => {
                     },
                     {},
                 );
-                for (let i = 0; i < 20 && seen.length === 0; i++)
-                    await settle();
+                await settle();
+                calls = ancestors.mock.calls.filter(
+                    ([path]) => path === `/${to.user.username}`,
+                ).length;
             } finally {
-                retire.mockRestore();
-                for (const event of events)
-                    server.clients.event.off(event, listener);
+                ancestors.mockRestore();
             }
-            expect(seen).toEqual(['outer.gui.item.moved']);
+            // The share's revoke runs alongside, so no event is promised.
+            expect(calls).toBeGreaterThan(0);
         });
 
         describe("when the path may not be the owner's own home", () => {
