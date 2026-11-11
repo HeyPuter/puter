@@ -370,7 +370,7 @@ describe('revoke-own-access-token over HTTP', () => {
             const cached = await env.server.clients.redis.get(
                 `perms:token:${tokenUidOf(readToken)}`,
             );
-            expect(JSON.parse(cached!)).not.toEqual([]);
+            expect(cached).toBe(JSON.stringify([`fs:${file.uid}:read`]));
         } finally {
             replica.catchUp();
         }
@@ -411,7 +411,11 @@ describe('revoke-own-access-token over HTTP', () => {
         expect(await whoamiStatus(readToken)).toBe(401);
     });
 
-    it('keeps a revoked token dead while the replica still shows it live', async () => {
+    it('keeps a revoked token dead while the replica still shows it live', async ({
+        skip,
+    }) => {
+        // The frozen replica is a sqlite copy.
+        skip(process.env.PUTER_TEST_DB_ENGINE?.toLowerCase() === 'postgres');
         const owner = env.users.user;
         const file = await makeFile(owner);
         const { actor } = await env.server.services.auth.authenticate(
