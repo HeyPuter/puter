@@ -43,7 +43,6 @@ const bg = {
         change_email: 'Промяна на имейл',
         change_language: 'Промяна на езика',
         change_password: 'Промяна на паролата',
-        change_ui_colors: 'Промяна на цветовете на интерфейса',
         change_username: 'Промяна на потребителското име',
         close: 'Затвори',
         close_all_windows: 'Затвори всички прозорци',
@@ -268,7 +267,6 @@ const bg = {
         replace: 'Замени',
         replace_all: 'Замени всички',
         resend_confirmation_code: 'Изпрати отново кода за потвърждение',
-        reset_colors: 'Нулирай цветовете',
         restart_puter_confirm: 'Сигурни ли сте, че искате да рестартирате Puter?',
         restore: 'Възстанови',
         save: 'Запази',
@@ -338,7 +336,6 @@ const bg = {
         type: 'Тип',
         type_confirm_to_delete_account:
       "Въведете 'confirm', за да изтриете акаунта си.",
-        ui_colors: 'Цветове на интерфейса',
         ui_manage_sessions: 'Управление на сесии',
         ui_revoke: 'Отмени',
         undo: 'Върни',

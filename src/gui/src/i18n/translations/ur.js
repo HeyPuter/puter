@@ -39,7 +39,6 @@ const ur = {
         change_email: 'ای میل تبدیل کریں',
         change_language: 'زبان تبدیل کریں',
         change_password: 'پاس ورڈ تبدیل کریں',
-        change_ui_colors: 'یوزر انٹرفیس کے رنگ تبدیل کریں۔',
         change_username: 'صارف کا نام تبدیل کریں',
         close: 'بند کریں',
         close_all_windows: 'تمام ونڈوز بند کریں',
@@ -238,7 +237,6 @@ const ur = {
         replace: 'بدل دیں۔',
         replace_all: 'سبھی کو تبدیل کریں۔',
         resend_confirmation_code: 'تصدیقی کوڈ دوبارہ بھیجیں',
-        reset_colors: 'رنگوں کو دوبارہ ترتیب دیں۔',
         restart_puter_confirm: 'کیا آپ واقعی Puter کو دوبارہ شروع کرنا چاہتے ہیں؟',
         restore: 'بحال کریں',
         saturation: 'سنترپتی',
@@ -294,7 +292,6 @@ const ur = {
         type: 'لکہنا',
         type_confirm_to_delete_account:
       "اپنا اکاؤنٹ حذف کرنے کے لیے 'تصدیق' ٹائپ کریں۔",
-        ui_colors: 'UI رنگ',
         ui_manage_sessions: 'سیشن مینیجر',
         ui_revoke: 'منسوخ کرنا',
         undo: 'واپسی کریں',

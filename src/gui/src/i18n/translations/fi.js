@@ -47,7 +47,6 @@ const fi = {
         change_email: 'Vaihda sähköpostiosoite',
         change_language: 'Vaihda kieli',
         change_password: 'Vaihda salasana',
-        change_ui_colors: 'Vaihda käyttöliittymän värejä',
         change_username: 'Vaihda käyttäjänimi',
         close: 'Sulje',
         close_all_windows: 'Sulje kaikki ikkunat',
@@ -302,7 +301,6 @@ const fi = {
         replace: 'Replace',
         replace_all: 'Korvaa kaikki',
         resend_confirmation_code: 'Lähetä vahvistuskoodi Uudelleen',
-        reset_colors: 'Palauta värit',
         restart_puter_confirm: 'Haluatko varmasti käynnistää Puterin uudelleen?',
         restore: 'Palauta',
         save: 'Tallenna',
@@ -375,7 +373,6 @@ const fi = {
         // "Type on the keyboard" => 'Kirjoita'
 
         type_confirm_to_delete_account: "Kirjoita 'vahvista' poistaaksesi tilisi.",
-        ui_colors: 'Käyttöliittymän värit',
         ui_manage_sessions: 'Istunnon hallinta',
         ui_revoke: 'Peruuta',
         undo: 'Kumoa',

@@ -41,7 +41,6 @@ const ta = {
         change_email: 'மின்னஞ்சலை மாற்றவும்',
         change_language: 'மொழியை மாற்றவும்',
         change_password: 'கடவுச்சொல்லை மாற்றவும்',
-        change_ui_colors: 'யுஐ நிறங்களை மாற்றவும்',
         change_username: 'பயனர் பெயரை மாற்றவும்',
         close: 'மூடு',
         close_all_windows: 'அனைத்து விண்டோஸ் மூடு',
@@ -259,7 +258,6 @@ const ta = {
         replace: 'மாற்றவும்',
         replace_all: 'அனைத்தையும் மாற்றவும்',
         resend_confirmation_code: 'உறுதிப்படுத்தல் குறியீட்டை மீண்டும் அனுப்பவும்',
-        reset_colors: 'வண்ணங்களை மீட்டமைக்கவும்',
         restart_puter_confirm:
       'நிச்சயமாக புட்டர்-ஐ மீண்டும் தொடங்க விரும்புகிறீர்களா?',
         restore: 'மீட்டமை',
@@ -325,7 +323,6 @@ const ta = {
         type: 'வகை',
         type_confirm_to_delete_account:
       "உங்கள் கணக்கை நீக்க, 'உறுதிப்படுத்து' என தட்டச்சு செய்யவும்.",
-        ui_colors: 'UI நிறங்கள்',
         ui_manage_sessions: 'அமர்வு மேலாளர்',
         ui_revoke: 'திரும்பப் பெறு',
         undo: 'செயல்தவிர்',

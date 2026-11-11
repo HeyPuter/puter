@@ -43,7 +43,6 @@ const fa = {
         change_email: 'تغییر ایمیل',
         change_language: 'تغییر زبان',
         change_password: 'تغییر رمز عبور',
-        change_ui_colors: 'تغییر رنگ‌های رابط کاربری',
         change_username: 'تغییر نام کاربری',
         close: 'بستن',
         close_all_windows: 'بستن همه پنجره ها',
@@ -255,7 +254,6 @@ const fa = {
         replace: 'جایگزین کردن',
         replace_all: 'جایگزینی همه',
         resend_confirmation_code: 'ارسال مجدد کد تأیید',
-        reset_colors: 'بازنشانی رنگ ها',
         restart_puter_confirm:
       'آیا مطمئن هستید که می‌خواهید پیوتر را مجددا راه اندازی کنید',
         restore: 'بازیابی',
@@ -316,7 +314,6 @@ const fa = {
         type: 'نوع',
         type_confirm_to_delete_account:
       "عبارت 'تأیید' را برای حذف حساب خود وارد کنید",
-        ui_colors: 'رنگ‌های رابط کاربری',
         ui_manage_sessions: 'مدیریت نشستها', // TN: better to use sessions instead of نشستها
         ui_revoke: 'لغو',
         undo: 'بازگشت',

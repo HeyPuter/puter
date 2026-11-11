@@ -41,7 +41,6 @@ const ru = {
         change_email: 'Изменить электронную почту',
         change_language: 'Изменить язык',
         change_password: 'Изменить пароль',
-        change_ui_colors: 'Изменить тему оформления',
         change_username: 'Изменить имя пользователя',
         close: 'Закрыть',
         close_all_windows: 'Закрыть все окна',
@@ -254,7 +253,6 @@ const ru = {
         replace: 'Заменить',
         replace_all: 'Заменить все',
         resend_confirmation_code: 'Повторно отправить код подтверждения',
-        reset_colors: 'Сбросить цвета',
         restart_puter_confirm: 'Вы уверены, что хотите перезапустить Puter?',
         restore: 'Восстановить',
         save: 'Сохранить',
@@ -320,7 +318,6 @@ const ru = {
         type: 'Тип',
         type_confirm_to_delete_account:
       "Введите 'подтвердить', чтобы удалить учетную запись.",
-        ui_colors: 'Цвета пользовательского интерфейса',
         ui_manage_sessions: 'Менеджер Сеансов',
         ui_revoke: 'Отозвать',
         undo: 'Отменить',

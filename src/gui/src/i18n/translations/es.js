@@ -48,7 +48,6 @@ const es = {
         change_email: 'Cambiar Correo Electrónico',
         change_language: 'Cambiar Idioma',
         change_password: 'Cambiar Contraseña',
-        change_ui_colors: 'Cambiar colores de la interfaz',
         change_username: 'Cambiar Nombre de Usuario',
         close: 'Cerrar',
         close_all_windows: 'Cerrar todas las ventanas',
@@ -263,7 +262,6 @@ const es = {
         replace: 'Remplazar',
         replace_all: 'Replace All',
         resend_confirmation_code: 'Reenviar Código de Confirmación',
-        reset_colors: 'Restablecer colores',
         restart_puter_confirm: '¿Estás seguro que deseas reiniciar Puter?',
         restore: 'Restaurar',
         save: 'Guardar',
@@ -325,7 +323,6 @@ const es = {
         type: 'Tipo',
         type_confirm_to_delete_account:
       "Ingrese 'Confirmar' para borrar esta cuenta.",
-        ui_colors: 'Colores de interfaz',
         ui_manage_sessions: 'Administrador de sesión',
         ui_revoke: 'Revocar',
         undo: 'Deshacer',
