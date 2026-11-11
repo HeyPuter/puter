@@ -723,16 +723,6 @@ export class ShareNotificationService extends PuterService {
             skipped('address is on a blocked domain', { holderId });
             return;
         }
-        if (
-            !(await mayEmailNotify(
-                this.clients.event,
-                to,
-                'file_shared_with_you',
-            ))
-        ) {
-            skipped('a listener declined the address', { holderId });
-            return;
-        }
 
         // Items are built per share before the holder is loaded; the links
         // also name the holder, so the GUI can offer this account.
@@ -1049,6 +1039,17 @@ export class ShareNotificationService extends PuterService {
                     ? (matches.values().next().value ?? null)
                     : null;
             const [{ record: first }] = claimed;
+            const template =
+                first.kind === 'holder'
+                    ? 'file_shared_with_you'
+                    : 'file_shared_invite';
+            // Asked at send: an entry may have waited out a window or a retry.
+            if (
+                !(await mayEmailNotify(this.clients.event, first.to, template))
+            ) {
+                skipped('a listener declined the address', { key });
+                return;
+            }
             console.log('[share-notify] sending digest:', {
                 key,
                 kind: first.kind,

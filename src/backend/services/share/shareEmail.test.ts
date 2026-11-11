@@ -795,21 +795,12 @@ describe('share email', () => {
             await waitForMail({ to: keptHolder.email });
             await sleep(SETTLE_MS);
             expect(mailTo(skippedHolder.email)).toHaveLength(0);
-            expect(seen).toHaveLength(2);
-            expect(seen).toEqual(
-                expect.arrayContaining([
-                    {
-                        to: skippedHolder.email,
-                        kind: 'file_shared_with_you',
-                        allow: true,
-                    },
-                    {
-                        to: keptHolder.email,
-                        kind: 'file_shared_with_you',
-                        allow: true,
-                    },
-                ]),
-            );
+            // Each holder is asked once, when their digest is sent.
+            for (const to of [skippedHolder.email, keptHolder.email]) {
+                expect(seen.filter((event) => event.to === to)).toEqual([
+                    { to, kind: 'file_shared_with_you', allow: true },
+                ]);
+            }
             // Only the mail is skipped; the share itself stands.
             await eventually('the share to be listed anyway', async () =>
                 (await sharedWithMe(skippedHolder.token)).some(
@@ -867,7 +858,7 @@ describe('share email', () => {
             vi.spyOn(console, 'error').mockImplementation(() => {});
             const asked: string[] = [];
             listen((_key, data) => {
-                asked.push(data.to);
+                if (data.to === invitee) asked.push(data.to);
                 throw new Error('listener failed');
             });
 
@@ -876,7 +867,30 @@ describe('share email', () => {
 
             const mail = await waitForMail({ to: invitee });
             expect(mail.html).toContain(file.name);
-            expect(asked).toEqual([invitee]);
+            // Once before the invite budget is claimed, once at send.
+            expect(asked).toEqual([invitee, invitee]);
+        });
+
+        it('asks again when the digest is sent, and honours that answer', async () => {
+            const owner = env.users.user;
+            const invitee = uninvitedAddress();
+            const answers: boolean[] = [];
+            listen((_key, data) => {
+                if (data.to !== invitee) return;
+                // Allowed when queued, declined by the time it is sent.
+                data.allow = answers.length === 0;
+                answers.push(data.allow);
+            });
+
+            const file = await makeFile(owner, 'notify-at-send');
+            await shareWith(owner, invitee, [{ uid: file.uid }]);
+
+            await eventually('the digest to be asked about', async () =>
+                answers.length === 2,
+            );
+            await sleep(SETTLE_MS);
+            expect(answers).toEqual([true, false]);
+            expect(mailTo(invitee)).toHaveLength(0);
         });
     });
 
