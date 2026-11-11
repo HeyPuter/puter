@@ -190,6 +190,39 @@ describe('VoiceChangerDriver.convert argument validation', () => {
             withActor(actor, () => driver.convert({ audio: undefined })),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
+
+    it.each([
+        ['an unpriced', 'eleven_multilingual_sts_v1'],
+        ['a malformed', 'eleven_english_sts_v2&x=1'],
+    ])(
+        'rejects %s model before loading audio or calling ElevenLabs',
+        async (_label, model) => {
+            const { actor } = await makeUser();
+            await expect(
+                withActor(actor, () =>
+                    driver.convert({
+                        audio: 'https://audio.example/sample.wav',
+                        model,
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'field_invalid',
+                fields: {
+                    key: 'model',
+                    expected: [
+                        'eleven_multilingual_sts_v2',
+                        'eleven_english_sts_v2',
+                    ],
+                    got: model,
+                },
+            });
+            expect(webFetchMock).not.toHaveBeenCalled();
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(admitSpy).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+        },
+    );
 });
 
 // ── Credit gate ─────────────────────────────────────────────────────
