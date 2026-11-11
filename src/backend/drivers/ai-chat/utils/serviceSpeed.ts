@@ -59,6 +59,26 @@ export interface ServiceSpeedSelection {
     speed: ServiceSpeed;
 }
 
+/**
+ * The speed a request asks for. Native premium tier parameters count as the
+ * matching `serviceSpeed`, so they are priced like it; `serviceSpeed` wins.
+ */
+export const requestedServiceSpeed = (
+    args: Pick<ICompleteArguments, 'serviceSpeed' | 'service_tier' | 'speed'>,
+    provider: string | undefined,
+): ServiceSpeed | undefined => {
+    if (args.serviceSpeed !== undefined) return args.serviceSpeed;
+    if (args.service_tier === 'ultrafast') return 'ultrafast';
+    if (
+        args.service_tier === 'priority' ||
+        (provider === 'claude' && args.speed === 'fast') ||
+        // Mistral's `auto` tier is its priority tier.
+        (provider === 'mistral' && args.service_tier === 'auto')
+    )
+        return 'fast';
+    return undefined;
+};
+
 /** Select only an equivalent model from the same provider's loaded catalog. */
 export const selectServiceSpeed = (
     model: IChatModel,
@@ -201,16 +221,27 @@ export const servedServiceSpeed = (
           : 'standard';
 };
 
+/**
+ * The model priced at the speed the provider served. Without a selection
+ * snapshot the catalog's rates for that speed apply, so a premium tier reached
+ * some other way is never billed as standard.
+ */
 export const serviceSpeedBillingModel = (
     model: IChatModel,
     speed: ServiceSpeed,
 ): IChatModel => {
-    const pricing = model.serviceSpeedPricing;
-    if (!pricing || pricing.speed === speed) return model;
+    const pricing = model.serviceSpeedPricing ?? {
+        speed: 'standard',
+        standardCosts: model.costs,
+        standardOverrides: model.pricingOverrides,
+        fastCosts: serviceSpeedCosts(model, 'fast'),
+        ultrafastCosts: serviceSpeedCosts(model, 'ultrafast'),
+    };
+    if (pricing.speed === speed) return model;
     const costs =
-        speed === 'fast'
-            ? (pricing.fastCosts ?? pricing.standardCosts)
-            : pricing.standardCosts;
+        (speed === 'ultrafast' ? pricing.ultrafastCosts : undefined) ??
+        (speed !== 'standard' ? pricing.fastCosts : undefined) ??
+        pricing.standardCosts;
     return {
         ...model,
         costs,

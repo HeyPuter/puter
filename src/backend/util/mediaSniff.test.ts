@@ -18,7 +18,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { decodeStrictBase64 } from './mediaSniff.ts';
+import {
+    decodeStrictBase64,
+    decodeStrictBase64InSlices,
+} from './mediaSniff.ts';
 
 describe('decodeStrictBase64', () => {
     it.each([
@@ -48,5 +51,54 @@ describe('decodeStrictBase64', () => {
             const corrupt = `${valid.slice(0, at)}*${valid.slice(at + 1)}`;
             expect(decodeStrictBase64(corrupt)).toBeNull();
         }
+    });
+});
+
+describe('decodeStrictBase64InSlices', () => {
+    // Several slices, with a last one that is partial and padded.
+    const bytes = Buffer.alloc(5 * 1024 * 1024 + 2);
+    for (let i = 0; i < bytes.length; i += 4099) bytes[i] = i % 251;
+    const valid = bytes.toString('base64');
+
+    it('decodes a multi-MB payload to the same bytes', async () => {
+        expect(valid.endsWith('==')).toBe(true);
+        expect((await decodeStrictBase64InSlices(valid))?.equals(bytes)).toBe(
+            true,
+        );
+        const short = Buffer.from('abcd').toString('base64');
+        expect(await decodeStrictBase64InSlices(short)).toEqual(
+            Buffer.from('abcd'),
+        );
+    });
+
+    it.each([
+        ['empty input', ''],
+        ['unpadded input', valid.slice(0, -2)],
+        [
+            'a character outside the alphabet in the first slice',
+            `*${valid.slice(1)}`,
+        ],
+        [
+            'a character outside the alphabet in the last slice',
+            `${valid.slice(0, -5)}*${valid.slice(-4)}`,
+        ],
+        [
+            'the URL-safe alphabet',
+            `${valid.slice(0, 3_000_000)}-${valid.slice(3_000_001)}`,
+        ],
+        [
+            'a non-ASCII character',
+            `${valid.slice(0, 3_000_000)}ī${valid.slice(3_000_001)}`,
+        ],
+        [
+            'padding where a slice ends',
+            `${valid.slice(0, 1024 * 1024 - 1)}=${valid.slice(1024 * 1024)}`,
+        ],
+        [
+            'padding inside a slice',
+            `${valid.slice(0, 2_000_002)}==${valid.slice(2_000_004)}`,
+        ],
+    ])('rejects %s', async (_label, value) => {
+        expect(await decodeStrictBase64InSlices(value)).toBeNull();
     });
 });

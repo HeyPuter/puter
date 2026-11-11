@@ -5,7 +5,8 @@
  * Signed out (a temporary account counts as signed out), it shows a Sign in
  * button. Signed in, it shows the user's profile picture (or initial), which
  * opens a menu with the account, links to manage it, see its usage and open
- * Puter, Send feedback, and Sign out. On a page one subdomain under
+ * Puter, Add credits for an account with a plan, Send feedback, and Sign out.
+ * On a page one subdomain under
  * the Puter origin, an Apps button opens Puter's app browser in a panel under
  * it, for the same user: signed out, or signed in as an account other than
  * the Puter session's, the browser shows only recommended apps. The browser
@@ -13,8 +14,8 @@
  * Renders nothing inside the Puter desktop.
  *
  * Attributes: theme, apps-label, sign-in-label, sign-out-label, close-label,
- *   account-label, manage-account-label, usage-label, open-puter-label,
- *   feedback-label
+ *   account-label, manage-account-label, usage-label, add-credits-label,
+ *   open-puter-label, feedback-label
  * Parts: apps-button, avatar, sign-in, menu, apps-panel
  * Events: signin (detail.user), signout
  */
@@ -37,6 +38,7 @@ const LABELS = {
     'account-label': 'Account',
     'manage-account-label': 'Manage account',
     'usage-label': 'Usage',
+    'add-credits-label': 'Add credits',
     'open-puter-label': 'Open Puter',
     'feedback-label': 'Send feedback',
 };
@@ -47,6 +49,9 @@ const MENU_LINKS = [
     { className: 'usage', label: 'usage-label', path: '/dashboard/#usage' },
     { className: 'open-puter', label: 'open-puter-label', path: '/' },
 ];
+
+// Sits under Usage, and shows only for an account with a plan.
+const ADD_CREDITS_ITEM = '<button type="button" class="menu-item add-credits" role="menuitem" hidden></button>';
 
 // Gap between a panel and the viewport edge, and between its caret and corners.
 const EDGE = 8;
@@ -513,7 +518,7 @@ class PuterUserMenu extends PuterWebComponent {
                         <span class="menu-email" hidden></span>
                     </span>
                 </div>
-                ${MENU_LINKS.map(link => `<a class="menu-item ${link.className}" role="menuitem" target="_blank" rel="noopener"><span class="menu-label"></span>${EXTERNAL_ICON}</a>`).join('')}
+                ${MENU_LINKS.map(link => `<a class="menu-item ${link.className}" role="menuitem" target="_blank" rel="noopener"><span class="menu-label"></span>${EXTERNAL_ICON}</a>${link.className === 'usage' ? ADD_CREDITS_ITEM : ''}`).join('')}
                 <button type="button" class="menu-item feedback" role="menuitem"></button>
                 <div class="menu-separator" role="separator"></div>
                 <button type="button" class="menu-item sign-out" role="menuitem"></button>
@@ -548,6 +553,7 @@ class PuterUserMenu extends PuterWebComponent {
         for ( const link of MENU_LINKS ) {
             this.$(`.${link.className}`).addEventListener('click', () => this._closePanels());
         }
+        this.$('.add-credits').addEventListener('click', () => this._addCredits());
         this.$('.feedback').addEventListener('click', () => this._sendFeedback());
         this.$('.sign-out').addEventListener('click', () => this._signOut());
         this.$('.apps-close').addEventListener('click', () => this._closePanels({ returnFocus: true }));
@@ -581,6 +587,7 @@ class PuterUserMenu extends PuterWebComponent {
         close.title = this._label('close-label');
         this.$('.sign-in').textContent = this._label('sign-in-label');
         this.$('.sign-out').textContent = this._label('sign-out-label');
+        this.$('.add-credits').textContent = this._label('add-credits-label');
         this.$('.feedback').textContent = this._label('feedback-label');
         for ( const link of MENU_LINKS ) {
             this.$(`.${link.className} .menu-label`).textContent = this._label(link.label);
@@ -596,6 +603,19 @@ class PuterUserMenu extends PuterWebComponent {
         const username = this._username();
         const account = this._label('account-label');
         this.$('.avatar').setAttribute('aria-label', username ? `${account}: ${username}` : account);
+    }
+
+    /**
+     * Add-on credit is sold to accounts with a plan, which whoami reports where there are
+     * plans. A seat's plan is its team's, and so is paying for its usage.
+     */
+    _renderAddCredits () {
+        // The SDK reads whoami into a new object when the same token is set again,
+        // and an upgrade made on the page marks that one.
+        const cached = globalThis.puter.whoami;
+        const user = cached?.uuid && cached.uuid === this.#user?.uuid ? cached : this.#user;
+        const isSeat = typeof user?.team?.uid === 'string' && user.team.uid !== '';
+        this.$('.add-credits').hidden = user?.subscribed !== true || isSeat;
     }
 
     _renderState () {
@@ -614,6 +634,7 @@ class PuterUserMenu extends PuterWebComponent {
         const email = typeof this.#user?.email === 'string' ? this.#user.email : '';
         this.$('.menu-email').textContent = email;
         this.$('.menu-email').hidden = !email;
+        this._renderAddCredits();
         for ( const link of MENU_LINKS ) {
             this.$(`.${link.className}`).href = new URL(link.path, globalThis.puter.defaultGUIOrigin).href;
         }
@@ -705,13 +726,15 @@ class PuterUserMenu extends PuterWebComponent {
      */
     _openMenu ({ fromKeyboard = false } = {}) {
         const menu = this.$('.menu');
+        // An upgrade made on the page since the account loaded gives it a plan.
+        this._renderAddCredits();
         this._showPanel(menu);
         (fromKeyboard ? this.$('.menu-item') : menu).focus({ preventScroll: true });
     }
 
     /** Moves focus between menu items for an arrow, Home or End key; false for any other key. */
     _moveMenuFocus (key) {
-        const items = [...this.$$('.menu .menu-item')];
+        const items = [...this.$$('.menu .menu-item:not([hidden])')];
         const current = items.indexOf(this.shadowRoot.activeElement);
         const last = items.length - 1;
         const next = {
@@ -784,6 +807,13 @@ class PuterUserMenu extends PuterWebComponent {
                 this.#signingIn = false;
             },
         );
+    }
+
+    _addCredits () {
+        // Focus goes back to the account button, where the dialog leaves it when it closes.
+        this._closePanels({ returnFocus: true });
+        // Called inside the click, so a tab it falls back to isn't blocked.
+        void globalThis.puter.ui.showTopUp_();
     }
 
     _sendFeedback () {
