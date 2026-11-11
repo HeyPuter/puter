@@ -87,6 +87,26 @@ describe('ui.requestUpgrade on a signed-in first-party page', () => {
         expect(window.open).not.toHaveBeenCalled();
     });
 
+    it('marks the page\'s cached account as having a plan once the user upgrades', async () => {
+        const account = { uuid: USER, subscribed: false };
+        puter.whoamiCache_ = Promise.resolve(account);
+        const ui = makeUI();
+
+        let result = ui.requestUpgrade(DETAILS);
+        await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed' });
+        await result;
+        expect(account.subscribed).toBe(false);
+
+        result = ui.requestUpgrade(DETAILS);
+        await vi.waitFor(() => expect(upgradeFrame()).not.toBeNull());
+        fromFrame({ msg: 'puterPopupFrame', state: 'ready' });
+        fromFrame({ msg: 'puterPopupFrame', state: 'closed', upgraded: true });
+        await result;
+        expect(account.subscribed).toBe(true);
+    });
+
     it('says the upgrade is showing from the call until it closes', async () => {
         const ui = makeUI();
         expect(ui.upgradeFrameShowing_()).toBe(false);

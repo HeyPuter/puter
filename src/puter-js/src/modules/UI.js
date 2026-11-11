@@ -5,7 +5,7 @@ import PuterDialog from './PuterDialog.js';
 import { ancestorsAllowGuiEmbed, canFrameGuiEmbed, showFeedbackEmbed, showPopupFrame } from '../lib/guiEmbed.js';
 import { hasUserActivation } from '../lib/auth-popup.js';
 import { appIDOf } from '../lib/upgradePrompt.js';
-import { upgradeUrl } from './UsageLimitDialog.js';
+import { topUpUrl, upgradeUrl } from './UsageLimitDialog.js';
 import { checkPermissions } from './perms/lib/holds.js';
 
 
@@ -538,8 +538,14 @@ export class UIModule extends EventListener {
     // The framed upgrade showing, which a call made while it's open joins.
     #upgradeFrame = null;
 
+    // The top-up showing, framed or about to open in a tab, which a call made meanwhile joins.
+    #topUpFrame = null;
+
     // The framed email confirmation showing, which a call made while it's open joins.
     #emailConfirmationFrame = null;
+
+    // Whether the framed custom domain dialog is showing, or about to.
+    #customDomainFrameOpen = false;
 
     // Holds the callback functions for the various events
     // that are triggered when a watched item has changed.
@@ -1803,13 +1809,20 @@ export class UIModule extends EventListener {
     /**
      * The upgrade in a frame over the page, for the page's signed-in user, or
      * in a new tab when the frame can't show it. A call made while one is
-     * showing settles with it, so a payment in progress isn't replaced.
+     * showing settles with it, so a payment in progress isn't replaced, and
+     * one made while the top-up shows resolves `{ upgraded: false }` once
+     * that closes.
      *
      * @param {{ reason?: string, method?: string }} details
      * @returns {Promise<import('../lib/types.js').UpgradeResult>}
      */
     #showUpgradeFrame ({ reason, method }) {
         if ( this.#upgradeFrame ) return this.#upgradeFrame;
+        // A second full-page frame would cover the top-up, and a payment in it.
+        if ( this.#topUpFrame ) {
+            const notUpgraded = () => ({ upgraded: false });
+            return this.#topUpFrame.then(notUpgraded, notUpgraded);
+        }
         this.#upgradeFrame = (async () => {
             try {
                 const user = await this.#frameUser();
@@ -1825,6 +1838,9 @@ export class UIModule extends EventListener {
                     closed: (data) => ({ upgraded: data?.upgraded === true }),
                     onMessage: () => {},
                 });
+                // The page's cached whoami still reads it as having no plan,
+                // which is what the user menu offers Add credits by.
+                if ( framed?.upgraded ) user.subscribed = true;
                 if ( framed ) return framed;
                 await this.#openUpgradeTab(upgradeUrl({ reason, method, appID: appIDOf(puter) }));
                 return { upgraded: false };
@@ -1836,14 +1852,65 @@ export class UIModule extends EventListener {
     }
 
     /**
-     * Opens the upgrade page in a new tab. The click that asked for it may
-     * have expired by now, so without it the user opens it from a consent
-     * dialog. Resolves once the tab opens or the user answers the dialog.
+     * Whether {@link showTopUp_} is showing the top-up in a frame, about to,
+     * or asking to open it in a tab instead.
+     *
+     * @internal
+     * @returns {boolean}
+     */
+    topUpShowing_ () {
+        return this.#topUpFrame !== null;
+    }
+
+    /**
+     * Shows the top-up flow, where a user with a plan buys add-on credit. On
+     * a signed-in first-party page one label under the Puter origin, it shows
+     * in a frame over the page, and the promise resolves once it closes. When
+     * the frame can't show it, and on any other website, it opens on the
+     * dashboard in a new tab and the promise resolves `{ toppedUp: false }`.
+     * A call made while one is showing settles with it, so a payment in
+     * progress isn't replaced.
+     *
+     * @internal
+     * @returns {Promise<{ toppedUp: boolean }>}
+     */
+    showTopUp_ () {
+        if ( this.#topUpFrame ) return this.#topUpFrame;
+        const showing = (async () => {
+            // Not awaited where no frame can show, so the tab opens within the click.
+            const user = this.#canFrameForUser() ? await this.#frameUser() : null;
+            const framed = user && await showPopupFrame({
+                guiOrigin: puter.defaultGUIOrigin,
+                action: 'top-up',
+                fragment: { user: user.uuid },
+                title: 'Add credits',
+                closed: (data) => ({ toppedUp: data?.toppedUp === true }),
+                onMessage: () => {},
+            });
+            if ( framed ) return framed;
+            await this.#openUpgradeTab(topUpUrl(puter.defaultGUIOrigin), 'This website wants to open the Puter top-up page.');
+            return { toppedUp: false };
+        })();
+        this.#topUpFrame = showing;
+        // Cleared from outside: the steps above can fail before their first
+        // await, which is before the field is set.
+        const done = () => {
+            if ( this.#topUpFrame === showing ) this.#topUpFrame = null;
+        };
+        showing.then(done, done);
+        return showing;
+    }
+
+    /**
+     * Opens the upgrade or top-up page in a new tab. The click that asked for
+     * it may have expired by now, so without it the user opens it from a
+     * consent dialog. Resolves once the tab opens or the user answers the dialog.
      *
      * @param {string} url
+     * @param {string} [message] - what the consent dialog asks
      * @returns {Promise<void>}
      */
-    #openUpgradeTab (url) {
+    #openUpgradeTab (url, message = 'This website wants to open the Puter upgrade page.') {
         if ( hasUserActivation() && window.open(url, '_blank') ) return Promise.resolve();
         return new Promise((resolve) => {
             let consent = null;
@@ -1853,7 +1920,7 @@ export class UIModule extends EventListener {
             };
             try {
                 consent = PuterDialog.show({
-                    message: 'This website wants to open the Puter upgrade page.',
+                    message,
                     onContinue: () => {
                         window.open(url, '_blank');
                         answered();
@@ -2740,6 +2807,11 @@ export class UIModule extends EventListener {
                 'not_available',
             );
         }
+        // Not awaited where no frame can show, so the popup opens within the click.
+        if ( this.#canFrameForUser() ) {
+            const framed = await this.#showCustomDomainFrame(subdomain);
+            if ( framed ) return framed.domain;
+        }
         const result = await this.#runGuiActionPopup({
             action: 'attach-custom-domain',
             params: { subdomain },
@@ -2747,6 +2819,37 @@ export class UIModule extends EventListener {
             popupName: 'puter-custom-domain',
         });
         return /** @type {import('./hosting/types.js').CustomDomain | null} */ (result?.domain ?? null);
+    }
+
+    /**
+     * The custom domain dialog in a frame over the page, for the page's
+     * signed-in user, or null when the popup has to host it. One at a time: a
+     * call while one is open resolves no domain, as the desktop does.
+     *
+     * @param {string} subdomain
+     * @returns {Promise<{ domain: import('./hosting/types.js').CustomDomain | null } | null>}
+     */
+    async #showCustomDomainFrame (subdomain) {
+        if ( this.#customDomainFrameOpen ) return { domain: null };
+        this.#customDomainFrameOpen = true;
+        try {
+            const user = await this.#frameUser();
+            if ( ! user ) return null;
+            const msgId = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
+            return await showPopupFrame({
+                guiOrigin: puter.defaultGUIOrigin,
+                action: 'attach-custom-domain',
+                fragment: { user: user.uuid, subdomain, msg_id: msgId },
+                title: 'Connect a custom domain',
+                closed: () => ({ domain: null }),
+                onMessage: (data, finish) => {
+                    if ( data.msg !== 'customDomainAttached' || data.original_msg_id !== msgId ) return;
+                    finish({ domain: /** @type {import('./hosting/types.js').CustomDomain | null} */ (data.domain ?? null) });
+                },
+            });
+        } finally {
+            this.#customDomainFrameOpen = false;
+        }
     }
 
     /** Whether the host GUI lists this IPC dialog in `puter.gui_features` on the app iframe's URL (see launchApp.js); a GUI without the handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */

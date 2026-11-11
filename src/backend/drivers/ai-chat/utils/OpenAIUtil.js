@@ -1122,16 +1122,6 @@ export const handle_completion_output_responses_api = async ({
     // Inline-compaction artifact, if the upstream compacted this turn.
     const compactionItem = output.find((item) => item?.type === 'compaction');
 
-    const is_empty = completion.output_text.trim() === '';
-    if (is_empty && responseToolCalls.length < 1 && !compactionItem) {
-        // GPT refuses to generate an empty response if you ask it to,
-        // so this will probably only happen on an error condition.
-        // A compaction-only output is legitimate, so don't reject it.
-        throw new HttpError(400, 'an empty response was generated', {
-            legacyCode: 'bad_response',
-        });
-    }
-
     // Reasoning models return `reasoning` output items; their human-readable
     // text only exists when the caller requested summaries via
     // `reasoning: { summary: ... }` (raw chain-of-thought is never returned).
@@ -1232,6 +1222,14 @@ export const handle_completion_output_responses_api = async ({
     if (usage_calculator && ret.usageDetails === undefined) {
         const usageDetails = usageDetailsFromTrackedUsage(ret.usage);
         if (usageDetails) ret.usageDetails = usageDetails;
+    }
+
+    // Empty output can still include paid reasoning and input tokens.
+    const isEmpty = completion.output_text.trim() === '';
+    if (isEmpty && responseToolCalls.length < 1 && !compactionItem) {
+        throw new HttpError(400, 'an empty response was generated', {
+            legacyCode: 'bad_response',
+        });
     }
 
     const mod_text = completion.output_text;
