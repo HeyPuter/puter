@@ -364,7 +364,6 @@ const th = {
         'reload_app': 'โหลดแอปใหม่',
         'new_window': 'หน้าต่างใหม่',
         'open_trash': 'เปิดถังขยะ',
-        'pick_name_for_worker': 'เลือกชื่อสำหรับ worker ของคุณ:',
         'publish_as_serverless_worker': 'เผยแพร่เป็น Worker',
         'toolbar.enter_fullscreen': 'เข้าสู่โหมดเต็มจอ',
         'toolbar.github': 'GitHub',

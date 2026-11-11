@@ -367,7 +367,6 @@ const tr = {
         'reload_app': 'Uygulamayı Yeniden Yükle',
         'new_window': 'Yeni Pencere',
         'open_trash': 'Çöp Kutusunu Aç',
-        'pick_name_for_worker': "Worker'ınız için bir ad seçin:",
         'publish_as_serverless_worker': 'Worker olarak Yayınla',
         'toolbar.enter_fullscreen': 'Tam Ekrana Geç',
         'toolbar.github': 'GitHub',

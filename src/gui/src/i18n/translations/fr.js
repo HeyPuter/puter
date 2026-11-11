@@ -199,7 +199,6 @@ const fr = {
         path: 'Chemin',
         personalization: 'Personnalisation',
         pick_name_for_website: 'Choisissez un nom pour votre site internet :',
-        pick_name_for_worker: 'Choisissez un nom pour votre worker :',
         pictures: 'Images',
         pixel_ratio: 'Ratio de pixels',
         plural_suffix: 's',

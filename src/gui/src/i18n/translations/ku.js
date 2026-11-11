@@ -386,7 +386,6 @@ const ku = {
         'reload_app': 'ئەپلیکەیشن دووبارە بار بکە', // In English: "Reload App"
         'new_window': 'پەنجەرەی نوێ', // In English: "New Window"
         'open_trash': 'زبڵدانە بکەرەوە', // In English: "Open Trash"
-        'pick_name_for_worker': 'ناوێک بۆ کارمەندەکەت هەلبژێرە', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'بڵاوکردنەوە وەک کارمەند', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'بە تەواوی شاشە بچۆرە', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"

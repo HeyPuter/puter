@@ -361,7 +361,6 @@ const ro = {
         'reload_app': 'Reîncarcă aplicația',
         'new_window': 'Fereastră nouă',
         'open_trash': 'Deschide Coșul de gunoi',
-        'pick_name_for_worker': 'Alege un nume pentru muncitorul tău:',
         'publish_as_serverless_worker': 'Publică ca muncitor',
         'toolbar.enter_fullscreen': 'Intră în modul tot ecranul',
         'toolbar.github': 'GitHub',

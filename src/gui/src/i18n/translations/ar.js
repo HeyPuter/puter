@@ -391,7 +391,6 @@ const ar = {
         reload_app: 'إعادة تحميل التطبيق', // In English: "Reload App"
         new_window: 'نافذة جديدة', // In English: "New Window"
         open_trash: 'فتح سلة المهملات', // In English: "Open Trash"
-        pick_name_for_worker: 'اختيار اسم للعامل:', // In English: "Pick a name for your worker:"
         publish_as_serverless_worker: 'النشر كعامل', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'وضع ملء الشاشة', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"

@@ -414,7 +414,6 @@ const ta = {
         reload_app: 'பயன்பாட்டை மீளேற்று',
         new_window: 'புதிய சாளரம்',
         open_trash: 'குப்பைத்தொட்டியைத் திற',
-        pick_name_for_worker: 'உங்கள் வொர்க்கருக்குப் பெயரைத் தேர்வுசெய்க:',
         publish_as_serverless_worker: 'வொர்க்கராக வெளியிடு',
         'toolbar.enter_fullscreen': 'முழுத்திரைக்கு செல்',
         'toolbar.github': 'GitHub',

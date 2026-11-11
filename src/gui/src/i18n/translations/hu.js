@@ -357,7 +357,6 @@ const hu = {
         'reload_app': 'Alkalmazás újratöltése', // English: "Reload App"
         'new_window': 'Új ablak', // English: "New Window"
         'open_trash': 'Szemetes megnyitása', // English: "Open Trash"
-        'pick_name_for_worker': 'Válasszon nevet a munkásnak', // English: "Pick a name for your worker"
         'publish_as_serverless_worker': 'Munkás közzététele', // English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Teljes képernyő', // English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // English: "GitHub"

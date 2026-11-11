@@ -371,7 +371,6 @@ const bn = {
         'reload_app': 'অ্যাপ রিলোড করুন',
         'new_window': 'নতুন উইন্ডো',
         'open_trash': 'আবর্জনা বক্স খুলুন',
-        'pick_name_for_worker': 'আপনার কর্মীর জন্য নাম বাছাই করুনঃ',
         'publish_as_serverless_worker': 'কর্মী হিসেবে পাবলিশ করুন',
         'toolbar.enter_fullscreen': 'পরিপূর্ণ পর্দায় প্রবেশ করুন',
         'toolbar.github': 'গিটহাব',

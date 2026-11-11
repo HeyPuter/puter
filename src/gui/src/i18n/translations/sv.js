@@ -366,7 +366,6 @@ const sv = {
         'reload_app': 'Ladda om app', // In English: "Reload App"
         'new_window': 'Nytt fönster', // In English: "New Window"
         'open_trash': 'Öppna papperskorgen', // In English: "Open Trash"
-        'pick_name_for_worker': 'Välj ett namn för din worker:', // In English: "Pick a name for your worker:"
         'plural_suffix': 'ar', // In English: "s"
         'publish_as_serverless_worker': 'Publicera som Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Aktivera helskärm', // In English: "Enter Full Screen"

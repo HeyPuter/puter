@@ -379,7 +379,6 @@ const he = {
         'reload_app': 'טען מחדש', // In English: "Reload App"
         'new_window': 'חלון חדש', // In English: "New Window"
         'open_trash': 'פתח אשפה', // In English: "Open Trash"
-        'pick_name_for_worker': ':בחר שם לעובד שלך', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'פרסם כעובד', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'מסך מלא', // In English: "Enter Full Screen"
         'toolbar.github': 'גיטהאב', // In English: "GitHub"

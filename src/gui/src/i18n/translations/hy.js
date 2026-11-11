@@ -406,7 +406,6 @@ const hy = {
         reload_app: 'Վերաբեռնել հավելվածը',
         new_window: 'Նոր պատուհան',
         open_trash: 'Բացել Աղբամանը',
-        pick_name_for_worker: 'Ընտրեք անուն ձեր worker-ի համար։',
         publish_as_serverless_worker: 'Հրապարակել որպես Worker',
         'toolbar.enter_fullscreen': 'Լիաէկրան ռեժիմ',
         'toolbar.github': 'GitHub',

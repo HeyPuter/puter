@@ -356,7 +356,6 @@ const hi = {
         'reload_app': 'ऐप पुनः लोड करें', // In English: "Reload App"
         'new_window': 'नई विंडो', // In English: "New Window"
         'open_trash': 'ट्रैश खोलें', // In English: "Open Trash"
-        'pick_name_for_worker': 'अपने वर्कर के लिए एक नाम चुनें:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'वर्कर के रूप में प्रकाशित करें', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'पूर्ण स्क्रीन में जाएँ', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"

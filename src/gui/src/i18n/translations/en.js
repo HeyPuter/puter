@@ -424,7 +424,6 @@ const en = {
         phone_card_fallback_note: "We only check that the card is valid \u2014 you won't be charged.",
         phone_card_fallback_unavailable: "Card verification isn't available right now. Please try your phone number again, or email support@puter.com and we'll help you finish setting up your account.",
         pick_name_for_website: 'Pick a name for your website:',
-        pick_name_for_worker: 'Pick a name for your worker:',
         pictures: 'Pictures',
         pixel_ratio: 'Pixel Ratio',
         plural_suffix: 's',

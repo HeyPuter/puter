@@ -383,7 +383,6 @@ const nb = {
         'minimize': 'Minimer',
         'reload_app': 'Last appen på nytt',
         'open_trash': 'Åpne papirkurv',
-        'pick_name_for_worker': 'Velg et navn for arbeideren din:',
         'plural_suffix': 'er',
         'publish_as_serverless_worker': 'Publiser som Worker',
         'worker': 'Worker',

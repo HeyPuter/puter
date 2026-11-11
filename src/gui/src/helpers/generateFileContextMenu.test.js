@@ -23,13 +23,11 @@ import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 vi.mock('../UI/UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../UI/UIWindowItemProperties.js', () => ({ default: vi.fn() }));
-vi.mock('../UI/UIWindowPublishWorker.js', () => ({ default: vi.fn() }));
 vi.mock('./publishAsWebsite.js', () => ({ default: vi.fn() }));
-vi.mock('./ensureCanPublish.js', () => ({ default: vi.fn() }));
 vi.mock('./openItem.js', () => ({ default: vi.fn() }));
 vi.mock('./openWithAI.js', () => ({ default: vi.fn() }));
 vi.mock('./launchApp.js', () => ({ default: vi.fn() }));
-vi.mock('./pathOwner.js', () => ({ is_owned_by_me: () => false }));
+vi.mock('./pathOwner.js', () => ({ is_owned_by_me: vi.fn(() => false) }));
 vi.mock('./sharedAccess.js', () => ({
     can_rename: async () => false,
     can_restructure: async () => false,
@@ -52,6 +50,7 @@ const { default: generate_file_context_menu } =
 const { default: launch_app } = await import('./launchApp.js');
 const { default: UIAlert } = await import('../UI/UIAlert.js');
 const { can_share } = await import('./sharedAccess.js');
+const { is_owned_by_me } = await import('./pathOwner.js');
 
 const sharedRow = () => {
     const row = document.createElement('div');
@@ -112,6 +111,36 @@ describe('Share', () => {
 
     it('is left out without onShare', async () => {
         expect(await shareItem({})).toBeUndefined();
+    });
+});
+
+describe('Publish as Worker', () => {
+    const publishItem = async (options) => {
+        is_owned_by_me.mockReturnValueOnce(true);
+        const row = document.createElement('div');
+        row.setAttribute('data-path', '/me/worker.js');
+        row.setAttribute('data-name', 'worker.js');
+        const items = await generate_file_context_menu({
+            element: row,
+            fsentry: { uid: 'file-1', name: 'worker.js', path: '/me/worker.js' },
+            associated_app_name: 'editor',
+            ...options,
+        });
+        return items.find((item) => item !== '-' && item.html === 'publish_as_serverless_worker');
+    };
+
+    it('hands the file to onPublishWorker', async () => {
+        const onPublishWorker = vi.fn();
+        await (await publishItem({ onPublishWorker })).onClick();
+        expect(onPublishWorker).toHaveBeenCalledWith({
+            uid: 'file-1',
+            name: 'worker.js',
+            path: '/me/worker.js',
+        });
+    });
+
+    it('is left out without onPublishWorker', async () => {
+        expect(await publishItem({})).toBeUndefined();
     });
 });
 

@@ -397,7 +397,6 @@ const ru = {
         'reload_app': 'Перезагрузить приложение', // In English: "Reload App"
         'new_window': 'Новое окно', // In English: "New Window"
         'open_trash': 'Открыть корзину', // In English: "Open Trash"
-        'pick_name_for_worker': 'Выберите имя для вашего воркера:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'опубликовать как воркера', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Перейти в полноэкранный режим', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"

@@ -391,7 +391,6 @@ const ur = {
         'reload_app': 'ایپ دوبارہ لوڈ کریں', // In English: "Reload App"
         'new_window': 'نیا ونڈو', // In English: "New Window"
         'open_trash': 'ری سائیکل بن کھولیں', // In English: "Open Trash"
-        'pick_name_for_worker': 'اپنے ورکر کے لیے ایک نام منتخب کریں:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'ورکر کے طور پر شائع کریں', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'فل اسکرین پر جائیں', // In English: "Enter Full Screen"
         'toolbar.github': 'گیٹ ہب', // In English: "GitHub"

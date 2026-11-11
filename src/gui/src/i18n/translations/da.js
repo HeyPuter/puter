@@ -365,7 +365,6 @@ const da = {
         'reload_app': undefined, // In English: "Reload App"
         'new_window': undefined, // In English: "New Window"
         'open_trash': undefined, // In English: "Open Trash"
-        'pick_name_for_worker': undefined, // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': undefined, // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': undefined, // In English: "Enter Full Screen"
         'toolbar.github': undefined, // In English: "GitHub"

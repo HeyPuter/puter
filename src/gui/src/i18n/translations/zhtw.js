@@ -380,7 +380,6 @@ const zhtw = {
         'reload_app': "重新載入應用程式", // In English: "Reload App"
         'new_window': "新視窗", // In English: "New Window"
         'open_trash': "開啟垃圾桶", // In English: "Open Trash"
-        'pick_name_for_worker': "請為您的 Worker 取一個名稱：", // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': "發布為 Worker", // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': "進入全螢幕", // In English: "Enter Full Screen"
         'toolbar.github': "GitHub", // In English: "GitHub"

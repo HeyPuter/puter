@@ -389,7 +389,6 @@ const id = {
         'reload_app': 'Muat Ulang Aplikasi', // In English: "Reload App"
         'new_window': 'Jendela Baru', // In English: "New Window"
         'open_trash': 'Buka Tempat Sampah', // In English: "Open Trash"
-        'pick_name_for_worker': 'Tentukan nama untuk worker Anda:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Publikasikan sebagai Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
         'toolbar.github': 'Github', // In English: "GitHub"

@@ -380,7 +380,6 @@ const nn = {
         reload_app: 'Last inn app på nytt', // "Original English: Reload App"
         new_window: 'Nytt vindauge', // "Original English: New Window"
         open_trash: 'Opne papirkorg', // "Original English: Open Trash"
-        pick_name_for_worker: 'Vel eit namn for workeren din:', // "Original English: Pick a name for your worker:"
         publish_as_serverless_worker: 'Publiser som Worker', // "Original English: Publish as Worker - 'Worker' kept as technical term"
         'toolbar.enter_fullscreen': 'Gå til fullskjerm', // "Original English: Enter Full Screen"
         'toolbar.github': 'GitHub', // "Original English: GitHub - Brand name kept unchanged"

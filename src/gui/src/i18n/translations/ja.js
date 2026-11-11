@@ -370,7 +370,6 @@ const ja = {
         'reload_app': 'アプリを再読み込み', // In English: "Reload App"
         'new_window': '新しいウィンドウ', // In English: "New Window"
         'open_trash': 'ゴミ箱を開く', // In English: "Open Trash"
-        'pick_name_for_worker': 'ワーカーの名前を選択してください:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'ワーカーとして公開', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': '全画面表示にする', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"

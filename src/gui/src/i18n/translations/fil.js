@@ -378,7 +378,6 @@ const fil = {
         'reload_app': 'I-reload ang app',
         'new_window': 'Bagong window',
         'open_trash': 'Buksan ang Trash',
-        'pick_name_for_worker': 'Pumili ng pangalan para sa worker mo:',
         'publish_as_serverless_worker': 'I-publish bilang worker',
         'toolbar.enter_fullscreen': 'Pumunta sa full screen',
         'toolbar.github': 'GitHub',

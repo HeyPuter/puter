@@ -391,7 +391,6 @@ const ig = {
         'reload_app': 'Bugharịa ngwa', // In English: "Reload App"
         'new_window': 'Window ọhụrụ', // In English: "New Window"
         'open_trash': 'Mepee ahịhịa', // In English: "Open Trash"
-        'pick_name_for_worker': 'Họrọ aha maka onye ọrụ gị:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Bipụta dị ka onye ọrụ', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Tinye ihuenyo zuru oke', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"

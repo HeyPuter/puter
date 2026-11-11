@@ -198,7 +198,6 @@ const ko = {
         path: '경로',
         personalization: '개인 설정',
         pick_name_for_website: '웹사이트 이름을 선택하세요.',
-        pick_name_for_worker: '작업자 이름을 선택하세요.',
         pictures: '사진',
         plural_suffix: '',
         powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} 제공',

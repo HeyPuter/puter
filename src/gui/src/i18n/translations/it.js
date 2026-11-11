@@ -399,7 +399,6 @@ const it = {
         'reload_app': 'Ricarica app',
         'new_window': 'Nuova finestra',
         'open_trash': 'Apri cestino',
-        'pick_name_for_worker': 'Scegli un nome per il tuo worker:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Pubblica come funzione serverless', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Visualizza a schermo intero',
         'toolbar.github': 'GitHub',

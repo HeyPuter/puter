@@ -411,7 +411,6 @@ const es = {
         'reload_app': 'Recargar la Aplicación', // In English: "Reload App"
         'new_window': 'Nueva Ventana', // In English: "New Window"
         'open_trash': 'Abrir Papelera', // In English: "Open Trash"
-        'pick_name_for_worker': 'Elige un nombre para tu Worker:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Publicar como un Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Abrir pantalla completa', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"

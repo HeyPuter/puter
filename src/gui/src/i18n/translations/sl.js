@@ -184,7 +184,6 @@ const sl = {
         path: 'Pot',
         personalization: 'Prilagajanje',
         pick_name_for_website: 'Izberite ime za svoje spletno mesto:',
-        pick_name_for_worker: 'Izberite ime za svojega workerja:',
         pictures: 'Slike',
         plural_suffix: '', // "i", "je" - masculine; "e", "i" - feminine; "a", "i" - neuter
         powered_by_puter_js: 'Poganja {{link=docs}}Puter.js{{/link}}',

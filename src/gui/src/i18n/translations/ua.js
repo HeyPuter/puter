@@ -350,7 +350,6 @@ const ua = {
         'reload_app': 'Перезавантажити додаток',
         'new_window': 'Нове вікно',
         'open_trash': 'Відкрити кошик',
-        'pick_name_for_worker': "Виберіть ім'я для вашого воркера:",
         'publish_as_serverless_worker': 'Опублікувати як воркер',
         'toolbar.enter_fullscreen': 'Увійти в повноекранний режим',
         'toolbar.github': 'GitHub',

@@ -203,7 +203,6 @@ const bg = {
         path: 'Път',
         personalization: 'Персонализация',
         pick_name_for_website: 'Изберете име за вашия уебсайт:',
-        pick_name_for_worker: 'Изберете име за вашия worker:',
         pictures: 'Снимки',
         plural_suffix: 'и',
         powered_by_puter_js: 'Работи с {{link=docs}}Puter.js{{/link}}',

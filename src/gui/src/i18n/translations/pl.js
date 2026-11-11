@@ -365,7 +365,6 @@ const pl = {
         'reload_app': 'Odśwież Aplikację',
         'new_window': 'Nowe Okno',
         'open_trash': 'Otwórz Kosz',
-        'pick_name_for_worker': 'Wybierz nazwę dla twojego workera', // there is no translation for "worker" in this context
         'plural_suffix': undefined,
         'publish_as_serverless_worker': 'Opublikuj jako Worker',
         'toolbar.enter_fullscreen': 'Otwórz Pełen Ekran',

@@ -365,7 +365,6 @@ const zh = {
         'reload_app': '重新加载应用', // In English: "Reload App"
         'new_window': '新窗口', // In English: "New Window"
         'open_trash': '打开回收站', // In English: "Open Trash"
-        'pick_name_for_worker': '为您的 Worker 选择一个名称：', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': '发布为 Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': '进入全屏', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"

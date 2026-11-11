@@ -265,7 +265,6 @@ const cs = {
         "proceed_with_account_deletion": "Pokračujte ve smazání účtu",
         "pick_name_for_website": "Vyberte název pro svůj web:",
         "phone_code_sent_whatsapp": "Zadejte 6místný kód odeslaný přes WhatsApp na",
-        "pick_name_for_worker": "Vyberte jméno pro svého pracovníka:",
         "phone_code_sent_to": "Zadejte 6místný kód odeslaný na",
         "properties": "Vlastnosti",
         "publish": "Publikovat",

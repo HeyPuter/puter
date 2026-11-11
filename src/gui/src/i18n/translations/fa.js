@@ -385,7 +385,6 @@ const fa = {
         'reload_app': 'بارگذاری دوباره برنامه',
         'new_window': 'پنجره جدید',
         'open_trash': 'باز کردن سطل زباله',
-        'pick_name_for_worker': 'یک نام برای کارگر خود انتخاب کنید:',
         'publish_as_serverless_worker': 'انتشار به‌عنوان کارگر',
         'toolbar.enter_fullscreen': 'ورود به تمام‌صفحه',
         'toolbar.github': 'گیت‌هاب',

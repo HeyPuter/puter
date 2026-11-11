@@ -364,7 +364,6 @@ const vi = {
         'reload_app': 'Tải lại ứng dụng', // In English: "Reload App"
         'new_window': 'Cửa sổ mới', // In English: "New Window"
         'open_trash': 'Mở thùng rác', // In English: "Open Trash"
-        'pick_name_for_worker': 'Chọn tên cho Worker:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Xuất bản dưới dạng Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Vào chế độ toàn màn hình', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"

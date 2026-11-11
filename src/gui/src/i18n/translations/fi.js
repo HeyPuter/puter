@@ -451,7 +451,6 @@ const fi = {
         'reload_app': 'Lataa sovellus uudelleen',
         'new_window': 'Uusi ikkuna',
         'open_trash': 'Avaa roskakori',
-        'pick_name_for_worker': 'Valitse nimi työntekijälle:',
         'publish_as_serverless_worker': 'Julkaise työntekijänä',
         'toolbar.enter_fullscreen': 'Koko näyttöön',
         'toolbar.github': 'GitHub',

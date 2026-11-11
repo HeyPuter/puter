@@ -368,7 +368,6 @@ const nl = {
         'reload_app': 'App herladen', // In English: "Reload App"
         'new_window': 'Nieuw venster', // In English: "New Window"
         'open_trash': 'Prullenbak openen', // In English: "Open Trash"
-        'pick_name_for_worker': 'Kies een naam voor uw worker:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Publiceer als Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Naar volledig scherm', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"

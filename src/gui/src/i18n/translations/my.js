@@ -201,7 +201,6 @@ const my = {
         path: 'Laluan',
         personalization: 'Pemperibadian',
         pick_name_for_website: 'Pilih nama laman web anda:',
-        pick_name_for_worker: 'Pilih nama worker anda:',
         pictures: 'Gambar',
         plural_suffix: 's',
         powered_by_puter_js: 'Dikuasakan oleh {{link=docs}}Puter.js{{/link}}',

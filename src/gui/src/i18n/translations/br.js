@@ -365,7 +365,6 @@ const br = {
         'reload_app': 'Recarregar App', // In English: "Reload App"
         'new_window': 'Nova Janela', // In English: "New Window"
         'open_trash': 'Abrir Lixeira', // In English: "Open Trash"
-        'pick_name_for_worker': 'Escolha um nome para seu worker', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Publicar como Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Entrar em Tela Cheia', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
