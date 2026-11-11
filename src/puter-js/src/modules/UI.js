@@ -544,6 +544,9 @@ export class UIModule extends EventListener {
     // The framed email confirmation showing, which a call made while it's open joins.
     #emailConfirmationFrame = null;
 
+    // Whether the framed custom domain dialog is showing, or about to.
+    #customDomainFrameOpen = false;
+
     // Holds the callback functions for the various events
     // that are triggered when a watched item has changed.
     itemWatchCallbackFunctions = [];
@@ -2804,6 +2807,11 @@ export class UIModule extends EventListener {
                 'not_available',
             );
         }
+        // Not awaited where no frame can show, so the popup opens within the click.
+        if ( this.#canFrameForUser() ) {
+            const framed = await this.#showCustomDomainFrame(subdomain);
+            if ( framed ) return framed.domain;
+        }
         const result = await this.#runGuiActionPopup({
             action: 'attach-custom-domain',
             params: { subdomain },
@@ -2811,6 +2819,37 @@ export class UIModule extends EventListener {
             popupName: 'puter-custom-domain',
         });
         return /** @type {import('./hosting/types.js').CustomDomain | null} */ (result?.domain ?? null);
+    }
+
+    /**
+     * The custom domain dialog in a frame over the page, for the page's
+     * signed-in user, or null when the popup has to host it. One at a time: a
+     * call while one is open resolves no domain, as the desktop does.
+     *
+     * @param {string} subdomain
+     * @returns {Promise<{ domain: import('./hosting/types.js').CustomDomain | null } | null>}
+     */
+    async #showCustomDomainFrame (subdomain) {
+        if ( this.#customDomainFrameOpen ) return { domain: null };
+        this.#customDomainFrameOpen = true;
+        try {
+            const user = await this.#frameUser();
+            if ( ! user ) return null;
+            const msgId = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
+            return await showPopupFrame({
+                guiOrigin: puter.defaultGUIOrigin,
+                action: 'attach-custom-domain',
+                fragment: { user: user.uuid, subdomain, msg_id: msgId },
+                title: 'Connect a custom domain',
+                closed: () => ({ domain: null }),
+                onMessage: (data, finish) => {
+                    if ( data.msg !== 'customDomainAttached' || data.original_msg_id !== msgId ) return;
+                    finish({ domain: /** @type {import('./hosting/types.js').CustomDomain | null} */ (data.domain ?? null) });
+                },
+            });
+        } finally {
+            this.#customDomainFrameOpen = false;
+        }
     }
 
     /** Whether the host GUI lists this IPC dialog in `puter.gui_features` on the app iframe's URL (see launchApp.js); a GUI without the handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */
