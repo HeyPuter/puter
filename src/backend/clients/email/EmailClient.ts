@@ -76,10 +76,7 @@ export interface SendMailOptions {
 }
 
 /** Options a templated {@link EmailClient.send} forwards to `sendRaw`. */
-export type SendTemplateOptions = Pick<
-    SendMailOptions,
-    'replyTo' | 'stream' | 'headers' | 'tags'
->;
+export type SendTemplateOptions = Pick<SendMailOptions, 'replyTo' | 'stream'>;
 
 const TAG_PART = /^[A-Za-z0-9_.:-]{1,128}$/;
 
@@ -165,7 +162,7 @@ export class EmailClient extends PuterClient {
     /**
      * Render a template and send it to `to`. `options.replyTo` sets the
      * Reply-To header (e.g. so a recipient can respond to the originator of the
-     * message rather than the no-reply From address); the other options are
+     * message rather than the no-reply From address); `options.stream` is
      * passed to {@link sendRaw}.
      *
      * Returns the transport's send result, or `null` when none is configured —
@@ -190,8 +187,6 @@ export class EmailClient extends PuterClient {
             ...(compiled.text ? { text: compiled.text(values) } : {}),
             ...(options.replyTo ? { replyTo: options.replyTo } : {}),
             ...(options.stream ? { stream: options.stream } : {}),
-            ...(options.headers ? { headers: options.headers } : {}),
-            ...(options.tags ? { tags: options.tags } : {}),
         });
     }
 
@@ -210,13 +205,15 @@ export class EmailClient extends PuterClient {
         if (!this.transport) {
             console.warn(
                 '[email] attempted to send email without transport. If you need to send email, configure an SMTP transport in your config file (see docs for details). Email content:',
-                message,
+                { ...message, ...(streamName ? { stream: streamName } : {}) },
             );
             return null;
         }
-        const stream = streamName
-            ? this.config.email?.streams?.[streamName]
-            : undefined;
+        const streams = this.config.email?.streams;
+        const stream =
+            streamName && streams && Object.hasOwn(streams, streamName)
+                ? streams[streamName]
+                : undefined;
         let headers = mergeHeaders(stream?.headers, message.headers);
         const tagsValue = stream?.tagsHeader ? renderTags(tags) : '';
         if (

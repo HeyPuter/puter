@@ -326,7 +326,7 @@ Used for password resets, email confirmation, and notifications. Without it thos
 
 To require email confirmation before login, also set `"strict_email_verification_required": true`.
 
-Account and notification mail is sent on a named stream: `auth` (password, address and 2FA changes), `signup` (address confirmation; a `puter.signup.validate` listener may name another: lowercase letters, digits, `:`, `_` and `-`, up to 64 characters, starting with a letter or digit) and `notify` (share and app feedback mail). Add `"streams"` inside `"email"` to configure one, for instance to let your mail provider route or report each kind of mail separately:
+Account and notification mail is sent on a named stream: `auth` (password, address and 2FA changes), `signup` (address confirmation; a `puter.signup.validate` listener may name another: lowercase letters, digits, `:`, `_` and `-`, up to 64 characters, starting with a letter or digit) and `notify` (share, app feedback and contact form mail). Add `"streams"` inside `"email"` to configure one, for instance to let your mail provider route or report each kind of mail separately:
 
 ```json
 "streams": {

@@ -310,20 +310,13 @@ describe('EmailClient — streams', () => {
             'user@example.test',
             'email_verification_code',
             { code: '1' },
-            {
-                stream: 'notify',
-                replyTo: 'r@example.test',
-                headers: { 'X-Example-Extra': '1' },
-                tags: { kind: 'code' },
-            },
+            { stream: 'notify', replyTo: 'r@example.test' },
         );
 
         expect(sendRaw).toHaveBeenCalledWith(
             expect.objectContaining({
                 stream: 'notify',
                 replyTo: 'r@example.test',
-                headers: { 'X-Example-Extra': '1' },
-                tags: { kind: 'code' },
             }),
         );
     });
@@ -338,16 +331,35 @@ describe('EmailClient — streams', () => {
         expect(sentMessage(info).from.address).toBe('notices@puter.test');
     });
 
-    it('prints no tags when no transport is configured', async () => {
+    it('reads a stream only from its own config entry', async () => {
+        const inherited = Object.create({
+            base: { from: 'base@puter.test', headers: { 'X-Example-B': '1' } },
+        });
+        const client = startClient({
+            email: { jsonTransport: true, from: FROM, streams: inherited },
+        } as unknown as Partial<IConfig>);
+        const message = sentMessage(
+            await client.sendRaw({ ...base, stream: 'base' }),
+        );
+        expect(message.from.address).toBe('no-reply@puter.test');
+        expect(message.headers ?? {}).toEqual({});
+    });
+
+    it('prints the stream name and no tags when no transport is configured', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         try {
             const client = new EmailClient({
                 port: 0,
                 extensions: [],
             } as unknown as IConfig);
-            await client.sendRaw({ ...base, tags: { kind: 'share' } });
+            await client.sendRaw({
+                ...base,
+                stream: 'notify',
+                tags: { kind: 'share' },
+            });
             const printed = warn.mock.calls[0][1] as Record<string, unknown>;
             expect(printed).not.toHaveProperty('tags');
+            expect(printed.stream).toBe('notify');
         } finally {
             warn.mockRestore();
         }
