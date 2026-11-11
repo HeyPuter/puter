@@ -30,7 +30,6 @@ const { stub, confirmEmail, saveAccount } = vi.hoisted(() => ({
     confirmEmail: vi.fn(),
     saveAccount: vi.fn(),
 }));
-vi.mock('./helpers/download.js', stub);
 vi.mock('./helpers/itemIcon.js', stub);
 vi.mock('./helpers/socialLink.js', stub);
 vi.mock('./helpers/updateMousePosition.js', stub);

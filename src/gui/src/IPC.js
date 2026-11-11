@@ -17,8 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import download from './helpers/download.js';
 import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
+import fetchUrlAsFile from './helpers/fetchUrlAsFile.js';
 import item_icon from './helpers/itemIcon.js';
 import { atPath } from './helpers/pathElements.js';
 import socialLink from './helpers/socialLink.js';
@@ -1673,6 +1673,10 @@ const ipc_listener = async (event, handled) => {
         $el_parent_disable_mask.css('z-index', parseInt($el_parent_window.css('z-index')) + 1);
         $(target_iframe).blur();
 
+        // The app hears exactly one answer: fileSaved, or fileSaveCancelled
+        // when the dialog goes away without saving.
+        let answered = false;
+
         const tell_caller_and_update_views = async ({
             target_path,
             el_filedialog_window,
@@ -1681,6 +1685,7 @@ const ipc_listener = async (event, handled) => {
             let file_signature = await puter.fs.sign(app_uuid, { uid: res.uid, action: 'write' });
             file_signature = file_signature.items;
 
+            answered = true;
             target_iframe.contentWindow.postMessage({
                 msg: 'fileSaved',
                 original_msg_id: msg_id,
@@ -1725,7 +1730,10 @@ const ipc_listener = async (event, handled) => {
         };
 
         const tell_caller_its_cancelled = async () => {
-            target_iframe.contentWindow.postMessage({
+            if ( answered ) return;
+            answered = true;
+            // Gone if the app's own window closed first.
+            target_iframe.contentWindow?.postMessage({
                 msg: 'fileSaveCancelled',
                 original_msg_id: msg_id,
             }, '*');
@@ -1747,41 +1755,21 @@ const ipc_listener = async (event, handled) => {
             await tell_caller_and_update_views({ res, el_filedialog_window, target_path });
         };
 
-        const handle_url_save = async ({ target_path }) => {
-            // download progress tracker
-            let dl_op_id = window.operation_id++;
-
-            // upload progress tracker defaults
-            window.progress_tracker[dl_op_id] = [];
-            window.progress_tracker[dl_op_id][0] = {};
-            window.progress_tracker[dl_op_id][0].total = 0;
-            window.progress_tracker[dl_op_id][0].ajax_uploaded = 0;
-            window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
-
-            let item_with_same_name_already_exists = true;
-            while ( item_with_same_name_already_exists ) {
-                await download({
-                    url: event.data.url,
-                    name: path.basename(target_path),
-                    dest_path: path.dirname(target_path),
-                    auth_token: window.auth_token,
-                    api_origin: window.api_origin,
-                    dedupe_name: false,
-                    overwrite: false,
-                    operation_id: dl_op_id,
-                    item_upload_id: 0,
-                    success: function (res) {
-                    },
-                    error: function (err) {
-                        UIAlert(err && err.message ? err.message : 'Download failed.');
-                    },
+        const handle_url_save = async ({ target_path, el_filedialog_window }) => {
+            let file_to_upload;
+            try {
+                file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path));
+            } catch ( err ) {
+                await UIAlert({
+                    message: i18n(err.code ?? 'url_save_failed'),
+                    parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
                 });
-                item_with_same_name_already_exists = false;
+                return;
             }
+            return await handle_data_save({ target_path, el_filedialog_window, file_to_upload });
         };
 
-        const handle_data_save = async ({ target_path, el_filedialog_window }) => {
-            let file_to_upload = new File([event.data.content], path.basename(target_path));
+        const handle_data_save = async ({ target_path, el_filedialog_window, file_to_upload }) => {
             const written = await window.handle_same_name_exists({
                 action: async ({ overwrite }) => {
                     await write_file_tell_caller_and_update_views({
@@ -1901,12 +1889,13 @@ const ipc_listener = async (event, handled) => {
             center: true,
             initiating_app_uuid: app_uuid,
             onDialogCancel: () => tell_caller_its_cancelled(),
+            on_close: () => tell_caller_its_cancelled(),
             onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
                 $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                 let busy_init_ts = Date.now();
 
                 if ( event.data.url ) {
-                    await handle_url_save({ target_path });
+                    await handle_url_save({ target_path, el_filedialog_window });
                 } else if ( event.data.source_path ) {
                     await handle_move_save({
                         save_type: event.data.save_type,
@@ -1914,7 +1903,11 @@ const ipc_listener = async (event, handled) => {
                         target_path,
                     });
                 } else {
-                    await handle_data_save({ target_path, el_filedialog_window });
+                    await handle_data_save({
+                        target_path,
+                        el_filedialog_window,
+                        file_to_upload: new File([event.data.content], path.basename(target_path)),
+                    });
                 }
 
                 let busy_duration = (Date.now() - busy_init_ts);

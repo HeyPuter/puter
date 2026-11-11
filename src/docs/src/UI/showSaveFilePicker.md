@@ -20,7 +20,7 @@ puter.ui.showSaveFilePicker(content, suggestedName, type)
 
 The data to write to the chosen file. The expected value depends on `type`:
 - When `type` is omitted, `content` is the file data to write.
-- When `type` is `'url'`, `content` is a URL (string or `URL`) whose contents are saved.
+- When `type` is `'url'`, `content` is an `http` or `https` URL (string or `URL`) whose contents are saved. See [Saving from a URL](#saving-from-a-url).
 - When `type` is `'move'` or `'copy'`, `content` is the source path of an existing file to move or copy.
 
 #### `suggestedName` (String) (Optional)
@@ -43,6 +43,14 @@ if (file === undefined) {
     // the user closed the picker without saving
 }
 ```
+
+## Saving from a URL
+
+When `type` is `'url'`, Puter downloads the URL after the user picks where to save it. The request is sent without cookies or a referrer, so the file has to be publicly readable, and its server has to allow cross-origin requests (CORS) from Puter. Other URL schemes, such as `data:` and `blob:`, aren't accepted.
+
+A download can be up to 100 MiB, and it fails if no data arrives for 60 seconds. If the download fails, the user sees an error and nothing is saved. The call then settles the same way as a cancel once the picker closes: the promise stays pending and `undefinedOnCancel` resolves to `undefined`.
+
+To save a file that Puter can't download, such as one your server only serves with your own cookies, fetch it yourself and pass its contents as `content`.
 
 ## Examples
 

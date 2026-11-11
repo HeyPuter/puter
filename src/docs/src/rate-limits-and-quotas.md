@@ -344,6 +344,7 @@ Per minute unless stated:
 | Thumbnail read URLs | Valid for at least 6 days and 23 hours, refreshed hourly | Per URL |
 | `getReadURL()` (shared with all access-token creation) | 20/hour | |
 | `revokeReadURL()` | 60/min | |
+| File downloaded by [`showSaveFilePicker()`](/UI/showSaveFilePicker/) from a URL | 100 MiB, stopped after 60 s without data | Per call |
 
 Non-write operations (mkdir/shortcut/move/delete) inside a legacy `/batch` request also count against the Mutations limits above.
 

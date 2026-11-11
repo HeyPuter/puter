@@ -64,6 +64,7 @@ import {
 } from './helpers/popupFrame.js';
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
+import fetchUrlAsFile from './helpers/fetchUrlAsFile.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
 import {
@@ -711,7 +712,21 @@ const postAuthActions = async (action) => {
                         let busy_init_ts = Date.now();
 
                         let overwrite = false;
-                        let file_to_upload = new File([event.data.content], path.basename(target_path));
+                        let file_to_upload;
+                        if ( event.data.url ) {
+                            try {
+                                file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path));
+                            } catch ( err ) {
+                                await UIAlert({
+                                    message: i18n(err.code ?? 'url_save_failed'),
+                                    parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+                                });
+                                $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
+                                return;
+                            }
+                        } else {
+                            file_to_upload = new File([event.data.content], path.basename(target_path));
+                        }
                         let item_with_same_name_already_exists = true;
                         while ( item_with_same_name_already_exists ) {
                             // overwrite?

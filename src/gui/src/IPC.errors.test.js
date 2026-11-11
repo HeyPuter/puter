@@ -7,7 +7,6 @@ globalThis.use = globalThis.use ?? (() => ({}));
 globalThis.$ = globalThis.jQuery = jQuery;
 
 const { stub } = vi.hoisted(() => ({ stub: () => ({ default: () => {} }) }));
-vi.mock('./helpers/download.js', stub);
 vi.mock('./helpers/itemIcon.js', stub);
 vi.mock('./helpers/socialLink.js', stub);
 vi.mock('./helpers/updateMousePosition.js', stub);

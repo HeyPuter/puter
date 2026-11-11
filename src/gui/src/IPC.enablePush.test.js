@@ -29,7 +29,6 @@ const { stub, dialog, permissionDialog } = vi.hoisted(() => ({
     dialog: vi.fn(),
     permissionDialog: vi.fn(),
 }));
-vi.mock('./helpers/download.js', stub);
 vi.mock('./helpers/itemIcon.js', stub);
 vi.mock('./helpers/socialLink.js', stub);
 vi.mock('./helpers/updateMousePosition.js', stub);
