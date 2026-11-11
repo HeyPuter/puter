@@ -50,7 +50,6 @@ const fi = {
         change_username: 'Vaihda käyttäjänimi',
         close: 'Sulje',
         close_all_windows: 'Sulje kaikki ikkunat',
-        close_all_windows_confirm: 'Haluatko varmasti sulkea kaikki ikkunat?',
         close_all_windows_and_log_out: 'Sulje ikkunat ja kirjaudu ulos',
         change_always_open_with:
       'Haluatko aina avata tämän tyyppisen tiedoston sovelluksella',
@@ -145,8 +144,6 @@ const fi = {
         emptying_trash: 'Tyhjennetään roskakoria...',
         enable_2fa: 'Ota käyttöön kaksivaiheinen tunnistautuminen',
         end_hard: 'Pakotettu lopetus',
-        end_process_force_confirm:
-      'Haluatko varmasti pakottaa prosessin lopetuksen?',
         end_soft: 'Pehmeä lopetus',
         enlarged_qr_code: 'Suurennettu QR-koodi',
         enter_password_to_confirm_delete_user:
@@ -162,7 +159,6 @@ const fi = {
       'Kiitos yhteydenotostasi. Jos tiliisi on liitetty sähköpostiosoite, saat meiltä vastauksen mahdollisimman pian.',
         fit: 'Sovita',
         folder: 'Kansio',
-        force_quit: 'Pakota lopetus',
         forgot_pass_c2a: 'Unohditko salasanasi?',
 
         from: 'Henkilöltä', // TODO: Context dependent, examples
@@ -266,11 +262,6 @@ const fi = {
         privacy: 'Yksityisyys',
         proceed_to_login: 'Jatka sisäänkirjautumiseen',
         proceed_with_account_deletion: 'Jatka tilin poistamista',
-        process_status_initializing: 'Alustetaan',
-        process_status_running: 'Käynnissä',
-        process_type_app: 'Sovellus',
-        process_type_init: 'Alustava',
-        process_type_ui: 'Käyttöliittymä',
         properties: 'Ominaisuudet',
         public: 'Julkinen',
         publish: 'Julkaise',
@@ -294,7 +285,6 @@ const fi = {
         replace: 'Replace',
         replace_all: 'Korvaa kaikki',
         resend_confirmation_code: 'Lähetä vahvistuskoodi Uudelleen',
-        restart_puter_confirm: 'Haluatko varmasti käynnistää Puterin uudelleen?',
         restore: 'Palauta',
         save: 'Tallenna',
         saturation: 'Kylläisyys',
@@ -340,10 +330,6 @@ const fi = {
         storage_puter_used: 'Puterin käyttämä',
         taking_longer_than_usual:
       'Kestää hieman tavallista kauemmin. Ole hyvä ja odota...',
-        task_manager: 'Tehtävienhallinta',
-        taskmgr_header_name: 'Nimi',
-        taskmgr_header_status: 'Tila',
-        taskmgr_header_type: 'Tyyppi',
         terms: 'Ehdot',
         text_document: 'Tekstiasiakirja',
         tos_fineprint: 'Klikkaamalla \'Luo ilmainen tili\' hyväksyt Puterin {{link=terms}}käyttöehdot{{/link}} ja {{link=privacy}}tietosuojakäytännön{{/link}}.',

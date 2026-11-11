@@ -173,7 +173,6 @@ const nn = {
         change_always_open_with: 'Vil du alltid opne denne filtypen med', // In English: "Do you want to always open this type of file with"
         change_email: 'Endre e-post', // In English: "Change Email"
         close: 'Lukk', // In English: "Close"
-        close_all_windows_confirm: 'Er du sikker på at du vil lukke alle vindauge?', // In English: "Are you sure you want to close all windows?"
         close_all_windows_and_log_out: 'Lukk vindauge og logg ut', // In English: "Close Windows and Log Out"
         confirm: 'Stadfest', // In English: "Confirm"
         confirm_2fa_setup: 'Eg har lagt til koden i autentikatorappen min', // In English: "I have added the code to my authenticator app"
@@ -216,7 +215,6 @@ const nn = {
         email_required: 'E-post er krevd.', // In English: "Email is required."
         enable_2fa: 'Aktiver 2FA', // In English: "Enable 2FA"
         end_hard: 'Tvangslutt', // In English: "End Hard"
-        end_process_force_confirm: 'Er du sikker på at du vil tvinge avslutting av denne prosessen?', // In English: "Are you sure you want to force-quit this process?"
         end_soft: 'Avslutt normalt', // In English: "End Soft"
         enlarged_qr_code: 'Forstørra QR-kode', // In English: "Enlarged QR Code"
         enter_password_to_confirm_delete_user: 'Skriv inn passordet ditt for å stadfeste kontoen.', // In English: "Enter your password to confirm account deletion"
@@ -226,7 +224,6 @@ const nn = {
         favorites: 'Favorittar', // In English: "Favorites"
         fit: 'Tilpass',
         folder: 'Mappe', // In English: "Folder"
-        force_quit: 'Tving avslutt',
         // In English: "Force Quit"
         home: 'Heim',
         // In English: "Home"
@@ -263,11 +260,6 @@ const nn = {
         privacy: 'Personvern',
         proceed_to_login: 'Fortsett til innlogging',
         proceed_with_account_deletion: 'Fortsett med sletting av konto',
-        process_status_initializing: 'Initialiserer',
-        process_status_running: 'Køyrer',
-        process_type_app: 'App',
-        process_type_init: 'Init',
-        process_type_ui: 'Brukargrensesnitt',
         public: 'Offentleg',
         puter_description:
       'Puter er ein personleg skyteknologi med fokus på personvern, der du kan lagre alle filene, appane og spela dine på ein sikker stad, tilgjengeleg frå overalt til ei kvar tid.',
@@ -276,7 +268,6 @@ const nn = {
         recommended: 'Anbefalt',
         replace: 'Erstatt',
         replace_all: 'Erstatt alle',
-        restart_puter_confirm: 'Er du sikker på at du vil starte Puter på nytt?',
         save: 'Lagre',
         saturation: 'Metting',
         save_account: 'Lagre konto',
@@ -296,10 +287,6 @@ const nn = {
         status: 'Status',
         storage_usage: 'Lagringsbruk',
         storage_puter_used: 'brukt av Puter',
-        task_manager: 'Oppgavehandsaming',
-        taskmgr_header_name: 'Namn',
-        taskmgr_header_status: 'Status',
-        taskmgr_header_type: 'Type',
         terms: 'Vilkår',
         transparency: 'Gjennomsikt',
         two_factor: 'Tofaktorautentisering',

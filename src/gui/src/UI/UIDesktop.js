@@ -34,7 +34,6 @@ import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
 import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers/pathElements.js';
 import changeLanguage from '../i18n/i18nChangeLanguage.js';
-import UIWindowTaskManager from './UIWindowTaskManager.js';
 import truncate_filename from '../helpers/truncateFilename.js';
 import UINotification from './UINotification.js';
 import UIWindowWelcome from './UIWindowWelcome.js';
@@ -2264,16 +2263,6 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
                 id: 'settings',
                 onClick: async function () {
                     window.open('/dashboard/#home', '_blank');
-                },
-            },
-            //--------------------------------------------------
-            // Task Manager
-            //--------------------------------------------------
-            {
-                html: i18n('task_manager'),
-                id: 'task_manager',
-                onClick: async function () {
-                    UIWindowTaskManager();
                 },
             },
             //--------------------------------------------------

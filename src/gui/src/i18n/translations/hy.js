@@ -44,8 +44,6 @@ const hy = {
         change_username: 'Փոխել օգտանունը',
         close: 'Փակել',
         close_all_windows: 'Փակել բոլոր պատուհանները',
-        close_all_windows_confirm:
-      'Վստա՞հ եք, որ ցանկանում եք փակել բոլոր պատուհանները:',
         close_all_windows_and_log_out: 'Փակել պատուհաններն ու դուրս գալ',
         change_always_open_with: 'Ցանկանու՞մ եք այս տեսակի ֆայլը միշտ բացել',
         color: 'Գույն',
@@ -126,8 +124,6 @@ const hy = {
         emptying_trash: 'Աղբարկղը դատարկվում է…',
         enable_2fa: 'Միացնել 2FA',
         end_hard: 'Ավարտել խիստ',
-        end_process_force_confirm:
-      'Վստա՞հ եք, որ ցանկանում եք հարկադրաբար կանգնեցնել այս գործընթացը:',
         end_soft: 'Ավարտել մեղմ',
         enlarged_qr_code: 'Մեծացված QR-կոդ',
         enter_password_to_confirm_delete_user:
@@ -143,7 +139,6 @@ const hy = {
       'Շնորհակալություն մեզ հետ կապվելու համար: Եթե ձեր հաշվի հետ կապված էլ. հասցե ունեք, հնարավորինս շուտ կպատասխանենք ձեզ:',
         fit: 'Հարմարեցնել',
         folder: 'Պանակ',
-        force_quit: 'Հարկադրված ելք',
         forgot_pass_c2a: 'Մոռացե՞լ եք գաղտնաբառը',
         from: 'Ումից՝',
         general: 'Ընդհանուր',
@@ -224,11 +219,6 @@ const hy = {
         privacy: 'Գաղտնիություն',
         proceed_to_login: 'Շարունակել մուտք գործելը',
         proceed_with_account_deletion: 'Շարունակել հաշվի ջնջումը',
-        process_status_initializing: 'Սկսում է',
-        process_status_running: 'Աշխատում է',
-        process_type_app: 'Հավելված',
-        process_type_init: 'Սկսում',
-        process_type_ui: 'UI',
         properties: 'Հատկություններ',
         public: 'Հանրային',
         publish: 'Հրապարակել',
@@ -249,7 +239,6 @@ const hy = {
         replace: 'Փոխարինել',
         replace_all: 'Փոխարինել բոլորը',
         resend_confirmation_code: 'Նորից ուղարկել հաստատման կոդը',
-        restart_puter_confirm: 'Վստա՞հ եք, որ ցանկանում եք վերագործարկել Փութերը:',
         restore: 'Վերականգնել',
         save: 'Պահպանել',
         saturation: 'Հագեցվածություն',
@@ -294,10 +283,6 @@ const hy = {
         storage_puter_used: 'օգտագործվում է Փութերի կողմից',
         taking_longer_than_usual:
       'Սովորականից մի փոքր ավելի երկար է տևում: Խնդրում ենք սպասել...',
-        task_manager: 'Առաջադրանքների կառավարիչ',
-        taskmgr_header_name: 'Անուն',
-        taskmgr_header_status: 'Կարգավիճակ',
-        taskmgr_header_type: 'Տեսակ',
         terms: 'Պայմաններ',
         text_document: 'Տեքստային փաստաթուղթ',
         tos_fineprint:

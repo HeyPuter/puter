@@ -44,8 +44,6 @@ const ta = {
         change_username: 'பயனர் பெயரை மாற்றவும்',
         close: 'மூடு',
         close_all_windows: 'அனைத்து விண்டோஸ் மூடு',
-        close_all_windows_confirm:
-      'எல்லா சாளரங்களையும் நிச்சயமாக மூட விரும்புகிறீர்களா?',
         close_all_windows_and_log_out: 'விண்டோஸை மூடிவிட்டு வெளியேறவும்',
         change_always_open_with:
       'இந்த வகையான கோப்பை எப்போதும் திறக்க விரும்புகிறீர்களா?',
@@ -128,8 +126,6 @@ const ta = {
         emptying_trash: 'குப்பையைக் காலியாக்குகிறது…',
         enable_2fa: '2FA ஐ இயக்கவும்',
         end_hard: 'கடினமாக முடிக்கவும்',
-        end_process_force_confirm:
-      'இந்தச் செயல்முறையை கட்டாயப்படுத்தி வெளியேற விரும்புகிறீர்களா?',
         end_soft: 'மென்மையான முடிக்கவும்',
         enlarged_qr_code: 'விரிவாக்கப்பட்ட QR குறியீடு',
         enter_password_to_confirm_delete_user:
@@ -145,7 +141,6 @@ const ta = {
       'எங்களை தொடர்பு கொண்டதற்கு நன்றி. உங்கள் கணக்குடன் தொடர்புடைய மின்னஞ்சலை நீங்கள் வைத்திருந்தால், கூடிய விரைவில் எங்களிடமிருந்து பதிலளிப்பீர்கள்.',
         fit: 'பொருத்தம்',
         folder: 'கோப்புறை',
-        force_quit: 'கட்டாயம் வெளியேறு',
         forgot_pass_c2a: 'கடவுச்சொல்லை மறந்துவிட்டீர்களா?',
         from: 'இருந்து',
         general: 'பொது',
@@ -225,11 +220,6 @@ const ta = {
         privacy: 'தனியுரிமை',
         proceed_to_login: 'உள்நுழைய தொடரவும்',
         proceed_with_account_deletion: 'கணக்கு நீக்குதலைத் தொடரவும்',
-        process_status_initializing: 'துவக்குதல்',
-        process_status_running: 'ஓடுதல்',
-        process_type_app: 'செயலி',
-        process_type_init: 'Init',
-        process_type_ui: 'யுஐ',
         properties: 'பண்புகள்',
         public: 'பொது',
         publish: 'வெளியிடு',
@@ -251,8 +241,6 @@ const ta = {
         replace: 'மாற்றவும்',
         replace_all: 'அனைத்தையும் மாற்றவும்',
         resend_confirmation_code: 'உறுதிப்படுத்தல் குறியீட்டை மீண்டும் அனுப்பவும்',
-        restart_puter_confirm:
-      'நிச்சயமாக புட்டர்-ஐ மீண்டும் தொடங்க விரும்புகிறீர்களா?',
         restore: 'மீட்டமை',
         save: 'சேமிக்கவும்',
         saturation: 'செறிவூட்டல்',
@@ -296,10 +284,6 @@ const ta = {
         storage_puter_used: 'புட்டரால் பயன்படுத்தப்பட்டது',
         taking_longer_than_usual:
       'வழக்கத்தை விட சிறிது நேரம் எடுக்கும். தயவுசெய்து காத்திருங்கள்...',
-        task_manager: 'பணி மேலாளர்',
-        taskmgr_header_name: 'பெயர்',
-        taskmgr_header_status: 'நிலை',
-        taskmgr_header_type: 'வகை',
         terms: 'விதிமுறை',
         text_document: 'உரை ஆவணம்',
         tos_fineprint:
