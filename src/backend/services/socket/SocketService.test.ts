@@ -926,6 +926,31 @@ describe('SocketService (live socket.io)', () => {
         socket.disconnect();
     });
 
+    it('keeps a connection up when its re-check lookup fails', async () => {
+        const user = await createTestUser(server, {
+            username: 'sock-lookup-down',
+            password: 'sock-lookup-down-password',
+        });
+        const socket = await connect({ auth_token: `Bearer ${user.token}` });
+        const authenticate = vi
+            .spyOn(server.services.auth, 'authenticate')
+            .mockRejectedValue(
+                Object.assign(new Error('Database operation failed'), {
+                    code: 'dbBatchFailed',
+                }),
+            );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            await socketService.reauthenticateSockets();
+            await new Promise((r) => setTimeout(r, 200));
+            expect(socket.connected).toBe(true);
+        } finally {
+            authenticate.mockRestore();
+            warn.mockRestore();
+            socket.disconnect();
+        }
+    });
+
     it('re-checks without recording session activity', async () => {
         const idle = await createTestUser(server, {
             username: 'sock-idle',

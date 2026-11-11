@@ -45,9 +45,9 @@ interface AuthProbeOptions {
  * and valid — attaches an `Actor` to `req.actor`.
  *
  * Key property: this middleware **never rejects**. Missing tokens, malformed
- * tokens, expired tokens, tokens pointing at deleted users — all result in
- * `req.actor` being left undefined. Per-route gates decide whether absence is
- * acceptable.
+ * tokens, expired tokens, tokens pointing at deleted users, and lookups that
+ * fail outright all result in `req.actor` being left undefined. Per-route gates
+ * decide whether absence is acceptable.
  *
  * Token lookup order:
  *
@@ -153,8 +153,10 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
             } else if (result.invalid) {
                 req.tokenAuthFailed = true;
             }
-        } catch {
-            req.tokenAuthFailed = true;
+        } catch (err) {
+            // Not a verdict on the token: routes that require auth answer
+            // with this error, routes that don't serve the request anonymously.
+            req.tokenAuthError = err;
         }
         next();
     };

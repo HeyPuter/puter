@@ -982,15 +982,22 @@ export class SocketService extends PuterService {
             },
         );
         const decisions = new Map<string, SocketAuthDecision>();
+        let unchecked = 0;
         checked.forEach((token, i) => {
             const outcome = outcomes[i];
-            decisions.set(
-                token,
-                outcome?.status === 'fulfilled'
-                    ? outcome.value
-                    : { reject: new Error('socket reauth failed') },
-            );
+            // A lookup that failed says nothing about the credential, so its
+            // sockets stay up until a later sweep gets an answer.
+            if (outcome?.status === 'fulfilled') {
+                decisions.set(token, outcome.value);
+            } else {
+                unchecked++;
+            }
         });
+        if (unchecked > 0) {
+            console.warn(
+                `[socket] reauth sweep could not check ${unchecked} credential(s)`,
+            );
+        }
 
         for (const socket of sockets) {
             const decision = socket.authToken
