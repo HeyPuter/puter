@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { webPushClient } from './webPushClient.js';
+import { ON_KEPT_MS, webPushClient } from './webPushClient.js';
 
 const make = ({ on = true, devices = [], permission = 'granted', subscription = { endpoint: 'https://push.test/1' }, user = 'u-1' } = {}) => {
     const notifications = {
@@ -28,7 +28,7 @@ const make = ({ on = true, devices = [], permission = 'granted', subscription = 
         listDevices: vi.fn(async () => devices),
     };
     const listeners = new Set();
-    const state = { subscription, user };
+    const state = { subscription, user, now: 0 };
     const nav = {
         serviceWorker: {
             getRegistration: vi.fn(async () => ({ pushManager: { getSubscription: async () => state.subscription } })),
@@ -38,7 +38,7 @@ const make = ({ on = true, devices = [], permission = 'granted', subscription = 
     const post = (data) => {
         for ( const fn of listeners ) fn({ data });
     };
-    const client = webPushClient({ notifications, NotificationApi: { permission }, nav, userUid: () => state.user });
+    const client = webPushClient({ notifications, NotificationApi: { permission }, nav, userUid: () => state.user, now: () => state.now });
     return { notifications, client, post, state };
 };
 
@@ -80,7 +80,7 @@ describe('webPushClient', () => {
     it('turns on in the background without replacing a browser removed in Puter', async () => {
         const { notifications, client } = make({ devices: [current] });
         await expect(client.enable({ background: true })).resolves.toEqual({ deviceUid: 'd1' });
-        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { renewRemoved: false });
+        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { background: true });
         expect(notifications.enable).not.toHaveBeenCalled();
 
         const removed = Object.assign(new Error('removed'), { code: 'push_device_removed' });
@@ -129,8 +129,12 @@ describe('webPushClient status with cached', () => {
         ['the user signed out', ({ state }) => {
             state.user = undefined;
         }],
-        ['enable() ran', async ({ client }) => {
-            await client.enable();
+        ['the last on is older than a page keeps it', ({ state }) => {
+            state.now += ON_KEPT_MS;
+        }],
+        ['enable() failed', async ({ client, notifications }) => {
+            notifications.enable.mockResolvedValueOnce(false);
+            await client.enable().catch(() => {});
         }],
         ['disable() ran', async ({ client }) => {
             await client.disable();
@@ -145,6 +149,21 @@ describe('webPushClient status with cached', () => {
         made.notifications.listDevices.mockClear();
         await made.client.status({ cached: true });
         expect(made.notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers with the on enable() read, without listing devices again', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        await client.enable({ background: true });
+        notifications.listDevices.mockClear();
+        await expect(client.status({ cached: true })).resolves.toEqual(on);
+        expect(notifications.listDevices).not.toHaveBeenCalled();
+    });
+
+    it('keeps answering with the last on until it is too old', async () => {
+        const { notifications, client, state } = await readOn();
+        state.now += ON_KEPT_MS - 1;
+        await expect(client.status({ cached: true })).resolves.toEqual(on);
+        expect(notifications.listDevices).not.toHaveBeenCalled();
     });
 
     it('reports off after disable()', async () => {

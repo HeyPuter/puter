@@ -25,15 +25,19 @@ const GUI_WORKER = { url: '/sw.js', scope: '/' };
 /** What `/sw.js` posts when the browser replaced the subscription. */
 const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 
+/** How long a page answers `cached` reads from its last `on`. */
+export const ON_KEPT_MS = 5 * 60 * 1000;
+
 /** @returns {import('./pushClient.js').PushClient} */
 export const webPushClient = ({
     notifications = globalThis.puter?.notifications,
     NotificationApi = globalThis.Notification,
     nav = globalThis.navigator,
     userUid = () => globalThis.user?.uuid,
+    now = Date.now,
 } = {}) => {
     // The last `on` this page read; a new page always asks the server.
-    /** @type {{ userUid: string, endpoint: string, deviceUid: string }|null} */
+    /** @type {{ userUid: string, endpoint: string, deviceUid: string, at: number }|null} */
     let lastOn = null;
     let generation = 0;
     const forgetOn = () => {
@@ -48,17 +52,26 @@ export const webPushClient = ({
         const devices = await notifications.listDevices();
         return devices.find((d) => d.current && d.platform === 'webpush') ?? null;
     };
+    const subscriptionHere = async () => {
+        const registration = await nav.serviceWorker?.getRegistration('/');
+        return await registration?.pushManager?.getSubscription() ?? null;
+    };
     return {
         // Not async before `enable()`: it asks the browser inside the click.
         enable: ({ background = false } = {}) => {
             forgetOn();
             const turningOn = background
-                ? notifications._enableWebPush(GUI_WORKER, { renewRemoved: false }).then(() => true)
+                ? notifications._enableWebPush(GUI_WORKER, { background: true }).then(() => true)
                 : notifications.enable();
             return turningOn.then(async (on) => {
                 if ( ! on ) throw new Error(`notifications ${NotificationApi?.permission ?? 'unavailable'}`);
-                const device = await currentDevice();
+                const reading = generation;
+                const user = userUid();
+                const [device, subscription] = await Promise.all([currentDevice(), subscriptionHere()]);
                 if ( ! device ) throw new Error('this browser was not registered');
+                if ( reading === generation && user && subscription ) {
+                    lastOn = { userUid: user, endpoint: subscription.endpoint, deviceUid: device.uid, at: now() };
+                }
                 return { deviceUid: device.uid };
             });
         },
@@ -72,20 +85,23 @@ export const webPushClient = ({
         },
         status: async ({ cached = false } = {}) => {
             const permission = NotificationApi?.permission ?? 'default';
-            const registration = await nav.serviceWorker?.getRegistration('/');
-            const subscription = await registration?.pushManager?.getSubscription();
+            const subscription = await subscriptionHere();
             if ( permission !== 'granted' || ! subscription ) {
                 forgetOn();
                 return { permission, registered: false };
             }
             const user = userUid();
-            if ( cached && lastOn && lastOn.userUid === user && lastOn.endpoint === subscription.endpoint ) {
+            const kept = lastOn && lastOn.userUid === user && lastOn.endpoint === subscription.endpoint
+                && now() - lastOn.at < ON_KEPT_MS;
+            if ( cached && kept ) {
                 return { permission, registered: true, deviceUid: lastOn.deviceUid };
             }
             const reading = generation;
             const device = await currentDevice();
             if ( reading === generation ) {
-                lastOn = device && user ? { userUid: user, endpoint: subscription.endpoint, deviceUid: device.uid } : null;
+                lastOn = device && user
+                    ? { userUid: user, endpoint: subscription.endpoint, deviceUid: device.uid, at: now() }
+                    : null;
             }
             return device
                 ? { permission, registered: true, deviceUid: device.uid }

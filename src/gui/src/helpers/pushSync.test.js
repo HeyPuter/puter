@@ -92,7 +92,7 @@ describe('syncBrowserPush with the built-in client', () => {
         notifications._enableWebPush.mockRejectedValue(Object.assign(new Error('removed'), { code: 'push_device_removed' }));
         const deps = { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => true };
         await expect(syncBrowserPush({}, deps)).resolves.toBe('removed');
-        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { renewRemoved: false });
+        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { background: true });
         expect(notifications.enable).not.toHaveBeenCalled();
         await expect(syncBrowserPush({}, deps)).resolves.toBe('opted_out');
         expect(notifications._enableWebPush).toHaveBeenCalledTimes(1);
