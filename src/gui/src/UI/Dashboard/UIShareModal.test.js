@@ -184,6 +184,37 @@ describe('UIShareModal removing access', () => {
         expect($('.share-modal-row-mode').val()).toBe('read');
     });
 
+    it('says how many items a person was removed from when one was refused', async () => {
+        const held = new Set(['/alice/f0.txt', '/alice/f1.txt', '/alice/f2.txt']);
+        puter.fs.getShares = vi.fn(async (path) => (held.has(path)
+            ? [{ holder: 'bob', mode: 'read', issuer: 'alice' }]
+            : []));
+        const mixed = unshareAnswering({
+            status: 'mixed',
+            revoked: 2,
+            results: [
+                { recipient: 'bob', path: '/alice/f0.txt', status: 'success' },
+                { recipient: 'bob', path: '/alice/f1.txt', status: 'success' },
+                { recipient: 'bob', path: '/alice/f2.txt', status: 'error', code: 'forbidden', message: 'Not allowed' },
+            ],
+        });
+        puter.fs.unshare = async (...args) => {
+            const result = await mixed(...args);
+            held.delete('/alice/f0.txt');
+            held.delete('/alice/f1.txt');
+            return result;
+        };
+        UIShareModal({ items: [0, 1, 2].map((i) => ({ path: `/alice/f${i}.txt` })) });
+        await settle();
+
+        $('.share-modal-row-mode').val('__remove').trigger('change');
+        $('.share-modal-confirm-remove').trigger('click');
+        await settle();
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe('Removed bob from 2 of 3 items');
+        expect($('.share-modal-row-mode').length).toBe(1);
+    });
+
     it('offers cancelling an invitation from its menu', async () => {
         puter.fs.getShares = vi.fn(async () => [
             { holder: null, recipientEmail: 'carol@example.com', pending: true, mode: 'write', issuer: 'alice' },

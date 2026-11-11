@@ -678,6 +678,8 @@ const en = {
         share_access_updated_items:
             'Updated access for {{recipient}} on {{count}} items',
         share_access_removed_items: 'Removed {{recipient}} from {{count}} items',
+        share_access_removed_partial:
+            'Removed {{recipient}} from {{count}} of {{total}} items',
         block: 'Block',
         unblock: 'Unblock',
         manage: 'Manage',

@@ -998,7 +998,20 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                     : i18n('share_access_removed', { recipient: group.name }));
             }
             invalidate_shared_roots();
+            const listed_before = last_groups;
             await refresh();
+            // A refused item next to ones that went through still resolves;
+            // a fresh listing says how many they still hold.
+            const after = last_groups === listed_before ? null : group_for(key);
+            const held = new Set(after?.[group.pending ? 'pendingPaths' : 'directPaths']);
+            const kept = revoke_paths.filter((path) => held.has(path)).length;
+            if ( kept && revoke_paths.length > 1 ) {
+                show_error(i18n('share_access_removed_partial', {
+                    recipient: group.name,
+                    count: revoke_paths.length - kept,
+                    total: revoke_paths.length,
+                }));
+            }
             // The focused row is gone; the dialog itself takes focus (the
             // input would pop the on-screen keyboard on touch devices).
             if ( ! focus_moved_on() ) focus_dialog();
