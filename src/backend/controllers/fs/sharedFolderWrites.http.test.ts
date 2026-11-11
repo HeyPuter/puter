@@ -369,7 +369,7 @@ describe('writes inside a folder shared with write', () => {
 
         it('gives nothing to another app of the recipient', async () => {
             const s = await shareAFolder();
-            await openWithApp(s);
+            const { appToken } = await openWithApp(s);
             const recipientId = (await env.server.stores.user.getByUsername(
                 s.recipient.username,
             ))!.id;
@@ -382,13 +382,19 @@ describe('writes inside a folder shared with write', () => {
             expect(minted.status).toBe(200);
             const otherToken = minted.json!.token as string;
 
-            expect([403, 404]).toContain(
-                (await read(otherToken, { uid: s.noteUid })).status,
+            // The same requests the opened app gets through.
+            const real = `${s.realDir}/note.txt`;
+            expect((await read(appToken, { uid: s.noteUid })).status).toBe(200);
+            expect((await write(appToken, real, 'one')).status).toBe(200);
+
+            expect((await read(otherToken, { uid: s.noteUid })).status).toBe(
+                404,
             );
-            expect([403, 404]).toContain(
-                (await write(otherToken, `${s.maskedDir}/note.txt`, 'x'))
-                    .status,
-            );
+            expect((await write(otherToken, real, 'x')).status).toBe(404);
+            expect(await read(appToken, { uid: s.noteUid })).toEqual({
+                status: 200,
+                text: 'one',
+            });
         }, 180_000);
     });
 });
