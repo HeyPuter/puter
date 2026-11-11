@@ -2073,10 +2073,7 @@ export class FSService extends PuterService {
                 );
             });
 
-            const fsEntries = await this.stores.fsEntry.batchCreateEntries(
-                createInputs,
-                true,
-            );
+            const fsEntries = await this.#createUploadedEntries(createInputs);
             return preparedBatch.items.map((item, index) => {
                 const fsEntry = fsEntries[index];
                 if (!fsEntry) {
@@ -3001,28 +2998,95 @@ export class FSService extends PuterService {
                 legacyCode: 'conflict',
             });
         }
+        await this.#moveObjectOntoKey(
+            session.objectKey,
+            liveKey,
+            { bucket, region, size },
+            session.contentType,
+        );
+    }
+
+    async #moveObjectOntoKey(
+        fromKey: string,
+        toKey: string,
+        at: { bucket: string; region: string; size: number },
+        contentType?: string | null,
+    ): Promise<void> {
         await this.stores.s3Object.copyObjectOfAnySize(
             {
-                sourceBucket: bucket,
-                sourceKey: session.objectKey,
-                destinationBucket: bucket,
-                destinationKey: liveKey,
-                contentType: session.contentType,
+                sourceBucket: at.bucket,
+                sourceKey: fromKey,
+                destinationBucket: at.bucket,
+                destinationKey: toKey,
+                ...(contentType ? { contentType } : {}),
                 metadataDirective: 'REPLACE',
             },
-            region,
-            size,
+            at.region,
+            at.size,
         );
         try {
             await this.stores.s3Object.deleteObject(
-                bucket,
-                session.objectKey,
-                region,
+                at.bucket,
+                fromKey,
+                at.region,
             );
         } catch (e) {
-            // The live object is already right; the staged one is only litter.
-            console.warn('[fs] staged overwrite left behind:', e);
+            // The destination is already right; the source is only litter.
+            console.warn('[fs] moved object left behind:', e);
         }
+    }
+
+    /**
+     * Creates the rows for objects already uploaded. A row another writer
+     * created first keeps its uuid, so those bytes move onto that key.
+     */
+    async #createUploadedEntries(
+        inputs: FSEntryCreateInput[],
+    ): Promise<FSEntry[]> {
+        const entries = await this.stores.fsEntry.batchCreateEntries(
+            inputs,
+            true,
+        );
+        const raced = inputs.flatMap((input, index) => {
+            const liveKey = entries[index]?.uuid;
+            return liveKey && liveKey !== input.uuid
+                ? [{ input, index, liveKey }]
+                : [];
+        });
+        if (raced.length === 0) return entries;
+
+        await Promise.all(
+            raced.map(({ input, liveKey }) =>
+                this.#moveObjectOntoKey(
+                    input.uuid,
+                    liveKey,
+                    {
+                        bucket: this.stores.s3Object.resolveBucket(
+                            input.bucket,
+                        ),
+                        region: this.stores.s3Object.resolveRegion(
+                            input.bucketRegion,
+                        ),
+                        size: input.size,
+                    },
+                    input.contentType,
+                ),
+            ),
+        );
+        const adopted = await this.stores.fsEntry.batchCreateEntries(
+            raced.map(({ input, liveKey }) => ({ ...input, uuid: liveKey })),
+            true,
+        );
+        raced.forEach(({ index, liveKey }, i) => {
+            const entry = adopted[i];
+            if (entry?.uuid !== liveKey) {
+                throw new HttpError(409, 'Write target changed mid-write', {
+                    legacyCode: 'conflict',
+                });
+            }
+            entries[index] = entry;
+        });
+        return entries;
     }
 
     async completeUrlWrite(
@@ -3581,10 +3645,10 @@ export class FSService extends PuterService {
             : uploadBody.contentHashSha256;
 
         const createInput = this.#toCreateInput(normalizedInput, objectKey);
-        const fsEntry = await this.stores.fsEntry.createEntry(
-            createInput,
-            normalizedInput.createMissingParents,
-        );
+        const [fsEntry] = await this.#createUploadedEntries([createInput]);
+        if (!fsEntry) {
+            throw new Error('Failed to create entry');
+        }
 
         this.#emitFsEvent(
             existingEntry ? 'fs.write.file' : 'fs.create.file',
@@ -3682,17 +3746,18 @@ export class FSService extends PuterService {
                 updates.filter(isValid),
             );
         let next = 0;
-        return updates.map((update): PromiseSettledResult<FSEntry> =>
-            isValid(update)
-                ? stored[next++]
-                : {
-                      status: 'rejected',
-                      reason: new HttpError(
-                          400,
-                          'Invalid file entry identifier for thumbnail update',
-                          { legacyCode: 'bad_request' },
-                      ),
-                  },
+        return updates.map(
+            (update): PromiseSettledResult<FSEntry> =>
+                isValid(update)
+                    ? stored[next++]
+                    : {
+                          status: 'rejected',
+                          reason: new HttpError(
+                              400,
+                              'Invalid file entry identifier for thumbnail update',
+                              { legacyCode: 'bad_request' },
+                          ),
+                      },
         );
     }
 
