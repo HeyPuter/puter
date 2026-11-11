@@ -913,11 +913,22 @@ export class AuthService extends PuterService {
      * link.
      */
     async revokeAllSessionsForUserId(userId: number): Promise<void> {
-        if (!userId) return;
-        const rows = await this.stores.session.getByUserId(userId, {
-            primary: true,
-        });
-        await this.#revokeCascades(rows.map((row) => row.uuid as string));
+        await this.revokeAllSessionsForUserIds([userId]);
+    }
+
+    /**
+     * `revokeAllSessionsForUserId` for several users: one read and one cascade
+     * per 200 users, with each user's revocation still announced on its own.
+     */
+    async revokeAllSessionsForUserIds(userIds: number[]): Promise<void> {
+        const ids = [...new Set(userIds.filter(Boolean))];
+        for (let offset = 0; offset < ids.length; offset += 200) {
+            const rows = await this.stores.session.getByUserIds(
+                ids.slice(offset, offset + 200),
+                { primary: true },
+            );
+            await this.#revokeCascades(rows.map((row) => row.uuid as string));
+        }
     }
 
     async #revokeCascades(rootUuids: string[]): Promise<void> {

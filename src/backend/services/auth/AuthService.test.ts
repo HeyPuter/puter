@@ -4046,6 +4046,199 @@ describe('AuthService (integration)', () => {
             expect(await sessions.getByUuid(worker.uuid)).toBeNull();
             expect(await sessions.getByUuid(token.uuid)).toBeNull();
         });
+
+        describe('revokeAllSessionsForUserIds', () => {
+            /** A web session and an asset session under it. */
+            const makeSessions = async (userId: number) => {
+                const sessions = server.stores.session;
+                const web = await sessions.create(userId);
+                const asset = await sessions.create(userId, {
+                    kind: 'asset',
+                    parent_session_id: web.uuid,
+                });
+                return [web.uuid, asset.uuid] as string[];
+            };
+
+            const announced = (emit: { mock: { calls: unknown[][] } }) =>
+                emit.mock.calls
+                    .filter(([key]) => key === 'outer.auth.sessions.revoked')
+                    .map(
+                        ([, data]) =>
+                            data as { user_id: number; session_uids: string[] },
+                    );
+
+            it('revokes every session of each user and announces each user once', async () => {
+                const users = [
+                    await makeUser(),
+                    await makeUser(),
+                    await makeUser(),
+                ];
+                const bystander = await makeUser();
+                const kept = await makeSessions(bystander.id);
+                const uuids = new Map<number, string[]>();
+                for (const user of users) {
+                    uuids.set(user.id, await makeSessions(user.id));
+                }
+
+                const db = server.clients.db;
+                const pread = vi.spyOn(db, 'pread');
+                const write = vi.spyOn(db, 'write');
+                const cascades = vi.spyOn(
+                    server.stores.session,
+                    'revokeCascades',
+                );
+                const emit = vi.spyOn(server.clients.event, 'emit');
+                let primaryQueries: string[];
+                let cascadeCalls: number;
+                let events: ReturnType<typeof announced>;
+                try {
+                    await authService.revokeAllSessionsForUserIds(
+                        users.map((user) => user.id),
+                    );
+                } finally {
+                    primaryQueries = [
+                        ...pread.mock.calls,
+                        ...write.mock.calls,
+                    ].map(([sql]) => String(sql));
+                    cascadeCalls = cascades.mock.calls.length;
+                    events = announced(emit);
+                    for (const spy of [pread, write, cascades, emit]) {
+                        spy.mockRestore();
+                    }
+                }
+
+                // List, select, update, re-seed: once for all three users.
+                expect(
+                    primaryQueries.filter((sql) => sql.includes('`sessions`')),
+                ).toHaveLength(4);
+                expect(cascadeCalls).toBe(1);
+                expect(events).toHaveLength(users.length);
+                for (const user of users) {
+                    const event = events.find((e) => e.user_id === user.id);
+                    expect(event?.session_uids.sort()).toEqual(
+                        [...uuids.get(user.id)!].sort(),
+                    );
+                    for (const uuid of uuids.get(user.id)!) {
+                        expect(
+                            await server.stores.session.getByUuid(uuid),
+                        ).toBeNull();
+                    }
+                }
+                for (const uuid of kept) {
+                    expect(
+                        await server.stores.session.getByUuid(uuid),
+                    ).toBeTruthy();
+                }
+            });
+
+            it('reads and cascades once per 200 users', async () => {
+                const first = await makeUser();
+                const last = await makeUser();
+                const uuids = [
+                    ...(await makeSessions(first.id)),
+                    ...(await makeSessions(last.id)),
+                ];
+                // Ids no user holds fill the first chunk and are skipped.
+                const absent = Array.from(
+                    { length: 199 },
+                    (_, i) => 900_000_000 + i,
+                );
+
+                const reads = vi.spyOn(server.stores.session, 'getByUserIds');
+                const cascades = vi.spyOn(
+                    server.stores.session,
+                    'revokeCascades',
+                );
+                let readSizes: number[];
+                let cascadeCalls: number;
+                try {
+                    await authService.revokeAllSessionsForUserIds([
+                        first.id,
+                        ...absent,
+                        last.id,
+                        first.id,
+                    ]);
+                } finally {
+                    readSizes = reads.mock.calls.map(([ids]) => ids.length);
+                    cascadeCalls = cascades.mock.calls.length;
+                    reads.mockRestore();
+                    cascades.mockRestore();
+                }
+
+                expect(readSizes).toEqual([200, 1]);
+                expect(cascadeCalls).toBe(2);
+                for (const uuid of uuids) {
+                    expect(
+                        await server.stores.session.getByUuid(uuid),
+                    ).toBeNull();
+                }
+            });
+
+            it('does nothing for an empty list or ids no user holds', async () => {
+                const db = server.clients.db;
+                const pread = vi.spyOn(db, 'pread');
+                const write = vi.spyOn(db, 'write');
+                const emit = vi.spyOn(server.clients.event, 'emit');
+                let emptyQueries: number;
+                let writes: number;
+                let events: number;
+                try {
+                    await authService.revokeAllSessionsForUserIds([]);
+                    await authService.revokeAllSessionsForUserIds([0]);
+                    emptyQueries = pread.mock.calls.length;
+                    await authService.revokeAllSessionsForUserIds([
+                        900_000_500, 900_000_501,
+                    ]);
+                } finally {
+                    writes = write.mock.calls.length;
+                    events = announced(emit).length;
+                    for (const spy of [pread, write, emit]) spy.mockRestore();
+                }
+
+                expect(emptyQueries).toBe(0);
+                expect(writes).toBe(0);
+                expect(events).toBe(0);
+            });
+
+            it('revokes sessions the replica has not seen yet', async () => {
+                const users = [await makeUser(), await makeUser()];
+                const uuids: string[] = [];
+                for (const user of users) {
+                    uuids.push(...(await makeSessions(user.id)));
+                }
+
+                const db = server.clients.db;
+                const original = db.read.bind(db);
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation(
+                        async (sql: string, params?: unknown[]) =>
+                            sql.includes('FROM `sessions`')
+                                ? []
+                                : original(sql, params),
+                    );
+                // sqlite's `pread` goes through `read`; keep it on the primary.
+                const pread = vi
+                    .spyOn(db, 'pread')
+                    .mockImplementation((sql: string, params?: unknown[]) =>
+                        original(sql, params),
+                    );
+                try {
+                    await authService.revokeAllSessionsForUserIds(
+                        users.map((user) => user.id),
+                    );
+                } finally {
+                    read.mockRestore();
+                    pread.mockRestore();
+                }
+
+                for (const uuid of uuids) {
+                    expect(
+                        await server.stores.session.getByUuid(uuid),
+                    ).toBeNull();
+                }
+            });
+        });
     });
 
     describe('purgeEndedSessions', () => {

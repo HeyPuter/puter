@@ -253,6 +253,74 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('getByUserIds', () => {
+        it('returns the active sessions of every listed user in one query', async () => {
+            const [a, b, other] = [
+                await makeUser(),
+                await makeUser(),
+                await makeUser(),
+            ];
+            const mine = [await target.create(a.id), await target.create(b.id)];
+            const revoked = await target.create(a.id);
+            await target.removeByUuid(revoked.uuid);
+            await target.create(other.id);
+
+            const read = vi.spyOn(server.clients.db, 'read');
+            let queries: number;
+            let rows: { uuid: string }[];
+            try {
+                rows = await target.getByUserIds([a.id, b.id, a.id]);
+            } finally {
+                queries = read.mock.calls.length;
+                read.mockRestore();
+            }
+
+            expect(queries).toBe(1);
+            expect(rows.map((r) => r.uuid).sort()).toEqual(
+                mine.map((r: { uuid: string }) => r.uuid).sort(),
+            );
+            const all = await target.getByUserIds([a.id, b.id], {
+                includeRevoked: true,
+            });
+            expect(all.map((r: { uuid: string }) => r.uuid)).toContain(
+                revoked.uuid,
+            );
+        });
+
+        it('runs no query for an empty list', async () => {
+            const read = vi.spyOn(server.clients.db, 'read');
+            try {
+                expect(await target.getByUserIds([])).toEqual([]);
+                expect(await target.getByUserIds([0])).toEqual([]);
+                expect(read).not.toHaveBeenCalled();
+            } finally {
+                read.mockRestore();
+            }
+        });
+
+        it('with primary=true finds sessions the replica has not seen yet', async () => {
+            const [a, b] = [await makeUser(), await makeUser()];
+            const first = await target.create(a.id);
+            const second = await target.create(b.id);
+
+            const restore = lagReplica({
+                [first.uuid]: null,
+                [second.uuid]: null,
+            });
+            try {
+                expect(await target.getByUserIds([a.id, b.id])).toEqual([]);
+                const rows = await target.getByUserIds([a.id, b.id], {
+                    primary: true,
+                });
+                expect(
+                    rows.map((r: { uuid: string }) => r.uuid).sort(),
+                ).toEqual([first.uuid, second.uuid].sort());
+            } finally {
+                restore();
+            }
+        });
+    });
+
     describe('removeByUuid', () => {
         it('soft-revokes — row remains in DB with revoked_at set', async () => {
             const user = await makeUser();
