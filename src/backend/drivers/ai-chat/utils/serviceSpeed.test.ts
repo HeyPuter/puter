@@ -26,6 +26,7 @@ import {
 } from './OpenAIUtil.js';
 import type { IChatModel, ServiceSpeed } from '../types.js';
 import {
+    requestedServiceSpeed,
     selectServiceSpeed,
     servedServiceSpeed,
     serviceSpeedBillingModel,
@@ -82,6 +83,31 @@ describe('service speed selection', () => {
         const selected = selectServiceSpeed(entry, args, noVariant);
         expect(selected.model).toBe(entry);
         expect(selected.args).toBe(args);
+    });
+    it.each([
+        [{ service_tier: 'priority' }, 'openai-responses', 'fast'],
+        [{ service_tier: 'ultrafast' }, 'openai-responses', 'ultrafast'],
+        [{ service_tier: 'auto' }, 'mistral', 'fast'],
+        [{ speed: 'fast' }, 'claude', 'fast'],
+        [{ service_tier: 'auto' }, 'openai-responses', undefined],
+        [{ service_tier: 'flex' }, 'openai-responses', undefined],
+        [{ speed: 'fast' }, 'openai-responses', undefined],
+        [{ serviceSpeed: 'standard', service_tier: 'priority' }, 'openai-responses', 'standard'],
+    ] as const)('reads %j on %s as speed %s', (args, provider, speed) => {
+        expect(requestedServiceSpeed(args, provider)).toBe(speed);
+    });
+    it('prices a native priority tier like fast service', () => {
+        const entry = model('openai-responses', 'gpt-6.1-sol');
+        const args = { ...request(), service_tier: 'priority' as const };
+        const selected = selectServiceSpeed(
+            entry,
+            { ...args, serviceSpeed: requestedServiceSpeed(args, entry.provider) },
+            noVariant,
+        );
+        const explicit = selectServiceSpeed(entry, request('fast'), noVariant);
+        expect(selected.speed).toBe('fast');
+        expect(selected.model).toEqual(explicit.model);
+        expect(selected.args.service_tier).toBe('priority');
     });
     it.each([
         'deepseek',
@@ -248,6 +274,33 @@ describe('served speed billing', () => {
             expect(recorded).toEqual([result.costs]);
         },
     );
+    it.each([
+        ['fast', 2],
+        ['ultrafast', 6],
+    ] as const)(
+        'bills a served %s tier at its catalog rate without a selection snapshot',
+        (speed, multiplier) => {
+            const entry = model('openai-responses', 'gpt-6.1-sol');
+            entry.pricingOverrides = [
+                {
+                    minPromptTokens: 100,
+                    costs: { prompt_tokens: 400, completion_tokens: 1500 },
+                },
+            ];
+            const billed = serviceSpeedBillingModel(entry, speed);
+            expect(billed.costs.prompt_tokens).toBe(200 * multiplier);
+            expect(billed.pricingOverrides?.[0]?.costs.prompt_tokens).toBe(
+                400 * multiplier,
+            );
+            expect(serviceSpeedBillingModel(entry, 'standard')).toBe(entry);
+        },
+    );
+    it('bills a served premium tier as standard when the catalog has no rate for it', () => {
+        const entry = model('groq', 'some-model');
+        expect(serviceSpeedBillingModel(entry, 'fast').costs).toEqual(
+            entry.costs,
+        );
+    });
     it('restores standard scheduled and long-context rates after a downgrade', () => {
         const entry = model('openai-responses', 'gpt-6.1-sol');
         entry.pricingOverrides = [
