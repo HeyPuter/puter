@@ -299,7 +299,7 @@ export type EventMap = {
         message: string | null;
         [key: string]: unknown;
     };
-    /** Before each notification email; a listener sets `allow` false to skip it. */
+    /** Before notification emails; a listener clears `allow` per recipient. */
     'email.notify.validate': EmailNotifyValidateEvent;
     // Inbound mail to a feedback address (`abuse@`, `fbl@`, ...), emitted via
     // `emitAndWait`. A listener that takes it sets `handled` and it reaches no
@@ -977,13 +977,19 @@ export type EventMap = {
     'outer.pubsub.metering.credits-changed': { userUuid: string };
 } & IExtensionEventMap;
 
-/** Payload for `email.notify.validate`. */
+/** A union of `Names`, each of which has to be an email template. */
+type TemplateNames<Names extends EmailTemplateName> = Names;
+
+/** The emails that ask `email.notify.validate`, by template name. */
+export type EmailNotifyKind = TemplateNames<
+    'file_shared_with_you' | 'file_shared_invite' | 'app-user-feedback'
+>;
+
+/** Payload for `email.notify.validate`: one kind of mail, all its recipients. */
 export type EmailNotifyValidateEvent = {
-    /** The address, as it will be sent. */
-    to: string;
-    /** The mail's template name, e.g. `file_shared_with_you`. */
-    kind: EmailTemplateName;
-    allow: boolean;
+    kind: EmailNotifyKind;
+    /** `to` is the address as it will be sent; `allow` starts true. */
+    recipients: Array<{ to: string; allow: boolean }>;
 };
 
 /** Payload for `subscription.gate.<surface>` events. */
@@ -1095,11 +1101,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1110,10 +1115,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    | 'received'
-    | 'unreceived'
-    | 'no-socket'
-    | 'remote-only';
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

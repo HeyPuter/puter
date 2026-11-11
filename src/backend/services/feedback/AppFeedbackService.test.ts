@@ -717,8 +717,10 @@ describe('AppFeedbackService owner email', () => {
             const accepted = (await server.stores.user.getById(acceptedId))!;
             const seen: EmailNotifyValidateEvent[] = [];
             listen((_key, data) => {
-                seen.push({ ...data });
-                if (data.to === declined.email) data.allow = false;
+                seen.push(structuredClone(data));
+                for (const recipient of data.recipients) {
+                    if (recipient.to === declined.email) recipient.allow = false;
+                }
             });
             const declinedApp = await makeApp(declinedId, {
                 feedbackEnabled: true,
@@ -739,10 +741,13 @@ describe('AppFeedbackService owner email', () => {
                 message: 'b',
             });
 
-            expect(seen).toEqual([
-                { to: declined.email, kind: 'app-user-feedback', allow: true },
-                { to: accepted.email, kind: 'app-user-feedback', allow: true },
-            ]);
+            // One entry per ask: the app's owner.
+            expect(seen).toEqual(
+                [declined.email, accepted.email].map((to) => ({
+                    kind: 'app-user-feedback',
+                    recipients: [{ to, allow: true }],
+                })),
+            );
             expect(send).toHaveBeenCalledTimes(1);
             expect(send.mock.calls[0][0]).toBe(accepted.email);
             expect(markSent).toHaveBeenCalledTimes(1);
@@ -762,7 +767,7 @@ describe('AppFeedbackService owner email', () => {
             const userId = await makeUser();
             const calls: string[] = [];
             listen((_key, data) => {
-                calls.push(data.to);
+                calls.push(...data.recipients.map((r) => r.to));
                 throw new Error('listener failed');
             });
 

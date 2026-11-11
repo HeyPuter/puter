@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import validator from 'validator';
 import {
     cleanEmail,
@@ -27,6 +27,10 @@ import {
     mayEmailNotify,
 } from './email.ts';
 import { EventClient } from '../clients/event/EventClient.ts';
+import type {
+    EmailNotifyKind,
+    EmailNotifyValidateEvent,
+} from '../clients/event/types.ts';
 
 describe('cleanEmail', () => {
     it('lowercases the whole address', () => {
@@ -191,27 +195,73 @@ describe('isStorableEmail', () => {
 });
 
 describe('mayEmailNotify', () => {
-    const ask = (answer: unknown) => {
-        const events = new EventClient();
-        events.on('email.notify.validate', (_key, data) => {
-            (data as { allow: unknown }).allow = answer;
-        });
-        return mayEmailNotify(events, 'a@example.com', 'file_shared_invite');
-    };
+    const addresses = ['a@example.com', 'b@example.com', 'c@example.com'];
 
-    it('allows when nothing listens', async () => {
-        expect(
-            await mayEmailNotify(
-                new EventClient(),
-                'a@example.com',
-                'file_shared_invite',
-            ),
-        ).toBe(true);
+    it('allows every address when nothing listens', async () => {
+        const allowed = await mayEmailNotify(
+            new EventClient(),
+            'file_shared_invite',
+            addresses,
+        );
+        expect([...allowed]).toEqual(addresses);
     });
 
-    it('declines on any falsy answer, as `email.validate` does', async () => {
-        for (const answer of [false, undefined, null, 0])
-            expect(await ask(answer)).toBe(false);
-        expect(await ask(true)).toBe(true);
+    it('asks once for the whole list, each entry starting allowed', async () => {
+        const events = new EventClient();
+        const seen: EmailNotifyValidateEvent[] = [];
+        events.on('email.notify.validate', (_key, data) => {
+            seen.push(structuredClone(data));
+        });
+        await mayEmailNotify(events, 'file_shared_invite', addresses);
+        expect(seen).toEqual([
+            {
+                kind: 'file_shared_invite',
+                recipients: addresses.map((to) => ({ to, allow: true })),
+            },
+        ]);
+        // Nobody to ask about, so nothing is emitted.
+        await mayEmailNotify(events, 'file_shared_invite', []);
+        expect(seen).toHaveLength(1);
+    });
+
+    it('declines each entry left with a falsy answer, as `email.validate` does', async () => {
+        for (const answer of [false, undefined, null, 0]) {
+            const events = new EventClient();
+            events.on('email.notify.validate', (_key, data) => {
+                (data.recipients[1] as { allow: unknown }).allow = answer;
+            });
+            const allowed = await mayEmailNotify(
+                events,
+                'file_shared_invite',
+                addresses,
+            );
+            expect([...allowed]).toEqual(['a@example.com', 'c@example.com']);
+        }
+    });
+
+    it('allows every address when a listener throws', async () => {
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const events = new EventClient();
+        events.on('email.notify.validate', () => {
+            throw new Error('listener failed');
+        });
+        const allowed = await mayEmailNotify(
+            events,
+            'app-user-feedback',
+            addresses,
+        );
+        expect([...allowed]).toEqual(addresses);
+        error.mockRestore();
+    });
+
+    it('takes only the kinds that ask', () => {
+        const kinds: EmailNotifyKind[] = [
+            'file_shared_with_you',
+            'file_shared_invite',
+            'app-user-feedback',
+        ];
+        // @ts-expect-error account mail is not asked about
+        kinds.push('email_verification_code');
+        expect(kinds).toHaveLength(4);
     });
 });

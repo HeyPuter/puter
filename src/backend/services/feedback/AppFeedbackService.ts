@@ -303,11 +303,11 @@ export class AppFeedbackService extends PuterService {
         if (isBlockedEmail(owner.email, this.config.blockedEmailDomains))
             return;
         if (
-            !(await mayEmailNotify(
-                this.clients.event,
-                owner.email,
-                'app-user-feedback',
-            ))
+            !(
+                await mayEmailNotify(this.clients.event, 'app-user-feedback', [
+                    owner.email,
+                ])
+            ).has(owner.email)
         )
             return;
 

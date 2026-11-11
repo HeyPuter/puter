@@ -1044,9 +1044,10 @@ export class ShareNotificationService extends PuterService {
                     ? 'file_shared_with_you'
                     : 'file_shared_invite';
             // Asked at send: an entry may have waited out a window or a retry.
-            if (
-                !(await mayEmailNotify(this.clients.event, first.to, template))
-            ) {
+            const asked = await mayEmailNotify(this.clients.event, template, [
+                first.to,
+            ]);
+            if (!asked.has(first.to)) {
                 skipped('a listener declined the address', { key });
                 return;
             }
@@ -1158,21 +1159,25 @@ export class ShareNotificationService extends PuterService {
         if (byEmail.size === 0) return;
 
         const issuer = actor.user?.username;
-        for (const [to, { count, items }] of byEmail) {
+        const unblocked = [...byEmail.keys()].filter((to) => {
+            const blocked = isBlockedEmail(to, this.config.blockedEmailDomains);
+            if (blocked) {
+                skipped('invite address is on a blocked domain', { to });
+            }
+            return !blocked;
+        });
+        // One ask for every address, before any of them claims budget.
+        const allowed = await mayEmailNotify(
+            this.clients.event,
+            'file_shared_invite',
+            unblocked,
+        );
+        for (const to of unblocked) {
+            const { count, items } = byEmail.get(to)!;
             // Each address fails alone — one refused send must not cost the
             // next invitee their only channel.
             try {
-                if (isBlockedEmail(to, this.config.blockedEmailDomains)) {
-                    skipped('invite address is on a blocked domain', { to });
-                    continue;
-                }
-                if (
-                    !(await mayEmailNotify(
-                        this.clients.event,
-                        to,
-                        'file_shared_invite',
-                    ))
-                ) {
+                if (!allowed.has(to)) {
                     skipped('a listener declined the invite address', { to });
                     continue;
                 }

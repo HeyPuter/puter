@@ -770,13 +770,22 @@ describe('share email', () => {
         };
         afterEach(unlisten);
 
+        /** The events that name `to`; other tests' late sends name others. */
+        const about = (seen: EmailNotifyValidateEvent[], to: string) =>
+            seen.filter((event) => event.recipients.some((r) => r.to === to));
+        const decline = (data: EmailNotifyValidateEvent, to: string) => {
+            for (const recipient of data.recipients) {
+                if (recipient.to === to) recipient.allow = false;
+            }
+        };
+
         it('skips only the account holder a listener declines', async () => {
             const owner = env.users.user;
             const seen: EmailNotifyValidateEvent[] = [];
             let declined = '';
             listen((_key, data) => {
-                seen.push({ ...data });
-                if (data.to === declined) data.allow = false;
+                seen.push(structuredClone(data));
+                decline(data, declined);
             });
             // Signed up with the listener on: account mail is not asked about.
             const skippedHolder = await signUpAndConfirm(uninvitedAddress());
@@ -795,10 +804,13 @@ describe('share email', () => {
             await waitForMail({ to: keptHolder.email });
             await sleep(SETTLE_MS);
             expect(mailTo(skippedHolder.email)).toHaveLength(0);
-            // Each holder is asked once, when their digest is sent.
+            // Each holder is asked alone, once, when their digest is sent.
             for (const to of [skippedHolder.email, keptHolder.email]) {
-                expect(seen.filter((event) => event.to === to)).toEqual([
-                    { to, kind: 'file_shared_with_you', allow: true },
+                expect(about(seen, to)).toEqual([
+                    {
+                        kind: 'file_shared_with_you',
+                        recipients: [{ to, allow: true }],
+                    },
                 ]);
             }
             // Only the mail is skipped; the share itself stands.
@@ -809,40 +821,46 @@ describe('share email', () => {
             );
         });
 
-        it('skips only the invite a listener declines, spending none of its budget', async () => {
+        it('asks once for every invite address, and skips only the declined ones, spending none of their budget', async () => {
             const owner = env.users.user;
             const skippedInvitee = uninvitedAddress();
             const keptInvitee = uninvitedAddress();
+            const otherKept = uninvitedAddress();
             const seen: EmailNotifyValidateEvent[] = [];
             listen((_key, data) => {
-                seen.push({ ...data });
-                if (data.to === skippedInvitee) data.allow = false;
+                seen.push(structuredClone(data));
+                decline(data, skippedInvitee);
             });
 
             const first = await makeFile(owner, 'notify-invite-1');
             await post('/share', owner.token, {
-                recipients: [skippedInvitee, keptInvitee],
+                recipients: [skippedInvitee, keptInvitee, otherKept],
                 items: [{ uid: first.uid }],
                 mode: 'read',
             });
 
             await waitForMail({ to: keptInvitee });
+            await waitForMail({ to: otherKept });
             await sleep(SETTLE_MS);
             expect(mailTo(skippedInvitee)).toHaveLength(0);
-            expect(seen).toEqual(
-                expect.arrayContaining([
+            // One event carries all three; the declined one never reaches a send.
+            expect(about(seen, skippedInvitee)).toEqual([
+                {
+                    kind: 'file_shared_invite',
+                    recipients: [skippedInvitee, keptInvitee, otherKept].map(
+                        (to) => ({ to, allow: true }),
+                    ),
+                },
+            ]);
+            // The others are asked again, alone, when their digest is sent.
+            for (const to of [keptInvitee, otherKept]) {
+                expect(about(seen, to).slice(1)).toEqual([
                     {
-                        to: skippedInvitee,
                         kind: 'file_shared_invite',
-                        allow: true,
+                        recipients: [{ to, allow: true }],
                     },
-                    {
-                        to: keptInvitee,
-                        kind: 'file_shared_invite',
-                        allow: true,
-                    },
-                ]),
-            );
+                ]);
+            }
 
             // The pair window was never claimed, so the next share mails.
             unlisten();
@@ -858,7 +876,9 @@ describe('share email', () => {
             vi.spyOn(console, 'error').mockImplementation(() => {});
             const asked: string[] = [];
             listen((_key, data) => {
-                if (data.to === invitee) asked.push(data.to);
+                for (const { to } of data.recipients) {
+                    if (to === invitee) asked.push(to);
+                }
                 throw new Error('listener failed');
             });
 
@@ -876,17 +896,20 @@ describe('share email', () => {
             const invitee = uninvitedAddress();
             const answers: boolean[] = [];
             listen((_key, data) => {
-                if (data.to !== invitee) return;
-                // Allowed when queued, declined by the time it is sent.
-                data.allow = answers.length === 0;
-                answers.push(data.allow);
+                for (const recipient of data.recipients) {
+                    if (recipient.to !== invitee) continue;
+                    // Allowed when queued, declined by the time it is sent.
+                    recipient.allow = answers.length === 0;
+                    answers.push(recipient.allow);
+                }
             });
 
             const file = await makeFile(owner, 'notify-at-send');
             await shareWith(owner, invitee, [{ uid: file.uid }]);
 
-            await eventually('the digest to be asked about', async () =>
-                answers.length === 2,
+            await eventually(
+                'the digest to be asked about',
+                async () => answers.length === 2,
             );
             await sleep(SETTLE_MS);
             expect(answers).toEqual([true, false]);
