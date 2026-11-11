@@ -1005,22 +1005,24 @@ describe('ShareStore', () => {
 
         it('claims a pending invite without dropping the row', async () => {
             const entry = await makeEntry(issuer);
-            const pending = await store.create({
+            const { row: pending } = await store.upsertPending({
                 issuerUserId: issuer.id,
                 recipientEmail: `pending-${uuidv4()}@test.local`,
-                data: {},
+                fsentryId: entry.id,
+                mode: 'write',
             });
 
             const applied = await store.applyPending({
                 uid: pending.uid,
                 holderUserId: holder.id,
-                fsentryId: entry.id,
                 mode: 'read',
             });
 
             expect(applied.holder_user_id).toBe(holder.id);
             expect(applied.mode).toBe('read');
             expect(applied.applied_at).toBeTruthy();
+            // The entry and its owner are the ones the invite was written with.
+            expect(Number(applied.fsentry_id)).toBe(entry.id);
             expect(Number(applied.entry_owner_user_id)).toBe(issuer.id);
             // Second claim finds nothing left to claim.
             expect(
@@ -1309,7 +1311,6 @@ describe('ShareStore', () => {
                     const applied = await store.applyPending({
                         uid: claimable.uid,
                         holderUserId: holder.id,
-                        fsentryId: (await makeEntry(issuer)).id,
                         mode: 'read',
                     });
                     expect(applied.holder_user_id).toBe(holder.id);

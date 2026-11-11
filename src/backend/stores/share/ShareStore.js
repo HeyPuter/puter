@@ -885,27 +885,17 @@ export class ShareStore extends PuterStore {
      * @param {object} input
      * @param {string} input.uid
      * @param {number} input.holderUserId
-     * @param {number | null} [input.fsentryId]
      * @param {string | null} [input.mode]
      */
-    async applyPending({ uid, holderUserId, fsentryId = null, mode = null }) {
+    async applyPending({ uid, holderUserId, mode = null }) {
         if (!uid || !holderUserId) {
             throw new Error('applyPending: uid and holderUserId are required');
         }
         const result = await this.clients.db.write(
             'UPDATE `share` SET `holder_user_id` = ?, `applied_at` = CURRENT_TIMESTAMP' +
-                (fsentryId === null
-                    ? ''
-                    : ', `fsentry_id` = ?, `entry_owner_user_id` = ' +
-                      '(SELECT `user_id` FROM `fsentries` WHERE `id` = ?)') +
                 (mode === null ? '' : ', `mode` = ?') +
                 ' WHERE `uid` = ? AND `holder_user_id` IS NULL',
-            [
-                holderUserId,
-                ...(fsentryId === null ? [] : [fsentryId, fsentryId]),
-                ...(mode === null ? [] : [mode]),
-                uid,
-            ],
+            [holderUserId, ...(mode === null ? [] : [mode]), uid],
         );
         if ((result?.affectedRows ?? result?.changes ?? 0) === 0) return null;
         // Only the uid is known here; the caller holds the replica's copy.
