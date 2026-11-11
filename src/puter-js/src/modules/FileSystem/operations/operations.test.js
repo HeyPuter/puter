@@ -630,6 +630,57 @@ describe('unshare', () => {
             .resolves.toEqual({ revoked: 1 });
     });
 
+    it('rejects with a named refusal ahead of a pair the server could not complete', async () => {
+        const results = [
+            { recipient: 'me', path: '/a/file.txt', status: 'error', message: 'Request failed' },
+            { recipient: 'me', path: '/a/other.txt', status: 'error', code: 'team_share', message: 'Held through a team' },
+        ];
+        FakeXHR.respondWith = () => ({ status: 'aborted', revoked: 0, results });
+        await expect(fs.unshare({ paths: ['/a/file.txt', '/a/other.txt'], recipient: 'me' }))
+            .rejects.toEqual({ message: 'Held through a team', code: 'team_share' });
+        await expect(fs.share({ paths: ['/a/file.txt', '/a/other.txt'], recipient: 'me' }))
+            .rejects.toEqual({ message: 'Held through a team', code: 'team_share' });
+    });
+
+    it('rejects with a fallback code when no refused pair names one', async () => {
+        FakeXHR.respondWith = () => ({
+            status: 'aborted',
+            revoked: 0,
+            results: [{ recipient: 'bob', path: '/a/file.txt', status: 'error', message: 'Request failed' }],
+        });
+        await expect(fs.unshare('/a/file.txt', 'bob'))
+            .rejects.toEqual({ message: 'Request failed', code: 'unshare_failed' });
+    });
+
+    it('resolves when a refused pair sits next to one with nothing to withdraw', async () => {
+        FakeXHR.respondWith = () => ({
+            status: 'mixed',
+            revoked: 0,
+            results: [
+                { recipient: 'me', path: '/a/file.txt', status: 'success' },
+                { recipient: 'me', path: '/a/other.txt', status: 'error', code: 'team_share', message: 'Held through a team' },
+            ],
+        });
+        const onSuccess = vi.fn();
+        const onError = vi.fn();
+        await expect(fs.unshare({
+            paths: ['/a/file.txt', '/a/other.txt'], recipient: 'me', success: onSuccess, error: onError,
+        })).resolves.toEqual({ revoked: 0 });
+        expect(onSuccess).toHaveBeenCalledWith({ revoked: 0 });
+        expect(onError).not.toHaveBeenCalled();
+    });
+
+    it('rejects a single refused pair that names a missing recipient or item', async () => {
+        for ( const code of ['user_does_not_exist', 'subject_does_not_exist'] ) {
+            FakeXHR.respondWith = () => ({
+                status: 'aborted',
+                revoked: 0,
+                results: [{ recipient: 'gone', path: '/a/file.txt', status: 'error', code, message: code }],
+            });
+            await expect(fs.unshare('/a/file.txt', 'gone')).rejects.toEqual({ message: code, code });
+        }
+    });
+
     it('resolves when there was nothing to withdraw', async () => {
         FakeXHR.respondWith = () => ({
             status: 'success',

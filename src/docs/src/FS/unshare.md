@@ -53,7 +53,9 @@ Each recipient/item pair is withdrawn on its own. If some pairs are refused and 
 
 ## Errors
 
-A rejection carries `{ message, code }`, taken from the first pair that was refused. You only see one when every pair was refused; a refused pair alongside one that went through is not reported.
+A rejection carries `{ message, code }`, taken from the first refused pair that names a code. You only see one when every pair was refused; a refused pair alongside one that went through is not reported, even when the other pair had nothing to withdraw.
+
+A request the server turns away as a whole also rejects, with the error the server answered instead of a pair's: a call that names no recipient or no item, or names a team by both `team` and `teamHandle` (`bad_request`), one that carries more than a single call may (`too_many_recipients`, `too_many_items`), or one over the [rate limit](/rate-limits-and-quotas/).
 
 | `code` | Meaning |
 | --- | --- |
@@ -63,7 +65,7 @@ A rejection carries `{ message, code }`, taken from the first pair that was refu
 | `user_does_not_exist` | The username has no account. |
 | `team_not_found` | No team has that uid. |
 | `cannot_revoke_owner` | The recipient owns the item. |
-| `unshare_failed` | The pair failed for a reason the server did not name. |
+| `unshare_failed` | No refused pair named a code, as when the server could not complete the request. |
 
 ## Who can withdraw what
 

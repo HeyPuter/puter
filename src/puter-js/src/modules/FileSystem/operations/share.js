@@ -1,7 +1,7 @@
 import { promptIfUpgradeRequired } from '../../../lib/upgradePrompt.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
-import { invalidateShareCache, toShare, toShareItems, toShareRecipients } from './shareUtil.js';
+import { invalidateShareCache, refusedPairError, toShare, toShareItems, toShareRecipients } from './shareUtil.js';
 
 // Why sharing with anyone with the link needs a plan, for the upgrade prompt.
 const LINK_SHARE_SUBSCRIPTION_MESSAGE =
@@ -53,11 +53,10 @@ const share = defineOperation({
                     (r) => r.status === 'success' || r.status === 'pending',
                 );
                 if ( ok.length === 0 && results.length > 0 ) {
-                    const first = results[0];
-                    const error = {
-                        message: String(first.message ?? 'Share failed'),
-                        code: String(first.code ?? 'share_failed'),
-                    };
+                    const error = refusedPairError(results, {
+                        message: 'Share failed',
+                        code: 'share_failed',
+                    });
                     // A plan gate refuses one pair, not the request, so it
                     // arrives as a 200 and the request path's prompt never
                     // sees it.

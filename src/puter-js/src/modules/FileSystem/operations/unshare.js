@@ -1,6 +1,6 @@
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
-import { invalidateShareCache, toShareItems, toShareRecipients } from './shareUtil.js';
+import { invalidateShareCache, refusedPairError, toShareItems, toShareRecipients } from './shareUtil.js';
 
 /** @typedef {import('../types.js').UnshareOptions} UnshareOptions */
 /** @typedef {import('../types.js').ShareRecipient} ShareRecipient */
@@ -42,11 +42,10 @@ const unshare = defineOperation({
             transform: (/** @type {{ revoked?: number, results?: Record<string, unknown>[] }} */ response) => {
                 const results = response.results ?? [];
                 if ( results.length > 0 && results.every((r) => r.status === 'error') ) {
-                    const first = results[0];
-                    throw {
-                        message: String(first.message ?? 'Unshare failed'),
-                        code: String(first.code ?? 'unshare_failed'),
-                    };
+                    throw refusedPairError(results, {
+                        message: 'Unshare failed',
+                        code: 'unshare_failed',
+                    });
                 }
                 const revoked = Number(response.revoked ?? 0);
                 if ( revoked > 0 ) invalidateShareCache(items);
