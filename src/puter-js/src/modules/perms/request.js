@@ -115,6 +115,13 @@ const permissionsOf = (details) => {
  *   to `resolve`.
  */
 
+// The desktop answers push requests: it tells a website's own grant apart.
+/** @param {PermsQuery} query @returns {boolean} */
+const leftToDesktop = ({ ctx, permissions, prompt }) =>
+    prompt &&
+    ctx.puter.env === 'app' &&
+    permissions.includes(PUSH_NOTIFICATIONS_PERMISSION);
+
 /**
  * Per resource: the permission strings it needs (`permissions`, which also
  * validates the details), whether they are already held (`check`), and the
@@ -177,7 +184,8 @@ const RESOURCES = Object.assign(Object.create(null), {
             assertKnownFields(details, []);
             return [PUSH_NOTIFICATIONS_PERMISSION];
         },
-        check: async ({ permissions, holds }) => holds(permissions),
+        check: async (query) =>
+            !leftToDesktop(query) && query.holds(query.permissions),
         resolve: async (_query, held) => held,
     },
 
@@ -322,7 +330,8 @@ const RESOURCES = Object.assign(Object.create(null), {
 
     permission: {
         permissions: async ({ details }) => permissionsOf(details),
-        check: async ({ permissions, holds }) => holds(permissions),
+        check: async (query) =>
+            !leftToDesktop(query) && query.holds(query.permissions),
         resolve: async (_query, held) => held,
     },
 });

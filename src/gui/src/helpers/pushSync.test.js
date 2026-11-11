@@ -74,7 +74,8 @@ describe('syncBrowserPush with the built-in client', () => {
                 addEventListener: () => {},
             },
         };
-        registerPushClient(webPushClient({ notifications, NotificationApi: granted, nav, userUid: () => 'u-1' }));
+        notifications.endpointState = vi.fn(async () => 'active');
+        registerPushClient(webPushClient({ notifications, NotificationApi: granted, nav, userUid: () => 'u-1', endpointState: notifications.endpointState }));
         return notifications;
     };
 
@@ -84,6 +85,7 @@ describe('syncBrowserPush with the built-in client', () => {
         await expect(syncBrowserPush({ appUid: 'app-1' }, deps)).resolves.toBe('on');
         await expect(syncBrowserPush({ appUid: 'app-2' }, deps)).resolves.toBe('on');
         expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+        expect(notifications.endpointState).toHaveBeenCalledTimes(1);
     });
 
     it('does not subscribe again, and stays off, when the user removed this browser in Puter', async () => {
@@ -141,6 +143,23 @@ describe('syncBrowserPush', () => {
         client.status.mockResolvedValue({ permission: 'granted', registered: true, deviceUid: 'dev-new' });
         await expect(syncBrowserPush({}, deps)).resolves.toBe('on');
         expect(client.enable).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs again after the run in flight for a fresh call', async () => {
+        const client = off();
+        let release;
+        client.enable.mockImplementationOnce(() => new Promise((resolve) => {
+            release = resolve;
+        }));
+        const deps = { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => true };
+
+        const first = syncBrowserPush({}, deps);
+        await vi.waitFor(() => expect(release).toBeDefined());
+        const fresh = syncBrowserPush({ fresh: true }, deps);
+        release({ deviceUid: 'dev-new' });
+        await expect(first).resolves.toBe('on');
+        await expect(fresh).resolves.toBe('on');
+        expect(client.enable).toHaveBeenCalledTimes(2);
     });
 
     it('does nothing when no app may send pushes', async () => {

@@ -25,14 +25,18 @@ globalThis.use = globalThis.use ?? (() => ({}));
 
 let AppPushService;
 let registerPushClient;
+let forgetPushApps;
 /** What this browser's push client reports. */
 let browser;
 /** What `/auth/check-permissions` answers for `notifications:push`. */
 let held;
+/** What `/push/apps` lists. */
+let apps;
 
 beforeAll(async () => {
     globalThis.window = globalThis.window ?? globalThis;
     ({ registerPushClient } = await import('../helpers/pushClient.js'));
+    ({ forgetPushApps } = await import('../helpers/notificationApi.js'));
     ({ AppPushService } = await import('./AppPushService.js'));
 });
 
@@ -52,6 +56,8 @@ const from = (app_uid) => ({
 beforeEach(() => {
     browser = { permission: 'granted', registered: true };
     held = true;
+    apps = [];
+    forgetPushApps();
     window.gui_params = { pushEnabled: true };
     window.api_origin = 'https://api.puter.test';
     window.auth_token = 'tok-1';
@@ -69,6 +75,9 @@ beforeEach(() => {
         if ( url.endsWith('/auth/check-permissions') ) {
             return { ok: true, json: async () => ({ permissions: { 'notifications:push': held } }) };
         }
+        if ( url.endsWith('/push/apps') ) {
+            return { ok: true, json: async () => ({ apps }) };
+        }
         return { ok: true, json: async () => ({}) };
     });
 });
@@ -85,9 +94,43 @@ describe('the pushStatus IPC handler', () => {
         });
     });
 
+    it('is off for an app whose only grant came from its website`s Web Push', async () => {
+        apps = [{ uid: 'app-1', name: 'chat', puterDevices: false }];
+        const { pushStatus } = await makeService();
+        await expect(pushStatus({}, from('app-1'))).resolves.toEqual({ state: 'off' });
+    });
+
+    it('is on for an app allowed in Puter`s prompt', async () => {
+        apps = [{ uid: 'app-1', name: 'chat', puterDevices: true }];
+        const { pushStatus } = await makeService();
+        await expect(pushStatus({}, from('app-1'))).resolves.toEqual({ state: 'on' });
+    });
+
+    it.each([
+        ['answers 500', async () => ({ ok: false, status: 500, json: async () => ({ code: 'internal_error' }) })],
+        ['never answers', async () => {
+            throw new TypeError('Failed to fetch');
+        }],
+    ])('stays on for an app holding the permission while the app list %s', async (_label, list) => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const check = fetch.getMockImplementation();
+        fetch.mockImplementation(async (url, init) => (url.endsWith('/push/apps') ? list() : check(url, init)));
+        const { pushStatus } = await makeService();
+        await expect(pushStatus({}, from('app-1'))).resolves.toEqual({ state: 'on' });
+        warn.mockRestore();
+    });
+
     it('lets the browser answer with the on this page last read', async () => {
         const { pushStatus } = await makeService();
         await pushStatus({}, from('app-1'));
+        expect(browser.asked).toEqual({ cached: true });
+    });
+
+    it('checks the calling app on every call, while the browser answers from its last on', async () => {
+        apps = [{ uid: 'app-1', name: 'chat', puterDevices: true }, { uid: 'app-2', name: 'site', puterDevices: false }];
+        const { pushStatus } = await makeService();
+        await expect(pushStatus({}, from('app-1'))).resolves.toEqual({ state: 'on' });
+        await expect(pushStatus({}, from('app-2'))).resolves.toEqual({ state: 'off' });
         expect(browser.asked).toEqual({ cached: true });
     });
 

@@ -7,6 +7,7 @@ import { hasUserActivation } from '../lib/auth-popup.js';
 import { appIDOf } from '../lib/upgradePrompt.js';
 import { topUpUrl, upgradeUrl } from './UsageLimitDialog.js';
 import { checkPermissions } from './perms/lib/holds.js';
+import { PUSH_NOTIFICATIONS_PERMISSION } from './perms/lib/permissionStrings.js';
 
 
 /**
@@ -2245,6 +2246,8 @@ export class UIModule extends EventListener {
             || requested.some(p => typeof p !== 'string' || p === '') ) {
             return false;
         }
+        // The desktop answers push itself: it tells a website's own grant apart.
+        if ( this.env === 'app' && requested.includes(PUSH_NOTIFICATIONS_PERMISSION) ) return false;
         let expiry;
         try {
             const held = await Promise.race([
@@ -2272,7 +2275,7 @@ export class UIModule extends EventListener {
      * One prompt may cover several scopes: pass `permissions` instead of
      * `permission` and the user answers for the whole list at once.
      *
-     * Access already granted resolves `true` without prompting.
+     * Access already granted resolves `true` without prompting, except push inside the desktop, which the desktop decides.
      *
      * @param {{ permission?: string, permissions?: string[], create?: boolean | 'dir' | 'file' }} options
      *   `create`: for an `fs:` permission naming a path that doesn't exist,

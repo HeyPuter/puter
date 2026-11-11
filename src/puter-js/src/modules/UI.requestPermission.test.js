@@ -80,6 +80,25 @@ describe('ui.requestPermission on access that is already held', () => {
     });
 });
 
+describe('ui.requestPermission for push inside the desktop', () => {
+    it('leaves a held push grant to the desktop, which can tell a website`s own grant apart', async () => {
+        held({ 'notifications:push': true });
+        const ui = makeUI();
+
+        ui.requestPermission({ permission: 'notifications:push' });
+
+        await vi.waitFor(() => expect(promptCalls()).toHaveLength(1));
+        expect(mockReq).not.toHaveBeenCalled();
+    });
+
+    it('still settles a held push grant on a website without a popup', async () => {
+        held({ 'notifications:push': true });
+        const ui = makeUI({ env: 'web' });
+
+        await expect(ui.requestPermission({ permission: 'notifications:push' })).resolves.toBe(true);
+    });
+});
+
 describe('ui.requestPermission when the check does not settle it', () => {
     // One prompt is one decision, so partly-held still has something to ask.
     it('prompts for a partly-held set', async () => {

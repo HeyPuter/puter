@@ -41,8 +41,10 @@ const makeModule = ({
     requestPermission = () => false,
     stat = denied,
     appsGet = async () => ({ uid: 'app-target' }),
+    env = 'web',
 } = {}) => ({
     puter: {
+        env,
         APIOrigin: 'https://api.test',
         appID: SELF_UID,
         auth: { whoami: vi.fn(async () => ({ ...whoami })) },
@@ -219,6 +221,28 @@ describe('perms request(resource, details)', () => {
         expect(mockReq).toHaveBeenLastCalledWith(mod.puter, CHECK_ROUTE, {
             permissions: ['notifications:push'],
         });
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
+    it('leaves a held push grant to the desktop, which can tell it from a website`s own', async () => {
+        routes({ held: { 'notifications:push': true } });
+        const mod = makeModule({ env: 'app', requestPermission: () => true });
+
+        expect(await request.call(mod, 'pushNotifications')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'notifications:push',
+        });
+        expect(await request.call(mod, 'notifications:push')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledTimes(2);
+        expect(await check.call(mod, 'pushNotifications')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledTimes(2);
+    });
+
+    it('settles a held push grant on a website without a prompt', async () => {
+        routes({ held: { 'notifications:push': true } });
+        const mod = makeModule();
+
+        expect(await request.call(mod, 'pushNotifications')).toBe(true);
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
     });
 
