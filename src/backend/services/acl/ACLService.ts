@@ -329,10 +329,13 @@ export class ACLService extends PuterService {
         return this.#anyoneWithLinkAllows(actor, ancestry, mode);
     }
 
-    /** Whether the user granted this app `mode` on any node of `ancestors`. */
+    /**
+     * Whether the user granted this app `mode` on the node, or on a folder
+     * above it that the user holds `mode` on too.
+     */
     async #userAppGrantReaches(
         actor: Actor,
-        ancestors: ReadonlyArray<{ uid: string }>,
+        ancestors: ReadonlyArray<{ uid: string; path: string }>,
         mode: AclMode,
     ): Promise<boolean> {
         const appId = actor.app?.id;
@@ -347,7 +350,24 @@ export class ACLService extends PuterService {
                 this.permissionsFor(ancestor.uid, mode),
             ),
         );
-        return rows.length > 0;
+        if (rows.length === 0) return false;
+
+        const granted = new Set(rows.map((row) => row.permission));
+        const userActor: Actor = { user: actor.user, effectiveApp: null };
+        for (const [depth, ancestor] of ancestors.entries()) {
+            const grantedHere = this.permissionsFor(ancestor.uid, mode).some(
+                (permission) => granted.has(permission),
+            );
+            if (!grantedHere) continue;
+            // The caller already checked the user on the node itself.
+            if (depth === 0) return true;
+            const folder: ResourceDescriptor = {
+                path: ancestor.path,
+                resolveAncestors: async () => ancestors.slice(depth),
+            };
+            if (await this.check(userActor, folder, mode)) return true;
+        }
+        return false;
     }
 
     /**
