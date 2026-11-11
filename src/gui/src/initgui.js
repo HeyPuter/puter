@@ -2411,6 +2411,9 @@ window.initgui = async function (options) {
             }
         }
 
+        // The next account to sign in here confirms this browser for pushes itself.
+        await puter.notifications?._forgetPushReceipt?.();
+
         // logout
         try {
             const resp = await fetch(`${window.gui_origin}/get-anticsrf-token`);

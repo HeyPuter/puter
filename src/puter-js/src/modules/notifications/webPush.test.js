@@ -51,7 +51,6 @@ vi.mock('./lib/pushStore.js', () => {
                 optIn(''),
                 'handlers:puter:synced:',
                 'handlers:puter:subscription-changed:',
-                'handlers:puter:receipt:',
                 'clicks:',
             ];
             for (const key of [...store.keys()]) {
@@ -2882,9 +2881,16 @@ describe('a different user signing in', () => {
     });
 });
 
+
 describe('receipts for a confirmed subscription', () => {
     const ENDPOINT = 'https://push.example/send/abc';
     const RECEIPT = `handlers:puter:receipt:${ORIGIN}/`;
+    const gui = { ...puter, env: 'gui' };
+    const guiWorker = workerFor('gui');
+    const guiNav = (over = {}) =>
+        makeNav({ active: { scriptURL: `${ORIGIN}/sw.js` }, ...over });
+    const sync = (nav, options = {}) =>
+        syncWebPush(gui, { worker: guiWorker, nav, ...options });
     const announced = () =>
         mockRequest.mock.calls
             .filter(([, , route]) => route === '/push/web/subscriptions')
@@ -2912,11 +2918,9 @@ describe('receipts for a confirmed subscription', () => {
 
     it('sends the kept receipt with the announce when it is for this endpoint', async () => {
         store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
-        const nav = makeNav({ existing: makeSubscription() });
+        const nav = guiNav({ existing: makeSubscription() });
         serverWithReceipts(nav);
-        await expect(syncWebPush(puter, { worker, nav })).resolves.toEqual({
-            uid: 'd1',
-        });
+        await expect(sync(nav)).resolves.toEqual({ uid: 'd1' });
         expect(announced()).toEqual([
             {
                 subscription: {
@@ -2932,31 +2936,105 @@ describe('receipts for a confirmed subscription', () => {
         });
     });
 
-    it('leaves out a receipt kept for another endpoint', async () => {
+    it('leaves out and forgets a receipt kept for another endpoint', async () => {
         store.set(RECEIPT, {
             endpoint: 'https://push.example/other',
             receipt: 'r-1',
         });
-        const nav = makeNav({ existing: makeSubscription() });
-        serverWithReceipts(nav);
-        await expect(syncWebPush(puter, { worker, nav })).resolves.toEqual({
-            uid: 'd2',
+        const nav = guiNav({ existing: makeSubscription() });
+        let keptAtAnnounce;
+        server((route) => {
+            if (route === '/push/web/subscriptions') {
+                keptAtAnnounce = store.has(RECEIPT);
+                return { status: 'active', device: { uid: 'd1' } };
+            }
         });
+        await sync(nav);
         expect(announced()[0]).not.toHaveProperty('receipt');
+        expect(keptAtAnnounce).toBe(false);
     });
 
     it('keeps the receipt the verify answer gives', async () => {
-        const nav = makeNav();
+        const nav = guiNav();
         serverWithReceipts(nav);
-        await syncWebPush(puter, { worker, nav });
+        await sync(nav);
         expect(store.get(RECEIPT)).toEqual({
             endpoint: ENDPOINT,
             receipt: 'r-3',
         });
     });
 
+    it('forgets a receipt the server answers pending to', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-0' });
+        const nav = guiNav({ existing: makeSubscription() });
+        let keptAtVerify;
+        server((route) => {
+            if (route === '/push/web/subscriptions') {
+                queueMicrotask(() =>
+                    nav.post({
+                        type: 'puter-push-challenge',
+                        challenge: 'c.sig',
+                    }),
+                );
+                return { status: 'pending' };
+            }
+            keptAtVerify = store.has(RECEIPT);
+            return { device: { uid: 'd2' } };
+        });
+        await sync(nav);
+        expect(announced()[0].receipt).toBe('r-0');
+        expect(keptAtVerify).toBe(false);
+        expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('keeps a receipt when the announce fails', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = guiNav({ existing: makeSubscription() });
+        server(() => {
+            throw new PuterJSError('later', 'too_many_requests');
+        });
+        await expect(sync(nav)).rejects.toMatchObject({
+            code: 'too_many_requests',
+        });
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-1',
+        });
+    });
+
+    it('keeps the new receipt when push is turned off during the announce', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = guiNav({ existing: makeSubscription() });
+        const stop = new AbortController();
+        server(() => {
+            stop.abort();
+            return { status: 'active', device: { uid: 'd1' }, receipt: 'r-2' };
+        });
+        await expect(sync(nav, { signal: stop.signal })).rejects.toThrow();
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-2',
+        });
+    });
+
+    it('is neither sent nor kept outside the Puter GUI', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        const nav = makeNav({ existing: makeSubscription() });
+        server(() => ({
+            status: 'active',
+            device: { uid: 'd1' },
+            receipt: 'r-2',
+        }));
+        await syncWebPush(puter, { worker, nav });
+        expect(announced()[0]).not.toHaveProperty('receipt');
+        expect(store.get(RECEIPT)).toEqual({
+            endpoint: ENDPOINT,
+            receipt: 'r-1',
+        });
+    });
+
     it('works as before with a server that gives no receipts', async () => {
-        const nav = makeNav();
+        const nav = guiNav();
         server((route) => {
             if (route === '/push/web/subscriptions') {
                 queueMicrotask(() =>
@@ -2969,22 +3047,17 @@ describe('receipts for a confirmed subscription', () => {
             }
             return { device: { uid: 'd2' } };
         });
-        await expect(syncWebPush(puter, { worker, nav })).resolves.toEqual({
-            uid: 'd2',
-        });
+        await expect(sync(nav)).resolves.toEqual({ uid: 'd2' });
         expect(store.has(RECEIPT)).toBe(false);
         mockRequest.mockClear();
         nav.pushManager.getSubscription.mockResolvedValue(makeSubscription());
         server();
-        await expect(syncWebPush(puter, { worker, nav })).resolves.toEqual({
-            uid: 'd1',
-        });
+        await expect(sync(nav)).resolves.toEqual({ uid: 'd1' });
         expect(announced()[0]).not.toHaveProperty('receipt');
         expect(store.has(RECEIPT)).toBe(false);
     });
 
-    it('is forgotten when a subscription made with Puter`s earlier key is replaced', async () => {
-        store.set(SERVER_KEY, OLD_KEY);
+    it('is forgotten when a subscription made with another key is replaced', async () => {
         store.set(RECEIPT, {
             endpoint: 'https://push.example/old',
             receipt: 'r-1',
@@ -2993,9 +3066,12 @@ describe('receipts for a confirmed subscription', () => {
             fromBase64Url(OLD_KEY),
             'https://push.example/old',
         );
-        const nav = makeNav({ existing: stale });
+        const nav = guiNav({ existing: stale });
+        stale.unsubscribe.mockImplementation(async () => {
+            return true;
+        });
         server();
-        await syncWebPush(puter, { worker, nav });
+        await sync(nav);
         expect(stale.unsubscribe).toHaveBeenCalled();
         expect(store.has(RECEIPT)).toBe(false);
     });
@@ -3006,7 +3082,7 @@ describe('receipts for a confirmed subscription', () => {
             receipt: 'r-1',
         });
         const removed = makeSubscription(undefined, 'https://push.example/1');
-        const nav = makeNav({ existing: removed });
+        const nav = guiNav({ existing: removed });
         nav.pushManager.subscribe.mockResolvedValue(
             makeSubscription(undefined, 'https://push.example/2'),
         );
@@ -3015,81 +3091,81 @@ describe('receipts for a confirmed subscription', () => {
                 throw new PuterJSError('removed', 'push_device_removed');
             return { status: 'active', device: { uid: 'd6' } };
         });
-        await syncWebPush(puter, { worker, nav, renewRemoved: true });
+        await sync(nav, { renewRemoved: true });
         expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
         expect(store.has(RECEIPT)).toBe(false);
     });
 
-    it('is forgotten by removeWebPush, and by ending subscriptions anywhere on the origin', async () => {
+    it('is forgotten by removeWebPush', async () => {
         store.set(SERVER_KEY, KEY);
         store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
         mockRequest.mockResolvedValue({ removed: true });
-        await removeWebPush(puter, {
-            worker,
-            nav: makeNav({ existing: makeSubscription() }),
-        });
-        expect(store.has(RECEIPT)).toBe(false);
-
-        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
-        await unsubscribeWebPush(puter, {
-            nav: makeNav({ existing: makeSubscription() }),
+        await removeWebPush(gui, {
+            worker: guiWorker,
+            nav: guiNav({ existing: makeSubscription() }),
         });
         expect(store.has(RECEIPT)).toBe(false);
     });
 
     it('is forgotten by disable() in the Puter GUI', async () => {
         store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
-        withBrowser(makeNav({ existing: makeSubscription() }));
+        withBrowser(guiNav({ existing: makeSubscription() }));
         mockRequest.mockResolvedValue({ removed: true });
         await makeModule({ env: 'gui' }).module.disable();
         expect(store.has(RECEIPT)).toBe(false);
     });
 
-    it.each(['removed', 'revoked'])(
-        'is forgotten once status() hears the subscription is %s',
-        async (state) => {
-            store.set(OPT_IN, true);
-            store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
-            withBrowser(makeNav({ existing: makeSubscription() }));
-            mockRequest.mockResolvedValue({ state });
-            await expect(makeModule().module.status()).resolves.toBe('off');
-            expect(store.has(RECEIPT)).toBe(false);
-        },
-    );
-
-    it('is forgotten once a load hears the user turned the app off in Puter', async () => {
+    it('is forgotten once status() hears the subscription is removed', async () => {
         store.set(OPT_IN, true);
-        store.set(SERVER_KEY, KEY);
-        store.set('handlers:puter:synced:u-1', {
-            endpoint: ENDPOINT,
-            at: Date.now(),
-        });
         store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
-        withBrowser(makeNav({ existing: makeSubscription() }));
-        mockRequest.mockResolvedValue({ state: 'revoked' });
-        const { module } = makeModule();
-        await module.onPush('chat', () => {}, { onError: () => {} });
-        await vi.waitFor(() => expect(store.has(RECEIPT)).toBe(false));
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        mockRequest.mockResolvedValue({ state: 'removed' });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.status()).resolves.toBe('off');
+        expect(store.has(RECEIPT)).toBe(false);
     });
 
-    it('is forgotten when enable() hears the user turned the app off in Puter', async () => {
+    it('is kept when status() hears this account turned the app off in Puter', async () => {
+        store.set(OPT_IN, true);
         store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
-        withBrowser(makeNav({ existing: makeSubscription() }));
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        mockRequest.mockResolvedValue({ state: 'revoked' });
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.status()).resolves.toBe('off');
+        expect(store.has(RECEIPT)).toBe(true);
+    });
+
+    it('is kept when enable() hears this account turned the app off in Puter', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
         server(() => {
             throw new PuterJSError('off', 'push_revoked');
         });
-        await expect(makeModule().module.enable()).rejects.toMatchObject({
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module.enable()).rejects.toMatchObject({
             code: 'push_revoked',
         });
+        expect(store.has(RECEIPT)).toBe(true);
+    });
+
+    it('is forgotten by _forgetPushReceipt, at the registration`s scope', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser(guiNav({ existing: makeSubscription() }));
+        const { module } = makeModule({ env: 'gui' });
+        await module._forgetPushReceipt();
         expect(store.has(RECEIPT)).toBe(false);
+    });
+
+    it('_forgetPushReceipt never throws without service workers', async () => {
+        store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
+        withBrowser({});
+        const { module } = makeModule({ env: 'gui' });
+        await expect(module._forgetPushReceipt()).resolves.toBeUndefined();
     });
 
     it('lets the Puter GUI turn push on for the next account at once, without a confirmation push', async () => {
         store.set(RECEIPT, { endpoint: ENDPOINT, receipt: 'r-1' });
-        const nav = makeNav({
-            existing: makeSubscription(),
-            active: { scriptURL: `${ORIGIN}/sw.js` },
-        });
+        const nav = guiNav({ existing: makeSubscription() });
         withBrowser(nav);
         server((route, body) =>
             route === '/push/web/subscriptions' && body.receipt === 'r-1'

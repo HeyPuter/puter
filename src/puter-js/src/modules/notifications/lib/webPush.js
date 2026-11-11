@@ -226,20 +226,36 @@ const subscribeWith = async (registration, key) => {
     }
 };
 
-/** The receipt kept at `scope` for `subscription`'s endpoint, else null. */
-const storedReceipt = async (scope, subscription) => {
+/** The registration `worker`'s subscription is at, if any. */
+const registrationOf = (nav, worker) =>
+    nav.serviceWorker.getRegistration(worker.scope ?? worker.url);
+
+/** Only the Puter GUI registers one subscription for account after account. */
+const keepsReceipts = (puter) => puter.env === 'gui';
+
+/**
+ * The receipt kept at `scope` for `subscription`'s endpoint, else null. One
+ * kept for another endpoint is forgotten: that subscription ended.
+ */
+const storedReceipt = async (puter, scope, subscription) => {
+    if (!keepsReceipts(puter)) return null;
     try {
         const kept = await idbGet(HANDLERS_STORE, RECEIPT_PREFIX + scope);
-        return kept?.endpoint === subscription.endpoint &&
+        if (
+            kept?.endpoint === subscription.endpoint &&
             typeof kept.receipt === 'string'
-            ? kept.receipt
-            : null;
+        )
+            return kept.receipt;
+        if (kept != null)
+            await idbDelete(HANDLERS_STORE, RECEIPT_PREFIX + scope);
+        return null;
     } catch {
         return null;
     }
 };
 
-const keepReceipt = async (scope, endpoint, receipt) => {
+const keepReceipt = async (puter, scope, endpoint, receipt) => {
+    if (!keepsReceipts(puter)) return;
     if (typeof receipt !== 'string' || receipt === '') return;
     try {
         await idbPut(HANDLERS_STORE, RECEIPT_PREFIX + scope, {
@@ -251,7 +267,8 @@ const keepReceipt = async (scope, endpoint, receipt) => {
     }
 };
 
-const forgetReceipt = async (scope) => {
+const forgetReceipt = async (puter, scope) => {
+    if (!keepsReceipts(puter)) return;
     try {
         await idbDelete(HANDLERS_STORE, RECEIPT_PREFIX + scope);
     } catch {
@@ -260,20 +277,33 @@ const forgetReceipt = async (scope) => {
 };
 
 /** Forgets the receipt kept for `worker`'s subscription. Never throws. */
-export const forgetWebPushReceipt = async (worker) => {
-    let scope;
+export const forgetWebPushReceipt = async (
+    puter,
+    worker,
+    nav = globalThis.navigator,
+) => {
+    if (!keepsReceipts(puter)) return;
     try {
-        scope = workerScope(worker);
+        const registration = await registrationOf(nav, worker);
+        if (registration) await forgetReceipt(puter, registration.scope);
     } catch {
-        return;
+        // No service workers here.
     }
-    await forgetReceipt(scope);
 };
 
-/** Tells the server about `subscription`; `active` or `pending`. */
-const announce = async (puter, subscription, { label, interactive, scope }) => {
-    const receipt = await storedReceipt(scope, subscription);
-    return await request(
+/**
+ * Tells the server about `subscription`; `active` or `pending`. The receipt it
+ * gives is kept at once; one it answers `pending` to is forgotten.
+ */
+const announce = async (
+    puter,
+    registration,
+    subscription,
+    { label, interactive },
+) => {
+    const { scope } = registration;
+    const receipt = await storedReceipt(puter, scope, subscription);
+    const result = await request(
         puter,
         'POST',
         '/push/web/subscriptions',
@@ -284,6 +314,10 @@ const announce = async (puter, subscription, { label, interactive, scope }) => {
         },
         { interactiveReauth: interactive },
     );
+    if (result.status === 'active')
+        await keepReceipt(puter, scope, subscription.endpoint, result.receipt);
+    else if (receipt) await forgetReceipt(puter, scope);
+    return result;
 };
 
 const turnedOff = () =>
@@ -356,7 +390,7 @@ const puterKeys = async (puter, authToken) => {
 /** Puter's subscriptions at `worker` or anywhere here, each with its scope. */
 const puterSubscriptions = async (puter, { worker, authToken, nav }) => {
     const registrations = worker
-        ? [await nav.serviceWorker.getRegistration(worker.scope ?? worker.url)]
+        ? [await registrationOf(nav, worker)]
         : await nav.serviceWorker.getRegistrations();
     const found = (
         await Promise.all(
@@ -395,13 +429,7 @@ const rememberPuterKey = async (publicKey, previousKeys) => {
  * with Puter's earlier key is ended; on a website, one made with any other key
  * belongs to something else on the site and is left alone.
  */
-const currentSubscription = async (
-    puter,
-    registration,
-    key,
-    earlier,
-    scope,
-) => {
+const currentSubscription = async (puter, registration, key, earlier) => {
     const subscription = await registration.pushManager.getSubscription();
     const existing = subscription?.options?.applicationServerKey;
     if (!subscription || sameKey(existing, key)) return subscription;
@@ -416,7 +444,7 @@ const currentSubscription = async (
         );
     }
     await subscription.unsubscribe();
-    await forgetReceipt(scope);
+    await forgetReceipt(puter, registration.scope);
     return null;
 };
 
@@ -424,10 +452,10 @@ const currentSubscription = async (
 const register = async (
     puter,
     nav,
+    registration,
     subscribe,
     {
         label,
-        scope,
         onPending,
         signal,
         interactive,
@@ -443,17 +471,14 @@ const register = async (
             const subscription = await subscribe();
             // Before the POST: the confirmation can arrive before it returns.
             challenge = nextChallenge(nav, signal);
-            const result = await announce(puter, subscription, {
+            const result = await announce(puter, registration, subscription, {
                 label,
                 interactive,
-                scope,
             });
             if (signal?.aborted) throw turnedOff();
             await onAnnounced?.();
-            if (result.status === 'active') {
-                await keepReceipt(scope, subscription.endpoint, result.receipt);
+            if (result.status === 'active')
                 await onSynced?.(subscription.endpoint);
-            }
             return { subscription, result };
         });
         if (result.status === 'active') return result.device;
@@ -471,7 +496,12 @@ const register = async (
                 },
                 { interactiveReauth: false },
             );
-            await keepReceipt(scope, subscription.endpoint, verified?.receipt);
+            await keepReceipt(
+                puter,
+                registration.scope,
+                subscription.endpoint,
+                verified?.receipt,
+            );
             await onSynced?.(subscription.endpoint);
             return verified;
         });
@@ -545,13 +575,11 @@ export async function syncWebPush(
     const registration = await registerWorker(nav, worker, {
         keepSiteWorker: puter.env !== 'gui',
     });
-    const scope = registration.scope;
 
     /** @type {PushSubscription | null} */
     let subscription = null;
     const options = {
         label,
-        scope,
         onPending,
         signal,
         interactive,
@@ -568,6 +596,7 @@ export async function syncWebPush(
         return await register(
             puter,
             nav,
+            registration,
             async () => {
                 subscription =
                     (await currentSubscription(
@@ -575,7 +604,6 @@ export async function syncWebPush(
                         registration,
                         key,
                         earlier,
-                        scope,
                     )) ?? (await subscribeWith(registration, key));
                 await rememberPuterKey(publicKey, previousKeys);
                 return subscription;
@@ -593,9 +621,10 @@ export async function syncWebPush(
         return await register(
             puter,
             nav,
+            registration,
             async () => {
                 await stale.unsubscribe();
-                await forgetReceipt(scope);
+                await forgetReceipt(puter, registration.scope);
                 return await subscribeWith(registration, key);
             },
             options,
@@ -665,7 +694,7 @@ export async function unsubscribeWebPush(
         } catch {
             // Already gone, or the browser can't tell.
         }
-        await forgetReceipt(scope);
+        await forgetReceipt(puter, scope);
     }
     return found.map(({ subscription }) => subscription.endpoint);
 }
@@ -701,8 +730,6 @@ export async function removeWebPush(
 
 /** This browser's subscription for `worker`, or null. */
 export async function currentWebPush({ worker, nav = globalThis.navigator }) {
-    const registration = await nav.serviceWorker.getRegistration(
-        worker.scope ?? worker.url,
-    );
+    const registration = await registrationOf(nav, worker);
     return (await registration?.pushManager.getSubscription()) ?? null;
 }

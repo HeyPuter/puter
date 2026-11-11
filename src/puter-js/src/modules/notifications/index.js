@@ -582,7 +582,7 @@ export class NotificationsModule extends EventListener {
             return 'off';
         }
         if (state === 'revoked') {
-            await this.#dropRevoked(worker);
+            await this.#recordOptIn(false);
             return 'off';
         }
         return 'on';
@@ -615,6 +615,16 @@ export class NotificationsModule extends EventListener {
                 );
             }
         });
+    }
+
+    /**
+     * Sign-out in the Puter GUI: forgets the receipt, so the next account to
+     * sign in confirms this browser itself. Never throws.
+     *
+     * @internal
+     */
+    async _forgetPushReceipt() {
+        await forgetWebPushReceipt(this.puter, workerFor('gui'));
     }
 
     /** Another user signing in here ends push for the last one, as sign-out. */
@@ -821,7 +831,7 @@ export class NotificationsModule extends EventListener {
                     return;
                 if (answer.state === 'removed')
                     await this.#dropRemoved(worker, now);
-                else await this.#dropRevoked(worker);
+                else await this.#recordOptIn(false);
             });
             return true;
         }
@@ -893,14 +903,7 @@ export class NotificationsModule extends EventListener {
     async #followRefusal(error, worker) {
         if (error?.code === 'push_device_removed')
             await this.#dropRemoved(worker);
-        else if (error?.code === 'push_revoked')
-            await this.#dropRevoked(worker);
-    }
-
-    /** The user turned the app off in Puter: pushes stay off until `enable()`. */
-    async #dropRevoked(worker) {
-        await forgetWebPushReceipt(worker);
-        await this.#recordOptIn(false);
+        else if (error?.code === 'push_revoked') await this.#recordOptIn(false);
     }
 
     /**
@@ -916,7 +919,7 @@ export class NotificationsModule extends EventListener {
         } catch {
             // Already gone, or the browser can't tell.
         }
-        await forgetWebPushReceipt(worker);
+        await forgetWebPushReceipt(this.puter, worker);
         await this.#recordOptIn(false);
     }
 

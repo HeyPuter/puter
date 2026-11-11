@@ -63,13 +63,12 @@ export const setOptIn = (userUuid, on, idb = globalThis.indexedDB) =>
         ? idbPut(HANDLERS_STORE, OPT_IN_PREFIX + userUuid, true, idb)
         : idbDelete(HANDLERS_STORE, OPT_IN_PREFIX + userUuid, idb);
 
-/** Forgets every user's opt-in and sync, every receipt, and every kept tap. */
+/** Forgets every user's opt-in and sync, and every kept tap. */
 export const forgetPushState = async (idb = globalThis.indexedDB) => {
     for (const prefix of [
         OPT_IN_PREFIX,
         SYNCED_PREFIX,
         SUBSCRIPTION_CHANGED_PREFIX,
-        RECEIPT_PREFIX,
     ]) {
         await run(idb, HANDLERS_STORE, 'readwrite', (s) =>
             s.delete(globalThis.IDBKeyRange.bound(prefix, `${prefix}￿`)),
