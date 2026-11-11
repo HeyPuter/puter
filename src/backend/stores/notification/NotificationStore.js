@@ -33,6 +33,27 @@ import { PuterStore } from '../types';
  * }} NotificationInsert
  */
 
+/**
+ * A `notification` row as this store returns it. `send_key` is absent on a
+ * table that has no such column yet.
+ *
+ * @typedef {{
+ *     id: number;
+ *     uid: string;
+ *     user_id: number;
+ *     value: Record<string, unknown> | string;
+ *     acknowledged: number | null;
+ *     shown: number | null;
+ *     created_at: Date | string;
+ *     app_uid: string | null;
+ *     audience: string;
+ *     type: string;
+ *     group_key: string | null;
+ *     replaced_at: number | null;
+ *     send_key?: string | null;
+ * }} NotificationRow
+ */
+
 /** How long a probe that found no `send_key` column stands. */
 const SEND_KEY_REPROBE_MS = 60_000;
 
@@ -134,6 +155,7 @@ export class NotificationStore extends PuterStore {
      * @param {string} appUid
      * @param {string} group
      * @param {{ primary?: boolean }} [opts]
+     * @returns {Promise<NotificationRow | null>}
      */
     async getUnseenByGroup(userId, appUid, group, { primary = false } = {}) {
         const sql =
@@ -394,6 +416,7 @@ export class NotificationStore extends PuterStore {
      * `group` is kept as a key `getUnseenByGroup` finds the row by.
      *
      * @param {NotificationInsert} args
+     * @returns {Promise<NotificationRow>}
      */
     async create({
         userId,
@@ -566,7 +589,13 @@ export class NotificationStore extends PuterStore {
         return result.anyRowsAffected;
     }
 
-    /** The row `updateValue` leaves on a replacement at `replacedAt` (ms). */
+    /**
+     * The row `updateValue` leaves on a replacement at `replacedAt` (ms).
+     *
+     * @param {NotificationRow} row @param {unknown} value
+     * @param {number} replacedAt
+     * @returns {NotificationRow}
+     */
     replacedRow(row, value, replacedAt) {
         const replaced = {
             ...row,
