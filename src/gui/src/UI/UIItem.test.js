@@ -118,6 +118,7 @@ describe('UIItem Remove from Shared', () => {
         };
         globalThis.puter = window.puter;
         refresh_item_container.mockClear();
+        UIAlert.mockClear();
     });
 
     it('is offered on an item shared with the user directly', async () => {

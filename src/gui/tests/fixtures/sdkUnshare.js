@@ -1,8 +1,7 @@
-// The SDK's own puter.fs.unshare, answering every request with a canned /share/revoke body.
+// The SDK's own puter.fs.unshare, answering its request with a canned /share/revoke body.
 import unshare from '../../../puter-js/src/modules/FileSystem/operations/unshare.js';
 
-class CannedXHR {
-    static body = null;
+const cannedXHR = (body) => class {
     _listeners = {};
     status = 200;
     open () {}
@@ -15,21 +14,29 @@ class CannedXHR {
     }
     send () {
         queueMicrotask(() => {
-            this.responseText = JSON.stringify(CannedXHR.body);
+            this.responseText = JSON.stringify(body);
             for ( const fn of this._listeners.load ?? [] ) fn.call(this, { target: this });
         });
     }
-}
+};
 
 /**
  * @param {Record<string, unknown>} body what /share/revoke answers with
  * @returns {(...args: unknown[]) => Promise<unknown>}
  */
 export const unshareAnswering = (body) => {
-    CannedXHR.body = body;
-    globalThis.XMLHttpRequest = CannedXHR;
+    const CannedXHR = cannedXHR(body);
     const fs = { APIOrigin: 'https://api.test', authToken: 'test-token' };
-    return (...args) => unshare.call(fs, ...args);
+    // XMLHttpRequest is swapped for the length of one call only.
+    return async (...args) => {
+        const original = globalThis.XMLHttpRequest;
+        globalThis.XMLHttpRequest = CannedXHR;
+        try {
+            return await unshare.call(fs, ...args);
+        } finally {
+            globalThis.XMLHttpRequest = original;
+        }
+    };
 };
 
 /** Every pair refused, as the backend reports leaving a share held through a team. */
