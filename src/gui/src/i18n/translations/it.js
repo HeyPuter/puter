@@ -211,8 +211,6 @@ const it = {
         publish_as_website: 'Pubblica come sito web',
         puter_description: 'Puter è un cloud personale che mette la privacy al primo posto, per conservare tutti i tuoi file, app e giochi in un unico luogo sicuro, accessibile da qualsiasi luogo e in qualsiasi momento.',
         reading_file: 'Leggendo %strong%',
-        recent: 'Recenti',
-        recommended: 'Consigliati',
         recover_password: 'Ripristina la Password',
         refer_friends_c2a:
       'Ottieni 1 GB di spazio di archiviazione per ogni amico che crea un account e conferma l’email su Puter. Anche il tuo amico riceverà dello spazio extra!',
@@ -261,7 +259,6 @@ const it = {
         skip: 'Salta',
         something_went_wrong: 'Qualcosa è andato storto.',
         sort_by: 'Ordina per',
-        start: 'Start',
         status: 'Stato',
         storage_usage: 'Utilizzo dello spazio',
         storage_puter_used: 'utilizzato da Puter',

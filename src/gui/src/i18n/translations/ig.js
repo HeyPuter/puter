@@ -210,8 +210,6 @@ const ig = {
         publish_as_website: 'Bipụta dị ka webụsaịtị',
         puter_description: 'Puter bụ igwe ojii nzuzo nke mbụ iji dobe faịlụ gị, ngwa na egwuregwu gị n\'otu ebe echekwara, enwere ike ịnweta ya ebe ọ bụla n\'oge ọ bụla..',
         reading_file: 'ọgụgụ %strong%',
-        recent: 'Na nso nso a',
-        recommended: 'nwere ike ikwu',
         recover_password: 'Weghachite paswọọdụ',
         refer_friends_c2a:
       'Nweta 1 GB maka enyi ọ bụla mepụtara ma kwado akaụntụ na Puter. Enyi gị ga-enwetakwa 1 GB!',
@@ -257,7 +255,6 @@ const ig = {
         skip: 'Mafee',
         something_went_wrong: 'Ọ nwere ihe adịghị mma.',
         sort_by: 'Hazie site na',
-        start: 'mbido',
         status: 'Ọnọdụ',
         storage_usage: 'Ojiji Nchekwa',
         storage_puter_used: 'nke Puter na-ji',

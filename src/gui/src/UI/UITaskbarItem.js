@@ -31,7 +31,6 @@ function UITaskbarItem (options) {
     options.sortable = options.sortable ?? true;
     options.open_windows_count = options.open_windows_count ?? 0;
     options.lock_keep_in_taskbar = options.lock_keep_in_taskbar ?? false;
-    options.append_to_taskbar = options.append_to_taskbar ?? true;
     options.before_trash = options.before_trash ?? false;
 
     // The windows this item stands for: the user's own. An instance another
@@ -78,28 +77,24 @@ function UITaskbarItem (options) {
     }
     h += '</div>';
 
-    if ( options.append_to_taskbar ) {
-        if ( options.before_trash ) {
+    if ( options.before_trash ) {
+        $('.taskbar-sortable').append(h);
+    } else {
+        if ( options.sortable )
+        {
             $('.taskbar-sortable').append(h);
-        } else {
-            if ( options.sortable )
+        }
+        else {
+            // if taskbar-sortable is empty then append before it
+            if ( $('.taskbar-sortable').children().length === 0 )
             {
-                $('.taskbar-sortable').append(h);
+                $('.taskbar').find('.taskbar-sortable').before(h);
             }
-            else {
-                // if taskbar-sortable is empty then append before it
-                if ( $('.taskbar-sortable').children().length === 0 )
-                {
-                    $('.taskbar').find('.taskbar-sortable').before(h);
-                }
-                else
-                {
-                    $('.taskbar').find('.taskbar-sortable').after(h);
-                }
+            else
+            {
+                $('.taskbar').find('.taskbar-sortable').after(h);
             }
         }
-    } else {
-        $('body').prepend(h);
     }
 
     const el_taskbar_item = document.querySelector(`#taskbar-item-${tray_item_id}`);
@@ -120,13 +115,6 @@ function UITaskbarItem (options) {
 
         // Don't handle clicks for separators
         if ( options.app === 'separator' ) {
-            return;
-        }
-
-        // if this is for the launcher popover, and it's mobile, and has-open-popover, close the popover
-        if ( $(el_taskbar_item).attr('data-name') === 'Start'
-            && (isMobile.phone || isMobile.tablet) && $(el_taskbar_item).hasClass('has-open-popover') ) {
-            $('.popover').remove();
             return;
         }
 

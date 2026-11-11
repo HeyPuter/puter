@@ -208,8 +208,6 @@ const id = {
         publish_as_website: 'Publikasikan sebagai situs web',
         puter_description: 'Puter adalah cloud pribadi yang mengutamakan privasi untuk menyimpan semua file, aplikasi, dan permainan Anda di satu tempat yang aman, dapat diakses dari mana pun dan kapan pun.',
         reading_file: 'Membaca %strong%',
-        recent: 'Terbaru',
-        recommended: 'Direkomendasikan',
         recover_password: 'Pulihkan Kata Sandi',
         refer_friends_c2a:
       'Dapatkan 1 GB untuk setiap teman yang membuat dan mengonfirmasi akun di Puter. Teman Anda juga akan mendapatkan 1 GB!',
@@ -255,7 +253,6 @@ const id = {
         skip: 'Lewatkan',
         something_went_wrong: 'Terjadi kesalahan.',
         sort_by: 'Urutkan berdasarkan',
-        start: 'Mulai',
         status: 'Status',
         storage_usage: 'Penggunaan Penyimpanan',
         storage_puter_used: 'digunakan oleh Puter',

@@ -3340,13 +3340,6 @@ label {
     box-shadow: 0px 0px 15px #00000066;
 }
 
-@supports ((backdrop-filter: blur())) {
-    .launch-popover {
-        background-color: rgba(231, 238, 245, .92);
-        backdrop-filter: blur(3px);
-    }
-}
-
 .popover-apps-item {
     clear: both;
     margin-bottom: 10px;
@@ -3500,121 +3493,6 @@ label {
 .notification-container.has-multiple:hover .notifications-close-all {
     pointer-events: all;
     opacity: 1 !important;
-}
-
-/*****************************************************
- * Start
- *****************************************************/
-.launch-popover {
-    width: 530px;
-    height: 500px;
-    padding: 20px 20px 20px;
-    border: 1px solid #bbc2c9;
-    border-radius: 4px;
-    background-color: rgba(231, 238, 245, .92);
-    backdrop-filter: blur(3px);
-    box-sizing: border-box;
-    overflow-y: scroll;
-}
-
-.close-launch-popover {
-    position: absolute;
-    top: 2px;
-    right: 3px;
-    display: none;
-}
-
-.device-phone .close-launch-popover {
-    display: block;
-}
-
-.device-phone .launch-popover {
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh;
-    background-color: rgba(231, 238, 245);
-}
-
-.start-section-heading {
-    font-size: 13px;
-    margin: 0;
-    padding: 0;
-    height: 15px;
-    margin-left: 5px;
-    margin-right: 5px;
-    border-bottom: 1px solid #CCC;
-    padding-bottom: 10px;
-    color: #677a86;
-    clear: both;
-}
-
-.start-app-card {
-    height: 100px;
-    width: 20%;
-    float: left;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    box-sizing: content-box;
-}
-
-.start-app {
-    width: 70px;
-    height: 70px;
-    text-align: center;
-    overflow: hidden;
-    margin: 0 auto;
-    padding: 5px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    border-radius: 4px;
-    transition: 0.1s background-color;
-}
-
-.start-app-icon {
-    filter: drop-shadow(0px 0px .3px rgb(51, 51, 51));
-    display: block;
-    margin: 0 auto;
-    width: 38px;
-    height: 38px;
-    margin-top: 2px;
-}
-
-.start-app.ui-draggable-dragging {
-    background-color: transparent !important;
-    width: 40px !important;
-    height: 40px !important;
-}
-
-.start-app.ui-draggable-dragging img {
-    width: 26px !important;
-    height: 26px !important;
-}
-
-.start-app.ui-draggable-dragging .start-app-title {
-    display: none;
-}
-
-.start-app:hover, .launch-app-selected .start-app {
-    background-color: #ffffff;
-}
-
-.start-app:active {
-    background-color: white;
-}
-
-.start-app-title {
-    font-size: 12px;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-overflow: ellipsis;
-    display: block;
-    margin-top: 8px;
-    width: 100%;
-    box-sizing: border-box;
-    white-space: nowrap;
-    overflow: hidden;
 }
 
 /* UIWindowEmailConfirmationRequired */
@@ -3942,47 +3820,6 @@ fieldset[name=number-code] {
     display: inline-block;
     margin-right: 10px;
 }
-
-.launch-search {
-    border-radius: 5px;
-    background-repeat: no-repeat;
-    width: 100%;
-    box-sizing: border-box;
-    background-color: white;
-    padding: 5px;
-    background-size: 20px;
-    background-position-y: center;
-    background-position-x: 5px;
-    padding-left: 35px;
-    padding-right: 35px;
-    border: 2px solid #CCC;
-}
-
-.launch-search-wrapper {
-    margin-bottom: 10px;
-    padding: 5px;
-    position: relative;
-}
-
-.device-phone .launch-search-wrapper {
-    margin-top: 15px;
-}
-
-.launch-search-clear {
-    display: none;
-    position: absolute;
-    right: 8px;
-    top: 8px;
-    height: 28px;
-    opacity: 0.5;
-}
-
-.launch-search-clear:hover {
-    opacity: 1;
-}
-
-.launch-app-selected {}
-
 
 .website-badge-popover-title {
     font-size: 14px;
@@ -6136,85 +5973,6 @@ html.dark-mode .usage-table-fade-overlay {
     display: flex;
     align-items: center;
     justify-content: center;
-}
-
-.device-phone .popover-launcher, .device-phone .launch-popover {
-    border-radius: 0;
-}
-
-/* Main launcher container */
-.device-phone .launch-popover {
-    /* Enable smooth scrolling on iOS */
-    -webkit-overflow-scrolling: touch;
-
-    /* Allow vertical touch scrolling while preventing horizontal */
-    touch-action: pan-y;
-
-    /* Base dimensions */
-    width: 100%;
-    height: 100%;
-
-    /* Scrolling behavior */
-    overflow-y: scroll;
-    overflow-x: hidden;
-
-    /* Background and styling */
-    background-color: rgba(231, 238, 245);
-    padding: 0;
-    margin: 0;
-
-    /* Hide scrollbars while keeping functionality */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-
-    padding-left: 10px;
-    padding-right: 10px;
-}
-
-/* Hide scrollbar while keeping functionality */
-.device-phone .launch-popover::-webkit-scrollbar {
-    display: none;
-}
-
-/* Ensure content can receive touch events */
-.device-phone .launch-popover * {
-    touch-action: pan-y;
-}
-
-/* Make sure the search wrapper doesn't interfere with scrolling */
-.launch-search-wrapper {
-    position: sticky;
-    top: -20px;
-    z-index: 1;
-    background: rgba(231, 238, 245);
-    padding-top: 7px;
-}
-
-.device-phone .launch-search-wrapper {
-    top: 0;
-}
-
-.device-phone .popover-launcher {
-    left: 50% !important;
-    border-radius: 10px;
-    top: 5px !important;
-    transform: translateX(-50%);
-    width: calc(100% - 25px);
-    height: calc(100vh - 65px);
-    height: calc(100dvh - 65px);
-}
-
-.device-phone .start-app-card {
-    width: 25%;
-}
-
-.device-phone .start-app-icon {
-    width: 50px;
-    height: 50px;
-}
-
-.device-phone .start-app-title {
-    margin-top: 5px;
 }
 
 .device-phone .desktop {

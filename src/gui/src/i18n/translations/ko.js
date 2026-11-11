@@ -218,8 +218,6 @@ const ko = {
         puter_description: 'Puter는 모든 파일, 앱, 게임을 하나의 안전한 공간에 보관하고 언제 어디서나 접속할 수 있으며 개인 정보 보호를 우선시하는 개인 클라우드입니다. ',
         reading: '%strong% 읽는 중',
         writing: '%strong% 작성 중',
-        recent: '최근',
-        recommended: '추천',
         recover_password: '비밀번호 찾기',
         refer_friends_c2a:
       'Puter에 가입하고 이메일 인증을 완료하는 친구 한 명당 1GB의 저장 공간을 드립니다. 친구도 1GB를 받을 수 있습니다!',
@@ -265,7 +263,6 @@ const ko = {
         skip: '건너뛰기',
         something_went_wrong: '문제가 발생했습니다.',
         sort_by: '정렬',
-        start: '시작',
         status: '상태',
         storage_usage: '저장 공간 사용량',
         storage_puter_used: 'Puter에서 사용 중',

@@ -17,13 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createUploadThumbnailGenerator } from '../services/pdfThumbnails/index.js';
 import UITaskbarItem from './UITaskbarItem.js';
-import UIPopover from './UIPopover.js';
 import launch_app from '../helpers/launchApp.js';
-import UIContextMenu from './UIContextMenu.js';
-import { appIconAttrs, appIconSrc } from '../helpers/appIcon.js';
-import { filterLaunchableApps } from '../helpers/launchAppsList.js';
+import { appIconSrc } from '../helpers/appIcon.js';
 
 const TASKBAR_POSITIONS = ['left', 'bottom', 'right'];
 
@@ -58,27 +54,6 @@ async function UITaskbar (options) {
     // Set global taskbar position
     window.taskbar_position = taskbar_position;
 
-    let launchAppsRequest = 0;
-    let pendingLaunchApps;
-    const fetchLaunchApps = () => {
-        pendingLaunchApps?.abort();
-        pendingLaunchApps = $.ajax({
-            url: `${window.api_origin}/get-launch-apps?icon_size=64`,
-            type: 'GET',
-            contentType: 'application/json',
-            timeout: 30000,
-            headers: { 'Authorization': `Bearer ${window.auth_token}` },
-        });
-        return pendingLaunchApps;
-    };
-    const logRefreshFailure = (xhr, status) => {
-        if ( status !== 'abort' ) console.error('Failed to refresh launch apps:', status);
-    };
-
-    fetchLaunchApps().done(apps => {
-        if ( launchAppsRequest === 0 ) window.launch_apps = apps;
-    }).fail(logRefreshFailure);
-
     let h = '';
     h += `<div id="ui-taskbar_${window.global_element_id}" class="taskbar taskbar-position-${taskbar_position}" style="height:${window.taskbar_height}px;">`;
     h += '<div class="taskbar-sortable" style="display: flex; justify-content: center; z-index: 99999;"></div>';
@@ -89,240 +64,6 @@ async function UITaskbar (options) {
     }
 
     $('.desktop').append(h);
-
-    //---------------------------------------------
-    // add `Start` to taskbar
-    //---------------------------------------------
-    UITaskbarItem({
-        icon: window.icons['start.svg'],
-        name: i18n('start'),
-        sortable: false,
-        keep_in_taskbar: true,
-        disable_context_menu: true,
-        onClick: async function (item) {
-            // skip if popover already open
-            if ( $(item).hasClass('has-open-popover') )
-            {
-                $('.popover-launcher').remove();
-                return;
-            }
-
-            // show popover
-            let popover = UIPopover({
-                content: '<div class="launch-popover hide-scrollbar"></div>',
-                snapToElement: item,
-                parent_element: item,
-                width: 500,
-                height: 500,
-                class: 'popover-launcher',
-                center_horizontally: true,
-            });
-
-            $(popover).on('remove', () => pendingLaunchApps?.abort());
-            const request = ++launchAppsRequest;
-            if ( ! window.launch_apps?.recent ) {
-                window.launch_apps = { recent: [], recommended: [] };
-            }
-            $(popover).find('.launch-popover').append(`
-                <div class="launch-search-wrapper">
-                    <input style="background-image:url('${window.icons['magnifier-outline.svg']}');" class="launch-search">
-                    <img class="launch-search-clear" src="${window.icons['close.svg']}">
-                </div>
-            `);
-
-            const renderApps = () => {
-                const recentApps = filterLaunchableApps(window.launch_apps.recent);
-                const recommendedApps = filterLaunchableApps(window.launch_apps.recommended);
-                let apps_str = '';
-
-                // -------------------------------------------
-                // Recent apps
-                // -------------------------------------------
-                if ( recentApps.length > 0 ) {
-                    // heading
-                    apps_str += `<h1 class="start-section-heading start-section-heading-recent">${i18n('recent')}</h1>`;
-
-                    // apps
-                    apps_str += '<div class="launch-apps-recent">';
-                    for ( let index = 0; index < window.launch_recent_apps_count && index < recentApps.length; index++ ) {
-                        const app_info = recentApps[index];
-                        apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
-                        const icon = appIconSrc(app_info);
-                        apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(icon.src)}" data-app-icon-fallback="${html_encode(icon.fallback)}" data-app-title="${html_encode(app_info.title)}">`;
-                        apps_str += `<img class="start-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
-                        apps_str += `<span class="start-app-title">${html_encode(app_info.title)}</span>`;
-                        apps_str += '</div>';
-                        apps_str += '</div>';
-                    }
-                    apps_str += '</div>';
-                }
-                // -------------------------------------------
-                // Recommended apps
-                // -------------------------------------------
-                if ( recommendedApps.length > 0 ) {
-                    // heading
-                    apps_str += `<h1 class="start-section-heading start-section-heading-recommended" style="${recentApps.length > 0 ? 'padding-top: 30px;' : ''}">${i18n('recommended')}</h1>`;
-                    // apps
-                    apps_str += '<div class="launch-apps-recommended">';
-                    for ( let index = 0; index < recommendedApps.length; index++ ) {
-                        const app_info = recommendedApps[index];
-                        apps_str += `<div title="${html_encode(app_info.title)}" data-name="${html_encode(app_info.name)}" class="start-app-card">`;
-                        const icon = appIconSrc(app_info);
-                        apps_str += `<div class="start-app" data-app-name="${html_encode(app_info.name)}" data-app-uuid="${html_encode(app_info.uuid)}" data-app-icon="${html_encode(icon.src)}" data-app-icon-fallback="${html_encode(icon.fallback)}" data-app-title="${html_encode(app_info.title)}">`;
-                        apps_str += `<img class="start-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
-                        apps_str += `<span class="start-app-title">${html_encode(app_info.title)}</span>`;
-                        apps_str += '</div>';
-                        apps_str += '</div>';
-                    }
-                    apps_str += '</div>';
-                }
-
-                // Replace tiles only, so the search input keeps its text and focus.
-                $(popover).find('.start-section-heading, .launch-apps-recent, .launch-apps-recommended').remove();
-                $(popover).find('.launch-popover').append(apps_str);
-
-                // make apps draggable
-                $(popover).find('.start-app').draggable({
-                    appendTo: 'body',
-                    revert: 'invalid',
-                    connectToSortable: '.taskbar-sortable',
-                    zIndex: parseInt($(popover).css('z-index')) + 1,
-                    scroll: false,
-                    distance: 5,
-                    revertDuration: 100,
-                    helper: 'clone',
-                    cursorAt: { left: 18, top: 20 },
-                    start: function (event, ui) {
-                    },
-                    drag: function (event, ui) {
-                    },
-                    stop: function () {
-                    },
-                });
-            };
-            renderApps();
-            if ( ! isMobile.phone ) $(popover).find('.launch-search').focus();
-
-            fetchLaunchApps().done(apps => {
-                if ( request !== launchAppsRequest || !popover.isConnected ) return;
-                window.launch_apps = apps;
-                renderApps();
-                $(popover).find('.launch-search').trigger('change');
-            }).fail(logRefreshFailure);
-
-            $(popover).on('click', function () {
-                // close other context menus
-                $('.context-menu').fadeOut(200, function () {
-                    $(this).remove();
-                    $('.launch-app-selected').removeClass('launch-app-selected');
-                });
-            });
-
-            $(popover).on('contextmenu taphold', function (e) {
-                if ( ! e.target.closest('.launch-search') ) {
-                    e.preventDefault();
-                }
-            });
-
-            $(document).on('contextmenu taphold', '.start-app', function (e) {
-                if ( e.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-                {
-                    return;
-                }
-
-                e.stopImmediatePropagation();
-                e.preventDefault();
-
-                // close other context menus
-                $('.context-menu').fadeOut(200, function () {
-                    $(this).remove();
-                });
-
-                let items = [{
-                    html: i18n('open'),
-                    onClick: function () {
-                        $(e.currentTarget).trigger('click');
-                    },
-                }];
-
-                $('.launch-app-selected').removeClass('launch-app-selected');
-                $(e.currentTarget).parent().addClass('launch-app-selected');
-
-                // Determine pin state
-                const $existingTaskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
-                const isPinned = $existingTaskbarItem.length > 0 && $existingTaskbarItem.attr('data-keep-in-taskbar') === 'true';
-
-                items.push({
-                    html: i18n('add_to_desktop'),
-                    onClick: async function () {
-                        try {
-                            const fileName = `${e.currentTarget.dataset.appTitle}.app`;
-                            const content = JSON.stringify({
-                                app: e.currentTarget.dataset.appName,
-                                title: e.currentTarget.dataset.appTitle,
-                                icon: e.currentTarget.dataset.appIcon,
-                            });
-                            await puter.fs.upload(new File([content], fileName), window.desktop_path, {
-                                generateThumbnails: true,
-                                thumbnailGenerator: createUploadThumbnailGenerator(),
-                            });
-                        } catch ( err ) {
-                            console.error('Failed to add shortcut to desktop:', err);
-                            // Consider showing a user-facing error notification
-                        }
-                    },
-                });
-
-                if ( ! isPinned ) {
-                    items.push({
-                        html: i18n('keep_in_taskbar'),
-                        onClick: function () {
-                            const $taskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
-                            if ( $taskbarItem.length === 0 ) {
-                                // No taskbar item yet: create a new pinned one
-                                UITaskbarItem({
-                                    icon: e.currentTarget.dataset.appIcon,
-                                    iconFallback: e.currentTarget.dataset.appIconFallback,
-                                    app: e.currentTarget.dataset.appName,
-                                    name: e.currentTarget.dataset.appTitle,
-                                    keep_in_taskbar: true,
-                                });
-                            } else if ( $taskbarItem.attr('data-keep-in-taskbar') !== 'true' ) {
-                                // mark as pinned
-                                $taskbarItem.attr('data-keep-in-taskbar', 'true');
-                            }
-                            // Persist
-                            window.update_taskbar();
-                        },
-                    });
-                } else {
-                    items.push({
-                        html: i18n('remove_from_taskbar'),
-                        onClick: function () {
-                            const $taskbarItem = $(`.taskbar-item[data-app="${e.currentTarget.dataset.appName}"]`);
-                            if ( $taskbarItem.length === 0 ) return; // nothing to do
-                            // Unpin
-                            $taskbarItem.attr('data-keep-in-taskbar', 'false');
-                            // If no open windows for this app, remove the item
-                            if ( $taskbarItem.attr('data-open-windows') === '0' ) {
-                                if ( window.remove_taskbar_item ) {
-                                    window.remove_taskbar_item($taskbarItem.get(0));
-                                } else {
-                                    $taskbarItem.remove();
-                                }
-                            }
-                            window.update_taskbar();
-                        },
-                    });
-                }
-
-                UIContextMenu({
-                    items: items,
-                });
-                return false;
-            });
-        },
-    });
 
     //---------------------------------------------
     // add `Explorer` to the taskbar
@@ -454,51 +195,9 @@ window.make_taskbar_sortable = function () {
         helper: 'clone',
         distance: 5,
         revert: 10,
-        receive: function (event, ui) {
-            if ( ! $(ui.item).hasClass('taskbar-item') ) {
-                // if app is already in taskbar, cancel
-                if ( $(`.taskbar-item[data-app="${$(ui.item).attr('data-app-name')}"]`).length !== 0 ) {
-                    $(this).sortable('cancel');
-                    $('.taskbar .start-app').remove();
-                    return;
-                }
-            }
-        },
         update: function (event, ui) {
-            if ( ! $(ui.item).hasClass('taskbar-item') ) {
-                // if app is already in taskbar, cancel
-                if ( $(`.taskbar-item[data-app="${$(ui.item).attr('data-app-name')}"]`).length !== 0 ) {
-                    $(this).sortable('cancel');
-                    $('.taskbar .start-app').remove();
-                    return;
-                }
-
-                let item = UITaskbarItem({
-                    icon: $(ui.item).attr('data-app-icon'),
-                    iconFallback: $(ui.item).attr('data-app-icon-fallback'),
-                    app: $(ui.item).attr('data-app-name'),
-                    name: $(ui.item).attr('data-app-title'),
-                    append_to_taskbar: false,
-                    keep_in_taskbar: true,
-                    onClick: function () {
-                        let open_window_count = parseInt($(`.taskbar-item[data-app="${$(ui.item).attr('data-app-name')}"]`).attr('data-open-windows'));
-                        if ( open_window_count === 0 ) {
-                            launch_app({
-                                name: $(ui.item).attr('data-app-name'),
-                            });
-                        } else {
-                            return false;
-                        }
-                    },
-                });
-                let el = ($(item).detach());
-                $(el).insertAfter(ui.item);
-                $(el).show();
-                $(ui.item).removeItems();
-                window.update_taskbar();
-            }
-            // only proceed to update DB if the item sorted was a pinned item otherwise no point in updating the taskbar in DB
-            else if ( $(ui.item).attr('data-keep-in-taskbar') === 'true' ) {
+            // only update the DB if the sorted item is pinned
+            if ( $(ui.item).attr('data-keep-in-taskbar') === 'true' ) {
                 window.update_taskbar();
             }
         },

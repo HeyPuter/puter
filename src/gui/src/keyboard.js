@@ -19,7 +19,6 @@
 
 import UIAlert from './UI/UIAlert.js';
 import UIWindowSearch from './UI/UIWindowSearch.js';
-import launch_app from './helpers/launchApp.js';
 import open_item from './helpers/openItem.js';
 import determine_active_container_parent from './helpers/determineActiveContainerParent.js';
 
@@ -61,171 +60,9 @@ $(document).bind('keydown', async function (e) {
     //-----------------------------------------------------------------------
     if (( e.which === 37 || e.which === 38 || e.which === 39 || e.which === 40 )) {
         // ----------------------------------------------
-        // Launch menu is open
-        // ----------------------------------------------
-        if ( $('.launch-popover').length > 0 ) {
-            // constants
-            const max_rows = $('body').hasClass('device-desktop') ? 5 : 4; // number of columns in the grid
-            const all_apps = $('.launch-popover .start-app-card:visible');
-            const recents = $('.launch-popover .launch-apps-recent .start-app-card:visible');
-            const recommended = $('.launch-popover .launch-apps-recommended .start-app-card:visible');
-            const search = $('.launch-popover .launch-search');
-            const selected_element = $('.launch-popover .start-app-card.launch-app-selected');
-
-            // helper functions for grid navigation
-
-            // get item at row/col in section (recents or recommended)
-            function item (row, col, section) {
-                let apps = (section === 'recents') ? recents : recommended;
-                const idx = row * max_rows + (col - 1);
-                if ( idx < 0 || idx >= apps.length ) return null;
-                return apps.get(idx);
-            }
-
-            // get row/col of item in all_apps
-            function coord (it) {
-                if ( !it || it.length === 0 ) return null;
-                const index = all_apps.index(it);
-                if ( index < 0 ) return null;
-                // row is 0-based; col is 1-based to match item(row,col)
-                return { row: Math.floor(index / max_rows), col: (index % max_rows) + 1 };
-            }
-
-            // select an item
-            function select (el) {
-                // clear previous
-                all_apps.removeClass('launch-app-selected');
-
-                // close context menus
-                $('.context-menu').fadeOut(200, function () {
-                    $(this).remove();
-                });
-
-                if ( ! el ) return;
-                // add to new
-                $(el).addClass('launch-app-selected');
-                // ensure visible
-                if ( el.scrollIntoView ) {
-                    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-                }
-            }
-
-            // helpers for section-local positioning and row/column counts
-
-            // number of rows in a given section
-            function rows (section) {
-                const len = (section === 'recents' ? recents : recommended).length;
-                return Math.ceil(len / max_rows);
-            }
-
-            // number of columns in a given row of a section
-            function columns (section, row) {
-                const len = (section === 'recents' ? recents : recommended).length;
-                const full_rows = Math.floor(len / max_rows);
-                const remainder = len % max_rows;
-                if ( row < full_rows ) return max_rows;
-                if ( row === full_rows ) return remainder === 0 ? max_rows : remainder;
-                return 0;
-            }
-
-            // get local row/col/index of element in section
-            function coords_local (section, el) {
-                const list = (section === 'recents' ? recents : recommended);
-                const idx = list.index(el);
-                if ( idx < 0 ) return null;
-                return { index: idx, row: Math.floor(idx / max_rows), col: (idx % max_rows) + 1 };
-            }
-
-            const selected = coord(selected_element);
-
-            // states
-            const search_focused = search.is(':focus');
-            const selected_grid = (selected && selected_element.parent().hasClass('launch-apps-recent')) ? 'recents' : 'recommended';
-
-            if ( e.which === 38 ) { // up
-                if ( selected_element.length === 0 ) return false;
-                if ( selected_grid === 'recents' ) {
-                    const pos = coords_local('recents', selected_element);
-                    if ( ! pos ) return false;
-                    if ( pos.row === 0 ) {
-                        // move to search
-                        search.focus();
-                        all_apps.removeClass('launch-app-selected');
-                    } else {
-                        const targetCol = Math.min(pos.col, columns('recents', pos.row - 1));
-                        select(item(pos.row - 1, targetCol, 'recents'));
-                    }
-                } else { // recommended
-                    const pos = coords_local('recommended', selected_element);
-                    if ( ! pos ) return false;
-                    if ( pos.row === 0 ) {
-                        if ( recents.length > 0 ) {
-                            const lastRow = rows('recents') - 1;
-                            const targetCol = Math.min(pos.col, columns('recents', lastRow));
-                            select(item(lastRow, targetCol, 'recents'));
-                        } else {
-                            // focus search if no recents exist
-                            search.focus();
-                            all_apps.removeClass('launch-app-selected');
-                        }
-                    } else {
-                        const targetCol = Math.min(pos.col, columns('recommended', pos.row - 1));
-                        select(item(pos.row - 1, targetCol, 'recommended'));
-                    }
-                }
-            } else if ( e.which === 40 ) { // down
-                // select first item if none selected
-                if ( selected_element.length === 0 ) {
-                    // unfocus search
-                    search.blur();
-                    if ( recents.length > 0 ) {
-                        select(item(0, 1, 'recents'));
-                    } else if ( recommended.length > 0 ) {
-                        select(item(0, 1, 'recommended'));
-                    }
-                } else {
-                    if ( selected_grid === 'recents' ) {
-                        const pos = coords_local('recents', selected_element);
-                        if ( ! pos ) return false;
-                        const rc = rows('recents');
-                        if ( pos.row + 1 < rc ) {
-                            const tgt = Math.min(pos.col, columns('recents', pos.row + 1));
-                            select(item(pos.row + 1, tgt, 'recents'));
-                        } else if ( recommended.length > 0 ) {
-                            const tgt = Math.min(pos.col, columns('recommended', 0));
-                            select(item(0, tgt, 'recommended'));
-                        }
-                    } else { // recommended
-                        const pos = coords_local('recommended', selected_element);
-                        if ( ! pos ) return false;
-                        const rc = rows('recommended');
-                        if ( pos.row + 1 < rc ) {
-                            const tgt = Math.min(pos.col, columns('recommended', pos.row + 1));
-                            select(item(pos.row + 1, tgt, 'recommended'));
-                        }
-                    }
-                }
-            } else if ( e.which === 37 ) { // left
-                if ( selected_element.length === 0 ) return false;
-                const pos = coords_local(selected_grid, selected_element);
-                if ( ! pos ) return false;
-                const count = columns(selected_grid, pos.row);
-                const next = pos.col > 1 ? pos.col - 1 : count;
-                select(item(pos.row, next, selected_grid));
-            } else if ( e.which === 39 ) { // right
-                if ( selected_element.length === 0 ) return false;
-                const pos = coords_local(selected_grid, selected_element);
-                if ( ! pos ) return false;
-                const count = columns(selected_grid, pos.row);
-                const next = pos.col < count ? pos.col + 1 : 1;
-                select(item(pos.row, next, selected_grid));
-            }
-            return false;
-        }
-        // ----------------------------------------------
         // A context menu is open
         // ----------------------------------------------
-        else if ( $('.context-menu').length > 0 ) {
+        if ( $('.context-menu').length > 0 ) {
             // if no item is selected and down arrow is pressed, select the first item
             if ( $('.context-menu-active .context-menu-item-active').length === 0 && (e.which === 40) ) {
                 let selected_item = $('.context-menu-active .context-menu-item').get(0);
@@ -497,19 +334,12 @@ $(document).bind('keydown', async function (e) {
     }
 
     //-----------------------------------------------------------------------
-    // Esc key should:
-    //      - always close open context menus
-    //      - close the Launch Popover if it's open
+    // Esc key should always close open context menus
     //-----------------------------------------------------------------------
     if ( e.which === 27 ) {
         // close open context menus
         const closedMenu = $('.context-menu').length > 0;
         $('.context-menu').remove();
-
-        // close the Launch Popover if it's open
-        $('.launch-popover').closest('.popover').fadeOut(200, function () {
-            $('.launch-popover').closest('.popover').remove();
-        });
 
         // That Escape was the menu's; later handlers must not also act on it
         // (clear a Files selection, close its preview).
@@ -822,27 +652,9 @@ $(document).bind('keyup keydown', async function (e) {
         // the key.
 
         // ---------------------------------------------
-        // if this is a selected Launch menu item, open it
-        // ---------------------------------------------
-        if ( $('.launch-app-selected').length > 0 ) {
-            e.preventDefault();
-            e.stopPropagation();
-            // close launch menu
-            $('.launch-popover').fadeOut(200, function () {
-                launch_app({
-                    name: $('.launch-app-selected').attr('data-name'),
-                });
-                $('.popover-launcher').remove();
-                // taskbar item inactive
-                $('.taskbar-item[data-name="Start"]').removeClass('has-open-popover');
-            });
-
-            return false;
-        }
-        // ---------------------------------------------
         // if this is a selected context menu item, open it
         // ---------------------------------------------
-        else if ( $('.context-menu-active .context-menu-item-active').length > 0 && (e.which === 13) ) {
+        if ( $('.context-menu-active .context-menu-item-active').length > 0 && (e.which === 13) ) {
             e.preventDefault();
             e.stopPropagation();
             let selected_item = $('.context-menu-active .context-menu-item-active').get(0);

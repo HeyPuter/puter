@@ -3087,10 +3087,6 @@ window.initgui = async function (options) {
 
         // click on anything will close all popovers, but there are some exceptions
         if (
-            !$(e.target).hasClass('start-app') &&
-            !$(e.target).hasClass('launch-search') &&
-            !$(e.target).hasClass('launch-search-clear') &&
-            $(e.target).closest('.start-app').length === 0 &&
             !isMobile.phone &&
             !isMobile.tablet &&
             !$(e.target).hasClass('popover') &&

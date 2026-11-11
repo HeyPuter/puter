@@ -220,8 +220,6 @@ const es = {
         publish_as_website: 'Publicar como página web',
         puter_description: 'Puter es un servicio de nube personal enfocado en privacidad que mantiene tus archivos, aplicaciónes, y juegos en un solo lugar, accesible desde cualquier lugar en cualquier momento.',
         reading_file: 'Leyendo %strong%',
-        recent: 'Reciente',
-        recommended: 'Recomendado',
         recover_password: 'Recuperar Contraseña',
         refer_friends_c2a:
       'Consigue 1 GB por cada amigo que cree y confirme una cuenta en Puter ¡Tu amigo recibirá 1GB también!',
@@ -268,7 +266,6 @@ const es = {
         skip: 'Saltar',
         something_went_wrong: 'Algo salió mal.',
         sort_by: 'Ordenar Por',
-        start: 'Inicio',
         status: 'Estado',
         storage_usage: 'Uso del almacenamiento',
         storage_puter_used: 'Usado por Puter',

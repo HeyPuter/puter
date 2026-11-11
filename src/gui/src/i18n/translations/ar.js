@@ -210,8 +210,6 @@ const ar = {
         puter_description:
       '.هو سحابة شخصية تركز على الخصوصية للحفاظ على جميع ملفاتك، تطبيقاتك، وألعابك في مكان آمن واحد، متاحة من أي مكان وفي أي وقت Puter',
         reading_file: '%strong% جارٍ قراءة',
-        recent: 'الأخيرة',
-        recommended: 'مُوصى به',
         recover_password: 'استعادة كلمة المرور',
         refer_friends_c2a:
       '!سيحصل صديقك على 1 جيجابايت أيضًا .Puter احصل على 1 جيجابايت عن كل صديق ينشئ حسابًا ويؤكده على',
@@ -257,7 +255,6 @@ const ar = {
         skip: 'تخطي',
         something_went_wrong: 'حدث خطأ ما.',
         sort_by: 'فرز حسب',
-        start: 'بدء',
         status: 'الحالة',
         storage_usage: 'استخدام التخزين',
         storage_puter_used: 'Puter مستخدم بواسطة',

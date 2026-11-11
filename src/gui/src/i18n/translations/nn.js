@@ -107,7 +107,6 @@ const nn = {
         properties: 'Eigenskapar',
         publish: 'Publiser',
         publish_as_website: 'Publiser som nettstad',
-        recent: 'Nyleg',
         recover_password: 'Gjenopprett passord',
         refer_friends_c2a:
       'Få 1 GB for kvar ven som opprettar og stadfestar ein konto på Puter. Vennen din får òg 1 GB.',
@@ -134,7 +133,6 @@ const nn = {
         signing_in: 'Logger inn…',
         size: 'Storleik',
         sort_by: 'Sorter etter',
-        start: 'Start',
         taking_longer_than_usual: 'Dette tar litt lengre tid enn vanleg. Vennligst vent...',
         text_document: 'Tekstdokument',
         tos_fineprint:
@@ -252,7 +250,6 @@ const nn = {
       'Puter er ein personleg skyteknologi med fokus på personvern, der du kan lagre alle filene, appane og spela dine på ein sikker stad, tilgjengeleg frå overalt til ei kvar tid.',
         reading: 'Leser %strong%',
         writing: 'Skriv %strong%',
-        recommended: 'Anbefalt',
         replace: 'Erstatt',
         replace_all: 'Erstatt alle',
         save: 'Lagre',

@@ -115,7 +115,6 @@ const emoji = {
         publish: '📰',
         publish_as_website: '🌐📰',
         plural_suffix: '🅰️',
-        recent: '🔙',
         recover_password: '📧🔑🔄', // Flow correction
         refer_friends_c2a: '👤📞📧👤',
         refer_friends_social_media_c2a: '📲👤🆓',
@@ -147,7 +146,6 @@ const emoji = {
         size: '📏',
         skip: '⏩',
         sort_by: '🔢🔄',
-        start: '🚀',
         taking_longer_than_usual: '⏳🔄',
         text_document: '📄',
         tos_fineprint: '👤📝📄',

@@ -256,8 +256,6 @@ const fi = {
         publish_as_website: 'Julkaise verkkosivustona',
         puter_description: 'Puter on yksityisyyttä korostava henkilökohtainen pilvipalvelu, jossa voit säilyttää kaikki tiedostosi, sovelluksesi ja pelisi yhdessä turvallisessa paikassa, ja jotka ovat saatavilla mistä tahansa milloin tahansa.',
         reading_file: 'Luetaan %strong%',
-        recent: 'Viimeisimmät',
-        recommended: 'Suositellut',
         recover_password: 'Palauta salasanasi',
         refer_friends_c2a:
       'Saat 1 Gt ilmaista tallennustilaa jokaisesta ystävästä, joka luo ja vahvistaa tilin Puterissa. Myös ystäväsi saa 1 Gt:n ilmaista tallennustilaa!',
@@ -311,7 +309,6 @@ const fi = {
         skip: 'Ohita',
         something_went_wrong: 'Jokin meni pieleen.',
         sort_by: 'Lajittele',
-        start: 'Käynnistä',
         status: 'Tila',
         storage_usage: 'Tallennustilan käyttö',
         storage_puter_used: 'Puterin käyttämä',

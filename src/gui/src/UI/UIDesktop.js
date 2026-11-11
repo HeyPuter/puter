@@ -387,23 +387,6 @@ async function UIDesktop (options) {
         update_tab_notif_count_badge();
     });
 
-    window.socket.on('app.opened', async (app) => {
-        // don't update if this is the original client that initiated the action
-        if ( app.original_client_socket_id === window.socket.id )
-        {
-            return;
-        }
-
-        // add the app to the beginning of the array
-        window.launch_apps.recent.unshift(app);
-
-        // dedupe the array by uuid, uid, and id
-        window.launch_apps.recent = [...new Map(window.launch_apps.recent.map(v => [v.name, v])).values()];
-
-        // limit to 5
-        window.launch_apps.recent = window.launch_apps.recent.slice(0, window.launch_recent_apps_count);
-    });
-
     window.socket.on('item.removed', async (item) => {
         // don't update if this is the original client that initiated the action
         if ( item.original_client_socket_id === window.socket.id )
@@ -2303,12 +2286,6 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
 });
 
 
-$(document).on('click', '.close-launch-popover', function () {
-    $('.launch-popover').closest('.popover').fadeOut(200, function () {
-        $('.launch-popover').closest('.popover').remove();
-    });
-});
-
 $(document).on('click', '.search-btn', function () {
     UIWindowSearch();
 });
@@ -2321,19 +2298,6 @@ $(document).on('click', '.user-options-create-account-btn', async function (e) {
     UIWindowSaveAccount({
         send_confirmation_code: false,
         default_username: window.user.username,
-    });
-});
-
-$(document).on('click', '.start-app', async function (e) {
-    launch_app({
-        name: $(this).attr('data-app-name'),
-    });
-    // close popovers
-    $('.popover').fadeOut(200, function () {
-        $('.popover').remove();
-    });
-    $('.context-menu').fadeOut(200, function () {
-        $(this).remove();
     });
 });
 
@@ -2370,49 +2334,6 @@ $(document).on('click', '.user-options-login-btn', async function (e) {
             reload_on_success: true,
         });
     }
-});
-
-$(document).on('click mousedown', '.launch-search, .launch-popover', function (e) {
-    $(this).focus();
-    e.stopPropagation();
-    e.preventDefault();
-    // don't let click bubble up to window
-    e.stopImmediatePropagation();
-});
-
-$(document).on('focus', '.launch-search', function (e) {
-    // remove all selected items in start menu
-    $('.launch-app-selected').removeClass('launch-app-selected');
-    // scroll popover to top
-    $('.launch-popover').scrollTop(0);
-});
-
-$(document).on('change keyup keypress keydown paste', '.launch-search', function (e) {
-    // search window.launch_apps.recommended for query
-    const query = $(this).val().toLowerCase();
-    if ( query === '' ) {
-        $('.launch-search-clear').hide();
-        $('.start-app-card').show();
-        $('.launch-apps-recent').show();
-        $('.start-section-heading').show();
-    } else {
-        $('.launch-apps-recent').hide();
-        $('.start-section-heading').hide();
-        $('.launch-search-clear').show();
-        window.launch_apps.recommended.forEach((app) => {
-            if ( app.title.toLowerCase().includes(query.toLowerCase()) ) {
-                $(`.start-app-card[data-name="${app.name}"]`).show();
-            } else {
-                $(`.start-app-card[data-name="${app.name}"]`).hide();
-            }
-        });
-    }
-});
-
-$(document).on('click', '.launch-search-clear', function (e) {
-    $('.launch-search').val('');
-    $('.launch-search').trigger('change');
-    $('.launch-search').focus();
 });
 
 

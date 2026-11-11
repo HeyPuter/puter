@@ -206,8 +206,6 @@ const he = {
         publish_as_website: 'פרסום כאתר אינטרנט',
         puter_description: 'הוא ענן אישי ששם את הפרטיות בראש סדר העדיפויות כדי לשמור על כל הקבצים, המשחקים, והיישומים שלך במקום מאובטח אחד, נגיש מכל מקום ובכל זמן Puter',
         reading_file: 'קורא %strong%',
-        recent: 'לאחרונה',
-        recommended: 'מומלץ',
         recover_password: 'שחזור סיסמה',
         refer_friends_c2a:
       'קבל 1 גיגה בייט עבור כל חבר שיוצר ומאשר חשבון ב  Puter. גם החבר שלך יקבל 1 גיגה בייט!',
@@ -253,7 +251,6 @@ const he = {
         skip: 'דלג',
         something_went_wrong: 'משהו השתבש.',
         sort_by: 'מיין לפי',
-        start: 'התחלה',
         status: 'סטטוס',
         storage_usage: 'שימוש באחסון',
         storage_puter_used: 'Puter בשימוש על ידי',
