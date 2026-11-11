@@ -872,9 +872,11 @@ export class ShareService extends PuterService {
         nodesById: Map<number, FSEntry>;
     }> {
         // Under another user's home an ancestor may belong to someone else.
+        const username = await this.#usernameOf(entry.userId);
         if (
-            !(await this.#ownerHasShares(entry.userId)) &&
-            (await this.#underOwnHome(entry.userId, realPath))
+            username !== null &&
+            isOwnHomePath(realPath, username) &&
+            !(await this.#ownerHasShares(entry.userId))
         ) {
             return { rows: [], nodesById: new Map() };
         }
@@ -899,17 +901,10 @@ export class ShareService extends PuterService {
         return { rows: [...direct, ...viaGroup], nodesById };
     }
 
-    /** Whether `path` sits in `userId`'s own home directory. */
-    async #underOwnHome(userId: number, path: string): Promise<boolean> {
-        const username = await this.#usernameOf(userId);
-        return username !== null && isOwnHomePath(path, username);
-    }
-
     /** `userId`'s username, or null for none; cached per process. */
     #usernameOf(userId: number): Promise<string | null> {
-        if (this.#usernames.has(userId)) {
-            return Promise.resolve(this.#usernames.get(userId) ?? null);
-        }
+        const cached = this.#usernames.get(userId);
+        if (cached !== undefined) return Promise.resolve(cached);
         const inFlight = this.#usernameLookups.get(userId);
         if (inFlight) return inFlight;
         const lookup = (async () => {
