@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { setImmediate as nextTurn } from 'node:timers/promises';
+
 // Identify uploaded media by its bytes. A caller-supplied MIME type or file
 // extension is never trusted.
 
@@ -67,6 +69,33 @@ export function decodeStrictBase64(value: string): Buffer | null {
     const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
     const bytes = Buffer.from(value, 'base64');
     return bytes.length === (value.length / 4) * 3 - padding ? bytes : null;
+}
+
+/** Base64 characters decoded per turn; a multiple of four. */
+const BASE64_SLICE_CHARS = 1024 * 1024;
+
+/**
+ * `decodeStrictBase64` for payloads of many megabytes: decodes a slice per turn
+ * of the event loop, so the whole string never holds it.
+ */
+export async function decodeStrictBase64InSlices(
+    value: string,
+): Promise<Buffer | null> {
+    if (value.length <= BASE64_SLICE_CHARS) return decodeStrictBase64(value);
+    if (value.length % 4 !== 0) return null;
+    const padding = value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0;
+    const bytes = Buffer.allocUnsafe((value.length / 4) * 3 - padding);
+    let written = 0;
+    for (let at = 0; at < value.length; at += BASE64_SLICE_CHARS) {
+        const slice = decodeStrictBase64(
+            value.slice(at, at + BASE64_SLICE_CHARS),
+        );
+        // Padding inside the string leaves a slice short, and the total with it.
+        if (!slice || written + slice.length > bytes.length) return null;
+        written += slice.copy(bytes, written);
+        await nextTurn();
+    }
+    return written === bytes.length ? bytes : null;
 }
 
 function looksLikeSvg(bytes: Buffer): boolean {

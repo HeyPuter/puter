@@ -501,6 +501,29 @@ describe('DriverController.#handleCall (via captured router)', () => {
         expect(body.service.name).toBe('puter-kvstore');
     });
 
+    it('treats null `args` as no arguments', async () => {
+        const actor = await makeUserActor();
+        await server.stores.permission.setFlatUserPerm(
+            actor.user!.id!,
+            'service:puter-subdomains:ii:puter-subdomains',
+            {
+                permission: 'service:puter-subdomains:ii:puter-subdomains',
+                deleted: false,
+                issuer_user_id: actor.user!.id!,
+            } as never,
+        );
+
+        const res = makeRes();
+        const req = makeReq(
+            { interface: 'puter-subdomains', method: 'select', args: null },
+            actor,
+        );
+        await runWithContext({ actor }, () =>
+            routes['POST /call'](req, res as unknown as Response, () => {}),
+        );
+        expect((res.body as { success: boolean }).success).toBe(true);
+    });
+
     it('pipes a stream-shaped result instead of JSON', async () => {
         // Use an ephemeral driver registered onto the controller's bag.
         const streamPayload = Buffer.from('hello-world');

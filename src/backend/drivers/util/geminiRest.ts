@@ -18,6 +18,7 @@
  */
 
 import { HttpError } from '../../core/http/HttpError.js';
+import { parseJsonInSlices } from '../../util/slicedJson.js';
 import { readBoundedBody } from './fileInput.js';
 import { upstreamFetch } from './upstreamErrors.js';
 
@@ -39,8 +40,8 @@ export const geminiUpstreamFailure = (message: string): HttpError =>
 /**
  * POSTs `body` to a Gemini REST `path` and parses the JSON object it answers
  * with. `timeoutMs` covers the body read, and a reply over `maxBytes` fails as
- * an upstream error unless `tooLarge` supplies another. `T` is the documented reply shape; callers check every
- * field before use.
+ * an upstream error unless `tooLarge` supplies another. `T` is the documented
+ * reply shape; callers check every field before use.
  */
 export async function postGeminiJson<T extends object>(
     apiKey: string,
@@ -87,7 +88,8 @@ export async function postGeminiJson<T extends object>(
     const raw = await readBoundedBody(response, maxBytes, tooLarge);
     let parsed: unknown = null;
     try {
-        parsed = JSON.parse(raw.toString('utf8'));
+        // Media replies run to tens of megabytes of base64.
+        parsed = await parseJsonInSlices(raw);
     } catch {
         // Handled with the non-object case below.
     }

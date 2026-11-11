@@ -355,6 +355,17 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('rejects a model that is not a string with 400', async () => {
+        await expect(
+            withTestActor(() =>
+                driver.complete({
+                    messages: [{ role: 'user', content: 'hi' }],
+                    model: { id: 'gpt' },
+                } as unknown as ICompleteArguments),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('routes by alias when a provider exposes one (puterId is auto-aliased on the bucket)', async () => {
         // Inject a model that carries a `puterId` so we can verify the
         // alias bucket resolves back to the canonical id. Spy on
