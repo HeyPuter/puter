@@ -393,14 +393,6 @@ const my = {
         'signup_error': 'Ralat berlaku semasa pendaftaran. Sila cuba lagi.',
 
         // Welcome Window
-        'welcome_title': 'Selamat datang ke Komputer Internet Peribadi Anda',
-        'welcome_description': 'Simpan fail, main permainan, cari aplikasi hebat, dan banyak lagi! Semua dalam satu tempat, boleh diakses dari mana sahaja pada bila-bila masa.',
-        'welcome_get_started': 'Mula',
-        'welcome_terms': 'Terma',
-        'welcome_privacy': 'Privasi',
-        'welcome_developers': 'Pembangun',
-        'welcome_open_source': 'Sumber Terbuka',
-        'welcome_instant_login_title': 'Log Masuk Segera!',
 
         // Alert Window
         'alert_error_title': 'Ralat!',

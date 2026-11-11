@@ -420,15 +420,6 @@ const hy = {
       'Սերվերը չի պատասխանել ժամանակին։ Խնդրում ենք կրկին փորձել։',
         signup_error:
       'Գրանցման ժամանակ սխալ է տեղի ունեցել։ Խնդրում ենք կրկին փորձել։',
-        welcome_title: 'Բարի գալուստ ձեր անձնական ինտերնետ համակարգիչ',
-        welcome_description:
-      'Պահպանեք ֆայլեր, խաղացեք խաղեր, գտեք հիանալի հավելվածներ և շատ ավելին։ Ամեն ինչ մեկ տեղում՝ հասանելի ցանկացած վայրից և ցանկացած ժամանակ։',
-        welcome_get_started: 'Սկսել',
-        welcome_terms: 'Պայմաններ',
-        welcome_privacy: 'Գաղտնիություն',
-        welcome_developers: 'Ծրագրավորողներ',
-        welcome_open_source: 'Բաց կոդ',
-        welcome_instant_login_title: 'Ակնթարթային մուտք',
         alert_error_title: 'Սխալ',
         alert_warning_title: 'Զգուշացում',
         alert_info_title: 'Տեղեկություն',

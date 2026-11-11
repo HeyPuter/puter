@@ -406,14 +406,6 @@ const fr = {
         'signup_error': 'Une erreur est survenue lors de l\'inscription. Veuillez réessayer.',
 
         // Welcome Window
-        'welcome_title': 'Bienvenue sur votre ordinateur personnel Internet',
-        'welcome_description': 'Stockez des fichiers, jouez à des jeux, trouvez des applications géniales, et bien plus encore ! Tout en un seul endroit, accessible partout et à tout moment.',
-        'welcome_get_started': 'Commencer',
-        'welcome_terms': 'Conditions',
-        'welcome_privacy': 'Confidentialité',
-        'welcome_developers': 'Développeurs',
-        'welcome_open_source': 'Open Source',
-        'welcome_instant_login_title': 'Connexion instantanée !',
 
         // Alert Window
         'alert_error_title': 'Erreur !',

@@ -423,15 +423,6 @@ const bg = {
       'Възникна грешка по време на регистрацията. Моля, опитайте отново.',
 
         // Welcome Window
-        welcome_title: 'Добре дошли във вашия личен интернет компютър',
-        welcome_description:
-      'Съхранявайте файлове, играйте игри, откривайте страхотни приложения и още много! Всичко на едно място, достъпно отвсякъде и по всяко време.',
-        welcome_get_started: 'Започнете',
-        welcome_terms: 'Условия',
-        welcome_privacy: 'Поверителност',
-        welcome_developers: 'Разработчици',
-        welcome_open_source: 'Отворен код',
-        welcome_instant_login_title: 'Моментален вход!',
 
         // Alert Window
         alert_error_title: 'Грешка!',

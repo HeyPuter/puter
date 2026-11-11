@@ -12,7 +12,6 @@ const GUI_CACHE_KEYS = [
     'user_preferences.show_hidden_files',
     'user_preferences.language',
     'user_preferences.clock_visible',
-    'has_seen_welcome_window',
     'desktop_item_positions',
     'desktop_icons_hidden',
     'taskbar_position',

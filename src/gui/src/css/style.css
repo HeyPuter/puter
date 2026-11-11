@@ -3373,17 +3373,6 @@ fieldset[name=number-code] {
     opacity: 1;
 }
 
-.welcome-window-close-button {
-    opacity: 0.7;
-    font-weight: 300;
-    top: 5px;
-    right: 5px;
-}
-
-.welcome-window-close-button:hover {
-    opacity: 1;
-}
-
 .otp-as-text {
     margin: 20px 0;
 }
@@ -5559,22 +5548,6 @@ html.dark-mode .usage-table-fade-overlay {
 
 .settings-sidebar.active {
     display: block;
-}
-
-.welcome-window-footer {
-    position: absolute;
-    bottom: 20px;
-}
-
-.welcome-window-footer a {
-    color: #727c8d;
-    text-decoration: none;
-    font-size: 12px;
-    -webkit-font-smoothing: antialiased;
-}
-
-.welcome-window-footer a:hover {
-    color: #1d1e23;
 }
 
 .device-phone .window:not(.window-alert), .device-tablet .window:not(.window-alert) {

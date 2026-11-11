@@ -396,14 +396,6 @@ const ko = {
         'signup_error': '회원가입 중 오류가 발생했습니다. 다시 시도해주세요.',
 
         // Welcome Window
-        'welcome_title': '개인 인터넷 컴퓨터에 오신 것을 환영합니다',
-        'welcome_description': '파일을 저장하고, 게임을 즐기고, 멋진 앱을 찾아보세요. 이 모든 것을 한 곳에서, 언제 어디서나 이용할 수 있습니다.',
-        'welcome_get_started': '시작하기',
-        'welcome_terms': '이용약관',
-        'welcome_privacy': '개인정보처리방침',
-        'welcome_developers': '개발자',
-        'welcome_open_source': '오픈 소스',
-        'welcome_instant_login_title': '즉시 로그인!',
 
         // Alert Window
         'alert_error_title': '오류!',

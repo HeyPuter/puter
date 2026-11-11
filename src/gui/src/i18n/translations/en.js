@@ -942,14 +942,6 @@ const en = {
         // Welcome Window
         'welcome': 'Welcome',
         'your_personal_internet_computer': 'To your personal internet computer',
-        'welcome_title': 'Welcome to your Personal Internet Computer',
-        'welcome_description': 'Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time.',
-        'welcome_get_started': 'Get Started',
-        'welcome_terms': 'Terms',
-        'welcome_privacy': 'Privacy',
-        'welcome_developers': 'Developers',
-        'welcome_open_source': 'Open Source',
-        'welcome_instant_login_title': 'Instant Login!',
 
         // Alert Window
         'alert_error_title': 'Error!',

@@ -376,14 +376,6 @@ Shranite jih na varno mesto.
         'signup_error': 'Med prijavo je prišlo do napake. Poskusite znova.',
 
         // Welcome Window
-        'welcome_title': 'Dobrodošli na vašem Osebnem Internetnem Računalniku',
-        'welcome_description': 'Shranjujte datoteke, igrajte igre, poiščite odlične aplikacije in še veliko več! Vse na enem mestu, dostopno od kjer koli in kadar koli.',
-        'welcome_get_started': 'Začnite',
-        'welcome_terms': 'Pogoji',
-        'welcome_privacy': 'Zasebnost',
-        'welcome_developers': 'Razvijalci',
-        'welcome_open_source': 'Odprtokodno',
-        'welcome_instant_login_title': 'Takojšnja prijava!',
 
         // Alert Window
         'alert_error_title': 'Napaka!',

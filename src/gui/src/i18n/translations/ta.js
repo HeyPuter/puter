@@ -427,15 +427,6 @@ const ta = {
         server_timeout:
       'சர்வர் பதில் அளிக்க தாமதமாகிறது. மீண்டும் முயற்சிக்கவும்.',
         signup_error: 'பதிவின் போது பிழை ஏற்பட்டது. மீண்டும் முயற்சிக்கவும்.',
-        welcome_title: 'உங்கள் தனிப்பட்ட இணையக் கணினிக்கு வரவேற்பு',
-        welcome_description:
-      'கோப்புகளை சேமிக்க, விளையாட, சிறந்த செயலிகளை கண்டுபிடிக்க—அனைத்தும் ஒரே இடத்தில்; எப்போதும் எங்கும் அணுகலாம்.',
-        welcome_get_started: 'தொடங்குங்கள்',
-        welcome_terms: 'விதிமுறைகள்',
-        welcome_privacy: 'தனியுரிமை',
-        welcome_developers: 'டெவலப்பர்கள்',
-        welcome_open_source: 'திறந்த மூல',
-        welcome_instant_login_title: 'உடனடி உள்நுழைவு!',
         alert_error_title: 'பிழை!',
         alert_warning_title: 'எச்சரிக்கை!',
         alert_info_title: 'தகவல்',

@@ -33,7 +33,6 @@ import refresh_item_container from '../helpers/refreshItemContainer.js';
 import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers/pathElements.js';
 import truncate_filename from '../helpers/truncateFilename.js';
 import UINotification from './UINotification.js';
-import UIWindowWelcome from './UIWindowWelcome.js';
 import launch_app from '../helpers/launchApp.js';
 import { urlFileLaunchOptions } from '../helpers/confirmUrlFileAccess.js';
 import item_icon from '../helpers/itemIcon.js';
@@ -1096,22 +1095,6 @@ async function UIDesktop (options) {
 
         // home directory
         puter.fs.readdir({ path: window.home_path, consistency: 'strong' });
-
-        // Show welcome window if user hasn't already seen it and hasn't directly navigated to an app
-        if ( !window.url_paths[0]?.toLocaleLowerCase() === 'app' || !window.url_paths[1] ) {
-            if ( !isMobile.phone && !isMobile.tablet ) {
-                setTimeout(() => {
-                    // The catch goes on the end of the chain, not on the read:
-                    // falling back to null would read as "never seen it" and
-                    // show the window to someone who has.
-                    puter.kv.get('has_seen_welcome_window').then(async (val) => {
-                        if ( val === null ) {
-                            await UIWindowWelcome();
-                        }
-                    }).catch(err => console.warn('Could not check has_seen_welcome_window:', err));
-                }, 1000);
-            }
-        }
     }
 
     // -------------------------------------------

@@ -404,15 +404,6 @@ const ar = {
         server_timeout:
       '.استغرق الخادم وقتًا طويلاً للاستجابة. يُرجى المحاولة مرة أخرى', // In English: "The server took too long to respond. Please try again."
         signup_error: '.حدث خطأ أثناء التسجيل. يُرجى المحاولة مرة أخرى', // In English: "An error occurred during signup. Please try again."
-        welcome_title: 'مرحبًا بك في جهاز الكمبيوتر الشخصي الخاص بك على الإنترنت', // In English: "Welcome to your Personal Internet Computer"
-        welcome_description:
-      '.خزّن الملفات، العب الألعاب، واكتشف تطبيقات رائعة، وغير ذلك الكثير! كل ذلك في مكان واحد، يمكنك الوصول إليه من أي مكان وفي أي وقت', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        welcome_get_started: 'ابدأ الآن', // In English: "Get Started"
-        welcome_terms: 'الشروط', // In English: "Terms"
-        welcome_privacy: 'الخصوصية', // In English: "Privacy"
-        welcome_developers: 'المطورون', // In English: "Developers"
-        welcome_open_source: 'مفتوح المصدر', // In English: "Open Source"
-        welcome_instant_login_title: '!تسجيل الدخول الفوري',
         alert_error_title: '!خطأ',
         alert_warning_title: '!تحذير',
         alert_info_title: 'معلومة',
