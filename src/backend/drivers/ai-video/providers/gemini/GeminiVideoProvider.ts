@@ -25,7 +25,7 @@ import { insufficientCreditsError } from '../../../../services/metering/enforcem
 import type { UsageInput } from '../../../../services/metering/types.js';
 import { normalizeRawBase64ImageString } from '../../../../util/appIcon.js';
 import {
-    decodeStrictBase64,
+    decodeStrictBase64InSlices,
     sniffImageMime,
     sniffVideoMime,
 } from '../../../../util/mediaSniff.js';
@@ -405,7 +405,7 @@ export class GeminiVideoProvider extends VideoProvider {
                     'Gemini video generation did not complete the request',
                 );
             }
-            const video = this.#readVideo(videoBlock);
+            const video = await this.#readVideo(videoBlock);
             if (!billed) {
                 throw geminiUpstreamFailure(
                     'Gemini video generation returned unusable usage',
@@ -722,7 +722,7 @@ export class GeminiVideoProvider extends VideoProvider {
     }
 
     /** The base64 MP4 held by the video block. */
-    #readVideo(video: InteractionContent | undefined): string {
+    async #readVideo(video: InteractionContent | undefined): Promise<string> {
         if (!video) {
             throw new HttpError(400, 'Gemini did not return a video', {
                 legacyCode: 'upstream_bad_request',
@@ -731,7 +731,7 @@ export class GeminiVideoProvider extends VideoProvider {
         }
         const bytes =
             video.mime_type === 'video/mp4' && typeof video.data === 'string'
-                ? decodeStrictBase64(video.data)
+                ? await decodeStrictBase64InSlices(video.data)
                 : null;
         if (!bytes || sniffVideoMime(bytes) !== 'video/mp4') {
             throw geminiUpstreamFailure(

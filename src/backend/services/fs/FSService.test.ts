@@ -647,6 +647,22 @@ describe('FSService overwrite and dedupe resolution', () => {
         expect(await readBack(second)).toBe('second');
     });
 
+    it('leaves one readable file when two overwrites create the same path at once', async () => {
+        const path = `${user.home}/Documents/raced.txt`;
+        const written = await Promise.all([
+            writeFile(user, path, 'short', { overwrite: true }),
+            writeFile(user, path, 'a much longer body', { overwrite: true }),
+        ]);
+
+        // Both started before the row existed, so each uploaded under its own
+        // key; the row has to end up describing bytes that are really there.
+        expect(written[0].uuid).toBe(written[1].uuid);
+        const stored = (await entryAt(user, '/Documents/raced.txt'))!;
+        const body = await readBack(stored);
+        expect(['short', 'a much longer body']).toContain(body);
+        expect(stored.size).toBe(Buffer.byteLength(body));
+    });
+
     it('dedupes into an unused " (n)" name, skipping names already taken', async () => {
         await writeFile(user, `${user.home}/Documents/d.txt`, 'a');
         await writeFile(user, `${user.home}/Documents/d (1).txt`, 'a');

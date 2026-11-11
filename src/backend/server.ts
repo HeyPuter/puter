@@ -36,6 +36,7 @@ import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
 import { createFingerprintMiddleware } from './core/http/middleware/fingerprint';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
+import { createJsonBodyParser } from './core/http/middleware/jsonBody';
 import {
     createLargeJsonBodyParser,
     DEFAULT_JSON_LIMIT_BYTES,
@@ -144,6 +145,8 @@ const LARGE_JSON_ROUTES = [
 const LARGE_JSON_LIMIT_BYTES = 128 * 1024 * 1024;
 /** Two max-size bodies per process. */
 const LARGE_JSON_BUDGET_BYTES = 2 * LARGE_JSON_LIMIT_BYTES;
+/** These parse in one go, so they stay small enough for that to be quick. */
+const NON_UTF8_JSON_LIMIT_BYTES = 1024 * 1024;
 
 /**
  * Through `/drivers/call`, only chat takes a large body; other drivers keep the
@@ -575,26 +578,42 @@ export class PuterServer {
                 }),
             );
         }
+        // A WebDAV body is the file being stored, whatever content type the
+        // client labels it with, so the controller reads it off the stream.
+        const exceptDav =
+            (parser: RequestHandler): RequestHandler =>
+            (req, res, next) => {
+                if (activeSubdomain(req) === 'dav') {
+                    next();
+                    return;
+                }
+                return parser(req, res, next);
+            };
         this.#app.use(
-            express.json({
-                limit: DEFAULT_JSON_LIMIT_BYTES,
-                verify: captureRawBody,
-            }),
+            exceptDav(
+                createJsonBodyParser({
+                    limit: DEFAULT_JSON_LIMIT_BYTES,
+                    verify: captureRawBody,
+                }),
+            ),
         );
+        // JSON in another charset, which the parser above leaves alone.
         this.#app.use(
-            express.json({
-                limit: DEFAULT_JSON_LIMIT_BYTES,
-                type: (req) =>
-                    req.headers['content-type'] === 'text/plain;actually=json',
-                verify: captureRawBody,
-            }),
+            exceptDav(
+                express.json({
+                    limit: NON_UTF8_JSON_LIMIT_BYTES,
+                    verify: captureRawBody,
+                }),
+            ),
         );
         // Form-encoded bodies (e.g. `/down` from the GUI's iframe-triggered
         // download form). Needs to run before the auth probe so
         // `req.body.auth_token` is populated for urlencoded POSTs the same
         // way it is for JSON POSTs. Small cap — this parser is only here to
         // cover the auth_token / anti_csrf field shape, not file uploads.
-        this.#app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+        this.#app.use(
+            exceptDav(express.urlencoded({ extended: true, limit: '100kb' })),
+        );
 
         // -- Auth probe ----------------------------------------------
         if (authProbe) {
