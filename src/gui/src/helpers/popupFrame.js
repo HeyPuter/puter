@@ -30,6 +30,7 @@ export const FRAMED_POPUP_ACTIONS = new Set([
     'show-save-file-picker',
     'show-directory-picker',
     'upgrade',
+    'top-up',
     'request-email-confirmation',
 ]);
 
@@ -39,17 +40,18 @@ const HOST_USER_ACTIONS = new Set([
     'show-save-file-picker',
     'show-directory-picker',
     'upgrade',
+    'top-up',
     'request-email-confirmation',
 ]);
 
 // Actions framed over the whole page with no box, which their own dialog's
 // scrim covers.
-const TRANSPARENT_ACTIONS = new Set(['upgrade', 'request-email-confirmation']);
+const TRANSPARENT_ACTIONS = new Set(['upgrade', 'top-up', 'request-email-confirmation']);
 
 const UPGRADE_REASONS = new Set(['funds', 'subscription', 'storage']);
 const UPGRADE_METHOD_MAX = 200;
 
-// Modal UI the upgrade dialog and the GUI's windows show. Once some has shown
+// Modal UI the upgrade and top-up dialogs and the GUI's windows show. Once some has shown
 // and all of it has been gone this long, the dialog closed without reporting
 // it, and the frame mustn't be left covering the page.
 const UPGRADE_MODAL_UI = '.window, [aria-modal="true"]';
@@ -252,6 +254,23 @@ export const canShowUpgradeFrame = (win, session) =>
     !session.requires_password_change;
 
 /**
+ * Whether a framed top-up can show for the GUI session `session` (its
+ * `/whoami`): the deployment has a top-up dialog that reports when it closes,
+ * and no account check is waiting, which a frame couldn't be closed from.
+ *
+ * @param {Window} win
+ * @param {Record<string, unknown> | null} session
+ * @returns {boolean}
+ */
+export const canShowTopUpFrame = (win, session) =>
+    win.UITopUp?.embeddable === true &&
+    !!session &&
+    !session.requires_email_confirmation &&
+    !session.requires_phone_verification &&
+    !session.requires_card_verification &&
+    !session.requires_password_change;
+
+/**
  * Whether a framed email confirmation can show for the GUI session `session`
  * (its `/whoami`): no check other than the email is waiting, since those show
  * at boot with no way to close the frame.
@@ -300,19 +319,18 @@ export const framedUpgradeDetails = (hash) => {
 };
 
 /**
- * Shows the deployment's upgrade dialog in a framed popup and tells the
+ * Shows one of the deployment's dialogs in a framed popup and tells the
  * framing page it's ready once it's open, or before it opens when the page
- * still hides the frame. Resolves whether the user upgraded,
- * once the dialog closes, or false once every dialog and window it showed has
- * gone without it reporting a close.
+ * still hides the frame. Resolves what the dialog reports when it closes, or
+ * false once every dialog and window it showed has gone without it reporting
+ * a close.
  *
  * @param {Window} win
- * @param {{ appUid?: string, reason?: string, method?: string }} attribution - what prompted it;
- *   an empty one is passed as null, so the dialog credits the prompt it remembers
+ * @param {(closed: (result: boolean) => void) => unknown} open - opens the dialog, which calls `closed` when it closes
  * @param {(state: 'ready') => void} tell
  * @returns {Promise<boolean>}
  */
-export const showFramedUpgrade = (win, attribution, tell) => new Promise((resolve, reject) => {
+const showFramedDialog = (win, open, tell) => new Promise((resolve, reject) => {
     let settled = false;
     let seen = false;
     let goneTimer = null;
@@ -345,20 +363,46 @@ export const showFramedUpgrade = (win, attribution, tell) => new Promise((resolv
         toldReady = true;
         tell('ready');
     };
-    const open = () => {
-        const dialog = new win.UIUpgradeAccount({
-            attribution: Object.keys(attribution).length ? attribution : null,
-            onClose: (result) => settle(() => resolve(result?.upgraded === true)),
-        });
-        return dialog.open_as_window();
-    };
     whenFrameSized(win, ready)
-        .then(open)
+        .then(() => open((result) => settle(() => resolve(result))))
         .then(() => {
             check();
             ready();
         }, (e) => settle(() => reject(e)));
 });
+
+/**
+ * Shows the deployment's upgrade dialog in a framed popup. Resolves whether
+ * the user upgraded, once the dialog closes.
+ *
+ * @param {Window} win
+ * @param {{ appUid?: string, reason?: string, method?: string }} attribution - what prompted it;
+ *   an empty one is passed as null, so the dialog credits the prompt it remembers
+ * @param {(state: 'ready') => void} tell
+ * @returns {Promise<boolean>}
+ */
+export const showFramedUpgrade = (win, attribution, tell) => showFramedDialog(win, (closed) => {
+    const dialog = new win.UIUpgradeAccount({
+        attribution: Object.keys(attribution).length ? attribution : null,
+        onClose: (result) => closed(result?.upgraded === true),
+    });
+    return dialog.open_as_window();
+}, tell);
+
+/**
+ * Shows the deployment's top-up dialog in a framed popup. Resolves whether
+ * the user bought credit, once the dialog closes.
+ *
+ * @param {Window} win
+ * @param {(state: 'ready') => void} tell
+ * @returns {Promise<boolean>}
+ */
+export const showFramedTopUp = (win, tell) => showFramedDialog(win, (closed) => {
+    const dialog = new win.UITopUp({
+        onClose: (result) => closed(result?.toppedUp === true),
+    });
+    return dialog.open();
+}, tell);
 
 /**
  * Resolves once the frame has a viewport. The page keeps a loading frame

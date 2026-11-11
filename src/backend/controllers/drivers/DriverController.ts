@@ -276,8 +276,10 @@ export class DriverController extends PuterController {
             interface: ifaceName,
             method,
             driver: driverName,
-            args = {},
+            args: rawArgs,
         } = (req.body ?? {}) as Record<string, unknown>;
+        // Drivers read fields off `args`, so a null one counts as absent.
+        const args = rawArgs ?? {};
 
         if (!ifaceName || typeof ifaceName !== 'string') {
             throw new HttpError(400, 'Missing or invalid `interface`', {

@@ -200,6 +200,37 @@ describe('AppStore app stats (cache-on-read)', () => {
         }
     });
 
+    it('splits a long uid list across ClickHouse queries', async () => {
+        const uids = Array.from({ length: 2500 }, () => freshUid());
+        const queried = [];
+
+        server.clients.clickhouse = {
+            query: async ({ query_params }) => {
+                queried.push(query_params.uids.length);
+                return {
+                    json: async () =>
+                        query_params.uids.map((u) => ({
+                            app_uid: u,
+                            open_count: '2',
+                            user_count: '1',
+                        })),
+                };
+            },
+        };
+
+        try {
+            const stats = await appStore.getAppsStats(uids);
+            expect(queried.sort((a, b) => b - a)).toEqual([1000, 1000, 500]);
+            expect(stats.size).toBe(2500);
+            expect(stats.get(uids[2499])).toMatchObject({
+                open_count: 2,
+                user_count: 1,
+            });
+        } finally {
+            delete server.clients.clickhouse;
+        }
+    });
+
     it('keeps ids longer than an app uid out of the ClickHouse query', async () => {
         const uid = freshUid();
         const longId = `iap-${'a'.repeat(36)}-extra`;

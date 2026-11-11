@@ -49,6 +49,7 @@ import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
 import {
     canShowEmailConfirmationFrame,
+    canShowTopUpFrame,
     canShowUpgradeFrame,
     closeAccountChecksOnEscape,
     confirmEmailInFrame,
@@ -57,6 +58,7 @@ import {
     framedPopupParams,
     framedUpgradeDetails,
     framesHostUser,
+    showFramedTopUp,
     showFramedUpgrade,
     startPopupFrame,
 } from './helpers/popupFrame.js';
@@ -1049,6 +1051,23 @@ const postAuthActions = async (action) => {
     }
 
     // -------------------------------------------------------------------------------------
+    // Action: top-up — the deployment's top-up dialog for the first-party page framing it,
+    // which hears whether the user bought credit once the dialog closes.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'top-up' && window.embedded_in_frame ) {
+        let toppedUp;
+        try {
+            toppedUp = await showFramedTopUp(window, window.tell_popup_frame);
+        } catch (e) {
+            // A dialog that failed to open leaves the page to open the top-up in a tab.
+            console.error('top-up action failed', e);
+            window.tell_popup_frame('unavailable');
+            return;
+        }
+        window.tell_popup_frame('closed', { toppedUp });
+    }
+
+    // -------------------------------------------------------------------------------------
     // Action: request-email-confirmation — puter.ui.requestEmailConfirmation() on the
     // first-party page framing it, which hears whether the email is confirmed once the
     // user is done.
@@ -1841,6 +1860,7 @@ window.initgui = async function (options) {
                 !host_user ||
                 session_user !== host_user ||
                 (action === 'upgrade' && !canShowUpgradeFrame(window, session)) ||
+                (action === 'top-up' && !canShowTopUpFrame(window, session)) ||
                 (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session))
             ) {
                 window.tell_popup_frame('unavailable');

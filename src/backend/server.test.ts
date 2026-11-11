@@ -414,6 +414,7 @@ describe('PuterServer host header validation', () => {
         'show-save-file-picker',
         'show-directory-picker',
         'upgrade',
+        'top-up',
         'request-email-confirmation',
     ])('lets a deployment subdomain frame the %s popup and names it to the GUI', async (action) => {
         const parent = `http://spreadsheet.puter.localhost:${port}`;
@@ -447,7 +448,7 @@ describe('PuterServer host header validation', () => {
         expect(redirected.headers['x-frame-options']).toBe('SAMEORIGIN');
     });
 
-    it.each(['/embed/SIGN-IN', '/embed/Show-Open-File-Picker', '/embed/sign-in/', '/embed/Upgrade', '/embed/upgrade/', '/embed/Request-Email-Confirmation'])(
+    it.each(['/embed/SIGN-IN', '/embed/Show-Open-File-Picker', '/embed/sign-in/', '/embed/Upgrade', '/embed/upgrade/', '/embed/Top-Up', '/embed/top-up/', '/embed/Request-Email-Confirmation'])(
         'lets a first-party page frame only the exact spelling of %s',
         async (spelling) => {
             const res = await request(spelling, {
@@ -790,6 +791,26 @@ describe('PuterServer request parsing', () => {
             expect(res.status, contentType).toBe(404);
             expect(res.body).toContain('no-such-method');
         }
+    });
+
+    it('parses a chat call above 50 MiB whose body opens with its token', async () => {
+        const fields = `"interface":"puter-chat-completion","method":"no-such-method","pad":"${'x'.repeat(51 * MiB)}"`;
+        const asText = { 'content-type': 'text/plain;actually=json' };
+        const first = await postJson(
+            '/drivers/call',
+            `{"auth_token":"${token}",${fields}}`,
+            asText,
+        );
+        expect(first.status).toBe(404);
+        expect(first.body).toContain('no-such-method');
+
+        // A token after other fields can't be read ahead of the body.
+        const last = await postJson(
+            '/drivers/call',
+            `{${fields},"auth_token":"${token}"}`,
+            asText,
+        );
+        expect(last.status).toBe(413);
     });
 
     it('keeps the default JSON limit for other drivers', async () => {
