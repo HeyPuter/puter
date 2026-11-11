@@ -188,6 +188,38 @@ describe('webPushClient status with cached', () => {
         await expect(client.status({ cached: true })).resolves.toEqual({ permission: 'granted', registered: false });
     });
 
+    it('keeps no on from a device list that another user`s sign-in overlapped', async () => {
+        const { notifications, client, state } = make({ devices: [current] });
+        let list;
+        notifications.listDevices.mockImplementationOnce(() => new Promise((resolve) => {
+            list = resolve;
+        }));
+        const reading = client.status();
+        await vi.waitFor(() => expect(list).toBeDefined());
+        state.user = 'u-2';
+        list([current]);
+        await reading;
+        state.user = 'u-1';
+        notifications.listDevices.mockClear();
+        await client.status({ cached: true });
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps no on read while an enable() that failed was running', async () => {
+        const { notifications, client } = make({ devices: [current] });
+        let fail;
+        notifications._enableWebPush.mockImplementationOnce(() => new Promise((_, reject) => {
+            fail = reject;
+        }));
+        const enabling = client.enable({ background: true });
+        await expect(client.status()).resolves.toEqual(on);
+        fail(new Error('no push service'));
+        await expect(enabling).rejects.toThrow('no push service');
+        notifications.listDevices.mockClear();
+        await client.status({ cached: true });
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+    });
+
     it('is off without listing devices once the browser has no subscription or permission', async () => {
         const { notifications, client, state } = await readOn();
         state.subscription = null;

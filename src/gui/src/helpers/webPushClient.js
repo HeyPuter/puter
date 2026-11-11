@@ -69,10 +69,14 @@ export const webPushClient = ({
                 const user = userUid();
                 const [device, subscription] = await Promise.all([currentDevice(), subscriptionHere()]);
                 if ( ! device ) throw new Error('this browser was not registered');
-                if ( reading === generation && user && subscription ) {
+                if ( reading === generation && user && user === userUid() && subscription ) {
                     lastOn = { userUid: user, endpoint: subscription.endpoint, deviceUid: device.uid, at: now() };
                 }
                 return { deviceUid: device.uid };
+            }).catch((e) => {
+                // A read begun meanwhile keeps nothing from before the failure.
+                forgetOn();
+                throw e;
             });
         },
         disable: async () => {
@@ -99,7 +103,8 @@ export const webPushClient = ({
             const reading = generation;
             const device = await currentDevice();
             if ( reading === generation ) {
-                lastOn = device && user
+                // Devices listed for another user who signed in meanwhile aren't kept.
+                lastOn = device && user && user === userUid()
                     ? { userUid: user, endpoint: subscription.endpoint, deviceUid: device.uid, at: now() }
                     : null;
             }
