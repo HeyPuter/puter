@@ -3585,17 +3585,16 @@ export class AuthController extends PuterController {
                 { legacyCode: 'bad_request' },
             );
         }
-        // Missing or already revoked rows answer 404; an expired row is
-        // still revoked so its children go with it.
+        // Missing, already revoked and other users' rows all answer 404; an
+        // expired row is still revoked so its children go with it.
         const session = await this.stores.session.getByUuidAny(uuid);
-        if (!session || session.revoked_at != null) {
+        if (
+            !session ||
+            session.revoked_at != null ||
+            session.user_id !== req.actor!.user.id
+        ) {
             throw new HttpError(404, 'Session not found', {
                 legacyCode: 'not_found',
-            });
-        }
-        if (session.user_id !== req.actor!.user.id) {
-            throw new HttpError(403, 'Can only revoke your own sessions', {
-                legacyCode: 'unauthorized',
             });
         }
         await this.services.auth.revokeSession(uuid);

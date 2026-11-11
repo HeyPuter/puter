@@ -8293,11 +8293,10 @@ describe('AuthController session endpoints', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('revoke-session: 403 when revoking someone else’s session', async () => {
+    it('revoke-session: 404 when revoking someone else’s session', async () => {
         const { user: u1 } = await makeUserAndActor();
         const { actor: a2 } = await makeUserAndActor();
-        // Create a real session for u1 so the lookup succeeds, then attempt
-        // to revoke it as a2 — must 403.
+        // A real session of u1, revoked as a2: answers as a missing one.
         const sessionRes = await server.services.auth.createSessionToken(
             u1,
             {},
@@ -8310,7 +8309,7 @@ describe('AuthController session endpoints', () => {
                 ),
                 makeRes(),
             ),
-        ).rejects.toMatchObject({ statusCode: 403 });
+        ).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('rename-session: 400 when uuid param is missing', async () => {
@@ -10129,7 +10128,7 @@ describe('AuthController.handleRevokeSession additional branches', () => {
         expect(await server.stores.session.getByUuid(childUuid)).toBeNull();
     });
 
-    it('answers 403 for an expired session of another user', async () => {
+    it('answers 404 for an expired session of another user', async () => {
         const { user: owner } = await makeUserAndActor();
         const { actor } = await makeUserAndActor();
         const uuid = await expiredSessionOf(owner);
@@ -10138,7 +10137,7 @@ describe('AuthController.handleRevokeSession additional branches', () => {
                 makeReq({ uuid }, { actor }),
                 makeRes(),
             ),
-        ).rejects.toMatchObject({ statusCode: 403 });
+        ).rejects.toMatchObject({ statusCode: 404 });
     });
 
     it('answers 404 for a session that is already revoked', async () => {
