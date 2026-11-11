@@ -719,6 +719,36 @@ describe('ShareStore', () => {
             expect(await store.countByHolder(mate.id, opts)).toBe(1);
         });
 
+        it('lists a team row whose entry owner was never recorded', async () => {
+            const member = await makeUser();
+            const mate = await makeUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                    '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                [groupUid, member.id, 'team', 'No owner', '{}', '{}'],
+            );
+            const [{ id: groupId }] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
+            const row = await store.upsertActiveGroup({
+                issuerUserId: mate.id,
+                holderGroupId: Number(groupId),
+                fsentryId: (await makeEntry(mate)).id,
+                mode: 'read',
+            });
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `uid` = ?',
+                [row.uid],
+            );
+
+            const opts = { groupIds: [Number(groupId)] };
+            const page = await store.listByHolder(member.id, opts);
+            expect(page.items.map((r) => r.uid)).toEqual([row.uid]);
+            expect(await store.countByHolder(member.id, opts)).toBe(1);
+        });
+
         it('lists what a user issued alongside what was issued on their node', async () => {
             const owner = await makeUser();
             const delegate = await makeUser();
@@ -1167,7 +1197,14 @@ describe('ShareStore', () => {
                 await server.clients.db.write(
                     'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
                         '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
-                    [groupUid, issuer.id, 'team', 'Lagging replica', '{}', '{}'],
+                    [
+                        groupUid,
+                        issuer.id,
+                        'team',
+                        'Lagging replica',
+                        '{}',
+                        '{}',
+                    ],
                 );
                 const [team] = await server.clients.db.read(
                     'SELECT id FROM `group` WHERE uid = ?',

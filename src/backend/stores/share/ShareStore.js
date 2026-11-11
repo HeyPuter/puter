@@ -439,7 +439,8 @@ export class ShareStore extends PuterStore {
     /**
      * The holder's own rows, plus their teams' rows on items that aren't
      * theirs: what they shared with their own team, or a teammate shared of
-     * something they own, was not shared with them.
+     * something they own, was not shared with them. A row with no owner
+     * recorded is listed: the grant exists whoever owns the entry.
      */
     #holderClause(holderUserId, groups) {
         if (groups.length === 0) {
@@ -453,7 +454,7 @@ export class ShareStore extends PuterStore {
                 '(`holder_user_id` = ? OR (`holder_group_id` IN (' +
                 groups.map(() => '?').join(', ') +
                 ') AND `issuer_user_id` <> ? AND ' +
-                '`entry_owner_user_id` <> ?))',
+                '(`entry_owner_user_id` IS NULL OR `entry_owner_user_id` <> ?)))',
             holderParams: [holderUserId, ...groups, holderUserId, holderUserId],
         };
     }
