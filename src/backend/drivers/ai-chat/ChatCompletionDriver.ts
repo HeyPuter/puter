@@ -79,6 +79,7 @@ import type {
 } from './types.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
 import {
+    requestedServiceSpeed,
     selectServiceSpeed,
     lowerServiceSpeed,
     isServiceSpeedUnavailable,
@@ -909,18 +910,16 @@ export class ChatCompletionDriver extends PuterDriver {
             attemptProvider: IChatProvider,
             baseModel: IChatModel,
         ) => {
+            let requestedSpeed = requestedServiceSpeed(
+                args,
+                baseModel.provider,
+            );
             const offers =
-                args.serviceSpeed !== undefined &&
-                args.serviceSpeed !== 'standard'
+                requestedSpeed !== undefined && requestedSpeed !== 'standard'
                     ? ((await attemptProvider.serviceSpeedModels?.(
                           baseModel,
                       )) ?? {})
                     : {};
-            let requestedSpeed =
-                args.serviceSpeed ??
-                (baseModel.provider === 'claude' && args.speed === 'fast'
-                    ? 'fast'
-                    : undefined);
             for (;;) {
                 const selection = selectServiceSpeed(
                     baseModel,
@@ -2130,7 +2129,9 @@ export class ChatCompletionDriver extends PuterDriver {
     }
 
     #resolveModel(modelId: string, provider?: string): IChatModel | null {
-        const models = this.#modelIdMap[normalizeModelKey(modelId ?? '')];
+        // `model` comes straight from the caller and may not be a string.
+        if (typeof modelId !== 'string') return null;
+        const models = this.#modelIdMap[normalizeModelKey(modelId)];
         if (!models || models.length === 0) return null;
         // An explicitly requested provider is honoured even if its route is
         // marked — the caller asked for that one, not for the cheapest hop.

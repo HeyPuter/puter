@@ -44,7 +44,9 @@ import {
     type MockInstance,
 } from 'vitest';
 
-import { SYSTEM_ACTOR } from '../../../../core/actor.js';
+import { SYSTEM_ACTOR, type Actor } from '../../../../core/actor.js';
+import { v4 as uuidv4 } from 'uuid';
+import { ChatCompletionDriver } from '../../ChatCompletionDriver.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
@@ -1578,5 +1580,119 @@ describe('OpenAiResponsesChatProvider.complete error mapping', () => {
         ).rejects.toBe(apiError);
 
         expect(recordSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('ChatCompletionDriver OpenAI billing', () => {
+    const makeBillingUser = async () => {
+        const user = await server.stores.user.create({
+            username: `billing-${uuidv4().slice(0, 8)}`,
+            uuid: uuidv4(),
+            password: null,
+            email: null,
+            free_storage: 1000000,
+            requires_email_confirmation: false,
+        });
+        return { user: { ...user, email_confirmed: true } } as Actor;
+    };
+    const makeBillingDriver = async () => {
+        const driver = new ChatCompletionDriver(
+            {
+                providers: {
+                    ollama: { enabled: false },
+                    'openai-completion': { apiKey: 'test-key' },
+                },
+            } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        await driver.onServerStart();
+        return driver;
+    };
+    it('meters an empty Responses completion before returning its error', async () => {
+        const actor = await makeBillingUser();
+        const driver = await makeBillingDriver();
+        const before = await server.services.metering.getRemainingUsage(actor);
+        responsesCreateMock.mockResolvedValueOnce({
+            status: 'incomplete',
+            incomplete_details: { reason: 'max_output_tokens' },
+            output: [],
+            output_text: '',
+            usage: {
+                input_tokens: 1200,
+                output_tokens: 2000,
+                output_tokens_details: { reasoning_tokens: 2000 },
+            },
+        });
+        await expect(
+            withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'gpt-5.4-mini',
+                        provider: 'openai-responses',
+                        messages: [{ role: 'user', content: 'hello' }],
+                        max_tokens: 1,
+                        fallback: false,
+                    }),
+                actor,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(responsesCreateMock).toHaveBeenCalledTimes(1);
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+        expect(recordSpy.mock.calls[0][0]).toMatchObject({
+            prompt_tokens: 1200,
+            completion_tokens: 2000,
+        });
+        await Promise.all(recordSpy.mock.results.map((result) => result.value));
+        expect(
+            await server.services.metering.getRemainingUsage(actor),
+        ).toBeLessThan(before);
+    });
+    it('prices a raw priority tier with the same rate card as fast service', async () => {
+        const actor = await makeBillingUser();
+        const driver = await makeBillingDriver();
+        const charges: number[] = [];
+        for (const extra of [
+            {},
+            { service_tier: 'priority' },
+            { serviceSpeed: 'fast' },
+        ]) {
+            responsesCreateMock.mockResolvedValueOnce({
+                output: [],
+                output_text: 'hi',
+                service_tier: Object.keys(extra).length
+                    ? 'priority'
+                    : 'default',
+                usage: { input_tokens: 100, output_tokens: 100 },
+            });
+            const before =
+                await server.services.metering.getRemainingUsage(actor);
+            await withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'gpt-6.1-terra',
+                        provider: 'openai-responses',
+                        messages: [{ role: 'user', content: 'hello' }],
+                        max_tokens: 100,
+                        fallback: false,
+                        ...extra,
+                    } as never),
+                actor,
+            );
+            await Promise.all(
+                recordSpy.mock.results.map((result) => result.value),
+            );
+            charges.push(
+                before -
+                    (await server.services.metering.getRemainingUsage(actor)),
+            );
+        }
+        expect(responsesCreateMock.mock.calls[1][0].service_tier).toBe(
+            'priority',
+        );
+        expect(charges[0]).toBeGreaterThan(0);
+        expect(charges[1]).toBe(charges[2]);
+        expect(charges[2]).toBe(charges[0] * 2);
     });
 });

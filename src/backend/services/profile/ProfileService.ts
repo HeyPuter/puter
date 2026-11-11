@@ -83,18 +83,20 @@ const validateField = (field: ProfileField, value: unknown): string | null => {
         );
     }
     if (field === 'picture') {
+        // Sized before the pattern runs, which fails outright on megabytes of
+        // text. Only ASCII passes the pattern, so the length is the byte count.
+        if (value.length > PROFILE_PICTURE_MAX_BYTES) {
+            throw new HttpError(413, 'picture is too large', {
+                code: 'profile_picture_too_large',
+                fields: { field, maxBytes: PROFILE_PICTURE_MAX_BYTES },
+            });
+        }
         if (!PICTURE_DATA_URL.test(value)) {
             throw invalid(
                 field,
                 'picture must be a base64 image data URL',
                 'profile_picture_invalid',
             );
-        }
-        if (Buffer.byteLength(value) > PROFILE_PICTURE_MAX_BYTES) {
-            throw new HttpError(413, 'picture is too large', {
-                code: 'profile_picture_too_large',
-                fields: { field, maxBytes: PROFILE_PICTURE_MAX_BYTES },
-            });
         }
         return value;
     }
