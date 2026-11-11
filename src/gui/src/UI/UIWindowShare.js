@@ -291,6 +291,8 @@ async function UIWindowShare (options) {
     const set_link_access = async (mode) => {
         $link_access.prop('disabled', true);
         $link_mode.prop('disabled', true);
+        // Shown again once the refresh settles, so its own error can't replace it.
+        let outcome_error = null;
         try {
             if ( mode ) {
                 const created = await with_verification_gate(() => puter.fs.share({
@@ -309,16 +311,18 @@ async function UIWindowShare (options) {
             // A plan gate gets the flow that clears it, where the deployment
             // has one; a refusal is otherwise reported like any other.
             if ( is_plan_gate_error(e) ) {
-                if ( ! open_upgrade_flow() ) show_error(i18n('share_link_requires_plan'));
+                if ( ! open_upgrade_flow() ) outcome_error = i18n('share_link_requires_plan');
             } else {
-                show_error(e?.message ?? i18n('share_failed'));
+                outcome_error = e?.message ?? i18n('share_failed');
             }
         } finally {
             $link_access.prop('disabled', false);
             $link_mode.prop('disabled', false);
         }
+        if ( outcome_error ) show_error(outcome_error);
         // The listing is the truth either way, and it puts the control back.
         await refresh();
+        if ( outcome_error ) show_error(outcome_error);
     };
 
     $link_access.on('change', function () {

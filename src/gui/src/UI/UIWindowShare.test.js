@@ -102,4 +102,15 @@ describe.each([
         expect($('.form-error-msg').text()).toBe(message);
         expect($('.form-success-msg').text()).toBe('');
     });
+
+    it('keeps that error when the listing after it fails', async () => {
+        await open([{ holder: null, anyone: true, mode: 'read', issuer: 'alice' }], unshare);
+        puter.fs.getShares = vi.fn(async () => {
+            throw { message: 'Could not list' };
+        });
+
+        $('.share-link-access').val('restricted').trigger('change');
+        await settle();
+        expect($('.form-error-msg').text()).toBe(message);
+    });
 });

@@ -115,6 +115,28 @@ describe('UIShareModal general access', () => {
         );
     });
 
+    it('keeps the count on screen when a refused item no longer lists, closing the link', async () => {
+        let gone = false;
+        puter.fs.getShares = vi.fn(async (path) => {
+            if ( gone && path === '/alice/f1.txt' ) throw { message: 'Subject does not exist' };
+            return [{ holder: null, anyone: true, mode: 'read', issuer: 'alice' }];
+        });
+        puter.fs.unshare = unshareAnswering((request) => refusing(
+            request,
+            (path) => path === '/alice/f1.txt',
+            { code: 'subject_does_not_exist', message: 'Subject does not exist' },
+        ));
+        UIShareModal({ items: items(3) });
+        await settle();
+        gone = true;
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect($('.share-modal-status').text()).toBe(
+            'Only people with access can open 2 of 3 items now. Subject does not exist',
+        );
+    });
+
     it('goes on past a run that was refused whole, and counts every refused item', async () => {
         const requests = [];
         // Runs of 50: the second is refused whole, the third loses one item.
@@ -243,6 +265,34 @@ describe('UIShareModal removing access', () => {
         expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
         expect($('.share-modal-status').text()).toBe('Removed bob from 2 of 3 items. Not allowed');
         expect($('.share-modal-row-mode').length).toBe(1);
+    });
+
+    it('keeps the count on screen when a refused item no longer lists', async () => {
+        let removed = false;
+        puter.fs.getShares = vi.fn(async (path) => {
+            if ( removed && path === '/alice/f2.txt' ) throw { message: 'Subject does not exist' };
+            return removed ? [] : [{ holder: 'bob', mode: 'read', issuer: 'alice' }];
+        });
+        const answering = unshareAnswering((request) => refusing(
+            request,
+            (path) => path === '/alice/f2.txt',
+            { code: 'subject_does_not_exist', message: 'Subject does not exist' },
+        ));
+        puter.fs.unshare = async (...args) => {
+            removed = true;
+            return answering(...args);
+        };
+        UIShareModal({ items: [0, 1, 2].map((i) => ({ path: `/alice/f${i}.txt` })) });
+        await settle();
+
+        $('.share-modal-row-mode').val('__remove').trigger('change');
+        $('.share-modal-confirm-remove').trigger('click');
+        await settle();
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe(
+            'Removed bob from 2 of 3 items. Subject does not exist',
+        );
+        expect($('.share-modal-row-mode').length).toBe(0);
     });
 
     it('offers cancelling an invitation from its menu', async () => {

@@ -698,6 +698,8 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     const set_link_access = async (mode, el_control) => {
         $link_access.prop('disabled', true);
         $link_mode.prop('disabled', true);
+        // Shown once the refresh settles, so its own notice can't replace it.
+        let outcome_error = null;
         try {
             if ( mode ) {
                 const created = await grant_access({ anyone: true }, mode, target_paths);
@@ -708,7 +710,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                 const failed = await revoke_access({ anyone: true }, target_paths);
                 if ( failed.length ) {
                     link_state = { access: 'mixed', mode: null };
-                    show_error(`${i18n('share_link_off_partial', { count: total - failed.length, total })}. ${error_html(failed[0])}`);
+                    outcome_error = `${i18n('share_link_off_partial', { count: total - failed.length, total })}. ${error_html(failed[0])}`;
                 } else {
                     link_state = { access: 'restricted', mode: null };
                     show_success(i18n(is_multi ? 'share_link_off_items' : 'share_link_off'));
@@ -718,18 +720,20 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             // A plan gate gets the flow that clears it, where the deployment
             // has one; a refusal is otherwise reported like any other.
             if ( is_plan_gate_error(err) ) {
-                if ( ! open_upgrade_flow() ) show_error(i18n('share_link_requires_plan'));
+                if ( ! open_upgrade_flow() ) outcome_error = i18n('share_link_requires_plan');
             } else {
-                show_error(error_html(err));
+                outcome_error = error_html(err);
             }
         } finally {
             $link_access.prop('disabled', false);
             $link_mode.prop('disabled', false);
         }
+        if ( outcome_error ) show_error(outcome_error);
         // The listings are the truth either way, and they put the control
         // back; a selection too large to list keeps what was just applied.
         invalidate_shared_roots();
         await refresh();
+        if ( outcome_error ) show_error(outcome_error);
         render_link_access();
         if ( el_control && $(el_control).is(':visible') ) el_control.focus({ preventScroll: true });
         else focus_dialog();
@@ -1000,13 +1004,15 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             // Some items were refused: say how many went through, and stay
             // open on what the listing now shows.
             if ( failed.length ) {
+                invalidate_shared_roots();
+                await refresh();
+                // After the refresh: a refused item may not list any more,
+                // and that notice must not replace this one.
                 show_error(`${i18n('share_access_removed_partial', {
                     recipient: group.name,
                     count: revoke_paths.length - failed.length,
                     total: revoke_paths.length,
                 })}. ${error_html(failed[0])}`);
-                invalidate_shared_roots();
-                await refresh();
                 focus_list_control('.share-modal-row-mode', key) || focus_dialog();
                 return;
             }
