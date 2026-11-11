@@ -1649,4 +1649,50 @@ describe('ChatCompletionDriver OpenAI billing', () => {
             await server.services.metering.getRemainingUsage(actor),
         ).toBeLessThan(before);
     });
+    it('prices a raw priority tier with the same rate card as fast service', async () => {
+        const actor = await makeBillingUser();
+        const driver = await makeBillingDriver();
+        const charges: number[] = [];
+        for (const extra of [
+            {},
+            { service_tier: 'priority' },
+            { serviceSpeed: 'fast' },
+        ]) {
+            responsesCreateMock.mockResolvedValueOnce({
+                output: [],
+                output_text: 'hi',
+                service_tier: Object.keys(extra).length
+                    ? 'priority'
+                    : 'default',
+                usage: { input_tokens: 100, output_tokens: 100 },
+            });
+            const before =
+                await server.services.metering.getRemainingUsage(actor);
+            await withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'gpt-6.1-terra',
+                        provider: 'openai-responses',
+                        messages: [{ role: 'user', content: 'hello' }],
+                        max_tokens: 100,
+                        fallback: false,
+                        ...extra,
+                    } as never),
+                actor,
+            );
+            await Promise.all(
+                recordSpy.mock.results.map((result) => result.value),
+            );
+            charges.push(
+                before -
+                    (await server.services.metering.getRemainingUsage(actor)),
+            );
+        }
+        expect(responsesCreateMock.mock.calls[1][0].service_tier).toBe(
+            'priority',
+        );
+        expect(charges[0]).toBeGreaterThan(0);
+        expect(charges[1]).toBe(charges[2]);
+        expect(charges[2]).toBe(charges[0] * 2);
+    });
 });

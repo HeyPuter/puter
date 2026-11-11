@@ -79,6 +79,7 @@ import type {
 } from './types.js';
 import { normalize_tools_object } from './utils/FunctionCalling.js';
 import {
+    requestedServiceSpeed,
     selectServiceSpeed,
     lowerServiceSpeed,
     isServiceSpeedUnavailable,
@@ -909,18 +910,16 @@ export class ChatCompletionDriver extends PuterDriver {
             attemptProvider: IChatProvider,
             baseModel: IChatModel,
         ) => {
+            let requestedSpeed = requestedServiceSpeed(
+                args,
+                baseModel.provider,
+            );
             const offers =
-                args.serviceSpeed !== undefined &&
-                args.serviceSpeed !== 'standard'
+                requestedSpeed !== undefined && requestedSpeed !== 'standard'
                     ? ((await attemptProvider.serviceSpeedModels?.(
                           baseModel,
                       )) ?? {})
                     : {};
-            let requestedSpeed =
-                args.serviceSpeed ??
-                (baseModel.provider === 'claude' && args.speed === 'fast'
-                    ? 'fast'
-                    : undefined);
             for (;;) {
                 const selection = selectServiceSpeed(
                     baseModel,
