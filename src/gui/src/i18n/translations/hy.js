@@ -109,7 +109,6 @@ const hy = {
         disable_2fa_confirm: 'Վստա՞հ եք, որ ցանկանում եք անջատել 2FA-ն:',
         disable_2fa_instructions:
       'Մուտքագրեք ձեր գաղտնաբառը՝ 2FA-ն անջատելու համար:',
-        disassociate_dir: 'Անջատել պանակը',
         documents: 'Փաստաթղթեր',
         dont_allow: 'Թույլ չտալ',
         download: 'Ներբեռնել',
@@ -176,7 +175,6 @@ const hy = {
         modified: 'Փոփոխված',
         move: 'Տեղափոխել',
         moving_file: 'Տեղափոխվում է %%',
-        my_websites: 'Իմ կայքերը',
         name: 'Անուն',
         name_cannot_be_empty: 'Անվան դաշտը չի կարող լինել դատարկ:',
         name_cannot_contain_double_period: "Անունը չի կարող լինել '..' նիշը:",
@@ -190,9 +188,6 @@ const hy = {
         new_password: 'Նոր գաղտնաբառ',
         new_username: 'Նոր օգտանուն',
         no: 'Ոչ',
-        no_dir_associated_with_site: 'Այս հասցեի հետ կապված պանակ չկա:',
-        no_websites_published:
-      'Դուք դեռ ոչ մի կայք չեք հրապարակել։ Սկսելու համար թղթապանակի վրա սեղմեք աջ',
         ok: 'Լավ',
         open: 'Բացել',
         open_in_new_tab: 'Բացել նոր ներդիրով',
@@ -248,7 +243,6 @@ const hy = {
       'Ստացեք 1 ԳԲ յուրաքանչյուր ընկերոջ համար, ով ստեղծում և հաստատում է հաշիվ Փութերում: Ձեր ընկերը նույնպես կստանա 1 ԳԲ!',
         refer_friends_social_media_c2a: 'Ստացեք 1 ԳԲ անվճար պահեստ Puter.com-ում!',
         refresh: 'Թարմացնել',
-        release_address_confirmation: 'Իսկապե՞ս ուզում եք թողարկել այս հասցեն:',
         remove_from_taskbar: 'Հանել խնդրագոտուց',
         rename: 'Վերանվանել',
         repeat: 'Կրկնել',
@@ -330,7 +324,6 @@ const hy = {
         videos: 'Տեսանյութեր',
         visibility: 'Տեսանելիություն',
         yes: 'Այո',
-        yes_release_it: 'Այո, թողարկեք այն',
         you_have_been_referred_to_puter_by_a_friend:
       'Դուք ուղղորդվել եք Փութեր ձեր ընկերոջ կողմից!',
         zip: 'Ավելացնել արխիվում',
@@ -517,7 +510,6 @@ const hy = {
         window_title_pictures: 'Նկարներ',
         window_title_puter: 'Puter',
         window_folder_empty: 'Այս պանակը դատարկ է',
-        manage_your_subdomains: 'Կառավարել ձեր ենթադոմեններ',
         open_containing_folder: 'Բացել պարունակող պանակը',
     },
 };

@@ -100,7 +100,6 @@ const nl = {
         disable_2fa: '2FA Uitschakelen',
         disable_2fa_confirm: 'Weet u zeker dat u 2FA wilt uitschakelen?',
         disable_2fa_instructions: 'Voer uw wachtwoord in om 2FA uit te schakelen.',
-        disassociate_dir: 'Map Loskoppelen',
         documents: 'Documenten',
         dont_allow: 'Niet Toestaan',
         download: 'Downloaden',
@@ -160,7 +159,6 @@ const nl = {
         modified: 'Gewijzigd',
         move: 'Verplaatsen',
         moving_file: 'Verplaatsen %%',
-        my_websites: 'Mijn Websites',
         name: 'Naam',
         name_cannot_be_empty: 'Naam kan niet leeg zijn.',
         name_cannot_contain_double_period: 'Naam mag geen dubbele punt \'..\' bevatten.',
@@ -174,8 +172,6 @@ const nl = {
         new_password: 'Nieuw Wachtwoord',
         new_username: 'Nieuwe Gebruikersnaam',
         no: 'Nee',
-        no_dir_associated_with_site: 'Geen map geassocieerd met dit adres.',
-        no_websites_published: 'Je hebt nog geen websites gepubliceerd. Klik met de rechtermuisknop op een map om te beginnen.',
         ok: 'OK',
         open: 'Openen',
         open_in_new_tab: 'Openen in Nieuw Tabblad',
@@ -224,7 +220,6 @@ const nl = {
         refer_friends_c2a: 'Krijg 1 GB voor elke vriend die een account aanmaakt en bevestigt op Puter. Je vriend krijgt ook 1 GB!',
         refer_friends_social_media_c2a: 'Krijg 1 GB gratis opslagruimte op Puter.com!',
         refresh: 'Vernieuwen',
-        release_address_confirmation: 'Weet je zeker dat je dit adres wilt vrijgeven?',
         remove_from_taskbar: 'Verwijderen van taakbalk',
         rename: 'Hernoemen',
         repeat: 'Herhalen',
@@ -300,7 +295,6 @@ const nl = {
         videos: 'Video\'s',
         visibility: 'Zichtbaarheid',
         yes: 'Ja',
-        yes_release_it: 'Ja, vrijgeven',
         you_have_been_referred_to_puter_by_a_friend: 'Je bent door een vriend doorverwezen naar Puter!',
         zip: 'Zip',
         zipping_file: 'Bestand inpakken %strong%',
@@ -472,7 +466,6 @@ const nl = {
         'window_title_pictures': 'Afbeeldingen', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Deze map is leeg', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Beheer uw subdomeinen', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'Bestandslocatie openen', // In English: "Open Containing Folder"
     },
 };

@@ -104,7 +104,6 @@ const ur = {
         disable_2fa_confirm: 'کیا آپ واقعی 2FA کو غیر فعال کرنا چاہتے ہیں؟',
         disable_2fa_instructions:
       '2FA کو غیر فعال کرنے کے لیے اپنا پاس ورڈ درج کریں۔',
-        disassociate_dir: 'ڈائرکٹری کو الگ کریں۔',
         documents: 'دستاویزات',
         download: 'ڈاؤن لوڈ کریں ',
         download_file: 'فائل ڈاؤن لوڈ کریں',
@@ -163,7 +162,6 @@ const ur = {
         manage_sessions: 'سیشنز کا نظم کریں۔',
         move: 'منتقل کریں',
         moving_file: 'منتقل ہو رہا ہے %%',
-        my_websites: 'میری ویب سائٹیں ',
         name: 'نام',
         name_cannot_be_empty: 'نام خالی نہیں ہو سکتا',
         name_cannot_contain_double_period: 'نام میں ڈبل پرانا نہیں ہو سکتا ',
@@ -177,8 +175,6 @@ const ur = {
         new_password: 'نیا پاس ورڈ ',
         new_username: 'نیا صارف کا نام ',
         no: 'نہیں',
-        no_dir_associated_with_site: 'کوئی ڈائریکٹری سائٹ سے منسلک نہیں ہے',
-        no_websites_published: 'کوئی ویب سائٹیں شائع نہیں ہوئیں',
         ok: 'ٹھیک ہے',
         open: 'کھولیں',
         open_in_new_tab: 'نئی ٹیب میں کھولیں',
@@ -230,7 +226,6 @@ const ur = {
         refer_friends_social_media_c2a:
       'پیوٹر ڈاٹ کام پر مفت 1 گیگابائٹ ذخیرہ حاصل کریں!',
         refresh: 'تازہ کریں ',
-        release_address_confirmation: 'ایڈریس کی تصدیق جاری ',
         remove_from_taskbar: 'ٹاسک بار سے ہٹائیں ',
         rename: 'دوبارہ نام دیں',
         repeat: 'دہرایؐں',
@@ -303,7 +298,6 @@ const ur = {
         videos: 'ویڈیوز',
         visibility: 'مرئیت',
         yes: 'جی ہاں',
-        yes_release_it: 'ہاں اسے جاری کریں',
         you_have_been_referred_to_puter_by_a_friend:
       'آپ کو ایک دوست نے پیوٹر کی جانب رجوع کیا ہے!',
         zip: 'زپ فائل',
@@ -494,7 +488,6 @@ const ur = {
         'window_title_pictures': 'تصاویر', // In English: "Pictures"
         'window_title_puter': 'پیوٹر', // In English: "Puter"
         'window_folder_empty': 'یہ فولڈر خالی ہے', // In English: "This folder is empty"
-        'manage_your_subdomains': 'اپنے سب ڈومینز کو منظم کریں', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'موجودہ فولڈر کھولیں', // In English: "Open Containing Folder"
 
     },

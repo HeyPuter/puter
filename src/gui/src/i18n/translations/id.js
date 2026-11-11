@@ -107,7 +107,6 @@ const id = {
         disable_2fa: 'Nonaktifkan 2FA',
         disable_2fa_confirm: 'Apakah Anda yakin ingin menonaktifkan 2FA?',
         disable_2fa_instructions: 'Masukkan kata sandi Anda untuk menonaktifkan 2FA.',
-        disassociate_dir: 'Pisahkan Direktori',
         documents: 'Dokumen',
         dont_allow: 'Jangan Izinkan',
         download: 'Unduh',
@@ -170,7 +169,6 @@ const id = {
         modified: 'Dimodifikasi',
         move: 'Pindahkan',
         moving_file: 'Memindahkan %%',
-        my_websites: 'Situs Web Saya',
         name: 'Nama',
         name_cannot_be_empty: 'Nama tidak boleh kosong.',
         name_cannot_contain_double_period: "Nama tidak boleh mengandung karakter '..'.",
@@ -184,9 +182,6 @@ const id = {
         new_password: 'Kata Sandi Baru',
         new_username: 'Nama Pengguna Baru',
         no: 'Tidak',
-        no_dir_associated_with_site: 'Tidak ada direktori yang terkait dengan alamat ini.',
-        no_websites_published:
-      'Anda belum memublikasikan situs web. Klik kanan pada folder untuk memulai.',
         ok: 'OK',
         open: 'Buka',
         open_in_new_tab: 'Buka di Tab Baru',
@@ -240,7 +235,6 @@ const id = {
       'Dapatkan 1 GB untuk setiap teman yang membuat dan mengonfirmasi akun di Puter. Teman Anda juga akan mendapatkan 1 GB!',
         refer_friends_social_media_c2a: 'Dapatkan 1 GB penyimpanan gratis di Puter.com!',
         refresh: 'Muat Ulang',
-        release_address_confirmation: 'Apakah Anda yakin ingin melepaskan alamat ini?',
         remove_from_taskbar: 'Hapus dari Bilah Tugas',
         rename: 'Ganti Nama',
         repeat: 'Ulangi',
@@ -318,7 +312,6 @@ const id = {
         videos: 'Video',
         visibility: 'Visibilitas',
         yes: 'Ya',
-        yes_release_it: 'Ya, Lepaskan',
         you_have_been_referred_to_puter_by_a_friend:
       'Anda telah dirujuk ke Puter oleh seorang teman!',
         zip: 'Zip',
@@ -493,7 +486,6 @@ const id = {
         'window_title_pictures': 'Gambar', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Folder ini kosong', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Kelola Subdomain Anda', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'Buka Folder Saat Ini', // In English: "Open Containing Folder"
 
     },

@@ -100,7 +100,6 @@ const ja = {
         disable_2fa: '2FAを無効にする',
         disable_2fa_confirm: '2FAを無効にしてよろしいですか？',
         disable_2fa_instructions: 'パスワードを入力して2FAを無効にします。',
-        disassociate_dir: 'ディレクトリの関連付けを解除',
         documents: 'ドキュメント',
         dont_allow: '許可しない',
         download: 'ダウンロード',
@@ -159,7 +158,6 @@ const ja = {
         modified: '変更日時',
         move: '移動',
         moving_file: '移動中 %%',
-        my_websites: '私のウェブサイト',
         name: '名前',
         name_cannot_be_empty: '名前は空にできません。',
         name_cannot_contain_double_period: "名前には '..' 文字を含めることはできません。",
@@ -173,8 +171,6 @@ const ja = {
         new_password: '新しいパスワード',
         new_username: '新しいユーザー名',
         no: 'いいえ',
-        no_dir_associated_with_site: 'このアドレスには関連付けられたディレクトリがありません。',
-        no_websites_published: 'まだウェブサイトを公開していません。開始するにはフォルダーを右クリックしてください。',
         ok: 'OK',
         open: '開く',
         open_in_new_tab: '新しいタブで開く',
@@ -223,7 +219,6 @@ const ja = {
         refer_friends_c2a: '友達がPuterでアカウントを作成して確認すると、1GBを獲得できます。友達も1GBを獲得できます！',
         refer_friends_social_media_c2a: 'Puter.comで1GBの無料ストレージを手に入れよう！',
         refresh: '更新',
-        release_address_confirmation: 'このアドレスを解放してもよろしいですか？',
         remove_from_taskbar: 'タスクバーから削除',
         rename: '名前を変更',
         repeat: '繰り返す',
@@ -299,7 +294,6 @@ const ja = {
         videos: '動画',
         visibility: '見え方',
         yes: 'はい',
-        yes_release_it: 'はい、解放します',
         you_have_been_referred_to_puter_by_a_friend: '友達からPuterに紹介されました！',
         zip: '圧縮',
         zipping_file: '圧縮中 %strong%',
@@ -473,7 +467,6 @@ const ja = {
         'window_title_pictures': '写真', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'このフォルダーは空です', // In English: "This folder is empty"
-        'manage_your_subdomains': 'サブドメインを管理する', // In English: "Manage Your Subdomains"
         'open_containing_folder': '保存先のフォルダーを開く', // In English: "Open Containing Folder"
     },
 };

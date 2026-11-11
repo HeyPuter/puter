@@ -111,7 +111,6 @@ const ta = {
         disable_2fa: '2FA ஐ முடக்கு',
         disable_2fa_confirm: '2FA ஐ நிச்சயமாக முடக்க விரும்புகிறீர்களா?',
         disable_2fa_instructions: '2FA ஐ முடக்க உங்கள் கடவுச்சொல்லை உள்ளிடவும்.',
-        disassociate_dir: 'டிஸ்ஸோசியேட் டைரக்டரி',
         documents: 'ஆவணங்கள்',
         dont_allow: 'அனுமதிக்காதே',
         download: 'பதிவிறக்கவும்',
@@ -177,7 +176,6 @@ const ta = {
         modified: 'மாற்றியமைக்கப்பட்டது',
         move: 'நகர்வு',
         moving_file: 'நகரும் %%',
-        my_websites: 'எனது இணையதளங்கள்',
         name: 'பெயர்',
         name_cannot_be_empty: 'பெயர் காலியாக இருக்கக்கூடாது.',
         name_cannot_contain_double_period: "பெயர் '..' எழுத்தாக இருக்க முடியாது.",
@@ -191,9 +189,6 @@ const ta = {
         new_password: 'புதிய கடவுச்சொல்',
         new_username: 'புதிய பயனர் பெயர்',
         no: 'இல்லை',
-        no_dir_associated_with_site:
-      'இந்த முகவரியுடன் எந்த கோப்பகமும் இணைக்கப்படவில்லை.',
-        no_websites_published: 'நீங்கள் இதுவரை எந்த இணையதளத்தையும் வெளியிடவில்லை.',
         ok: 'சரி',
         open: 'திற',
         open_in_new_tab: 'புதிய தாவலில் திறக்கவும்',
@@ -250,8 +245,6 @@ const ta = {
         refer_friends_social_media_c2a:
       'Puter.com இல் 1 GB இலவச சேமிப்பிடத்தைப் பெறுங்கள்!',
         refresh: 'புதுப்பிப்பு',
-        release_address_confirmation:
-      'இந்த முகவரியை நிச்சயமாக வெளியிட விரும்புகிறீர்களா?',
         remove_from_taskbar: 'பணிப்பட்டியில் இருந்து அகற்று',
         rename: 'மறுபெயரிடவும்',
         repeat: 'மீண்டும் செய்யவும்',
@@ -334,7 +327,6 @@ const ta = {
         videos: 'வீடியோக்கள்',
         visibility: 'தெரிவுநிலை',
         yes: 'ஆம்',
-        yes_release_it: 'ஆம், வெளியிடு',
         you_have_been_referred_to_puter_by_a_friend:
       'நீங்கள் ஒரு நண்பரால் புட்டருக்கு பரிந்துரைக்கப்பட்டீர்கள்!',
         zip: 'ஜிப்',
@@ -526,7 +518,6 @@ const ta = {
         window_title_pictures: 'படங்கள்',
         window_title_puter: 'Puter',
         window_folder_empty: 'இந்த கோப்புறை காலியாக உள்ளது',
-        manage_your_subdomains: 'உங்கள் துணை-டொமைன்களை நிர்வகிக்கவும்',
         open_containing_folder: 'கொண்டுள்ள கோப்புறையைத் திற',
     },
 };

@@ -109,7 +109,6 @@ const ko = {
         disable_2fa: '2FA 비활성화',
         disable_2fa_confirm: '정말 2FA를 비활성화하시겠습니까?',
         disable_2fa_instructions: '2FA를 비활성화하려면 비밀번호를 입력해주세요.',
-        disassociate_dir: '디렉토리 연결 해제',
         documents: '문서',
         dont_allow: '허용하지 않음',
         download: '다운로드',
@@ -172,7 +171,6 @@ const ko = {
         modified: '수정일',
         move: '이동',
         moving_file: '%% 이동 중',
-        my_websites: '내 웹사이트',
         minimize: '최소화',
         reload_app: '앱 새로고침',
         name: '이름',
@@ -189,8 +187,6 @@ const ko = {
         new_username: '새 사용자 이름',
         new_window: '새 창',
         no: '아니오',
-        no_dir_associated_with_site: '이 주소에 연결된 디렉토리가 없습니다.',
-        no_websites_published: '아직 웹사이트를 게시하지 않았습니다. 시작하려면 폴더를 우클릭하세요.',
         ok: '확인',
         open: '열기',
         open_in_new_tab: '새 탭에서 열기',
@@ -249,7 +245,6 @@ const ko = {
       'Puter에 가입하고 이메일 인증을 완료하는 친구 한 명당 1GB의 저장 공간을 드립니다. 친구도 1GB를 받을 수 있습니다!',
         refer_friends_social_media_c2a: 'Puter.com에서 1GB의 무료 저장 공간을 받아보세요!',
         refresh: '새로 고침',
-        release_address_confirmation: '이 주소를 해제하시겠습니까?',
         remove_from_taskbar: '작업 표시줄에서 제거',
         rename: '이름 변경',
         repeat: '반복',
@@ -335,7 +330,6 @@ const ko = {
         videos: '동영상',
         visibility: '공개 여부',
         yes: '예',
-        yes_release_it: '예, 해제합니다',
         you_have_been_referred_to_puter_by_a_friend: '친구가 Puter를 추천했습니다!',
         zip: '압축',
         sequencing: '%strong% 순서 처리 중',
@@ -502,7 +496,6 @@ const ko = {
         'window_folder_empty': '이 폴더는 비어 있습니다',
 
         // Website Management
-        'manage_your_subdomains': '서브도메인 관리',
 
         'open_containing_folder': '포함된 폴더 열기',
     },

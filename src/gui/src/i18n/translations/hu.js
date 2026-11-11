@@ -100,7 +100,6 @@ const hu = {
         disable_2fa: '2FA letiltása',
         disable_2fa_confirm: 'Biztosan letiltod a 2FA-t?',
         disable_2fa_instructions: 'Add meg a jelszavad a 2FA letiltásához.',
-        disassociate_dir: 'Könyvtár leválasztása',
         documents: 'Dokumentumok',
         dont_allow: 'Nem engedélyez',
         download: 'Letöltés',
@@ -159,7 +158,6 @@ const hu = {
         modified: 'Módosítva',
         move: 'Mozgatás',
         moving_file: 'Mozgatás: %%',
-        my_websites: 'Saját weboldalaim',
         name: 'Név',
         name_cannot_be_empty: 'A név nem lehet üres.',
         name_cannot_contain_double_period: "A név nem tartalmazhatja a '..' karaktert.",
@@ -173,8 +171,6 @@ const hu = {
         new_password: 'Új jelszó',
         new_username: 'Új felhasználónév',
         no: 'Nem',
-        no_dir_associated_with_site: 'Ehhez a címhez nincs társítva könyvtár.',
-        no_websites_published: 'Még nem publikáltál egyetlen weboldalt sem. Kattints jobb gombbal egy mappára a kezdéshez.',
         ok: 'Rendben',
         open: 'Megnyitás',
         open_in_new_tab: 'Megnyitás új lapon',
@@ -223,7 +219,6 @@ const hu = {
         refer_friends_c2a: 'Kapj 1 GB-ot minden barátodért, aki létrehoz és megerősít egy fiókot a Puteren. A barátod is kap 1 GB-ot!',
         refer_friends_social_media_c2a: 'Kapj 1 GB ingyenes tárhelyet a Puter.com-on!',
         refresh: 'Frissítés',
-        release_address_confirmation: 'Biztosan felszabadítod ezt a címet?',
         remove_from_taskbar: 'Eltávolítás a tálcáról',
         rename: 'Átnevezés',
         repeat: 'Ismétlés',
@@ -299,7 +294,6 @@ const hu = {
         videos: 'Videók',
         visibility: 'Láthatóság',
         yes: 'Igen',
-        yes_release_it: 'Igen, Engedd El',
         you_have_been_referred_to_puter_by_a_friend: 'Egy barátod ajánlott téged a Puterhez!',
         zip: 'Zip',
         zipping_file: 'Tömörítés: %strong%',
@@ -460,7 +454,6 @@ const hu = {
         'window_title_pictures': 'Képek', // English: "Pictures"
         'window_title_puter': 'Puter', // English: "Puter"
         'window_folder_empty': 'Ez a mappa üres', // English: "This folder is empty"
-        'manage_your_subdomains': 'Aldomainjeinek kezelése', // English: "Manage Your Subdomains"
         'open_containing_folder': 'A tartalmazó mappa megnyitása', // English: "Open Containing Folder"
 
     },

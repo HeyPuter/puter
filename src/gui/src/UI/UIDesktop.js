@@ -25,7 +25,6 @@ import UIAlert from './UIAlert.js';
 import UIWindow from './UIWindow.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIWindowDesktopBGSettings from './UIWindowDesktopBGSettings.js';
-import UIWindowMyWebsites from './UIWindowMyWebsites.js';
 import UIWindowFeedback from './UIWindowFeedback.js';
 import UIAuthLogin from './Auth/UIAuthLogin.js';
 
@@ -544,8 +543,6 @@ async function UIDesktop (options) {
         if ( dest_path === window.trash_path ) {
             // if trashing dir...
             if ( fsentry.is_dir ) {
-                // remove website badge
-                $(`.mywebsites-dir-path[data-uuid="${fsentry.uid}"]`).remove();
                 // remove the website badge from all instances of the dir
                 $(`.item[data-uid="${fsentry.uid}"]`).find('.item-has-website-badge').fadeOut(300);
 
@@ -2267,16 +2264,6 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
                 id: 'settings',
                 onClick: async function () {
                     window.open('/dashboard/#home', '_blank');
-                },
-            },
-            //--------------------------------------------------
-            // My Websites
-            //--------------------------------------------------
-            {
-                html: i18n('my_websites'),
-                id: 'my_websites',
-                onClick: async function () {
-                    UIWindowMyWebsites();
                 },
             },
             //--------------------------------------------------

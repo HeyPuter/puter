@@ -100,7 +100,6 @@ const zh = {
         disable_2fa: '关闭二次认证',
         disable_2fa_confirm: '您确定要关闭二次认证?',
         disable_2fa_instructions: '请输入您的密码以关闭二次认证',
-        disassociate_dir: '取消关联目录',
         documents: '文档',
         dont_allow: '操作不允许!',
         download: '下载',
@@ -159,7 +158,6 @@ const zh = {
         modified: '已修改',
         move: '移动',
         moving_file: '移动 %%',
-        my_websites: '我的网站',
         name: '名称',
         name_cannot_be_empty: '名称不能为空。',
         name_cannot_contain_double_period: "名称不能是'..'字符。",
@@ -173,8 +171,6 @@ const zh = {
         new_password: '新密码',
         new_username: '新用户名',
         no: '取消',
-        no_dir_associated_with_site: '此地址没有关联的目录。',
-        no_websites_published: '您尚未发布任何网站。',
         ok: '好的',
         open: '打开',
         open_in_new_tab: '在新标签页中打开',
@@ -223,7 +219,6 @@ const zh = {
         refer_friends_c2a: '每个创建并确认 Puter 帐户的朋友都会为您获得 1 GB。您的朋友也将获得 1 GB！',
         refer_friends_social_media_c2a: '在 Puter.com 上获取 1 GB 的免费存储空间！',
         refresh: '刷新',
-        release_address_confirmation: '您确定要释放此地址吗？',
         remove_from_taskbar: '从任务栏中删除',
         rename: '重命名',
         repeat: '重复',
@@ -299,7 +294,6 @@ const zh = {
         videos: '视频',
         visibility: '可见性',
         yes: '确定',
-        yes_release_it: '是的，释放它',
         you_have_been_referred_to_puter_by_a_friend: '您已经被朋友推荐到 Puter！',
         zip: '压缩',
         zipping_file: '正在压缩 %strong%',
@@ -468,7 +462,6 @@ const zh = {
         'window_title_pictures': '图片', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': '此文件夹为空', // In English: "This folder is empty"
-        'manage_your_subdomains': '管理您的子域名', // In English: "Manage Your Subdomains"
         'open_containing_folder': '打开所在文件夹', // In English: "Open Containing Folder"
     },
 };

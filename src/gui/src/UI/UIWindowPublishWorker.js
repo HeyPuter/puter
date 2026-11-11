@@ -18,7 +18,6 @@
  */
 
 import UIWindow from './UIWindow.js';
-import UIWindowMyWebsites from './UIWindowMyWebsites.js';
 import { underPath } from '../helpers/pathElements.js';
 
 async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_dir_path) {
@@ -130,10 +129,7 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
             if ( ! (err instanceof Error) ) {
                 // Handle regular API errors
                 const error = err.error || err;
-                errorHtml = error.message + (
-                    error.code === 'subdomain_limit_reached' ?
-                        ` <span class="manage-your-websites-link">${ i18n('manage_your_subdomains') }</span>` : ''
-                );
+                errorHtml = error.message;
             } else {
                 errorHtml = `<pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; margin: 0; text-align: left; font-family: monospace;">${html_encode(err.message)}</pre>`;
             }
@@ -149,9 +145,5 @@ async function UIWindowPublishWorker (target_dir_uid, target_dir_name, target_di
         $(el_window).close();
     });
 }
-
-$(document).on('click', '.manage-your-websites-link', async function (e) {
-    UIWindowMyWebsites();
-});
 
 export default UIWindowPublishWorker;

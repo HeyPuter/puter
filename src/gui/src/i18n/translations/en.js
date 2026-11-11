@@ -233,7 +233,6 @@ const en = {
         disable_2fa_confirm: 'Are you sure you want to disable 2FA?',
         disable_2fa_instructions: 'Confirm your identity and enter an authenticator code or an unused recovery code to disable 2FA.',
         disable_2fa_code_instruction: 'Enter a 6-digit authenticator code or an unused recovery code.',
-        disassociate_dir: 'Disassociate Directory',
         display_name: 'Display Name',
         directory: 'Directory',
         disassociate: 'disassociate',
@@ -330,7 +329,6 @@ const en = {
         monthly_credits_title: 'Monthly credits',
         move: 'Move',
         moving_file: 'Moving %%',
-        my_websites: 'My Websites',
         minimize: 'Minimize',
         reload_app: 'Reload App',
         name: 'Name',
@@ -347,8 +345,6 @@ const en = {
         new_password: 'New Password',
         new_username: 'New Username',
         no: 'No',
-        no_dir_associated_with_site: 'No directory associated with this address.',
-        no_websites_published: 'You have not published any websites yet. Right click on a folder to get started.',
         notification: 'Notification',
         notification_mark_read: 'Mark as read',
         notification_mark_read_named: 'Mark as read: {{title}}',
@@ -535,7 +531,6 @@ const en = {
         recover_password: 'Recover Password',
         refer_friends_social_media_c2a: 'Get 1 GB of free storage on Puter.com!',
         refresh: 'Refresh',
-        release_address_confirmation: 'Are you sure you want to release this address?',
         remove_from_taskbar: 'Remove from Taskbar',
         remove_profile_picture: 'Remove photo',
         rename: 'Rename',
@@ -851,7 +846,6 @@ const en = {
         videos: 'Videos',
         visibility: 'Visibility',
         yes: 'Yes',
-        yes_release_it: 'Yes, Release It',
         you_have_been_referred_to_puter_by_a_friend: 'You have been referred to Puter by a friend!',
         zip: 'Zip',
         zoom: 'Zoom',
@@ -1068,7 +1062,6 @@ const en = {
         'window_folder_empty': 'This folder is empty',
 
         // Website Management
-        'manage_your_subdomains': 'Manage Your Subdomains',
 
         'open_containing_folder': 'Open Containing Folder',
 

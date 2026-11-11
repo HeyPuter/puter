@@ -117,7 +117,6 @@ const es = {
         disable_2fa: 'Deshabilitar 2FA',
         disable_2fa_confirm: '¿Estás seguro que quieres deshabilitar 2FA?',
         disable_2fa_instructions: 'Ingresa tu contraseña para deshabilitar 2FA.',
-        disassociate_dir: 'Desvincular directorio',
         documents: 'Documentos',
         dont_allow: 'No permitir',
         download: 'Descargar',
@@ -182,7 +181,6 @@ const es = {
         modified: 'Modified',
         move: 'Mover',
         moving_file: 'Moviendo %%',
-        my_websites: 'Mis páginas web',
         name: 'Nombre',
         name_cannot_be_empty: 'El nombre no puede estar vacío.',
         name_cannot_contain_double_period:
@@ -197,10 +195,6 @@ const es = {
         new_password: 'Nueva contraseña',
         new_username: 'Nuevo nombre de usuario',
         no: 'No',
-        no_dir_associated_with_site:
-      'No hay un directorio vinculado con esta dirección.',
-        no_websites_published:
-      'Aun no has publicado ningún sitio web. Haz click derecho en una carpeta para empezar',
         ok: 'OK',
         open: 'Abrir',
         open_in_new_tab: 'Abrir en una nueva pestaña',
@@ -255,7 +249,6 @@ const es = {
       'Consigue 1 GB por cada amigo que cree y confirme una cuenta en Puter ¡Tu amigo recibirá 1GB también!',
         refer_friends_social_media_c2a: '¡Consigue 1 GB de almacenamiento gratuito en Puter.com!',
         refresh: 'Refrescar',
-        release_address_confirmation: '¿Estás seguro de que quieres liberar esta dirección?',
         remove_from_taskbar: 'Eliminar de la barra de tareas',
         rename: 'Renombrar',
         repeat: 'Repetir',
@@ -335,7 +328,6 @@ const es = {
         videos: 'Videos',
         visibility: 'Visibilidad',
         yes: 'Si',
-        yes_release_it: 'Sí, libéralo',
         you_have_been_referred_to_puter_by_a_friend:
       '¡Has sido invitado a Puter por un amigo!',
         zip: 'Zip',
@@ -519,7 +511,6 @@ const es = {
         'window_title_pictures': 'Imágenes', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Esta carpeta está vacía', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Administra tus sub dominios', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'Abrir carpeta que lo contiene', // In English: "Open Containing Folder"
     },
 };

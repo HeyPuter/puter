@@ -100,7 +100,6 @@ const da = {
         disable_2fa: 'Deaktiver 2FA',
         disable_2fa_confirm: 'Er du sikker på, at du vil deaktivere 2FA?',
         disable_2fa_instructions: 'Indtast din adgangskode for at deaktivere 2FA.',
-        disassociate_dir: 'Fjern tilknytning til mappe',
         documents: 'Dokumenter',
         dont_allow: 'Tillad ikke',
         download: 'Download',
@@ -159,7 +158,6 @@ const da = {
         modified: 'Ændret',
         move: 'Flyt',
         moving_file: 'Flytter %%',
-        my_websites: 'Mine websteder',
         name: 'Navn',
         name_cannot_be_empty: 'Navn kan ikke være tomt.',
         name_cannot_contain_double_period: "Navn kan ikke være '..' tegn.",
@@ -173,8 +171,6 @@ const da = {
         new_password: 'Ny adgangskode',
         new_username: 'Nyt brugernavn',
         no: 'Nej',
-        no_dir_associated_with_site: 'Ingen mappe tilknyttet denne adresse.',
-        no_websites_published: 'Du har ikke offentliggjort nogen websteder endnu. Højreklik på en mappe for at komme i gang.',
         ok: 'OK',
         open: 'Åbn',
         open_in_new_tab: 'Åbn i ny fane',
@@ -223,7 +219,6 @@ const da = {
         refer_friends_c2a: 'Få 1 GB for hver ven, der opretter og bekræfter en konto på Puter. Din ven vil også få 1 GB!',
         refer_friends_social_media_c2a: 'Få 1 GB gratis lagerplads på Puter.com!',
         refresh: 'Opdater',
-        release_address_confirmation: 'Er du sikker på, at du vil frigive denne adresse?',
         remove_from_taskbar: 'Fjern fra proceslinje',
         rename: 'Omdøb',
         repeat: 'Gentag',
@@ -299,7 +294,6 @@ const da = {
         videos: 'Videoer',
         visibility: 'Synlighed',
         yes: 'Ja',
-        yes_release_it: 'Ja, frigiv det',
         you_have_been_referred_to_puter_by_a_friend: 'Du er blevet henvist til Puter af en ven!',
         zip: 'Zip',
         zipping_file: 'Zipper %strong%',
@@ -519,7 +513,6 @@ const da = {
         'window_title_pictures': undefined, // In English: "Pictures"
         'window_title_puter': undefined, // In English: "Puter"
         'window_folder_empty': undefined, // In English: "This folder is empty"
-        'manage_your_subdomains': undefined, // In English: "Manage Your Subdomains"
         'open_containing_folder': undefined, // In English: "Open Containing Folder"
 
     },

@@ -104,7 +104,6 @@ const sl = {
         disable_2fa: 'Onemogoči 2FA',
         disable_2fa_confirm: 'Ali ste prepričani, da želite onemogočiti 2FA?',
         disable_2fa_instructions: 'Za onemogočanje 2FA vnesite svoje geslo.',
-        disassociate_dir: 'Prekini povezavo z imenikom',
         documents: 'Dokumenti',
         dont_allow: 'Ne dovoli',
         download: 'Prenos',
@@ -163,7 +162,6 @@ const sl = {
         modified: 'Spremenjeno',
         move: 'Premakni',
         moving_file: 'Premikanje %%',
-        my_websites: 'Moja spletna mesta',
         minimize: 'Pomanjšaj',
         reload_app: 'Znova naloži aplikacijo',
         name: 'Ime',
@@ -179,8 +177,6 @@ const sl = {
         new_password: 'Novo geslo',
         new_username: 'Novo uporabniško ime',
         no: 'Ne',
-        no_dir_associated_with_site: 'S tem naslovom ni povezana nobena mapa.',
-        no_websites_published: ' Niste še objavili nobenega spletnega mesta. Za začetek z desnim klikom kliknite mapo.',
         ok: 'V redu',
         open: 'Odpri',
         new_window: 'Novo okno',
@@ -234,7 +230,6 @@ const sl = {
         refer_friends_c2a: 'Pridobite 1 GB za vsakega prijatelja, ki na Puterju ustvari in potrdi račun. Tudi vaš prijatelj dobi 1 GB!',
         refer_friends_social_media_c2a: 'Pridobite 1 GB brezplačnega prostora za shranjevanje na Puter.com!',
         refresh: 'Osveži',
-        release_address_confirmation: 'Ali ste prepričani, da želite objaviti ta naslov?',
         remove_from_taskbar: 'Odstrani iz opravilne vrstice',
         rename: 'Preimenuj',
         repeat: 'Ponovi',
@@ -317,7 +312,6 @@ const sl = {
         videos: 'Videoposnetki',
         visibility: 'Vidnost',
         yes: 'Da',
-        yes_release_it: 'Da, izpusti',
         you_have_been_referred_to_puter_by_a_friend: 'Prijatelj vas je povabil na Puter!',
         zip: 'Stisni',
         sequencing: 'Razvrščanje %strong%',
@@ -482,7 +476,6 @@ Shranite jih na varno mesto.
         'window_folder_empty': 'Ta mapa je prazna',
 
         // Website Management
-        'manage_your_subdomains': 'Upravljajte svoje poddomene',
 
         'open_containing_folder': 'Odpri vsebujočo mapo',
     },

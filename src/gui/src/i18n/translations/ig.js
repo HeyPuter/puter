@@ -108,7 +108,6 @@ const ig = {
         disable_2fa: 'Gbanyụọ 2FA',
         disable_2fa_confirm: "Ị ji n'aka na ịchọrọ gbanyụọ 2FA?",
         disable_2fa_instructions: 'Tinye paswọọdụ gị i ji gbanyụọ 2FA.',
-        disassociate_dir: 'hapụ Akwụkwọ ndekọ',
         documents: 'akwụkwọ',
         dont_allow: 'Ekwela',
         download: 'Budata',
@@ -172,7 +171,6 @@ const ig = {
         modified: 'gbanwee',
         move: 'Bugharịa',
         moving_file: 'Na Bugharịa %%',
-        my_websites: 'Weebụsaịtị m',
         name: 'Aha',
         name_cannot_be_empty: 'Aha enweghị ike ịbụ ihe efu.',
         name_cannot_contain_double_period: "Aha enweghị ike ịbụ agwa '..'.",
@@ -186,9 +184,6 @@ const ig = {
         new_password: 'paswọọdụ ọhụrụ',
         new_username: 'Aha ọhụrụ njirimara',
         no: 'Mba',
-        no_dir_associated_with_site:
-      'O nweghị akwụkwọ ndekọ aha jikọtara ya na adreesị a.',
-        no_websites_published: 'Ị bipụtabeghị webụsaịtị ọ bụla.',
         ok: 'OK',
         open: 'Mepee',
         open_in_new_tab: 'Mepee na Tab ọhụrụ',
@@ -243,7 +238,6 @@ const ig = {
       'Nweta 1 GB maka enyi ọ bụla mepụtara ma kwado akaụntụ na Puter. Enyi gị ga-enwetakwa 1 GB!',
         refer_friends_social_media_c2a: 'Nweta 1 GB nke nchekwa efu na Puter.com!',
         refresh: 'Weghachite ume',
-        release_address_confirmation: 'O doro gị anya na ịchọrọ wepụtara adreesị a?',
         remove_from_taskbar: 'Wepu na Taskbar',
         rename: 'Nyegharịa aha',
         repeat: 'megharịa',
@@ -321,7 +315,6 @@ const ig = {
         videos: 'Vidiyo',
         visibility: 'Nhụta',
         yes: 'Ee',
-        yes_release_it: 'Ee, Hapụ ya',
         you_have_been_referred_to_puter_by_a_friend: 'Otu enyi zigara gị na Puter!',
         zip: 'Zip',
         zipping_file: 'Zipping %strong%',
@@ -496,7 +489,6 @@ const ig = {
         'window_title_pictures': 'Foto', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Mpempe akwụkwọ a tọgbọ chakoo', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Jikwaa subdomains gị', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'Mepee folda nwere', // In English: "Open Containing Folder"
     },
 };

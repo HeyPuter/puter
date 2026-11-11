@@ -59,7 +59,6 @@ const nn = {
         descending: 'Synkande',
         desktop_background_fit: 'Tilpass',
         dir_published_as_website: '%strong% er publisert på:',
-        disassociate_dir: 'Fjern tilknyting frå mappe',
         download: 'Last ned',
         downloading: 'Lastar ned',
         email: 'E-post',
@@ -89,7 +88,6 @@ const nn = {
         log_out: 'Logg ut',
         move: 'Flytt',
         moving_file: 'Flyttar %%',
-        my_websites: 'Mine nettstader',
         name: 'Namn',
         name_cannot_be_empty: 'Namn kan ikkje vere tomt.',
         name_cannot_contain_double_period: "Namn kan ikkje innehalde '..'.",
@@ -101,8 +99,6 @@ const nn = {
         new_folder: 'Ny mappe',
         new_password: 'Nytt passord',
         new_username: 'Nytt brukarnamn',
-        no_dir_associated_with_site: 'Ingen mappe er tilknytt denne adressa.',
-        no_websites_published: 'Du har ikkje publisert nokre nettstader enno.',
         ok: 'OK',
         open: 'Opne',
         open_in_new_tab: 'Opne i ny fane',
@@ -127,7 +123,6 @@ const nn = {
       'Få 1 GB for kvar ven som opprettar og stadfestar ein konto på Puter. Vennen din får òg 1 GB.',
         refer_friends_social_media_c2a: 'Få 1 GB gratis lagringsplass på Puter.com!',
         refresh: 'Oppdater',
-        release_address_confirmation: 'Er du sikker på at du vil sleppe denne adressa?',
         remove_from_taskbar: 'Fjern frå oppgåvelinja',
         rename: 'Gje nytt namn',
         repeat: 'Gjenta',
@@ -164,7 +159,6 @@ const nn = {
         username: 'Brukarnamn',
         username_changed: 'Brukarnamn oppdatert.',
         versions: 'Versjonar',
-        yes_release_it: 'Ja, slepp den',
         you_have_been_referred_to_puter_by_a_friend: 'Du har blitt referert til Puter av ein ven!',
         zip: 'Zip',
 
@@ -484,7 +478,6 @@ const nn = {
         window_title_pictures: 'Bilete', // "Original English: Pictures"
         window_title_puter: 'Puter', // "Original English: Puter - Brand name kept unchanged"
         window_folder_empty: 'Denne mappa er tom', // "Original English: This folder is empty"
-        manage_your_subdomains: 'Administrer underdomene dine', // "Original English: Manage Your Subdomains"
         open_containing_folder: 'Opne innhaldsmappa', // "Original English: Open Containing Folder"
     },
 };

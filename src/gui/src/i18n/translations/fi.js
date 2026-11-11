@@ -129,7 +129,6 @@ const fi = {
       'Haluatko varmasti poistaa kaksivaiheisen tunnistautumisen käytöstä?',
         disable_2fa_instructions:
       'Syötä salasanasi poistaaksesi kaksivaihesen tunnistautumisen käytöstä.',
-        disassociate_dir: 'Irrota hakemisto',
         documents: 'Dokumentit',
         dont_allow: 'Älä salli',
         download: 'Lataa',
@@ -207,7 +206,6 @@ const fi = {
         modified: 'Muokattu',
         move: 'Siirrä',
         moving_file: 'Siirretään %%',
-        my_websites: 'Sivustoni',
         name: 'Nimi',
         name_cannot_be_empty: 'Nimi ei voi olla tyhjä.',
 
@@ -228,10 +226,6 @@ const fi = {
         new_password: 'Uusi salasana',
         new_username: 'Uusi käyttäjänimi',
         no: 'Ei',
-        no_dir_associated_with_site:
-      'Tähän osoitteeseen ei ole liitetty hakemistoa.',
-        no_websites_published:
-      'Et ole vielä julkaissut yhtään verkkosivustoa. Napsauta kansiota hiiren kakkospainikkeella aloittaaksesi.',
         ok: 'OK',
         open: 'Avaa',
         open_in_new_tab: 'Avaa uudessa välilehdessä',
@@ -291,7 +285,6 @@ const fi = {
         refer_friends_social_media_c2a: 'Hanki 1 Gt ilmaista tallennustilaa Puter.comista!',
         refresh: 'Päivitä',
 
-        release_address_confirmation: 'Haluatko varmasti julkaista tämän osoitteen?', // TODO: Slight ambiguity between the meaning of "release"
         // "get rid of" => "Oletko varma, että haluat luovuttaa tämän osoitteen?" or
         // "publish" => "Oletko varma, että haluat julkaista tämän osoitteen?"
 
@@ -384,7 +377,6 @@ const fi = {
         videos: 'Videot',
         visibility: 'Näkyvyys',
         yes: 'Kyllä',
-        yes_release_it: 'Kyllä, julkaise se',
         you_have_been_referred_to_puter_by_a_friend:
       'Kaverisi on kutsunut sinut Puteriin!',
         zip: 'Zip',
@@ -558,7 +550,6 @@ const fi = {
         'window_title_pictures': 'Kuvat',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Tämä kansio on tyhjä',
-        'manage_your_subdomains': 'Hallitse aliverkkotunnuksiasi',
         'open_containing_folder': 'Avaa sisältävä kansio',
     },
 };

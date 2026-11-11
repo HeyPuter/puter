@@ -112,7 +112,6 @@ const fr = {
         disable_2fa: "Désactiver l'A2F",
         disable_2fa_confirm: "Êtes-vous sûr de vouloir désactiver l'A2F ?",
         disable_2fa_instructions: "Entrez votre mot de passe pour désactiver l'A2F.",
-        disassociate_dir: 'Dissocier le répertoire',
         disk_storage: 'Stockage disque',
         documents: 'Documents',
         dont_allow: 'Ne pas autoriser',
@@ -175,7 +174,6 @@ const fr = {
         modified: 'Modifié',
         move: 'Déplacer',
         moving_file: 'Déplacement de %%',
-        my_websites: 'Mes sites internet',
         minimize: 'Minimiser',
         reload_app: "Recharger l'application",
         name: 'Nom',
@@ -191,8 +189,6 @@ const fr = {
         new_password: 'Nouveau mot de passe',
         new_username: "Nouveau nom d'utilisateur",
         no: 'Non',
-        no_dir_associated_with_site: 'Aucun répertoire associé à cette adresse.',
-        no_websites_published: "Vous n'avez pas encore publié de sites internet. Faites un clic droit sur un dossier pour commencer.",
         ok: 'OK',
         open: 'Ouvrir',
         new_window: 'Nouvelle fenêtre',
@@ -251,7 +247,6 @@ const fr = {
         refer_friends_c2a: 'Obtenez 1 Go pour chaque ami qui crée et confirme un compte sur Puter. Votre ami recevra également 1 Go !',
         refer_friends_social_media_c2a: 'Obtenez 1 Go de stockage gratuit sur Puter.com !',
         refresh: 'Actualiser',
-        release_address_confirmation: 'Etes-vous sûr de vouloir libérer cette adresse ?',
         remove_from_taskbar: 'Retirer de la barre des tâches',
         rename: 'Renommer',
         repeat: 'Répéter',
@@ -344,7 +339,6 @@ const fr = {
         videos: 'Vidéos',
         visibility: 'Visibilité',
         yes: 'Oui',
-        yes_release_it: 'Oui, libérez-la',
         you_have_been_referred_to_puter_by_a_friend: 'Vous avez été recommandé à Puter par un ami !',
         zip: 'Compresser',
         tar: 'Tar',
@@ -513,7 +507,6 @@ const fr = {
         'window_folder_empty': 'Ce dossier est vide',
 
         // Website Management
-        'manage_your_subdomains': 'Gérer vos sous-domaines',
         'open_containing_folder': 'Ouvrir le dossier conteneur',
 
         'set_as_background': 'Définir comme arrière-plan',

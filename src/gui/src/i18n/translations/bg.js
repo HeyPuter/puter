@@ -114,7 +114,6 @@ const bg = {
         disable_2fa: 'Изключи 2FA',
         disable_2fa_confirm: 'Сигурни ли сте, че искате да изключите 2FA?',
         disable_2fa_instructions: 'Въведете паролата си, за да изключите 2FA.',
-        disassociate_dir: 'Премахни връзката с папката',
         documents: 'Документи',
         dont_allow: 'Не разрешавай',
         download: 'Изтегли',
@@ -180,7 +179,6 @@ const bg = {
         modified: 'Променено',
         move: 'Премести',
         moving_file: 'Преместване на %%',
-        my_websites: 'Моите уебсайтове',
         minimize: 'Минимизирай',
         reload_app: 'Презареди приложението',
         name: 'Име',
@@ -196,9 +194,6 @@ const bg = {
         new_password: 'Нова парола',
         new_username: 'Ново потребителско име',
         no: 'Не',
-        no_dir_associated_with_site: 'Няма папка, свързана с този адрес.',
-        no_websites_published:
-      'Все още не сте публикували уебсайтове. Натиснете с десен бутон върху папка, за да започнете.',
         ok: 'ОК',
         open: 'Отвори',
         new_window: 'Нов прозорец',
@@ -259,8 +254,6 @@ const bg = {
         refer_friends_social_media_c2a:
       'Получете 1 GB безплатно пространство в Puter.com!',
         refresh: 'Опресни',
-        release_address_confirmation:
-      'Сигурни ли сте, че искате да освободите този адрес?',
         remove_from_taskbar: 'Премахни от лентата на задачите',
         rename: 'Преименувай',
         repeat: 'Повтори',
@@ -350,7 +343,6 @@ const bg = {
         videos: 'Видеоклипове',
         visibility: 'Видимост',
         yes: 'Да',
-        yes_release_it: 'Да, освободи',
         you_have_been_referred_to_puter_by_a_friend:
       'Били сте препоръчани в Puter от приятел!',
         zip: 'ZIP архивиране',
@@ -536,7 +528,6 @@ const bg = {
         window_folder_empty: 'Тази папка е празна',
 
         // Website Management
-        manage_your_subdomains: 'Управлявайте вашите поддомейни',
         open_containing_folder: 'Отвори съдържащата папка',
         set_as_background: 'Задай като фон на работния плот',
     },

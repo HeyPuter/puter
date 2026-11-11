@@ -2032,7 +2032,6 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     if ( $(el_item).attr('data-is_dir') === '1' ) {
                         // Its websites stay registered: the server doesn't
                         // serve a root in Trash, and restoring brings them back.
-                        $(`.mywebsites-dir-path[data-uuid="${$(el_item).attr('data-uid')}"]`).remove();
                         // remove the website badge from all instances of the dir
                         $(`.item[data-uid="${$(el_item).attr('data-uid')}"]`).find('.item-has-website-badge').fadeOut(300);
                     }

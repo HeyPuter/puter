@@ -111,7 +111,6 @@ const fa = {
       'آیا مطمئن هستید که می‌خواهید احراز هویت دو مرحله ای را غیرفعال کنید؟',
         disable_2fa_instructions:
       'برای غیرفعال کردن احراز هویت دو مرحله ای ،رمز عبور خود را وارد کنید',
-        disassociate_dir: 'قطع ارتباط دایرکتوری',
         documents: 'اسناد',
         dont_allow: 'عدم اجازه',
         download: 'دانلود',
@@ -175,7 +174,6 @@ const fa = {
         modified: 'تغییر داده شده',
         move: 'انتقال',
         moving_file: 'انتقال %%',
-        my_websites: 'وبسایت های من',
         name: 'نام',
         name_cannot_be_empty: 'نام نمی تواند خالی باشد.',
         name_cannot_contain_double_period: "نام نمی تواند شامل '..' باشد.",
@@ -189,8 +187,6 @@ const fa = {
         new_password: 'رمز عبور جدید',
         new_username: 'نام کاربری جدید',
         no: 'خیر',
-        no_dir_associated_with_site: 'هیچ دایرکتوری مرتبط با این آدرس وجود ندارد.',
-        no_websites_published: 'هنوز هیچ وبسایتی منتشر نکرده اید.',
         ok: 'خوب',
         open: 'باز کردن',
         open_in_new_tab: 'در تب جدید باز کن',
@@ -247,7 +243,6 @@ const fa = {
       'برای هر دوستی که حساب کاربری Puter ایجاد و تأیید کند، 1 گیگابایت دریافت کنید. دوست شما هم 1 گیگابایت دریافت خواهد کرد!',
         refer_friends_social_media_c2a: '1 گیگابایت فضای ذخیره سازی رایگان را در Puter.com بگیرید!',
         refresh: 'تازه کردن',
-        release_address_confirmation: 'آیا مطمئن هستید که می خواهید این آدرس را آزاد کنید؟',
         remove_from_taskbar: 'از نوار وظایف حذف کن',
         rename: 'تغییر نام',
         repeat: 'تکرار',
@@ -327,7 +322,6 @@ const fa = {
         videos: 'ویدیو ها',
         visibility: 'قابلیت دیده شدن',
         yes: 'بله',
-        yes_release_it: 'بله، آن را آزاد کن',
         you_have_been_referred_to_puter_by_a_friend:
       'شما توسط یک دوست به Puter معرفی شده اید!',
         zip: 'فشرده سازی',
@@ -490,7 +484,6 @@ const fa = {
         'window_title_pictures': 'تصاویر',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'این پوشه خالی است',
-        'manage_your_subdomains': 'زیر دامنه‌های خود را مدیریت کنید',
         'open_containing_folder': 'باز کردن پوشه شامل',
     },
 };

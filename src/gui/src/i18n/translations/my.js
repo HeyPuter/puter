@@ -120,7 +120,6 @@ const my = {
         disable_2fa: 'Menyahaktifkan 2FA',
         disable_2fa_confirm: 'Adakah anda yakin mahu menyahaktifkan 2FA?',
         disable_2fa_instructions: 'Masukkan kata laluan anda untuk menyahaktifkan 2FA.',
-        disassociate_dir: 'Pisahkan Direktori',
         documents: 'Dokumen',
         dont_allow: 'Tidak Izinkan',
         download: 'Muat Naik',
@@ -180,7 +179,6 @@ const my = {
         modified: 'Diubah suai',
         move: 'Pindah',
         moving_file: 'Memindahkan %%',
-        my_websites: 'Laman Web Saya',
         minimize: 'Minimumkan',
         reload_app: 'Muat Semula Aplikasi',
         name: 'Nama',
@@ -196,8 +194,6 @@ const my = {
         new_password: 'Kata Laluan Baru',
         new_username: 'Nama Pengguna Baru',
         no: 'Tidak',
-        no_dir_associated_with_site: 'Tiada direktori yang dikaitkan dengan alamat ini.',
-        no_websites_published: 'Anda belum menerbitkan sebarang laman web lagi. Klik kanan pada folder untuk bermula.',
         ok: 'OK',
         open: 'Buka',
         new_window: 'Tetingkap Baru',
@@ -251,7 +247,6 @@ const my = {
         refer_friends_c2a: 'Dapatkan 1 GB untuk setiap rakan yang membuat dan mengesahkan akaun di Puter. Rakan anda juga akan mendapat 1 GB!',
         refer_friends_social_media_c2a: 'Dapatkan 1 GB storan percuma di Puter.com!',
         refresh: 'Muat Semula',
-        release_address_confirmation: 'Adakah anda pasti mahu melepaskan alamat ini?',
         remove_from_taskbar: 'Keluarkan dari Bar Tugas',
         rename: 'Namakan Semula',
         repeat: 'Ulang',
@@ -334,7 +329,6 @@ const my = {
         videos: 'Video',
         visibility: 'Keterlihatan',
         yes: 'Ya',
-        yes_release_it: 'Ya, Lepaskannya',
         you_have_been_referred_to_puter_by_a_friend: 'Anda telah dirujuk ke Puter oleh rakan!',
         zip: 'Zip',
         sequencing: 'Penyusunan %strong%',
@@ -500,7 +494,6 @@ const my = {
         'window_folder_empty': 'Folder ini kosong',
 
         // Website Management
-        'manage_your_subdomains': 'Urus Subdomain Anda',
 
         'open_containing_folder': 'Buka Folder Yang Mengandungi',
     },

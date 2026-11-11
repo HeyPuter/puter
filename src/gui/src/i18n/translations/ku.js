@@ -107,7 +107,6 @@ const ku = {
         disable_2fa: 'ناچالاککردنی 2FA',
         disable_2fa_confirm: 'دڵنیایت کە ئەتەوێت 2FA ناچالاک بکەیت؟',
         disable_2fa_instructions: 'وشەی تێپەڕی نووسە بۆ ناچالاککردنی 2FA.',
-        disassociate_dir: 'جیاکردنەوەی ڕێکەوت',
         documents: 'بەڵگەکان',
         dont_allow: 'ڕێگەندان',
         download: 'داگرتن',
@@ -171,7 +170,6 @@ const ku = {
         modified: 'گۆڕاو',
         move: 'جوڵاندن',
         moving_file: 'جوڵاندنەوەی %%',
-        my_websites: 'وێبسایتەکانم',
         name: 'ناو',
         name_cannot_be_empty: 'ناو ناتوانرێت بەتاڵ بێت.',
         name_cannot_contain_double_period: "ناو ناتوانرێت '..' هەبێت.",
@@ -185,10 +183,6 @@ const ku = {
         new_password: 'وشەی تێپەڕی نوێ',
         new_username: 'ناوی بەکارهێنەری نوێ',
         no: 'نەخێر',
-        no_dir_associated_with_site:
-      'هیچ ڕێکەوتێک پەیوەندیداری ئەم ناونیشانە نییە.',
-        no_websites_published:
-      'هێشتا هیچ وێبسایتێکت نەبڵاوکردووە. لەسەر فۆڵدەرەکە پەنجەکەی راستبکە بۆ دەستپێکردن.',
         ok: 'باشە',
         open: 'کردنەوە',
         open_in_new_tab: 'کردنەوە لە تابێکی نوێ',
@@ -243,7 +237,6 @@ const ku = {
       '1 گیگابایت بۆ هەر هاوڕێک دەست بەرکە، پەیوەندیدانی هەژمارێک بۆ پوتەر دروست بکە و پشتڕاست بکە. هاوڕێتیش 1 گیگابایت وەرگرتن دەبێت!',
         refer_friends_social_media_c2a: '1 گیگابایت پارێزگاکانی پوتەر.com بۆ هەر هاوڕێک بکە!',
         refresh: 'بوژانەوە',
-        release_address_confirmation: 'دڵنیایت کە ئەتەوێت ئەم ناونیشانە بۆ هەڵگرتن؟',
         remove_from_taskbar: 'لابردن لە تاکسبار',
         rename: 'ناونانەوە',
         repeat: 'دووبارەکردنەوە',
@@ -321,7 +314,6 @@ const ku = {
         videos: 'ڤیدیۆکان',
         visibility: 'پیشاندانی',
         yes: 'بەڵێ',
-        yes_release_it: 'بەڵێ، بڵاوکردنەوە',
         you_have_been_referred_to_puter_by_a_friend:
       'هاوڕێکت پەیوەندیداری پوتەر کردووە!',
         zip: 'زیپ',
@@ -492,7 +484,6 @@ const ku = {
         'window_title_pictures': 'وێنە', // In English: "Pictures"
         'window_title_puter': 'پوتێر', // In English: "Puter"
         'window_folder_empty': 'ئەم بوخچەیە بەتاڵە', // In English: "This folder is empty"
-        'manage_your_subdomains': 'بەڕێوەبردنی ژێر دۆمەینەکانت', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'کردنەوەی بوخچەیەکەی کە پەڕگەکە تێدایە', // In English: "Open Containing Folder"
     },
 };

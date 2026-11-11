@@ -107,7 +107,6 @@ const ar = {
         disable_2fa: 'تعطيل المصادقة الثنائية',
         disable_2fa_confirm: 'هل أنت متأكد أنك تريد تعطيل المصادقة الثنائية؟',
         disable_2fa_instructions: '.أدخل كلمة المرور لتعطيل المصادقة الثنائية',
-        disassociate_dir: 'فصل الدليل',
         documents: 'المستندات',
         dont_allow: 'عدم السماح',
         download: 'تنزيل',
@@ -172,7 +171,6 @@ const ar = {
         modified: 'تم التعديل',
         move: 'نقل',
         moving_file: '%%جارٍ نقل',
-        my_websites: 'مواقعي الإلكترونية',
         name: 'اسم',
         name_cannot_be_empty: '.الاسم لا يمكن أن يكون فارغًا',
         name_cannot_contain_double_period: ".'..' الاسم لا يمكن أن يكون",
@@ -186,8 +184,6 @@ const ar = {
         new_password: 'كلمة المرور الجديدة',
         new_username: 'اسم المستخدم الجديد',
         no: 'لا',
-        no_dir_associated_with_site: '.لا يوجد دليل مرتبط بهذا العنوان',
-        no_websites_published: '.لم تنشر أي مواقع إلكترونية بعد',
         ok: 'موافق',
         open: 'فتح',
         open_in_new_tab: 'فتح في علامة تبويب جديدة',
@@ -243,7 +239,6 @@ const ar = {
         refer_friends_social_media_c2a:
       'Puter.com! احصل على 1 جيجابايت من التخزين المجاني على',
         refresh: 'تحديث',
-        release_address_confirmation: 'هل أنت متأكد أنك تريد تحرير هذا العنوان؟',
         remove_from_taskbar: 'إزالة من شريط المهام',
         rename: 'إعادة تسمية',
         repeat: 'تكرار',
@@ -320,7 +315,6 @@ const ar = {
         videos: 'مقاطع الفيديو',
         visibility: 'الرؤية',
         yes: 'نعم',
-        yes_release_it: 'نعم، أطلقه',
         you_have_been_referred_to_puter_by_a_friend:
       '!بواسطة صديق Puter تم إحالتك إلى',
         zip: 'ضغط',
@@ -497,7 +491,6 @@ const ar = {
         window_title_pictures: 'صور',
         window_title_puter: 'بيوتر',
         window_folder_empty: 'هذا المجلد فارغ',
-        manage_your_subdomains: 'إدارة النطاقات الفرعية الخاصة بك',
         open_containing_folder: 'فتح المجلد المحتوي',
     },
 };

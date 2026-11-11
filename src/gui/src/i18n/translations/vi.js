@@ -100,7 +100,6 @@ const vi = {
         disable_2fa: 'Tắt 2FA',
         disable_2fa_confirm: 'Bạn có chắc chắn muốn tắt 2FA không?',
         disable_2fa_instructions: 'Nhập mật khẩu của bạn để tắt 2FA.',
-        disassociate_dir: 'Hủy liên kết thư mục',
         documents: 'Tài liệu',
         dont_allow: 'Không cho phép',
         download: 'Tải xuống',
@@ -159,7 +158,6 @@ const vi = {
         modified: 'Đã sửa đổi',
         move: 'Di chuyển',
         moving_file: 'Đang di chuyển %%',
-        my_websites: 'Trang web của tôi',
         name: 'Tên',
         name_cannot_be_empty: 'Tên không thể để trống.',
         name_cannot_contain_double_period: "Tên không thể là ký tự '..'.",
@@ -173,8 +171,6 @@ const vi = {
         new_password: 'Mật khẩu mới',
         new_username: 'Tên người dùng mới',
         no: 'Không',
-        no_dir_associated_with_site: 'Không có thư mục nào liên kết với địa chỉ này.',
-        no_websites_published: 'Bạn chưa xuất bản trang web nào. Nhấp chuột phải vào một thư mục để bắt đầu.',
         ok: 'OK',
         open: 'Mở',
         open_in_new_tab: 'Mở trong tab mới',
@@ -223,7 +219,6 @@ const vi = {
         refer_friends_c2a: 'Nhận 1 GB cho mỗi người bạn tạo và xác nhận tài khoản trên Puter. Bạn của bạn cũng sẽ nhận được 1 GB!',
         refer_friends_social_media_c2a: 'Nhận 1 GB dung lượng lưu trữ miễn phí trên Puter.com!',
         refresh: 'Làm mới',
-        release_address_confirmation: 'Bạn có chắc chắn muốn giải phóng địa chỉ này không?',
         remove_from_taskbar: 'Xóa khỏi thanh tác vụ',
         rename: 'Đổi tên',
         repeat: 'Lặp lại',
@@ -299,7 +294,6 @@ const vi = {
         videos: 'Video',
         visibility: 'Hiển thị',
         yes: 'Có',
-        yes_release_it: 'Có, giải phóng nó',
         you_have_been_referred_to_puter_by_a_friend: 'Bạn đã được giới thiệu đến Puter bởi một người bạn!',
         zip: 'Nén',
         zipping_file: 'Đang nén %strong%',
@@ -467,7 +461,6 @@ const vi = {
         'window_title_pictures': 'Hình ảnh', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Thư mục này trống', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Quản lý tên miền phụ', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'Mở thư mục chứa', // In English: "Open Containing Folder"
     },
 };

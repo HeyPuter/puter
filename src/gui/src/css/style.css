@@ -1694,71 +1694,6 @@ span.header-sort-icon img {
     width: 110px;
 }
 
-.mywebsites-card {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    position: relative;
-    border: 1px solid #CCC;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 4px;
-    background-color: white;
-}
-
-.mywebsites-address-link {
-    color: #0d6efd;
-    text-decoration: none;
-}
-
-.mywebsites-address-link:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-dir-path {
-    cursor: pointer;
-    font-size: 14px;
-    margin-bottom: 0;
-}
-
-.mywebsites-dir-path img {
-    width: 16px;
-    margin-bottom: -3px;
-    margin-right: 5px;
-}
-
-.mywebsites-dir-path:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-dis-dir {
-    cursor: pointer;
-}
-
-.mywebsites-dis-dir:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-no-dir-notice {
-    margin-bottom: 0;
-    color: #7e7e7e;
-    font-size: 14px;
-}
-
-.mywebsites-release-address {
-    color: red;
-    cursor: pointer;
-    font-size: 13px;
-}
-
-.mywebsites-site-setting {
-    position: absolute;
-    right: 5px;
-    top: 5px;
-    cursor: pointer;
-    width: 20px;
-    height: 20px;
-}
-
 /***********************
  * Context Menu
  ***********************/
@@ -2330,12 +2265,6 @@ label {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     height: auto;
-}
-
-.manage-your-websites-link {
-    color: #007cff;
-    text-decoration: underline;
-    cursor: pointer;
 }
 
 .publishWebsite-published-link, .publishWorker-published-link {

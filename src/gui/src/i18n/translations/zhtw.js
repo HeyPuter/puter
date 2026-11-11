@@ -119,7 +119,6 @@ const zhtw = {
         disable_2fa: '停用雙重驗證',
         disable_2fa_confirm: '您確定要停用雙重驗證嗎？',
         disable_2fa_instructions: '輸入您的密碼以停用雙重驗證。',
-        disassociate_dir: '解除關聯目錄',
         documents: '文件',
         dont_allow: '不允許',
         download: '下載',
@@ -178,7 +177,6 @@ const zhtw = {
         modified: '已修改',
         move: '移動',
         moving_file: '正在移動 %%',
-        my_websites: '我的網站',
         name: '名稱',
         name_cannot_be_empty: '名稱不能為空。',
         name_cannot_contain_double_period: "名稱不能是 '..' 字符。",
@@ -192,8 +190,6 @@ const zhtw = {
         new_password: '新密碼',
         new_username: '新使用者名稱',
         no: '否',
-        no_dir_associated_with_site: '沒有與此地址關聯的目錄。',
-        no_websites_published: '您還沒有發布任何網站。右鍵點擊資料夾以開始。',
         ok: '確定',
         open: '開啟',
         open_in_new_tab: '在新分頁中開啟',
@@ -242,7 +238,6 @@ const zhtw = {
         refer_friends_c2a: '每邀請一位朋友在 Puter 上建立並確認帳戶，您就可獲得 1 GB 空間。您的朋友也會獲得 1 GB！',
         refer_friends_social_media_c2a: '在 Puter.com 上獲得 1 GB 免費儲存空間！',
         refresh: '重新整理',
-        release_address_confirmation: '您確定要釋放此地址嗎？',
         remove_from_taskbar: '從工作列移除',
         rename: '重新命名',
         repeat: '重複',
@@ -318,7 +313,6 @@ const zhtw = {
         videos: '影片',
         visibility: '可見性',
         yes: '是',
-        yes_release_it: '是的，釋放它',
         you_have_been_referred_to_puter_by_a_friend: '您已被朋友推薦到 Puter！',
         zip: '壓縮',
         zipping_file: '正在壓縮 %strong%',
@@ -484,7 +478,6 @@ const zhtw = {
         'window_title_pictures': "圖片", // In English: "Pictures"
         'window_title_puter': "Puter", // In English: "Puter"
         'window_folder_empty': "此資料夾是空的", // In English: "This folder is empty"
-        'manage_your_subdomains': "管理您的子網域", // In English: "Manage Your Subdomains"
         'open_containing_folder': "開啟所在的資料夾", // In English: "Open containing folder"
 		'confirm_download_file_to_desktop': "您確定要將 %% 下載到您的桌面嗎？", // In English: "Are you sure you want to download %% to your Desktop?"
         'downloading_file': "正在下載 %%", // In English: "Downloading %%"

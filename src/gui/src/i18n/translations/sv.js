@@ -100,7 +100,6 @@ const sv = {
         disable_2fa: 'Stäng av 2FA',
         disable_2fa_confirm: 'Är det säkert att du vill stänga av 2FA?',
         disable_2fa_instructions: 'Fyll i ditt lösenord för att stänga av 2FA.',
-        disassociate_dir: 'Avassociera mapp',
         documents: 'Dokument',
         dont_allow: 'Tillåt inte',
         download: 'Ladda ner',
@@ -159,7 +158,6 @@ const sv = {
         modified: 'Ändrad',
         move: 'Flytta',
         moving_file: 'Flyttar %%',
-        my_websites: 'Mina webbplatser',
         name: 'Namn',
         name_cannot_be_empty: 'Namn kan inte vara tomt.',
         name_cannot_contain_double_period: "Namn kan inte innehålla '..'.",
@@ -173,8 +171,6 @@ const sv = {
         new_password: 'Nytt lösenord',
         new_username: 'Nytt användarnamn',
         no: 'Nej',
-        no_dir_associated_with_site: 'Ingen mapp är associerad med denna adress.',
-        no_websites_published: 'Du har ännu inte publicerat några webbplatser.',
         ok: 'OK',
         open: 'Öppna',
         open_in_new_tab: 'Öppna i ny flik',
@@ -223,7 +219,6 @@ const sv = {
         refer_friends_c2a: 'Få 1 GB för varje vän som skapar och bekräftar ett konto på Puter. Din vän får också 1 GB.',
         refer_friends_social_media_c2a: 'Få 1 GB gratis lagringsutrymme på Puter.com!',
         refresh: 'Uppdatera',
-        release_address_confirmation: 'Är du säker på att du vill frigöra denna adress?',
         remove_from_taskbar: 'Ta bort från aktivitetsfältet',
         rename: 'Byt namn',
         repeat: 'Upprepa',
@@ -299,7 +294,6 @@ const sv = {
         videos: 'Videor',
         visibility: 'Synlighet',
         yes: 'Ja',
-        yes_release_it: 'Ja, frigör den',
         you_have_been_referred_to_puter_by_a_friend: 'Du har blivit hänvisad till Puter av en vän!',
         zip: 'Zippa',
         zipping_file: 'Komprimerar %strong%',
@@ -470,7 +464,6 @@ const sv = {
         'window_title_pictures': 'Bilder', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Denna mapp är tom', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Hantera dina subdomäner', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'Öppna innehållande mapp', // In English: "Open Containing Folder"
 
     },

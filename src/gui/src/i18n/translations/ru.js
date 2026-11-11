@@ -111,7 +111,6 @@ const ru = {
       'Вы уверены, что хотите отключить двойную аутентификацию?',
         disable_2fa_instructions:
       'Введите пароль чтобы отключить двойную аутентификацию.',
-        disassociate_dir: 'Отключить директорию',
         documents: 'Документы',
         dont_allow: 'Доступ запрещён',
         download: 'Загрузить',
@@ -175,7 +174,6 @@ const ru = {
         modified: 'Изменено',
         move: 'Переместить',
         moving_file: 'Перемещаю %%',
-        my_websites: 'Мои Сайты',
         name: 'Имя',
         name_cannot_be_empty: 'Имя не может быть пустым.',
         name_cannot_contain_double_period: "Имя не может быть '..' символом.",
@@ -189,8 +187,6 @@ const ru = {
         new_password: 'Новый пароль',
         new_username: 'Новое имя пользователя',
         no: 'Нет',
-        no_dir_associated_with_site: 'Нет директории, связанной с этим адресом.',
-        no_websites_published: 'Вы еще не опубликовали ни одного сайта.',
         ok: 'OK',
         open: 'Открыть',
         open_in_new_tab: 'Открыть в новой вкладке',
@@ -246,7 +242,6 @@ const ru = {
       'Получите 1 ГБ за каждого друга, который создаст и подтвердит учетную запись на Puter. Ваш друг тоже получит 1 ГБ!',
         refer_friends_social_media_c2a: 'Получите 1 ГБ бесплатного хранилища на Puter.com!',
         refresh: 'Обновить',
-        release_address_confirmation: 'Вы уверены, что хотите освободить этот адрес?',
         remove_from_taskbar: 'Удалить из панели задач',
         rename: 'Переименовать',
         repeat: 'Повторить',
@@ -329,7 +324,6 @@ const ru = {
         videos: 'Видео',
         visibility: 'Видимость',
         yes: 'Да',
-        yes_release_it: 'Да, освободить.',
         you_have_been_referred_to_puter_by_a_friend:
       'Вы были приглашены в Puter другом!',
         zip: 'Добавить в архив',
@@ -501,7 +495,6 @@ const ru = {
         'window_title_pictures': 'Изображения', // In English: "Pictures"
         'window_title_puter': 'Путер', // In English: "Puter"
         'window_folder_empty': 'Эта папка пуста', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Управление вашими поддоменами', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'Открыть содержащую папку', // In English: "Open Containing Folder"
 
     },

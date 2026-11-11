@@ -100,7 +100,6 @@ const br = {
         disable_2fa: 'Desativar 2FA',
         disable_2fa_confirm: 'Tem certeza de que deseja desativar 2FA?',
         disable_2fa_instructions: 'Digite sua senha para desativar 2FA.',
-        disassociate_dir: 'Desassociar Diretório',
         documents: 'Documentos',
         dont_allow: 'Não Permitir',
         download: 'Baixar',
@@ -159,7 +158,6 @@ const br = {
         modified: 'Modificado',
         move: 'Mover',
         moving_file: 'Movendo %%',
-        my_websites: 'Meus Sites',
         name: 'Nome',
         name_cannot_be_empty: 'O nome não pode estar vazio.',
         name_cannot_contain_double_period: 'O nome não pode ser o caractere \'..\'.',
@@ -173,8 +171,6 @@ const br = {
         new_password: 'Nova Senha',
         new_username: 'Novo Nome de Usuário',
         'no': 'Não',
-        'no_dir_associated_with_site': 'Nenhum diretório associado a este endereço.',
-        'no_websites_published': 'Você ainda não publicou nenhum site.',
         'ok': 'OK',
         'open': 'Abrir',
         'open_in_new_tab': 'Abrir em Nova Aba',
@@ -223,7 +219,6 @@ const br = {
         'refer_friends_c2a': 'Ganhe 1 GB para cada amigo que criar e confirmar uma conta no Puter. Seu amigo também ganhará 1 GB!',
         'refer_friends_social_media_c2a': 'Ganhe 1 GB de armazenamento gratuito no Puter.com!',
         'refresh': 'Atualizar',
-        'release_address_confirmation': 'Tem certeza de que deseja liberar este endereço?',
         'remove_from_taskbar': 'Remover da Barra de Tarefas',
         'rename': 'Renomear',
         'repeat': 'Repetir',
@@ -299,7 +294,6 @@ const br = {
         'videos': 'Vídeos',
         'visibility': 'Visibilidade',
         'yes': 'Sim',
-        'yes_release_it': 'Sim, Liberar',
         'you_have_been_referred_to_puter_by_a_friend': 'Você foi indicado ao Puter por um amigo!',
         'zip': 'Compactar',
         'zipping_file': 'Compactando %strong%',
@@ -467,7 +461,6 @@ const br = {
         'window_title_pictures': 'Imagens', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Esta pasta está vazia', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Gerenciar seus subdomínios', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'Abrir local do arquivo', // In English: "Open Containing Folder"
 
     },

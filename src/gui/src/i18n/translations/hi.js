@@ -99,7 +99,6 @@ const hi = {
         disable_2fa: '2एफए गायब करें',
         disable_2fa_confirm: 'क्या आप वाकई 2एफए को गायब करना चाहते हैं?',
         disable_2fa_instructions: '2एफए को गायब करने के लिए अपना पासवर्ड दर्ज करें।',
-        disassociate_dir: 'निर्देशिका को अलग करें',
         documents: 'दस्तावेज़',
         dont_allow: 'अनुमति न दें',
         download: 'डाउनलोड',
@@ -158,7 +157,6 @@ const hi = {
         modified: 'संशोधित',
         move: 'बदले',
         moving_file: 'जा रहे हैं %%',
-        my_websites: 'मेरी वेबसाइटें',
         name: 'नाम',
         name_cannot_be_empty: 'नाम खाली नहीं हो सकता',
         name_cannot_contain_double_period: "नाम '..' वर्ण नहीं हो सकता",
@@ -172,8 +170,6 @@ const hi = {
         new_password: 'नया पासवर्ड',
         new_username: 'नया उपयोगकर्ता नाम',
         no: 'नहीं',
-        no_dir_associated_with_site: 'इस पते से कोई निर्देशिका संबद्ध नहीं है',
-        no_websites_published: 'आपने अभी तक कोई वेबसाइट प्रकाशित नहीं की है',
         ok: 'ठीक है',
         open: 'खुला',
         open_in_new_tab: 'वेब टेब में खोलें',
@@ -222,7 +218,6 @@ const hi = {
         refer_friends_c2a: 'पुटर पर खाता बनाने और पुष्टि करने वाले प्रत्येक मित्र के लिए 1 जीबी प्राप्त करें। आपके दोस्त को भी मिलेगा 1 जीबी!',
         refer_friends_social_media_c2a: 'Purer.com पर 1 जीबी निःशुल्क स्टोरेज प्राप्त करें!',
         refresh: 'ताजा करना ',
-        release_address_confirmation: 'क्या आप वाकई यह पता जारी करना चाहते हैं?',
         remove_from_taskbar: 'टास्कबार से हटाएँ',
         rename: 'नाम बदलें',
         repeat: 'दोहराना',
@@ -298,7 +293,6 @@ const hi = {
         videos: 'वीडियो',
         visibility: 'दृश्यता',
         yes: 'हाँ',
-        yes_release_it: 'हाँ, इसे जारी करें',
         you_have_been_referred_to_puter_by_a_friend: 'आपको एक मित्र ने पुटर के बारे में बताया है!',
         zip: 'ज़िप',
         zipping_file: 'ज़िपिंग  %strong%',
@@ -459,7 +453,6 @@ const hi = {
         'window_title_pictures': 'चित्र', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'यह फ़ोल्डर खाली है', // In English: "This folder is empty"
-        'manage_your_subdomains': 'अपने सबडोमेन प्रबंधित करें', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'समाहित फ़ोल्डर खोलें', // In English: "Open Containing Folder"
     },
 };

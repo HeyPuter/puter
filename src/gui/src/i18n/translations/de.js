@@ -99,7 +99,6 @@ const de = {
         disable_2fa: '2FA deaktivieren',
         disable_2fa_confirm: 'Möchten Sie 2FA wirklich deaktivieren?',
         disable_2fa_instructions: 'Geben Sie Ihr Passwort ein, um 2FA zu deaktivieren.',
-        disassociate_dir: 'Verzeichnis trennen',
         documents: 'Dokumente',
         dont_allow: 'Nicht erlauben',
         download: 'Herunterladen',
@@ -158,7 +157,6 @@ const de = {
         modified: 'Geändert',
         move: 'Verschieben',
         moving_file: 'Verschiebe %%',
-        my_websites: 'Meine Webseiten',
         name: 'Name',
         name_cannot_be_empty: 'Name darf nicht leer sein.',
         name_cannot_contain_double_period: "Name darf nicht das Zeichen '..' enthalten.",
@@ -172,8 +170,6 @@ const de = {
         new_password: 'Neues Passwort',
         new_username: 'Neuer Benutzername',
         no: 'Nein',
-        no_dir_associated_with_site: 'Mit dieser Adresse ist kein Verzeichnis verknüpft.',
-        no_websites_published: 'Sie haben noch keine Webseite veröffentlicht.',
         ok: 'OK',
         open: 'Öffnen',
         open_in_new_tab: 'In neuem Tab öffnen',
@@ -222,7 +218,6 @@ const de = {
         refer_friends_c2a: 'Erhalten Sie 1 GB für jeden Freund, der ein Konto auf Puter erstellt und bestätigt. Ihr Freund erhält ebenfalls 1 GB!',
         refer_friends_social_media_c2a: 'Erhalten Sie 1 GB kostenlosen Speicherplatz auf Puter.com!',
         refresh: 'Aktualisieren',
-        release_address_confirmation: 'Möchten Sie diese Adresse wirklich freigeben?',
         remove_from_taskbar: 'Von Taskleiste entfernen',
         rename: 'Umbenennen',
         repeat: 'Wiederholen',
@@ -298,7 +293,6 @@ const de = {
         videos: 'Videos',
         visibility: 'Sichtbarkeit',
         yes: 'Ja',
-        yes_release_it: 'Ja, veröffentlichen',
         you_have_been_referred_to_puter_by_a_friend: 'Sie wurden von einem Freund an Puter verwiesen!',
         zip: 'Verpacken',
         zipping_file: 'Verpacken von %strong%',
@@ -466,7 +460,6 @@ const de = {
         'window_title_pictures': 'Bilder', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Dieser Ordner ist leer', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Verwalten Sie Ihre Subdomains', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'Enthaltenen Ordner öffnen', // In English: "Open Containing Folder"
     },
 };

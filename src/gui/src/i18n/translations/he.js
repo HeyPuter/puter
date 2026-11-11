@@ -106,7 +106,6 @@ const he = {
         disable_2fa: 'השבתת אימות דו-שלבי',
         disable_2fa_confirm: 'האם אתם בטוחים שברצונכם להשבית אימות דו-שלבי?',
         disable_2fa_instructions: 'הזינו את הסיסמה שלכם כדי להשבית אימות דו-שלבי.',
-        disassociate_dir: 'נתק מדריך',
         documents: 'מסמכים',
         dont_allow: 'אל תאפשר',
         download: 'הורדה',
@@ -170,7 +169,6 @@ const he = {
         modified: 'שונה',
         move: 'לעבור',
         moving_file: 'מעביר %%',
-        my_websites: 'אתרי האינטרנט שלי',
         name: 'שם',
         name_cannot_be_empty: 'השם לא יכול להיות ריק.',
         name_cannot_contain_double_period: "השם לא יכול להיות עם סימן '..'.",
@@ -184,9 +182,6 @@ const he = {
         new_password: 'סיסמה חדשה',
         new_username: 'שם משתמש חדש',
         no: 'לא',
-        no_dir_associated_with_site: 'אין ספריה המשויכת לכתובת זו.',
-        no_websites_published:
-      'עדיין לא פרסמת אתרי אינטרנט. לחץ לחיצה ימנית על תיקיה כדי להתחיל.',
         ok: 'בסדר',
         open: 'פתח',
         open_in_new_tab: 'פתח בלשונית חדשה',
@@ -239,7 +234,6 @@ const he = {
       'קבל 1 גיגה בייט עבור כל חבר שיוצר ומאשר חשבון ב  Puter. גם החבר שלך יקבל 1 גיגה בייט!',
         refer_friends_social_media_c2a: 'קבל שטח אחסון של 1 גיגה בייט בחינם Puter.com!',
         refresh: 'רענן',
-        release_address_confirmation: 'האם אתה בטוח שברצונך לשחרר כתובת זו?',
         remove_from_taskbar: 'הסרה משורת המשימות',
         rename: 'שנה שם',
         repeat: 'חזור',
@@ -316,7 +310,6 @@ const he = {
         videos: 'סרטונים',
         visibility: 'נראות',
         yes: 'כן',
-        yes_release_it: 'כן, שחררו אותו',
         you_have_been_referred_to_puter_by_a_friend: 'הופנית אל Puter על ידי חבר!',
         zip: 'מכווץ',
         zipping_file: 'מכווץ קובץ %strong%',
@@ -484,7 +477,6 @@ const he = {
         'window_title_pictures': 'תמונות', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'תיקייה זו ריקה', // In English: "This folder is empty"
-        'manage_your_subdomains': 'ניהול תת-הדומיינים שלך', // In English: "Manage Your Subdomains"
         'open_containing_folder': 'פתח תיקייה מכילה', // In English: "Open Containing Folder"
     },
 };

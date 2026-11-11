@@ -110,7 +110,6 @@ const it = {
         disable_2fa_confirm: 'Sei sicuro di voler disabilitare la 2FA?',
         disable_2fa_instructions:
       'Inserisci la tua password per disabilitare la 2FA.',
-        disassociate_dir: 'Dissocia la Directory',
         documents: 'Documenti',
         dont_allow: 'Non consentire',
         download: 'Scarica',
@@ -174,7 +173,6 @@ const it = {
         modified: 'Modificato',
         move: 'Sposta',
         moving_file: 'Spostamento in corso %%',
-        my_websites: 'I miei siti web',
         name: 'Nome',
         name_cannot_be_empty: 'Il nome non può essere vuoto.',
         name_cannot_contain_double_period: "Il nome non può contenere '..' .",
@@ -188,10 +186,6 @@ const it = {
         new_password: 'Nuova Password',
         new_username: 'Nuovo Nome Utente',
         no: 'No',
-        no_dir_associated_with_site:
-      'Nessuna directory è stata associata all’indirizzo.',
-        no_websites_published:
-      'Non hai pubblicato nessun sito web. Clicca tasto destro su una cartella per iniziare.',
         ok: 'OK',
         open: 'Apri',
         open_in_new_tab: 'Apri in una nuova scheda',
@@ -246,7 +240,6 @@ const it = {
       'Ottieni 1 GB di spazio di archiviazione per ogni amico che crea un account e conferma l’email su Puter. Anche il tuo amico riceverà dello spazio extra!',
         refer_friends_social_media_c2a: 'Ottieni 1GB di spazio di spazio di archiviazione gratuito su Puter.com!',
         refresh: 'Ricarica',
-        release_address_confirmation: 'Sei sicuro di voler liberare questo indirizzo?',
         remove_from_taskbar: 'Sblocca dalla barra delle applicazioni',
         rename: 'Rinomina',
         repeat: 'Ripeti',
@@ -328,7 +321,6 @@ const it = {
         videos: 'Video',
         visibility: 'Visibilità',
         yes: 'Sì',
-        yes_release_it: 'Si, rilascialo',
         you_have_been_referred_to_puter_by_a_friend:
       'Sei stato invitato su Puter da un amico!',
         zip: 'File compresso',
@@ -506,7 +498,6 @@ const it = {
         'window_title_pictures': 'Foto',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Questa cartella è vuota',
-        'manage_your_subdomains': 'Gestisci i tuoi sottodomini',
         'open_containing_folder': 'Apri cartella contenente', // In English: "Open Containing Folder"
 
     },
