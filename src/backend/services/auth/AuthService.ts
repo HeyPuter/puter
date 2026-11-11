@@ -2051,6 +2051,43 @@ export class AuthService extends PuterService {
         };
     }
 
+    /**
+     * User, session and app a session, GUI or app token names, checked against
+     * its signature and expiry only: nothing is read from the stores, so this
+     * says nothing about whether the session or user is still live. Null for
+     * worker and access tokens, and for anything that doesn't verify.
+     */
+    signedSessionClaims(
+        token: string,
+    ): { userUid: string; sessionUuid: string; appUid?: string } | null {
+        let decoded: AnyTokenPayload;
+        try {
+            decoded = this.services.token.verify<AnyTokenPayload>(
+                'auth',
+                token,
+            );
+        } catch {
+            return null;
+        }
+        if (decoded.type === 'session' || decoded.type === 'gui') {
+            if (decoded.worker) return null;
+            const sessionUuid = decoded.session_uid ?? decoded.uuid;
+            if (!decoded.user_uid || !sessionUuid) return null;
+            return { userUid: decoded.user_uid, sessionUuid };
+        }
+        if (decoded.type === 'app-under-user') {
+            if (decoded.worker) return null;
+            if (!decoded.user_uid || !decoded.session_uid || !decoded.app_uid)
+                return null;
+            return {
+                userUid: decoded.user_uid,
+                sessionUuid: decoded.session_uid,
+                appUid: decoded.app_uid,
+            };
+        }
+        return null;
+    }
+
     #verifyHostedAssetToken(
         token: string,
         expectedKind: 'private' | 'public',
