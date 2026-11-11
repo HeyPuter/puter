@@ -389,7 +389,6 @@ const he = {
         'toolbar.github': 'גיטהאב', // In English: "GitHub"
         'toolbar.refer': 'הפנה', // In English: "Refer"
         'toolbar.save_account': 'שמור משתמש', // In English: "Save Account"
-        'toolbar.search': 'חפש', // In English: "Search"
         'used_of': '{{available}} משומש מתוך {{used}}', // In English: "{{used}} used of {{available}}"
         'worker': 'עובד', // In English: "Worker"
         'billing.offering.basic': 'בסיסי', // In English: "Basic"
@@ -447,7 +446,6 @@ const he = {
         'window_title_pictures': 'תמונות', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'תיקייה זו ריקה', // In English: "This folder is empty"
-        'open_containing_folder': 'פתח תיקייה מכילה', // In English: "Open Containing Folder"
     },
 };
 

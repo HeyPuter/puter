@@ -255,7 +255,6 @@ const nb = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Henvis',
         'toolbar.save_account': 'Lagre konto',
-        'toolbar.search': 'Søk',
         terms: 'Vilkår',
         text_document: 'Tekstdokument',
         tos_fineprint: "Ved å klikke på 'Opprett gratis konto' godtar du Puters {{link=terms}}tjenestevilkår{{/link}} og {{link=privacy}}personvernpolicy{{/link}}.",
@@ -447,7 +446,6 @@ const nb = {
         'window_title_pictures': 'Bilder',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Denne mappen er tom',
-        'open_containing_folder': 'Åpne inneholdende mappe',
     },
 };
 

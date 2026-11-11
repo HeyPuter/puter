@@ -367,7 +367,6 @@ const hu = {
         'toolbar.github': 'GitHub', // English: "GitHub"
         'toolbar.refer': 'Ajánlás', // English: "Refer"
         'toolbar.save_account': 'Fiók mentése', // English: "Save Account"
-        'toolbar.search': 'Keresés', // English: "Search"
         'used_of': '{{used}} használt a {{available}}-ból', // English: "{{used}} used of {{available}}"
         'worker': 'Munkás', // English: "Worker"
         'billing.offering.basic': 'Alap', // English: "Basic"
@@ -425,7 +424,6 @@ const hu = {
         'window_title_pictures': 'Képek', // English: "Pictures"
         'window_title_puter': 'Puter', // English: "Puter"
         'window_folder_empty': 'Ez a mappa üres', // English: "This folder is empty"
-        'open_containing_folder': 'A tartalmazó mappa megnyitása', // English: "Open Containing Folder"
 
     },
 };

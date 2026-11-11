@@ -395,7 +395,6 @@ const fa = {
         'toolbar.github': 'گیت‌هاب',
         'toolbar.refer': 'معرفی',
         'toolbar.save_account': 'ذخیره حساب',
-        'toolbar.search': 'جستجو',
         'used_of': '{{used}} استفاده شده از {{available}}',
         'worker': 'کارگر',
         'billing.offering.basic': 'پایه',
@@ -453,7 +452,6 @@ const fa = {
         'window_title_pictures': 'تصاویر',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'این پوشه خالی است',
-        'open_containing_folder': 'باز کردن پوشه شامل',
     },
 };
 

@@ -424,7 +424,6 @@ const ta = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'அறிமுகப்படுத்து',
         'toolbar.save_account': 'கணக்கை சேமிக்க',
-        'toolbar.search': 'தேடு',
         used_of: '{{available}} இல் {{used}} பயன்படுத்தப்பட்டது',
         worker: 'வொர்க்கர்',
         'billing.offering.basic': 'அடிப்படை',
@@ -486,7 +485,6 @@ const ta = {
         window_title_pictures: 'படங்கள்',
         window_title_puter: 'Puter',
         window_folder_empty: 'இந்த கோப்புறை காலியாக உள்ளது',
-        open_containing_folder: 'கொண்டுள்ள கோப்புறையைத் திற',
     },
 };
 

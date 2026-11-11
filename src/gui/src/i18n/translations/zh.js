@@ -375,7 +375,6 @@ const zh = {
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': '推荐', // In English: "Refer"
         'toolbar.save_account': '保存账号', // In English: "Save Account"
-        'toolbar.search': '搜索', // In English: "Search"
         'used_of': '已用 {{used}} / 共 {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': '基础', // In English: "Basic"
@@ -433,7 +432,6 @@ const zh = {
         'window_title_pictures': '图片', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': '此文件夹为空', // In English: "This folder is empty"
-        'open_containing_folder': '打开所在文件夹', // In English: "Open Containing Folder"
     },
 };
 

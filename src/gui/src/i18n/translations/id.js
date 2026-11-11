@@ -399,7 +399,6 @@ const id = {
         'toolbar.github': 'Github', // In English: "GitHub"
         'toolbar.refer': 'Rujuk', // In English: "Refer"
         'toolbar.save_account': 'Simpan Akun', // In English: "Save Account"
-        'toolbar.search': 'Cari', // In English: "Search"
         'used_of': 'terpakai {{used}} dari {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker".
         'billing.offering.basic': 'Basic', // In English: "Basic"
@@ -457,7 +456,6 @@ const id = {
         'window_title_pictures': 'Gambar', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Folder ini kosong', // In English: "This folder is empty"
-        'open_containing_folder': 'Buka Folder Saat Ini', // In English: "Open Containing Folder"
 
     },
 };

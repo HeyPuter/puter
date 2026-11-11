@@ -18,7 +18,6 @@
  */
 
 import UIAlert from './UI/UIAlert.js';
-import UIWindowSearch from './UI/UIWindowSearch.js';
 import open_item from './helpers/openItem.js';
 import determine_active_container_parent from './helpers/determineActiveContainerParent.js';
 
@@ -43,18 +42,6 @@ const selection_container = () => {
 
 $(document).bind('keydown', async function (e) {
     const focused_el = document.activeElement;
-    //-----------------------------------------------------------------------------
-    // Search
-    // ctrl/command + f, will open UIWindowSearch — but not while the dashboard
-    // is open, where ctrl/cmd + f should fall through to the browser's find.
-    //-----------------------------------------------------------------------------
-    if ( (e.ctrlKey || e.metaKey) && e.which === 70 && !$(focused_el).is('input') && !$(focused_el).is('textarea') && $('.window-dashboard').length === 0 ) {
-        e.preventDefault();
-        e.stopPropagation();
-        UIWindowSearch();
-        return false;
-    }
-
     //-----------------------------------------------------------------------
     // ← ↑ → ↓: an arrow key is pressed
     //-----------------------------------------------------------------------
@@ -271,36 +258,6 @@ $(document).bind('keydown', async function (e) {
                 window.update_explorer_footer_selected_items_count($(window.active_item_container).closest('.window'));
             }
         }
-        // ----------------------------------------------
-        // Navigate search results in the search window
-        // ----------------------------------------------
-        else if ( $('.window-search').length > 0 ) {
-            let selected_item = $('.window-search .search-result-active').get(0);
-            let selected_item_index = selected_item ? $('.window-search .search-result').index(selected_item) : -1;
-            let new_selected_item_index = selected_item_index;
-            let new_selected_item;
-
-            // if up arrow is pressed
-            if ( e.which === 38 ) {
-                new_selected_item_index = selected_item_index - 1;
-                if ( new_selected_item_index < 0 )
-                {
-                    new_selected_item_index = $('.window-search .search-result').length - 1;
-                }
-            }
-            // if down arrow is pressed
-            else if ( e.which === 40 ) {
-                new_selected_item_index = selected_item_index + 1;
-                if ( new_selected_item_index >= $('.window-search .search-result').length )
-                {
-                    new_selected_item_index = 0;
-                }
-            }
-            new_selected_item = $('.window-search .search-result').get(new_selected_item_index);
-            $(selected_item).removeClass('search-result-active');
-            $(new_selected_item).addClass('search-result-active');
-            new_selected_item.scrollIntoView(false);
-        }
     }
     //-----------------------------------------------------------------------
     // if the Esc key is pressed on a FileDialog/Alert, close that FileDialog/Alert
@@ -325,12 +282,6 @@ $(document).bind('keydown', async function (e) {
         $(focused_el).blur();
         $(focused_el).val($(focused_el).closest('.window').attr('data-path'));
         $(focused_el).attr('data-path', $(focused_el).closest('.window').attr('data-path'));
-    }
-    //-----------------------------------------------------------------------
-    // if the Esc key is pressed on a Search Window, close the Search Window
-    //-----------------------------------------------------------------------
-    else if ( e.which === 27 && $('.window-search').length > 0 ) {
-        $('.window-search').close();
     }
 
     //-----------------------------------------------------------------------
@@ -625,16 +576,6 @@ $(document).bind('keyup keydown', async function (e) {
                 });
             }
         }
-        return false;
-    }
-    //-----------------------------------------------------------------------
-    // Enter key on a search window result
-    //-----------------------------------------------------------------------
-    if ( e.which === 13 && $('.window-search').length > 0
-        // prevent firing twice, because this will be fired on both keyup and keydown
-        && e.type === 'keydown' ) {
-        $('.window-search .search-result-active').trigger('click');
-
         return false;
     }
     //-----------------------------------------------------------------------

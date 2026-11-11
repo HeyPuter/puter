@@ -371,7 +371,6 @@ const ro = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Recomandă',
         'toolbar.save_account': 'Salvează contul',
-        'toolbar.search': 'Caută',
         'used_of': '%% folosit din %%',
         'worker': 'Muncitor',
         'billing.offering.basic': 'De bază',
@@ -429,7 +428,6 @@ const ro = {
         'window_title_pictures': 'Poze',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Acest folder este gol',
-        'open_containing_folder': 'Deschide folderul care conține',
 
     },
 };

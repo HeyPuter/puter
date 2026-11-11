@@ -381,7 +381,6 @@ const bn = {
         'toolbar.github': 'গিটহাব',
         'toolbar.refer': 'রেফার',
         'toolbar.save_account': 'অ্যাকাউন্ট সংরক্ষণ করুন',
-        'toolbar.search': 'অনুসন্ধান',
         'used_of': '{{used}} ব্যবহৃত হয়েছে {{available}} এর মধ্যে',
         'worker': 'কর্মী',
         'billing.offering.basic': 'মৌলিক',
@@ -439,7 +438,6 @@ const bn = {
         'window_title_pictures': 'ছবি',
         'window_title_puter': 'পিউটার',
         'window_folder_empty': 'এই ফোল্ডারটি খালি আছে',
-        'open_containing_folder': 'ধারণকৃত ফোল্ডারটি খুলুন',
 
     },
 };

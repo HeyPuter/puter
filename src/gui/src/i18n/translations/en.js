@@ -758,7 +758,6 @@ const en = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Refer',
         'toolbar.save_account': 'Save Account',
-        'toolbar.search': 'Search',
         tos_fineprint: 'By signing up, you agree to Puter\'s {{link=terms}}Terms of Service{{/link}} and {{link=privacy}}Privacy Policy{{/link}}.',
         transparency: 'Transparency',
         trash: 'Trash',
@@ -1033,7 +1032,6 @@ const en = {
 
         // Website Management
 
-        'open_containing_folder': 'Open Containing Folder',
 
         'set_as_background': 'Set as Desktop Background',
 

@@ -274,7 +274,6 @@ const my = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Rujuk',
         'toolbar.save_account': 'Simpan Akaun',
-        'toolbar.search': 'Cari',
         tos_fineprint: 'Dengan mengklik \'Buat Akaun Percuma\' anda bersetuju dengan {{link=terms}}Terma Perkhidmatan{{/link}} dan {{link=privacy}}Dasar Privasi{{/link}} Puter.',
         transparency: 'Ketelusan',
         trash: 'Tong Sampah',
@@ -466,7 +465,6 @@ const my = {
 
         // Website Management
 
-        'open_containing_folder': 'Buka Folder Yang Mengandungi',
     },
 };
 

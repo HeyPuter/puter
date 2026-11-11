@@ -401,7 +401,6 @@ const ar = {
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'إحالة', // In English: "Refer"
         'toolbar.save_account': 'حفظ الحساب', // In English: "Save Account"
-        'toolbar.search': 'بحث', // In English: "Search"
         used_of: '{{available}}محاولات مستخدمة من {{used}}', // In English: "{{used}} used of {{available}}"
         worker: 'العامل', // In English: "Worker"
         'billing.offering.basic': 'أساسي', // In English: "Basic"
@@ -461,7 +460,6 @@ const ar = {
         window_title_pictures: 'صور',
         window_title_puter: 'بيوتر',
         window_folder_empty: 'هذا المجلد فارغ',
-        open_containing_folder: 'فتح المجلد المحتوي',
     },
 };
 

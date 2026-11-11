@@ -409,7 +409,6 @@ const it = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Invita',
         'toolbar.save_account': 'Salva account',
-        'toolbar.search': 'Cerca',
         'used_of': '{{used}} utilizzati su {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Base', // In English: "Basic"
@@ -467,7 +466,6 @@ const it = {
         'window_title_pictures': 'Foto',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Questa cartella è vuota',
-        'open_containing_folder': 'Apri cartella contenente', // In English: "Open Containing Folder"
 
     },
 };

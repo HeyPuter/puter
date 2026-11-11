@@ -407,7 +407,6 @@ const ru = {
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Рекомендовать', // In English: "Refer"
         'toolbar.save_account': 'Сохранить аккаунт', // In English: "Save Account"
-        'toolbar.search': 'Поиск', // In English: "Search"
         'used_of': 'Использовано', // In English: "{{used}} used of {{available}}"
         'worker': 'Воркер', // In English: "Worker"
         'billing.offering.basic': 'Базовый', // In English: "Basic"
@@ -465,7 +464,6 @@ const ru = {
         'window_title_pictures': 'Изображения', // In English: "Pictures"
         'window_title_puter': 'Путер', // In English: "Puter"
         'window_folder_empty': 'Эта папка пуста', // In English: "This folder is empty"
-        'open_containing_folder': 'Открыть содержащую папку', // In English: "Open Containing Folder"
 
     },
 };

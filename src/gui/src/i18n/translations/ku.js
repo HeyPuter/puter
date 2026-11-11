@@ -396,7 +396,6 @@ const ku = {
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'بانگهێشت بکە', // In English: "Refer"
         'toolbar.save_account': 'هەژمار پاشەکەوت بکە', // In English: "Save Account"
-        'toolbar.search': 'گەڕان', // In English: "Search"
         'used_of': '{{used}} بەکارهاتوو لە {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'کارمەند', // In English: "Worker"
         'billing.offering.basic': 'بنەڕەتی', // In English: "Basic"
@@ -454,7 +453,6 @@ const ku = {
         'window_title_pictures': 'وێنە', // In English: "Pictures"
         'window_title_puter': 'پوتێر', // In English: "Puter"
         'window_folder_empty': 'ئەم بوخچەیە بەتاڵە', // In English: "This folder is empty"
-        'open_containing_folder': 'کردنەوەی بوخچەیەکەی کە پەڕگەکە تێدایە', // In English: "Open Containing Folder"
     },
 };
 

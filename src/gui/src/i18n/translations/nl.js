@@ -378,7 +378,6 @@ const nl = {
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Vriend uitnodigen', // In English: "Refer"
         'toolbar.save_account': 'Account opslaan', // In English: "Save Account"
-        'toolbar.search': 'Zoeken', // In English: "Search"
         'used_of': '{{used}} van {{available}} gebruikt', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker" (No direct Dutch equivalent, commonly used in tech context)
         'billing.offering.basic': 'Basis', // In English: "Basic"
@@ -437,7 +436,6 @@ const nl = {
         'window_title_pictures': 'Afbeeldingen', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Deze map is leeg', // In English: "This folder is empty"
-        'open_containing_folder': 'Bestandslocatie openen', // In English: "Open Containing Folder"
     },
 };
 

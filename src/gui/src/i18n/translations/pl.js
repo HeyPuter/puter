@@ -376,7 +376,6 @@ const pl = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Poleć',
         'toolbar.save_account': 'Zapisz Konto',
-        'toolbar.search': 'Szukaj',
         'used_of': '{{used}} użyte z {{available}}',
         'worker': 'Worker',
         'billing.offering.basic': 'Podstawowe',
@@ -434,7 +433,6 @@ const pl = {
         'window_title_pictures': 'Zdjęcia',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Ten folder jest pusty',
-        'open_containing_folder': 'Otwórz Lokalizację Pliku',
 
     },
 };

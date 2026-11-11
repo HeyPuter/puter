@@ -462,7 +462,6 @@ const fi = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Suosittele',
         'toolbar.save_account': 'Tallenna tili',
-        'toolbar.search': 'Haku',
         'used_of': '{{used}} käytetty {{available}}:sta',
         'worker': 'Työntekijä',
         'billing.offering.basic': 'Perus',
@@ -520,7 +519,6 @@ const fi = {
         'window_title_pictures': 'Kuvat',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Tämä kansio on tyhjä',
-        'open_containing_folder': 'Avaa sisältävä kansio',
     },
 };
 

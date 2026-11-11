@@ -282,7 +282,6 @@ const bg = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Препоръчай',
         'toolbar.save_account': 'Запази акаунта',
-        'toolbar.search': 'Търсене',
         tos_fineprint:
       "С натискане на 'Създай безплатен акаунт' вие се съгласявате с {{link=terms}}Условията за ползване{{/link}} и {{link=privacy}}Политиката за поверителност{{/link}} на Puter.",
         transparency: 'Прозрачност',
@@ -497,7 +496,6 @@ const bg = {
         window_folder_empty: 'Тази папка е празна',
 
         // Website Management
-        open_containing_folder: 'Отвори съдържащата папка',
         set_as_background: 'Задай като фон на работния плот',
     },
 };

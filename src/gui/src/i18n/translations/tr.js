@@ -377,7 +377,6 @@ const tr = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Yönlendir',
         'toolbar.save_account': 'Hesabı Kaydet',
-        'toolbar.search': 'Ara',
         'used_of': '{{available}} alanın {{used}} kullanılıyor',
         'worker': 'Worker',
         'billing.offering.basic': 'Temel',
@@ -435,7 +434,6 @@ const tr = {
         'window_title_pictures': 'Resimler',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Bu klasör boş',
-        'open_containing_folder': 'İçeren Klasörü Aç',
     },
 };
 

@@ -400,7 +400,6 @@ const ur = {
         'toolbar.github': 'گیٹ ہب', // In English: "GitHub"
         'toolbar.refer': 'ریفر کریں', // In English: "Refer"
         'toolbar.save_account': 'اکاؤنٹ محفوظ کریں', // In English: "Save Account"
-        'toolbar.search': 'تلاش کریں', // In English: "Search"
         'used_of': '{{used}} استعمال شدہ از {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'ورکر', // In English: "Worker"
         'billing.offering.basic': 'بنیادی', // In English: "Basic"
@@ -458,7 +457,6 @@ const ur = {
         'window_title_pictures': 'تصاویر', // In English: "Pictures"
         'window_title_puter': 'پیوٹر', // In English: "Puter"
         'window_folder_empty': 'یہ فولڈر خالی ہے', // In English: "This folder is empty"
-        'open_containing_folder': 'موجودہ فولڈر کھولیں', // In English: "Open Containing Folder"
 
     },
 };

@@ -374,7 +374,6 @@ const br = {
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Indicar', // In English: "Refer"
         'toolbar.save_account': 'Salvar Conta', // In English: "Save Account"
-        'toolbar.search': 'Pesquisar', // In English: "Search"
         'used_of': '{{used}} utilizado de {{available}} disponível', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Básico', // In English: "Basic"
@@ -432,7 +431,6 @@ const br = {
         'window_title_pictures': 'Imagens', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Esta pasta está vazia', // In English: "This folder is empty"
-        'open_containing_folder': 'Abrir local do arquivo', // In English: "Open Containing Folder"
 
     },
 };

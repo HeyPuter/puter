@@ -374,7 +374,6 @@ const vi = {
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Giới thiệu', // In English: "Refer"
         'toolbar.save_account': 'Lưu tài khoản', // In English: "Save Account"
-        'toolbar.search': 'Tìm kiếm', // In English: "Search"
         'used_of': '{{used}} đã dùng trong tổng {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Gói cơ bản', // In English: "Basic"
@@ -432,7 +431,6 @@ const vi = {
         'window_title_pictures': 'Hình ảnh', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Thư mục này trống', // In English: "This folder is empty"
-        'open_containing_folder': 'Mở thư mục chứa', // In English: "Open Containing Folder"
     },
 };
 

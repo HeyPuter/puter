@@ -257,7 +257,6 @@ const sl = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Priporoči',
         'toolbar.save_account': 'Shrani račun',
-        'toolbar.search': 'Iskanje',
         tos_fineprint: 'S klikom na \'Ustvari brezplačen račun\' se strinjate s Puterjevimi {{link=terms}}pogoji storitve{{/link}} in {{link=privacy}}pravilnikom o zasebnosti{{/link}}.',
         transparency: 'Prosojnost',
         trash: 'Smeti',
@@ -448,7 +447,6 @@ Shranite jih na varno mesto.
 
         // Website Management
 
-        'open_containing_folder': 'Odpri vsebujočo mapo',
     },
 };
 

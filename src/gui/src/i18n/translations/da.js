@@ -375,7 +375,6 @@ const da = {
         'toolbar.github': undefined, // In English: "GitHub"
         'toolbar.refer': undefined, // In English: "Refer"
         'toolbar.save_account': undefined, // In English: "Save Account"
-        'toolbar.search': undefined, // In English: "Search"
         'used_of': undefined, // In English: "{{used}} used of {{available}}"
         'worker': undefined, // In English: "Worker"
         'People with access': undefined, // In English: "People with access"
@@ -484,7 +483,6 @@ const da = {
         'window_title_pictures': undefined, // In English: "Pictures"
         'window_title_puter': undefined, // In English: "Puter"
         'window_folder_empty': undefined, // In English: "This folder is empty"
-        'open_containing_folder': undefined, // In English: "Open Containing Folder"
 
     },
 };

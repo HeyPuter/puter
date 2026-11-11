@@ -388,7 +388,6 @@ const fil = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Mag-refer',
         'toolbar.save_account': 'I-save ang account',
-        'toolbar.search': 'Hanapin',
         'used_of': '{{used}} ang nagamit sa {{available}}',
         'worker': 'Worker',
         'billing.offering.basic': 'Basic',
@@ -446,7 +445,6 @@ const fil = {
         'window_title_pictures': 'Mga larawan',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Walang laman ang folder na ito',
-        'open_containing_folder': 'Buksan ang kinalalagyan na folder',
     },
 };
 

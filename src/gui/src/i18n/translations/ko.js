@@ -274,7 +274,6 @@ const ko = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': '추천',
         'toolbar.save_account': '계정 저장',
-        'toolbar.search': '검색',
         tos_fineprint: '무료 계정 생성을 클릭하면 Puter의 {{link=terms}}서비스 약관{{/link}}과 {{link=privacy}}개인정보 보호정책{{/link}}에 동의하는 것으로 간주됩니다.',
         transparency: '투명도',
         trash: '휴지통',
@@ -468,7 +467,6 @@ const ko = {
 
         // Website Management
 
-        'open_containing_folder': '포함된 폴더 열기',
     },
 };
 

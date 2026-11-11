@@ -279,7 +279,6 @@ const fr = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Parrainer',
         'toolbar.save_account': 'Sauvegarder le compte',
-        'toolbar.search': 'Rechercher',
         tos_fineprint: 'En cliquant sur "Créer un compte gratuit", vous acceptez les {{link=terms}}Conditions d\'utilisation{{/link}} et la {{link=privacy}}Politique de confidentialité{{/link}} de Puter.',
         transparency: 'Transparence',
         trash: 'Corbeille',
@@ -478,7 +477,6 @@ const fr = {
         'window_folder_empty': 'Ce dossier est vide',
 
         // Website Management
-        'open_containing_folder': 'Ouvrir le dossier conteneur',
 
         'set_as_background': 'Définir comme arrière-plan',
 

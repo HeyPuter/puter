@@ -380,7 +380,6 @@ const ja = {
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': '参照する', // In English: "Refer"
         'toolbar.save_account': 'アカウントを保存', // In English: "Save Account"
-        'toolbar.search': '検索する', // In English: "Search"
         'used_of': '{{available}} のうち {{used}} を使用', // In English: "{{used}} used of {{available}}"
         'worker': 'ワーカー', // In English: "Worker"
         'billing.offering.basic': 'ベーシック', // In English: "Basic"
@@ -438,7 +437,6 @@ const ja = {
         'window_title_pictures': '写真', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'このフォルダーは空です', // In English: "This folder is empty"
-        'open_containing_folder': '保存先のフォルダーを開く', // In English: "Open Containing Folder"
     },
 };
 

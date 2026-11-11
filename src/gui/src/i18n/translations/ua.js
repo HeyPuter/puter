@@ -360,7 +360,6 @@ const ua = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Рекомендувати',
         'toolbar.save_account': 'Зберегти обліковий запис',
-        'toolbar.search': 'Пошук',
         'used_of': '{{used}} використано з {{available}}',
         'worker': 'Воркер',
         'billing.offering.basic': 'Базовий',
@@ -418,7 +417,6 @@ const ua = {
         'window_title_pictures': 'Зображення',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Ця папка порожня',
-        'open_containing_folder': 'Відкрити папку, яка містить',
     },
 };
 

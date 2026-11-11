@@ -401,7 +401,6 @@ const ig = {
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Tụtụ aka', // In English: "Refer"
         'toolbar.save_account': 'Chekwa Akaụntụ', // In English: "Save Account"
-        'toolbar.search': 'Chọọ', // In English: "Search"
         'used_of': '{{used}} ejiri {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Onye ọrụ', // In English: "Worker"
         'billing.offering.basic': 'Isi', // In English: "Basic"
@@ -459,7 +458,6 @@ const ig = {
         'window_title_pictures': 'Foto', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Mpempe akwụkwọ a tọgbọ chakoo', // In English: "This folder is empty"
-        'open_containing_folder': 'Mepee folda nwere', // In English: "Open Containing Folder"
     },
 };
 

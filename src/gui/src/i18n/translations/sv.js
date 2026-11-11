@@ -377,7 +377,6 @@ const sv = {
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Rekommendera', // In English: "Refer"
         'toolbar.save_account': 'Spara konto', // In English: "Save Account"
-        'toolbar.search': 'Sök', // In English: "Search"
         'used_of': '{{used}} använt av {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Bas', // In English: "Basic"
@@ -435,7 +434,6 @@ const sv = {
         'window_title_pictures': 'Bilder', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Denna mapp är tom', // In English: "This folder is empty"
-        'open_containing_folder': 'Öppna innehållande mapp', // In English: "Open Containing Folder"
 
     },
 };

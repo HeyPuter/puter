@@ -390,7 +390,6 @@ const nn = {
         'toolbar.github': 'GitHub', // "Original English: GitHub - Brand name kept unchanged"
         'toolbar.refer': 'Verv', // "Original English: Refer - 'Verv' is more natural than 'Referer'"
         'toolbar.save_account': 'Lagre konto', // "Original English: Save Account"
-        'toolbar.search': 'Søk', // "Original English: Search"
         used_of: '{{used}} brukt av {{available}}', // "Original English: {{used}} used of {{available}} - Variables preserved in original format"
         worker: 'Worker', // "Original English: Worker - Technical term kept"
         'billing.offering.basic': 'Grunnleggjande', // "Original English: Basic"
@@ -449,7 +448,6 @@ const nn = {
         window_title_pictures: 'Bilete', // "Original English: Pictures"
         window_title_puter: 'Puter', // "Original English: Puter - Brand name kept unchanged"
         window_folder_empty: 'Denne mappa er tom', // "Original English: This folder is empty"
-        open_containing_folder: 'Opne innhaldsmappa', // "Original English: Open Containing Folder"
     },
 };
 

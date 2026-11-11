@@ -417,7 +417,6 @@ const hy = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Հրավիրել',
         'toolbar.save_account': 'Պահպանել հաշիվը',
-        'toolbar.search': 'Որոնել',
         used_of: '{{used}} օգտագործված է {{available}}-ից',
         worker: 'Worker',
         'billing.offering.basic': 'Հիմնական',
@@ -479,7 +478,6 @@ const hy = {
         window_title_pictures: 'Նկարներ',
         window_title_puter: 'Puter',
         window_folder_empty: 'Այս պանակը դատարկ է',
-        open_containing_folder: 'Բացել պարունակող պանակը',
     },
 };
 

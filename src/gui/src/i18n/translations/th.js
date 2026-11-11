@@ -374,7 +374,6 @@ const th = {
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'แนะนำ',
         'toolbar.save_account': 'บันทึกบัญชี',
-        'toolbar.search': 'ค้นหา',
         'used_of': 'ใช้ {{used}} จาก {{available}}',
         'worker': 'Worker',
         'billing.offering.basic': 'พื้นฐาน',
@@ -432,7 +431,6 @@ const th = {
         'window_title_pictures': 'รูปภาพ',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'โฟลเดอร์นี้ว่างเปล่า',
-        'open_containing_folder': 'เปิดโฟลเดอร์ที่บรรจุ',
     },
 };
 
