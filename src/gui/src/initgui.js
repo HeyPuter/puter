@@ -47,6 +47,7 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
+import { overlayGone } from './helpers/overlayGone.js';
 import {
     canShowCustomDomainFrame,
     canShowEmailConfirmationFrame,
@@ -1121,6 +1122,8 @@ const postAuthActions = async (action) => {
             });
             if ( window.embedded_in_frame ) window.tell_popup_frame('ready');
             domain = await dialog;
+            // The answer removes the frame, so the dialog's exit plays first.
+            if ( window.embedded_in_frame ) await overlayGone(document, '.custom-domain-overlay');
         } catch (e) {
             console.error('attach-custom-domain action failed', e);
         }

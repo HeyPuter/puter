@@ -342,8 +342,8 @@ The GUI reports `unavailable` unless its session belongs to `user` and the
 account has no verification or password change waiting. It then runs the
 popup's action unchanged, with the framing page as the requester the dialog
 names: it posts `ready` once the dialog is on the page, answers
-`{ msg: 'customDomainAttached', domain, original_msg_id }` when the dialog
-closes, and then posts `closed`. `domain` is the domain the user chose, or
+`{ msg: 'customDomainAttached', domain, original_msg_id }` once the dialog has
+closed and its exit has played, and then posts `closed`. `domain` is the domain the user chose, or
 null. `attach()` resolves it. A frame that closes without an answer, or a
 loading scrim the user dismisses, resolves null.
 

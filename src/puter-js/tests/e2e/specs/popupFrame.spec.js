@@ -770,8 +770,19 @@ test.describe('the custom domain dialog a first-party page shows framed', () => 
         ])).toEqual(['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)']);
         await expect(domainDialog(page).locator('[data-pane="unavailable"]')).toBeVisible({ timeout: 15_000 });
 
+        // The answer removes the frame, so it waits for the dialog's exit.
+        await page.evaluate(() => {
+            window.__fromFrame = [];
+            window.addEventListener('message', (e) => window.__fromFrame.push(e.data?.msg));
+        });
+        await domainFrame.evaluate(() => {
+            new MutationObserver(() => {
+                if ( ! document.querySelector('.custom-domain-overlay') ) window.parent.postMessage({ msg: 'overlayGone' }, '*');
+            }).observe(document.body, { childList: true });
+        });
         await domainDialog(page).locator('.app-feedback-x').click();
         expect(await result(page)).toEqual({ ok: true, value: null });
+        expect(await page.evaluate(() => window.__fromFrame.slice(0, 2))).toEqual(['overlayGone', 'customDomainAttached']);
         await expect(page.locator('dialog.puter-popup-frame')).toHaveCount(0);
         expect(popups).toHaveLength(0);
     });
