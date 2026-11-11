@@ -2130,7 +2130,9 @@ export class ChatCompletionDriver extends PuterDriver {
     }
 
     #resolveModel(modelId: string, provider?: string): IChatModel | null {
-        const models = this.#modelIdMap[normalizeModelKey(modelId ?? '')];
+        // `model` comes straight from the caller and may not be a string.
+        if (typeof modelId !== 'string') return null;
+        const models = this.#modelIdMap[normalizeModelKey(modelId)];
         if (!models || models.length === 0) return null;
         // An explicitly requested provider is honoured even if its route is
         // marked — the caller asked for that one, not for the cheapest hop.
