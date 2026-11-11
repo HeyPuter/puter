@@ -48,6 +48,7 @@ export const FRAMED_POPUP_ACTIONS = [
     'upgrade',
     'top-up',
     'request-email-confirmation',
+    'attach-custom-domain',
 ] as const;
 
 /** Longest description/og:description/twitter:description on `/app/<name>`. */

@@ -47,7 +47,9 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
+import { overlayGone } from './helpers/overlayGone.js';
 import {
+    canShowCustomDomainFrame,
     canShowEmailConfirmationFrame,
     canShowTopUpFrame,
     canShowUpgradeFrame,
@@ -1088,7 +1090,8 @@ const postAuthActions = async (action) => {
 
     // -------------------------------------------------------------------------------------
     // Action: attach-custom-domain — puter.hosting.attach() on a website. Hosts the custom
-    // domain dialog for `subdomain` and posts the chosen domain back to the opener.
+    // domain dialog for `subdomain` and posts the chosen domain back to the opener, or to
+    // the first-party page framing it.
     // -------------------------------------------------------------------------------------
     if ( action === 'attach-custom-domain' ) {
         const msg_id = window.url_query_params.get('msg_id');
@@ -1111,11 +1114,16 @@ const postAuthActions = async (action) => {
             if ( ! subdomain ) {
                 throw new Error('no subdomain');
             }
-            domain = await UIWindowAttachCustomDomain({
+            // A frame covers its page, which shows around the floating dialog.
+            const dialog = UIWindowAttachCustomDomain({
                 subdomain,
                 requester: target_origin,
-                fullpage: window.embedded_in_popup === true,
+                fullpage: window.embedded_in_popup === true && !window.embedded_in_frame,
             });
+            if ( window.embedded_in_frame ) window.tell_popup_frame('ready');
+            domain = await dialog;
+            // The answer removes the frame, so the dialog's exit plays first.
+            if ( window.embedded_in_frame ) await overlayGone(document, '.custom-domain-overlay');
         } catch (e) {
             console.error('attach-custom-domain action failed', e);
         }
@@ -1861,7 +1869,8 @@ window.initgui = async function (options) {
                 session_user !== host_user ||
                 (action === 'upgrade' && !canShowUpgradeFrame(window, session)) ||
                 (action === 'top-up' && !canShowTopUpFrame(window, session)) ||
-                (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session))
+                (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session)) ||
+                (action === 'attach-custom-domain' && !canShowCustomDomainFrame(session))
             ) {
                 window.tell_popup_frame('unavailable');
                 return;
