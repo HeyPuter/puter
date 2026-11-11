@@ -103,6 +103,11 @@ export interface ForwardableDelivery {
     ackId?: string;
     /** Client skips its handler: the event is past the handler-chain limit. */
     skipHandler?: true;
+    /**
+     * Set on a queued delivery with a worker behind it: only connections that
+     * run the subscription's handler get it, and with none it is declined.
+     */
+    toHandlers?: true;
 }
 
 /** What stands in for events a full queue could not carry across. */
@@ -797,6 +802,7 @@ export class EventForwardService extends PuterService {
                   }
                 : {}),
             ...(delivery.skipHandler ? { skipHandler: true as const } : {}),
+            ...(delivery.toHandlers ? { toHandlers: true as const } : {}),
         };
         this.#queueFor().push(region, item);
     }

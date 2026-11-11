@@ -36,7 +36,14 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
 import type { UsageInput } from '../metering/types.js';
 import { EVENTS_COSTS } from './costs.js';
-import { EventsService, type DeliveryEnvelope } from './EventsService.js';
+import type { SocketSpecifier } from '../socket/SocketService.js';
+import {
+    EVENTS_ACK_VERB,
+    EVENTS_HANDLE_VERB,
+    EVENTS_NACK_VERB,
+    EventsService,
+    type DeliveryEnvelope,
+} from './EventsService.js';
 import { fsAnchorToken } from './subjects.js';
 import type {
     WorkerInvocation,
@@ -60,6 +67,10 @@ let subscriptions: EventSubscriptionStore;
 let pending: PendingDeliveryStore;
 let service: EventsService;
 let sent: DeliveryEnvelope[];
+/** Where each socket send was addressed, aligned with `sent`. */
+let sentTo: SocketSpecifier[];
+/** Connections modelled one by one, for the tests that need several. */
+let tabs: FakeTab[];
 let delivered: DeliveryEnvelope[];
 let invoked: WorkerInvocation[];
 let rows: Map<string, DurableSubscription>;
@@ -201,6 +212,8 @@ beforeEach(async () => {
     candidateRegionImpl = async () => null;
     candidateRegionCalls = [];
     sent = [];
+    sentTo = [];
+    tabs = [];
     delivered = [];
     invoked = [];
     rows = new Map();
@@ -303,10 +316,20 @@ beforeEach(async () => {
                 announceGeneration: () => undefined,
             },
             socket: {
-                send: vi.fn(async (_spec, _key, data) => {
+                send: vi.fn(async (spec: SocketSpecifier, _key, data) => {
                     sent.push(data as DeliveryEnvelope);
+                    sentTo.push(spec);
+                    for (const tab of tabs)
+                        if (tab.rooms.has(String(spec.room)))
+                            tab.receive(data as DeliveryEnvelope);
                 }),
                 has: () => socketConnected,
+                // With no tabs modelled, a connection here is one that runs
+                // the handler.
+                occupied: async (room: string) =>
+                    tabs.length === 0
+                        ? socketConnected
+                        : tabs.some((tab) => tab.rooms.has(room)),
             },
             acl: {
                 check: async () => true,
@@ -1289,5 +1312,215 @@ describe('the budgets a `single` is delivered under', () => {
         // and it is still owed rather than failed.
         expect(metered).toHaveLength(EVENTS_WORKER_INVOCATION_LIMIT.limit);
         await expect(pending.depth(row.subId)).resolves.toBe(1);
+    });
+});
+
+/**
+ * One app connection as puter.js drives it: a queued delivery for a
+ * subscription it runs a handler for is kept (the test acks it), and one it
+ * has no handler for is declined at once.
+ */
+class FakeTab {
+    readonly rooms = new Set<string>();
+    readonly verbs = new Map<string, (payload: unknown, ack: unknown) => void>();
+    readonly received: DeliveryEnvelope[] = [];
+    readonly answers: Promise<unknown>[] = [];
+    connected = true;
+    readonly handlers = new Set<string>();
+
+    constructor(
+        readonly id: string,
+        readonly actor: Actor,
+    ) {
+        this.rooms.add(id);
+        this.rooms.add(`u${actor.user!.id}:a${actor.effectiveApp!.uid}`);
+    }
+
+    on(event: string, listener: (...args: never[]) => void): void {
+        this.verbs.set(
+            event,
+            listener as unknown as (payload: unknown, ack: unknown) => void,
+        );
+    }
+
+    once(): void {}
+
+    join(room: string): void {
+        if (this.connected) this.rooms.add(room);
+    }
+
+    leave(room: string): void {
+        this.rooms.delete(room);
+    }
+
+    disconnect(): void {
+        this.connected = false;
+        this.rooms.clear();
+    }
+
+    /** A verb the server doesn't install goes unanswered, as on the wire. */
+    verb(name: string, payload: unknown): Promise<unknown> {
+        const listener = this.verbs.get(name);
+        const answer = listener
+            ? new Promise((resolve) => listener(payload, resolve))
+            : Promise.resolve(undefined);
+        this.answers.push(answer);
+        return answer;
+    }
+
+    receive(envelope: DeliveryEnvelope): void {
+        this.received.push(envelope);
+        if (envelope.ackRequired && !this.handlers.has(envelope.subId))
+            void this.verb(EVENTS_NACK_VERB, {
+                subId: envelope.subId,
+                id: envelope.ackId,
+                reason: 'no_handler',
+            });
+    }
+
+    /** Register a handler and tell the server, as puter.js does. */
+    async handle(...subIds: string[]): Promise<void> {
+        for (const subId of subIds) this.handlers.add(subId);
+        await this.verb(EVENTS_HANDLE_VERB, { subIds: [...this.handlers] });
+    }
+
+    async ack(envelope: DeliveryEnvelope): Promise<void> {
+        await this.verb(EVENTS_ACK_VERB, {
+            subId: envelope.subId,
+            id: envelope.ackId,
+        });
+    }
+}
+
+const appActorFor = (): Actor =>
+    ({
+        user: { id: userId, uuid: `user-${userId}`, username: `u${userId}` },
+        effectiveApp: { uid: `app-${seq}` },
+    }) as unknown as Actor;
+
+const openTab = (id: string): FakeTab => {
+    const tab = new FakeTab(`${id}-${seq}`, appActorFor());
+    service.attachSocket(tab, tab.actor);
+    tabs.push(tab);
+    return tab;
+};
+
+describe('a queued delivery with several connections of the app open', () => {
+    it('runs only in the tab that has the handler while another tab is open', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const withHandler = openTab('a');
+        const without = openTab('b');
+        await withHandler.handle(row.subId);
+
+        await dispatch();
+        await Promise.all(without.answers);
+        await handedOver();
+
+        // The other tab never sees it, so it can't decline it into the worker.
+        expect(invoked).toEqual([]);
+        expect(withHandler.received).toHaveLength(1);
+        expect(without.received).toEqual([]);
+
+        await withHandler.ack(withHandler.received[0]);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        expect(invoked).toEqual([]);
+        expect(metered).toHaveLength(1);
+    });
+
+    it('goes straight to the worker when no open tab has the handler', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const tab = openTab('a');
+
+        await dispatch();
+
+        expect(tab.received).toEqual([]);
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        expect(metered).toHaveLength(1);
+    });
+
+    it('is not handed to the worker as well when two tabs both have the handler', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const first = openTab('a');
+        const second = openTab('b');
+        await first.handle(row.subId);
+        await second.handle(row.subId);
+
+        await dispatch();
+        await first.ack(first.received[0]);
+        await second.ack(second.received[0]);
+
+        expect(invoked).toEqual([]);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        expect(metered).toHaveLength(1);
+    });
+
+    it('stops sending to a tab once it drops the handler', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const tab = openTab('a');
+        await tab.handle(row.subId);
+        tab.handlers.clear();
+        await tab.verb(EVENTS_HANDLE_VERB, { subIds: [] });
+
+        await dispatch();
+
+        expect(tab.received).toEqual([]);
+        expect(invoked).toHaveLength(1);
+    });
+
+    it('takes the delivery from a tab that disconnected holding it, once its lease lapses', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const tab = openTab('a');
+        await tab.handle(row.subId);
+
+        await dispatch();
+        expect(tab.received).toHaveLength(1);
+        tab.disconnect();
+
+        jump(EVENTS_SOCKET_LEASE_MS + 1);
+        await service.sweepPending();
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+
+        // Its ack, sent late from a new connection, settles nothing more.
+        const back = openTab('a2');
+        await back.ack(tab.received[0]);
+        expect(invoked).toHaveLength(1);
+        expect(metered).toHaveLength(1);
+    });
+
+    it('ignores a handler announce for a row the connection does not hold', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const stranger = new FakeTab(`x-${seq}`, {
+            user: { id: userId + 1, uuid: 'other', username: 'other' },
+            effectiveApp: { uid: `app-${seq}` },
+        } as unknown as Actor);
+        service.attachSocket(stranger, stranger.actor);
+        tabs.push(stranger);
+        await stranger.handle(row.subId);
+
+        expect([...stranger.rooms].some((room) => room.includes(':sub:'))).toBe(
+            false,
+        );
+        await dispatch();
+        expect(stranger.received).toEqual([]);
+        expect(invoked).toHaveLength(1);
+    });
+
+    it('still sends a row with no worker to the whole app room', async () => {
+        const row = await register({ handlerName: null });
+        const tab = openTab('a');
+
+        await dispatch();
+
+        expect(sentTo).toEqual([{ room: `u${userId}:aapp-${seq}` }]);
+        expect(tab.received).toHaveLength(1);
+        expect(row.subId).toBe(tab.received[0].subId);
     });
 });

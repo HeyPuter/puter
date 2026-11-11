@@ -1115,6 +1115,42 @@ describe('persistent delivery routing', () => {
             ]);
     });
 
+    it('tells the server which subscriptions it runs a handler for', async () => {
+        const events = makeModule();
+        events.channel.registerDurable('app-1#a', () => {});
+        events.channel.registerDurable('app-1#b', () => {});
+        await Promise.resolve();
+        events.channel.deregisterDurable('app-1#a');
+        await Promise.resolve();
+
+        const announced = sockets[0].sent.filter(s => s.verb === 'events.handle');
+        expect(announced.map(s => s.payload.subIds)).toEqual([
+            ['app-1#a', 'app-1#b'],
+            ['app-1#b'],
+        ]);
+        // Nothing waits on an answer an older server never sends.
+        expect(announced.every(s => s.ack === undefined)).toBe(true);
+    });
+
+    it('announces its handlers again on every connect, and not before one', async () => {
+        const events = makeModule();
+        events.channel.registerDurable('app-1#a', () => {});
+        await Promise.resolve();
+        const socket = sockets[0];
+        socket.sent.length = 0;
+
+        socket.connected = false;
+        events.channel.registerDurable('app-1#b', () => {});
+        await Promise.resolve();
+        expect(socket.sent.filter(s => s.verb === 'events.handle')).toEqual([]);
+
+        socket.connected = true;
+        socket.fire('connect');
+        await Promise.resolve();
+        expect(socket.sent.filter(s => s.verb === 'events.handle').map(s => s.payload))
+            .toEqual([{ subIds: ['app-1#a', 'app-1#b'] }]);
+    });
+
     it('declines a queued delivery it has no handler for, at once', async () => {
         const events = makeModule();
         // Opens the connection without registering anything for `app-1#sub`.

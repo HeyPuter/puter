@@ -1637,6 +1637,30 @@ describe('SocketService.askWithAck through the cluster adapter', () => {
 
             expect(asked).toMatchObject({ responses: ['seen'], others: true });
         });
+
+        it.each([
+            [1, true],
+            [0, false],
+            [null, false],
+        ])(
+            'finds a room occupied when another node holds a socket in it (%s)',
+            async (count, occupied) => {
+                peer(count);
+
+                await expect(
+                    socketService.occupied('u1:aapp:sub:x', { timeoutMs: 300 }),
+                ).resolves.toBe(occupied);
+            },
+        );
+
+        it('finds a room occupied by a socket on this node without asking', async () => {
+            await connect();
+            peer(null);
+
+            await expect(
+                socketService.occupied(String(userId), { timeoutMs: 300 }),
+            ).resolves.toBe(true);
+        });
     });
 
     describe('asked by another node', () => {

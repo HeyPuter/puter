@@ -37,12 +37,14 @@ const subscribePayload = (sub) => ({
     ...(sub.includeValue ? { includeValue: true } : {}),
 });
 
-// The wire, fixed by the server: four verbs answered with an ack, one channel
-// events arrive on.
+// The wire, fixed by the server: four verbs answered with an ack, one sent
+// without, and the channels events arrive on.
 const SUBSCRIBE_VERB = 'events.subscribe';
 const UNSUBSCRIBE_VERB = 'events.unsubscribe';
 const ACK_VERB = 'events.ack';
 const NACK_VERB = 'events.nack';
+// A server that doesn't know it ignores it, which is why nothing waits on it.
+const HANDLE_VERB = 'events.handle';
 const DELIVERY_CHANNEL = 'events.delivery';
 const ENDED_CHANNEL = 'events.ended';
 
@@ -179,6 +181,8 @@ export class EventChannel {
          * @type {Map<string, DurableRegistration>}
          */
         this.durable = new Map();
+        /** @internal @type {boolean} */
+        this.announcing = false;
         /** @internal Rejectors for verbs still waiting on an ack. */
         this.waiters = new Set();
         /** @internal Subscribes that have not resolved yet. */
@@ -273,6 +277,7 @@ export class EventChannel {
             onError: typeof onError === 'function' ? onError : undefined,
         });
         this.connect();
+        this.announceHandlers();
     }
 
     /**
@@ -302,7 +307,27 @@ export class EventChannel {
      */
     deregisterDurable (subId) {
         if ( ! this.durable.delete(subId) ) return;
+        this.announceHandlers();
         this.closeIfIdle();
+    }
+
+    /**
+     * Tell the server which persistent subscriptions this connection runs a
+     * handler for, so their queued deliveries come here instead of going
+     * straight to the events worker. Sent again on every connect.
+     *
+     * @internal
+     * @returns {void}
+     */
+    announceHandlers () {
+        // Registrations made in one go are sent as one announce.
+        if ( this.announcing ) return;
+        this.announcing = true;
+        queueMicrotask(() => {
+            this.announcing = false;
+            if ( ! this.socket?.connected ) return;
+            this.socket.emit(HANDLE_VERB, { subIds: [...this.durable.keys()] });
+        });
     }
 
     /**
@@ -342,6 +367,7 @@ export class EventChannel {
         socket.on('connect', () => {
             this.connectedAt = Date.now();
             for ( const registration of this.durable.values() ) registration.lapseReported = false;
+            this.announceHandlers();
             this.resubscribe();
         });
         socket.on('disconnect', () => {

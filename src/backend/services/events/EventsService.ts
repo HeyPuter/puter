@@ -732,6 +732,11 @@ export const EVENTS_UNSUBSCRIBE_VERB = 'events.unsubscribe';
 export const EVENTS_ACK_VERB = 'events.ack';
 /** Client→server: hand a queued delivery back, so the worker takes it now. */
 export const EVENTS_NACK_VERB = 'events.nack';
+/**
+ * Client→server: every persistent subscription this connection runs a function
+ * handler for, replacing what it sent before.
+ */
+export const EVENTS_HANDLE_VERB = 'events.handle';
 export const EVENTS_DELIVERY_CHANNEL = 'events.delivery';
 /** Server→client, no ack: the server ended a session subscription itself. */
 export const EVENTS_ENDED_CHANNEL = 'events.ended';
@@ -888,8 +893,17 @@ const NO_CREDIT_SWEEP_LEASE_MS = 10 * 60 * 1000;
 /** The part of a socket this service uses, so tests need not build one. */
 export interface EventSocket {
     id: string;
+    connected: boolean;
+    rooms: ReadonlySet<string>;
     on(event: string, listener: (...args: never[]) => void): unknown;
     once(event: string, listener: (...args: never[]) => void): unknown;
+    join(room: string): unknown;
+    leave(room: string): unknown;
+}
+
+/** Body of the `events.handle` verb. */
+export interface HandleRequest {
+    subIds?: unknown;
 }
 
 // -- Errors -----------------------------------------------------------
@@ -1146,6 +1160,23 @@ const deliveryTarget = (row: DispatchSubscription): SocketSpecifier => {
             : String(row.holderUserId),
     };
 };
+
+/**
+ * The room, inside a row's delivery room, of the connections that said they run
+ * its handler. A queue row with a worker is offered only to these: any other
+ * connection would decline it while one of these is still running it.
+ */
+export const handlerSocketRoom = (room: string, subId: string): string =>
+    `${room}:sub:${subId}`;
+
+const handlerTarget = (row: DispatchSubscription): string =>
+    handlerSocketRoom(String(deliveryTarget(row).room), row.subId);
+
+/** How long a region-wide look for a handler connection may take. */
+const HANDLER_PROBE_TIMEOUT_MS = 500;
+
+/** Rows one `events.handle` reads at once. */
+const HANDLER_ANNOUNCE_CONCURRENCY = 8;
 
 /** Whether this deployment can address an events worker at all. */
 const workerRuntimeReady = (config: IConfig): boolean =>
@@ -1798,6 +1829,30 @@ export class EventsService extends PuterService {
             });
         }) as (...args: never[]) => void);
 
+        // One announce at a time per connection, so a slower earlier one can't
+        // rejoin a room a later one left.
+        const handling = new Map<string, string>();
+        let announcing: Promise<void> = Promise.resolve();
+        socket.on(EVENTS_HANDLE_VERB, ((
+            payload: HandleRequest,
+            ack: unknown,
+        ) => {
+            const previous = announcing;
+            const turn = (async () => {
+                try {
+                    await previous;
+                } catch {
+                    // Answered on its own turn.
+                }
+                await this.#announceHandlers(actor, socket, handling, payload);
+            })();
+            announcing = turn;
+            void this.#answer(ack, async () => {
+                await turn;
+                return {};
+            });
+        }) as (...args: never[]) => void);
+
         // Presence is per (user, app) and per region, so it is the connection
         // rather than the subscription that moves it — a client that has not
         // subscribed yet is still somewhere, and that is what a peer needs.
@@ -1824,6 +1879,27 @@ export class EventsService extends PuterService {
      */
     async deliverForwarded(item: ForwardDelivery): Promise<void> {
         if (!this.enabled) return;
+        let target = forwardTarget(item.userId, item.appUid);
+        if (item.ackRequired && item.toHandlers && item.ackId) {
+            const room = handlerSocketRoom(String(target.room), item.subId);
+            const held = await this.services.socket.occupied(room, {
+                timeoutMs: HANDLER_PROBE_TIMEOUT_MS,
+            });
+            // Nobody here runs its handler: hand it straight back, so the
+            // worker takes it without waiting out the lease.
+            if (!held) {
+                if (item.origin)
+                    this.services.eventForward.relayNack(
+                        item.origin,
+                        item.userId,
+                        item.subId,
+                        item.ackId,
+                        'no_handler',
+                    );
+                return;
+            }
+            target = { room };
+        }
         const envelope: DeliveryEnvelope = {
             subId: item.subId,
             event: item.event,
@@ -1837,7 +1913,7 @@ export class EventsService extends PuterService {
             ...(item.skipHandler ? { skipHandler: true as const } : {}),
         };
         await this.services.socket.send(
-            forwardTarget(item.userId, item.appUid),
+            target,
             EVENTS_DELIVERY_CHANNEL,
             envelope,
         );
@@ -2489,6 +2565,66 @@ export class EventsService extends PuterService {
             return;
         }
         await this.#declined(row, entryId, reason);
+    }
+
+    /**
+     * Put a connection in the handler room of each queue row it names and out
+     * of the ones it no longer names. A row it can't be shown to hold, or whose
+     * delivery room it isn't in, is skipped without saying so.
+     */
+    async #announceHandlers(
+        actor: Actor,
+        socket: EventSocket,
+        handling: Map<string, string>,
+        request: HandleRequest,
+    ): Promise<void> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+        const raw = request?.subIds;
+        if (!Array.isArray(raw))
+            throw badRequest('subIds must be an array', 'bad_request');
+        const wanted = new Set(
+            raw
+                .filter(
+                    (subId): subId is string =>
+                        typeof subId === 'string' && subId.length > 0,
+                )
+                .slice(0, EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP.limit),
+        );
+
+        await spendUserWindow(EVENTS_ACK_LIMIT, holderUserId);
+
+        for (const [subId, room] of handling) {
+            if (wanted.has(subId)) continue;
+            handling.delete(subId);
+            await socket.leave(room);
+        }
+
+        const added = [...wanted].filter((subId) => !handling.has(subId));
+        const rows = await runWithConcurrencyLimitSettled(
+            added,
+            HANDLER_ANNOUNCE_CONCURRENCY,
+            (subId) => this.stores.durableSubscription.getBySubId(subId),
+        );
+        for (const outcome of rows) {
+            if (outcome.status !== 'fulfilled') continue;
+            const row = outcome.value;
+            if (
+                !row ||
+                row.holderUserId !== holderUserId ||
+                !rowInActorScope(actor, row) ||
+                row.delivery !== 'single' ||
+                !runsInWorker(row)
+            )
+                continue;
+            if (!socket.rooms.has(String(deliveryTarget(row).room))) continue;
+            // Joined after a disconnect, the id would stay in the room.
+            if (!socket.connected) return;
+            const room = handlerTarget(row);
+            handling.set(row.subId, room);
+            await socket.join(room);
+        }
     }
 
     /** The row an ack or decline names, and the region it belongs to. */
@@ -6233,16 +6369,21 @@ export class EventsService extends PuterService {
         // suspension's window and goes out if the balance comes back.
         if (!(await this.#chargeable(meter, row.subId))) return false;
 
-        const target = deliveryTarget(row);
         const hasWorkerFallback = runsInWorker(row);
+        const target: SocketSpecifier = hasWorkerFallback
+            ? { room: handlerTarget(row) }
+            : deliveryTarget(row);
         // Region-wide: `has` only sees this node's sockets, and the room send
         // below reaches a sibling node's just the same.
-        const heldHere =
-            this.services.socket.has(target) ||
-            (await this.services.eventForward.heldInRegion(
-                row.holderUserId,
-                row.appUid,
-            ));
+        const heldHere = hasWorkerFallback
+            ? await this.services.socket.occupied(String(target.room), {
+                  timeoutMs: HANDLER_PROBE_TIMEOUT_MS,
+              })
+            : this.services.socket.has(target) ||
+              (await this.services.eventForward.heldInRegion(
+                  row.holderUserId,
+                  row.appUid,
+              ));
 
         // A row with no worker to fall back to has nothing left to try once
         // its socket budget is spent. Without this, a socket that disappeared
@@ -6299,6 +6440,7 @@ export class EventsService extends PuterService {
                     event: claimed.event,
                     ackRequired: true,
                     ackId: claimed.entryId,
+                    ...(hasWorkerFallback ? { toHandlers: true as const } : {}),
                 });
                 this.#delivered(envelope, meter, bill);
             } else {

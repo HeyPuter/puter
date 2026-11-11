@@ -771,13 +771,15 @@ describe('a queued backlog after its share drops to watch', () => {
             .filter((one) => one.subId === subId)
             .map((one) => one.event);
 
-    /** Run `step` with the holder connected in this region. */
+    /** Run `step` with the holder connected in this region, running the handler. */
     const connected = async (step: () => Promise<unknown>) => {
         const has = vi.spyOn(socket(), 'has').mockReturnValue(true);
+        const occupied = vi.spyOn(socket(), 'occupied').mockResolvedValue(true);
         try {
             await step();
         } finally {
             has.mockRestore();
+            occupied.mockRestore();
         }
     };
 

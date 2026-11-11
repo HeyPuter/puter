@@ -44,7 +44,11 @@ import type { DurableSubscription } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
 import { EventForwardService } from './EventForwardService.js';
-import { EventsService, type DeliveryEnvelope } from './EventsService.js';
+import {
+    EventsService,
+    handlerSocketRoom,
+    type DeliveryEnvelope,
+} from './EventsService.js';
 import { appSocketRoom } from '../socket/SocketService.js';
 import type {
     ForwardBatch,
@@ -364,6 +368,7 @@ const makeRegion = (
     const socket = {
         has: (spec: { room?: string | number; socket?: string }) =>
             region.rooms.has(String(spec.room ?? spec.socket ?? '')),
+        occupied: async (room: string) => region.rooms.has(room),
         send: vi.fn(async (_spec: unknown, _key: string, data: unknown) => {
             region.sent.push(data as DeliveryEnvelope);
         }),
@@ -1474,7 +1479,8 @@ describe('a delivery owed to exactly one consumer', () => {
     it('sends a decline home, and the emitting region runs the worker', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        east.rooms.add(appSocketRoom(userId, APP_UID));
+        const room = appSocketRoom(userId, APP_UID);
+        east.rooms.add(room);
         await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
         workerOutcome = 'settled';
         const row = await register(west, {
@@ -1482,6 +1488,7 @@ describe('a delivery owed to exactly one consumer', () => {
             delivery: 'single',
             handlerName: 'onWrite',
         });
+        east.rooms.add(handlerSocketRoom(room, row.subId));
 
         await dispatch(west);
         await posted(west);
@@ -1506,6 +1513,39 @@ describe('a delivery owed to exactly one consumer', () => {
             subId: row.subId,
             reason: 'no_handler',
         });
+    });
+
+    it('is declined home by a region where no connection runs its handler', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(appSocketRoom(userId, APP_UID));
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
+        workerOutcome = 'settled';
+        const row = await register(west, {
+            appUid: APP_UID,
+            delivery: 'single',
+            handlerName: 'onWrite',
+        });
+
+        await dispatch(west);
+        await posted(west);
+
+        await vi.waitFor(() => expect(west.invoked).toHaveLength(1), {
+            timeout: 3_000,
+            interval: 20,
+        });
+        // No client there saw it, so none can also be running it.
+        expect(east.sent).toEqual([]);
+        expect(deliveriesIn(west)[0]).toMatchObject({ toHandlers: true });
+        expect(east.posts.at(-1)?.batch.items[0]).toMatchObject({
+            kind: 'nack',
+            subId: row.subId,
+            reason: 'no_handler',
+        });
+        await vi.waitFor(
+            async () => expect(await west.pending.depth(row.subId)).toBe(0),
+            { timeout: 3_000, interval: 20 },
+        );
     });
 
     it('never settles a lease in the region the client happened to reach', async () => {

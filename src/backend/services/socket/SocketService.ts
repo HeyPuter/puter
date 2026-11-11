@@ -516,11 +516,33 @@ export class SocketService extends PuterService {
         return count;
     }
 
-    /** A node that does not answer in time may hold one. */
+    /**
+     * Whether any socket in the cluster is in `room`. A node that does not
+     * answer in time counts as holding none, and so does every other node until
+     * the adapter has counted servers once.
+     */
+    async occupied(
+        room: string,
+        { timeoutMs }: { timeoutMs: number },
+    ): Promise<boolean> {
+        if (!this.#io) return false;
+        if (this.#othersHere([room], []) > 0) return true;
+        if (!this.#serverCountWorks) {
+            this.#probeServerCount();
+            return false;
+        }
+        return this.#othersInCluster([room], [], timeoutMs, false);
+    }
+
+    /**
+     * A node that does not answer in time holds one unless `onFailure` says
+     * not.
+     */
     async #othersInCluster(
         rooms: string[],
         except: string[],
         timeoutMs: number,
+        onFailure = true,
     ): Promise<boolean> {
         if (this.#othersHere(rooms, except) > 0) return true;
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -542,7 +564,7 @@ export class SocketService extends PuterService {
                 (count) => typeof count === 'number' && count > 0,
             );
         } catch {
-            return true;
+            return onFailure;
         } finally {
             clearTimeout(timer);
         }
