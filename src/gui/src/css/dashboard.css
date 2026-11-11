@@ -117,11 +117,6 @@
     --dashboard-bento-usage-surface: #eef2ff;
     --dashboard-bento-usage-header-bg: #e0e7ff;
     --dashboard-bento-usage-bar-fill: #ea580c;
-    /* Emerald (matches the green icon accent used elsewhere) */
-    --dashboard-bento-desktop-icon-bg: #059669;
-    --dashboard-bento-desktop-icon-shadow: rgba(5, 150, 105, 0.22);
-    --dashboard-bento-desktop-surface: #ecfdf5;
-    --dashboard-bento-desktop-header-bg: #d1fae5;
 
     --dashboard-shadow-subtle: rgba(0, 0, 0, 0.04);
     --dashboard-shadow-light: rgba(0, 0, 0, 0.06);
@@ -244,10 +239,6 @@ body {
         --dashboard-bento-usage-surface: #1c1d2e;
         --dashboard-bento-usage-header-bg: #252a42;
         --dashboard-bento-usage-bar-fill: #fb923c;
-        --dashboard-bento-desktop-icon-bg: #10b981;
-        --dashboard-bento-desktop-icon-shadow: rgba(16, 185, 129, 0.32);
-        --dashboard-bento-desktop-surface: #16241f;
-        --dashboard-bento-desktop-header-bg: #172e26;
 
         --dashboard-shadow-subtle: rgba(0, 0, 0, 0.2);
         --dashboard-shadow-light: rgba(0, 0, 0, 0.3);
@@ -7386,11 +7377,6 @@ body.myapps-reordering .myapps-tile {
     color: #fff;
 }
 
-.dashboard .bento-card-fancy-icon-desktop {
-    background-color: var(--dashboard-bento-desktop-icon-bg);
-    color: #fff;
-}
-
 .dashboard .bento-card-fancy-text {
     display: flex;
     flex-direction: column;
@@ -7551,41 +7537,6 @@ body.myapps-reordering .myapps-tile {
 .dashboard .bento-recent-apps-empty span {
     font-size: 13px;
     color: var(--dashboard-text-tertiary);
-}
-
-/* Open Desktop bento card (full width; links to the desktop interface) */
-.dashboard .bento-desktop {
-    grid-column: 1 / -1;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 18px 24px;
-    background-color: var(--dashboard-bento-desktop-header-bg);
-    text-decoration: none;
-    color: inherit;
-    transition: box-shadow 0.15s ease;
-}
-
-@media (hover: hover) {
-    .dashboard .bento-desktop:hover {
-        box-shadow:
-            0 2px 4px var(--dashboard-shadow-subtle),
-            0 10px 28px var(--dashboard-bento-desktop-icon-shadow);
-    }
-
-    .dashboard .bento-desktop:hover .bento-desktop-arrow {
-        transform: translateX(3px);
-        color: var(--dashboard-text-primary);
-    }
-}
-
-.dashboard .bento-desktop-arrow {
-    margin-left: auto;
-    font-size: 22px;
-    font-weight: 300;
-    line-height: 1;
-    color: var(--dashboard-text-hint);
-    transition: transform 0.15s ease, color 0.15s ease;
 }
 
 /* Usage bento card (cool indigo surfaces; orange bars stay as progress accent) */
@@ -7906,11 +7857,6 @@ body.myapps-reordering .myapps-tile {
     }
 
     .dashboard .bento-card-fancy-header {
-        padding: 16px 20px;
-        gap: 12px;
-    }
-
-    .dashboard .bento-desktop {
         padding: 16px 20px;
         gap: 12px;
     }
