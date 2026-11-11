@@ -90,8 +90,7 @@ const TabUsage = {
                             <div class="usage-addon-bar" style="width: 0;"></div>
                         </div>
                         <p class="usage-addon-credits">
-                            <span class="usage-addon-left"></span>
-                            <span class="usage-addon-note">&middot; ${i18n('addon_credits_note')}</span>
+                            <span class="usage-addon-note">${i18n('addon_credits_note')}</span>
                         </p>
                     </div>
                     <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">${i18n('usage_details')}</h3>
@@ -357,7 +356,6 @@ async function update_usage_details ($el_window) {
                 'aria-valuenow': addon.percent,
                 'aria-valuetext': `${addon.percent}%`,
             });
-            $('.usage-addon-left').html(i18n('addon_credits_available', { amount: amount(addonLeft) }));
         }
 
         // Store raw data for sorting
