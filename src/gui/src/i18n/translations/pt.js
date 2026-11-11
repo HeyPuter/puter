@@ -35,7 +35,6 @@ const pt = {
         cancel: 'Cancelar',
         change: 'Alterar',
         change_email: 'Alterar e-mail',
-        change_language: 'Alterar Idioma',
         change_password: 'Alterar Senha',
         change_username: 'Alterar Nome de Utilizador',
         close: 'Fechar',
@@ -138,7 +137,6 @@ const pt = {
         link_copied: 'Link Copiado',
         loading: 'Carregando',
         log_in: 'Entrar',
-        log_into_another_account_anyway: 'Entrar com outra conta na mesma',
         log_out: 'Sair',
         looks_good: 'Looks good!',
         manage_sessions: 'Gerir Sessões',
@@ -375,7 +373,6 @@ const pt = {
         'toolbar.enter_fullscreen': 'Entrar em Tela Cheia', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Indicar', // In English: "Refer"
-        'toolbar.save_account': 'Salvar Conta', // In English: "Save Account"
         'used_of': '{{used}} usado de {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Básico', // In English: "Basic"

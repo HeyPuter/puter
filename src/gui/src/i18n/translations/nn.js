@@ -27,7 +27,6 @@ const nn = {
         all_fields_required: 'Alle felt er obligatoriske.',
         ascending: 'Stigande',
         cancel: 'Avbryt',
-        change_language: 'Endre språk',
         change_password: 'Endre passord',
         change_username: 'Endre brukarnamn',
         close_all_windows: 'Lukk alle vindauge',
@@ -220,7 +219,6 @@ const nn = {
         lightness: 'Lys',
         link_copied: 'Lenkja kopiert',
         loading: 'Lastar',
-        log_into_another_account_anyway: 'Logg inn med ein annan konto likevel',
         looks_good: 'Ser bra ut!',
         manage_sessions: 'Handter økter',
         modified: 'Endra',
@@ -389,7 +387,6 @@ const nn = {
         'toolbar.enter_fullscreen': 'Gå til fullskjerm', // "Original English: Enter Full Screen"
         'toolbar.github': 'GitHub', // "Original English: GitHub - Brand name kept unchanged"
         'toolbar.refer': 'Verv', // "Original English: Refer - 'Verv' is more natural than 'Referer'"
-        'toolbar.save_account': 'Lagre konto', // "Original English: Save Account"
         used_of: '{{used}} brukt av {{available}}', // "Original English: {{used}} used of {{available}} - Variables preserved in original format"
         worker: 'Worker', // "Original English: Worker - Technical term kept"
         'billing.offering.basic': 'Grunnleggjande', // "Original English: Basic"

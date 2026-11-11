@@ -34,7 +34,6 @@ const nl = {
         auto_arrange: 'Automatisch sorteren',
         cancel: 'Annuleren',
         change_email: 'E-mail Wijzigen',
-        change_language: 'Taal veranderen',
         change_password: 'Wachtwoord veranderen',
         change_username: 'Gebruikersnaam veranderen',
         close: 'Sluiten',
@@ -137,7 +136,6 @@ const nl = {
         link_copied: 'Link gekopieerd',
         loading: 'Laden',
         log_in: 'Inloggen',
-        log_into_another_account_anyway: 'Log toch in op een ander account',
         log_out: 'Uitloggen',
         looks_good: 'Ziet er goed uit!',
         manage_sessions: 'Sessies Beheren',
@@ -377,7 +375,6 @@ const nl = {
         'toolbar.enter_fullscreen': 'Naar volledig scherm', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Vriend uitnodigen', // In English: "Refer"
-        'toolbar.save_account': 'Account opslaan', // In English: "Save Account"
         'used_of': '{{used}} van {{available}} gebruikt', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker" (No direct Dutch equivalent, commonly used in tech context)
         'billing.offering.basic': 'Basis', // In English: "Basic"

@@ -12,12 +12,10 @@ const GUI_CACHE_KEYS = [
     'user_preferences.show_hidden_files',
     'user_preferences.language',
     'user_preferences.clock_visible',
-    'toolbar_auto_hide_enabled',
     'has_seen_welcome_window',
     'desktop_item_positions',
     'desktop_icons_hidden',
     'taskbar_position',
-    'has_seen_toolbar_animation',
 ];
 
 // How long the resolved batch keeps serving reads before the cache disables

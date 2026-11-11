@@ -34,7 +34,6 @@ const sv = {
         auto_arrange: 'Auto Arrange',
         cancel: 'Avbryt',
         change_email: 'Ändra e-postadress',
-        change_language: 'Ändra språk',
         change_password: 'Byt lösenord',
         change_username: 'Byt användarnamn',
         close: 'Stäng',
@@ -137,7 +136,6 @@ const sv = {
         link_copied: 'Länk kopierad',
         loading: 'Laddar',
         log_in: 'Logga in',
-        log_into_another_account_anyway: 'Logga ändå in till annat konto',
         log_out: 'Logga ut',
         looks_good: 'Ser bra ut!',
         manage_sessions: 'Hantera sessioner',
@@ -376,7 +374,6 @@ const sv = {
         'toolbar.enter_fullscreen': 'Aktivera helskärm', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Rekommendera', // In English: "Refer"
-        'toolbar.save_account': 'Spara konto', // In English: "Save Account"
         'used_of': '{{used}} använt av {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Bas', // In English: "Basic"

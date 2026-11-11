@@ -34,7 +34,6 @@ const ja = {
         auto_arrange: '自動配置',
         cancel: 'キャンセル',
         change_email: 'メールアドレスを変更',
-        change_language: '言語を変更',
         change_password: 'パスワードを変更',
         change_username: 'ユーザー名を変更',
         close: '閉じる',
@@ -137,7 +136,6 @@ const ja = {
         link_copied: 'リンクがコピーされました',
         loading: '読み込み中',
         log_in: 'ログイン',
-        log_into_another_account_anyway: '別のアカウントにログインする',
         log_out: 'ログアウト',
         looks_good: 'ナイス！',
         manage_sessions: 'セッションを管理',
@@ -379,7 +377,6 @@ const ja = {
         'toolbar.enter_fullscreen': '全画面表示にする', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': '参照する', // In English: "Refer"
-        'toolbar.save_account': 'アカウントを保存', // In English: "Save Account"
         'used_of': '{{available}} のうち {{used}} を使用', // In English: "{{used}} used of {{available}}"
         'worker': 'ワーカー', // In English: "Worker"
         'billing.offering.basic': 'ベーシック', // In English: "Basic"

@@ -34,7 +34,6 @@ const ar = {
         auto_arrange: 'ترتيب تلقائي',
         cancel: 'إلغاء',
         change_email: 'تغيير البريد الإلكتروني',
-        change_language: 'تغيير اللغة',
         change_password: 'تغيير كلمة المرور',
         change_username: 'تغيير اسم المستخدم',
         close: 'إغلاق',
@@ -149,7 +148,6 @@ const ar = {
         link_copied: 'تم نسخ الرابط',
         loading: 'جارٍ التحميل',
         log_in: 'تسجيل الدخول',
-        log_into_another_account_anyway: 'تسجيل الدخول إلى حساب آخر على أي حال',
         log_out: 'تسجيل الخروج',
         looks_good: '!يبدو جيدًا',
         manage_sessions: 'إدارة الجلسات',
@@ -400,7 +398,6 @@ const ar = {
         'toolbar.enter_fullscreen': 'وضع ملء الشاشة', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'إحالة', // In English: "Refer"
-        'toolbar.save_account': 'حفظ الحساب', // In English: "Save Account"
         used_of: '{{available}}محاولات مستخدمة من {{used}}', // In English: "{{used}} used of {{available}}"
         worker: 'العامل', // In English: "Worker"
         'billing.offering.basic': 'أساسي', // In English: "Basic"

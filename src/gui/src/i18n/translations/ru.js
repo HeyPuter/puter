@@ -34,7 +34,6 @@ const ru = {
         auto_arrange: 'Автоупорядочивание',
         cancel: 'Отмена',
         change_email: 'Изменить электронную почту',
-        change_language: 'Изменить язык',
         change_password: 'Изменить пароль',
         change_username: 'Изменить имя пользователя',
         close: 'Закрыть',
@@ -152,7 +151,6 @@ const ru = {
         link_copied: 'Ссылка скопирована',
         loading: 'Загружается',
         log_in: 'Войти',
-        log_into_another_account_anyway: 'Все-равно войти в другой аккаунт',
         log_out: 'Выйти',
         looks_good: 'Выглядит здорово!',
         manage_sessions: 'Управление Сеансами',
@@ -406,7 +404,6 @@ const ru = {
         'toolbar.enter_fullscreen': 'Перейти в полноэкранный режим', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Рекомендовать', // In English: "Refer"
-        'toolbar.save_account': 'Сохранить аккаунт', // In English: "Save Account"
         'used_of': 'Использовано', // In English: "{{used}} used of {{available}}"
         'worker': 'Воркер', // In English: "Worker"
         'billing.offering.basic': 'Базовый', // In English: "Basic"

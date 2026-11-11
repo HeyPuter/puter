@@ -251,8 +251,6 @@ const TabAccount = {
         function showProfilePicture (picture) {
             const url = picture ?? window.icons['profile.svg'];
             $('.profile-pic').css('background-image', `url(${ html_encode(url) })`);
-            $('.profile-image').css('background-image', `url(${ html_encode(url) })`);
-            $('.profile-image').toggleClass('profile-image-has-picture', !! picture);
         }
         // A save started after another one owns the avatar and the hint; the
         // earlier one's answer must not put its picture (or a failure) back.

@@ -329,7 +329,6 @@ async function UIItem (options) {
             last_window_dragged_over = null;
 
             window.an_item_is_being_dragged = true;
-            $('.toolbar').css('pointer-events', 'none');
         },
         drag: function (event, ui) {
             // Constrain item within desktop bounds
@@ -442,7 +441,6 @@ async function UIItem (options) {
             clearTimeout(longer_hover_timeout);
             last_window_dragged_over = null;
             window.an_item_is_being_dragged = false;
-            $('.toolbar').css('pointer-events', 'auto');
         },
     });
 

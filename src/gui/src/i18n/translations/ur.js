@@ -32,7 +32,6 @@ const ur = {
         auto_arrange: 'خودکار ترتیب',
         cancel: 'منسوخ کریں',
         change_email: 'ای میل تبدیل کریں',
-        change_language: 'زبان تبدیل کریں',
         change_password: 'پاس ورڈ تبدیل کریں',
         change_username: 'صارف کا نام تبدیل کریں',
         close: 'بند کریں',
@@ -141,7 +140,6 @@ const ur = {
         link_copied: 'لنک کاپی ہو گیا۔',
         loading: 'لوڈ ہو رہا ہے۔',
         log_in: 'لاگ ان کریں',
-        log_into_another_account_anyway: 'بہر حال دوسرے اکاؤنٹ میں لاگ ان کریں۔',
         log_out: 'لاگ آؤٹ',
         looks_good: 'اچھا لگ رہا ہے!',
         manage_sessions: 'سیشنز کا نظم کریں۔',
@@ -399,7 +397,6 @@ const ur = {
         'toolbar.enter_fullscreen': 'فل اسکرین پر جائیں', // In English: "Enter Full Screen"
         'toolbar.github': 'گیٹ ہب', // In English: "GitHub"
         'toolbar.refer': 'ریفر کریں', // In English: "Refer"
-        'toolbar.save_account': 'اکاؤنٹ محفوظ کریں', // In English: "Save Account"
         'used_of': '{{used}} استعمال شدہ از {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'ورکر', // In English: "Worker"
         'billing.offering.basic': 'بنیادی', // In English: "Basic"

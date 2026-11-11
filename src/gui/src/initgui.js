@@ -3141,14 +3141,6 @@ window.initgui = async function (options) {
         ) {
             return;
         }
-        // if toolbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('toolbar') ||
-            $(e.target).closest('.toolbar').length > 0
-        ) {
-            return;
-        }
-
         // if close or minimize button clicked, drop the event
         if (
             document

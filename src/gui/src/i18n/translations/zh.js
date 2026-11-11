@@ -34,7 +34,6 @@ const zh = {
         auto_arrange: '自动排序',
         cancel: '取消',
         change_email: '更改邮箱',
-        change_language: '更改语言',
         change_password: '更改密码',
         change_username: '更改用户名',
         close: '关闭',
@@ -137,7 +136,6 @@ const zh = {
         link_copied: '链接已复制',
         loading: '正在加载',
         log_in: '登录',
-        log_into_another_account_anyway: '强制切换账号',
         log_out: '退出',
         looks_good: '看起来不错！',
         manage_sessions: '会话管理',
@@ -374,7 +372,6 @@ const zh = {
         'toolbar.enter_fullscreen': '进入全屏', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': '推荐', // In English: "Refer"
-        'toolbar.save_account': '保存账号', // In English: "Save Account"
         'used_of': '已用 {{used}} / 共 {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': '基础', // In English: "Basic"

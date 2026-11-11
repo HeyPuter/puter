@@ -36,7 +36,6 @@ const bg = {
         change: 'Промени',
         change_always_open_with: 'Искате ли винаги да отваряте този тип файл с',
         change_email: 'Промяна на имейл',
-        change_language: 'Промяна на езика',
         change_password: 'Промяна на паролата',
         change_username: 'Промяна на потребителското име',
         close: 'Затвори',
@@ -156,7 +155,6 @@ const bg = {
         link_copied: 'Връзката е копирана',
         loading: 'Зареждане',
         log_in: 'Вход',
-        log_into_another_account_anyway: 'Влез в друг акаунт въпреки това',
         log_out: 'Изход',
         looks_good: 'Изглежда добре!',
         manage_sessions: 'Управление на сесиите',
@@ -281,7 +279,6 @@ const bg = {
         'toolbar.enter_fullscreen': 'Вход в режим на цял екран',
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Препоръчай',
-        'toolbar.save_account': 'Запази акаунта',
         tos_fineprint:
       "С натискане на 'Създай безплатен акаунт' вие се съгласявате с {{link=terms}}Условията за ползване{{/link}} и {{link=privacy}}Политиката за поверителност{{/link}} на Puter.",
         transparency: 'Прозрачност',

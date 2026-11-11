@@ -34,7 +34,6 @@ const vi = {
         auto_arrange: 'Tự động sắp xếp',
         cancel: 'Hủy',
         change_email: 'Thay đổi email',
-        change_language: 'Thay đổi ngôn ngữ',
         change_password: 'Thay đổi mật khẩu',
         change_username: 'Thay đổi tên người dùng',
         close: 'Đóng',
@@ -137,7 +136,6 @@ const vi = {
         link_copied: 'Đã sao chép liên kết',
         loading: 'Đang tải',
         log_in: 'Đăng nhập',
-        log_into_another_account_anyway: 'Vẫn đăng nhập vào tài khoản khác',
         log_out: 'Đăng xuất',
         looks_good: 'Trông tốt!',
         manage_sessions: 'Quản lý phiên',
@@ -373,7 +371,6 @@ const vi = {
         'toolbar.enter_fullscreen': 'Vào chế độ toàn màn hình', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Giới thiệu', // In English: "Refer"
-        'toolbar.save_account': 'Lưu tài khoản', // In English: "Save Account"
         'used_of': '{{used}} đã dùng trong tổng {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Gói cơ bản', // In English: "Basic"

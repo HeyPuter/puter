@@ -34,7 +34,6 @@ const ig = {
         auto_arrange: 'ndokwa onwe',
         cancel: 'Kagbuo',
         change_email: 'ịgbanwe email',
-        change_language: 'ịgbanwe Asụsụ',
         change_password: 'ịgbanwe paswọọdụ',
         change_username: 'ịgbanwe aha njirimara',
         close: 'mmechi',
@@ -149,7 +148,6 @@ const ig = {
         link_copied: 'depụtagha njikọ',
         loading: 'Na-ebugo ibu',
         log_in: 'Banye',
-        log_into_another_account_anyway: 'Banye na akaụntụ ọzọ na agbanyeghị',
         log_out: 'pụọ',
         looks_good: 'Ọ mara mma!',
         manage_sessions: 'Jikwaa Oge',
@@ -400,7 +398,6 @@ const ig = {
         'toolbar.enter_fullscreen': 'Tinye ihuenyo zuru oke', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Tụtụ aka', // In English: "Refer"
-        'toolbar.save_account': 'Chekwa Akaụntụ', // In English: "Save Account"
         'used_of': '{{used}} ejiri {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Onye ọrụ', // In English: "Worker"
         'billing.offering.basic': 'Isi', // In English: "Basic"

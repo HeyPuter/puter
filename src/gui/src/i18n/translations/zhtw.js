@@ -52,7 +52,6 @@ const zhtw = {
         auto_arrange: '自動排列',
         cancel: '取消',
         change_email: '更改電子郵件',
-        change_language: '更改語言',
         change_password: '更改密碼',
         change_username: '更改使用者名稱',
         close: '關閉',
@@ -155,7 +154,6 @@ const zhtw = {
         link_copied: '連結已複製',
         loading: '載入中',
         log_in: '登入',
-        log_into_another_account_anyway: '仍然登入另一個帳戶',
         log_out: '登出',
         looks_good: '看起來不錯！',
         manage_sessions: '管理工作階段',
@@ -389,7 +387,6 @@ const zhtw = {
         'toolbar.enter_fullscreen': "進入全螢幕", // In English: "Enter Full Screen"
         'toolbar.github': "GitHub", // In English: "GitHub"
         'toolbar.refer': "推薦", // In English: "Refer"
-        'toolbar.save_account': "儲存帳戶", // In English: "Save Account"
         'used_of': "{{used}} / {{available}} 已使用", // In English: "{{used}} used of {{available}}"
         'worker': "Worker", // In English: "Worker"
         'billing.offering.basic': "基本", // In English: "Basic"

@@ -34,7 +34,6 @@ const ku = {
         auto_arrange: 'ڕیزکردنی ئۆتۆماتیکی',
         cancel: 'ڕەتکردنەوە',
         change_email: 'گۆڕینی ئیمەیل',
-        change_language: 'گۆڕینی زمان',
         change_password: 'گۆڕینی وشەی تێپەڕ',
         change_username: 'گۆڕینی ناوی بەکارهێنەر',
         close: 'داخستن',
@@ -148,7 +147,6 @@ const ku = {
         link_copied: 'بەستەر کۆپی کرا',
         loading: 'بارکردنەوە',
         log_in: 'چوونەژوورەوە',
-        log_into_another_account_anyway: 'بە هەژماری دیگە هەرچۆنێکەوە چوونەژوورەوە',
         log_out: 'چوونە دەرەوە',
         looks_good: 'پەیوەندیدارە!',
         manage_sessions: 'بەڕێوەبردنی دانیشتنەکان',
@@ -395,7 +393,6 @@ const ku = {
         'toolbar.enter_fullscreen': 'بە تەواوی شاشە بچۆرە', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'بانگهێشت بکە', // In English: "Refer"
-        'toolbar.save_account': 'هەژمار پاشەکەوت بکە', // In English: "Save Account"
         'used_of': '{{used}} بەکارهاتوو لە {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'کارمەند', // In English: "Worker"
         'billing.offering.basic': 'بنەڕەتی', // In English: "Basic"

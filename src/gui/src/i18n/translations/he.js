@@ -34,7 +34,6 @@ const he = {
         auto_arrange: 'סידור אוטומטי',
         cancel: 'ביטול',
         change_email: 'שינוי כתובת אימייל',
-        change_language: 'החלפת שפה',
         change_password: 'שינוי סיסמה',
         change_username: 'שינוי שם משתמש',
         close: 'סגירה',
@@ -147,7 +146,6 @@ const he = {
         link_copied: 'הקישור הועתק',
         loading: 'טוען',
         log_in: 'התחברות',
-        log_into_another_account_anyway: 'התחבר לחשבון אחר בכל מקרה',
         log_out: 'התנתק',
         looks_good: 'נראה טוב!',
         manage_sessions: 'ניהול חיבורים פעילים',
@@ -388,7 +386,6 @@ const he = {
         'toolbar.enter_fullscreen': 'מסך מלא', // In English: "Enter Full Screen"
         'toolbar.github': 'גיטהאב', // In English: "GitHub"
         'toolbar.refer': 'הפנה', // In English: "Refer"
-        'toolbar.save_account': 'שמור משתמש', // In English: "Save Account"
         'used_of': '{{available}} משומש מתוך {{used}}', // In English: "{{used}} used of {{available}}"
         'worker': 'עובד', // In English: "Worker"
         'billing.offering.basic': 'בסיסי', // In English: "Basic"

@@ -34,7 +34,6 @@ const id = {
         auto_arrange: 'Atur Otomatis',
         cancel: 'Batal',
         change_email: 'Ubah Email',
-        change_language: 'Ubah Bahasa',
         change_password: 'Ubah Kata Sandi',
         change_username: 'Ubah Nama Pengguna',
         close: 'Tutup',
@@ -148,7 +147,6 @@ const id = {
         link_copied: 'Tautan disalin',
         loading: 'Memuat',
         log_in: 'Masuk',
-        log_into_another_account_anyway: 'Tetap masuk ke akun lain',
         log_out: 'Keluar',
         looks_good: 'Tampak bagus!',
         manage_sessions: 'Kelola Sesi',
@@ -398,7 +396,6 @@ const id = {
         'toolbar.enter_fullscreen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
         'toolbar.github': 'Github', // In English: "GitHub"
         'toolbar.refer': 'Rujuk', // In English: "Refer"
-        'toolbar.save_account': 'Simpan Akun', // In English: "Save Account"
         'used_of': 'terpakai {{used}} dari {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker".
         'billing.offering.basic': 'Basic', // In English: "Basic"

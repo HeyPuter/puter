@@ -1952,7 +1952,6 @@ async function UIWindow (options) {
                     snap_trigger_timeout = undefined;
                 }
                 hideSnapPlaceholder();
-                $('.toolbar').css('pointer-events', 'none');
                 // if window is snapped, unsnap it and reset its position to where it was before snapping
                 if ( options.is_resizable && window_is_snapped ) {
                     window_is_snapped = false;
@@ -2047,7 +2046,6 @@ async function UIWindow (options) {
 
                 $(el_window_app_iframe).css('pointer-events', 'all');
                 $('.window').css('pointer-events', 'initial');
-                $('.toolbar').css('pointer-events', 'auto');
 
                 if ( options.is_resizable && snap_placeholder_active && !window_is_snapped ) {
                     window_will_snap = true;
@@ -3846,11 +3844,6 @@ window.scale_window = (el_window) => {
 
         // Use taskbar position-aware window positioning
         window.update_maximized_window_for_taskbar(el_window);
-
-        // hide toolbar
-        if ( !isMobile.phone && !isMobile.tablet ) {
-            window.hide_toolbar();
-        }
     }
     //shrink
     else {

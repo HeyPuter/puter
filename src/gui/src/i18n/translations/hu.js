@@ -34,7 +34,6 @@ const hu = {
         auto_arrange: 'Automatikus elrendezés',
         cancel: 'Mégsem',
         change_email: 'Email módosítása',
-        change_language: 'Nyelv módosítása',
         change_password: 'Jelszó módosítása',
         change_username: 'Felhasználónév módosítása',
         close: 'Bezár',
@@ -137,7 +136,6 @@ const hu = {
         link_copied: 'Link másolva',
         loading: 'Betöltés',
         log_in: 'Bejelentkezés',
-        log_into_another_account_anyway: 'Bejelentkezés egy másik fiókba',
         log_out: 'Kijelentkezés',
         looks_good: 'Jól néz ki!',
         manage_sessions: 'Munkamenetek kezelése',
@@ -366,7 +364,6 @@ const hu = {
         'toolbar.enter_fullscreen': 'Teljes képernyő', // English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // English: "GitHub"
         'toolbar.refer': 'Ajánlás', // English: "Refer"
-        'toolbar.save_account': 'Fiók mentése', // English: "Save Account"
         'used_of': '{{used}} használt a {{available}}-ból', // English: "{{used}} used of {{available}}"
         'worker': 'Munkás', // English: "Worker"
         'billing.offering.basic': 'Alap', // English: "Basic"

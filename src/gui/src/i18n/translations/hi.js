@@ -34,7 +34,6 @@ const hi = {
         auto_arrange: 'स्वचालित व्यवस्तित',
         cancel: 'रद्द',
         change_email: 'ई - मेल बदले',
-        change_language: 'भाषा बदलें',
         change_password: 'पासवर्ड बदलें',
         change_username: 'उपयोगकर्ता नाम बदलें',
         close: 'बंद ',
@@ -136,7 +135,6 @@ const hi = {
         link_copied: 'लिंक कॉपी किया गया',
         loading: 'लोड हो रहा है',
         log_in: 'लॉग इन करें',
-        log_into_another_account_anyway: 'फिर भी दूसरे खाते में लॉग इन करें',
         log_out: 'लॉग आउट',
         looks_good: 'अच्छा लग रहा है!',
         manage_sessions: 'सत्र प्रबंधित करें',
@@ -365,7 +363,6 @@ const hi = {
         'toolbar.enter_fullscreen': 'पूर्ण स्क्रीन में जाएँ', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'रेफ़र', // In English: "Refer"
-        'toolbar.save_account': 'खाता सहेजें', // In English: "Save Account"
         'used_of': '{{available}} में से {{used}} उपयोग', // In English: "{{used}} used of {{available}}"
         'worker': 'वर्कर', // In English: "Worker"
         'billing.offering.basic': 'मूल', // In English: "Basic"

@@ -34,7 +34,6 @@ const da = {
         auto_arrange: 'Auto Arrangere',
         cancel: 'Annuller',
         change_email: 'Ændre e-mail',
-        change_language: 'Ændre sprog',
         change_password: 'Ændre adgangskode',
         change_username: 'Ændre brugernavn',
         close: 'Luk',
@@ -137,7 +136,6 @@ const da = {
         link_copied: 'Link kopieret',
         loading: 'Indlæser',
         log_in: 'Log ind',
-        log_into_another_account_anyway: 'Log ind på en anden konto alligevel',
         log_out: 'Log ud',
         looks_good: 'Ser godt ud!',
         manage_sessions: 'Administrer sessioner',
@@ -374,7 +372,6 @@ const da = {
         'toolbar.enter_fullscreen': undefined, // In English: "Enter Full Screen"
         'toolbar.github': undefined, // In English: "GitHub"
         'toolbar.refer': undefined, // In English: "Refer"
-        'toolbar.save_account': undefined, // In English: "Save Account"
         'used_of': undefined, // In English: "{{used}} used of {{available}}"
         'worker': undefined, // In English: "Worker"
         'People with access': undefined, // In English: "People with access"
