@@ -658,12 +658,23 @@ export class SessionStore extends PuterStore {
      */
     async findActiveByAccessTokenUid(tokenUid) {
         if (!tokenUid) return null;
-        const now = nowSeconds();
-        const rows = await this.clients.db.read(
-            "SELECT * FROM `sessions` WHERE `kind` = 'access_token' AND (`access_token_uid` = ? OR `legacy_token_uid` = ?) AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) ORDER BY `id` DESC LIMIT 1",
-            [tokenUid, tokenUid, now],
+        // One indexed lookup per column: an OR across both can't use either
+        // index on MySQL. MySQL indexes the legacy uid only through its
+        // active-row generated column, equal to it while `revoked_at` is NULL.
+        const legacyColumn = this.clients.db.case({
+            mysql: 'legacy_token_unique_key',
+            otherwise: 'legacy_token_uid',
+        });
+        const findBy = async (column) => {
+            const rows = await this.clients.db.read(
+                `SELECT * FROM \`sessions\` WHERE \`kind\` = 'access_token' AND \`${column}\` = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) ORDER BY \`id\` DESC LIMIT 1`,
+                [tokenUid, nowSeconds()],
+            );
+            return this.#normalizeRow(rows[0]);
+        };
+        return (
+            (await findBy('access_token_uid')) ?? (await findBy(legacyColumn))
         );
-        return this.#normalizeRow(rows[0]);
     }
 
     /**

@@ -2218,18 +2218,21 @@ export class AuthService extends PuterService {
         let parent_session_id =
             issuingApp && actor.session ? actor.session.uid : null;
         if (mintingToken) {
-            const mintingRow =
-                await this.stores.session.findActiveByAccessTokenUid(
-                    mintingToken.uid,
-                );
-            if (!mintingRow) {
+            const mintingRowUuid =
+                mintingToken.sessionUid ??
+                (
+                    await this.stores.session.findActiveByAccessTokenUid(
+                        mintingToken.uid,
+                    )
+                )?.uuid;
+            if (!mintingRowUuid) {
                 throw new HttpError(
                     403,
                     'Access tokens may not create access tokens',
                     { legacyCode: 'forbidden' },
                 );
             }
-            parent_session_id = mintingRow.uuid;
+            parent_session_id = mintingRowUuid;
         }
 
         const tokenSession = await this.stores.session.create(
@@ -2796,6 +2799,15 @@ export class AuthService extends PuterService {
 
         if (session) void this.#touchSession(session.uuid, user.id, ctx);
 
+        // The row `findActiveByAccessTokenUid` would return, already checked
+        // live above, so tokens this one mints can parent to it without a read.
+        const ownRow =
+            session?.kind === 'access_token' &&
+            (session.access_token_uid === decoded.token_uid ||
+                session.legacy_token_uid === decoded.token_uid)
+                ? session
+                : null;
+
         const actor = makeActor({
             user: this.#actorUserFromRow(user),
             accessToken: {
@@ -2808,6 +2820,7 @@ export class AuthService extends PuterService {
                 // claim on one is ignored here.
                 fullAccess: !decoded.app_uid && decoded.full_access === true,
                 ...(godmodeApp ? { godmodeApp } : {}),
+                ...(ownRow ? { sessionUid: ownRow.uuid } : {}),
             },
         });
         this.#applyHandlerDepth(actor, decoded);

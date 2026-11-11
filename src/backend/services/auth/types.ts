@@ -128,6 +128,7 @@ export interface SessionRow {
     expires_at?: number | null;
     app_uid?: string | null;
     legacy_token_uid?: string | null;
+    access_token_uid?: string | null;
     created_via?: string | null;
     auth_id?: string | null;
 }
