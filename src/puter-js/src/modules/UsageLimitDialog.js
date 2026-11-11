@@ -28,6 +28,19 @@ export const upgradeUrl = ({ reason, appID, method } = {}) => {
     return url.href;
 };
 
+/**
+ * The dashboard page that opens the top-up flow, for buying add-on credit.
+ *
+ * @param {string} [guiOrigin] The deployment whose dashboard it is; Puter's by default.
+ * @returns {string}
+ */
+export const topUpUrl = (guiOrigin) => {
+    const url = new URL('/dashboard/', guiOrigin || UPGRADE_PAGE);
+    url.searchParams.set('topup', '');
+    url.hash = 'usage';
+    return url.href;
+};
+
 class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
     /**
      * @param {string} message Plain-text line saying what was refused.

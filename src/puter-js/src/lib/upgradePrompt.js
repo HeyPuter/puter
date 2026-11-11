@@ -26,7 +26,7 @@ import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
  *
  * @typedef {{
  *   env?: string,
- *   ui?: { requestUpgrade: Function, canShowUpgradeFrame_?: () => boolean, upgradeFrameShowing_?: () => boolean },
+ *   ui?: { requestUpgrade: Function, canShowUpgradeFrame_?: () => boolean, upgradeFrameShowing_?: () => boolean, topUpShowing_?: () => boolean },
  *   authToken?: string,
  *   appID?: string,
  *   getAppIDFromAuthToken?: (token: unknown) => string | null,
@@ -129,8 +129,9 @@ export const promptIfUpgradeRequired = (error, context = {}, puter = globalThis.
         puter.ui.requestUpgrade({ reason, method, message });
     } else if ( puter?.env === 'web' || reason === 'storage' ) {
         // The upgrade a first-party page already shows answers this refusal
-        // too, and a dialog over it would block it.
+        // too, and a dialog over it, or over a top-up, would block it.
         if ( puter.ui?.upgradeFrameShowing_?.() === true ) return;
+        if ( puter.ui?.topUpShowing_?.() === true ) return;
         // A first-party page shows the upgrade in a frame over itself
         // instead of a dashboard tab.
         const framed = puter?.env === 'web' && puter.ui?.canShowUpgradeFrame_?.() === true;

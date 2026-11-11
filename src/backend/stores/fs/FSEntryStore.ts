@@ -1941,6 +1941,11 @@ export class FSEntryStore extends PuterStore {
         return entry;
     }
 
+    /**
+     * An overwrite whose `uuid` is not the existing row's leaves that row
+     * untouched and returns it: the caller's object is under another key, so
+     * the row can't describe it until the caller moves the bytes.
+     */
     async batchCreateEntries(
         entries: FSEntryCreateInput[],
         createPaths = true,
@@ -2073,6 +2078,10 @@ export class FSEntryStore extends PuterStore {
                             `Cannot overwrite a directory: ${pathPosix.basename(entry.targetPath)}`,
                             { legacyCode: 'cannot_overwrite_a_directory' },
                         );
+                    }
+                    if (existingEntry.uuid !== entry.input.uuid) {
+                        updatedResultsByIndex.set(entry.index, existingEntry);
+                        continue;
                     }
 
                     const updatedEntry = {
@@ -2396,6 +2405,10 @@ export class FSEntryStore extends PuterStore {
                                 { legacyCode: 'conflict' },
                             ),
                         );
+                        continue;
+                    }
+                    if (existing.uuid !== entry.input.uuid) {
+                        updatedResultsByIndex.set(entry.index, existing);
                         continue;
                     }
 
