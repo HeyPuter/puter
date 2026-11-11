@@ -459,10 +459,12 @@ const POPUP_FRAME_BOXES = {
 // The upgrade and the top-up have no box: each covers the page and its dialog
 // draws its own scrim. A payment in it may use the Payment Request API, which
 // a frame can use only when allowed, and Escape is left to the dialog, which
-// doesn't close mid-entry.
+// doesn't close mid-entry. The custom domain dialog copies DNS records to the
+// clipboard, and keeps Escape so a request in flight isn't dropped.
 const UNBOXED_POPUP_FRAMES = {
     upgrade: { allow: 'payment; otp-credentials', escapeDismisses: false },
     'top-up': { allow: 'payment; otp-credentials', escapeDismisses: false },
+    'attach-custom-domain': { allow: 'clipboard-write; otp-credentials', escapeDismisses: false },
 };
 
 /**
@@ -479,8 +481,8 @@ const UNBOXED_POPUP_FRAMES = {
  * @template T
  * @param {Object} opts
  * @param {string} opts.guiOrigin
- * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker' | 'upgrade' | 'top-up' | 'request-email-confirmation'} opts.action
- * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for a picker, the upgrade, the top-up or the email confirmation
+ * @param {'sign-in' | 'show-open-file-picker' | 'show-save-file-picker' | 'show-directory-picker' | 'upgrade' | 'top-up' | 'request-email-confirmation' | 'attach-custom-domain'} opts.action
+ * @param {Record<string, string>} opts.fragment - the popup's parameters, and `user` for every action but the sign-in
  * @param {string} opts.title - the frame's accessible name
  * @param {string} [opts.closeLabel] - puts a close button on the frame
  * @param {(data?: Record<string, unknown>) => T} opts.closed
