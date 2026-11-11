@@ -385,6 +385,8 @@ The `usageDetails.serviceSpeed` field reports the served speed. Billing uses the
 
 ### OpenAI models
 
+Input and reasoning tokens reported by a non-streaming Responses API call are billed even when its output is empty. These charges apply whether the request fails or retries another provider.
+
 Fast service is available on models with a published Fast rate card. Ultrafast is available for GPT-6.1 Sol and GPT-6 Astra. Other models fall back to fast or standard. Cache and long-context rates apply to the served tier.
 
 #### `temperature`
