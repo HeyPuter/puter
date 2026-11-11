@@ -41,28 +41,49 @@ An object with the following properties:
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `path` | `String` | The item. Required when passing options as the only argument. |
-| `recipient` | `String \| Object` | Whose access to withdraw. |
+| `path` | `String` | The item. Required when passing options as the only argument, unless `paths` or `uid` names it. |
+| `paths` | `Array` | Several items to withdraw in one call. |
 | `uid` | `String` | The item, by UID. Can be used instead of `path`. |
+| `recipient` | `String \| Object \| Array` | Whose access to withdraw. An array withdraws several recipients in one call. |
+| `recipients` | `String \| Object \| Array` | Alias for `recipient`. |
 
 ## Return value
 
-A `Promise` that resolves to `{ revoked }`, where `revoked` is how many grants were actually removed. It is `0` when there was nothing to withdraw, which is not an error.
+A `Promise` that resolves to an object with the following properties:
 
-Each recipient/item pair is withdrawn on its own. If some pairs are refused and others go through, the promise resolves, and `revoked` counts what the others removed. It rejects only when every pair was refused.
+| Property | Type | Description |
+|----------|------|-------------|
+| `revoked` | `Number` | How many grants were actually removed. It is `0` when there was nothing to withdraw, which is not an error. |
+| `failed` | `Array` | The recipient/item pairs that were refused. Empty when none were. |
+
+Each entry of `failed` has the following properties:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `recipient` | `String` | The recipient as the call named it: a username, an email address, a team's uid or handle, or `anyone`. |
+| `path` | `String` | The item, when the call named it by path. |
+| `uid` | `String` | The item, when the call named it by UID. |
+| `message` | `String` | Why the pair was refused. |
+| `code` | `String` | One of the codes below. |
+
+Each recipient/item pair is withdrawn on its own: with several items or recipients, every combination is one pair. A refused pair does not stop the others. The promise resolves, `revoked` counts what the others removed, and `failed` lists the pairs that were refused.
 
 ## Errors
 
-A rejection carries `{ message, code }`, taken from the first refused pair that names a code. You only see one when every pair was refused; a refused pair alongside one that went through is not reported, even when the other pair had nothing to withdraw.
+The promise rejects only when every pair was refused, and at least one of them for a reason other than the recipient or the item being gone. A pair refused with `user_does_not_exist` or `subject_does_not_exist` has nothing left to withdraw, so a call made only of those resolves with `revoked: 0` and the pairs listed in `failed`.
+
+A rejection carries `{ message, code }`, taken from the first refused pair that names a code other than those two.
 
 A request the server turns away as a whole also rejects, with the error the server answered instead of a pair's: a call that names no recipient or no item, or names a team by both `team` and `teamHandle` (`bad_request`), one that carries more than a single call may (`too_many_recipients`, `too_many_items`), or one over the [rate limit](/rate-limits-and-quotas/).
+
+The codes a refused pair carries, in `failed` or on a rejection:
 
 | `code` | Meaning |
 | --- | --- |
 | `team_share` | You tried to leave an item you hold only through a team. That access is the team's grant, not yours to drop; ask whoever shared it with the team, or leave the team. If you also hold a share of your own, leaving drops that one and succeeds. |
 | `forbidden` | You may not withdraw shares of this item — or you tried to close its "anyone with the link" share, which only the owner may do, in person rather than through an app. |
-| `subject_does_not_exist` | No such item, or you cannot see it. |
-| `user_does_not_exist` | The username has no account. |
+| `subject_does_not_exist` | No such item, or you cannot see it. Listed in `failed`; never a rejection on its own. |
+| `user_does_not_exist` | The username has no account. Listed in `failed`; never a rejection on its own. |
 | `team_not_found` | No team has that uid. |
 | `cannot_revoke_owner` | The recipient owns the item. |
 | `unshare_failed` | No refused pair named a code, as when the server could not complete the request. |
@@ -104,6 +125,19 @@ Passing an email address that was **invited** but has not yet joined cancels the
     </script>
 </body>
 </html>
+```
+
+### Withdraw several items and see which were refused
+
+```js
+const { revoked, failed } = await puter.fs.unshare({
+    paths: ['report.txt', 'budget.txt', 'notes.txt'],
+    recipient: 'friend',
+});
+console.log(`Removed ${revoked} share(s)`);
+for (const pair of failed) {
+    console.log(`${pair.path} was not withdrawn from ${pair.recipient}: ${pair.message} (${pair.code})`);
+}
 ```
 
 ### Leave a share someone gave you

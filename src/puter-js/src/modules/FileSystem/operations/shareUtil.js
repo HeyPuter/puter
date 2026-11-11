@@ -108,22 +108,6 @@ export const toShare = (row) => ({
 });
 
 /**
- * The error to reject with when every pair was refused: the first that names
- * a code, since a pair the server could not complete carries none.
- *
- * @param {Record<string, unknown>[]} results
- * @param {{ message: string, code: string }} fallback
- * @returns {{ message: string, code: string }}
- */
-export const refusedPairError = (results, fallback) => {
-    const refused = results.find((result) => result.code) ?? results[0];
-    return {
-        message: String(refused.message ?? fallback.message),
-        code: String(refused.code ?? fallback.code),
-    };
-};
-
-/**
  * Forget cached entries for items whose sharing just changed — `is_shared`
  * rides in the cached entry, and nothing else invalidates it. Items addressed
  * by uid have no key to drop, so those flush the cache instead.
