@@ -176,7 +176,7 @@ describe.each([
         await expect(user).resolves.toEqual(USERS['tok-a']);
     });
 
-    it('resends with its token, and asks the user to sign in, when the boot lookup is refused', async () => {
+    it('asks the user to sign in, sending nothing more, when the boot lookup is refused', async () => {
         const puter = await bootWeb();
         const signIn = vi
             .spyOn(puter.ui, 'authenticateWithPuter')
@@ -189,56 +189,96 @@ describe.each([
                 (error) => error,
             );
         await flush();
-        expect(whoamis).toHaveLength(1);
-
-        await answer({ refuse: true });
-        expect(puter.authToken).toBeNull();
-        expect(whoamis.map((r) => r.token)).toEqual(['tok-a', 'tok-a']);
         expect(signIn).not.toHaveBeenCalled();
 
         await answer({ refuse: true });
+        expect(puter.authToken).toBeNull();
         expect(await failure).toBeTruthy();
         expect(signIn).toHaveBeenCalledTimes(1);
+        expect(whoamis.map((r) => r.token)).toEqual(['tok-a']);
     });
 
-    it('sends its own request when copying the joined user fails', async () => {
+    it('sends its own request with the new token after that sign-in', async () => {
         const puter = await bootWeb();
+        vi.spyOn(puter.ui, 'authenticateWithPuter').mockImplementation(
+            async () => puter.setAuthToken('tok-b'),
+        );
         puter.setAuthToken('tok-a');
         const user = readUser(puter);
         await flush();
-        vi.spyOn(globalThis, 'structuredClone').mockImplementationOnce(() => {
-            throw new DOMException('Cannot clone', 'DataCloneError');
-        });
 
+        await answer({ refuse: true });
+        // The new token's boot lookup, and the caller's own request.
+        expect(whoamis.map((r) => r.token)).toEqual([
+            'tok-a',
+            'tok-b',
+            'tok-b',
+        ]);
         await answer();
-        expect(whoamis.map((r) => r.token)).toEqual(['tok-a', 'tok-a']);
-        await answer();
-        await expect(user).resolves.toEqual(USERS['tok-a']);
+        await expect(user).resolves.toEqual(USERS['tok-b']);
     });
 
-    it('resends once the boot lookup gives up on a network failure', async () => {
+    it('fails with no further request when the user signs out meanwhile', async () => {
+        const puter = await bootWeb();
+        const signIn = vi.spyOn(puter.ui, 'authenticateWithPuter');
+        puter.setAuthToken('tok-a');
+        const failure = Promise.resolve()
+            .then(() => readUser(puter))
+            .then(
+                () => null,
+                (error) => error,
+            );
+        await flush();
+        puter.resetAuthToken();
+
+        await answer();
+        expect(await failure).toEqual({ status: 401, message: 'Unauthorized' });
+        expect(whoamis.map((r) => r.token)).toEqual(['tok-a']);
+        expect(signIn).not.toHaveBeenCalled();
+    });
+
+    it('copies the joined user where structuredClone is missing', async () => {
+        const puter = await bootWeb();
+        vi.stubGlobal('structuredClone', undefined);
+        try {
+            puter.setAuthToken('tok-a');
+            const user = readUser(puter);
+            await answer();
+            const copy = await user;
+            expect(copy).toEqual(USERS['tok-a']);
+            expect(copy).not.toBe(puter.whoami);
+            expect(whoamis).toHaveLength(1);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('sends its own request as soon as the boot lookup has to retry', async () => {
         const puter = await bootWeb();
         let user;
         vi.useFakeTimers();
         try {
             puter.setAuthToken('tok-a');
             user = readUser(puter);
-            // The boot lookup retries a network failure with backoff first.
-            for (let attempt = 0; attempt < 9; attempt++) {
-                await vi.advanceTimersByTimeAsync(0);
-                failNetwork();
-                await vi.advanceTimersByTimeAsync(2000);
-            }
+            await vi.advanceTimersByTimeAsync(0);
+            failNetwork();
+            // Before the boot lookup's first retry delay has passed.
+            await vi.advanceTimersByTimeAsync(1);
+            expect(whoamis.filter((r) => !r.answered)).toHaveLength(1);
+            // A later call does not wait on the retrying lookup either.
+            const later = readUser(puter);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(whoamis.filter((r) => !r.answered)).toHaveLength(2);
+            await vi.advanceTimersByTimeAsync(250);
+            expect(whoamis.filter((r) => !r.answered)).toHaveLength(3);
+            vi.useRealTimers();
+            await answer();
+            await expect(later).resolves.toEqual(USERS['tok-a']);
         } finally {
             vi.useRealTimers();
         }
-        expect(whoamis.filter((r) => r.answered)).toHaveLength(9);
-        expect(whoamis.filter((r) => !r.answered).map((r) => r.token)).toEqual([
-            'tok-a',
-        ]);
-
-        await answer();
         await expect(user).resolves.toEqual(USERS['tok-a']);
+        expect(puter.whoami).toEqual(USERS['tok-a']);
     });
 
     it('does not join a lookup sent for a token that has since changed', async () => {
@@ -303,5 +343,27 @@ describe.each([
         expect(success).toHaveBeenCalledWith(USERS['tok-a']);
         expect(success.mock.calls[0][0]).not.toBe(puter.whoami);
         expect(error).not.toHaveBeenCalled();
+    });
+
+    it('calls error once when the joined lookup is refused', async () => {
+        const puter = await bootWeb();
+        vi.spyOn(puter.ui, 'authenticateWithPuter').mockRejectedValue(
+            new Error('closed'),
+        );
+        puter.setAuthToken('tok-a');
+        const success = vi.fn();
+        const error = vi.fn();
+        const failure = getUser(puter)(success, error).then(
+            () => null,
+            (reason) => reason,
+        );
+        await answer({ refuse: true });
+
+        const reason = await failure;
+        expect(reason).toBeTruthy();
+        expect(error).toHaveBeenCalledTimes(1);
+        expect(error).toHaveBeenCalledWith(reason);
+        expect(success).not.toHaveBeenCalled();
+        expect(whoamis).toHaveLength(1);
     });
 });

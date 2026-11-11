@@ -33,12 +33,10 @@ function uuidv4 () {
  * @param {string} [method='post'] - The HTTP method to be used for the request. Defaults to 'post' if not specified.
  * @param {string} [contentType='application/json;charset=UTF-8'] - The content type of the request. Defaults to
  *                                                                  'application/json;charset=UTF-8' if not specified.
- * @param {string} [responseType] - The XHR response type.
- * @param {string} [fallbackAuthToken] - The token to send, replays included, when there is no live token.
  *
  * @returns {XMLHttpRequest} The initialized XMLHttpRequest object.
  */
-function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType = 'text/plain;actually=json', responseType = undefined, fallbackAuthToken = undefined) {
+function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType = 'text/plain;actually=json', responseType = undefined) {
     return buildXhr({
         url: APIOrigin + endpoint,
         method,
@@ -47,7 +45,6 @@ function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType =
         // picks up a freshly-minted token (same as the old replay path, which
         // passed `globalThis.puter.authToken`).
         includePuterAuth: !! authToken,
-        authToken: fallbackAuthToken,
         withCredentials: true,
         responseType: responseType ?? '',
         logId: {

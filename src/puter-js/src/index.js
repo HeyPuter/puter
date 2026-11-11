@@ -647,7 +647,7 @@ export class Puter {
         // The in-flight boot `/whoami`, awaited by anything that wants the
         // cached user without issuing its own request.
         this.whoamiCache_ = null;
-        /** @internal The boot `/whoami` while in flight, joined for the same token. */
+        /** @internal The boot `/whoami` while in flight, for `getUser()` to join. */
         this.whoamiInFlight_ = null;
 
         // A user session token must never be adopted from storage, and an
@@ -921,25 +921,44 @@ export class Puter {
         // use for a cached user and shouldn't pay for the request.
         if (!this.authToken || !this.socketEnabled) return null;
         const issuedUnder = this.authToken;
+        // `user` settles with the user, or null at the first failed attempt.
+        let settle;
+        const inFlight = {
+            token: issuedUnder,
+            origin: this.APIOrigin,
+            user: new Promise((resolve) => {
+                settle = resolve;
+            }),
+            refusal: null,
+        };
+        this.whoamiInFlight_ = inFlight;
         try {
             const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
                 authToken: this.authToken,
                 interactiveReauth: false,
+                onRetry: () => settle(null),
                 logContext: {
                     service: 'auth',
                     operation: 'whoami',
                     params: {},
                 },
             });
-            if (!resp.ok) return null;
+            if (!resp.ok) {
+                inFlight.refusal = await resp.json().catch(() => null);
+                return null;
+            }
             const body = await resp.json();
             // The answer belongs to the token that asked for it.
             if (this.authToken !== issuedUnder) return null;
             this.whoami = body;
+            settle(body);
             return this.whoami;
         } catch (e) {
             // Best-effort cache — a network failure leaves it unset.
             return null;
+        } finally {
+            settle(null);
+            if (this.whoamiInFlight_ === inFlight) this.whoamiInFlight_ = null;
         }
     }
 
@@ -1068,16 +1087,7 @@ export class Puter {
         this.request_rao_();
 
         // perform whoami and cache results
-        const lookup = this.cacheWhoami_();
-        this.whoamiCache_ = lookup;
-        const inFlight =
-            this.authToken && this.socketEnabled
-                ? { token: this.authToken, origin: this.APIOrigin, lookup }
-                : null;
-        this.whoamiInFlight_ = inFlight;
-        void lookup.then(() => {
-            if (this.whoamiInFlight_ === inFlight) this.whoamiInFlight_ = null;
-        });
+        this.whoamiCache_ = this.cacheWhoami_();
     };
 
     /**
