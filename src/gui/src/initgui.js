@@ -84,7 +84,7 @@ import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
 import { readSignupBonusCode } from './helpers/signupBonusCode.js';
-import { sameTokenClaims } from './helpers/guiToken.js';
+import { guiTokenBootStep, pageRenderedForThisLoad, sameTokenClaims } from './helpers/guiToken.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
@@ -1726,11 +1726,25 @@ window.initgui = async function (options) {
         }
         fs_cache_reset = true;
     };
+    let gui_token_step = 'fetch';
     try {
-        const r = await fetch(`${window.gui_origin}/get-gui-token`, {
-            credentials: 'include',
+        gui_token_step = await guiTokenBootStep({
+            params: window.gui_params,
+            storedToken: window.auth_token,
+            sameOrigin: window.gui_origin === window.location.origin,
+            renderedForThisLoad: pageRenderedForThisLoad(),
         });
-        if (r.ok) {
+    } catch (e) {
+        console.error('gui token boot step', e);
+    }
+    if (gui_token_step === 'same-session') keep_stored_token();
+    try {
+        const r = gui_token_step === 'fetch'
+            ? await fetch(`${window.gui_origin}/get-gui-token`, {
+                credentials: 'include',
+            })
+            : null;
+        if (r?.ok) {
             const { token } = await r.json();
             if (sameTokenClaims(token, window.auth_token)) {
                 keep_stored_token();

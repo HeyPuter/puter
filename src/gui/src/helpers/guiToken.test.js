@@ -17,13 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createHash, webcrypto } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { sameTokenClaims, tokenClaimsKey } from './guiToken.js';
+import {
+    guiTokenBootStep,
+    pageRenderedForThisLoad,
+    sameTokenClaims,
+    tokenClaimsDigest,
+    tokenClaimsKey,
+} from './guiToken.js';
 
 const jwtWith = (claims) =>
     `h.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.s`;
 const CLAIMS = { t: 'gui', v: '2', u: 'c2Vzc2lvbg==', su: 'c2Vzc2lvbg==', uu: 'dXNlcg==', ai: 'dXNlcg==' };
 const TOKEN = jwtWith({ ...CLAIMS, iat: 1 });
+const subtle = webcrypto.subtle;
 
 describe('tokenClaimsKey', () => {
     it('sorts the claims and leaves out iat', () => {
@@ -55,5 +63,72 @@ describe('sameTokenClaims', () => {
         expect(sameTokenClaims('garbage', 'garbage')).toBe(false);
         expect(sameTokenClaims(TOKEN, null)).toBe(false);
         expect(sameTokenClaims(null, null)).toBe(false);
+    });
+});
+
+describe('tokenClaimsDigest', () => {
+    it('is the first 32 hex chars of SHA-256 over the claims key', async () => {
+        const expected = createHash('sha256').update(tokenClaimsKey(TOKEN)).digest('hex').slice(0, 32);
+        expect(await tokenClaimsDigest(TOKEN, subtle)).toBe(expected);
+        expect(await tokenClaimsDigest(jwtWith({ ...CLAIMS, iat: 9 }), subtle)).toBe(expected);
+    });
+
+    it('is null without SubtleCrypto or a readable token', async () => {
+        expect(await tokenClaimsDigest(TOKEN, null)).toBe(null);
+        expect(await tokenClaimsDigest('garbage', subtle)).toBe(null);
+    });
+});
+
+describe('pageRenderedForThisLoad', () => {
+    const perfWith = (entry) => ({ getEntriesByType: (type) => (type === 'navigation' && entry ? [entry] : []) });
+
+    it('is true for a navigation or reload the server answered', () => {
+        expect(pageRenderedForThisLoad(perfWith({ type: 'navigate', transferSize: 900 }))).toBe(true);
+        expect(pageRenderedForThisLoad(perfWith({ type: 'reload', transferSize: 300 }))).toBe(true);
+    });
+
+    it('is false for a history navigation, a cached copy, or no timing at all', () => {
+        expect(pageRenderedForThisLoad(perfWith({ type: 'back_forward', transferSize: 900 }))).toBe(false);
+        expect(pageRenderedForThisLoad(perfWith({ type: 'navigate', transferSize: 0 }))).toBe(false);
+        expect(pageRenderedForThisLoad(perfWith({ type: 'navigate' }))).toBe(false);
+        expect(pageRenderedForThisLoad(perfWith(null))).toBe(false);
+        expect(pageRenderedForThisLoad({})).toBe(false);
+        expect(pageRenderedForThisLoad(undefined)).toBe(false);
+    });
+});
+
+describe('guiTokenBootStep', () => {
+    const step = async (overrides) => guiTokenBootStep({
+        params: { guiTokenDigest: await tokenClaimsDigest(TOKEN, subtle) },
+        storedToken: jwtWith({ ...CLAIMS, iat: 3 }),
+        sameOrigin: true,
+        renderedForThisLoad: true,
+        subtle,
+        ...overrides,
+    });
+
+    it('keeps the stored token when the shell names its session', async () => {
+        expect(await step({})).toBe('same-session');
+    });
+
+    it('skips the request when the shell says there is no session cookie', async () => {
+        expect(await step({ params: { guiTokenDigest: null } })).toBe('no-session');
+        expect(await step({ params: { guiTokenDigest: null }, storedToken: null })).toBe('no-session');
+    });
+
+    it('asks when the shell names another session or nothing is stored', async () => {
+        expect(await step({ storedToken: jwtWith({ ...CLAIMS, su: 'b3RoZXI=' }) })).toBe('fetch');
+        expect(await step({ storedToken: null })).toBe('fetch');
+        expect(await step({ params: { guiTokenDigest: 42 } })).toBe('fetch');
+    });
+
+    it('asks whenever the shell\'s word can\'t be taken', async () => {
+        // An older server, or one that couldn't tell.
+        expect(await step({ params: {} })).toBe('fetch');
+        expect(await step({ params: undefined })).toBe('fetch');
+        expect(await step({ sameOrigin: false })).toBe('fetch');
+        expect(await step({ renderedForThisLoad: false })).toBe('fetch');
+        expect(await step({ renderedForThisLoad: false, params: { guiTokenDigest: null } })).toBe('fetch');
+        expect(await step({ subtle: null })).toBe('fetch');
     });
 });

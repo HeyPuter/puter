@@ -23,8 +23,13 @@
 // helpers.js and initgui.js; fetch, XHR and sockets are answered locally and
 // every request is recorded in order.
 import { Blob as NodeBlob } from 'node:buffer';
+import { webcrypto } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import jQuery from './lib/jquery-3.6.1/jquery-3.6.1.min.js';
+import { tokenClaimsDigest } from './helpers/guiToken.js';
+
+// Each boot loads the SDK and the GUI's modules afresh.
+vi.setConfig({ testTimeout: 30_000 });
 
 const { sockets, dashboard } = vi.hoisted(() => ({ sockets: [], dashboard: { calls: [] } }));
 
@@ -151,9 +156,10 @@ const apiSockets = () => sockets.filter((s) => s.origin === API);
 
 /**
  * Loads the page and runs `initgui` the way a signed-in dashboard visit does.
- * `guiParams` is what the shell rendered.
+ * `navigation` is the page's Navigation Timing entry; `guiParams` what the
+ * shell rendered.
  */
-const boot = async ({ guiParams = {}, beforeInit } = {}) => {
+const boot = async ({ guiParams = {}, navigation = { type: 'navigate', transferSize: 4096 }, beforeInit } = {}) => {
     // The previous test's page keeps its timers; they write the local cache mark.
     globalThis.puter?.fs?.stopCacheUpdateTimer?.();
     clearInterval(globalThis.puter?.guiFSCacheTimer_);
@@ -175,6 +181,10 @@ const boot = async ({ guiParams = {}, beforeInit } = {}) => {
     globalThis.XMLHttpRequest = RecordingXHR;
     globalThis.fetch = recordingFetch;
     globalThis.PUTER_API_ORIGIN = API;
+    if ( ! globalThis.crypto?.subtle ) {
+        Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
+    }
+    performance.getEntriesByType = (type) => (type === 'navigation' && navigation ? [navigation] : []);
     window.matchMedia = () => ({ matches: false, addEventListener () {} });
     window.close = () => {};
     window.open = () => ({ close () {} });
@@ -274,6 +284,57 @@ describe('/get-gui-token at boot', () => {
     });
 });
 
+describe('the shell naming the session cookie', () => {
+    it('skips /get-gui-token when it names the stored token', async () => {
+        const puter = await boot({ guiParams: { guiTokenDigest: await tokenClaimsDigest(STORED, webcrypto.subtle) } });
+
+        expect(count('GET gui/get-gui-token')).toBe(0);
+        expect(puter.authToken).toBe(STORED);
+        expect(apiSockets().map((s) => s.token)).toEqual([STORED]);
+        expect(dashboard.calls.map((c) => c.staleDesktopCached)).toEqual([false]);
+    });
+
+    it('asks /get-gui-token when it names another session', async () => {
+        const cookieToken = guiToken({ session: 'b0b0b0b0-0000-4000-8000-000000000002', user: OTHER });
+        routes['/get-gui-token'] = () => [200, { token: cookieToken }];
+        const puter = await boot({ guiParams: { guiTokenDigest: await tokenClaimsDigest(cookieToken, webcrypto.subtle) } });
+
+        expect(count('GET gui/get-gui-token')).toBe(1);
+        expect(puter.authToken).toBe(cookieToken);
+    });
+
+    it('asks /get-gui-token when the page may be a cached copy', async () => {
+        await boot({
+            guiParams: { guiTokenDigest: await tokenClaimsDigest(STORED, webcrypto.subtle) },
+            navigation: { type: 'back_forward', transferSize: 0 },
+        });
+        expect(count('GET gui/get-gui-token')).toBe(1);
+
+        await boot({ guiParams: { guiTokenDigest: null }, navigation: { type: 'navigate', transferSize: 0 } });
+        expect(count('GET gui/get-gui-token')).toBe(1);
+    });
+
+    it('skips /get-gui-token when there is no session cookie', async () => {
+        const puter = await boot({ guiParams: { guiTokenDigest: null } });
+
+        expect(count('GET gui/get-gui-token')).toBe(0);
+        expect(puter.authToken).toBe(STORED);
+    });
+
+    it('signs out a kept token the server refuses, through the invalid-session path', async () => {
+        routes['/whoami'] = () => [401, { code: 'token_auth_failed' }];
+        const { default: UIAlert } = await import('./UI/UIAlert.js');
+        UIAlert.mockClear();
+        await boot({ guiParams: { guiTokenDigest: await tokenClaimsDigest(STORED, webcrypto.subtle) } });
+
+        expect(count('GET gui/get-gui-token')).toBe(0);
+        expect(UIAlert.mock.calls[0]?.[0]?.message).toBe('Your session is invalid. You will be logged out.');
+        // Nothing stored, so the next boot asks /get-gui-token again.
+        expect(localStorage.getItem('auth_token_v2')).toBe(null);
+        expect(dashboard.calls).toEqual([]);
+    });
+});
+
 describe('a boot that keeps the persisted FS cache', () => {
     // Changed on the server after this browser last held a live cache.
     const changedSince = () => {
@@ -285,6 +346,13 @@ describe('a boot that keeps the persisted FS cache', () => {
         routes['/get-gui-token'] = () => [401, { code: 'token_auth_failed' }];
         await boot({ beforeInit: changedSince });
 
+        expect(dashboard.calls).toEqual([{ staleDesktopCached: false, timestampAnswered: true }]);
+    });
+
+    it('purges it before the first render when the shell says there is no session cookie', async () => {
+        await boot({ guiParams: { guiTokenDigest: null }, beforeInit: changedSince });
+
+        expect(count('GET gui/get-gui-token')).toBe(0);
         expect(dashboard.calls).toEqual([{ staleDesktopCached: false, timestampAnswered: true }]);
     });
 });

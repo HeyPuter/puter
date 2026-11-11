@@ -57,6 +57,17 @@ export interface PopupFrame {
     hostOrigin: string | null;
 }
 
+export interface ShellContext {
+    req: Request;
+    res: Response;
+    actor?: Actor | null;
+    /**
+     * `AuthService.guiTokenDigest` for the request's session cookie, or null
+     * when it carries none. Omitted when the caller doesn't work it out.
+     */
+    guiTokenDigest?: string | null;
+}
+
 interface PuterGuiAddonsEvent {
     req: Request;
     path: string;
@@ -309,12 +320,12 @@ export class PuterHomepageService extends PuterService {
      * called on the happy path.
      */
     async send(
-        ctx: { req: Request; res: Response; actor?: Actor | null },
+        ctx: ShellContext,
         meta: PageMeta,
         launchOptions: LaunchOptions = {},
         popupFrame?: PopupFrame,
     ): Promise<void> {
-        const { req, res, actor } = ctx;
+        const { req, res, actor, guiTokenDigest } = ctx;
 
         // Easter egg: puter-in-puter detection → render error page instead.
         if (
@@ -334,7 +345,7 @@ export class PuterHomepageService extends PuterService {
         }
 
         const html = await this.#renderShell(
-            { req, actor: actor ?? null },
+            { req, actor: actor ?? null, guiTokenDigest },
             meta,
             launchOptions,
             popupFrame,
@@ -345,12 +356,14 @@ export class PuterHomepageService extends PuterService {
     // -- Internals ----------------------------------------------------
 
     async #renderShell(
-        ctx: { req: Request; actor: Actor | null },
+        ctx: Pick<ShellContext, 'req' | 'guiTokenDigest'> & {
+            actor: Actor | null;
+        },
         meta: PageMeta,
         launchOptions: LaunchOptions,
         popupFrame?: PopupFrame,
     ): Promise<string> {
-        const { req, actor } = ctx;
+        const { req, actor, guiTokenDigest } = ctx;
         const env = this.config.env ?? 'prod';
         const bundled = env !== 'dev' || this.config.use_bundled_gui === true;
         const assetDir = env === 'dev' ? '/src' : '/dist';
@@ -397,6 +410,10 @@ export class PuterHomepageService extends PuterService {
             // After `meta`, so nothing page-specific can name the opener.
             ...(popupFrame ? { embed_host_origin: popupFrame.hostOrigin } : {}),
         };
+        // Only ever this request's; without one the GUI asks for its token as
+        // it always has.
+        if (guiTokenDigest === undefined) delete guiParams.guiTokenDigest;
+        else guiParams.guiTokenDigest = guiTokenDigest;
 
         const event: PuterGuiAddonsEvent = {
             req,

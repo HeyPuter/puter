@@ -20,6 +20,7 @@
 import express from 'express';
 import path from 'node:path';
 import { PuterController } from '../types.js';
+import { isPlainUserActor } from '../../core/actor.js';
 import { toAppShellView } from '../../util/appShellView.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
 import {
@@ -27,11 +28,13 @@ import {
     subdomainLabelOf,
 } from '../../core/http/middleware/hostRedirects.js';
 import type { IConfig } from '../../types';
+import type { UserRow } from '../../stores/user/UserStore';
 import type {
     PuterHomepageService,
     PageMeta,
     LaunchOptions,
     PopupFrame,
+    ShellContext,
 } from '../../services/homepage/PuterHomepageService';
 
 /**
@@ -179,7 +182,17 @@ export class HomepageController extends PuterController {
                         actor?: Parameters<typeof homepage.send>[0]['actor'];
                     }
                 ).actor ?? null;
-            await homepage.send({ req, res, actor }, meta, launch, popupFrame);
+            await homepage.send(
+                {
+                    req,
+                    res,
+                    actor,
+                    guiTokenDigest: this.#guiTokenDigest(req, actor),
+                },
+                meta,
+                launch,
+                popupFrame,
+            );
         };
 
         // -- Root + path-aliased shell routes ------------------------
@@ -380,6 +393,38 @@ export class HomepageController extends PuterController {
                 express.static(path.join(this.config.gui_assets_root, 'src')),
             );
         }
+    }
+
+    /**
+     * Lets the GUI skip `/get-gui-token`, which reads the session cookie: the
+     * digest of the token it would hand over, null when there is no session
+     * cookie (either name the auth probe reads), and undefined (the GUI asks)
+     * when a cookie didn't resolve to a session.
+     */
+    #guiTokenDigest(
+        req: express.Request,
+        actor: ShellContext['actor'],
+    ): string | null | undefined {
+        if (req.tokenSource === 'cookie') {
+            if (!actor || !isPlainUserActor(actor) || !actor.session?.uid) {
+                return undefined;
+            }
+            return this.services.auth.guiTokenDigest(
+                actor.user as UserRow,
+                actor.session.uid,
+            );
+        }
+        const cookies = (req.cookies ?? {}) as Record<string, unknown>;
+        const hasSessionCookie = [
+            this.config.cookie_name,
+            'puter_token_v2',
+        ].some(
+            (name) =>
+                !!name &&
+                typeof cookies[name] === 'string' &&
+                cookies[name] !== '',
+        );
+        return hasSessionCookie ? undefined : null;
     }
 }
 

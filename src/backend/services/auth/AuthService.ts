@@ -106,6 +106,15 @@ const HOSTED_ASSET_LABELS = {
 
 export type ReauthReason = 'session_revoked' | 'session_expired';
 
+/** Worker claims a session/gui token can carry. */
+interface SessionTypeTokenOptions {
+    worker?: boolean;
+    workerName?: string;
+    workerUid?: string;
+    workerSiteUid?: string;
+    workerSite?: string;
+}
+
 /**
  * Request metadata for `authenticate`. `touch: false` checks the token without
  * recording activity on its session, for re-checks no user made.
@@ -367,6 +376,22 @@ export class AuthService extends PuterService {
         );
     }
 
+    /**
+     * Digest of the claims `createGuiToken` signs for this session, which
+     * differ between two of its tokens only in `iat`.
+     */
+    guiTokenDigest(user: UserRow, sessionUuid: string): string {
+        return this.services.token.claimsDigest(
+            'auth',
+            this.#sessionTypeClaims(
+                'gui',
+                user,
+                sessionUuid,
+                this.#authIdFor(user),
+            ),
+        );
+    }
+
     /** Sign a session token for an existing session (upgrade from GUI token). */
     createSessionTokenForSession(user: UserRow, sessionUuid: string): string {
         return this.#signSessionTypeToken(
@@ -386,14 +411,21 @@ export class AuthService extends PuterService {
         user: UserRow,
         sessionUuid: string,
         authId: string,
-        opts: {
-            worker?: boolean;
-            workerName?: string;
-            workerUid?: string;
-            workerSiteUid?: string;
-            workerSite?: string;
-        } = {},
+        opts: SessionTypeTokenOptions = {},
     ): string {
+        return this.services.token.sign(
+            'auth',
+            this.#sessionTypeClaims(type, user, sessionUuid, authId, opts),
+        );
+    }
+
+    #sessionTypeClaims(
+        type: 'session' | 'gui',
+        user: UserRow,
+        sessionUuid: string,
+        authId: string,
+        opts: SessionTypeTokenOptions = {},
+    ): Record<string, unknown> {
         const claims: Record<string, unknown> = {
             type,
             version: '2',
@@ -410,7 +442,7 @@ export class AuthService extends PuterService {
         if (opts.workerUid) claims.worker_uid = opts.workerUid;
         if (opts.workerSiteUid) claims.workerSiteUid = opts.workerSiteUid;
         if (opts.workerSite) claims.workerSite = opts.workerSite;
-        return this.services.token.sign('auth', claims);
+        return claims;
     }
 
     /**
