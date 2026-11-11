@@ -224,7 +224,7 @@ const extractToken = (
         }
     }
 
-    // 5. Query string (used by e.g. QR login, asset URLs).
+    // 5. Query string (used by e.g. asset URLs).
     const queryToken = (req.query as { auth_token?: unknown } | undefined)
         ?.auth_token;
     if (typeof queryToken === 'string' && queryToken.length > 0) {

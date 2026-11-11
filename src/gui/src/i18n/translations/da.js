@@ -239,9 +239,7 @@ const da = {
         save_account_to_publish: 'Opret venligst en konto for at fortsætte.',
         save_session: 'Gem session',
         save_session_c2a: 'Opret en konto for at gemme din nuværende session og undgå at miste dit ændringer.',
-        scan_qr_c2a: 'Scan koden nedenfor\nfor at logge ind på denne session fra andre enheder',
         scan_qr_2fa: 'Scan QR-koden med din autentifikator-app',
-        scan_qr_generic: 'Scan denne QR-kode med din telefon eller en anden enhed',
         search: 'Søg',
         seconds: 'sekunder',
         security: 'Sikkerhed',
@@ -413,7 +411,6 @@ const da = {
         'toolbar.refer': undefined, // In English: "Refer"
         'toolbar.save_account': undefined, // In English: "Save Account"
         'toolbar.search': undefined, // In English: "Search"
-        'toolbar.qrcode': undefined, // In English: "QR Code"
         'used_of': undefined, // In English: "{{used}} used of {{available}}"
         'worker': undefined, // In English: "Worker"
         'People with access': undefined, // In English: "People with access"
@@ -496,7 +493,6 @@ const da = {
         'window_title_select_font': undefined, // In English: "Select font…"
         'window_title_session_list': undefined, // In English: "Session List!"
         'window_title_set_new_password': undefined, // In English: "Set New Password"
-        'window_title_instant_login': undefined, // In English: "Instant Login!"
         'window_title_publish_website': undefined, // In English: "Publish Website"
         'window_title_publish_worker': undefined, // In English: "Publish Worker"
         'window_title_authenticating': undefined, // In English: "Authenticating..."

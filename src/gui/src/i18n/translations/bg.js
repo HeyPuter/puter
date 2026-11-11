@@ -277,11 +277,7 @@ const bg = {
         save_session: 'Запазване на сесия',
         save_session_c2a:
       'Създайте акаунт, за да запазите текущата си сесия и да избегнете загуба на работата си.',
-        scan_qr_c2a:
-      'Сканирайте кода по-долу, за да влезете в тази сесия от други устройства',
         scan_qr_2fa: 'Сканирайте QR кода с приложението си за удостоверяване',
-        scan_qr_generic:
-      'Сканирайте този QR код с телефона си или друго устройство',
         search: 'Търсене',
         seconds: 'секунди',
         security: 'Сигурност',
@@ -325,7 +321,6 @@ const bg = {
         'toolbar.refer': 'Препоръчай',
         'toolbar.save_account': 'Запази акаунта',
         'toolbar.search': 'Търсене',
-        'toolbar.qrcode': 'QR код',
         tos_fineprint:
       "С натискане на 'Създай безплатен акаунт' вие се съгласявате с {{link=terms}}Условията за ползване{{/link}} и {{link=privacy}}Политиката за поверителност{{/link}} на Puter.",
         transparency: 'Прозрачност',
@@ -506,7 +501,6 @@ const bg = {
         window_title_select_font: 'Изберете шрифт…',
         window_title_session_list: 'Списък със сесии!',
         window_title_set_new_password: 'Задайте нова парола',
-        window_title_instant_login: 'Моментален вход!',
         window_title_publish_website: 'Публикуване на уебсайт',
         window_title_publish_worker: 'Публикуване на Worker',
         window_title_authenticating: 'Удостоверяване…',

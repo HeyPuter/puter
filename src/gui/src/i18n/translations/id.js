@@ -257,9 +257,7 @@ const id = {
         save_session: 'Simpan sesi',
         save_session_c2a:
       'Buat akun untuk menyimpan sesi Anda saat ini agar yang Anda kerjakan tidak hilang.',
-        scan_qr_c2a: 'Pindai kode di bawah ini\nuntuk masuk ke sesi ini dari perangkat lain',
         scan_qr_2fa: 'Pindai kode QR dengan aplikasi autentikator Anda',
-        scan_qr_generic: 'Pindai kode QR ini menggunakan ponsel atau perangkat lain Anda',
         search: 'Pencarian',
         seconds: 'detik',
         security: 'Keamanan',
@@ -438,7 +436,6 @@ const id = {
         'toolbar.refer': 'Rujuk', // In English: "Refer"
         'toolbar.save_account': 'Simpan Akun', // In English: "Save Account"
         'toolbar.search': 'Cari', // In English: "Search"
-        'toolbar.qrcode': 'Kode QR', // In English: "QR Code"
         'used_of': 'terpakai {{used}} dari {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker".
         'billing.offering.basic': 'Basic', // In English: "Basic"
@@ -470,7 +467,6 @@ const id = {
         'window_title_select_font': 'Pilih font...', // In English: "Select font…"
         'window_title_session_list': 'Daftar Sesi', // In English: "Session List!"
         'window_title_set_new_password': 'Tentukan Kata Sandi Baru', // In English: "Set New Password"
-        'window_title_instant_login': 'Login Instan', // In English: "Instant Login!"
         'window_title_publish_website': 'Publikasikan Situs Web', // In English: "Publish Website"
         'window_title_publish_worker': 'Publikasikan Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Proses Autentikasi...', // In English: "Authenticating..."

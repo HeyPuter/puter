@@ -258,9 +258,7 @@ const zhtw = {
         save_account_to_publish: '請建立帳戶以繼續。',
         save_session: '儲存工作階段',
         save_session_c2a: '建立帳戶以儲存您目前的工作階段並避免失去您的工作。',
-        scan_qr_c2a: '掃描下方的代碼\n以從其他裝置登入此工作階段',
         scan_qr_2fa: '使用您的驗證器應用程式掃描 QR 碼',
-        scan_qr_generic: '使用您的手機或其他裝置掃描此 QR 碼',
         search: '搜尋',
         seconds: '秒',
         security: '安全性',
@@ -429,7 +427,6 @@ const zhtw = {
         'toolbar.refer': "推薦", // In English: "Refer"
         'toolbar.save_account': "儲存帳戶", // In English: "Save Account"
         'toolbar.search': "搜尋", // In English: "Search"
-        'toolbar.qrcode': "QR 碼", // In English: "QR Code"
         'used_of': "{{used}} / {{available}} 已使用", // In English: "{{used}} used of {{available}}"
         'worker': "Worker", // In English: "Worker"
         'billing.offering.basic': "基本", // In English: "Basic"
@@ -461,7 +458,6 @@ const zhtw = {
         'window_title_select_font': "選擇字型…", // In English: "Select font…"
         'window_title_session_list': "工作階段列表", // In English: "Session List!"
         'window_title_set_new_password': "設定新密碼", // In English: "Set New Password"
-        'window_title_instant_login': "快速登入！", // In English: "Instant Login!"
         'window_title_publish_website': "發布網站", // In English: "Publish Website"
         'window_title_publish_worker': "發布 Worker", // In English: "Publish Worker"
         'window_title_authenticating': "正在驗證…", // In English: "Authenticating..."

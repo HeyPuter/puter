@@ -272,10 +272,7 @@ const es = {
         save_session: 'Guardar sesión',
         save_session_c2a:
       'Crea una cuenta para guardar tu sesión actual y evitar así perder tu trabajo.',
-        scan_qr_c2a:
-      'Escanee el código a continuación para inicia sesión desde otros dispositivos',
         scan_qr_2fa: 'Escanee el codigo QR con su aplicación de autenticación',
-        scan_qr_generic: 'Scan this QR code using your phone or another device',
         search: 'Buscar',
         seconds: 'segundos',
         security: 'Seguridad',
@@ -465,7 +462,6 @@ const es = {
         'toolbar.refer': 'Invitar', // In English: "Refer"
         'toolbar.save_account': 'Guardar cuenta', // In English: "Save Account"
         'toolbar.search': 'Buscar', // In English: "Search"
-        'toolbar.qrcode': 'Código QR', // In English: "QR Code"
         'used_of': '{{used}} en uso. {{available}} disponible', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Básico', // In English: "Basic"
@@ -497,7 +493,6 @@ const es = {
         'window_title_select_font': 'Seleccionar fuente…', // In English: "Select font…"
         'window_title_session_list': '¡Lista de sesiones!', // In English: "Session List!"
         'window_title_set_new_password': 'Establecer nueva contraseña', // In English: "Set New Password"
-        'window_title_instant_login': 'Inicio de sesión instantáneo', // In English: "Instant Login!"
         'window_title_publish_website': 'Publicar sitio web', // In English: "Publish Website"
         'window_title_publish_worker': 'Publicar Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticando...', // In English: "Authenticating..."

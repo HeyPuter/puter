@@ -239,9 +239,7 @@ const sv = {
         save_account_to_publish: 'Vänligen skapa ett konto för att fortsätta.',
         save_session: 'Spara sessionen',
         save_session_c2a: 'Skapa ett konto för att spara den nuvarande sessionen och undvika att ditt arbete går förlorat.',
-        scan_qr_c2a: 'Skanna koden nedan för att logga in på denna session från andra enheter',
         scan_qr_2fa: 'Skanna QR-koden med din autentiseringsapp',
-        scan_qr_generic: 'Skanna den här QR-koden med din telefon eller en annan enhet',
         search: 'Sök',
         seconds: 'sekunder',
         security: 'Säkerhet',
@@ -415,7 +413,6 @@ const sv = {
         'toolbar.refer': 'Rekommendera', // In English: "Refer"
         'toolbar.save_account': 'Spara konto', // In English: "Save Account"
         'toolbar.search': 'Sök', // In English: "Search"
-        'toolbar.qrcode': 'QR-kod', // In English: "QR Code"
         'used_of': '{{used}} använt av {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Bas', // In English: "Basic"
@@ -447,7 +444,6 @@ const sv = {
         'window_title_select_font': 'Välj typsnitt…', // In English: "Select font…"
         'window_title_session_list': 'Sessionslista!', // In English: "Session List!"
         'window_title_set_new_password': 'Ange nytt lösenord', // In English: "Set New Password"
-        'window_title_instant_login': 'Direkt inloggning!', // In English: "Instant Login!"
         'window_title_publish_website': 'Publicera webbplats', // In English: "Publish Website"
         'window_title_publish_worker': 'Publicera Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autentiserar...', // In English: "Authenticating..."

@@ -256,9 +256,7 @@ const he = {
         save_session: 'שמירת חיבור',
         save_session_c2a:
       'צור חשבון כדי לשמור את החיבור הנוכחי שלך ולהימנע מאובדן העבודה שלך.',
-        scan_qr_c2a: 'סרוק את הקוד שלהלן\nכדי להתחבר לחיבור זה ממכשירים אחרים',
         scan_qr_2fa: 'סרוק את קוד ה- QR באמצעות אפליקציית האימות שלך',
-        scan_qr_generic: 'סרוק קוד QR זה באמצעות הטלפון שלך או מכשיר אחר',
         search: 'חיפוש',
         seconds: 'שניות',
         security: 'אבטחה',
@@ -429,7 +427,6 @@ const he = {
         'toolbar.refer': 'הפנה', // In English: "Refer"
         'toolbar.save_account': 'שמור משתמש', // In English: "Save Account"
         'toolbar.search': 'חפש', // In English: "Search"
-        'toolbar.qrcode': 'QR קוד', // In English: "QR Code"
         'used_of': '{{available}} משומש מתוך {{used}}', // In English: "{{used}} used of {{available}}"
         'worker': 'עובד', // In English: "Worker"
         'billing.offering.basic': 'בסיסי', // In English: "Basic"
@@ -461,7 +458,6 @@ const he = {
         'window_title_select_font': '...בחר גופן', // In English: "Select font…"
         'window_title_session_list': 'רשימת חיבורים', // In English: "Session List!"
         'window_title_set_new_password': 'בחר סיסמא חדשה', // In English: "Set New Password"
-        'window_title_instant_login': '!כניסה מידית', // In English: "Instant Login!"
         'window_title_publish_website': 'פרסם אתר', // In English: "Publish Website"
         'window_title_publish_worker': 'פרסם עובד', // In English: "Publish Worker"
         'window_title_authenticating': 'מאמת', // In English: "Authenticating..."

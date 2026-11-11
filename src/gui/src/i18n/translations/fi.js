@@ -311,11 +311,7 @@ const fi = {
         save_session: 'Tallenna istunto',
         save_session_c2a:
       'Luo tili tallentaaksesi nykyisen istuntosi ja välttääksesi työsi menettämisen.',
-        scan_qr_c2a:
-      'Skannaa alla oleva koodi kirjautuaksesi tähän istuntoon muilla laitteilla.',
         scan_qr_2fa: 'Skannaa QR-koodi todennussovelluksellasi',
-        scan_qr_generic:
-      'Skannaa tämä QR-koodi puhelimellasi tai toisella laitteella.',
         search: 'Etsi',
         seconds: 'sekuntia',
         security: 'Turvallisuus',
@@ -505,7 +501,6 @@ const fi = {
         'toolbar.refer': 'Suosittele',
         'toolbar.save_account': 'Tallenna tili',
         'toolbar.search': 'Haku',
-        'toolbar.qrcode': 'QR-koodi',
         'used_of': '{{used}} käytetty {{available}}:sta',
         'worker': 'Työntekijä',
         'billing.offering.basic': 'Perus',
@@ -537,7 +532,6 @@ const fi = {
         'window_title_select_font': 'Valitse fontti…',
         'window_title_session_list': 'Istuntolista',
         'window_title_set_new_password': 'Aseta uusi salasana',
-        'window_title_instant_login': 'Välitön kirjautuminen!',
         'window_title_publish_website': 'Julkaise verkkosivusto',
         'window_title_publish_worker': 'Julkaise työntekijä',
         'window_title_authenticating': 'Todennetaan...',

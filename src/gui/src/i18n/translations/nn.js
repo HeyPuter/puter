@@ -136,7 +136,6 @@ const nn = {
         save_account_to_get_copy_link: 'Vennligst opprett ein konto for å halde fram.',
         save_account_to_publish: 'Vennligst opprett ein konto for å halde fram.',
         save_session_c2a: 'Opprett ein konto for å lagre gjeldande økt og unngå å miste arbeidet ditt.',
-        scan_qr_c2a: 'Skann koden nedanfor for å logge inn på denne økta frå andre einingar',
         select: 'Vel',
         select_color: 'Vel farge…',
         send: 'Send',
@@ -289,7 +288,6 @@ const nn = {
         save_account: 'Lagre konto',
         save_session: 'Lagre økt',
         scan_qr_2fa: 'Skann QR-koden med autentikatorappen din',
-        scan_qr_generic: 'Skann denne QR-koden med telefonen eller ei anna eining',
         search: 'Søk',
         seconds: 'sekund',
         security: 'Tryggleik',
@@ -428,7 +426,6 @@ const nn = {
         'toolbar.refer': 'Verv', // "Original English: Refer - 'Verv' is more natural than 'Referer'"
         'toolbar.save_account': 'Lagre konto', // "Original English: Save Account"
         'toolbar.search': 'Søk', // "Original English: Search"
-        'toolbar.qrcode': 'QR-kode', // "Original English: QR Code - Technical standard, adapted to Norwegian"
         used_of: '{{used}} brukt av {{available}}', // "Original English: {{used}} used of {{available}} - Variables preserved in original format"
         worker: 'Worker', // "Original English: Worker - Technical term kept"
         'billing.offering.basic': 'Grunnleggjande', // "Original English: Basic"
@@ -461,7 +458,6 @@ const nn = {
         window_title_select_font: 'Vel skrifttype…', // "Original English: Select font… - Ellipsis preserved"
         window_title_session_list: 'Øktliste!', // "Original English: Session List!"
         window_title_set_new_password: 'Vel nytt passord', // "Original English: Set New Password"
-        window_title_instant_login: 'Øyeblikkelig innlogging!', // "Original English: Instant Login!"
         window_title_publish_website: 'Publiser nettside', // "Original English: Publish Website"
         window_title_publish_worker: 'Publiser Worker', // "Original English: Publish Worker"
         window_title_authenticating: 'Autentiserer...', // "Original English: Authenticating..."

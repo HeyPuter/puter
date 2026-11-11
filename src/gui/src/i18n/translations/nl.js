@@ -240,9 +240,7 @@ const nl = {
         save_account_to_publish: 'Maak een account aan om verder te gaan.',
         save_session: 'Sessie opslaan',
         save_session_c2a: 'Maak een account aan om je huidige sessie op te slaan en verlies van werk te voorkomen.',
-        scan_qr_c2a: 'Scan de onderstaande code\nom in te loggen op deze sessie vanaf andere apparaten',
         scan_qr_2fa: 'Scan de QR-code met je authenticator-app',
-        scan_qr_generic: 'Scan deze QR-code met je telefoon of een ander apparaat',
         search: 'Zoeken',
         seconds: 'seconden',
         security: 'Beveiliging',
@@ -416,7 +414,6 @@ const nl = {
         'toolbar.refer': 'Vriend uitnodigen', // In English: "Refer"
         'toolbar.save_account': 'Account opslaan', // In English: "Save Account"
         'toolbar.search': 'Zoeken', // In English: "Search"
-        'toolbar.qrcode': 'QR-code', // In English: "QR Code"
         'used_of': '{{used}} van {{available}} gebruikt', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker" (No direct Dutch equivalent, commonly used in tech context)
         'billing.offering.basic': 'Basis', // In English: "Basic"
@@ -448,7 +445,6 @@ const nl = {
         'window_title_select_font': 'Lettertype selecteren…', // In English: "Select font…"
         'window_title_session_list': 'Sessielijst!', // In English: "Session List!"
         'window_title_set_new_password': 'Nieuw wachtwoord instellen', // In English: "Set New Password"
-        'window_title_instant_login': 'Direct Inloggen!', // In English: "Instant Login!"
         'window_title_publish_website': 'Website publiceren', // In English: "Publish Website"
         'window_title_publish_worker': 'Worker publiceren', // In English: "Publish Worker"
         'window_title_authenticating': 'Authenticatie bezig...', // In English: "Authenticating..."

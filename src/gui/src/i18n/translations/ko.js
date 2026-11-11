@@ -266,10 +266,7 @@ const ko = {
         save_session: '세션 저장',
         save_session_c2a:
       '현재 세션을 저장하고 작업을 잃지 않으려면 계정을 만들어주세요.',
-        scan_qr_c2a:
-      '다른 기기에서 이 세션으로 로그인하려면 아래 코드를 스캔하세요.',
         scan_qr_2fa: '인증 앱으로 QR 코드를 스캔하세요.',
-        scan_qr_generic: '휴대폰이나 다른 기기로 QR 코드를 스캔하세요.',
         search: '검색',
         seconds: '초',
         security: '보안',
@@ -312,7 +309,6 @@ const ko = {
         'toolbar.refer': '추천',
         'toolbar.save_account': '계정 저장',
         'toolbar.search': '검색',
-        'toolbar.qrcode': 'QR 코드',
         tos_fineprint: '무료 계정 생성을 클릭하면 Puter의 {{link=terms}}서비스 약관{{/link}}과 {{link=privacy}}개인정보 보호정책{{/link}}에 동의하는 것으로 간주됩니다.',
         transparency: '투명도',
         trash: '휴지통',
@@ -473,7 +469,6 @@ const ko = {
         'window_title_select_font': '글꼴 선택…',
         'window_title_session_list': '세션 목록',
         'window_title_set_new_password': '새 비밀번호 설정',
-        'window_title_instant_login': '즉시 로그인!',
         'window_title_publish_website': '웹사이트 게시',
         'window_title_publish_worker': '워커 게시',
         'window_title_authenticating': '인증 중…',

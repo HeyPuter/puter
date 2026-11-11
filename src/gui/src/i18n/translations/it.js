@@ -264,10 +264,7 @@ const it = {
         save_session: 'Salva sessione',
         save_session_c2a:
       'Crea un account per salvare la tua sessione e non perdere i tuoi dati.',
-        scan_qr_c2a:
-      'Scansiona il codice qua sotto per utilizzare questa sessione da altri dispositivi',
         scan_qr_2fa: 'Scansiona il codice QR con la tua app di autenticazione',
-        scan_qr_generic: 'Scansiona il codice QR usando il tuo smartphone',
         search: 'Search',
         seconds: 'seconds',
         security: 'Sicurezza',
@@ -452,7 +449,6 @@ const it = {
         'toolbar.refer': 'Invita',
         'toolbar.save_account': 'Salva account',
         'toolbar.search': 'Cerca',
-        'toolbar.qrcode': 'Codice QR',
         'used_of': '{{used}} utilizzati su {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Base', // In English: "Basic"
@@ -484,7 +480,6 @@ const it = {
         'window_title_select_font': 'Seleziona il carattere...',
         'window_title_session_list': 'Lista delle sessioni',
         'window_title_set_new_password': 'Imposta la nuova password',
-        'window_title_instant_login': 'Accedi subito!',
         'window_title_publish_website': 'Pubblica sito web',
         'window_title_publish_worker': 'Pubblica worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticazione in corso...',

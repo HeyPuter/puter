@@ -260,10 +260,7 @@ const ku = {
         save_session: 'پاشەکەوتکردنی دانیشتن',
         save_session_c2a:
       'هەژمارێک دروست بکە بۆ پاشەکەوتکردنی دانیشتنەکەت و جلە نبەرینەوەی کاریەکانت.',
-        scan_qr_c2a:
-      'کۆدی خوارەوە پشکنین\nبۆ چوونەژوورەوەی ئەم دانیشتنە لە ئامرازە ترەکان',
         scan_qr_2fa: 'کۆدی QR پشکنین بە ئەپەکەت',
-        scan_qr_generic: 'ئەم کۆدی QR پشکنین بە بەکارەریکەت یان ئامرازێکی تر',
         search: 'گەڕان',
         seconds: 'چرکە',
         security: 'پاراستن',
@@ -438,7 +435,6 @@ const ku = {
         'toolbar.refer': 'بانگهێشت بکە', // In English: "Refer"
         'toolbar.save_account': 'هەژمار پاشەکەوت بکە', // In English: "Save Account"
         'toolbar.search': 'گەڕان', // In English: "Search"
-        'toolbar.qrcode': 'کۆدی QR', // In English: "QR Code"
         'used_of': '{{used}} بەکارهاتوو لە {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'کارمەند', // In English: "Worker"
         'billing.offering.basic': 'بنەڕەتی', // In English: "Basic"
@@ -470,7 +466,6 @@ const ku = {
         'window_title_select_font': 'فۆنت هەڵبژێرە', // In English: "Select font…"
         'window_title_session_list': 'لیستی دانیشتنەکان!', // In English: "Session List!"
         'window_title_set_new_password': 'وشەی نهێنی نوێ دابنێ', // In English: "Set New Password"
-        'window_title_instant_login': 'چوونەژوورەوەی خێرا!', // In English: "Instant Login!"
         'window_title_publish_website': 'بڵاوکردنەوەی وێب‌سایت', // In English: "Publish Website"
         'window_title_publish_worker': 'بڵاوکردنەوەی کارمەند', // In English: "Publish Worker"
         'window_title_authenticating': 'پەسندکردنەوە', // In English: "Authenticating..."

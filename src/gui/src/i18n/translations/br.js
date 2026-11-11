@@ -239,9 +239,7 @@ const br = {
         'save_account_to_publish': 'Por favor, crie uma conta para prosseguir.',
         'save_session': 'Salvar sessão',
         'save_session_c2a': 'Crie uma conta para salvar sua sessão atual e evitar perder seu trabalho.',
-        'scan_qr_c2a': 'Escaneie o código abaixo para fazer login nesta sessão a partir de outros dispositivos',
         'scan_qr_2fa': 'Escaneie o código QR com seu aplicativo autenticador',
-        'scan_qr_generic': 'Escaneie este código QR usando seu telefone ou outro dispositivo',
         'search': 'Buscar',
         'seconds': 'segundos',
         'security': 'Segurança',
@@ -412,7 +410,6 @@ const br = {
         'toolbar.refer': 'Indicar', // In English: "Refer"
         'toolbar.save_account': 'Salvar Conta', // In English: "Save Account"
         'toolbar.search': 'Pesquisar', // In English: "Search"
-        'toolbar.qrcode': 'Código QR', // In English: "QR Code"
         'used_of': '{{used}} utilizado de {{available}} disponível', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Básico', // In English: "Basic"
@@ -444,7 +441,6 @@ const br = {
         'window_title_select_font': 'Selecionar', // In English: "Select font…"
         'window_title_session_list': 'Lista de Sessões!', // In English: "Session List!"
         'window_title_set_new_password': 'Definir Nova Senha', // In English: "Set New Password"
-        'window_title_instant_login': 'Inicio de Sessão Instantâneo', // In English: "Instant Login!"
         'window_title_publish_website': 'Publicar site', // In English: "Publish Website"
         'window_title_publish_worker': 'Publicar Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticando...', // In English: "Authenticating..."

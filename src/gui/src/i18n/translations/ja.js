@@ -239,9 +239,7 @@ const ja = {
         save_account_to_publish: '続行するにはアカウントを作成してください。',
         save_session: 'セッションを保存',
         save_session_c2a: '現在のセッションを保存して、作業を失わないようにするにはアカウントを作成してください。',
-        scan_qr_c2a: '以下のコードをスキャンすると、他のデバイスからこのセッションにログインできます',
         scan_qr_2fa: '認証アプリでQRコードをスキャンしてください',
-        scan_qr_generic: 'スマートフォンまたは他のデバイスでこのQRコードをスキャンしてください',
         search: '検索',
         seconds: '秒',
         security: 'セキュリティ',
@@ -418,7 +416,6 @@ const ja = {
         'toolbar.refer': '参照する', // In English: "Refer"
         'toolbar.save_account': 'アカウントを保存', // In English: "Save Account"
         'toolbar.search': '検索する', // In English: "Search"
-        'toolbar.qrcode': 'QRコード', // In English: "QR Code"
         'used_of': '{{available}} のうち {{used}} を使用', // In English: "{{used}} used of {{available}}"
         'worker': 'ワーカー', // In English: "Worker"
         'billing.offering.basic': 'ベーシック', // In English: "Basic"
@@ -450,7 +447,6 @@ const ja = {
         'window_title_select_font': 'フォントを選択...', // In English: "Select font…"
         'window_title_session_list': 'セッション一覧!', // In English: "Session List!"
         'window_title_set_new_password': '新しいパスワードを設定', // In English: "Set New Password"
-        'window_title_instant_login': '今すぐログイン!', // In English: "Instant Login!"
         'window_title_publish_website': 'ウェブサイトを公開', // In English: "Publish Website"
         'window_title_publish_worker': 'ワーカーを公開', // In English: "Publish Worker"
         'window_title_authenticating': '認証中...', // In English: "Authenticating..."

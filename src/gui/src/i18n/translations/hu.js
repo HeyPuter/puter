@@ -239,9 +239,7 @@ const hu = {
         save_account_to_publish: 'A folytatáshoz kérlek, hozz létre egy fiókot.',
         save_session: 'Munkamenet mentése',
         save_session_c2a: 'Hozz létre egy fiókot, hogy mentsd az aktuális munkamenetedet és elkerüld a munkád elvesztését.',
-        scan_qr_c2a: 'Olvasd be az alábbi kódot, hogy bejelentkezhess ebbe a munkamenetbe más eszközökről',
         scan_qr_2fa: 'Olvasd be a QR-kódot a hitelesítő alkalmazásoddal',
-        scan_qr_generic: 'Olvasd be ezt a QR-kódot a telefonoddal vagy más eszközzel',
         search: 'Keresés',
         seconds: 'másodperc',
         security: 'Biztonság',
@@ -405,7 +403,6 @@ const hu = {
         'toolbar.refer': 'Ajánlás', // English: "Refer"
         'toolbar.save_account': 'Fiók mentése', // English: "Save Account"
         'toolbar.search': 'Keresés', // English: "Search"
-        'toolbar.qrcode': 'QR-kód', // English: "QR Code"
         'used_of': '{{used}} használt a {{available}}-ból', // English: "{{used}} used of {{available}}"
         'worker': 'Munkás', // English: "Worker"
         'billing.offering.basic': 'Alap', // English: "Basic"
@@ -437,7 +434,6 @@ const hu = {
         'window_title_select_font': 'Betű kiválasztása…', // English: "Select font…"
         'window_title_session_list': 'Munkamenet lista!', // English: "Session List!"
         'window_title_set_new_password': 'Új jelszó beállítása', // English: "Set New Password"
-        'window_title_instant_login': 'Azonnali bejelentkezés!', // English: "Instant Login!"
         'window_title_publish_website': 'Webhely közzététele', // English: "Publish Website"
         'window_title_publish_worker': 'Munkás közzététele', // English: "Publish Worker"
         'window_title_authenticating': 'Hitelesítés...', // English: "Authenticating..."

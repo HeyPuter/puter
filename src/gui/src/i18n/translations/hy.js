@@ -266,10 +266,7 @@ const hy = {
         save_session: 'Պահպանել սեսիան',
         save_session_c2a:
       'Ստեղծեք հաշիվ՝ ձեր ընթացիկ սեսիան պահպանելու և աշխատանքը չկորցնելու համար:',
-        scan_qr_c2a:
-      'Սկանավորեք ստորև նշված կոդը՝\nայլ սարքերից այս սեսիա մուտք գործելու համար',
         scan_qr_2fa: 'Սկանավորեք QR-կոդը ձեր իսկորոշիչ հավելվածով',
-        scan_qr_generic: 'Սկանավորեք այս QR-կոդը ձեր հեռախոսով կամ այլ սարքով',
         search: 'Որոնել',
         seconds: 'վայրկյաններ',
         security: 'Անվտանգություն',
@@ -459,7 +456,6 @@ const hy = {
         'toolbar.refer': 'Հրավիրել',
         'toolbar.save_account': 'Պահպանել հաշիվը',
         'toolbar.search': 'Որոնել',
-        'toolbar.qrcode': 'QR կոդ',
         used_of: '{{used}} օգտագործված է {{available}}-ից',
         worker: 'Worker',
         'billing.offering.basic': 'Հիմնական',
@@ -494,7 +490,6 @@ const hy = {
         window_title_select_font: 'Ընտրել տառատեսակ…',
         window_title_session_list: 'Սեսիաների ցանկ',
         window_title_set_new_password: 'Սահմանել նոր գաղտնաբառ',
-        window_title_instant_login: 'Ակնթարթային մուտք',
         window_title_publish_website: 'Հրապարակել կայք',
         window_title_publish_worker: 'Հրապարակել Worker',
         window_title_authenticating: 'Նույնականացում…',

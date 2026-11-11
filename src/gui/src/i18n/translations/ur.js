@@ -246,11 +246,7 @@ const ur = {
         save_account_to_publish: 'شائع کرنے کے لئے اکاؤنٹ محفوظ کریں',
         save_session: 'سیشن محفوظ کریں۔',
         save_session_c2a: 'سیشن کو محفوظ کریں ',
-        scan_qr_c2a:
-      '!دیے گئے کوڈ کو اسکین کریں! تاکہ دوسری ڈیواسؐز سے اس سیشن میں لاگ ان کیا جا سکے',
         scan_qr_2fa: 'اپنی تصدیق کنندہ ایپ سے QR کوڈ اسکین کریں۔',
-        scan_qr_generic:
-      'اس QR کوڈ کو اپنے فون یا کسی دوسرے آلے کا استعمال کرکے اسکین کریں۔',
         search: 'تلاش کریں۔',
         seconds: 'سیکنڈ',
         security: 'سیکورٹی',
@@ -441,7 +437,6 @@ const ur = {
         'toolbar.refer': 'ریفر کریں', // In English: "Refer"
         'toolbar.save_account': 'اکاؤنٹ محفوظ کریں', // In English: "Save Account"
         'toolbar.search': 'تلاش کریں', // In English: "Search"
-        'toolbar.qrcode': 'کیو آر کوڈ', // In English: "QR Code"
         'used_of': '{{used}} استعمال شدہ از {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'ورکر', // In English: "Worker"
         'billing.offering.basic': 'بنیادی', // In English: "Basic"
@@ -473,7 +468,6 @@ const ur = {
         'window_title_select_font': 'فونٹ منتخب کریں…', // In English: "Select font…"
         'window_title_session_list': 'سیشن فہرست!', // In English: "Session List!"
         'window_title_set_new_password': 'نیا پاس ورڈ سیٹ کریں', // In English: "Set New Password"
-        'window_title_instant_login': 'فوری لاگ ان!', // In English: "Instant Login!"
         'window_title_publish_website': 'ویب سائٹ شائع کریں', // In English: "Publish Website"
         'window_title_publish_worker': 'ورکر شائع کریں', // In English: "Publish Worker"
         'window_title_authenticating': 'تصدیق جاری ہے...', // In English: "Authenticating..."

@@ -239,9 +239,7 @@ const zh = {
         save_account_to_publish: '请创建帐户以继续。',
         save_session: '保存会话',
         save_session_c2a: '创建帐户以保存当前会话，避免丢失工作。',
-        scan_qr_c2a: '扫描下面的代码以从其他设备登录此会话',
         scan_qr_2fa: '请使用身份认证应用扫描二维码',
-        scan_qr_generic: '请使用您的手机或其它设备扫描二维码',
         search: '查找',
         seconds: '秒',
         security: '安全',
@@ -413,7 +411,6 @@ const zh = {
         'toolbar.refer': '推荐', // In English: "Refer"
         'toolbar.save_account': '保存账号', // In English: "Save Account"
         'toolbar.search': '搜索', // In English: "Search"
-        'toolbar.qrcode': '二维码', // In English: "QR Code"
         'used_of': '已用 {{used}} / 共 {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': '基础', // In English: "Basic"
@@ -445,7 +442,6 @@ const zh = {
         'window_title_select_font': '选择字体…', // In English: "Select font…"
         'window_title_session_list': '会话列表！', // In English: "Session List!"
         'window_title_set_new_password': '设置新密码', // In English: "Set New Password"
-        'window_title_instant_login': '快速登录！', // In English: "Instant Login!"
         'window_title_publish_website': '发布网站', // In English: "Publish Website"
         'window_title_publish_worker': '发布 Worker', // In English: "Publish Worker"
         'window_title_authenticating': '正在验证…', // In English: "Authenticating..."

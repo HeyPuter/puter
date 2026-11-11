@@ -259,10 +259,7 @@ const ar = {
         save_account_to_publish: '.يرجى إنشاء حساب للمتابعة',
         save_session: 'حفظ الجلسة',
         save_session_c2a: '.أنشئ حسابًا لحفظ جلستك الحالية وتجنب فقدان عملك',
-        scan_qr_c2a: 'امسح الرمز أدناه لتسجيل الدخول إلى هذه الجلسة من أجهزة أخرى',
         scan_qr_2fa: 'امسح رمز الاستجابة السريعة باستخدام تطبيق المصادقة الخاص بك',
-        scan_qr_generic:
-      'امسح رمز الاستجابة السريعة هذا باستخدام هاتفك أو جهاز آخر',
         search: 'بحث',
         seconds: 'ثوانٍ',
         security: 'الأمان',
@@ -441,7 +438,6 @@ const ar = {
         'toolbar.refer': 'إحالة', // In English: "Refer"
         'toolbar.save_account': 'حفظ الحساب', // In English: "Save Account"
         'toolbar.search': 'بحث', // In English: "Search"
-        'toolbar.qrcode': 'رمز الاستجابة السريعة', // In English: "QR Code"
         used_of: '{{available}}محاولات مستخدمة من {{used}}', // In English: "{{used}} used of {{available}}"
         worker: 'العامل', // In English: "Worker"
         'billing.offering.basic': 'أساسي', // In English: "Basic"
@@ -475,7 +471,6 @@ const ar = {
         window_title_select_font: '…اختر الخط',
         window_title_session_list: '!قائمة الجلسات',
         window_title_set_new_password: 'تعيين كلمة مرور جديدة',
-        window_title_instant_login: '!تسجيل الدخول الفوري',
         window_title_publish_website: 'نشر الموقع',
         window_title_publish_worker: 'نشر العامل',
         window_title_authenticating: '…جارٍ التحقق',

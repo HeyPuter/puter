@@ -265,11 +265,7 @@ const ru = {
         save_session: 'Сохранить сеанс',
         save_session_c2a:
       'Создайте учетную запись, чтобы сохранить текущий сеанс и не потерять данные.',
-        scan_qr_c2a:
-      'Отсканируйте код ниже, чтобы войти в этот сеанс с других устройств',
         scan_qr_2fa: 'Отсканируйте QR-код с помощью приложения аутентификации',
-        scan_qr_generic:
-      'Отсканируйте этот QR-код с помощью телефона или другого устройства',
         search: 'Поиск',
         seconds: 'секунды',
         security: 'Безопасность',
@@ -448,7 +444,6 @@ const ru = {
         'toolbar.refer': 'Рекомендовать', // In English: "Refer"
         'toolbar.save_account': 'Сохранить аккаунт', // In English: "Save Account"
         'toolbar.search': 'Поиск', // In English: "Search"
-        'toolbar.qrcode': 'QR-код', // In English: "QR Code"
         'used_of': 'Использовано', // In English: "{{used}} used of {{available}}"
         'worker': 'Воркер', // In English: "Worker"
         'billing.offering.basic': 'Базовый', // In English: "Basic"
@@ -480,7 +475,6 @@ const ru = {
         'window_title_select_font': 'Выберите шрифт...', // In English: "Select font…"
         'window_title_session_list': 'Список сессий!', // In English: "Session List!"
         'window_title_set_new_password': 'Установить новый пароль', // In English: "Set New Password"
-        'window_title_instant_login': 'Мгновенный вход!', // In English: "Instant Login!"
         'window_title_publish_website': 'Опубликовать веб-сайт', // In English: "Publish Website"
         'window_title_publish_worker': 'Опубликовать воркер', // In English: "Publish Worker"
         'window_title_authenticating': 'Идёт проверка подлинности...', // In English: "Authenticating..."

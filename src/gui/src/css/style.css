@@ -3890,19 +3890,6 @@ fieldset[name=number-code] {
     opacity: 1;
 }
 
-.otp-qr-code {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    flex-direction: column;
-    align-items: center;
-}
-
-.otp-qr-code img {
-    width: 355px;
-    margin-bottom: 20px;
-}
-
 .otp-as-text {
     margin: 20px 0;
 }
@@ -6212,7 +6199,6 @@ html.dark-mode .usage-table-fade-overlay {
 
 }
 
-.device-phone .window.window-qr,
 .device-phone .window.window-progress,
 .device-phone .window.window-login-progress,
 .device-phone .window-confirm-email-using-code {

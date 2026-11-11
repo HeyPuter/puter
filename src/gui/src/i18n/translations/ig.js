@@ -260,10 +260,7 @@ const ig = {
         save_session: 'Chekwa oge',
         save_session_c2a:
       "Mepụta akaụntụ iji chekwaa nnọkọ gị ugbu a ma zere ịla n'iyi ọrụ gị.",
-        scan_qr_c2a:
-      "Chọgharịa koodu dị n'okpuru ka ịbanye na nnọkọ a site na ngwaọrụ ndị ọzọ",
         scan_qr_2fa: 'Jiri ngwa nyocha gị nyochaa QR koodu',
-        scan_qr_generic: 'Jiri ekwentị gị ma ọ bụ ngwaọrụ ọzọ nyochaa QR koodu a',
         search: 'Chọọ',
         seconds: 'sekọnd',
         security: 'nche',
@@ -442,7 +439,6 @@ const ig = {
         'toolbar.refer': 'Tụtụ aka', // In English: "Refer"
         'toolbar.save_account': 'Chekwa Akaụntụ', // In English: "Save Account"
         'toolbar.search': 'Chọọ', // In English: "Search"
-        'toolbar.qrcode': 'Koodu QR', // In English: "QR Code"
         'used_of': '{{used}} ejiri {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Onye ọrụ', // In English: "Worker"
         'billing.offering.basic': 'Isi', // In English: "Basic"
@@ -474,7 +470,6 @@ const ig = {
         'window_title_select_font': 'Họrọ font…', // In English: "Select font…"
         'window_title_session_list': 'Ndepụta Oge!', // In English: "Session List!"
         'window_title_set_new_password': 'Tọọ okwuntughe ọhụrụ', // In English: "Set New Password"
-        'window_title_instant_login': 'Nbanye ngwa ngwa!', // In English: "Instant Login!"
         'window_title_publish_website': 'Bipụta Weebụsaịtị', // In English: "Publish Website"
         'window_title_publish_worker': 'Bipụta Onye Ọrụ', // In English: "Publish Worker"
         'window_title_authenticating': 'Na-achọpụta...', // In English: "Authenticating..."

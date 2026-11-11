@@ -147,7 +147,6 @@ const emoji = {
         save_account_to_publish: '💾👤📰',
         save_session: '💾📂',
         save_session_c2a: '💾👤🔄',
-        scan_qr_c2a: '📲🔍',
         select: '👉',
         selected: '✅',
         select_color: '🎨👉',

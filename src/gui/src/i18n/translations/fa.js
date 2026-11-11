@@ -265,10 +265,7 @@ const fa = {
         save_session: 'ذخیره نشست', // TN:better to use session instead of نشست
         save_session_c2a:
       'برای ذخیره جلسه فعلی و جلوگیری از از دست دادن کار خود یک حساب کاربری ایجاد کنید.',
-        scan_qr_c2a:
-      'کد زیر را از دستگاه های دیگر اسکن کنید تا به این جلسه وارد شوید',
         scan_qr_2fa: ' بارکد را با برنامه تایید هویت خود اسکن کنید',
-        scan_qr_generic: ' این بارکد را با گوشی همراه خود یا وسیله دیگری اسکن کنید',
         search: 'جستجو',
         seconds: 'ثانیه',
         security: 'امنیت',
@@ -436,7 +433,6 @@ const fa = {
         'toolbar.refer': 'معرفی',
         'toolbar.save_account': 'ذخیره حساب',
         'toolbar.search': 'جستجو',
-        'toolbar.qrcode': 'کد QR',
         'used_of': '{{used}} استفاده شده از {{available}}',
         'worker': 'کارگر',
         'billing.offering.basic': 'پایه',
@@ -468,7 +464,6 @@ const fa = {
         'window_title_select_font': 'انتخاب فونت…',
         'window_title_session_list': 'لیست نشست‌ها!',
         'window_title_set_new_password': 'تنظیم رمز عبور جدید',
-        'window_title_instant_login': 'ورود فوری!',
         'window_title_publish_website': 'انتشار وب‌سایت',
         'window_title_publish_worker': 'انتشار کارگر',
         'window_title_authenticating': 'در حال احراز هویت...',

@@ -269,12 +269,8 @@ const ta = {
         save_session: 'அமர்வை சேமிக்கவும்',
         save_session_c2a:
       'உங்கள் தற்போதைய அமர்வைச் சேமிக்க ஒரு கணக்கை உருவாக்கவும் மற்றும் உங்கள் வேலையை இழப்பதைத் தவிர்க்கவும்.',
-        scan_qr_c2a:
-      'பிற சாதனங்களிலிருந்து இந்த அமர்வில் உள்நுழைய, \nகீழே உள்ள குறியீட்டை ஸ்கேன் செய்யவும்',
         scan_qr_2fa:
       'உங்கள் அங்கீகரிப்பு பயன்பாட்டின் மூலம் QR குறியீட்டை ஸ்கேன் செய்யவும்',
-        scan_qr_generic:
-      'உங்கள் தொலைபேசி அல்லது மற்றொரு சாதனத்தைப் பயன்படுத்தி இந்த QR குறியீட்டை ஸ்கேன் செய்யவும்',
         search: 'தேடு',
         seconds: 'வினாடிகள்',
         security: 'பாதுகாப்பு',
@@ -469,7 +465,6 @@ const ta = {
         'toolbar.refer': 'அறிமுகப்படுத்து',
         'toolbar.save_account': 'கணக்கை சேமிக்க',
         'toolbar.search': 'தேடு',
-        'toolbar.qrcode': 'QR குறியீடு',
         used_of: '{{available}} இல் {{used}} பயன்படுத்தப்பட்டது',
         worker: 'வொர்க்கர்',
         'billing.offering.basic': 'அடிப்படை',
@@ -503,7 +498,6 @@ const ta = {
         window_title_select_font: 'எழுத்துருவை தேர்வுசெய்…',
         window_title_session_list: 'அமர்வுப் பட்டியல்!',
         window_title_set_new_password: 'புதிய கடவுச்சொல்லை அமை',
-        window_title_instant_login: 'உடனடி உள்நுழைவு!',
         window_title_publish_website: 'வலைத்தளத்தை வெளியிடு',
         window_title_publish_worker: 'வொர்க்கரை வெளியிடு',
         window_title_authenticating: 'அடையாளம் சரிபார்க்கப்படுகிறது...',

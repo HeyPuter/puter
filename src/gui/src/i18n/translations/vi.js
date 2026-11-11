@@ -239,9 +239,7 @@ const vi = {
         save_account_to_publish: 'Vui lòng tạo một tài khoản để tiếp tục.',
         save_session: 'Lưu phiên',
         save_session_c2a: 'Tạo một tài khoản để lưu phiên hiện tại của bạn và tránh mất công việc của bạn.',
-        scan_qr_c2a: 'Quét mã bên dưới\nđể đăng nhập vào phiên này từ các thiết bị khác',
         scan_qr_2fa: 'Quét mã QR bằng ứng dụng xác thực của bạn',
-        scan_qr_generic: 'Quét mã QR này bằng điện thoại hoặc thiết bị khác của bạn',
         search: 'Tìm kiếm',
         seconds: 'giây',
         security: 'Bảo mật',
@@ -412,7 +410,6 @@ const vi = {
         'toolbar.refer': 'Giới thiệu', // In English: "Refer"
         'toolbar.save_account': 'Lưu tài khoản', // In English: "Save Account"
         'toolbar.search': 'Tìm kiếm', // In English: "Search"
-        'toolbar.qrcode': 'Mã QR', // In English: "QR Code"
         'used_of': '{{used}} đã dùng trong tổng {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Gói cơ bản', // In English: "Basic"
@@ -444,7 +441,6 @@ const vi = {
         'window_title_select_font': 'Chọn phông chữ…', // In English: "Select font…"
         'window_title_session_list': 'Danh sách phiên!', // In English: "Session List!"
         'window_title_set_new_password': 'Đặt mật khẩu mới', // In English: "Set New Password"
-        'window_title_instant_login': 'Đăng nhập ngay!', // In English: "Instant Login!"
         'window_title_publish_website': 'Xuất bản Trang web', // In English: "Publish Website"
         'window_title_publish_worker': 'Xuất bản Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Đang xác thực...', // In English: "Authenticating..."

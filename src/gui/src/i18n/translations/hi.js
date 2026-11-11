@@ -238,9 +238,7 @@ const hi = {
         save_account_to_publish: 'कृपया आगे बढ़ने के लिए एक खाता बनाएँ।',
         save_session: 'सत्र को बचाए',
         save_session_c2a: 'अपने वर्तमान सत्र को सहेजने और अपना काम खोने से बचने के लिए एक खाता बनाएं।',
-        scan_qr_c2a: 'अन्य डिवाइस से इस सत्र में लॉग इन करने के लिए नीचे दिए गए कोड को स्कैन करें',
         scan_qr_2fa: 'अपने प्रमाणक ऐप से क्यूआर कोड को स्कैन करें',
-        scan_qr_generic: 'अपने फ़ोन या किसी अन्य डिवाइस का उपयोग करके इस क्यूआर कोड को स्कैन करें',
         search: 'खोजे',
         seconds: 'सेकंड',
         security: 'सुरक्षा',
@@ -404,7 +402,6 @@ const hi = {
         'toolbar.refer': 'रेफ़र', // In English: "Refer"
         'toolbar.save_account': 'खाता सहेजें', // In English: "Save Account"
         'toolbar.search': 'खोजें', // In English: "Search"
-        'toolbar.qrcode': 'क्यूआर कोड', // In English: "QR Code"
         'used_of': '{{available}} में से {{used}} उपयोग', // In English: "{{used}} used of {{available}}"
         'worker': 'वर्कर', // In English: "Worker"
         'billing.offering.basic': 'मूल', // In English: "Basic"
@@ -436,7 +433,6 @@ const hi = {
         'window_title_select_font': 'फ़ॉन्ट चुनें…', // In English: "Select font…"
         'window_title_session_list': 'सत्र सूची!', // In English: "Session List!"
         'window_title_set_new_password': 'नया पासवर्ड सेट करें', // In English: "Set New Password"
-        'window_title_instant_login': 'तुरंत लॉगिन!', // In English: "Instant Login!"
         'window_title_publish_website': 'वेबसाइट प्रकाशित करें', // In English: "Publish Website"
         'window_title_publish_worker': 'वर्कर प्रकाशित करें', // In English: "Publish Worker"
         'window_title_authenticating': 'प्रमाणित किया जा रहा है...', // In English: "Authenticating..."
