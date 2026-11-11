@@ -84,6 +84,7 @@ import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
 import { readSignupBonusCode } from './helpers/signupBonusCode.js';
+import { sameTokenClaims } from './helpers/guiToken.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
@@ -1700,42 +1701,55 @@ window.initgui = async function (options) {
     // Launch services before any UI is rendered
     await launch_services(options);
 
-    // If no token in storage but we have a session cookie (e.g. after OIDC redirect), fetch GUI token
+    // The session cookie decides the account (an OIDC sign-in sets only the
+    // cookie), so a stored token for any other session is replaced by one for
+    // the cookie's session.
+    const boot_token = puter.authToken;
+    let fs_cache_reset = false;
+    // A token for the stored token's own session differs from it only in when
+    // it was signed, so the stored one stays: nothing for other tabs or the
+    // SDK's connections to pick up.
+    const keep_stored_token = () => {
+        // A cookie boot still starts without the persisted FS cache, which
+        // can predate changes a disconnected socket never heard about.
+        puter._cache.flushall();
+        // Entries still loading from IndexedDB would land after the flush.
+        if (puter._cache.isInitialized === false) {
+            (async () => {
+                try {
+                    await puter._cache.waitForInitialization();
+                    puter._cache.flushall();
+                } catch (e) {
+                    console.error('fs cache flush', e);
+                }
+            })();
+        }
+        fs_cache_reset = true;
+    };
     try {
         const r = await fetch(`${window.gui_origin}/get-gui-token`, {
             credentials: 'include',
         });
         if (r.ok) {
             const { token } = await r.json();
-            window.auth_token = token;
-            // Write the current key; drop any value under the retired one.
-            localStorage.setItem(
-                window.AUTH_TOKEN_KEY_V2 || 'auth_token_v2',
-                token,
-            );
-            try {
-                localStorage.removeItem(
-                    window.AUTH_TOKEN_KEY_RETIRED || 'auth_token',
+            if (sameTokenClaims(token, window.auth_token)) {
+                keep_stored_token();
+            } else {
+                window.auth_token = token;
+                // Write the current key; drop any value under the retired one.
+                localStorage.setItem(
+                    window.AUTH_TOKEN_KEY_V2 || 'auth_token_v2',
+                    token,
                 );
-            } catch (e) {
-                /* ignore */
-            }
-            if (typeof puter !== 'undefined')
-                puter.setAuthToken(token, window.api_origin);
-            const tokenChanged = token !== window.auth_token;
-            if (tokenChanged) {
-                // This will update the list of logged in users and set the current one
                 try {
-                    const whoami = await puter.os.user({
-                        query: 'icon_size=64',
-                    });
-                    if (whoami) await window.update_auth_data(token, whoami);
-                } catch (e) {
-                    console.error(
-                        'get-gui-token follow-up whoami/update_auth_data',
-                        e,
+                    localStorage.removeItem(
+                        window.AUTH_TOKEN_KEY_RETIRED || 'auth_token',
                     );
+                } catch (e) {
+                    /* ignore */
                 }
+                if (typeof puter !== 'undefined')
+                    puter.setAuthToken(token, window.api_origin);
             }
         }
     } catch (e) {
@@ -2464,6 +2478,12 @@ window.initgui = async function (options) {
     // Authed
     // -------------------------------------------------------------------------------------
     if (window.is_auth()) {
+        // An FS cache this boot hasn't reset or re-keyed may predate changes
+        // made since; it is checked before anything renders from it.
+        const fs_cache_check =
+            fs_cache_reset || puter.authToken !== boot_token
+                ? null
+                : puter.fs.checkCacheAndPurge();
         // A sign-in popup whose user kept the account it opened with, and whose
         // exchange just proved the session, already has this user's data.
         if (
@@ -2604,6 +2624,7 @@ window.initgui = async function (options) {
                 whoami,
             );
 
+            await fs_cache_check;
             await postAuthActions(action);
             // ----------------------------------------------------------
             // Get user's sites
