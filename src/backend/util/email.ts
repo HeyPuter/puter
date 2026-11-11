@@ -201,14 +201,14 @@ export function isBlockedEmail(
     );
 }
 
-/** False only when an `email.notify.validate` listener declines `to`. */
+/** False when an `email.notify.validate` listener leaves `allow` falsy. */
 export async function mayEmailNotify(
-    events: Pick<EventClient, 'emitAndWait'> | undefined,
+    events: Pick<EventClient, 'emitAndWait'>,
     to: string,
     kind: EmailTemplateName,
 ): Promise<boolean> {
     const event: EmailNotifyValidateEvent = { to, kind, allow: true };
     // A listener that throws leaves `allow` as it was, so the email still goes.
-    await events?.emitAndWait('email.notify.validate', event, {});
-    return event.allow !== false;
+    await events.emitAndWait('email.notify.validate', event, {});
+    return Boolean(event.allow);
 }

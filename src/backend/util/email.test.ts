@@ -24,7 +24,9 @@ import {
     isBlockedEmail,
     isSameAddress,
     isStorableEmail,
+    mayEmailNotify,
 } from './email.ts';
+import { EventClient } from '../clients/event/EventClient.ts';
 
 describe('cleanEmail', () => {
     it('lowercases the whole address', () => {
@@ -185,5 +187,31 @@ describe('isStorableEmail', () => {
             'user_name-1@sub.example.co.uk',
         ])
             expect(isStorableEmail(good)).toBe(true);
+    });
+});
+
+describe('mayEmailNotify', () => {
+    const ask = (answer: unknown) => {
+        const events = new EventClient();
+        events.on('email.notify.validate', (_key, data) => {
+            (data as { allow: unknown }).allow = answer;
+        });
+        return mayEmailNotify(events, 'a@example.com', 'file_shared_invite');
+    };
+
+    it('allows when nothing listens', async () => {
+        expect(
+            await mayEmailNotify(
+                new EventClient(),
+                'a@example.com',
+                'file_shared_invite',
+            ),
+        ).toBe(true);
+    });
+
+    it('declines on any falsy answer, as `email.validate` does', async () => {
+        for (const answer of [false, undefined, null, 0])
+            expect(await ask(answer)).toBe(false);
+        expect(await ask(true)).toBe(true);
     });
 });
