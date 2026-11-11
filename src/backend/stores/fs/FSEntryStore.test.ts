@@ -4009,6 +4009,21 @@ describe('FSEntryStore lineage backfill under a lenient collation', () => {
             });
     };
 
+    it('reads nothing at a name only the collation matches', async () => {
+        const user = await makeUser();
+        await store.getEntryByPath(`${user.home}/Desktop`);
+        await server.clients.redis.flushall?.();
+
+        const spy = matchNamesLeniently('Deßktop', 'Desktop');
+        try {
+            await expect(
+                store.getEntryByPath(`${user.home}/Deßktop`),
+            ).resolves.toBeNull();
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
     it('writes the stored path, not the requested spelling', async () => {
         const user = await makeUser();
         const desktop = (await store.getEntryByPath(`${user.home}/Desktop`))!;
@@ -4016,7 +4031,10 @@ describe('FSEntryStore lineage backfill under a lenient collation', () => {
 
         const spy = matchNamesLeniently('Deßktop', 'Desktop');
         try {
-            const resolved = await store.getEntryByPath(`${user.home}/Deßktop`);
+            const resolved = await store.getEntryByPath(
+                `${user.home}/Deßktop`,
+                { foldedNames: true },
+            );
             expect(resolved?.uuid).toBe(desktop.uuid);
             expect(resolved?.path).toBe(`${user.home}/Desktop`);
         } finally {
@@ -4034,7 +4052,9 @@ describe('FSEntryStore lineage backfill under a lenient collation', () => {
 
         const spy = matchNamesLeniently('Deßktop', 'Desktop');
         try {
-            await store.getEntryByPath(`${user.home}/Deßktop`);
+            await store.getEntryByPath(`${user.home}/Deßktop`, {
+                foldedNames: true,
+            });
         } finally {
             spy.mockRestore();
         }

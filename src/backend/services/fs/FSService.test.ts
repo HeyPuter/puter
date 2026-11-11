@@ -3732,7 +3732,9 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
                     );
                     expect(error.statusCode).toBe(status);
                     // The target was looked up, and that lookup changed nothing.
-                    expect(lookups).toHaveBeenCalledWith(path);
+                    expect(lookups).toHaveBeenCalledWith(path, {
+                        foldedNames: true,
+                    });
                     expect(
                         writes.mock.calls.filter(([sql]) =>
                             /fsentries/i.test(String(sql)),

@@ -767,8 +767,10 @@ export class LegacyFSController extends PuterController {
             normalizedTarget,
         );
         if (dedupeName) {
-            const existing =
-                await this.stores.fsEntry.getEntryByPath(normalizedTarget);
+            const existing = await this.stores.fsEntry.getEntryByPath(
+                normalizedTarget,
+                { foldedNames: true },
+            );
             if (existing) {
                 const parent = pathPosix.dirname(normalizedTarget);
                 await assertAccess(

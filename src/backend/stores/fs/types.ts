@@ -84,4 +84,10 @@ export interface ReadEntriesByPathsOptions {
      * Only for paths this backend wrote, which always store one.
      */
     lineage?: boolean;
+    /**
+     * Also return an entry whose name matches only under the database collation
+     * (`entryNamesMatch` says it is a different name). For checks that a name
+     * is free: the unique key folds those names together too.
+     */
+    foldedNames?: boolean;
 }

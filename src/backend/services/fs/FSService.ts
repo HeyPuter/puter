@@ -73,6 +73,7 @@ import {
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { entryNamesMatch } from '../../util/entryNames.js';
 import { AclMode } from '../acl/ACLService.js';
 import type { puterServices } from '../index.js';
 import {
@@ -158,6 +159,21 @@ const foreignAppDataOwner = (
 /** `name` under `parentPath` as stored: no trimming or normalizing. */
 const childPath = (parentPath: string, name: string): string =>
     parentPath === '/' ? `/${name}` : `${parentPath}/${name}`;
+
+/**
+ * The name is held by a differently named entry the database folds onto it (see
+ * `entryNamesMatch`). That entry is never replaced or returned instead.
+ */
+const foldedNameConflict = (name: string): HttpError =>
+    new HttpError(
+        409,
+        `An entry whose name conflicts with \`${name}\` already exists`,
+        { legacyCode: 'conflict' },
+    );
+
+/** `occupant`, found at `path`, is a different name the database folded. */
+const holdsFoldedName = (occupant: FSEntry, path: string): boolean =>
+    !entryNamesMatch(occupant.path, path);
 
 /** `/<username>/AppData/<appUid>`: the directory an app's launch provisions. */
 const isAppDataRootPath = (path: string): boolean => {
@@ -805,6 +821,7 @@ export class FSService extends PuterService {
                     // granted access to, even when those live outside the
                     // writer's own namespace.
                     crossNamespace: true,
+                    foldedNames: true,
                 },
             );
         for (let index = 0; index < initialPaths.length; index++) {
@@ -829,6 +846,7 @@ export class FSService extends PuterService {
             const readPromise = this.stores.fsEntry.getEntryByPath(path, {
                 useTryHardRead: true,
                 skipCache: true,
+                foldedNames: true,
             });
             existingEntryCache.set(path, readPromise);
             return await readPromise;
@@ -838,6 +856,17 @@ export class FSService extends PuterService {
         for (const input of inputs) {
             let normalizedInput = input.normalizedInput;
             let existingEntry = await loadExistingEntry(normalizedInput.path);
+            if (
+                existingEntry &&
+                holdsFoldedName(existingEntry, normalizedInput.path)
+            ) {
+                if (normalizedInput.overwrite && !normalizedInput.dedupeName) {
+                    throw foldedNameConflict(
+                        pathPosix.basename(normalizedInput.path),
+                    );
+                }
+                normalizedInput = { ...normalizedInput, overwrite: false };
+            }
             const pathReservedInBatch = reservedPaths.has(normalizedInput.path);
             let pendingDirectory =
                 !existingEntry &&
@@ -4062,7 +4091,9 @@ export class FSService extends PuterService {
                 parentPath === '/'
                     ? `/${candidate}`
                     : `${parentPath}/${candidate}`;
-            const existing = await repo.getEntryByPath(candidatePath);
+            const existing = await repo.getEntryByPath(candidatePath, {
+                foldedNames: true,
+            });
             if (!existing) return candidate;
         }
         throw new HttpError(
@@ -4129,13 +4160,21 @@ export class FSService extends PuterService {
         // reads as missing; a concurrent create lands in the unique-violation
         // handler below.
         const existingLookup = awaitLater(
-            this.stores.fsEntry.getEntryByPath(targetPath),
+            this.stores.fsEntry.getEntryByPath(targetPath, {
+                foldedNames: true,
+            }),
         );
         const parent = await parentLookup;
 
         let name = pathPosix.basename(targetPath);
         const existing = await existingLookup;
-        if (existing) {
+        if (
+            existing &&
+            holdsFoldedName(existing, childPath(parent.path, name))
+        ) {
+            if (!input.dedupeName) throw foldedNameConflict(name);
+            name = await this.#findDedupedName(parent, name);
+        } else if (existing) {
             if (existing.isDir) {
                 if (input.dedupeName) {
                     name = await this.#findDedupedName(parent, name);
@@ -4182,8 +4221,11 @@ export class FSService extends PuterService {
             // would surface the raw ER_DUP_ENTRY as a 500. Read primary too.
             const raced = await this.stores.fsEntry.getEntryByPath(
                 insertedPath,
-                { useTryHardRead: true },
+                { useTryHardRead: true, foldedNames: true },
             );
+            if (raced && holdsFoldedName(raced, insertedPath)) {
+                throw foldedNameConflict(name);
+            }
             if (raced?.isDir) return raced;
             if (raced) {
                 throw new HttpError(
@@ -4219,7 +4261,15 @@ export class FSService extends PuterService {
             !!input.createMissingParents,
         );
         const name = pathPosix.basename(targetPath);
-        const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
+        const existing = await this.stores.fsEntry.getEntryByPath(targetPath, {
+            foldedNames: true,
+        });
+        if (
+            existing &&
+            holdsFoldedName(existing, childPath(parent.path, name))
+        ) {
+            throw foldedNameConflict(name);
+        }
         if (existing) {
             return this.stores.fsEntry.touchEntryTimestamps(existing.uuid, {
                 setAccessed: input.setAccessed,
@@ -4258,7 +4308,9 @@ export class FSService extends PuterService {
             parentPath === '/' ? `/${newName}` : `${parentPath}/${newName}`;
 
         // Reject if another entry already owns the target path.
-        const collision = await this.stores.fsEntry.getEntryByPath(newPath);
+        const collision = await this.stores.fsEntry.getEntryByPath(newPath, {
+            foldedNames: true,
+        });
         if (collision && collision.uuid !== entry.uuid) {
             throw new HttpError(
                 409,
@@ -4312,7 +4364,9 @@ export class FSService extends PuterService {
             input.parent.path === '/'
                 ? `/${name}`
                 : `${input.parent.path}/${name}`;
-        const collision = await this.stores.fsEntry.getEntryByPath(childPath);
+        const collision = await this.stores.fsEntry.getEntryByPath(childPath, {
+            foldedNames: true,
+        });
         if (collision) {
             if (input.dedupeName) {
                 name = await this.#findDedupedName(input.parent, name);
@@ -5162,7 +5216,9 @@ export class FSService extends PuterService {
             input.newMetadata,
         );
 
-        const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
+        const collision = await this.stores.fsEntry.getEntryByPath(targetPath, {
+            foldedNames: true,
+        });
         if (collision && collision.uuid !== source.uuid) {
             name = await this.#resolveMoveCollision(
                 userId,
@@ -5214,7 +5270,7 @@ export class FSService extends PuterService {
             if (!isUniqueViolation(err)) throw err;
             const raced = await this.stores.fsEntry.getEntryByPath(
                 pathIn(name),
-                { useTryHardRead: true },
+                { useTryHardRead: true, foldedNames: true },
             );
             if (raced && raced.uuid !== source.uuid) {
                 name = await this.#resolveMoveCollision(
@@ -5293,7 +5349,11 @@ export class FSService extends PuterService {
         if (opts.intoRestrictedTrash) {
             return this.#findDedupedName(destinationParent, name);
         }
-        if (input.overwrite) {
+        const folded = holdsFoldedName(
+            occupant,
+            childPath(destinationParent.path, name),
+        );
+        if (input.overwrite && !folded) {
             this.#assertNotReplacingAncestor(source, occupant);
             await this.remove(userId, { entry: occupant, recursive: true });
             return name;
@@ -5301,6 +5361,7 @@ export class FSService extends PuterService {
         if (input.dedupeName) {
             return this.#findDedupedName(destinationParent, name);
         }
+        if (folded && input.overwrite) throw foldedNameConflict(name);
         // v1 wire contract: clients (the GUI's move/paste flows among them)
         // key on `item_with_same_name_exists` + `entry_name` to offer a
         // replace/skip prompt.
@@ -5369,9 +5430,16 @@ export class FSService extends PuterService {
                 ? `/${name}`
                 : `${destinationParent.path}/${name}`;
 
-        const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
+        const collision = await this.stores.fsEntry.getEntryByPath(targetPath, {
+            foldedNames: true,
+        });
         // Overwriting the source would delete it before it is read.
         const replacesSource = collision?.uuid === source.uuid;
+        const replacesCollision =
+            !!collision &&
+            !!input.overwrite &&
+            !replacesSource &&
+            !holdsFoldedName(collision, targetPath);
 
         // A copy duplicates the bytes for real, so it costs the same against
         // the allowance as writing them. Check before the overwrite below
@@ -5387,14 +5455,14 @@ export class FSService extends PuterService {
         await this.#assertStorageAllowance(
             allowance.ownerId,
             await this.#entryStorageSize(source),
-            collision && input.overwrite && !replacesSource
+            collision && replacesCollision
                 ? await this.#entryStorageSize(collision)
                 : 0,
             allowance.max,
         );
 
         if (collision) {
-            if (input.overwrite && !replacesSource) {
+            if (replacesCollision) {
                 this.#assertNotReplacingAncestor(source, collision);
                 await this.remove(userId, {
                     entry: collision,
@@ -5402,6 +5470,8 @@ export class FSService extends PuterService {
                 });
             } else if (input.dedupeName) {
                 name = await this.#findDedupedName(destinationParent, name);
+            } else if (input.overwrite && !replacesSource) {
+                throw foldedNameConflict(name);
             } else if (input.overwrite) {
                 throw new HttpError(400, 'Cannot copy an item over itself', {
                     legacyCode: 'bad_request',

@@ -28,6 +28,7 @@ import {
     runWithConcurrencyLimit,
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
+import { entryNamesMatch } from '../../util/entryNames.js';
 import { escapeLike } from '../../util/sqlLike.js';
 import {
     keysetPage,
@@ -815,7 +816,10 @@ export class FSEntryStore extends PuterStore {
             LINEAGE_LOOKUP_CONCURRENCY,
             async (path) => ({
                 path,
-                entry: await this.#resolveEntryByPathLineage(path),
+                entry: await this.#resolveEntryByPathLineage(
+                    path,
+                    options.foldedNames,
+                ),
             }),
         );
         for (const result of lineageResults) {
@@ -1113,6 +1117,19 @@ export class FSEntryStore extends PuterStore {
                     }`,
                 );
             }
+            // Or the unique key holds a name the collation folds onto this one.
+            if (
+                await this.getEntryByPath(normalizedPath, {
+                    useTryHardRead: true,
+                    foldedNames: true,
+                })
+            ) {
+                throw new HttpError(
+                    409,
+                    `An entry whose name conflicts with \`${dirName}\` already exists`,
+                    { legacyCode: 'conflict' },
+                );
+            }
             // INSERT IGNORE silently dropped the row (typical cause:
             // FK violation on parent_id/user_id — e.g. the user namespace
             // doesn't exist). The path is unreachable from the client's
@@ -1186,9 +1203,17 @@ export class FSEntryStore extends PuterStore {
         )) as unknown as FSEntryRow[];
         const row = rows[0];
         if (row) {
+            // Cached under its own path, never the requested one.
             const entry = this.#mapFSEntryRow(row);
             await this.#writeEntryToCache(entry);
-            return entry;
+            if (
+                options.foldedNames ||
+                entryNamesMatch(entry.path, normalizedPath)
+            ) {
+                return entry;
+            }
+            // A differently named row. The walk below compares `name`, which
+            // can fold less than `path`, so it may still find the requested one.
         }
 
         // Fallback for legacy rows whose `path` column was never populated
@@ -1199,7 +1224,10 @@ export class FSEntryStore extends PuterStore {
         // `path` column on every resolved row so subsequent calls take
         // the fast `WHERE path = ?` branch above.
         if (options.lineage === false) return null;
-        return this.#resolveEntryByPathLineage(normalizedPath);
+        return this.#resolveEntryByPathLineage(
+            normalizedPath,
+            options.foldedNames,
+        );
     }
 
     /**
@@ -1210,6 +1238,7 @@ export class FSEntryStore extends PuterStore {
      */
     async #resolveEntryByPathLineage(
         normalizedPath: string,
+        foldedNames = false,
     ): Promise<FSEntry | null> {
         if (normalizedPath === '/') return null;
         const segments = normalizedPath.split('/').filter(Boolean);
@@ -1229,43 +1258,53 @@ export class FSEntryStore extends PuterStore {
               segments(depth, name) AS (
                 ${segmentRows}
               ),
-              lineage(id, uuid, name, depth) AS (
-                SELECT f.id, f.uuid, f.name, 1
+              lineage(id, uuid, parent_uid, name, depth) AS (
+                SELECT f.id, f.uuid, f.parent_uid, f.name, 1
                 FROM fsentries f
                 INNER JOIN segments s ON s.depth = 1
                 WHERE f.parent_uid IS NULL AND f.name = s.name
 
                 UNION ALL
 
-                SELECT f.id, f.uuid, f.name, l.depth + 1
+                SELECT f.id, f.uuid, f.parent_uid, f.name, l.depth + 1
                 FROM fsentries f
                 INNER JOIN lineage l ON f.parent_uid = l.uuid
                 INNER JOIN segments s ON s.depth = l.depth + 1
                 WHERE f.name = s.name
               )
-            SELECT id, uuid, name, depth FROM lineage ORDER BY depth ASC, id ASC
+            SELECT id, uuid, parent_uid, name, depth FROM lineage ORDER BY depth ASC, id ASC
         `;
 
         const rows = (await this.clients.db.read(sql, segments)) as {
             id: number | string;
             uuid: string;
+            parent_uid: string | null;
             name: string;
             depth: number | string;
         }[];
 
-        // Take the lowest-id row at each depth (deterministic pick that
-        // matches v1's `LIMIT 1` per-segment behaviour).
+        // Walk down from the home row through children of the row picked one
+        // level up: the exact spelling first, then one `entryNamesMatch`
+        // accepts, then (only with `foldedNames`) the lowest id the collation
+        // matched.
         const byDepth = new Map<number, { id: number; uuid: string }>();
         const storedNames: string[] = [];
-        for (const r of rows) {
-            const depth = Number(r.depth);
-            if (!byDepth.has(depth)) {
-                byDepth.set(depth, { id: Number(r.id), uuid: r.uuid });
-                storedNames[depth - 1] = r.name;
-            }
-        }
-        if (byDepth.size !== segments.length) {
-            return null;
+        let parentUuid: string | null = null;
+        for (let depth = 1; depth <= segments.length; depth++) {
+            const segment = segments[depth - 1]!;
+            const candidates = rows.filter(
+                (r) =>
+                    Number(r.depth) === depth &&
+                    (depth === 1 || r.parent_uid === parentUuid),
+            );
+            const picked =
+                candidates.find((r) => r.name === segment) ??
+                candidates.find((r) => entryNamesMatch(r.name, segment)) ??
+                (foldedNames ? candidates[0] : undefined);
+            if (!picked) return null;
+            byDepth.set(depth, { id: Number(picked.id), uuid: picked.uuid });
+            storedNames[depth - 1] = picked.name;
+            parentUuid = picked.uuid;
         }
 
         // The stored names, not the caller's spelling: a collation can match
