@@ -40,17 +40,10 @@ const zh = {
         close_all_windows_and_log_out: '关闭窗口并退出',
         change_always_open_with: '以后都这样打开此类型的文件？',
         confirm: '确认',
-        confirm_2fa_setup: '我已完成在身份验证应用中添加代码',
-        confirm_2fa_recovery: '我已完成保存恢复码到安全地方',
         confirm_account_for_free_referral_storage_c2a: '创建帐号并确认您的电子邮件地址，以获得1 GB的免费存储空间。您的朋友也将获得1 GB的免费存储空间。',
         confirm_code_generic_incorrect: '代码不正确!',
         confirm_code_generic_too_many_requests: '请求太频繁，请过几分钟后再试。',
-        confirm_code_generic_submit: '提交代码',
-        confirm_code_generic_try_again: '重试',
-        confirm_code_generic_title: '确认代码',
         confirm_code_2fa_instruction: '请输入从身份验证应用中获取的6位数字代码',
-        confirm_code_2fa_submit_btn: '提交',
-        confirm_code_2fa_title: '请输入二次身份验证码',
         confirm_delete_multiple_items: '确定要永久删除这些文件？',
         confirm_delete_single_item: '确定要永久删除这个文件?',
         confirm_open_apps_log_out: '还有应用未关闭，您确定现在就要退出吗？',
@@ -60,7 +53,6 @@ const zh = {
         confirm_session_revoke: '确定要撤销?',
         confirm_your_email_address: '请确认您的邮箱地址',
         contact_us: '联系我们',
-        contact_us_verification_required: '需要提供有效的邮箱地址以完成此操作',
         continue: '继续',
         copy: '复制',
         copy_link: '复制链接',
@@ -84,7 +76,6 @@ const zh = {
         desktop: '桌面',
         developers: '开发人员',
         disable_2fa: '关闭二次认证',
-        disable_2fa_confirm: '您确定要关闭二次认证?',
         disable_2fa_instructions: '请输入您的密码以关闭二次认证',
         documents: '文档',
         dont_allow: '操作不允许!',
@@ -114,8 +105,6 @@ const zh = {
         forgot_pass_c2a: '忘记密码？',
         from: '从',
         general: '常用',
-        get_a_copy_of_on_puter: '在 Puter.com 上获取 \'%%\' 的副本！',
-        get_copy_link: '获取复制链接',
         home: '主页',
         html_document: 'HTML 文档',
         hue: '色调',
@@ -130,7 +119,6 @@ const zh = {
         loading: '正在加载',
         log_in: '登录',
         log_out: '退出',
-        looks_good: '看起来不错！',
         manage_sessions: '会话管理',
         modified: '已修改',
         move: '移动',
@@ -155,7 +143,6 @@ const zh = {
         open_with: '打开方式',
         original_name: '原名',
         original_path: '原路径',
-        oss_code_and_content: '开源软件和内容',
         password: '密码',
         password_changed: '密码已更改。',
         password_recovery_rate_limit: '操作太频繁请几分钟后再试，请不要频繁刷新页面以避免再次遇到此问题',
@@ -169,18 +156,14 @@ const zh = {
         path: '路径',
         pictures: '图片',
         plural_suffix: '',
-        powered_by_puter_js: '由 {{link=docs}}Puter.js{{/link}} 提供支持',
         preparing: '准备中...',
-        preparing_for_upload: '准备上传...',
         print: '打印',
         privacy: '隐私',
         proceed_to_login: '完成登录',
-        proceed_with_account_deletion: '完成账号删除操作',
         properties: '属性',
         public: '公开',
         publish: '发布',
         publish_as_website: '发布为网站',
-        puter_description: 'Puter 是一个隐私优先的个人云，可将您的所有文件、应用程序和游戏保存在一个安全的地方，方便随时随地访问。',
         reading_file: '正在读取 %strong%',
         recover_password: '找回密码',
         refer_friends_c2a: '每个创建并确认 Puter 帐户的朋友都会为您获得 1 GB。您的朋友也将获得 1 GB！',
@@ -193,11 +176,9 @@ const zh = {
         save: '保存',
         saturation: '饱和度',
         save_account: '保存账号',
-        save_account_to_get_copy_link: '请创建帐户以继续。',
         save_account_to_publish: '请创建帐户以继续。',
         save_session: '保存会话',
         save_session_c2a: '创建帐户以保存当前会话，避免丢失工作。',
-        scan_qr_2fa: '请使用身份认证应用扫描二维码',
         search: '查找',
         seconds: '秒',
         security: '安全',
@@ -215,13 +196,11 @@ const zh = {
         show_hidden: '显示隐藏',
         sign_in_with_puter: '使用 Puter 登录',
         sign_up: '注册',
-        signing_in: '登录中…',
         size: '大小',
         skip: '跳过',
         something_went_wrong: '操作出差了！',
         sort_by: '排序方式',
         status: '状态',
-        storage_usage: '存储使用量',
         storage_puter_used: '被Puter使用',
         taking_longer_than_usual: '需要的时间比平时长一点。请稍等...',
         terms: '条款',
@@ -253,24 +232,19 @@ const zh = {
         zipping_file: '正在压缩 %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: '打开你的身份验证应用',
         setup2fa_1_instructions: `
             你可以使用任何一种支持TOTP（基于时间的一次性密码生成）协议的应用.
             有很多应用可以选择，如果您不确定用哪一个可以使用
             <a target="_blank" href="https://authy.com/download">Authy</a>
             支持安卓和IOS设备
         `,
-        setup2fa_2_step_heading: '扫描二维码',
         setup2fa_3_step_heading: '输入6位数字代码',
-        setup2fa_4_step_heading: '复制您的恢复码',
         setup2fa_4_instructions: `
             恢复码是在您无法使用手机或身份验证应用时唯一的访问账号凭证。
             请妥善保存以免丢失
         `,
-        setup2fa_5_step_heading: '确认二次认证步骤',
         setup2fa_5_confirmation_1: '我已经将恢复码妥善保存',
         setup2fa_5_confirmation_2: '我已准备好启用二次认证',
-        setup2fa_5_button: '启用二次认证',
 
         // === 2FA Login ===
         login2fa_otp_title: '输入二次认证代码',
@@ -278,7 +252,6 @@ const zh = {
         login2fa_recovery_title: '请输入恢复码',
         login2fa_recovery_instructions: '请输入恢复码以访问您的账号',
         login2fa_use_recovery_code: '使用恢复码',
-        login2fa_recovery_back: '后退',
         login2fa_recovery_placeholder: '********',
 
         'change': '更改', // In English: "Change"
@@ -351,7 +324,6 @@ const zh = {
         'used_of': '已用 {{used}} / 共 {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': '基础', // In English: "Basic"
-        'too_many_attempts': '尝试次数过多。请稍后再试。', // In English: "Too many attempts. Please try again later."
         'server_timeout': '服务器响应超时。请重试。', // In English: "The server took too long to respond. Please try again."
         'signup_error': '注册过程中发生错误。请重试。', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': '错误！', // In English: "Error!"
@@ -369,12 +341,10 @@ const zh = {
         'window_title_open': '打开', // In English: "Open"
         'window_title_change_password': '更改密码', // In English: "Change Password"
         'window_title_select_font': '选择字体…', // In English: "Select font…"
-        'window_title_session_list': '会话列表！', // In English: "Session List!"
         'window_title_set_new_password': '设置新密码', // In English: "Set New Password"
         'window_title_publish_website': '发布网站', // In English: "Publish Website"
         'window_title_publish_worker': '发布 Worker', // In English: "Publish Worker"
         'window_title_authenticating': '正在验证…', // In English: "Authenticating..."
-        'item_shared_with_you': '一位用户已与您共享此项目。', // In English: "A user has shared this item with you."
         'item_shared_by_you': '您已将此项目共享给至少一位用户。', // In English: "You have shared this item with at least one other user."
         'item_shortcut': '快捷方式', // In English: "Shortcut"
         'item_associated_websites': '相关网站', // In English: "Associated website"
@@ -383,9 +353,6 @@ const zh = {
         'window_click_to_go_back': '点击返回。', // In English: "Click to go back."
         'window_click_to_go_forward': '点击前进。', // In English: "Click to go forward."
         'window_click_to_go_up': '点击返回上一级目录。', // In English: "Click to go one directory up."
-        'window_title_public': '公开', // In English: "Public"
-        'window_title_videos': '视频', // In English: "Videos"
-        'window_title_pictures': '图片', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': '此文件夹为空', // In English: "This folder is empty"
     },

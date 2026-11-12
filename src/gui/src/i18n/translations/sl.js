@@ -41,17 +41,10 @@ const sl = {
         close: 'Zapri',
         close_all_windows_and_log_out: 'Zapri okna in se odjavi',
         confirm: 'Potrdi',
-        confirm_2fa_setup: 'Kodo sem dodal v svojo aplikacijo za preverjanje pristnosti',
-        confirm_2fa_recovery: 'Svoje obnovitvene kode sem shranil na varno lokacijo',
         confirm_account_for_free_referral_storage_c2a: 'Ustvarite račun in potrdite svoj e-poštni naslov, da prejmete 1 GB brezplačnega prostora za shranjevanje. Tudi vaš prijatelj bo dobil 1 GB brezplačnega prostora za shranjevanje.',
         confirm_code_generic_incorrect: 'Napačna koda.',
         confirm_code_generic_too_many_requests: 'Preveč zahtev. Počakajte nekaj minut.',
-        confirm_code_generic_submit: 'Pošlji kodo',
-        confirm_code_generic_try_again: 'Poskusi znova',
-        confirm_code_generic_title: 'Vnesite potrditveno kodo',
         confirm_code_2fa_instruction: 'Vnesite 6-mestno kodo iz vaše aplikacije za preverjanje pristnosti.',
-        confirm_code_2fa_submit_btn: 'Pošlji',
-        confirm_code_2fa_title: 'Vnesite 2FA kodo',
         confirm_delete_multiple_items: 'Ali ste prepričani, da želite trajno izbrisati te elemente?',
         confirm_delete_single_item: 'Ali želite trajno izbrisati ta element?',
         confirm_open_apps_log_out: 'Imate odprte aplikacije. Ste prepričani, da se želite odjaviti?',
@@ -61,7 +54,6 @@ const sl = {
         confirm_session_revoke: 'Ali ste prepričani, da želite preklicati to sejo?',
         confirm_your_email_address: 'Potrdite svoj e-poštni naslov',
         contact_us: 'Kontaktirajte nas',
-        contact_us_verification_required: 'Za uporabo tega morate imeti potrjen e-poštni naslov.',
         continue: 'Nadaljuj',
         copy: 'Kopiraj',
         copy_link: 'Kopiraj povezavo',
@@ -86,7 +78,6 @@ const sl = {
         desktop: 'Namizje',
         developers: 'Razvijalci',
         disable_2fa: 'Onemogoči 2FA',
-        disable_2fa_confirm: 'Ali ste prepričani, da želite onemogočiti 2FA?',
         disable_2fa_instructions: 'Za onemogočanje 2FA vnesite svoje geslo.',
         documents: 'Dokumenti',
         dont_allow: 'Ne dovoli',
@@ -116,8 +107,6 @@ const sl = {
         forgot_pass_c2a: 'Ste pozabili geslo?',
         from: 'Od',
         general: 'Splošno',
-        get_a_copy_of_on_puter: 'Pridobite kopijo \'%%\' na Puter.com!',
-        get_copy_link: 'Pridobi povezave kopije',
         home: 'Domov',
         html_document: 'HTML dokument',
         hue: 'Odtenek',
@@ -132,7 +121,6 @@ const sl = {
         loading: 'Nalaganje',
         log_in: 'Prijava',
         log_out: 'Odjava',
-        looks_good: 'Videti je v redu!',
         manage_sessions: 'Upravljanje sej',
         modified: 'Spremenjeno',
         move: 'Premakni',
@@ -159,7 +147,6 @@ const sl = {
         open_with: 'Odpri z',
         original_name: 'Izvirno ime',
         original_path: 'Izvirna pot',
-        oss_code_and_content: 'Odprtokodna programska oprema in vsebina',
         password: 'Geslo',
         password_changed: 'Geslo je bilo spremenjeno.',
         password_recovery_rate_limit: 'Dosegli ste omejitev zahtev; počakajte nekaj minut. Da to v prihodnje preprečite, ne osvežujte strani prevečkrat.',
@@ -173,19 +160,15 @@ const sl = {
         path: 'Pot',
         pictures: 'Slike',
         plural_suffix: '', // "i", "je" - masculine; "e", "i" - feminine; "a", "i" - neuter
-        powered_by_puter_js: 'Poganja {{link=docs}}Puter.js{{/link}}',
         preparing: 'Priprava...',
-        preparing_for_upload: 'Priprava na prenos...',
         print: 'Natisni',
         privacy: 'Zasebnost',
         proceed_to_login: 'Nadaljuj na prijavo',
-        proceed_with_account_deletion: 'Nadaljuj z izbrisom računa',
         properties: 'Lastnosti',
         public: 'Javno',
         publish: 'Objavi',
         publish_as_website: 'Objavi kot spletno stran',
         publish_as_serverless_worker: 'Objavi kot Worker',
-        puter_description: 'Puter je osebni oblak, ki na prvo mesto postavlja zasebnost in varno hrani vse vaše datoteke, aplikacije in igre, do katerih lahko dostopate od koder koli in kadar koli.',
         reading: 'Branje %strong%',
         writing: 'Pisanje %strong%',
         recover_password: 'Obnovi geslo',
@@ -199,11 +182,9 @@ const sl = {
         save: 'Shrani',
         saturation: 'Nasičenost',
         save_account: 'Shrani račun',
-        save_account_to_get_copy_link: 'Za nadaljevanje ustvarite račun.',
         save_account_to_publish: 'Za nadaljevanje ustvarite račun.',
         save_session: 'Shrani sejo',
         save_session_c2a: 'Ustvarite račun, da shranite trenutno sejo in se izognete izgubi dela.',
-        scan_qr_2fa: 'Skenirajte QR kodo z aplikacijo za preverjanje pristnosti',
         search: 'Iskanje',
         seconds: 'sekund',
         security: 'Varnost',
@@ -221,13 +202,11 @@ const sl = {
         show_hidden: 'Prikaži skrito',
         sign_in_with_puter: 'Prijavite se s Puterjem',
         sign_up: 'Ustvari račun',
-        signing_in: 'Prijavljanje…',
         size: 'Velikost',
         skip: 'Preskoči',
         something_went_wrong: 'Nekaj je šlo narobe.',
         sort_by: 'Razvrsti po',
         status: 'Stanje',
-        storage_usage: 'Poraba prostora',
         storage_puter_used: 'uporabljeno s strani Puterja',
         taking_longer_than_usual: 'Traja malo dlje kot običajno. Prosimo, počakajte ...',
         terms: 'Pogoji',
@@ -263,23 +242,18 @@ const sl = {
         zipping: 'Stiskanje %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Odprite aplikacijo za preverjanje pristnosti',
         setup2fa_1_instructions: `
             Uporabite lahko katero koli aplikacijo za preverjanje pristnosti, ki podpira protokol enkratnega gesla na podlagi časa (TOTP).
 Na voljo jih je veliko, če pa niste prepričani, je <a target="_blank" href="https://authy.com/download">Authy</a>
 odlična izbira za Android in iOS.
         `,
-        setup2fa_2_step_heading: 'Skenirajte QR kodo',
         setup2fa_3_step_heading: 'Vnesite 6-mestno kodo',
-        setup2fa_4_step_heading: 'Kopirajte svoje obnovitvene kode',
         setup2fa_4_instructions: `
             Te kode za obnovitev so edini način za dostop do računa, če izgubite telefon ali ne morete uporabljati aplikacije za preverjanje pristnosti.
 Shranite jih na varno mesto.
         `,
-        setup2fa_5_step_heading: 'Potrdite nastavitev 2FA',
         setup2fa_5_confirmation_1: 'Moje obnovitvene kode so shranjene na varno mesto',
         setup2fa_5_confirmation_2: 'Pripravljen/a sem omogočiti 2FA',
-        setup2fa_5_button: 'Omogoči 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Vnesite kodo 2FA',
@@ -287,7 +261,6 @@ Shranite jih na varno mesto.
         login2fa_recovery_title: 'Vnesite kodo za obnovitev',
         login2fa_recovery_instructions: 'Za dostop do računa vnesite eno od svojih obnovitvenih kod.',
         login2fa_use_recovery_code: 'Uporabi obnovitveno kodo',
-        login2fa_recovery_back: 'Nazaj',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         // Sharing
@@ -349,7 +322,6 @@ Shranite jih na varno mesto.
         'billing.expanded': 'Razširjeno',
         'billing.accelerated': 'Pospešeno',
         'billing.enjoy_msg': 'Izkoristite %% shrambe v oblaku in druge ugodnosti.',
-        'too_many_attempts': 'Preveč poskusov. Poskusite znova pozneje.',
         'server_timeout': 'Strežnik je potreboval predolgo za odgovor. Poskusite znova.',
         'signup_error': 'Med prijavo je prišlo do napake. Poskusite znova.',
 
@@ -377,7 +349,6 @@ Shranite jih na varno mesto.
         'window_title_open': 'Odpri',
         'window_title_change_password': 'Spremeni geslo',
         'window_title_select_font': 'Izberi pisavo…',
-        'window_title_session_list': 'Seznam sej!',
         'window_title_set_new_password': 'Nastavite novo geslo',
         'window_title_publish_website': 'Objavite spletno stran',
         'window_title_publish_worker': 'Objavite Workerja',
@@ -385,7 +356,6 @@ Shranite jih na varno mesto.
 
         // Desktop UI
         // Item UI
-        'item_shared_with_you': 'Uporabnik je ta element delil z vami.',
         'item_shared_by_you': 'Ta element ste delili z vsaj enim drugim uporabnikom.',
         'item_shortcut': 'Bližnjica',
         'item_associated_websites': 'Povezano spletno mesto',
@@ -396,9 +366,6 @@ Shranite jih na varno mesto.
         'window_click_to_go_back': 'Kliknite za nazaj',
         'window_click_to_go_forward': 'Kliknite za naprej',
         'window_click_to_go_up': 'Kliknite za prehod za en imenik navzgor.',
-        'window_title_public': 'Javno',
-        'window_title_videos': 'Videoposnetki',
-        'window_title_pictures': 'Slike',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Ta mapa je prazna',
 

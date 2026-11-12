@@ -58,17 +58,10 @@ const zhtw = {
         close_all_windows_and_log_out: '關閉視窗並登出',
         change_always_open_with: '您是否要始終使用以下程式開啟此類型的檔案',
         confirm: '確認',
-        confirm_2fa_setup: '我已將驗證碼新增到我的驗證器應用程式中',
-        confirm_2fa_recovery: '我已將我的恢復碼儲存在安全的位置',
         confirm_account_for_free_referral_storage_c2a: '建立帳戶並確認您的電子郵件地址，即可獲得 1 GB 的免費儲存空間。您的朋友也會獲得 1 GB 的免費儲存空間。',
         confirm_code_generic_incorrect: '驗證碼不正確。',
         confirm_code_generic_too_many_requests: '請求次數過多。請稍等幾分鐘。',
-        confirm_code_generic_submit: '提交驗證碼',
-        confirm_code_generic_try_again: '再試一次',
-        confirm_code_generic_title: '輸入確認碼',
         confirm_code_2fa_instruction: '輸入您的驗證器應用程式中的 6 位數驗證碼。',
-        confirm_code_2fa_submit_btn: '提交',
-        confirm_code_2fa_title: '輸入雙重驗證碼',
         confirm_delete_multiple_items: '您確定要永久刪除這些項目嗎？',
         confirm_delete_single_item: '您要永久刪除此項目嗎？',
         confirm_open_apps_log_out: '您有開啟的應用程式。您確定要登出嗎？',
@@ -78,7 +71,6 @@ const zhtw = {
         confirm_session_revoke: '您確定要撤銷此工作階段嗎？',
         confirm_your_email_address: '確認您的電子郵件地址',
         contact_us: '聯絡我們',
-        contact_us_verification_required: '您必須有一個已驗證的電子郵件地址才能使用此功能。',
         continue: '繼續',
         copy: '複製',
         copy_link: '複製連結',
@@ -102,7 +94,6 @@ const zhtw = {
         desktop: '桌面',
         developers: '開發者',
         disable_2fa: '停用雙重驗證',
-        disable_2fa_confirm: '您確定要停用雙重驗證嗎？',
         disable_2fa_instructions: '輸入您的密碼以停用雙重驗證。',
         documents: '文件',
         dont_allow: '不允許',
@@ -132,8 +123,6 @@ const zhtw = {
         forgot_pass_c2a: '忘記密碼？',
         from: '來自',
         general: '一般',
-        get_a_copy_of_on_puter: '在 Puter.com 上獲取 \'%%\' 的副本！',
-        get_copy_link: '獲取副本連結',
         home: '首頁',
         html_document: 'HTML 文件',
         hue: '色相',
@@ -148,7 +137,6 @@ const zhtw = {
         loading: '載入中',
         log_in: '登入',
         log_out: '登出',
-        looks_good: '看起來不錯！',
         manage_sessions: '管理工作階段',
         modified: '已修改',
         move: '移動',
@@ -173,7 +161,6 @@ const zhtw = {
         open_with: '開啟方式',
         original_name: '原始名稱',
         original_path: '原始路徑',
-        oss_code_and_content: '開源軟體和內容',
         password: '密碼',
         password_changed: '密碼已更改。',
         password_recovery_rate_limit: '您已達到我們的速率限制；請稍等幾分鐘。為了避免將來發生這種情況，請避免過於頻繁地重新載入頁面。',
@@ -187,18 +174,14 @@ const zhtw = {
         path: '路徑',
         pictures: '圖片',
         plural_suffix: '個',
-        powered_by_puter_js: '由 {{link=docs}}Puter.js{{/link}} 提供支援',
         preparing: '準備中...',
-        preparing_for_upload: '準備上傳...',
         print: '列印',
         privacy: '隱私權',
         proceed_to_login: '繼續登入',
-        proceed_with_account_deletion: '繼續刪除帳戶',
         properties: '屬性',
         public: '公開',
         publish: '發布',
         publish_as_website: '發布為網站',
-        puter_description: 'Puter 是一個以隱私為先的個人雲端，可將您所有的檔案、應用程式和遊戲保存在一個安全的地方，隨時隨地都能存取。',
         reading_file: '正在讀取 %strong%',
         recover_password: '恢復密碼',
         refer_friends_c2a: '每邀請一位朋友在 Puter 上建立並確認帳戶，您就可獲得 1 GB 空間。您的朋友也會獲得 1 GB！',
@@ -211,11 +194,9 @@ const zhtw = {
         save: '儲存',
         saturation: '飽和度',
         save_account: '儲存帳戶',
-        save_account_to_get_copy_link: '請建立帳戶以繼續。',
         save_account_to_publish: '請建立帳戶以繼續。',
         save_session: '儲存工作階段',
         save_session_c2a: '建立帳戶以儲存您目前的工作階段並避免失去您的工作。',
-        scan_qr_2fa: '使用您的驗證器應用程式掃描 QR 碼',
         search: '搜尋',
         seconds: '秒',
         security: '安全性',
@@ -233,13 +214,11 @@ const zhtw = {
         show_hidden: '顯示隱藏項目',
         sign_in_with_puter: '使用 Puter 登入',
         sign_up: '註冊',
-        signing_in: '正在登入…',
         size: '大小',
         skip: '跳過',
         something_went_wrong: '發生了一些錯誤。',
         sort_by: '排序依據',
         status: '狀態',
-        storage_usage: '儲存空間使用量',
         storage_puter_used: '由 Puter 使用',
         taking_longer_than_usual: '正在花費比平常更長的時間。請稍候...',
         terms: '條款',
@@ -271,24 +250,19 @@ const zhtw = {
         zipping_file: '正在壓縮 %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: '開啟您的驗證器應用程式',
         setup2fa_1_instructions: `
 	        您可以使用任何支援基於時間的一次性密碼（TOTP）協議的驗證器應用程式。
 	        有許多選擇，但如果您不確定，
 	        <a target="_blank" href="https://authy.com/download">Authy</a>
 	        是 Android 和 iOS 的一個不錯的選擇。
 	    `,
-        setup2fa_2_step_heading: '掃描 QR 碼',
         setup2fa_3_step_heading: '輸入 6 位數驗證碼',
-        setup2fa_4_step_heading: '複製您的恢復碼',
         setup2fa_4_instructions: `
 	        如果您遺失手機或無法使用驗證器應用程式，這些恢復碼是存取您帳戶的唯一方法。
 	        請確保將它們儲存在安全的地方。
 	    `,
-        setup2fa_5_step_heading: '確認雙重驗證設置',
         setup2fa_5_confirmation_1: '我已將恢復碼儲存在安全的位置',
         setup2fa_5_confirmation_2: '我已準備好啟用雙重驗證',
-        setup2fa_5_button: '啟用雙重驗證',
 
         // === 2FA Login ===
         login2fa_otp_title: '輸入雙重驗證碼',
@@ -296,7 +270,6 @@ const zhtw = {
         login2fa_recovery_title: '輸入恢復碼',
         login2fa_recovery_instructions: '輸入您的其中一個恢復碼以存取您的帳戶。',
         login2fa_use_recovery_code: '使用恢復碼',
-        login2fa_recovery_back: '返回',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': '更改', // In English: "Change"
@@ -366,7 +339,6 @@ const zhtw = {
         'used_of': "{{used}} / {{available}} 已使用", // In English: "{{used}} used of {{available}}"
         'worker': "Worker", // In English: "Worker"
         'billing.offering.basic': "基本", // In English: "Basic"
-        'too_many_attempts': "嘗試次數過多。請稍後再試。", // In English: "Too many attempts. Please try again later."
         'server_timeout': "伺服器回應時間過長。請再試一次。", // In English: "The server took too long to respond. Please try again."
         'signup_error': "註冊時發生錯誤。請再試一次。", // In English: "An error occurred during signup. Please try again."
         'alert_error_title': "錯誤！", // In English: "Error!"
@@ -384,12 +356,10 @@ const zhtw = {
         'window_title_open': "開啟", // In English: "Open"
         'window_title_change_password': "變更密碼", // In English: "Change Password"
         'window_title_select_font': "選擇字型…", // In English: "Select font…"
-        'window_title_session_list': "工作階段列表", // In English: "Session List!"
         'window_title_set_new_password': "設定新密碼", // In English: "Set New Password"
         'window_title_publish_website': "發布網站", // In English: "Publish Website"
         'window_title_publish_worker': "發布 Worker", // In English: "Publish Worker"
         'window_title_authenticating': "正在驗證…", // In English: "Authenticating..."
-        'item_shared_with_you': "有使用者與您分享了此項目。", // In English: "A user has shared this item with you."
         'item_shared_by_you': "您已將此項目分享給其他使用者。", // In English: "You have shared this item with at least one other user."
         'item_shortcut': "捷徑", // In English: "Shortcut"
         'item_associated_websites': "關聯的網站", // In English: "Associated website"
@@ -398,9 +368,6 @@ const zhtw = {
         'window_click_to_go_back': "點擊返回。", // In English: "Click to go back."
         'window_click_to_go_forward': "點擊向前。", // In English: "Click to go forward."
         'window_click_to_go_up': "點擊返回上一層目錄。", // In English: "Click to go one directory up."
-        'window_title_public': "公開", // In English: "Public"
-        'window_title_videos': "影片", // In English: "Videos"
-        'window_title_pictures': "圖片", // In English: "Pictures"
         'window_title_puter': "Puter", // In English: "Puter"
         'window_folder_empty': "此資料夾是空的", // In English: "This folder is empty"
         'Resources': "資源", // In English: "Resources"

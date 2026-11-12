@@ -41,19 +41,13 @@ const fa = {
         close: 'بستن',
         close_all_windows_and_log_out: 'بستن پنجره‌ها و خروج',
         confirm: 'تایید',
-        confirm_2fa_setup: 'کد را به برنامه تأیید هویت خود اضافه کرده‌ام',
-        confirm_2fa_recovery: 'کدهای بازیابی خود را در یک مکان امن ذخیره کرده‌ام',
         confirm_account_for_free_referral_storage_c2a:
       'حساب کاربری خود را ایجاد کرده و آدرس ایمیل خود را تأیید کنید تا 1 گیگابایت فضای ذخیره سازی رایگان دریافت کنید. دوست شما هم 1 گیگابایت فضای ذخیره سازی رایگان دریافت خواهد کرد.',
         confirm_code_generic_incorrect: 'کد نادرست است',
         confirm_code_generic_too_many_requests:
       'تعداددرخواست‌ها زیاداست. لطفاً چند دقیقه صبر کنید',
-        confirm_code_generic_submit: 'ثبت کد',
-        confirm_code_generic_try_again: 'دوباره امتحان کنید',
         confirm_code_2fa_instruction:
       'کد ۶ رقمی را از برنامه تأیید هویت خود وارد کنید',
-        confirm_code_2fa_submit_btn: 'ثبت',
-        confirm_code_2fa_title: 'کد احراز هویت دو مرحله ای را وارد کنید',
         confirm_delete_multiple_items:
       'آیا مطمئن هستید که می‌خواهید این موارد را برای همیشه حذف کنید؟',
         confirm_delete_single_item:
@@ -68,8 +62,6 @@ const fa = {
       'آیا مطمئن هستید که می خواهید این نشست را لغو کنید؟', // TN: It's better to use session instead ofنشست
         confirm_your_email_address: 'ایمیل خود را تأیید کنید',
         contact_us: 'تماس با ما',
-        contact_us_verification_required:
-      'شما باید یک آدرس ایمیل تأیید شده داشته باشید تا بتوانید از این استفاده کنید ',
         continue: 'ادامه',
         copy: 'کپی',
         copy_link: 'کپی لینک',
@@ -93,8 +85,6 @@ const fa = {
         desktop: 'دسکتاپ',
         developers: 'تولیدکنندگان نرم افزار',
         disable_2fa: 'غیر فعال کردن احراز هویت دو مرحله ای',
-        disable_2fa_confirm:
-      'آیا مطمئن هستید که می‌خواهید احراز هویت دو مرحله ای را غیرفعال کنید؟',
         disable_2fa_instructions:
       'برای غیرفعال کردن احراز هویت دو مرحله ای ،رمز عبور خود را وارد کنید',
         documents: 'اسناد',
@@ -129,8 +119,6 @@ const fa = {
         forgot_pass_c2a: 'رمز عبور را فراموش کرده اید؟',
         from: 'از',
         general: 'عمومی',
-        get_a_copy_of_on_puter: 'یک نسخه از \'%%\' را در Puter.com بگیرید!',
-        get_copy_link: 'گرفتن لینک کپی',
         home: 'خانه',
         html_document: 'سند HTML',
         hue: 'رنگ',
@@ -145,7 +133,6 @@ const fa = {
         loading: 'در حال بارگذاری',
         log_in: 'ورود',
         log_out: 'خروج',
-        looks_good: 'خوب به نظر می‌رسد!',
         manage_sessions: 'مدیریت نشست‌ها',
         modified: 'تغییر داده شده',
         move: 'انتقال',
@@ -170,7 +157,6 @@ const fa = {
         open_with: 'باز کردن با',
         original_name: 'نام اصلی',
         original_path: 'مسیر اصلی',
-        oss_code_and_content: 'نرم‌افزار و محتوای متن‌باز',
         password: 'رمز عبور',
         password_changed: 'رمز عبور تغییر یافت.',
         password_recovery_rate_limit:
@@ -189,19 +175,14 @@ const fa = {
         path: 'مسیر',
         pictures: 'تصاویر',
         plural_suffix: 'ها',
-        powered_by_puter_js: 'پشتیبانی شده توسط {{link=docs}}Puter.js{{/link}}',
         preparing: 'در حال آماده سازی...',
-        preparing_for_upload: 'آماده سازی برای بارگذاری...',
         print: 'چاپ',
         privacy: 'حریم خصوصی',
         proceed_to_login: 'ادامه به ورود',
-        proceed_with_account_deletion: 'ادامه به حذف حساب کاربری',
         properties: 'ویژگی ها',
         public: 'عمومی',
         publish: 'انتشار',
         publish_as_website: 'انتشار به عنوان وبسایت',
-        puter_description:
-      'پیوتر یک کلاود با اولویت حفظ حریم خصوصی است که همه فایل‌ها، برنامه‌ها و بازی‌های شما را در یک فضای امن نگه می‌دارد که از هر جا و هر زمان قابل دسترسی است',
         reading: '%strong%درحال خواندن',
         writing: '%strong%درحال نوشتن',
         recover_password: 'بازیابی رمز عبور',
@@ -216,12 +197,10 @@ const fa = {
         save: 'ذخیره',
         saturation: 'اشباع رنگ',
         save_account: 'ذخیره حساب',
-        save_account_to_get_copy_link: 'لطفا برای ادامه یک حساب کاربری ایجاد کنید.',
         save_account_to_publish: 'لطفا برای ادامه یک حساب کاربری ایجاد کنید.',
         save_session: 'ذخیره نشست', // TN:better to use session instead of نشست
         save_session_c2a:
       'برای ذخیره جلسه فعلی و جلوگیری از از دست دادن کار خود یک حساب کاربری ایجاد کنید.',
-        scan_qr_2fa: ' بارکد را با برنامه تایید هویت خود اسکن کنید',
         search: 'جستجو',
         seconds: 'ثانیه',
         security: 'امنیت',
@@ -239,13 +218,11 @@ const fa = {
         show_hidden: 'نمایش مخفی',
         sign_in_with_puter: 'ورود با Puter',
         sign_up: 'ثبت نام',
-        signing_in: 'ورود…',
         size: 'اندازه',
         skip: 'رد کردن',
         something_went_wrong: 'مشکلی پیش آمد',
         sort_by: 'مرتب سازی بر اساس',
         status: 'وضعیت',
-        storage_usage: 'میزان استفاده شده از فضای ذخیره سازی',
         storage_puter_used: 'استفاده شده توسط Puter',
         taking_longer_than_usual: 'کمی بیشتر از معمول طول می کشد. لطفا صبر کنید...',
         terms: 'شرایط',
@@ -280,19 +257,14 @@ const fa = {
         zipping: '%strong%درحال فشرده سازی',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'برنامه تأیید هویت خود را باز کنید',
         setup2fa_1_instructions:
       "شما می‌توانید از هر برنامه تأیید هویتی که از پروتکل رمز یکبار مصرف مبتنی بر زمان (TOTP) پشتیبانی می‌کند استفاده کنید. اگر مطمئن نیستید، <a target='_blank' href='https://authy.com/download'>Authy</a> یک انتخاب مناسب برای اندروید و iOS است.",
-        setup2fa_2_step_heading: ' بارکد را اسکن کنید ',
         setup2fa_3_step_heading: 'کد ۶ رقمی را وارد کنید',
-        setup2fa_4_step_heading: 'کدهای بازیابی خود را کپی کنید',
         setup2fa_4_instructions:
       'این کدهای بازیابی تنها راه دسترسی به حساب شما هستند در صورتی که تلفن خود را گم کنید یا نتوانید از برنامه تأیید هویت استفاده کنید. مطمئن شوید که آنها را در مکانی امن ذخیره کرده‌اید.',
-        setup2fa_5_step_heading: 'تنظیمات احراز هویت دو مرحله ای را تایید کنید',
         setup2fa_5_confirmation_1:
       'من کدهای بازیابی خود را در مکانی امن ذخیره کرده‌ام',
         setup2fa_5_confirmation_2: 'آماده فعال کردن احراز هویت دو مرحله ای هستم',
-        setup2fa_5_button: 'فعال‌سازی احراز هویت دو مرحله‌ای',
         // === 2FA Login ===
         login2fa_otp_title: 'کد احراز هویت دو مرحله‌ای را وارد کنید',
         login2fa_otp_instructions:
@@ -301,7 +273,6 @@ const fa = {
         login2fa_recovery_instructions:
       'یکی از کدهای بازیابی خود را برای دسترسی به حساب خود وارد کنید',
         login2fa_use_recovery_code: 'از کد بازیابی استفاده کنید',
-        login2fa_recovery_back: 'بازگشت',
         login2fa_recovery_placeholder: 'XXXXXXX',
 
         // Sharing
@@ -362,7 +333,6 @@ const fa = {
         'billing.expanded': 'گسترش یافته',
         'billing.accelerated': 'تسریع شده',
         'billing.enjoy_msg': 'از %% فضای ذخیره‌سازی ابری به همراه سایر مزایا لذت ببرید.',
-        'confirm_code_generic_title': 'کد تأیید را وارد کنید',
         'create_shortcut_s': 'ایجاد میانبرها',
         'minimize': 'کوچک‌کردن',
         'reload_app': 'بارگذاری دوباره برنامه',
@@ -370,7 +340,6 @@ const fa = {
         'used_of': '{{used}} استفاده شده از {{available}}',
         'worker': 'کارگر',
         'billing.offering.basic': 'پایه',
-        'too_many_attempts': 'تعداد تلاش‌ها بیش از حد است. لطفاً بعداً دوباره امتحان کنید.',
         'server_timeout': 'پاسخ سرور بیش از حد طول کشید. لطفاً دوباره امتحان کنید.',
         'signup_error': 'خطایی هنگام ثبت‌نام رخ داد. لطفاً دوباره امتحان کنید.',
         'alert_error_title': 'خطا!',
@@ -388,12 +357,10 @@ const fa = {
         'window_title_open': 'باز کردن',
         'window_title_change_password': 'تغییر رمز عبور',
         'window_title_select_font': 'انتخاب فونت…',
-        'window_title_session_list': 'لیست نشست‌ها!',
         'window_title_set_new_password': 'تنظیم رمز عبور جدید',
         'window_title_publish_website': 'انتشار وب‌سایت',
         'window_title_publish_worker': 'انتشار کارگر',
         'window_title_authenticating': 'در حال احراز هویت...',
-        'item_shared_with_you': 'یک کاربر این مورد را با شما به اشتراک گذاشته است.',
         'item_shared_by_you': 'شما این مورد را با حداقل یک کاربر دیگر به اشتراک گذاشته‌اید.',
         'item_shortcut': 'میانبر',
         'item_associated_websites': 'وب‌سایت مرتبط',
@@ -402,9 +369,6 @@ const fa = {
         'window_click_to_go_back': 'برای بازگشت کلیک کنید.',
         'window_click_to_go_forward': 'برای رفتن به جلو کلیک کنید.',
         'window_click_to_go_up': 'برای رفتن به یک پوشه بالاتر کلیک کنید.',
-        'window_title_public': 'عمومی',
-        'window_title_videos': 'ویدئوها',
-        'window_title_pictures': 'تصاویر',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'این پوشه خالی است',
     },

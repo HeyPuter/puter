@@ -41,20 +41,13 @@ const bg = {
         close: 'Затвори',
         close_all_windows_and_log_out: 'Затвори прозорците и излез',
         confirm: 'Потвърди',
-        confirm_2fa_setup: 'Добавих кода към приложението си за удостоверяване',
-        confirm_2fa_recovery: 'Запазих кодовете за възстановяване на сигурно място',
         confirm_account_for_free_referral_storage_c2a:
       'Създайте акаунт и потвърдете имейл адреса си, за да получите 1 GB безплатно пространство. Вашият приятел също ще получи 1 GB безплатно пространство.',
         confirm_code_generic_incorrect: 'Неправилен код.',
         confirm_code_generic_too_many_requests:
       'Твърде много заявки. Моля, изчакайте няколко минути.',
-        confirm_code_generic_submit: 'Изпрати код',
-        confirm_code_generic_try_again: 'Опитай отново',
-        confirm_code_generic_title: 'Въведете код за потвърждение',
         confirm_code_2fa_instruction:
       'Въведете 6-цифрения код от приложението си за удостоверяване.',
-        confirm_code_2fa_submit_btn: 'Изпрати',
-        confirm_code_2fa_title: 'Въведете 2FA код',
         confirm_delete_multiple_items:
       'Сигурни ли сте, че искате да изтриете завинаги тези елементи?',
         confirm_delete_single_item: 'Искате ли да изтриете завинаги този елемент?',
@@ -68,8 +61,6 @@ const bg = {
       'Сигурни ли сте, че искате да прекратите тази сесия?',
         confirm_your_email_address: 'Потвърдете имейл адреса си',
         contact_us: 'Свържете се с нас',
-        contact_us_verification_required:
-      'Трябва да имате потвърден имейл адрес, за да използвате това.',
         continue: 'Продължи',
         copy: 'Копирай',
         copy_link: 'Копирай връзката',
@@ -94,7 +85,6 @@ const bg = {
         desktop: 'Работен плот',
         developers: 'Разработчици',
         disable_2fa: 'Изключи 2FA',
-        disable_2fa_confirm: 'Сигурни ли сте, че искате да изключите 2FA?',
         disable_2fa_instructions: 'Въведете паролата си, за да изключите 2FA.',
         documents: 'Документи',
         dont_allow: 'Не разрешавай',
@@ -129,8 +119,6 @@ const bg = {
         forgot_pass_c2a: 'Забравена парола?',
         from: 'От',
         general: 'Общи',
-        get_a_copy_of_on_puter: 'Вземете копие на %% в Puter.com!',
-        get_copy_link: 'Вземи връзка за копие',
         home: 'Начало',
         html_document: 'HTML документ',
         hue: 'Нюанс',
@@ -146,7 +134,6 @@ const bg = {
         loading: 'Зареждане',
         log_in: 'Вход',
         log_out: 'Изход',
-        looks_good: 'Изглежда добре!',
         manage_sessions: 'Управление на сесиите',
         modified: 'Променено',
         move: 'Премести',
@@ -173,7 +160,6 @@ const bg = {
         open_with: 'Отвори с',
         original_name: 'Оригинално име',
         original_path: 'Оригинален път',
-        oss_code_and_content: 'Софтуер и съдържание с отворен код',
         password: 'Парола',
         password_changed: 'Паролата е променена.',
         password_recovery_rate_limit:
@@ -191,20 +177,15 @@ const bg = {
         path: 'Път',
         pictures: 'Снимки',
         plural_suffix: 'и',
-        powered_by_puter_js: 'Работи с {{link=docs}}Puter.js{{/link}}',
         preparing: 'Подготовка…',
-        preparing_for_upload: 'Подготовка за качване…',
         print: 'Принтирай',
         privacy: 'Поверителност',
         proceed_to_login: 'Продължи към вход',
-        proceed_with_account_deletion: 'Продължи с изтриването на акаунта',
         properties: 'Свойства',
         public: 'Публична',
         publish: 'Публикувай',
         publish_as_website: 'Публикувай като уебсайт',
         publish_as_serverless_worker: 'Публикувай като Worker',
-        puter_description:
-      'Puter е личен облак с приоритет на поверителността, който съхранява всичките ви файлове, приложения и игри на едно сигурно място, достъпно отвсякъде и по всяко време.',
         reading: 'Четене на %strong%',
         writing: 'Записване на %strong%',
         recover_password: 'Възстанови паролата',
@@ -219,12 +200,10 @@ const bg = {
         save: 'Запази',
         saturation: 'Наситеност',
         save_account: 'Запазване на акаунт',
-        save_account_to_get_copy_link: 'Моля, създайте акаунт, за да продължите.',
         save_account_to_publish: 'Моля, създайте акаунт, за да продължите.',
         save_session: 'Запазване на сесия',
         save_session_c2a:
       'Създайте акаунт, за да запазите текущата си сесия и да избегнете загуба на работата си.',
-        scan_qr_2fa: 'Сканирайте QR кода с приложението си за удостоверяване',
         search: 'Търсене',
         seconds: 'секунди',
         security: 'Сигурност',
@@ -243,13 +222,11 @@ const bg = {
         show_hidden: 'Покажи скритите',
         sign_in_with_puter: 'Влез с Puter',
         sign_up: 'Регистрирай се',
-        signing_in: 'Влизане…',
         size: 'Размер',
         skip: 'Пропусни',
         something_went_wrong: 'Нещо се обърка.',
         sort_by: 'Сортиране по',
         status: 'Статус',
-        storage_usage: 'Използване на място за съхранение',
         storage_puter_used: 'използвано от Путер',
         taking_longer_than_usual:
       'Отнема малко повече време от обикновено. Моля, изчакайте...',
@@ -293,25 +270,20 @@ const bg = {
         tarring: 'TAR архивиране на %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Отворете приложението си за удостоверяване',
         setup2fa_1_instructions: `
     Можете да използвате всяко приложение за удостоверяване, което поддържа протокола Time-based One-Time Password (TOTP).
     Има много варианти, но ако не сте сигурни,
     <a target="_blank" href="https://authy.com/download">Authy</a>
     е отлично решение за Android и iOS.
 `,
-        setup2fa_2_step_heading: 'Сканирайте QR кода',
         setup2fa_3_step_heading: 'Въведете 6-цифрения код',
-        setup2fa_4_step_heading: 'Копирайте кодовете за възстановяване',
         setup2fa_4_instructions: `
     Тези кодове за възстановяване са единственият начин да получите достъп до акаунта си, ако загубите телефона си или не можете да използвате приложението за удостоверяване.
     Уверете се, че ги съхранявате на сигурно място.
 `,
-        setup2fa_5_step_heading: 'Потвърдете настройката на 2FA',
         setup2fa_5_confirmation_1:
       'Запазих кодовете за възстановяване на сигурно място',
         setup2fa_5_confirmation_2: 'Готов съм да включа 2FA',
-        setup2fa_5_button: 'Включи 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Въведете 2FA код',
@@ -321,7 +293,6 @@ const bg = {
         login2fa_recovery_instructions:
       'Въведете един от кодовете си за възстановяване, за да получите достъп до акаунта си.',
         login2fa_use_recovery_code: 'Използвай код за възстановяване',
-        login2fa_recovery_back: 'Назад',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         // Sharing
@@ -391,7 +362,6 @@ const bg = {
         'billing.accelerated': 'Ускорен',
         'billing.enjoy_msg':
       'Насладете се на %% облачно хранилище и други предимства.',
-        too_many_attempts: 'Твърде много опити. Моля, опитайте отново по-късно.',
         server_timeout:
       'Сървърът отне твърде много време за отговор. Моля, опитайте отново.',
         signup_error:
@@ -421,7 +391,6 @@ const bg = {
         window_title_open: 'Отвори',
         window_title_change_password: 'Промяна на парола',
         window_title_select_font: 'Изберете шрифт…',
-        window_title_session_list: 'Списък със сесии!',
         window_title_set_new_password: 'Задайте нова парола',
         window_title_publish_website: 'Публикуване на уебсайт',
         window_title_publish_worker: 'Публикуване на Worker',
@@ -430,7 +399,6 @@ const bg = {
         // Desktop UI
 
         // Item UI
-        item_shared_with_you: 'Потребител е споделил този елемент с вас.',
         item_shared_by_you:
       'Споделили сте този елемент с поне един друг потребител.',
         item_shortcut: 'Пряк път',
@@ -442,9 +410,6 @@ const bg = {
         window_click_to_go_back: 'Кликнете, за да се върнете назад.',
         window_click_to_go_forward: 'Кликнете, за да продължите напред.',
         window_click_to_go_up: 'Кликнете, за да отидете една папка нагоре.',
-        window_title_public: 'Публична',
-        window_title_videos: 'Видеоклипове',
-        window_title_pictures: 'Снимки',
         window_title_puter: 'Puter',
         window_folder_empty: 'Тази папка е празна',
     },

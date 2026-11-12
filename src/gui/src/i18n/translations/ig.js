@@ -40,21 +40,14 @@ const ig = {
         close_all_windows_and_log_out: 'mmechi Windows na wee pụọ',
         change_always_open_with: 'Ị chọrọ I na mepee ụdị faịlụ site na',
         confirm: 'gosi',
-        confirm_2fa_setup: 'Etinyela m koodu ahụ na ngwa nyocha m',
-        confirm_2fa_recovery: 'Echekwala m koodu mgbake m na ebe echedoro',
         hue: 'Hue',
         confirm_account_for_free_referral_storage_c2a:
       'Mepụta akaụntụ wee kwado adreesị ozi-e gị iji nweta 1 GB nke nchekwa efu. Enyi gị ga-enwetakwa 1 GB nke nchekwa efu.',
         confirm_code_generic_incorrect: 'Koodu ezighi ezi.',
         confirm_code_generic_too_many_requests:
       'Ọtụtụ ọchịchọ. Biko chere nkeji ole na ole.',
-        confirm_code_generic_submit: 'Nye koodu',
-        confirm_code_generic_try_again: 'Nwa ọzọ',
-        confirm_code_generic_title: 'Tinye koodu Nkwenye',
         confirm_code_2fa_instruction:
       'Tinye koodu ọnụọgụ isi site na ngwa nyocha gị.',
-        confirm_code_2fa_submit_btn: 'tinye',
-        confirm_code_2fa_title: 'Tinye koodu 2FA',
         confirm_delete_multiple_items:
       "Ị ji n'aka na ịchọrọ ihichapụ ihe ndị a kpamkpam?",
         confirm_delete_single_item: 'Ịchọrọ ihichapụ ihe a kpamkpam?',
@@ -67,8 +60,6 @@ const ig = {
         confirm_session_revoke: 'O doro gị anya na ịchọrọ kagbuo nnọkọ a?',
         confirm_your_email_address: 'Kwenye na adreesị email',
         contact_us: 'Kpọtụrụ anyị',
-        contact_us_verification_required:
-      'Ị ga-enwerịrị adreesị email ekwenyesiri ike ka ị jiri nke a.',
         continue: "Gaa n'ihu",
         copy: 'Detuo',
         copy_link: 'Detuo njikọ',
@@ -92,7 +83,6 @@ const ig = {
         desktop: 'desktọpụ',
         developers: 'Ndị mme ya',
         disable_2fa: 'Gbanyụọ 2FA',
-        disable_2fa_confirm: "Ị ji n'aka na ịchọrọ gbanyụọ 2FA?",
         disable_2fa_instructions: 'Tinye paswọọdụ gị i ji gbanyụọ 2FA.',
         documents: 'akwụkwọ',
         dont_allow: 'Ekwela',
@@ -126,8 +116,6 @@ const ig = {
         forgot_pass_c2a: 'Chefuru paswọọdụ?',
         from: 'si',
         general: 'Izugbe',
-        get_a_copy_of_on_puter: 'Nweta otu \'%%\' na Puter.com!',
-        get_copy_link: 'Nweta njikọ nke',
         home: 'ụlọ',
         html_document: 'akwụkwọ HTML',
         hue: 'Hue',
@@ -142,7 +130,6 @@ const ig = {
         loading: 'Na-ebugo ibu',
         log_in: 'Banye',
         log_out: 'pụọ',
-        looks_good: 'Ọ mara mma!',
         manage_sessions: 'Jikwaa Oge',
         modified: 'gbanwee',
         move: 'Bugharịa',
@@ -167,7 +154,6 @@ const ig = {
         open_with: 'Ji Mepee Ya',
         original_name: 'Aha izizi',
         original_path: 'Ụzọ izizi',
-        oss_code_and_content: 'Ngwanrọ na ọdịnaya mepere emepe',
         password: 'paswọọdụ',
         password_changed: 'gbanwere paswọọdụ.',
         password_recovery_rate_limit:
@@ -186,18 +172,14 @@ const ig = {
         path: 'ụzọ',
         pictures: 'Foto',
         plural_suffix: 's',
-        powered_by_puter_js: 'Kwadoro site na {{link=docs}}Puter.js{{/link}}',
         preparing: 'Na-akwado...',
-        preparing_for_upload: 'Na-akwado maka bulite...',
         print: 'ebipụta',
         privacy: 'Nzuzo',
         proceed_to_login: 'Gaba na nbanye',
-        proceed_with_account_deletion: "Gaa n'ihu na ihichapụ akaụntụ",
         properties: 'Njirimara',
         public: 'eze',
         publish: 'Bipụta',
         publish_as_website: 'Bipụta dị ka webụsaịtị',
-        puter_description: 'Puter bụ igwe ojii nzuzo nke mbụ iji dobe faịlụ gị, ngwa na egwuregwu gị n\'otu ebe echekwara, enwere ike ịnweta ya ebe ọ bụla n\'oge ọ bụla..',
         reading_file: 'ọgụgụ %strong%',
         recover_password: 'Weghachite paswọọdụ',
         refer_friends_c2a:
@@ -211,12 +193,10 @@ const ig = {
         save: 'chekwa',
         saturation: 'juputa',
         save_account: 'Chekwa akaụntụ',
-        save_account_to_get_copy_link: "Biko mepụta akaụntụ iji gaa n'ihu.",
         save_account_to_publish: "Biko mepụta akaụntụ iji gaa n'ihu.",
         save_session: 'Chekwa oge',
         save_session_c2a:
       "Mepụta akaụntụ iji chekwaa nnọkọ gị ugbu a ma zere ịla n'iyi ọrụ gị.",
-        scan_qr_2fa: 'Jiri ngwa nyocha gị nyochaa QR koodu',
         search: 'Chọọ',
         seconds: 'sekọnd',
         security: 'nche',
@@ -234,13 +214,11 @@ const ig = {
         show_hidden: 'Gosi ihe ezozo',
         sign_in_with_puter: 'Jiri Puter banye',
         sign_up: 'Debanye aha',
-        signing_in: 'Ịbanye…',
         size: 'Nha',
         skip: 'Mafee',
         something_went_wrong: 'Ọ nwere ihe adịghị mma.',
         sort_by: 'Hazie site na',
         status: 'Ọnọdụ',
-        storage_usage: 'Ojiji Nchekwa',
         storage_puter_used: 'nke Puter na-ji',
         taking_longer_than_usual:
       'Na-ewe obere oge karịa ka ọ dị na mbụ. Biko chere...',
@@ -273,24 +251,19 @@ const ig = {
         zipping_file: 'Zipping %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Mepee ngwa nyocha',
         setup2fa_1_instructions: `
             Ị nwere ike iji ngwa nyocha ọ bụla na-akwado protocol Paswọdu Otu oge (TOTP) dabere na Oge.
             Enwere ọtụtụ nhọrọ, mana ọ bụrụ na ị maghị
             <a target="_blank" href="https://authy.com/download">Authy</a>
             bụ nhọrọ siri ike maka android na iOS.
         `,
-        setup2fa_2_step_heading: 'Nyochaa QR koodu',
         setup2fa_3_step_heading: 'Tinye koodu ọnụọgụ isi',
-        setup2fa_4_step_heading: 'Detuo koodu mgbake gị',
         setup2fa_4_instructions: `
             Koodu mgbake ndị a bụ naanị ụzọ ị ga-esi iba akaụntụ gị ma ọ bụrụ na ekwentị gị furu ma ọ bụ enweghị ike iji ngwa nyocha gị..
             Gbaa mbọ hụ na ịchekwaa ha n'ebe dị mma.
         `,
-        setup2fa_5_step_heading: 'Kwenye ntọlite ​​2FA',
         setup2fa_5_confirmation_1: 'Echekwala m koodu mgbake m na ebe echekwa',
         setup2fa_5_confirmation_2: 'Adị m njikere i Kwado 2FA',
-        setup2fa_5_button: 'Kwado 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Tinye koodu 2FA',
@@ -299,7 +272,6 @@ const ig = {
         login2fa_recovery_instructions:
       'Tinye otu koodu mgbake gị i ji eba akaụntụ gị.',
         login2fa_use_recovery_code: 'Ji koodu mgbake',
-        login2fa_recovery_back: 'Azu',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'gbanwee',
@@ -377,7 +349,6 @@ const ig = {
         'used_of': '{{used}} ejiri {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Onye ọrụ', // In English: "Worker"
         'billing.offering.basic': 'Isi', // In English: "Basic"
-        'too_many_attempts': 'Ọtụtụ mbọ. Biko nwaa ọzọ ma emechaa.', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'Ihe nkesa ahụ were ogologo oge iji zaghachi. Biko nwaa ọzọ.', // In English: "The server took too long to respond. Please try again."
         'signup_error': "Enwere mperi n'oge ndebanye aha. Biko nwaa ọzọ.", // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Njehie!', // In English: "Error!"
@@ -395,12 +366,10 @@ const ig = {
         'window_title_open': 'Mepee', // In English: "Open"
         'window_title_change_password': 'Gbanwee okwuntughe', // In English: "Change Password"
         'window_title_select_font': 'Họrọ font…', // In English: "Select font…"
-        'window_title_session_list': 'Ndepụta Oge!', // In English: "Session List!"
         'window_title_set_new_password': 'Tọọ okwuntughe ọhụrụ', // In English: "Set New Password"
         'window_title_publish_website': 'Bipụta Weebụsaịtị', // In English: "Publish Website"
         'window_title_publish_worker': 'Bipụta Onye Ọrụ', // In English: "Publish Worker"
         'window_title_authenticating': 'Na-achọpụta...', // In English: "Authenticating..."
-        'item_shared_with_you': 'Onye ọrụ ekenyela gị ihe a.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Ị kekọrịtala ihe a na opekata mpe otu onye ọrụ ọzọ', // In English: " with at least one other user."
         'item_shortcut': 'Ụzọ mkpirisi', // In English: "Shortcut"
         'item_associated_websites': 'Weebụsaịtị emetụtara', // In English: "Associated website"
@@ -409,9 +378,6 @@ const ig = {
         'window_click_to_go_back': 'Pịa ka ịlaghachi azụ.', // In English: "Click to go back."
         'window_click_to_go_forward': "Pịa ka ịga n'ihu.", // In English: "Click to goard."
         'window_click_to_go_up': 'Pịa ka iwelie elu otu ndekọ.', // In English: "Click to go one directory up."
-        'window_title_public': 'Ọha', // In English: "Public"
-        'window_title_videos': 'Vidiyo', // In English: "Videos"
-        'window_title_pictures': 'Foto', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Mpempe akwụkwọ a tọgbọ chakoo', // In English: "This folder is empty"
     },

@@ -40,18 +40,11 @@ const fil = {
         close_all_windows_and_log_out: 'Isara ang mga window at mag-log out',
         change_always_open_with: 'Gusto mo bang laging buksan ang ganitong file gamit ang',
         confirm: 'Kumpirmahin',
-        confirm_2fa_setup: 'Naidagdag ko na ang code sa authenticator app ko',
-        confirm_2fa_recovery: 'Naitago ko na ang mga recovery code sa ligtas na lugar',
         confirm_code_generic_incorrect: 'Maling code.',
         confirm_code_generic_too_many_requests:
       'Sobrang daming request. Maghintay ng ilang minuto.',
-        confirm_code_generic_submit: 'Isumite ang code',
-        confirm_code_generic_try_again: 'Subukan ulit',
-        confirm_code_generic_title: 'Ilagay ang confirmation code',
         confirm_code_2fa_instruction:
       'Ilagay ang 6-digit na code mula sa authenticator app mo.',
-        confirm_code_2fa_submit_btn: 'Isumite',
-        confirm_code_2fa_title: 'Ilagay ang 2FA code',
         confirm_delete_multiple_items:
       'Permanenteng tatanggalin mo ba ang mga item na ito?',
         confirm_delete_single_item: 'Permanenteng tatanggalin mo ba ang item na ito?',
@@ -64,8 +57,6 @@ const fil = {
         confirm_session_revoke: 'Sigurado ka bang babawiin ang session na ito?',
         confirm_your_email_address: 'Kumpirmahin ang email mo',
         contact_us: 'Makipag-ugnayan',
-        contact_us_verification_required:
-      'Kailangan ng naberipikang email para magamit ito.',
         continue: 'Magpatuloy',
         copy: 'Kopyahin',
         copy_link: 'Kopyahin ang link',
@@ -89,7 +80,6 @@ const fil = {
         desktop: 'Desktop',
         developers: 'Mga developer',
         disable_2fa: 'I-disable ang 2FA',
-        disable_2fa_confirm: 'I-disable mo ba ang 2FA?',
         disable_2fa_instructions: 'Ilagay ang password mo para i-disable ang 2FA.',
         documents: 'Mga dokumento',
         dont_allow: 'Huwag payagan',
@@ -123,8 +113,6 @@ const fil = {
         forgot_pass_c2a: 'Nakalimutan ang password?',
         from: 'Mula kay',
         general: 'Pangkalahatan',
-        get_a_copy_of_on_puter: 'Kumuha ng kopya ng \'%%\' sa Puter.com!',
-        get_copy_link: 'Kunin ang copy link',
         home: 'Home',
         html_document: 'HTML na dokumento',
         hue: 'Hue',
@@ -139,7 +127,6 @@ const fil = {
         loading: 'Naglo-load',
         log_in: 'Mag-log in',
         log_out: 'Mag-log out',
-        looks_good: 'Ayos na!',
         manage_sessions: 'Pamahalaan ang mga session',
         modified: 'Binago',
         move: 'Ilipat',
@@ -164,7 +151,6 @@ const fil = {
         open_with: 'Buksan gamit ang',
         original_name: 'Orihinal na pangalan',
         original_path: 'Orihinal na lokasyon',
-        oss_code_and_content: 'Open source na software at content',
         password: 'Password',
         password_changed: 'Napalitan na ang password.',
         password_recovery_rate_limit:
@@ -182,18 +168,14 @@ const fil = {
         path: 'Lokasyon',
         pictures: 'Mga larawan',
         plural_suffix: '',
-        powered_by_puter_js: 'Pinapagana ng {{link=docs}}Puter.js{{/link}}',
         preparing: 'Inihahanda...',
-        preparing_for_upload: 'Inihahanda ang pag-upload...',
         print: 'I-print',
         privacy: 'Privacy',
         proceed_to_login: 'Magpatuloy sa pag-log in',
-        proceed_with_account_deletion: 'Ituloy ang pagbura ng account',
         properties: 'Mga katangian',
         public: 'Pampubliko',
         publish: 'I-publish',
         publish_as_website: 'I-publish bilang website',
-        puter_description: 'Ang Puter ay isang privacy-first na personal cloud para sa mga file, app, at laro mo, sa isang ligtas na lugar, kahit saan at kahit kailan.',
         recover_password: 'I-recover ang password',
         refresh: 'I-refresh',
         rename: 'Palitan ang pangalan',
@@ -204,12 +186,10 @@ const fil = {
         save: 'I-save',
         saturation: 'Saturation',
         save_account: 'I-save ang account',
-        save_account_to_get_copy_link: 'Gumawa ng account para makakuha ng copy link.',
         save_account_to_publish: 'Gumawa ng account para makapagpatuloy.',
         save_session: 'I-save ang session',
         save_session_c2a:
       'Gumawa ng account para ma-save ang session na ito at hindi mawala ang ginagawa mo.',
-        scan_qr_2fa: 'I-scan ang QR code gamit ang authenticator app mo',
         search: 'Hanapin',
         seconds: 'segundo',
         security: 'Seguridad',
@@ -227,13 +207,11 @@ const fil = {
         show_hidden: 'Ipakita ang nakatago',
         sign_in_with_puter: 'Mag-sign in gamit ang Puter',
         sign_up: 'Mag-sign up',
-        signing_in: 'Nagla-log in…',
         size: 'Laki',
         skip: 'Laktawan',
         something_went_wrong: 'May nangyaring mali.',
         sort_by: 'Ayusin ayon sa',
         status: 'Status',
-        storage_usage: 'Gamit na storage',
         storage_puter_used: 'ginagamit ng Puter',
         taking_longer_than_usual:
       'Medyo mas matagal kaysa karaniwan. Maghintay...',
@@ -264,7 +242,6 @@ const fil = {
         yes: 'Oo',
         zip: 'I-zip',
 
-        setup2fa_1_step_heading: 'Buksan ang authenticator app mo',
         setup2fa_1_instructions: `
         Puwede ang kahit anong authenticator app na sumusuporta sa Time-based One-Time Password (TOTP).
         Maraming pagpipilian, pero kung hindi ka sigurado,
@@ -272,18 +249,14 @@ const fil = {
         <a target="_blank" href="https://authy.com/download">Authy</a>
         para sa Android at iOS.
     `,
-        setup2fa_2_step_heading: 'I-scan ang QR code',
         setup2fa_3_step_heading: 'Ilagay ang 6 na digit',
-        setup2fa_4_step_heading: 'Kopyahin ang mga recovery code mo',
         setup2fa_4_instructions: `
         Ang mga recovery code na ito ang tanging paraan para makapasok sa account mo kung mawala ang phone mo o hindi mo magamit ang authenticator app.
         Itago ang mga ito sa ligtas na lugar.
     `,
-        setup2fa_5_step_heading: 'Kumpirmahin ang setup ng 2FA',
         setup2fa_5_confirmation_1:
       'Naitago ko na ang mga recovery code sa ligtas na lugar',
         setup2fa_5_confirmation_2: 'Handa na akong i-enable ang 2FA',
-        setup2fa_5_button: 'I-enable ang 2FA',
 
         login2fa_otp_title: 'Ilagay ang 2FA code',
         login2fa_otp_instructions: 'Ilagay ang 6 na digit mula sa authenticator app mo.',
@@ -291,7 +264,6 @@ const fil = {
         login2fa_recovery_instructions:
       'Ilagay ang isa sa mga recovery code mo para makapasok sa account.',
         login2fa_use_recovery_code: 'Gumamit ng recovery code',
-        login2fa_recovery_back: 'Bumalik',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Baguhin',
@@ -363,7 +335,6 @@ const fil = {
         'used_of': '{{used}} ang nagamit sa {{available}}',
         'worker': 'Worker',
         'billing.offering.basic': 'Basic',
-        'too_many_attempts': 'Sobrang daming pagsubok. Subukan ulit mamaya.',
         'server_timeout': 'Matagal sumagot ang server. Subukan ulit.',
         'signup_error': 'May error habang nag-sign up. Subukan ulit.',
         'alert_error_title': 'Error!',
@@ -381,12 +352,10 @@ const fil = {
         'window_title_open': 'Buksan',
         'window_title_change_password': 'Baguhin ang password',
         'window_title_select_font': 'Pumili ng font…',
-        'window_title_session_list': 'Listahan ng session',
         'window_title_set_new_password': 'Magtakda ng bagong password',
         'window_title_publish_website': 'I-publish ang website',
         'window_title_publish_worker': 'I-publish ang worker',
         'window_title_authenticating': 'Nag-a-authenticate...',
-        'item_shared_with_you': 'May user na nagbahagi ng item na ito sa iyo.',
         'item_shared_by_you': 'Ibinahagi mo ang item na ito sa kahit isang ibang user.',
         'item_shortcut': 'Shortcut',
         'item_associated_websites': 'Kaugnay na website',
@@ -395,9 +364,6 @@ const fil = {
         'window_click_to_go_back': 'I-click para bumalik.',
         'window_click_to_go_forward': 'I-click para sumulong.',
         'window_click_to_go_up': 'I-click para umakyat ng isang directory.',
-        'window_title_public': 'Pampubliko',
-        'window_title_videos': 'Mga video',
-        'window_title_pictures': 'Mga larawan',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Walang laman ang folder na ito',
     },

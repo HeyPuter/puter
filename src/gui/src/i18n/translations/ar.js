@@ -40,20 +40,13 @@ const ar = {
         close_all_windows_and_log_out: 'إغلاق النوافذ وتسجيل الخروج',
         change_always_open_with: 'هل تريد دائمًا فتح هذا النوع من الملفات باستخدام',
         confirm: 'تأكيد',
-        confirm_2fa_setup: 'لقد أضفت الرمز إلى تطبيق المصادقة',
-        confirm_2fa_recovery: 'لقد حفظت رموز الاسترداد في مكان آمن',
         confirm_account_for_free_referral_storage_c2a:
       '.أنشئ حسابًا وقم بتأكيد عنوان بريدك الإلكتروني للحصول على 1 جيجابايت من مساحة التخزين المجانية. سيحصل صديقك أيضًا على 1 جيجابايت من مساحة التخزين المجانية',
         confirm_code_generic_incorrect: 'رمز غير صحيح.',
         confirm_code_generic_too_many_requests:
       '.طلبات كثيرة جدًا. يرجى الانتظار بضع دقائق',
-        confirm_code_generic_submit: 'إرسال الرمز',
-        confirm_code_generic_try_again: 'حاول مرة أخرى',
-        confirm_code_generic_title: 'أدخل رمز التأكيد',
         confirm_code_2fa_instruction:
       '.أدخل الرمز المكون من 6 أرقام من تطبيق المصادقة الخاص بك',
-        confirm_code_2fa_submit_btn: 'إرسال',
-        confirm_code_2fa_title: 'أدخل رمز المصادقة الثنائية',
         confirm_delete_multiple_items:
       'هل أنت متأكد أنك تريد حذف هذه العناصر نهائيًا؟',
         confirm_delete_single_item: 'هل تريد حذف هذا العنصر نهائيًا؟',
@@ -66,8 +59,6 @@ const ar = {
         confirm_session_revoke: 'هل أنت متأكد أنك تريد إلغاء هذه الجلسة؟',
         confirm_your_email_address: 'تأكيد عنوان بريدك الإلكتروني',
         contact_us: 'اتصل بنا',
-        contact_us_verification_required:
-      '.يجب أن يكون لديك عنوان بريد إلكتروني مُؤكد لاستخدام هذه الخدمة',
         continue: 'استمر',
         copy: 'نسخ',
         copy_link: 'نسخ الرابط',
@@ -91,7 +82,6 @@ const ar = {
         desktop: 'سطح المكتب',
         developers: 'المطورين',
         disable_2fa: 'تعطيل المصادقة الثنائية',
-        disable_2fa_confirm: 'هل أنت متأكد أنك تريد تعطيل المصادقة الثنائية؟',
         disable_2fa_instructions: '.أدخل كلمة المرور لتعطيل المصادقة الثنائية',
         documents: 'المستندات',
         dont_allow: 'عدم السماح',
@@ -125,8 +115,6 @@ const ar = {
         forgot_pass_c2a: 'هل نسيت كلمة المرور؟',
         from: 'من',
         general: 'عام',
-        get_a_copy_of_on_puter: "Puter.com! :احصل على نسخة من '%%' على",
-        get_copy_link: 'احصل على رابط النسخ',
         home: 'الصفحة الرئيسية',
         html_document: 'HTML مستند',
         hue: 'درجة اللون',
@@ -142,7 +130,6 @@ const ar = {
         loading: 'جارٍ التحميل',
         log_in: 'تسجيل الدخول',
         log_out: 'تسجيل الخروج',
-        looks_good: '!يبدو جيدًا',
         manage_sessions: 'إدارة الجلسات',
         modified: 'تم التعديل',
         move: 'نقل',
@@ -167,7 +154,6 @@ const ar = {
         open_with: 'فتح باستخدام',
         original_name: 'الاسم الأصلي',
         original_path: 'المسار الأصلي',
-        oss_code_and_content: 'برامج ومحتوى مفتوح المصدر',
         password: 'كلمة المرور',
         password_changed: '.تم تغيير كلمة المرور',
         password_recovery_rate_limit:
@@ -185,19 +171,14 @@ const ar = {
         path: 'المسار',
         pictures: 'الصور',
         plural_suffix: 's', //this is not necessary for Arabic
-        powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} مدعوم بواسطة ',
         preparing: '...جارٍ التحضير',
-        preparing_for_upload: '...جارٍ التحضير للتحميل',
         print: 'طباعة',
         privacy: 'الخصوصية',
         proceed_to_login: 'المتابعة لتسجيل الدخول',
-        proceed_with_account_deletion: 'المتابعة مع حذف الحساب',
         properties: 'الخصائص',
         public: 'عام',
         publish: 'نشر',
         publish_as_website: 'نشر كموقع إلكتروني',
-        puter_description:
-      '.هو سحابة شخصية تركز على الخصوصية للحفاظ على جميع ملفاتك، تطبيقاتك، وألعابك في مكان آمن واحد، متاحة من أي مكان وفي أي وقت Puter',
         reading_file: '%strong% جارٍ قراءة',
         recover_password: 'استعادة كلمة المرور',
         refer_friends_c2a:
@@ -211,11 +192,9 @@ const ar = {
         save: 'حفظ',
         saturation: 'تشبع',
         save_account: 'حفظ الحساب',
-        save_account_to_get_copy_link: '.يرجى إنشاء حساب للمتابعة',
         save_account_to_publish: '.يرجى إنشاء حساب للمتابعة',
         save_session: 'حفظ الجلسة',
         save_session_c2a: '.أنشئ حسابًا لحفظ جلستك الحالية وتجنب فقدان عملك',
-        scan_qr_2fa: 'امسح رمز الاستجابة السريعة باستخدام تطبيق المصادقة الخاص بك',
         search: 'بحث',
         seconds: 'ثوانٍ',
         security: 'الأمان',
@@ -233,13 +212,11 @@ const ar = {
         show_hidden: 'إظهار المخفي',
         sign_in_with_puter: 'Puter تسجيل الدخول باستخدام',
         sign_up: 'تسجيل',
-        signing_in: '…جارٍ تسجيل الدخول',
         size: 'الحجم',
         skip: 'تخطي',
         something_went_wrong: 'حدث خطأ ما.',
         sort_by: 'فرز حسب',
         status: 'الحالة',
-        storage_usage: 'استخدام التخزين',
         storage_puter_used: 'Puter مستخدم بواسطة',
         taking_longer_than_usual: '…يستغرق وقتًا أطول من المعتاد. يرجى الانتظار',
         terms: 'الشروط',
@@ -272,19 +249,14 @@ const ar = {
         zipping_file: '%strong% جارٍ ضغط',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'افتح تطبيق المصادقة الخاص بك',
         setup2fa_1_instructions: '.هو خيار موثوق به لنظام Android و iOS ولكن إذا كنت غير متأكد،<a target="_blank" href="https://authy.com/download">Authy</a> :هناك العديد للاختيار من بينها .(TOTP) يمكنك استخدام أي تطبيق مصادقة يدعم بروتوكول كلمة المرور لمرة واحدة المعتمدة على الوقت ',
-        setup2fa_2_step_heading: ' (QR code)مسح رمز الاستجابة السريعة',
         setup2fa_3_step_heading: 'أدخل الرمز المكون من 6 أرقام',
-        setup2fa_4_step_heading: 'انسخ رموز الاسترداد الخاصة بك',
         setup2fa_4_instructions: `
         .هذه رموز الاسترداد هي الطريقة الوحيدة للوصول إلى حسابك إذا فقدت هاتفك أو لم تتمكن من استخدام تطبيق المصادقة الخاص بك
         .تأكد من حفظها في مكان آمن
     `,
-        setup2fa_5_step_heading: '(2FA) تأكيد إعداد المصادقة الثنائية',
         setup2fa_5_confirmation_1: 'لقد قمت بحفظ رموز الاسترداد في مكان آمن',
         setup2fa_5_confirmation_2: '(2FA) أنا جاهز لتمكين المصادقة الثنائية',
-        setup2fa_5_button: ' (2FA) تمكين المصادقة الثنائية',
 
         // === 2FA Login ===
         login2fa_otp_title: '(2FA) أدخل رمز المصادقة الثنائية',
@@ -294,7 +266,6 @@ const ar = {
         login2fa_recovery_instructions:
       '.أدخل أحد رموز الاسترداد الخاصة بك للوصول إلى حسابك',
         login2fa_use_recovery_code: 'استخدام رمز الاسترداد',
-        login2fa_recovery_back: 'الرجوع',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'تغيير', // In English: "Change"
@@ -374,7 +345,6 @@ const ar = {
         used_of: '{{available}}محاولات مستخدمة من {{used}}', // In English: "{{used}} used of {{available}}"
         worker: 'العامل', // In English: "Worker"
         'billing.offering.basic': 'أساسي', // In English: "Basic"
-        too_many_attempts: '.محاولات كثيرة. يُرجى المحاولة لاحقًا', // In English: "Too many attempts. Please try again later."
         server_timeout:
       '.استغرق الخادم وقتًا طويلاً للاستجابة. يُرجى المحاولة مرة أخرى', // In English: "The server took too long to respond. Please try again."
         signup_error: '.حدث خطأ أثناء التسجيل. يُرجى المحاولة مرة أخرى', // In English: "An error occurred during signup. Please try again."
@@ -393,12 +363,10 @@ const ar = {
         window_title_open: 'فتح',
         window_title_change_password: 'تغيير كلمة المرور',
         window_title_select_font: '…اختر الخط',
-        window_title_session_list: '!قائمة الجلسات',
         window_title_set_new_password: 'تعيين كلمة مرور جديدة',
         window_title_publish_website: 'نشر الموقع',
         window_title_publish_worker: 'نشر العامل',
         window_title_authenticating: '…جارٍ التحقق',
-        item_shared_with_you: '.قام مستخدم بمشاركة هذا العنصر معك',
         item_shared_by_you: '.لقد قمت بمشاركة هذا العنصر مع مستخدم آخر على الأقل',
         item_shortcut: 'اختصار',
         item_associated_websites: 'الموقع المرتبط',
@@ -407,9 +375,6 @@ const ar = {
         window_click_to_go_back: 'انقر للرجوع.',
         window_click_to_go_forward: 'انقر للتقدم.',
         window_click_to_go_up: '.انقر للصعود مجلد واحد',
-        window_title_public: 'عام',
-        window_title_videos: 'فيديوهات',
-        window_title_pictures: 'صور',
         window_title_puter: 'بيوتر',
         window_folder_empty: 'هذا المجلد فارغ',
     },

@@ -49,20 +49,13 @@ const my = {
         change_always_open_with: 'Adakah anda mahu sentiasa membuka jenis fail ini dengan',
         confirm: 'Sahkan',
         // Note: `authenticator` is taken directly from the English language as it is more commonly used than its direct Malay translation `pengesahan`
-        confirm_2fa_setup: 'Saya telah menambah kod ke aplikasi authenticator saya',
-        confirm_2fa_recovery: 'Saya telah menyimpan kod pemulihan saya di lokasi yang selamat',
         confirm_account_for_free_referral_storage_c2a:
       'Cipta akaun dan sahkan alamat emel anda untuk menerima 1 GB storan percuma. Rakan anda juga akan menerima 1 GB storan percuma.',
         confirm_code_generic_incorrect: 'Kod Salah.',
         confirm_code_generic_too_many_requests:
       'Terlalu banyak permintaan. Sila tunggu beberapa minit.',
-        confirm_code_generic_submit: 'Hantar Kod',
-        confirm_code_generic_try_again: 'Cuba Lagi',
-        confirm_code_generic_title: 'Masukkan Kod Pengesahan',
         confirm_code_2fa_instruction:
       'Masukkan kod 6 digit daripada aplikasi authenticator anda.',
-        confirm_code_2fa_submit_btn: 'Hantar',
-        confirm_code_2fa_title: 'Masukkan Kod 2FA',
         confirm_delete_multiple_items:
       'Adakah anda yakin mahu menghapuskan item-item ini buat selamanya?',
         confirm_delete_single_item: 'Adakah anda mahu menghapuskan item ini buat selamanya?',
@@ -75,8 +68,6 @@ const my = {
         confirm_session_revoke: 'Adakah anda yakin mahu menamatkan sesi ini?',
         confirm_your_email_address: 'Sahkan Alamat Emel Anda',
         contact_us: 'Hubungi Kami',
-        contact_us_verification_required:
-      'Anda perlu memiliki alamat emel yang sah untuk menggunakan ini.',
         continue: 'Teruskan',
         copy: 'Salin',
         copy_link: 'Salin Pautan',
@@ -101,7 +92,6 @@ const my = {
         desktop: 'Desktop',
         developers: 'Pembangun',
         disable_2fa: 'Menyahaktifkan 2FA',
-        disable_2fa_confirm: 'Adakah anda yakin mahu menyahaktifkan 2FA?',
         disable_2fa_instructions: 'Masukkan kata laluan anda untuk menyahaktifkan 2FA.',
         documents: 'Dokumen',
         dont_allow: 'Tidak Izinkan',
@@ -132,8 +122,6 @@ const my = {
         forgot_pass_c2a: 'Lupa kata laluan?',
         from: 'Dari',
         general: 'Umum',
-        get_a_copy_of_on_puter: 'Dapatkan salinan \'%%\' di Puter.com!',
-        get_copy_link: 'Dapatkan Salinan Pautan',
         home: 'Laman Utama',
         html_document: 'Dokumen HTML',
         hue: 'Hue',
@@ -148,7 +136,6 @@ const my = {
         loading: 'Memuatkan',
         log_in: 'Log Masuk',
         log_out: 'Log Keluar',
-        looks_good: 'Nampak baik!',
         manage_sessions: 'Urus Sesi',
         modified: 'Diubah suai',
         move: 'Pindah',
@@ -175,7 +162,6 @@ const my = {
         open_with: 'Buka Dengan',
         original_name: 'Nama Asal',
         original_path: 'Laluan Asal',
-        oss_code_and_content: 'Perisian dan Kandungan Sumber Terbuka',
         password: 'Kata Laluan',
         password_changed: 'Kata laluan ditukar.',
         password_recovery_rate_limit: 'Anda telah mencapai had kadar kami; sila tunggu beberapa minit. Untuk mengelakkan hal ini pada masa hadapan, elakkan memuat semula halaman terlalu banyak kali.',
@@ -189,19 +175,15 @@ const my = {
         path: 'Laluan',
         pictures: 'Gambar',
         plural_suffix: 's',
-        powered_by_puter_js: 'Dikuasakan oleh {{link=docs}}Puter.js{{/link}}',
         preparing: 'Menyediakan...',
-        preparing_for_upload: 'Menyediakan untuk muat naik...',
         print: 'Cetak',
         privacy: 'Privasi',
         proceed_to_login: 'Teruskan untuk log masuk',
-        proceed_with_account_deletion: 'Teruskan dengan Penghapusan Akaun',
         properties: 'Ciri-ciri',
         public: 'Publik',
         publish: 'Terbitkan',
         publish_as_website: 'Terbitkan sebagai laman web',
         publish_as_serverless_worker: 'Terbitkan sebagai Worker',
-        puter_description: 'Puter ialah storan awan peribadi yang mendahulukan privasi untuk menyimpan semua fail, aplikasi dan permainan anda di satu tempat yang selamat, boleh diakses dari mana sahaja dan pada bila-bila masa.',
         reading: 'Membaca %strong%',
         writing: 'Menulis %strong%',
         recover_password: 'Pulihkan Kata Laluan',
@@ -215,11 +197,9 @@ const my = {
         save: 'Simpan',
         saturation: 'Ketepuan',
         save_account: 'Simpan akaun',
-        save_account_to_get_copy_link: 'Sila buat akaun untuk meneruskan.',
         save_account_to_publish: 'Sila buat akaun untuk meneruskan.',
         save_session: 'Simpan sesi',
         save_session_c2a: 'Buat akaun untuk menyimpan sesi ini dan mengelakkan kehilangan kerja anda.',
-        scan_qr_2fa: 'Imbas kod QR dengan aplikasi authenticator anda',
         search: 'Cari',
         seconds: 'saat',
         security: 'Keselamatan',
@@ -237,13 +217,11 @@ const my = {
         show_hidden: 'Tunjukkan yang tersembunyi',
         sign_in_with_puter: 'Daftar masuk dengan Puter',
         sign_up: 'Daftar',
-        signing_in: 'Mendaftar masuk…',
         size: 'Saiz',
         skip: 'Langkau',
         something_went_wrong: 'Sesuatu telah berlaku.',
         sort_by: 'Susun mengikut',
         status: 'Status',
-        storage_usage: 'Penggunaan Storan',
         storage_puter_used: 'digunakan oleh Puter',
         taking_longer_than_usual: 'Mengambil masa lebih lama daripada biasa. Sila tunggu...',
         terms: 'Terma',
@@ -279,24 +257,19 @@ const my = {
         zipping: 'Menzip %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Buka aplikasi authenticator anda',
         setup2fa_1_instructions: `
         Anda boleh menggunakan sebarang aplikasi authenticator yang menyokong protokol Kata Laluan Sekali Guna Berasaskan Masa (TOTP).
         Terdapat banyak untuk dipilih, tetapi jika anda tidak pasti
         <a target="_blank" href="https://authy.com/download">Authy</a>
         adalah pilihan yang kukuh untuk Android dan iOS.
     `,
-        setup2fa_2_step_heading: 'Imbas kod QR',
         setup2fa_3_step_heading: 'Masukkan kod 6 digit',
-        setup2fa_4_step_heading: 'Salin kod pemulihan anda',
         setup2fa_4_instructions: `
         Kod pemulihan ini adalah satu-satunya cara untuk mengakses akaun anda jika anda kehilangan telefon atau tidak boleh menggunakan aplikasi authenticator anda.
         Pastikan anda menyimpannya di tempat yang selamat.
     `,
-        setup2fa_5_step_heading: 'Sahkan persediaan 2FA',
         setup2fa_5_confirmation_1: 'Saya telah menyimpan kod pemulihan saya di lokasi yang selamat',
         setup2fa_5_confirmation_2: 'Saya bersedia untuk mengaktifkan 2FA',
-        setup2fa_5_button: 'Aktifkan 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Masukkan Kod 2FA',
@@ -304,7 +277,6 @@ const my = {
         login2fa_recovery_title: 'Masukkan kod pemulihan',
         login2fa_recovery_instructions: 'Masukkan salah satu kod pemulihan anda untuk mengakses akaun anda.',
         login2fa_use_recovery_code: 'Gunakan kod pemulihan',
-        login2fa_recovery_back: 'Kembali',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         // Sharing
@@ -365,7 +337,6 @@ const my = {
         'billing.expanded': 'Diperluas',
         'billing.accelerated': 'Dipercepatkan',
         'billing.enjoy_msg': 'Nikmati %% Storan Awan ditambah faedah lain.',
-        'too_many_attempts': 'Terlalu banyak percubaan. Sila cuba lagi kemudian.',
         'server_timeout': 'Server mengambil masa terlalu lama untuk bertindak balas. Sila cuba lagi.',
         'signup_error': 'Ralat berlaku semasa pendaftaran. Sila cuba lagi.',
 
@@ -393,7 +364,6 @@ const my = {
         'window_title_open': 'Buka',
         'window_title_change_password': 'Tukar Kata Laluan',
         'window_title_select_font': 'Pilih fon huruf…',
-        'window_title_session_list': 'Senarai Sesi!',
         'window_title_set_new_password': 'Tetapkan Kata Laluan Baru',
         'window_title_publish_website': 'Terbitkan Laman Web',
         'window_title_publish_worker': 'Terbitkan Worker',
@@ -402,7 +372,6 @@ const my = {
         // Desktop UI
 
         // Item UI
-        'item_shared_with_you': 'Pengguna telah berkongsi item ini dengan anda.',
         'item_shared_by_you': 'Anda telah berkongsi item ini dengan sekurang-kurangnya satu pengguna lain.',
         'item_shortcut': 'Pintasan',
         'item_associated_websites': 'Laman web berkaitan',
@@ -413,9 +382,6 @@ const my = {
         'window_click_to_go_back': 'Klik untuk kembali.',
         'window_click_to_go_forward': 'Klik untuk maju.',
         'window_click_to_go_up': 'Klik untuk naik satu direktori.',
-        'window_title_public': 'Publik',
-        'window_title_videos': 'Video',
-        'window_title_pictures': 'Gambar',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Folder ini kosong',
 

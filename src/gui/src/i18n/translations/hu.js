@@ -40,17 +40,10 @@ const hu = {
         close_all_windows_and_log_out: 'Ablakok bezárása és kijelentkezés',
         change_always_open_with: 'Mindig ezzel az alkalmazással nyitja meg ezt a fájlt?',
         confirm: 'Megerősít',
-        confirm_2fa_setup: 'A kódot hozzáadtam a hitelesítő alkalmazásomhoz',
-        confirm_2fa_recovery: 'A helyreállítási kódokat biztonságos helyen tároltam',
         confirm_account_for_free_referral_storage_c2a: 'Hozz létre egy fiókot és erősítsd meg email címedet, hogy 1 GB ingyenes tárhelyet kapj. A barátod is kap 1 GB ingyenes tárhelyet.',
         confirm_code_generic_incorrect: 'Hibás kód.',
         confirm_code_generic_too_many_requests: 'Túl sok kérés. Kérlek, várj néhány percet.',
-        confirm_code_generic_submit: 'Kód beküldése',
-        confirm_code_generic_try_again: 'Próbáld újra',
-        confirm_code_generic_title: 'Megerősítő kód megadása',
         confirm_code_2fa_instruction: 'Add meg a 6-jegyű kódot a hitelesítő alkalmazásodból.',
-        confirm_code_2fa_submit_btn: 'Beküldés',
-        confirm_code_2fa_title: '2FA kód megadása',
         confirm_delete_multiple_items: 'Biztosan véglegesen törölni akarod ezeket az elemeket?',
         confirm_delete_single_item: 'Biztosan véglegesen törölni akarod ezt az elemet?',
         confirm_open_apps_log_out: 'Nyitott alkalmazásaid vannak. Biztosan ki akarsz jelentkezni?',
@@ -60,7 +53,6 @@ const hu = {
         confirm_session_revoke: 'Biztosan visszavonod ezt a munkamenetet?',
         confirm_your_email_address: 'Email címed megerősítése',
         contact_us: 'Kapcsolat',
-        contact_us_verification_required: 'A használathoz érvényesített email címmel kell rendelkezned.',
         continue: 'Folytatás',
         copy: 'Másolás',
         copy_link: 'Link másolása',
@@ -84,7 +76,6 @@ const hu = {
         desktop: 'Asztal',
         developers: 'Fejlesztők',
         disable_2fa: '2FA letiltása',
-        disable_2fa_confirm: 'Biztosan letiltod a 2FA-t?',
         disable_2fa_instructions: 'Add meg a jelszavad a 2FA letiltásához.',
         documents: 'Dokumentumok',
         dont_allow: 'Nem engedélyez',
@@ -114,8 +105,6 @@ const hu = {
         forgot_pass_c2a: 'Elfelejtetted a jelszavad?',
         from: 'Tól',
         general: 'Általános',
-        get_a_copy_of_on_puter: "Szerezz egy példányt a(z) '%%' Puter.com-on!",
-        get_copy_link: 'Másolási link megszerzése',
         home: 'Otthon',
         html_document: 'HTML dokumentum',
         hue: 'Színárnyalat',
@@ -130,7 +119,6 @@ const hu = {
         loading: 'Betöltés',
         log_in: 'Bejelentkezés',
         log_out: 'Kijelentkezés',
-        looks_good: 'Jól néz ki!',
         manage_sessions: 'Munkamenetek kezelése',
         modified: 'Módosítva',
         move: 'Mozgatás',
@@ -155,7 +143,6 @@ const hu = {
         open_with: 'Megnyitás ezzel',
         original_name: 'Eredeti név',
         original_path: 'Eredeti útvonal',
-        oss_code_and_content: 'Nyílt forráskódú szoftver és tartalom',
         password: 'Jelszó',
         password_changed: 'Jelszó megváltoztatva.',
         password_recovery_rate_limit: 'Elérted a korlátunkat; kérlek, várj néhány percet. A jövőben kerüld az oldal túl sokszori újratöltését.',
@@ -169,18 +156,14 @@ const hu = {
         path: 'Útvonal',
         pictures: 'Képek',
         plural_suffix: 'k',
-        powered_by_puter_js: 'A Puter.js hajtja',
         preparing: 'Előkészítés...',
-        preparing_for_upload: 'Feltöltés előkészítése...',
         print: 'Nyomtatás',
         privacy: 'Adatvédelem',
         proceed_to_login: 'Folytatás a bejelentkezéshez',
-        proceed_with_account_deletion: 'Fiók törlésének folytatása',
         properties: 'Tulajdonságok',
         public: 'Nyilvános',
         publish: 'Közzététel',
         publish_as_website: 'Közzététel weboldalként',
-        puter_description: 'A Puter egy adatvédelmi elsőként kezelt személyes felhő, amelyben minden fájlodat, alkalmazásodat és játékodat egy biztonságos helyen tárolhatod, bárhonnan, bármikor elérhetően.',
         reading_file: 'Fájl olvasása: %strong%',
         recover_password: 'Jelszó visszaállítása',
         refer_friends_c2a: 'Kapj 1 GB-ot minden barátodért, aki létrehoz és megerősít egy fiókot a Puteren. A barátod is kap 1 GB-ot!',
@@ -193,11 +176,9 @@ const hu = {
         save: 'Mentés',
         saturation: 'Telítettség',
         save_account: 'Fiók mentése',
-        save_account_to_get_copy_link: 'A folytatáshoz kérlek, hozz létre egy fiókot.',
         save_account_to_publish: 'A folytatáshoz kérlek, hozz létre egy fiókot.',
         save_session: 'Munkamenet mentése',
         save_session_c2a: 'Hozz létre egy fiókot, hogy mentsd az aktuális munkamenetedet és elkerüld a munkád elvesztését.',
-        scan_qr_2fa: 'Olvasd be a QR-kódot a hitelesítő alkalmazásoddal',
         search: 'Keresés',
         seconds: 'másodperc',
         security: 'Biztonság',
@@ -215,13 +196,11 @@ const hu = {
         show_hidden: 'Rejtett megjelenítése',
         sign_in_with_puter: 'Bejelentkezés Puterrel',
         sign_up: 'Regisztráció',
-        signing_in: 'Bejelentkezés...',
         size: 'Méret',
         skip: 'Kihagyás',
         something_went_wrong: 'Valami hiba történt.',
         sort_by: 'Rendezés',
         status: 'Állapot',
-        storage_usage: 'Tárhely használat',
         storage_puter_used: 'Puter által használt',
         taking_longer_than_usual: 'Kicsit tovább tart, mint általában. Kérlek várj...',
         terms: 'Feltételek',
@@ -253,16 +232,11 @@ const hu = {
         zipping_file: 'Tömörítés: %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Nyisd meg a hitelesítő alkalmazásod',
         setup2fa_1_instructions: "Bármely hitelesítő alkalmazást használhatod, amely támogatja az időalapú egyszeri jelszó (TOTP) protokollt. Sok választási lehetőség van, de ha nem vagy biztos benne, az <a target='_blank' href='https://authy.com/download'>Authy</a> jó választás Android és iOS rendszeren.",
-        setup2fa_2_step_heading: 'Olvasd be a QR-kódot',
         setup2fa_3_step_heading: 'Add meg a 6-jegyű kódot',
-        setup2fa_4_step_heading: 'Másold le a helyreállítási kódjaidat',
         setup2fa_4_instructions: 'Ezek a helyreállítási kódok az egyetlen módja annak, hogy hozzáférj a fiókodhoz, ha elveszíted a telefonodat vagy nem tudod használni a hitelesítő alkalmazásodat. Ügyelj arra, hogy biztonságos helyen tárold őket.',
-        setup2fa_5_step_heading: '2FA beállítás megerősítése',
         setup2fa_5_confirmation_1: 'A helyreállítási kódokat biztonságos helyen tároltam',
         setup2fa_5_confirmation_2: 'Készen állok a 2FA engedélyezésére',
-        setup2fa_5_button: '2FA engedélyezése',
 
         // === 2FA Login ===
         login2fa_otp_title: '2FA kód megadása',
@@ -270,7 +244,6 @@ const hu = {
         login2fa_recovery_title: 'Add meg egy helyreállítási kódot',
         login2fa_recovery_instructions: 'Add meg az egyik helyreállítási kódodat a fiókhoz való hozzáféréshez.',
         login2fa_use_recovery_code: 'Használj helyreállítási kódot',
-        login2fa_recovery_back: 'Vissza',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Módosítás', // In English: "Change"
@@ -343,7 +316,6 @@ const hu = {
         'used_of': '{{used}} használt a {{available}}-ból', // English: "{{used}} used of {{available}}"
         'worker': 'Munkás', // English: "Worker"
         'billing.offering.basic': 'Alap', // English: "Basic"
-        'too_many_attempts': 'Túl sok próbálkozás. Kérjük, próbálja meg később.', // English: "Too many attempts. Please try again later."
         'server_timeout': 'A szerver túl sokáig válaszolt. Kérjük, próbálja meg újra.', // English: "The server took too long to respond. Please try again."
         'signup_error': 'Hiba történt a regisztráció során. Kérjük, próbálja újra.', // English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Hiba!', // English: "Error!"
@@ -361,12 +333,10 @@ const hu = {
         'window_title_open': 'Megnyitás', // English: "Open"
         'window_title_change_password': 'Jelszó módosítása', // English: "Change Password"
         'window_title_select_font': 'Betű kiválasztása…', // English: "Select font…"
-        'window_title_session_list': 'Munkamenet lista!', // English: "Session List!"
         'window_title_set_new_password': 'Új jelszó beállítása', // English: "Set New Password"
         'window_title_publish_website': 'Webhely közzététele', // English: "Publish Website"
         'window_title_publish_worker': 'Munkás közzététele', // English: "Publish Worker"
         'window_title_authenticating': 'Hitelesítés...', // English: "Authenticating..."
-        'item_shared_with_you': 'Egy felhasználó megosztotta Önnel ezt az elemet.', // English: "A user has shared this item with you."
         'item_shared_by_you': 'Legalább egy másik felhasználóval megosztotta ezt az elemet.', // English: "You have shared this item with at least one other user."
         'item_shortcut': 'Parancsikon', // English: "Shortcut"
         'item_associated_websites': 'Kapcsolódó webhely', // English: "Associated website"
@@ -375,9 +345,6 @@ const hu = {
         'window_click_to_go_back': 'Kattintson a visszalépéshez.', // English: "Click to go back."
         'window_click_to_go_forward': 'Kattintson a továbblépéshez.', // English: "Click to go forward."
         'window_click_to_go_up': 'Kattintson a szülőmappa megnyitásához.', // English: "Click to go one directory up."
-        'window_title_public': 'Nyilvános', // English: "Public"
-        'window_title_videos': 'Videók', // English: "Videos"
-        'window_title_pictures': 'Képek', // English: "Pictures"
         'window_title_puter': 'Puter', // English: "Puter"
         'window_folder_empty': 'Ez a mappa üres', // English: "This folder is empty"
 

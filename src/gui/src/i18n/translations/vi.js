@@ -40,17 +40,10 @@ const vi = {
         close_all_windows_and_log_out: 'Đóng cửa sổ và đăng xuất',
         change_always_open_with: 'Bạn có muốn luôn mở loại tệp này bằng',
         confirm: 'Xác nhận',
-        confirm_2fa_setup: 'Tôi đã thêm mã vào ứng dụng xác thực của mình',
-        confirm_2fa_recovery: 'Tôi đã lưu mã khôi phục của mình ở một nơi an toàn',
         confirm_account_for_free_referral_storage_c2a: 'Tạo tài khoản và xác nhận địa chỉ email của bạn để nhận 1 GB dung lượng lưu trữ miễn phí. Bạn của bạn cũng sẽ nhận được 1 GB dung lượng lưu trữ miễn phí.',
         confirm_code_generic_incorrect: 'Mã không chính xác.',
         confirm_code_generic_too_many_requests: 'Quá nhiều yêu cầu. Vui lòng đợi vài phút.',
-        confirm_code_generic_submit: 'Gửi mã',
-        confirm_code_generic_try_again: 'Thử lại',
-        confirm_code_generic_title: 'Nhập mã xác nhận',
         confirm_code_2fa_instruction: 'Nhập mã 6 chữ số từ ứng dụng xác thực của bạn.',
-        confirm_code_2fa_submit_btn: 'Gửi',
-        confirm_code_2fa_title: 'Nhập mã 2FA',
         confirm_delete_multiple_items: 'Bạn có chắc chắn muốn xóa vĩnh viễn những mục này không?',
         confirm_delete_single_item: 'Bạn có muốn xóa vĩnh viễn mục này không?',
         confirm_open_apps_log_out: 'Bạn có ứng dụng đang mở. Bạn có chắc chắn muốn đăng xuất không?',
@@ -60,7 +53,6 @@ const vi = {
         confirm_session_revoke: 'Bạn có chắc chắn muốn thu hồi phiên này không?',
         confirm_your_email_address: 'Xác nhận địa chỉ email của bạn',
         contact_us: 'Liên hệ chúng tôi',
-        contact_us_verification_required: 'Bạn phải có địa chỉ email đã xác minh để sử dụng tính năng này.',
         continue: 'Tiếp tục',
         copy: 'Sao chép',
         copy_link: 'Sao chép liên kết',
@@ -84,7 +76,6 @@ const vi = {
         desktop: 'Màn hình chính',
         developers: 'Nhà phát triển',
         disable_2fa: 'Tắt 2FA',
-        disable_2fa_confirm: 'Bạn có chắc chắn muốn tắt 2FA không?',
         disable_2fa_instructions: 'Nhập mật khẩu của bạn để tắt 2FA.',
         documents: 'Tài liệu',
         dont_allow: 'Không cho phép',
@@ -114,8 +105,6 @@ const vi = {
         forgot_pass_c2a: 'Quên mật khẩu?',
         from: 'Từ',
         general: 'Chung',
-        get_a_copy_of_on_puter: 'Nhận một bản sao của \'%%\' trên Puter.com!',
-        get_copy_link: 'Lấy liên kết sao chép',
         home: 'Trang chủ',
         html_document: 'Tài liệu HTML',
         hue: 'Màu sắc',
@@ -130,7 +119,6 @@ const vi = {
         loading: 'Đang tải',
         log_in: 'Đăng nhập',
         log_out: 'Đăng xuất',
-        looks_good: 'Trông tốt!',
         manage_sessions: 'Quản lý phiên',
         modified: 'Đã sửa đổi',
         move: 'Di chuyển',
@@ -155,7 +143,6 @@ const vi = {
         open_with: 'Mở bằng',
         original_name: 'Tên gốc',
         original_path: 'Đường dẫn gốc',
-        oss_code_and_content: 'Phần mềm mã nguồn mở và nội dung',
         password: 'Mật khẩu',
         password_changed: 'Đã thay đổi mật khẩu.',
         password_recovery_rate_limit: 'Bạn đã đạt đến giới hạn tốc độ của chúng tôi; vui lòng đợi vài phút. Để tránh điều này trong tương lai, hãy tránh tải lại trang quá nhiều lần.',
@@ -169,18 +156,14 @@ const vi = {
         path: 'Đường dẫn',
         pictures: 'Hình ảnh',
         plural_suffix: '',
-        powered_by_puter_js: 'Được hỗ trợ bởi {{link=docs}}Puter.js{{/link}}',
         preparing: 'Đang chuẩn bị...',
-        preparing_for_upload: 'Đang chuẩn bị để tải lên...',
         print: 'In',
         privacy: 'Quyền riêng tư',
         proceed_to_login: 'Tiếp tục đăng nhập',
-        proceed_with_account_deletion: 'Tiếp tục xóa tài khoản',
         properties: 'Thuộc tính',
         public: 'Công khai',
         publish: 'Xuất bản',
         publish_as_website: 'Xuất bản như trang web',
-        puter_description: 'Puter là một đám mây cá nhân đặt quyền riêng tư lên hàng đầu để lưu trữ tất cả các tệp, ứng dụng và trò chơi của bạn trong một nơi an toàn, có thể truy cập từ mọi nơi vào bất kỳ lúc nào.',
         reading_file: 'Đang đọc %strong%',
         recover_password: 'Khôi phục mật khẩu',
         refer_friends_c2a: 'Nhận 1 GB cho mỗi người bạn tạo và xác nhận tài khoản trên Puter. Bạn của bạn cũng sẽ nhận được 1 GB!',
@@ -193,11 +176,9 @@ const vi = {
         save: 'Lưu',
         saturation: 'Độ bão hòa',
         save_account: 'Lưu tài khoản',
-        save_account_to_get_copy_link: 'Vui lòng tạo một tài khoản để tiếp tục.',
         save_account_to_publish: 'Vui lòng tạo một tài khoản để tiếp tục.',
         save_session: 'Lưu phiên',
         save_session_c2a: 'Tạo một tài khoản để lưu phiên hiện tại của bạn và tránh mất công việc của bạn.',
-        scan_qr_2fa: 'Quét mã QR bằng ứng dụng xác thực của bạn',
         search: 'Tìm kiếm',
         seconds: 'giây',
         security: 'Bảo mật',
@@ -215,13 +196,11 @@ const vi = {
         show_hidden: 'Hiển thị mục ẩn',
         sign_in_with_puter: 'Đăng nhập bằng Puter',
         sign_up: 'Đăng ký',
-        signing_in: 'Đang đăng nhập…',
         size: 'Kích thước',
         skip: 'Bỏ qua',
         something_went_wrong: 'Đã xảy ra lỗi.',
         sort_by: 'Sắp xếp theo',
         status: 'Trạng thái',
-        storage_usage: 'Sử dụng bộ nhớ',
         storage_puter_used: 'đã sử dụng bởi Puter',
         taking_longer_than_usual: 'Đang mất nhiều thời gian hơn bình thường. Vui lòng đợi...',
         terms: 'Điều khoản',
@@ -253,24 +232,19 @@ const vi = {
         zipping_file: 'Đang nén %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Mở ứng dụng xác thực của bạn',
         setup2fa_1_instructions: `
             Bạn có thể sử dụng bất kỳ ứng dụng xác thực nào hỗ trợ giao thức Mật khẩu một lần dựa trên thời gian (TOTP).
             Có nhiều lựa chọn, nhưng nếu bạn không chắc chắn
             <a target="_blank" href="https://authy.com/download">Authy</a>
             là một lựa chọn tốt cho Android và iOS.
         `,
-        setup2fa_2_step_heading: 'Quét mã QR',
         setup2fa_3_step_heading: 'Nhập mã 6 chữ số',
-        setup2fa_4_step_heading: 'Sao chép mã khôi phục của bạn',
         setup2fa_4_instructions: `
             Những mã khôi phục này là cách duy nhất để truy cập tài khoản của bạn nếu bạn mất điện thoại hoặc không thể sử dụng ứng dụng xác thực.
             Hãy đảm bảo lưu trữ chúng ở một nơi an toàn.
         `,
-        setup2fa_5_step_heading: 'Xác nhận thiết lập 2FA',
         setup2fa_5_confirmation_1: 'Tôi đã lưu mã khôi phục của mình ở một nơi an toàn',
         setup2fa_5_confirmation_2: 'Tôi đã sẵn sàng để bật 2FA',
-        setup2fa_5_button: 'Bật 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Nhập mã 2FA',
@@ -278,7 +252,6 @@ const vi = {
         login2fa_recovery_title: 'Nhập mã khôi phục',
         login2fa_recovery_instructions: 'Nhập một trong các mã khôi phục của bạn để truy cập tài khoản.',
         login2fa_use_recovery_code: 'Sử dụng mã khôi phục',
-        login2fa_recovery_back: 'Quay lại',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Thay đổi', // In English: "Change"
@@ -350,7 +323,6 @@ const vi = {
         'used_of': '{{used}} đã dùng trong tổng {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Gói cơ bản', // In English: "Basic"
-        'too_many_attempts': 'Quá nhiều lần thử. Vui lòng thử lại sau.', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'Máy chủ phản hồi quá lâu. Vui lòng thử lại.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Có lỗi xảy ra khi đăng ký. Vui lòng thử lại.', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Lỗi!', // In English: "Error!"
@@ -368,12 +340,10 @@ const vi = {
         'window_title_open': 'Mở', // In English: "Open"
         'window_title_change_password': 'Đổi mật khẩu', // In English: "Change Password"
         'window_title_select_font': 'Chọn phông chữ…', // In English: "Select font…"
-        'window_title_session_list': 'Danh sách phiên!', // In English: "Session List!"
         'window_title_set_new_password': 'Đặt mật khẩu mới', // In English: "Set New Password"
         'window_title_publish_website': 'Xuất bản Trang web', // In English: "Publish Website"
         'window_title_publish_worker': 'Xuất bản Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Đang xác thực...', // In English: "Authenticating..."
-        'item_shared_with_you': 'Một người dùng đã chia sẻ mục này với bạn.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Bạn đã chia sẻ mục này với ít nhất một người dùng khác.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Lối tắt', // In English: "Shortcut"
         'item_associated_websites': 'Trang web liên kết', // In English: "Associated website"
@@ -382,9 +352,6 @@ const vi = {
         'window_click_to_go_back': 'Nhấp để quay lại.', // In English: "Click to go back."
         'window_click_to_go_forward': 'Nhấp để đi tiếp.', // In English: "Click to go forward."
         'window_click_to_go_up': 'Nhấp để lên thư mục cha.', // In English: "Click to go one directory up."
-        'window_title_public': 'Công khai', // In English: "Public"
-        'window_title_videos': 'Video', // In English: "Videos"
-        'window_title_pictures': 'Hình ảnh', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Thư mục này trống', // In English: "This folder is empty"
     },

@@ -37,21 +37,13 @@ const ur = {
         close: 'بند کریں',
         close_all_windows_and_log_out: 'ونڈوز بند کریں اور لاگ آؤٹ کریں۔',
         change_always_open_with: 'کیا آپ ہمیشہ اس قسم کی فائل کو کھولنا چاہتے ہیں۔',
-        confirm_2fa_setup: 'میں نے کوڈ کو اپنی تصدیق کنندہ ایپ میں شامل کر دیا ہے۔',
-        confirm_2fa_recovery:
-      'میں نے اپنے ریکوری کوڈز کو محفوظ جگہ پر محفوظ کر لیا ہے۔',
         confirm_account_for_free_referral_storage_c2a:
       '1 GB مفت اسٹوریج حاصل کرنے کے لیے ایک اکاؤنٹ بنائیں اور اپنے ای میل ایڈریس کی تصدیق کریں۔ آپ کے دوست کو 1 GB مفت اسٹوریج بھی ملے گا۔',
         confirm_code_generic_incorrect: 'غلط کوڈ۔',
         confirm_code_generic_too_many_requests:
       'بہت زیادہ درخواستیں براہ کرم چند منٹ انتظار کریں۔',
-        confirm_code_generic_submit: 'کوڈ جمع کروائیں۔',
-        confirm_code_generic_try_again: 'دوبارہ کوشش کریں',
-        confirm_code_generic_title: 'تصدیقی کوڈ درج کریں',
         confirm_code_2fa_instruction:
       'اپنی تصدیق کنندہ ایپ سے 6 ہندسوں کا کوڈ درج کریں۔',
-        confirm_code_2fa_submit_btn: 'جمع کرائیں',
-        confirm_code_2fa_title: '2FA کوڈ درج کریں۔',
         confirm_delete_multiple_items:
       'کیا آپ واقعی ان آئٹمز کو مستقل طور پر حذف کرنا چاہتے ہیں؟',
         confirm_delete_single_item:
@@ -64,8 +56,6 @@ const ur = {
         confirm_delete_user_title: 'اکاؤنٹ حذف کرنا ہے؟',
         confirm_session_revoke: 'کیا آپ واقعی اس سیشن کو منسوخ کرنا چاہتے ہیں؟',
         contact_us: 'ہم سے رابطہ کریں',
-        contact_us_verification_required:
-      'اسے استعمال کرنے کے لیے آپ کے پاس تصدیق شدہ ای میل پتہ ہونا ضروری ہے۔',
         continue: 'جاری رہے',
         copy: 'کاپی کریں',
         copy_link: 'لنک کاپی کریں',
@@ -87,7 +77,6 @@ const ur = {
         desktop: 'ڈیسک ٹاپ',
         developers: 'ڈویلپرز',
         disable_2fa: '2FA کو غیر فعال کریں۔',
-        disable_2fa_confirm: 'کیا آپ واقعی 2FA کو غیر فعال کرنا چاہتے ہیں؟',
         disable_2fa_instructions:
       '2FA کو غیر فعال کرنے کے لیے اپنا پاس ورڈ درج کریں۔',
         documents: 'دستاویزات',
@@ -117,8 +106,6 @@ const ur = {
         forgot_pass_c2a: 'پاس ورڈ بھول گئے ہیں؟',
         from: 'سے',
         general: 'عام ',
-        get_a_copy_of_on_puter: "Puter.com پر '%%' کی ایک کاپی حاصل کریں!",
-        get_copy_link: 'کاپی لنک حاصل کریں',
         home: 'گھر',
         html_document: 'ایچ ٹی ایم ایل دستاویز',
         hue: 'رنگت',
@@ -134,7 +121,6 @@ const ur = {
         loading: 'لوڈ ہو رہا ہے۔',
         log_in: 'لاگ ان کریں',
         log_out: 'لاگ آؤٹ',
-        looks_good: 'اچھا لگ رہا ہے!',
         manage_sessions: 'سیشنز کا نظم کریں۔',
         move: 'منتقل کریں',
         moving_file: 'منتقل ہو رہا ہے %%',
@@ -156,7 +142,6 @@ const ur = {
         open_in_new_tab: 'نئی ٹیب میں کھولیں',
         open_in_new_window: 'نئی ونڈو میں کھولیں ',
         open_with: 'کے ساتھ کھولیں ',
-        oss_code_and_content: 'اوپن سورس سافٹ ویئر اور مواد',
         password: 'پاس ورڈ ',
         password_changed: 'پاس ورڈ تبدیل ہوگیا ',
         password_recovery_rate_limit:
@@ -172,19 +157,14 @@ const ur = {
         paste_into_folder: 'فولڈر میں چسپاں کریں',
         pictures: 'تصویریں',
         plural_suffix: 'س',
-        powered_by_puter_js:
-      'پیوٹر جے ایس کے زریعے محرک{{link=docs}}Puter.js{{/link}}',
         preparing: 'تیاری ',
-        preparing_for_upload: 'اپلوڈ کے لئے تیاری ',
         print: 'پرنٹ کریں',
         privacy: 'رازداری',
         proceed_to_login: 'لاگ ان کرنے کے لیے آگے بڑھیں۔',
-        proceed_with_account_deletion: 'اکاؤنٹ حذف کرنے کے ساتھ آگے بڑھیں۔',
         properties: 'خصوصیات ',
         public: 'عوام',
         publish: 'شائع کریں',
         publish_as_website: 'ویب سائٹ کے طور پر شائع کریں',
-        puter_description: 'Puter ایک رازداری کا پہلا ذاتی کلاؤڈ ہے جو آپ کی تمام فائلوں، ایپس اور گیمز کو ایک محفوظ جگہ پر رکھتا ہے، کسی بھی وقت کہیں سے بھی قابل رسائی ہے۔',
         reading_file: 'پڑھنا %strong%',
         recover_password: 'پاس ورڈ بازیاب کریں ',
         refer_friends_c2a:
@@ -197,12 +177,9 @@ const ur = {
         restore: 'بحال کریں',
         saturation: 'سنترپتی',
         save_account: 'اکاؤنٹ محفوظ کریں۔',
-        save_account_to_get_copy_link:
-      'کاپی لنک حاصل کرنے کے لئے اکاؤنٹ محفوظ کریں',
         save_account_to_publish: 'شائع کرنے کے لئے اکاؤنٹ محفوظ کریں',
         save_session: 'سیشن محفوظ کریں۔',
         save_session_c2a: 'سیشن کو محفوظ کریں ',
-        scan_qr_2fa: 'اپنی تصدیق کنندہ ایپ سے QR کوڈ اسکین کریں۔',
         search: 'تلاش کریں۔',
         seconds: 'سیکنڈ',
         security: 'سیکورٹی',
@@ -217,13 +194,11 @@ const ur = {
         show_hidden: 'پوشیدہ دکھائیں ',
         sign_in_with_puter: 'پیوٹر کے ساتھ سائن ان کریں',
         sign_up: 'سائن اپ کریں',
-        signing_in: 'لاگ ان کر رہے ہیں',
         size: 'سائز',
         skip: 'چھوڑ دو',
         something_went_wrong: 'کچھ غلط ہو گیا۔',
         sort_by: ' ترتیب دیں',
         status: 'حالت',
-        storage_usage: 'اسٹوریج کا استعمال',
         storage_puter_used: 'Puter کی طرف سے استعمال کیا جاتا ہے',
         taking_longer_than_usual: 'عام طور پر سے زیادہ وقت لگ رہا ہے ',
         terms: 'شرائط',
@@ -258,25 +233,20 @@ const ur = {
         // === 2FA Setup ===
         // === 2FA سیٹ اپ ===
 
-        setup2fa_1_step_heading: 'اپنا تصدیق کنندہ ایپ کھولیں۔',
         setup2fa_1_instructions: `
        آپ کوئی بھی مستند ایپ استعمال کر سکتے ہیں جو ٹائم بیسڈ ون ٹائم پاس ورڈ (TOTP) پروٹوکول کو سپورٹ کرتی ہو۔
         منتخب کرنے کے لیے بہت سے ہیں، لیکن اگر آپ کو یقین نہیں ہے۔
         <a target="_blank" href="https://authy.com/download">Authy</a>
         Android اور iOS کے لیے ایک ٹھوس انتخاب ہے۔
     `,
-        setup2fa_2_step_heading: 'QR کوڈ اسکین کریں۔',
         setup2fa_3_step_heading: '6 ہندسوں کا کوڈ درج کریں۔',
-        setup2fa_4_step_heading: 'اپنے ریکوری کوڈز کاپی کریں۔',
         setup2fa_4_instructions: `
         یہ ریکوری کوڈز آپ کے اکاؤنٹ تک رسائی حاصل کرنے کا واحد طریقہ ہیں اگر آپ اپنا فون کھو دیتے ہیں یا آپ اپنا مستند ایپ استعمال نہیں کر پاتے ہیں۔
         ان کو محفوظ جگہ پر رکھنا یقینی بنائیں۔
     `,
-        setup2fa_5_step_heading: '2FA سیٹ اپ کی تصدیق کریں۔',
         setup2fa_5_confirmation_1:
       'میں نے اپنے ریکوری کوڈز کو محفوظ جگہ پر محفوظ کر لیا ہے۔',
         setup2fa_5_confirmation_2: 'میں 2FA کو فعال کرنے کے لیے تیار ہوں۔',
-        setup2fa_5_button: '2FA کو فعال کریں۔',
 
         // === 2FA Login ===
         login2fa_otp_title: '2FA کوڈ درج کریں۔',
@@ -286,7 +256,6 @@ const ur = {
         login2fa_recovery_instructions:
       'اپنے اکاؤنٹ تک رسائی کے لیے اپنا ایک ریکوری کوڈ درج کریں۔',
         login2fa_use_recovery_code: 'ریکوری کوڈ استعمال کریں۔',
-        login2fa_recovery_back: 'پیچھے',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'allow': 'اجازت دینا', // In English: "Allow"
@@ -375,7 +344,6 @@ const ur = {
         'used_of': '{{used}} استعمال شدہ از {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'ورکر', // In English: "Worker"
         'billing.offering.basic': 'بنیادی', // In English: "Basic"
-        'too_many_attempts': 'بہت زیادہ کوششیں۔ براہ کرم بعد میں دوبارہ کوشش کریں۔', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'سرور کے جواب میں بہت زیادہ وقت لگ گیا۔ براہ کرم دوبارہ کوشش کریں۔', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'سائن اپ کے دوران ایک خرابی پیش آئی۔ براہ کرم دوبارہ کوشش کریں۔', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'خرابی!', // In English: "Error!"
@@ -393,12 +361,10 @@ const ur = {
         'window_title_open': 'کھولیں', // In English: "Open"
         'window_title_change_password': 'پاس ورڈ تبدیل کریں', // In English: "Change Password"
         'window_title_select_font': 'فونٹ منتخب کریں…', // In English: "Select font…"
-        'window_title_session_list': 'سیشن فہرست!', // In English: "Session List!"
         'window_title_set_new_password': 'نیا پاس ورڈ سیٹ کریں', // In English: "Set New Password"
         'window_title_publish_website': 'ویب سائٹ شائع کریں', // In English: "Publish Website"
         'window_title_publish_worker': 'ورکر شائع کریں', // In English: "Publish Worker"
         'window_title_authenticating': 'تصدیق جاری ہے...', // In English: "Authenticating..."
-        'item_shared_with_you': 'کسی صارف نے یہ آئٹم آپ کے ساتھ شیئر کیا ہے۔', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'آپ نے یہ آئٹم کم از کم ایک دوسرے صارف کے ساتھ شیئر کیا ہے۔', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'شارٹ کٹ', // In English: "Shortcut"
         'item_associated_websites': 'وابستہ ویب سائٹ', // In English: "Associated website"
@@ -407,9 +373,6 @@ const ur = {
         'window_click_to_go_back': 'واپس جانے کے لیے کلک کریں۔', // In English: "Click to go back."
         'window_click_to_go_forward': 'آگے جانے کے لیے کلک کریں۔', // In English: "Click to go forward."
         'window_click_to_go_up': 'ایک ڈائریکٹری اوپر جانے کے لیے کلک کریں۔', // In English: "Click to go one directory up."
-        'window_title_public': 'عوامی', // In English: "Public"
-        'window_title_videos': 'ویڈیوز', // In English: "Videos"
-        'window_title_pictures': 'تصاویر', // In English: "Pictures"
         'window_title_puter': 'پیوٹر', // In English: "Puter"
         'window_folder_empty': 'یہ فولڈر خالی ہے', // In English: "This folder is empty"
 

@@ -40,19 +40,12 @@ const ko = {
         close_all_windows_and_log_out: '창을 닫고 로그아웃',
         change_always_open_with: '이 형식의 파일을 항상 이 앱으로 여시겠습니까?',
         confirm: '확인',
-        confirm_2fa_setup: '코드를 인증 앱에 추가했습니다',
-        confirm_2fa_recovery: '복구 코드를 안전한 위치에 저장했습니다',
         confirm_account_for_free_referral_storage_c2a:
       '계정을 만들고 이메일 주소를 확인하면 1GB의 무료 저장 공간을 드립니다. 친구를 초대하면 친구도 1GB를 받을 수 있습니다.',
         confirm_code_generic_incorrect: '잘못된 코드입니다.',
         confirm_code_generic_too_many_requests:
       '요청이 너무 많습니다. 잠시만 기다려주세요.',
-        confirm_code_generic_submit: '코드 제출',
-        confirm_code_generic_try_again: '재시도',
-        confirm_code_generic_title: '인증 코드 입력',
         confirm_code_2fa_instruction: '인증 앱의 6자리 코드를 입력해주세요.',
-        confirm_code_2fa_submit_btn: '제출',
-        confirm_code_2fa_title: '2FA 코드 입력',
         confirm_delete_multiple_items:
       '선택한 항목들을 영구적으로 삭제하시겠습니까?',
         confirm_delete_single_item: '이 항목을 영구적으로 삭제하시겠습니까?',
@@ -65,7 +58,6 @@ const ko = {
         confirm_session_revoke: '정말로 이 세션을 해제하시겠습니까?',
         confirm_your_email_address: '이메일 주소 확인',
         contact_us: '문의하기',
-        contact_us_verification_required: '이메일 인증이 필요합니다.',
         continue: '계속',
         copy: '복사',
         copy_link: '링크 복사',
@@ -90,7 +82,6 @@ const ko = {
         desktop: '바탕화면',
         developers: '개발자',
         disable_2fa: '2FA 비활성화',
-        disable_2fa_confirm: '정말 2FA를 비활성화하시겠습니까?',
         disable_2fa_instructions: '2FA를 비활성화하려면 비밀번호를 입력해주세요.',
         documents: '문서',
         dont_allow: '허용하지 않음',
@@ -124,8 +115,6 @@ const ko = {
         forgot_pass_c2a: '비밀번호를 잊으셨나요?',
         from: '보낸 사람',
         general: '일반',
-        get_a_copy_of_on_puter: 'Puter.com에서 \'%%\'의 사본을 받으세요!',
-        get_copy_link: '링크 복사',
         home: '홈',
         html_document: 'HTML 문서',
         hue: '색조',
@@ -140,7 +129,6 @@ const ko = {
         loading: '로드 중',
         log_in: '로그인',
         log_out: '로그아웃',
-        looks_good: '좋아요!',
         manage_sessions: '세션 관리',
         modified: '수정일',
         move: '이동',
@@ -167,7 +155,6 @@ const ko = {
         open_with: '다른 앱으로 열기',
         original_name: '원본 이름',
         original_path: '원본 경로',
-        oss_code_and_content: '오픈 소스',
         password: '비밀번호',
         password_changed: '비밀번호가 변경되었습니다.',
         password_recovery_rate_limit:
@@ -186,19 +173,15 @@ const ko = {
         path: '경로',
         pictures: '사진',
         plural_suffix: '',
-        powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} 제공',
         preparing: '준비 중…',
-        preparing_for_upload: '업로드 준비 중…',
         print: '인쇄',
         privacy: '개인정보',
         proceed_to_login: '로그인 진행',
-        proceed_with_account_deletion: '계정 삭제 진행',
         properties: '속성',
         public: '공용',
         publish: '게시',
         publish_as_website: '웹사이트로 게시',
         publish_as_serverless_worker: '서버리스 워커로 게시',
-        puter_description: 'Puter는 모든 파일, 앱, 게임을 하나의 안전한 공간에 보관하고 언제 어디서나 접속할 수 있으며 개인 정보 보호를 우선시하는 개인 클라우드입니다. ',
         reading: '%strong% 읽는 중',
         writing: '%strong% 작성 중',
         recover_password: '비밀번호 찾기',
@@ -213,12 +196,10 @@ const ko = {
         save: '저장',
         saturation: '채도',
         save_account: '계정 저장',
-        save_account_to_get_copy_link: '계속하려면 계정을 만들어주세요.',
         save_account_to_publish: '계속하려면 계정을 만들어주세요.',
         save_session: '세션 저장',
         save_session_c2a:
       '현재 세션을 저장하고 작업을 잃지 않으려면 계정을 만들어주세요.',
-        scan_qr_2fa: '인증 앱으로 QR 코드를 스캔하세요.',
         search: '검색',
         seconds: '초',
         security: '보안',
@@ -236,13 +217,11 @@ const ko = {
         show_hidden: '숨김 항목 표시',
         sign_in_with_puter: 'Puter로 로그인',
         sign_up: '가입',
-        signing_in: '로그인 중…',
         size: '크기',
         skip: '건너뛰기',
         something_went_wrong: '문제가 발생했습니다.',
         sort_by: '정렬',
         status: '상태',
-        storage_usage: '저장 공간 사용량',
         storage_puter_used: 'Puter에서 사용 중',
         taking_longer_than_usual:
       '평소보다 조금 더 오래 걸리고 있습니다. 잠시만 기다려주세요…',
@@ -280,23 +259,18 @@ const ko = {
         zipping: '%strong% 압축 중',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: '인증 앱을 열어주세요.',
         setup2fa_1_instructions: `
         시간 기반 일회용 비밀번호(TOTP) 프로토콜을 지원하는 모든 인증 앱을 사용할 수 있습니다.
         선택할 수 있는 앱은 많지만, 잘 모르겠다면 안드로이드 및 iOS용
         <a target="_blank" href="https://authy.com/download">Authy</a>
         가 좋은 선택입니다.
     `,
-        setup2fa_2_step_heading: 'QR 코드 스캔',
         setup2fa_3_step_heading: '6자리 코드를 입력하세요.',
-        setup2fa_4_step_heading: '복구 코드를 복사하세요.',
         setup2fa_4_instructions: `
         복구 코드는 휴대전화를 분실하거나 인증 앱을 사용할 수 없을 때 계정에 접속할 수 있는 유일한 방법입니다. 반드시 안전한 장소에 보관하세요.
     `,
-        setup2fa_5_step_heading: '2FA 설정 확인',
         setup2fa_5_confirmation_1: '복구 코드를 안전한 위치에 저장했습니다',
         setup2fa_5_confirmation_2: '2FA를 활성화할 준비가 되었습니다',
-        setup2fa_5_button: '2FA 활성화',
 
         // === 2FA Login ===
         login2fa_otp_title: '2FA 코드 입력',
@@ -305,7 +279,6 @@ const ko = {
         login2fa_recovery_instructions:
       '계정에 접속하려면 복구 코드 중 하나를 입력해주세요.',
         login2fa_use_recovery_code: '복구 코드 사용',
-        login2fa_recovery_back: '뒤로',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         // Sharing
@@ -368,7 +341,6 @@ const ko = {
         'billing.expanded': '확장됨',
         'billing.accelerated': '가속됨',
         'billing.enjoy_msg': '클라우드 저장 공간 %%와(과) 다른 혜택을 즐겨보세요.',
-        'too_many_attempts': '시도 횟수가 너무 많습니다. 나중에 다시 시도해주세요.',
         'server_timeout': '서버 응답 시간이 초과되었습니다. 다시 시도해주세요.',
         'signup_error': '회원가입 중 오류가 발생했습니다. 다시 시도해주세요.',
 
@@ -396,7 +368,6 @@ const ko = {
         'window_title_open': '열기',
         'window_title_change_password': '비밀번호 변경',
         'window_title_select_font': '글꼴 선택…',
-        'window_title_session_list': '세션 목록',
         'window_title_set_new_password': '새 비밀번호 설정',
         'window_title_publish_website': '웹사이트 게시',
         'window_title_publish_worker': '워커 게시',
@@ -404,7 +375,6 @@ const ko = {
 
         // Desktop UI
         // Item UI
-        'item_shared_with_you': '다른 사용자가 이 항목을 당신과 공유했습니다.',
         'item_shared_by_you': '이 항목을 한 명 이상의 다른 사용자와 공유했습니다.',
         'item_shortcut': '바로 가기',
         'item_associated_websites': '연결된 웹사이트',
@@ -415,9 +385,6 @@ const ko = {
         'window_click_to_go_back': '뒤로 가려면 클릭하세요.',
         'window_click_to_go_forward': '앞으로 가려면 클릭하세요.',
         'window_click_to_go_up': '한 디렉토리 위로 가려면 클릭하세요.',
-        'window_title_public': '공용',
-        'window_title_videos': '동영상',
-        'window_title_pictures': '사진',
         'window_title_puter': 'Puter',
         'window_folder_empty': '이 폴더는 비어 있습니다',
 

@@ -41,17 +41,10 @@ const pt = {
         close_all_windows_and_log_out: 'Fechar Janelas e Sair',
         change_always_open_with: 'Queres que ficheiros deste tipo abram sempre com',
         confirm: 'Confirmar',
-        confirm_2fa_setup: 'Adicionei o código à minha aplicação de autenticação',
-        confirm_2fa_recovery: 'Guardei os meus códigos de recuperação em um local seguro.',
         confirm_account_for_free_referral_storage_c2a: 'Cria uma conta e confirma o endereço do email para receberes 1 GB de armazenamento gratuito. O teu amigo também receberá 1 GB de armazenamento gratuito.',
         confirm_code_generic_incorrect: 'Código Incorreto.',
         confirm_code_generic_too_many_requests: 'Demasiados pedidos. Aguarde alguns minutos.',
-        confirm_code_generic_submit: 'Submeter Código',
-        confirm_code_generic_try_again: 'Tentar Novamente',
-        confirm_code_generic_title: 'Introduza o Código de Confirmação',
         confirm_code_2fa_instruction: 'Introduza o código de 6 dígitos da sua aplicação de autenticação.',
-        confirm_code_2fa_submit_btn: 'Submeter',
-        confirm_code_2fa_title: 'Introduza o Código 2FA',
         confirm_delete_multiple_items: 'Tens a certeza que queres apagar estes itens permanentemente?',
         confirm_delete_single_item: 'Queres apagar este item permanentemente?',
         confirm_open_apps_log_out: 'Tens aplicações abertas. Queres mesmo terminar a sessão?',
@@ -61,7 +54,6 @@ const pt = {
         confirm_session_revoke: 'Tem a certeza de que deseja revogar esta sessão?',
         confirm_your_email_address: 'Confirme o Seu Endereço de Email',
         contact_us: 'Contacta-nos',
-        contact_us_verification_required: 'É necessário ter um endereço de email verificado para usar isto.',
         continue: 'Continua',
         copy: 'Copia',
         copy_link: 'Copia Link',
@@ -85,7 +77,6 @@ const pt = {
         desktop: 'Desktop',
         developers: 'Desenvolvedores',
         disable_2fa: 'Disabilitar 2FA',
-        disable_2fa_confirm: 'Tem acerteza que quer desabilitar a 2FA?',
         disable_2fa_instructions: 'Submetar a sua password para desabilitar 2FA.',
         documents: 'Dicumentos',
         dont_allow: 'Não Permitir',
@@ -115,8 +106,6 @@ const pt = {
         forgot_pass_c2a: 'Esqueceste a senha?',
         from: 'De',
         general: 'Geral',
-        get_a_copy_of_on_puter: 'Obter uma cópia de \'%%\' em Puter.com!',
-        get_copy_link: 'Copiar Link',
         home: 'Home',
         html_document: 'Documento HTML',
         hue: 'Hue',
@@ -131,7 +120,6 @@ const pt = {
         loading: 'Carregando',
         log_in: 'Entrar',
         log_out: 'Sair',
-        looks_good: 'Looks good!',
         manage_sessions: 'Gerir Sessões',
         modified: 'Modificado',
         move: 'Mover',
@@ -156,7 +144,6 @@ const pt = {
         open_with: 'Abrir Com',
         original_name: 'Original Name',
         original_path: 'Original Path',
-        oss_code_and_content: 'Software de Código Aberto',
         password: 'Password',
         password_changed: 'Password alterada.',
         password_recovery_rate_limit: 'Atingiste o nosso limite de pedidos; por favor, espera alguns minutos. Para evitar isto no futuro, evita recarregar a página demasiadas vezes',
@@ -170,18 +157,14 @@ const pt = {
         path: 'Caminho',
         pictures: 'Imagens',
         plural_suffix: 's',
-        powered_by_puter_js: 'Criado com {{link=docs}}Puter.js{{/link}}',
         preparing: 'A preparar...',
-        preparing_for_upload: 'A preparar o upload...',
         print: 'Imprimir',
         privacy: 'Privacidade',
         proceed_to_login: 'Prosseguir para o login',
-        proceed_with_account_deletion: 'Prosseguir com Remoção da Conta',
         properties: 'Propriedades',
         public: 'Público',
         publish: 'Publicar',
         publish_as_website: 'Publicar como Site',
-        puter_description: 'Puter é uma nuvem pessoal que prioriza a privacidade e que mantém todos os teus ficheiros, aplicativos e jogos num local seguro, acessível de qualquer lugar e a qualquer hora.',
         reading: 'A ler %strong%',
         writing: 'A escrever %strong%',
         reading_file: 'A ler %strong%',
@@ -196,11 +179,9 @@ const pt = {
         save: 'Gravar',
         saturation: 'Saturação',
         save_account: 'Gravar conta',
-        save_account_to_get_copy_link: 'Para continuar, por favor crie uma conta.',
         save_account_to_publish: 'Para continuar, por favor crie uma conta.',
         save_session: 'Gravar sessão',
         save_session_c2a: 'Crie uma conta para gravar a sessão atual e evitar perder o seu trabalho.',
-        scan_qr_2fa: 'Digitalize o código QR com a tua aplicação de autenticação',
         search: 'Pesquisar',
         seconds: 'segundos',
         security: 'Segurança',
@@ -218,13 +199,11 @@ const pt = {
         show_hidden: 'Exibir janelas ocultas',
         sign_in_with_puter: 'Entrar em Puter',
         sign_up: 'Registar',
-        signing_in: 'Entrar…',
         size: 'Tamanho',
         skip: 'Passar à frente',
         something_went_wrong: 'Algo correu mal.',
         sort_by: 'Ordenar por',
         status: 'Status',
-        storage_usage: 'Uso do Armazenamento',
         storage_puter_used: 'Usado por Puter',
         taking_longer_than_usual: 'Está a levar mais tempo que o usual. Por favor aguarda...',
         terms: 'Termos',
@@ -258,24 +237,19 @@ const pt = {
         zipping: 'A compactar %strong%', // In English: "Zipping %strong%"
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Abra uma aplicação de autenticação',
         setup2fa_1_instructions: `
             Podes usar qualquer aplicação de autenticação que suporte o protocolo Time-based One-Time Password (TOTP). 
             Existem muitas opções, mas se não tiveres a certeza, 
             <a target="_blank" href="https://authy.com/download">Authy</a> 
             é uma escolha sólida para Android e iOS.
         `,
-        setup2fa_2_step_heading: 'Digitalize o código QR',
         setup2fa_3_step_heading: 'Introduza o código de 6 dígitos',
-        setup2fa_4_step_heading: 'Guarde os códigos de recuperação',
         setup2fa_4_instructions: `
            Estes códigos de recuperação são a única maneira de aceder à tua conta se perderes o teu telefone ou não puderes usar a tua aplicação de autenticação.
            Certifica-te de os guardar num local seguro.
         `,
-        setup2fa_5_step_heading: 'Confirmação',
         setup2fa_5_confirmation_1: 'Guardei os meus códigos de recuperação num local seguro.',
         setup2fa_5_confirmation_2: 'Estou pronto para ativar a 2FA.',
-        setup2fa_5_button: 'Ativar 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Introduza o código 2FA',
@@ -283,7 +257,6 @@ const pt = {
         login2fa_recovery_title: 'Intruduza o codigo de Recuperação de 2FA',
         login2fa_recovery_instructions: 'Introduza um dos seus códigos de recuperação de 2FA para ter acesso a sua conta.',
         login2fa_use_recovery_code: 'Usar código de recuperação',
-        login2fa_recovery_back: 'Voltar',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'Editor': 'Editor', // In English: "Editor"
@@ -352,7 +325,6 @@ const pt = {
         'used_of': '{{used}} usado de {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Básico', // In English: "Basic"
-        'too_many_attempts': 'Muitas tentativas. Por favor, tente novamente mais tarde.', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'O servidor demorou muito para responder. Por favor, tente novamente.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Ocorreu um erro durante o cadastro. Por favor, tente novamente.', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Erro!', // In English: "Error!"
@@ -370,12 +342,10 @@ const pt = {
         'window_title_open': 'Abrir', // In English: "Open"
         'window_title_change_password': 'Alterar Senha', // In English: "Change Password"
         'window_title_select_font': 'Selecionar fonte…', // In English: "Select font…"
-        'window_title_session_list': 'Lista de Sessões!', // In English: "Session List!"
         'window_title_set_new_password': 'Definir Nova Senha', // In English: "Set New Password"
         'window_title_publish_website': 'Publicar Site', // In English: "Publish Website"
         'window_title_publish_worker': 'Publicar Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticando...', // In English: "Authenticating..."
-        'item_shared_with_you': 'Um usuário compartilhou este item com você.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Você compartilhou este item com pelo menos um outro usuário.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Atalho', // In English: "Shortcut"
         'item_associated_websites': 'Site associado', // In English: "Associated website"
@@ -384,9 +354,6 @@ const pt = {
         'window_click_to_go_back': 'Clique para voltar.', // In English: "Click to go back."
         'window_click_to_go_forward': 'Clique para avançar.', // In English: "Click to go forward."
         'window_click_to_go_up': 'Clique para subir um diretório.', // In English: "Click to go one directory up."
-        'window_title_public': 'Público', // In English: "Public"
-        'window_title_videos': 'Vídeos', // In English: "Videos"
-        'window_title_pictures': 'Imagens', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Esta pasta está vazia', // In English: "This folder is empty"
     },

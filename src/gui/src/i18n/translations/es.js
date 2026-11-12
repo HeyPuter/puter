@@ -47,21 +47,13 @@ const es = {
         close_all_windows_and_log_out: 'Cerrar ventanas y cerrar sesión',
         change_always_open_with: '¿Quieres abrir siempre este tipo de archivos con',
         confirm: 'Confirmar',
-        confirm_2fa_setup: 'He añadido el código a mi aplicación de autenticación',
-        confirm_2fa_recovery:
-      'He guardado mis códigos de recuperación en un lugar seguro',
         confirm_account_for_free_referral_storage_c2a:
       'Crea una cuenta y confirma tu correo electrónico para recibir 1 GB de almacenamiento gratuito. Tu amigo recibirá 1 GB de almacenamiento gratuito también.',
         confirm_code_generic_incorrect: 'Código incorrecto.',
         confirm_code_generic_too_many_requests:
       'Too many requests. Please wait a few minutes.',
-        confirm_code_generic_submit: 'Enviar código',
-        confirm_code_generic_try_again: 'Intenta nuevamente',
-        confirm_code_generic_title: 'Enter Confirmation Code',
         confirm_code_2fa_instruction:
       'Ingresa los 6 dígitos de tu aplicación de autenticación.',
-        confirm_code_2fa_submit_btn: 'Enviar',
-        confirm_code_2fa_title: 'Ingrese el código de 2FA',
         confirm_delete_multiple_items:
       '¿Estás seguro de que quieres eliminar permanentemente estos elementos?',
         confirm_delete_single_item:
@@ -75,8 +67,6 @@ const es = {
         confirm_session_revoke: '¿Estás seguro de que quieres revocar esta sesión?',
         confirm_your_email_address: 'Confirma tu dirección de correo electrónico',
         contact_us: 'Contáctanos',
-        contact_us_verification_required:
-      'Debes tener un correo electrónico verificado para usar esto.',
         continue: 'Continuar',
         copy: 'Copiar',
         copy_link: 'Copiar Enlace',
@@ -100,7 +90,6 @@ const es = {
         desktop: 'Escritorio',
         developers: 'Desarrolladores',
         disable_2fa: 'Deshabilitar 2FA',
-        disable_2fa_confirm: '¿Estás seguro que quieres deshabilitar 2FA?',
         disable_2fa_instructions: 'Ingresa tu contraseña para deshabilitar 2FA.',
         documents: 'Documentos',
         dont_allow: 'No permitir',
@@ -134,8 +123,6 @@ const es = {
         forgot_pass_c2a: '¿Olvidaste tu contraseña?',
         from: 'De',
         general: 'General',
-        get_a_copy_of_on_puter: '¡Consigue una copia de \'%%\' en Puter.com!',
-        get_copy_link: 'Copiar el enlace',
         home: 'Inicio',
         html_document: 'Documento HTML',
         hue: 'Hue',
@@ -150,7 +137,6 @@ const es = {
         loading: 'Cargando',
         log_in: 'Iniciar sesión',
         log_out: 'Cerrar sesión',
-        looks_good: 'Se ve bien!',
         manage_sessions: 'Administrar sesión',
         modified: 'Modified',
         move: 'Mover',
@@ -176,7 +162,6 @@ const es = {
         open_with: 'Abrir con',
         original_name: 'Nombre original',
         original_path: 'Ruta original',
-        oss_code_and_content: 'Software y contenido de código abierto',
         password: 'Contraseña',
         password_changed: 'Contraseña cambiada.',
         password_recovery_rate_limit:
@@ -195,18 +180,14 @@ const es = {
         path: 'Ruta',
         pictures: 'Imagenes',
         plural_suffix: 's',
-        powered_by_puter_js: 'Creado por {{link=docs}}Puter.js{{/link}}',
         preparing: 'Preparando...',
-        preparing_for_upload: 'Preparando para la subida...',
         print: 'Imprimir',
         privacy: 'Privacidad',
         proceed_to_login: 'Procede a iniciar sesión',
-        proceed_with_account_deletion: 'Procede con la eliminación de la cuenta',
         properties: 'Propiedades',
         public: 'Publico',
         publish: 'Publicar',
         publish_as_website: 'Publicar como página web',
-        puter_description: 'Puter es un servicio de nube personal enfocado en privacidad que mantiene tus archivos, aplicaciónes, y juegos en un solo lugar, accesible desde cualquier lugar en cualquier momento.',
         reading_file: 'Leyendo %strong%',
         recover_password: 'Recuperar Contraseña',
         refer_friends_c2a:
@@ -220,12 +201,10 @@ const es = {
         save: 'Guardar',
         saturation: 'Saturación',
         save_account: 'Guardar cuenta',
-        save_account_to_get_copy_link: 'Por favor, crea una cuenta para continuar.',
         save_account_to_publish: 'Por favor, crea una cuenta para continuar.',
         save_session: 'Guardar sesión',
         save_session_c2a:
       'Crea una cuenta para guardar tu sesión actual y evitar así perder tu trabajo.',
-        scan_qr_2fa: 'Escanee el codigo QR con su aplicación de autenticación',
         search: 'Buscar',
         seconds: 'segundos',
         security: 'Seguridad',
@@ -244,13 +223,11 @@ const es = {
         show_hidden: 'Mostrar ocultos',
         sign_in_with_puter: 'Inicia sesión con Puter',
         sign_up: 'Registrarse',
-        signing_in: 'Registrándose…',
         size: 'Tamaño',
         skip: 'Saltar',
         something_went_wrong: 'Algo salió mal.',
         sort_by: 'Ordenar Por',
         status: 'Estado',
-        storage_usage: 'Uso del almacenamiento',
         storage_puter_used: 'Usado por Puter',
         taking_longer_than_usual:
       'Tardando un poco más de lo habitual. Por favor, espere...',
@@ -284,25 +261,20 @@ const es = {
         zipping_file: 'Compriminendo %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Abre tu aplicación de autenticación',
         setup2fa_1_instructions: `
             Puedes usar cualquier aplicación de autenticación que soporte el protocolo de Time-based One-time (TOTP).
             Hay muchos para elegir, pero si no estas seguro
             <a target="_blank" href="https://authy.com/download">Authy</a>
             es una opción segura para Android y iOS.
         `,
-        setup2fa_2_step_heading: 'Escanea el código QR',
         setup2fa_3_step_heading: 'Ingresa el código de 6 dígitos',
-        setup2fa_4_step_heading: 'Copiar tus códigos de recuperación',
         setup2fa_4_instructions: `
             Estos códigos de recuperación son la única forma de acceder a tu cuenta, si pierdes tu teléfono o no puedes usar la aplicación de autenticación.
             Asegurate de guardarlos en un lugar seguro.
         `,
-        setup2fa_5_step_heading: 'Confirmar la configuración de 2FA',
         setup2fa_5_confirmation_1:
       'He guardado mis códigos de recuperación en un lugar seguro',
         setup2fa_5_confirmation_2: 'Estoy listo para habilitar 2FA',
-        setup2fa_5_button: 'Habilitar 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Ingresar el código 2FA',
@@ -312,7 +284,6 @@ const es = {
         login2fa_recovery_instructions:
       'Ingresa uno de tus códigos de recuperación para acceder a tu cuenta.',
         login2fa_use_recovery_code: 'Usar un código de recuperación',
-        login2fa_recovery_back: 'Atras',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'cambiar', // In English: "Change"
@@ -396,7 +367,6 @@ const es = {
         'used_of': '{{used}} en uso. {{available}} disponible', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Básico', // In English: "Basic"
-        'too_many_attempts': 'Demasiados intentos. Por favor, intenta más tarde', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'El servidor ha tardado mucho en responder. Intenta nuevamente', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Ocurrió un error durante el registro. Intente nuevamente', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': '¡Error!', // In English: "Error!"
@@ -414,12 +384,10 @@ const es = {
         'window_title_open': 'Abrir', // In English: "Open"
         'window_title_change_password': 'Cambiar contraseña', // In English: "Change Password"
         'window_title_select_font': 'Seleccionar fuente…', // In English: "Select font…"
-        'window_title_session_list': '¡Lista de sesiones!', // In English: "Session List!"
         'window_title_set_new_password': 'Establecer nueva contraseña', // In English: "Set New Password"
         'window_title_publish_website': 'Publicar sitio web', // In English: "Publish Website"
         'window_title_publish_worker': 'Publicar Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticando...', // In English: "Authenticating..."
-        'item_shared_with_you': 'Un usuario compartió este elemento contigo.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Has compartido este elemento con otro usuario', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Atajo', // In English: "Shortcut"
         'item_associated_websites': 'Sitio web Asociado', // In English: "Associated website"
@@ -428,9 +396,6 @@ const es = {
         'window_click_to_go_back': 'Click para regresar', // In English: "Click to go back."
         'window_click_to_go_forward': 'Click para avanzar', // In English: "Click to go forward."
         'window_click_to_go_up': 'Click para ir al directorio superior', // In English: "Click to go one directory up."
-        'window_title_public': 'Público', // In English: "Public"
-        'window_title_videos': 'Videos', // In English: "Videos"
-        'window_title_pictures': 'Imágenes', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Esta carpeta está vacía', // In English: "This folder is empty"
     },

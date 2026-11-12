@@ -40,20 +40,13 @@ const id = {
         close_all_windows_and_log_out: 'Tutup Jendela dan Keluar',
         change_always_open_with: 'Apakah Anda ingin selalu membuka jenis file ini dengan',
         confirm: 'Konfirmasi',
-        confirm_2fa_setup: 'Saya telah menambahkan kode ke aplikasi autentikator saya',
-        confirm_2fa_recovery: 'Saya telah menyimpan kode pemulihan saya di tempat yang aman',
         confirm_account_for_free_referral_storage_c2a:
       'Buat akun dan konfirmasi alamat email Anda untuk menerima 1 GB kapasitas penyimpanan gratis. Teman Anda juga akan mendapatkan 1 GB kapasitas penyimpanan gratis.',
         confirm_code_generic_incorrect: 'Kode Salah.',
         confirm_code_generic_too_many_requests:
       'Terlalu banyak permintaan. Silakan tunggu beberapa menit.',
-        confirm_code_generic_submit: 'Kirim Kode',
-        confirm_code_generic_try_again: 'Coba Lagi',
-        confirm_code_generic_title: 'Masukkan Kode Konfirmasi',
         confirm_code_2fa_instruction:
       'Masukkan kode 6-digit dari aplikasi autentikator Anda.',
-        confirm_code_2fa_submit_btn: 'Kirim',
-        confirm_code_2fa_title: 'Masukkan Kode 2FA',
         confirm_delete_multiple_items:
       'Apakah Anda yakin ingin menghapus barang-barang ini secara permanen?',
         confirm_delete_single_item: 'Apakah Anda ingin menghapus barang ini secara permanen?',
@@ -66,8 +59,6 @@ const id = {
         confirm_session_revoke: 'Apakah Anda yakin ingin mencabut sesi ini?',
         confirm_your_email_address: 'Konfirmasi Alamat Email Anda',
         contact_us: 'Hubungi Kami',
-        contact_us_verification_required:
-      'Anda harus memiliki alamat email yang terverifikasi untuk menggunakan ini.',
         continue: 'Lanjutkan',
         copy: 'Salin',
         copy_link: 'Salin Tautan',
@@ -91,7 +82,6 @@ const id = {
         desktop: 'Desktop',
         developers: 'Pengembang',
         disable_2fa: 'Nonaktifkan 2FA',
-        disable_2fa_confirm: 'Apakah Anda yakin ingin menonaktifkan 2FA?',
         disable_2fa_instructions: 'Masukkan kata sandi Anda untuk menonaktifkan 2FA.',
         documents: 'Dokumen',
         dont_allow: 'Jangan Izinkan',
@@ -125,8 +115,6 @@ const id = {
         forgot_pass_c2a: 'Lupa kata sandi?',
         from: 'Dari',
         general: 'Umum',
-        get_a_copy_of_on_puter: 'Dapatkan salinan \'%%\' di Puter.com!',
-        get_copy_link: 'Dapatkan Salinan Tautan',
         home: 'Beranda',
         html_document: 'Dokumen HTML',
         hue: 'Hue',
@@ -141,7 +129,6 @@ const id = {
         loading: 'Memuat',
         log_in: 'Masuk',
         log_out: 'Keluar',
-        looks_good: 'Tampak bagus!',
         manage_sessions: 'Kelola Sesi',
         modified: 'Dimodifikasi',
         move: 'Pindahkan',
@@ -166,7 +153,6 @@ const id = {
         open_with: 'Buka Dengan',
         original_name: 'Nama Asli',
         original_path: 'Lokasi Asli',
-        oss_code_and_content: 'Perangkat Lunak dan Konten Open Source',
         password: 'Kata Sandi',
         password_changed: 'Kata sandi telah diubah.',
         password_recovery_rate_limit:
@@ -184,18 +170,14 @@ const id = {
         path: 'Lokasi',
         pictures: 'Gambar',
         plural_suffix: 's',
-        powered_by_puter_js: 'Ditenagai oleh {{link=docs}}Puter.js{{/link}}',
         preparing: 'Mempersiapkan...',
-        preparing_for_upload: 'Mempersiapkan untuk menggunggah...',
         print: 'Cetak',
         privacy: 'Privasi',
         proceed_to_login: 'Lanjutkan masuk',
-        proceed_with_account_deletion: 'Lanjutkan Penghapusan Akun',
         properties: 'Properti',
         public: 'Publik',
         publish: 'Publikasi',
         publish_as_website: 'Publikasikan sebagai situs web',
-        puter_description: 'Puter adalah cloud pribadi yang mengutamakan privasi untuk menyimpan semua file, aplikasi, dan permainan Anda di satu tempat yang aman, dapat diakses dari mana pun dan kapan pun.',
         reading_file: 'Membaca %strong%',
         recover_password: 'Pulihkan Kata Sandi',
         refer_friends_c2a:
@@ -209,12 +191,10 @@ const id = {
         save: 'Simpan',
         saturation: 'Saturasi',
         save_account: 'Simpan akun',
-        save_account_to_get_copy_link: 'Silakan buat akun untuk mendapatkan salinan tautan.',
         save_account_to_publish: 'Silakan buat akun untuk melanjutkan.',
         save_session: 'Simpan sesi',
         save_session_c2a:
       'Buat akun untuk menyimpan sesi Anda saat ini agar yang Anda kerjakan tidak hilang.',
-        scan_qr_2fa: 'Pindai kode QR dengan aplikasi autentikator Anda',
         search: 'Pencarian',
         seconds: 'detik',
         security: 'Keamanan',
@@ -232,13 +212,11 @@ const id = {
         show_hidden: 'Tampilkan yang tersembunyi',
         sign_in_with_puter: 'Masuk dengan Puter',
         sign_up: 'Daftar',
-        signing_in: 'Masuk…',
         size: 'Ukuran',
         skip: 'Lewatkan',
         something_went_wrong: 'Terjadi kesalahan.',
         sort_by: 'Urutkan berdasarkan',
         status: 'Status',
-        storage_usage: 'Penggunaan Penyimpanan',
         storage_puter_used: 'digunakan oleh Puter',
         taking_longer_than_usual:
       'Memakan waktu sedikit lebih lama dari biasanya. Silakan tunggu...',
@@ -271,25 +249,20 @@ const id = {
         zipping_file: 'Mengekstrak %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Buka aplikasi autentikator Anda',
         setup2fa_1_instructions: `
         Anda dapat menggunakan aplikasi autentikator apa pun yang mendukung protokol Time-based One-Time Password (TOTP).
         Ada banyak pilihan, tetapi jika Anda tidak yakin
         <a target="_blank" href="https://authy.com/download">Authy</a>
         adalah pilihan yang solid untuk Android dan iOS.
     `,
-        setup2fa_2_step_heading: 'Pindai kode QR',
         setup2fa_3_step_heading: 'Masukkan kode 6 digit',
-        setup2fa_4_step_heading: 'Salin kode pemulihan Anda',
         setup2fa_4_instructions: `
         Kode pemulihan ini adalah satu-satunya cara untuk mengakses akun Anda jika Anda kehilangan ponsel atau tidak dapat menggunakan aplikasi autentikator Anda.
         Pastikan untuk menyimpannya di tempat yang aman.
     `,
-        setup2fa_5_step_heading: 'Konfirmasi pengaturan 2FA',
         setup2fa_5_confirmation_1:
       'Saya telah menyimpan kode pemulihan saya di tempat yang aman',
         setup2fa_5_confirmation_2: 'Saya siap untuk mengaktifkan 2FA',
-        setup2fa_5_button: 'Aktifkan 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Masukkan Kode 2FA',
@@ -298,7 +271,6 @@ const id = {
         login2fa_recovery_instructions:
       'Masukkan salah satu kode pemulihan Anda untuk mengakses akun Anda.',
         login2fa_use_recovery_code: 'Gunakan kode pemulihan',
-        login2fa_recovery_back: 'Kembali',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Ubah', // In English: "Change"
@@ -374,7 +346,6 @@ const id = {
         'used_of': 'terpakai {{used}} dari {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker".
         'billing.offering.basic': 'Basic', // In English: "Basic"
-        'too_many_attempts': 'Terlalu banyak percobaan. Silakan coba kembali nanti', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'Server terlalu lama merespons. Silakan coba kembali nanti', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Terjadi kegagalan saat proses daftar. Silakan coba kembali nanti', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Galat!', // In English: "Error!"
@@ -392,12 +363,10 @@ const id = {
         'window_title_open': 'buka', // In English: "Open"
         'window_title_change_password': 'Ubah Kata Sandi', // In English: "Change Password"
         'window_title_select_font': 'Pilih font...', // In English: "Select font…"
-        'window_title_session_list': 'Daftar Sesi', // In English: "Session List!"
         'window_title_set_new_password': 'Tentukan Kata Sandi Baru', // In English: "Set New Password"
         'window_title_publish_website': 'Publikasikan Situs Web', // In English: "Publish Website"
         'window_title_publish_worker': 'Publikasikan Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Proses Autentikasi...', // In English: "Authenticating..."
-        'item_shared_with_you': 'Pengguna lain berbagi barang ini dengan Anda', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Anda telah membagikan barang ini dengan setidaknya satu pengguna lain', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Pintasan', // In English: "Shortcut"
         'item_associated_websites': 'Situs Web Terkait', // In English: "Associated website"
@@ -406,9 +375,6 @@ const id = {
         'window_click_to_go_back': 'Klik untuk kembali.', // In English: "Click to go back."
         'window_click_to_go_forward': 'Klik untuk melanjutkan.', // In English: "Click to go forward."
         'window_click_to_go_up': 'Klik untuk naik satu direktori', // In English: "Click to go one directory up."
-        'window_title_public': 'Publik', // In English: "Public"
-        'window_title_videos': 'Video', // In English: "Videos"
-        'window_title_pictures': 'Gambar', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Folder ini kosong', // In English: "This folder is empty"
 
