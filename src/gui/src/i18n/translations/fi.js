@@ -112,7 +112,6 @@ const fi = {
         desktop: 'Työpöytä',
         desktop_background_fit: 'Sovita',
         developers: 'Kehittäjät',
-        dir_published_as_website: '%strong% on julkaistu osoitteessa:',
         disable_2fa: 'Ota kaksivaiheinen tunnistautuminen pois käytöstä',
         disable_2fa_confirm:
       'Haluatko varmasti poistaa kaksivaiheisen tunnistautumisen käytöstä?',
@@ -235,7 +234,6 @@ const fi = {
         paste_into_folder: 'Liitä kansioon',
         path: 'Polku',
         personalization: 'Personointi',
-        pick_name_for_website: 'Valitse nimi verkkosivustollesi:',
         pictures: 'Kuvat',
         plural_suffix: 't',
         powered_by_puter_js: 'Palvelun tarjoaa {{link=docs}}Puter.js{{/link}}',

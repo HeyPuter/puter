@@ -25,7 +25,6 @@ import path from '../lib/path.js';
 import truncate_filename from '../helpers/truncateFilename.js';
 import launch_app from '../helpers/launchApp.js';
 import open_item from '../helpers/openItem.js';
-import publish_as_website from '../helpers/publishAsWebsite.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/pathOwner.js';
 import { can_rename, can_restructure, invalidate_shared_roots } from '../helpers/sharedAccess.js';
@@ -1240,23 +1239,6 @@ async function UIItem (options) {
                 {
                     menu_items.push('-');
                 }
-            }
-            // -------------------------------------------
-            // Publish As Website
-            // -------------------------------------------
-            if ( !is_trashed && !is_trash && options.is_dir ) {
-                menu_items.push({
-                    html: i18n('publish_as_website'),
-                    disabled: !options.is_dir,
-                    onClick: async function () {
-                        await publish_as_website({
-                            uid: options.uid,
-                            name: $(el_item).attr('data-name'),
-                            path: $(el_item).attr('data-path'),
-                        });
-                    },
-                });
-
             }
             // -------------------------------------------
             // Deploy As App

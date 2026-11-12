@@ -93,7 +93,6 @@ const it = {
         desktop: 'Scrivania',
         desktop_background_fit: 'Adatta',
         developers: 'Sviluppatori',
-        dir_published_as_website: '%strong% è stato pubblicato su:',
         disable_2fa: 'Disabilita 2FA',
         disable_2fa_confirm: 'Sei sicuro di voler disabilitare la 2FA?',
         disable_2fa_instructions:
@@ -191,7 +190,6 @@ const it = {
         paste_into_folder: 'Incolla nella cartella',
         path: 'Percorso',
         personalization: 'Personalizzazione',
-        pick_name_for_website: 'Scegli un nome per il tuo sito web:',
         pictures: 'Immagini',
         plural_suffix: 'i',
         powered_by_puter_js: 'Realizzato con {{link=docs}}Puter.js{{/link}}',

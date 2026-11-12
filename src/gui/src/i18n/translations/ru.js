@@ -94,7 +94,6 @@ const ru = {
         desktop: 'Рабочий стол',
         desktop_background_fit: 'Вместить',
         developers: 'Разработчики',
-        dir_published_as_website: '%strong% опубликован в:',
         disable_2fa: 'Отключить двойную аутентификацию',
         disable_2fa_confirm:
       'Вы уверены, что хотите отключить двойную аутентификацию?',
@@ -194,7 +193,6 @@ const ru = {
         paste_into_folder: 'Вставить в папку',
         path: 'Путь',
         personalization: 'Персонализация',
-        pick_name_for_website: 'Выберите имя для вашего сайта:',
         pictures: 'Изображения',
         plural_suffix: 's', //does not exist in Russian language
         powered_by_puter_js: 'Создано на {{link=docs}}Puter.js{{/link}}',

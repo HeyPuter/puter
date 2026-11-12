@@ -92,7 +92,6 @@ const hy = {
         desktop: 'Աշխատասեղան',
         desktop_background_fit: 'Հարմարեցնել',
         developers: 'Ծրագրավորողներ',
-        dir_published_as_website: '%strong% հրապարակվել է',
         disable_2fa: 'Անջատել 2FA',
         disable_2fa_confirm: 'Վստա՞հ եք, որ ցանկանում եք անջատել 2FA-ն:',
         disable_2fa_instructions:
@@ -192,7 +191,6 @@ const hy = {
         paste_into_folder: 'Տեղադրել պանակում',
         path: 'Ուղի',
         personalization: 'Անհատականացում',
-        pick_name_for_website: 'Ընտրեք անուն ձեր կայքի համար',
         pictures: 'Նկարներ',
         plural_suffix: 'ներ',
         powered_by_puter_js: 'Աջակցվում է {{link=docs}}Puter.js{{/link}}-ի կողմից',

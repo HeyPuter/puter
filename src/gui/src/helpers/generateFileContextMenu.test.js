@@ -23,7 +23,6 @@ import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 vi.mock('../UI/UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../UI/UIWindowItemProperties.js', () => ({ default: vi.fn() }));
-vi.mock('./publishAsWebsite.js', () => ({ default: vi.fn() }));
 vi.mock('./openItem.js', () => ({ default: vi.fn() }));
 vi.mock('./openWithAI.js', () => ({ default: vi.fn() }));
 vi.mock('./launchApp.js', () => ({ default: vi.fn() }));
@@ -111,6 +110,37 @@ describe('Share', () => {
 
     it('is left out without onShare', async () => {
         expect(await shareItem({})).toBeUndefined();
+    });
+});
+
+describe('Publish as Website', () => {
+    const publishItem = async (options) => {
+        is_owned_by_me.mockReturnValueOnce(true);
+        can_share.mockResolvedValueOnce(true);
+        const row = document.createElement('div');
+        row.setAttribute('data-path', '/me/Site');
+        row.setAttribute('data-name', 'Site');
+        const items = await generate_file_context_menu({
+            element: row,
+            fsentry: { uid: 'dir-1', name: 'Site', path: '/me/Site', is_dir: true },
+            associated_app_name: 'editor',
+            ...options,
+        });
+        return items.find((item) => item !== '-' && item.html === 'publish_as_website');
+    };
+
+    it('hands the folder to onPublishWebsite', async () => {
+        const onPublishWebsite = vi.fn();
+        await (await publishItem({ onPublishWebsite })).onClick();
+        expect(onPublishWebsite).toHaveBeenCalledWith({
+            uid: 'dir-1',
+            name: 'Site',
+            path: '/me/Site',
+        });
+    });
+
+    it('is left out without onPublishWebsite', async () => {
+        expect(await publishItem({})).toBeUndefined();
     });
 });
 

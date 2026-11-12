@@ -2819,10 +2819,6 @@ window.extractSubdomain = function (url) {
     return subdomain;
 };
 
-window.extractProtocol = function (url) {
-    var protocol = url.split('://')[0];
-    return protocol;
-};
 window.sleep = function (ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 };

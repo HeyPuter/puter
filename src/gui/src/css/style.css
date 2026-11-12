@@ -2036,7 +2036,7 @@ label {
     font-size: 14px;
 }
 
-.login-error-msg, .signup-error-msg, .publish-website-error-msg, .form-error-msg {
+.login-error-msg, .signup-error-msg, .form-error-msg {
     display: none;
     color: red;
     border: 1px solid red;
@@ -2128,34 +2128,6 @@ label {
     margin-bottom: 15px;
     text-align: center;
     font-size: 13px;
-}
-
-.publish-btn {
-    margin-top: 20px;
-}
-
-.window-publishWebsite-success, .window-give-item-access-success {
-    display: none;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    height: auto;
-}
-
-.publishWebsite-published-link {
-    text-decoration: none;
-    color: #007cff;
-}
-
-.publishWebsite-published-link:hover {
-    text-decoration: underline;
-}
-
-.publishWebsite-published-link-icon {
-    display: inline-block;
-    width: 12px;
-    margin-left: 5px;
-    margin-bottom: -1px;
-    user-select: none !important;
 }
 
 .login-form-title, .signup-form-title {

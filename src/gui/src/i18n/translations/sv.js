@@ -85,7 +85,6 @@ const sv = {
         desktop: 'Skrivbord',
         desktop_background_fit: 'Anpassa',
         developers: 'Utvecklare',
-        dir_published_as_website: '%strong% är publicerat på:',
         disable_2fa: 'Stäng av 2FA',
         disable_2fa_confirm: 'Är det säkert att du vill stänga av 2FA?',
         disable_2fa_instructions: 'Fyll i ditt lösenord för att stänga av 2FA.',
@@ -173,7 +172,6 @@ const sv = {
         paste_into_folder: 'Klistra in i mapp',
         path: 'Filväg',
         personalization: 'Personalisering',
-        pick_name_for_website: 'Välj ett namn för din webbplats:',
         pictures: 'Bilder',
         plural_suffix: '', // neutrum has "", utrum has "or", "ar", "er"
         powered_by_puter_js: 'Drivs av {{link=docs}}Puter.js{{/link}}',

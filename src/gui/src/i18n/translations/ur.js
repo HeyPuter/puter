@@ -88,7 +88,6 @@ const ur = {
         desktop: 'ڈیسک ٹاپ',
         desktop_background_fit: 'ڈیسک ٹاپ کا پس منظر مناسب ہو',
         developers: 'ڈویلپرز',
-        dir_published_as_website: 'ڈائریکٹری کو ویب سائٹ کے طور پر شائع کیا گیا',
         disable_2fa: '2FA کو غیر فعال کریں۔',
         disable_2fa_confirm: 'کیا آپ واقعی 2FA کو غیر فعال کرنا چاہتے ہیں؟',
         disable_2fa_instructions:
@@ -176,7 +175,6 @@ const ur = {
         paste: 'چسپاں کریں',
         paste_into_folder: 'فولڈر میں چسپاں کریں',
         personalization: 'متشکل',
-        pick_name_for_website: 'ویب سائٹ کے لئے نام منتخب کریں ',
         pictures: 'تصویریں',
         plural_suffix: 'س',
         powered_by_puter_js:

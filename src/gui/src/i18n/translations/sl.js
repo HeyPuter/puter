@@ -89,7 +89,6 @@ const sl = {
         desktop: 'Namizje',
         desktop_background_fit: 'Prilagodi',
         developers: 'Razvijalci',
-        dir_published_as_website: '%strong% je bilo objavljeno na:',
         disable_2fa: 'Onemogoči 2FA',
         disable_2fa_confirm: 'Ali ste prepričani, da želite onemogočiti 2FA?',
         disable_2fa_instructions: 'Za onemogočanje 2FA vnesite svoje geslo.',
@@ -179,7 +178,6 @@ const sl = {
         paste_into_folder: 'Prilepi v mapo',
         path: 'Pot',
         personalization: 'Prilagajanje',
-        pick_name_for_website: 'Izberite ime za svoje spletno mesto:',
         pictures: 'Slike',
         plural_suffix: '', // "i", "je" - masculine; "e", "i" - feminine; "a", "i" - neuter
         powered_by_puter_js: 'Poganja {{link=docs}}Puter.js{{/link}}',

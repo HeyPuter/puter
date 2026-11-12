@@ -94,7 +94,6 @@ const fa = {
         desktop: 'دسکتاپ',
         desktop_background_fit: 'متناسب',
         developers: 'تولیدکنندگان نرم افزار',
-        dir_published_as_website: '%strong% منتشر شده به:',
         disable_2fa: 'غیر فعال کردن احراز هویت دو مرحله ای',
         disable_2fa_confirm:
       'آیا مطمئن هستید که می‌خواهید احراز هویت دو مرحله ای را غیرفعال کنید؟',
@@ -193,7 +192,6 @@ const fa = {
         paste_into_folder: 'چسباندن در پوشه',
         path: 'مسیر',
         personalization: 'شخصی سازی',
-        pick_name_for_website: 'یک نام برای وبسایت خود انتخاب کنید:',
         pictures: 'تصاویر',
         plural_suffix: 'ها',
         powered_by_puter_js: 'پشتیبانی شده توسط {{link=docs}}Puter.js{{/link}}',
