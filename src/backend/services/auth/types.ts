@@ -130,6 +130,9 @@ export interface SessionRow {
     legacy_token_uid?: string | null;
     created_via?: string | null;
     auth_id?: string | null;
+    label?: string | null;
+    last_ip?: string | null;
+    last_user_agent?: string | null;
 }
 
 export {};

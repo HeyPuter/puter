@@ -752,14 +752,12 @@ export class AuthService extends PuterService {
                 .filter((row) => !this.#endedSession(row))
                 .map((row) => [row.uuid, row]),
         );
-        const visible = (
-            [...live.values()] as Array<Record<string, unknown>>
-        ).filter(
+        const visible = [...live.values()].filter(
             (row) =>
                 row.kind !== 'asset' &&
                 (row.kind !== 'access_token' ||
                     !row.parent_session_id ||
-                    live.has(row.parent_session_id as string)),
+                    live.has(row.parent_session_id)),
         );
 
         const appUids = [
@@ -800,7 +798,7 @@ export class AuthService extends PuterService {
         const enriched = visible.map((row) => {
             const meta =
                 (typeof row.meta === 'string'
-                    ? JSON.parse(row.meta as string)
+                    ? JSON.parse(row.meta)
                     : row.meta) ?? {};
             const isCurrent = actor.session?.uid === row.uuid;
             const appUid = typeof row.app_uid === 'string' ? row.app_uid : null;
