@@ -65,6 +65,7 @@ import {
 import confirm_before_unload from './helpers/confirmBeforeUnload.js';
 import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
 import fetchUrlAsFile from './helpers/fetchUrlAsFile.js';
+import createSavePickerAnswer, { signSavedFile } from './helpers/savePickerAnswer.js';
 import create_access_token from './helpers/createAccessToken.js';
 import create_gui_token from './helpers/createGuiToken.js';
 import {
@@ -686,7 +687,114 @@ const postAuthActions = async (action) => {
                 }
                 window.removeEventListener('message', onFileData);
 
-                const urlDownload = new AbortController();
+                const answer = createSavePickerAnswer({
+                    cancelled: () => tell_opener_cancelled('fileSaveCancelled'),
+                });
+
+                // Saves and answers the opener, or returns unanswered when the
+                // picker stays open for another try.
+                const save_file = async (target_path, parent_uuid) => {
+                    let file_to_upload;
+                    if ( event.data.url ) {
+                        try {
+                            file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path), {
+                                signal: answer.signal,
+                            });
+                        } catch ( err ) {
+                            // Closing the picker stops the download and answers.
+                            if ( answer.answered ) return;
+                            await UIAlert({
+                                message: i18n(err.code ?? 'url_save_failed'),
+                                parent_uuid,
+                            });
+                            answer.cancel();
+                            return;
+                        }
+                    } else {
+                        file_to_upload = new File([event.data.content], path.basename(target_path));
+                    }
+
+                    let overwrite = false;
+                    let res;
+                    while ( ! res ) {
+                        try {
+                            res = await answer.write(() => puter.fs.write(
+                                target_path,
+                                file_to_upload,
+                                {
+                                    dedupeName: false,
+                                    overwrite: overwrite,
+                                },
+                            ));
+                            // Answered already: closed before the write, or it failed after.
+                            if ( ! res ) return;
+                        }
+                        catch ( err ) {
+                            if ( err.code !== 'item_with_same_name_exists' ) {
+                                console.log(err);
+                                await UIAlert({
+                                    message: err.message ?? 'Upload failed.',
+                                    parent_uuid,
+                                });
+                                return;
+                            }
+                            // Escape closes the alert without an answer,
+                            // which counts as Cancel, so the picker isn't
+                            // left behind its busy mask.
+                            let alert_closed;
+                            const alert_dismissed = new Promise((resolve) => {
+                                alert_closed = () => resolve('cancel');
+                            });
+                            const alert_resp = await Promise.race([UIAlert({
+                                message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                                buttons: [
+                                    {
+                                        label: i18n('replace'),
+                                        value: 'replace',
+                                        type: 'primary',
+                                    },
+                                    {
+                                        label: i18n('cancel'),
+                                        value: 'cancel',
+                                    },
+                                ],
+                                parent_uuid,
+                                window_options: { on_close: alert_closed },
+                            }), alert_dismissed]);
+                            if ( alert_resp !== 'replace' ) return;
+                            overwrite = true;
+                        }
+                    }
+
+                    let file_signature;
+                    try {
+                        file_signature = (await signSavedFile(app_uid, res.uid)).items;
+                    } catch ( err ) {
+                        console.error(err);
+                        await UIAlert({
+                            message: i18n('save_file_not_returned'),
+                            parent_uuid,
+                        });
+                        answer.cancel();
+                        return;
+                    }
+                    if ( ! answer.saved() ) return;
+                    window.deliverPopupTokenToOpener?.();
+                    window.opener?.postMessage({
+                        msg: 'fileSaved',
+                        original_msg_id: msg_id,
+                        filename: res.name,
+                        saved_file: {
+                            name: file_signature.fsentry_name,
+                            readURL: file_signature.read_url,
+                            writeURL: file_signature.write_url,
+                            metadataURL: file_signature.metadata_url,
+                            type: file_signature.type,
+                            uid: file_signature.uid,
+                            path: window.privacy_aware_path(res.path),
+                        },
+                    }, window.openerOrigin);
+                };
 
                 // Open dialog
                 UIWindow({
@@ -707,134 +815,35 @@ const postAuthActions = async (action) => {
                     iframe_msg_uid: msg_id,
                     center: true,
                     initiating_app_uuid: app_uid,
-                    onDialogCancel: () => tell_opener_cancelled('fileSaveCancelled'),
-                    on_close: () => {
-                        urlDownload.abort();
-                        tell_opener_cancelled('fileSaveCancelled');
-                    },
+                    onDialogCancel: () => answer.cancel(),
+                    on_close: () => answer.close(),
                     onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
+                        if ( ! answer.startSave() ) return;
                         $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
-                        let busy_init_ts = Date.now();
-
-                        let overwrite = false;
-                        let file_to_upload;
-                        if ( event.data.url ) {
-                            try {
-                                file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path), {
-                                    signal: urlDownload.signal,
-                                });
-                            } catch ( err ) {
-                                // Closing the picker stops the download and answers.
-                                if ( urlDownload.signal.aborted ) return;
+                        const parent_uuid = $(el_filedialog_window).attr('data-element_uuid');
+                        try {
+                            await save_file(target_path, parent_uuid);
+                        } catch ( err ) {
+                            console.error(err);
+                            if ( ! answer.answered ) {
                                 await UIAlert({
-                                    message: i18n(err.code ?? 'url_save_failed'),
-                                    parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+                                    message: err?.message ?? i18n('error_unknown_cause'),
+                                    parent_uuid,
                                 });
-                                $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
-                                return;
+                                answer.cancel();
                             }
-                        } else {
-                            file_to_upload = new File([event.data.content], path.basename(target_path));
-                        }
-                        let item_with_same_name_already_exists = true;
-                        while ( item_with_same_name_already_exists ) {
-                            // overwrite?
-                            if ( overwrite )
-                            {
-                                item_with_same_name_already_exists = false;
-                            }
-                            // upload
-                            try {
-                                const res = await puter.fs.write(
-                                    target_path,
-                                    file_to_upload,
-                                    {
-                                        dedupeName: false,
-                                        overwrite: overwrite,
-                                    },
-                                );
-
-                                let file_signature = await puter.fs.sign(app_uid, { uid: res.uid, action: 'write' });
-                                file_signature = file_signature.items;
-
-                                item_with_same_name_already_exists = false;
-                                window.deliverPopupTokenToOpener?.();
-                                window.opener.postMessage({
-                                    msg: 'fileSaved',
-                                    original_msg_id: msg_id,
-                                    filename: res.name,
-                                    saved_file: {
-                                        name: file_signature.fsentry_name,
-                                        readURL: file_signature.read_url,
-                                        writeURL: file_signature.write_url,
-                                        metadataURL: file_signature.metadata_url,
-                                        type: file_signature.type,
-                                        uid: file_signature.uid,
-                                        path: window.privacy_aware_path(res.path),
-                                    },
-                                }, window.openerOrigin);
-
-                                window.close();
-                                window.open('', '_self').close();
-                            }
-                            catch ( err ) {
-                                // item with same name exists
-                                if ( err.code === 'item_with_same_name_exists' ) {
-                                    // Escape closes the alert without an answer,
-                                    // which counts as Cancel, so the picker isn't
-                                    // left behind its busy mask.
-                                    let alert_closed;
-                                    const alert_dismissed = new Promise((resolve) => {
-                                        alert_closed = () => resolve('cancel');
-                                    });
-                                    const alert_resp = await Promise.race([UIAlert({
-                                        message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                                        buttons: [
-                                            {
-                                                label: i18n('replace'),
-                                                value: 'replace',
-                                                type: 'primary',
-                                            },
-                                            {
-                                                label: i18n('cancel'),
-                                                value: 'cancel',
-                                            },
-                                        ],
-                                        parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
-                                        window_options: { on_close: alert_closed },
-                                    }), alert_dismissed]);
-                                    if ( alert_resp === 'replace' ) {
-                                        overwrite = true;
-                                    } else {
-                                        // enable parent window
-                                        $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
-                                        return;
-                                    }
-                                }
-                                else {
-                                    console.log(err);
-                                    // show error
-                                    await UIAlert({
-                                        message: err.message ?? 'Upload failed.',
-                                        parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
-                                    });
-                                    // enable parent window
-                                    $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
-                                    return;
-                                }
-                            }
+                        } finally {
+                            answer.endSave();
                         }
 
-                        // done
-                        let busy_duration = (Date.now() - busy_init_ts);
-                        if ( busy_duration >= window.busy_indicator_hide_delay ) {
-                            $(el_filedialog_window).close();
-                        } else {
-                            setTimeout(() => {
-                                // close this dialog
-                                $(el_filedialog_window).close();
-                            }, Math.abs(window.busy_indicator_hide_delay - busy_duration));
+                        if ( ! answer.answered ) {
+                            // enable parent window
+                            $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
+                            return;
                         }
+                        window.close();
+                        window.open('', '_self').close();
+                        $(el_filedialog_window).close();
                     },
                 });
             });
