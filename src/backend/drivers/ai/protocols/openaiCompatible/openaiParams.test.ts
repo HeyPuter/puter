@@ -31,8 +31,10 @@ import {
     promptCacheOptionsToWire,
     promptCacheRetentionToWire,
     rejectStatefulResponsesFields,
+    toOpenAiContextManagement,
     toolChoiceFromWire,
     toolChoiceToWire,
+    toolsToWire,
 } from './openaiParams.js';
 
 const args = (partial: Partial<ICompleteArguments>): ICompleteArguments =>
@@ -441,5 +443,105 @@ describe('messagesHaveCacheBreakpointTtl', () => {
         ).toBe(false);
         expect(messagesHaveCacheBreakpointTtl(undefined)).toBe(false);
         expect(messagesHaveCacheBreakpointTtl('nope')).toBe(false);
+    });
+});
+
+// -- tools ------------------------------------------------------------
+
+describe('toolsToWire', () => {
+    it('keeps a function tool, dropping its Anthropic-only extras', () => {
+        const tools = [
+            {
+                type: 'function',
+                function: { name: 'lookup', parameters: { type: 'object' } },
+                cache_control: { type: 'ephemeral' },
+                defer_loading: true,
+                eager_input_streaming: true,
+                input_examples: [{}],
+            },
+        ];
+        expect(toolsToWire(tools, 'chat')).toEqual([
+            {
+                type: 'function',
+                function: { name: 'lookup', parameters: { type: 'object' } },
+            },
+        ]);
+    });
+
+    it.each(['chat', 'openrouter'] as const)(
+        'drops an Anthropic web_search tool on the %s dialect',
+        (dialect) => {
+            const tools = [{ type: 'web_search_20250305', name: 'web_search' }];
+            expect(toolsToWire(tools, dialect)).toEqual([]);
+        },
+    );
+
+    it('converts an Anthropic web_search tool to OpenAI web_search on the responses dialect', () => {
+        const tools = [
+            {
+                type: 'web_search_20250305',
+                name: 'web_search',
+                max_uses: 5,
+                allowed_domains: ['example.com'],
+                user_location: { type: 'approximate' },
+            },
+        ];
+        expect(toolsToWire(tools, 'responses')).toEqual([
+            {
+                type: 'web_search',
+                filters: { allowed_domains: ['example.com'] },
+                user_location: { type: 'approximate' },
+            },
+        ]);
+    });
+
+    it('keeps OpenAI web_search/web_search_preview tools verbatim', () => {
+        const tools = [{ type: 'web_search' }, { type: 'web_search_preview' }];
+        expect(toolsToWire(tools, 'responses')).toEqual(tools);
+    });
+
+    it('drops other Anthropic typed/server tools (advisor, bash, …)', () => {
+        const tools = [
+            { type: 'advisor_20260301', model: 'claude-haiku-4-5' },
+            { type: 'bash_20250124', name: 'bash' },
+        ];
+        expect(toolsToWire(tools, 'responses')).toEqual([]);
+    });
+
+    it('skips entries that are not objects', () => {
+        expect(toolsToWire([null, 'lookup', 7], 'chat')).toEqual([]);
+    });
+});
+
+// -- compaction -------------------------------------------------------
+
+describe('toOpenAiContextManagement', () => {
+    it('returns undefined when compaction is off', () => {
+        expect(toOpenAiContextManagement({})).toBeUndefined();
+        expect(
+            toOpenAiContextManagement({ compaction: false }),
+        ).toBeUndefined();
+    });
+
+    it('builds a compaction entry from `true`', () => {
+        expect(toOpenAiContextManagement({ compaction: true })).toEqual([
+            { type: 'compaction' },
+        ]);
+    });
+
+    it('maps trigger_tokens to compact_threshold', () => {
+        expect(
+            toOpenAiContextManagement({ compaction: { trigger_tokens: 1000 } }),
+        ).toEqual([{ type: 'compaction', compact_threshold: 1000 }]);
+    });
+
+    it('passes a raw context_management payload through verbatim', () => {
+        const raw = [{ type: 'compaction', compact_threshold: 5 }];
+        expect(
+            toOpenAiContextManagement({
+                compaction: true,
+                context_management: raw,
+            }),
+        ).toBe(raw);
     });
 });

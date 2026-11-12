@@ -18,77 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-    messagesHaveCompaction,
-    toAnthropicContextManagement,
-    toOpenAiContextManagement,
-    wantsCompaction,
-} from './compaction.js';
-
-describe('toOpenAiContextManagement', () => {
-    it('returns undefined when compaction is off', () => {
-        expect(toOpenAiContextManagement({})).toBeUndefined();
-        expect(
-            toOpenAiContextManagement({ compaction: false }),
-        ).toBeUndefined();
-    });
-
-    it('builds a compaction entry from `true`', () => {
-        expect(toOpenAiContextManagement({ compaction: true })).toEqual([
-            { type: 'compaction' },
-        ]);
-    });
-
-    it('maps trigger_tokens to compact_threshold', () => {
-        expect(
-            toOpenAiContextManagement({ compaction: { trigger_tokens: 1000 } }),
-        ).toEqual([{ type: 'compaction', compact_threshold: 1000 }]);
-    });
-
-    it('passes a raw context_management payload through verbatim', () => {
-        const raw = [{ type: 'compaction', compact_threshold: 5 }];
-        expect(
-            toOpenAiContextManagement({
-                compaction: true,
-                context_management: raw,
-            }),
-        ).toBe(raw);
-    });
-});
-
-describe('toAnthropicContextManagement', () => {
-    it('returns undefined when compaction is off', () => {
-        expect(toAnthropicContextManagement({})).toBeUndefined();
-    });
-
-    it('builds a compact_20260112 edit from `true`', () => {
-        expect(toAnthropicContextManagement({ compaction: true })).toEqual({
-            edits: [{ type: 'compact_20260112' }],
-        });
-    });
-
-    it('maps trigger_tokens to an input_tokens trigger', () => {
-        expect(
-            toAnthropicContextManagement({
-                compaction: { trigger_tokens: 2000 },
-            }),
-        ).toEqual({
-            edits: [
-                {
-                    type: 'compact_20260112',
-                    trigger: { type: 'input_tokens', value: 2000 },
-                },
-            ],
-        });
-    });
-
-    it('passes a raw context_management payload through verbatim', () => {
-        const raw = { edits: [{ type: 'compact_20260112' }] };
-        expect(
-            toAnthropicContextManagement({ context_management: raw }),
-        ).toBe(raw);
-    });
-});
+import { messagesHaveCompaction, wantsCompaction } from './compaction.js';
 
 describe('wantsCompaction', () => {
     it('is false without opt-in', () => {

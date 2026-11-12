@@ -18,20 +18,21 @@
  */
 
 /**
- * Inline-compaction translation helpers.
+ * Inline-compaction opt-in helpers.
  *
  * The driver-facing surface exposes a single provider-neutral opt-in
  * (`compaction: boolean | { trigger_tokens }` on `ICompleteArguments`), plus a
  * raw `context_management` escape hatch for callers hitting `/responses` with
- * the OpenAI-native shape. These helpers map that neutral opt-in to each
- * provider's SDK shape so the providers stay free of opt-in-parsing logic.
+ * the OpenAI-native shape. This module reads the opt-in; each dialect maps it
+ * to its own SDK shape (`toOpenAiContextManagement` in the OpenAI protocol,
+ * `toAnthropicContextManagement` in the Claude provider).
  */
 
 /**
  * @param {boolean | { trigger_tokens?: number } | undefined} compaction
  * @returns {{ enabled: boolean; trigger_tokens?: number }}
  */
-const readCompaction = (compaction) => {
+export const readCompaction = (compaction) => {
     if (compaction === true) return { enabled: true };
     if (compaction && typeof compaction === 'object') {
         return {
@@ -42,65 +43,6 @@ const readCompaction = (compaction) => {
         };
     }
     return { enabled: false };
-};
-
-/**
- * Build OpenAI Responses `context_management` from the neutral opt-in. A raw
- * `context_management` passthrough (already in OpenAI shape) wins.
- *
- * @param {{
- *     compaction?: boolean | { trigger_tokens?: number };
- *     context_management?: unknown;
- * }} args
- * @returns {{ type: 'compaction'; compact_threshold?: number }[] | undefined}
- */
-export const toOpenAiContextManagement = (args) => {
-    if (args.context_management !== undefined) {
-        return /** @type {any} */ (args.context_management);
-    }
-    const { enabled, trigger_tokens } = readCompaction(args.compaction);
-    if (!enabled) return undefined;
-    return [
-        {
-            type: 'compaction',
-            ...(trigger_tokens !== undefined
-                ? { compact_threshold: trigger_tokens }
-                : {}),
-        },
-    ];
-};
-
-/**
- * Build Anthropic `context_management` (beta `compact-2026-01-12`) from the
- * neutral opt-in. A raw `context_management` passthrough wins.
- *
- * @param {{
- *     compaction?: boolean | { trigger_tokens?: number };
- *     context_management?: unknown;
- * }} args
- * @returns {{ edits: Record<string, unknown>[] } | undefined}
- */
-export const toAnthropicContextManagement = (args) => {
-    if (args.context_management !== undefined) {
-        return /** @type {any} */ (args.context_management);
-    }
-    const { enabled, trigger_tokens } = readCompaction(args.compaction);
-    if (!enabled) return undefined;
-    return {
-        edits: [
-            {
-                type: 'compact_20260112',
-                ...(trigger_tokens !== undefined
-                    ? {
-                          trigger: {
-                              type: 'input_tokens',
-                              value: trigger_tokens,
-                          },
-                      }
-                    : {}),
-            },
-        ],
-    };
 };
 
 /**

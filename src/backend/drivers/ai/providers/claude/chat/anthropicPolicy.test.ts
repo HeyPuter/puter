@@ -283,14 +283,43 @@ describe('claudeToolPolicy', () => {
 
     it('throws 400 for a function tool with no function property', () => {
         expect(() => claudeToolPolicy([{ type: 'function' }], models)).toThrowError(
-            expect.objectContaining({ statusCode: 400 }),
+            expect.objectContaining({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            }),
         );
     });
 
     it('throws 400 for a non-object tool entry', () => {
         expect(() => claudeToolPolicy([null], models)).toThrowError(
-            expect.objectContaining({ statusCode: 400 }),
+            expect.objectContaining({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            }),
         );
+    });
+
+    it('throws 400 for a bare string tool entry', () => {
+        // A TypeError here has no status, so the retry loop reads it as a
+        // provider failure and marks the route unhealthy for every caller.
+        expect(() => claudeToolPolicy(['lookup'], models)).toThrowError(
+            expect.objectContaining({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            }),
+        );
+    });
+
+    it('returns no tools for an empty list', () => {
+        expect(claudeToolPolicy([], models).tools).toEqual([]);
+    });
+
+    it('defaults max_uses on the OpenAI web_search form', () => {
+        expect(
+            claudeToolPolicy([{ type: 'web_search' }], models).tools,
+        ).toEqual([
+            { type: 'web_search_20250305', name: 'web_search', max_uses: 10 },
+        ]);
     });
 
     it('maps the OpenAI web_search form and clamps max_uses', () => {
@@ -351,7 +380,12 @@ describe('claudeToolPolicy', () => {
     it('rejects an advisor tool naming a model outside the catalog', () => {
         expect(() =>
             claudeToolPolicy([{ type: 'advisor_20260301', model: 'not-a-model' }], models),
-        ).toThrowError(expect.objectContaining({ statusCode: 400 }));
+        ).toThrowError(
+            expect.objectContaining({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            }),
+        );
     });
 
     it('passes client-executed tools through verbatim', () => {

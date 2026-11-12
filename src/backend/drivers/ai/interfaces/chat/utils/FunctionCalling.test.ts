@@ -20,13 +20,11 @@
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — sibling JS module without an adjacent .d.ts
 import {
-    make_claude_tools,
-    make_openai_tools,
     normalize_json_schema,
     normalize_tools_object,
 } from './FunctionCalling.js';
 
-// All four exports are pure data transforms — these tests just feed
+// Both exports are pure data transforms — these tests just feed
 // inputs and check the normalized output, no service mocks involved.
 
 // ── normalize_json_schema ───────────────────────────────────────────
@@ -240,161 +238,5 @@ describe('normalize_tools_object', () => {
             { name: 'lookup', parameters: { type: 'object', properties: 'x' } },
         ]);
         expect(out[0].function.parameters.properties).toBe('x');
-    });
-});
-
-// ── make_openai_tools ───────────────────────────────────────────────
-
-describe('make_openai_tools', () => {
-    it('keeps a function tool, dropping its Anthropic-only extras', () => {
-        const tools = [
-            {
-                type: 'function',
-                function: { name: 'lookup', parameters: { type: 'object' } },
-                cache_control: { type: 'ephemeral' },
-                defer_loading: true,
-                eager_input_streaming: true,
-                input_examples: [{}],
-            },
-        ];
-        expect(make_openai_tools(tools)).toEqual([
-            {
-                type: 'function',
-                function: { name: 'lookup', parameters: { type: 'object' } },
-            },
-        ]);
-    });
-
-    it('drops an Anthropic web_search tool on the chat dialect', () => {
-        const tools = [{ type: 'web_search_20250305', name: 'web_search' }];
-        expect(make_openai_tools(tools, { dialect: 'chat' })).toEqual([]);
-    });
-
-    it('converts an Anthropic web_search tool to OpenAI web_search on the responses dialect', () => {
-        const tools = [
-            {
-                type: 'web_search_20250305',
-                name: 'web_search',
-                max_uses: 5,
-                allowed_domains: ['example.com'],
-                user_location: { type: 'approximate' },
-            },
-        ];
-        expect(
-            make_openai_tools(tools, { dialect: 'responses' }),
-        ).toEqual([
-            {
-                type: 'web_search',
-                filters: { allowed_domains: ['example.com'] },
-                user_location: { type: 'approximate' },
-            },
-        ]);
-    });
-
-    it('keeps OpenAI web_search/web_search_preview tools verbatim', () => {
-        const tools = [{ type: 'web_search' }, { type: 'web_search_preview' }];
-        expect(make_openai_tools(tools, { dialect: 'responses' })).toEqual(
-            tools,
-        );
-    });
-
-    it('drops other Anthropic typed/server tools (advisor, bash, …)', () => {
-        const tools = [
-            { type: 'advisor_20260301', model: 'claude-haiku-4-5' },
-            { type: 'bash_20250124', name: 'bash' },
-        ];
-        expect(make_openai_tools(tools, { dialect: 'responses' })).toEqual([]);
-    });
-
-    it('passes a falsy tools value through unchanged', () => {
-        expect(make_openai_tools(undefined)).toBeUndefined();
-        expect(make_openai_tools(null)).toBeNull();
-    });
-});
-
-describe('make_claude_tools with a malformed tool', () => {
-    it.each([
-        ['type:function with no function property', { type: 'function' }],
-        ['a null entry', null],
-        ['a bare string entry', 'lookup'],
-    ])('answers 400 for a tool with %s', (_label, tool) => {
-        // A TypeError here has no status, so the retry loop reads it as a
-        // provider failure and marks the route unhealthy for every caller.
-        expect(() => make_claude_tools([tool] as never)).toThrowError(
-            expect.objectContaining({
-                statusCode: 400,
-                legacyCode: 'bad_request',
-            }),
-        );
-    });
-
-    it('answers 400 for an unresolvable advisor model', () => {
-        expect(() =>
-            make_claude_tools([
-                { type: 'advisor_20260301', model: 'not-a-real-model' },
-            ] as never),
-        ).toThrowError(
-            expect.objectContaining({ statusCode: 400, legacyCode: 'bad_request' }),
-        );
-    });
-
-    it('answers 400 for an mcp_toolset tool', () => {
-        expect(() =>
-            make_claude_tools([{ type: 'mcp_toolset' }] as never),
-        ).toThrowError(
-            expect.objectContaining({ statusCode: 400, legacyCode: 'bad_request' }),
-        );
-    });
-});
-
-// ── make_claude_tools ───────────────────────────────────────────────
-
-describe('make_claude_tools', () => {
-    it('returns undefined when tools is undefined', () => {
-        expect(make_claude_tools(undefined)).toBeUndefined();
-    });
-
-    it('returns [] when tools is an empty array', () => {
-        expect(make_claude_tools([])).toEqual([]);
-    });
-
-    it('flattens the OpenAI {function:{...}} wrapper into Claude shape', () => {
-        const out = make_claude_tools([
-            {
-                type: 'function',
-                function: {
-                    name: 'lookup',
-                    description: 'Search the docs',
-                    parameters: {
-                        type: 'object',
-                        properties: { q: { type: 'string' } },
-                    },
-                },
-            },
-        ]);
-        expect(out).toEqual([
-            {
-                name: 'lookup',
-                description: 'Search the docs',
-                input_schema: {
-                    type: 'object',
-                    properties: { q: { type: 'string' } },
-                },
-            },
-        ]);
-    });
-
-    it('maps the OpenAI {type:"web_search"} form to web_search_20250305', () => {
-        const out = make_claude_tools([{ type: 'web_search' }] as never);
-        expect(out).toEqual([
-            { type: 'web_search_20250305', name: 'web_search', max_uses: 10 },
-        ]);
-    });
-
-    it('passes a typed server tool through by its own regexp-matched type', () => {
-        const out = make_claude_tools([
-            { type: 'bash_20250124', name: 'bash' },
-        ] as never);
-        expect(out).toEqual([{ type: 'bash_20250124', name: 'bash' }]);
     });
 });

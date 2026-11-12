@@ -18,7 +18,6 @@
  */
 
 import { HttpError } from '@heyputer/backend/src/core/http';
-import { claudeToolPolicy } from '../../../providers/claude/chat/anthropicPolicy.js';
 
 // Anthropic server/typed tool ids (`web_search_20250305`,
 // `advisor_20260301`, …) and the OpenAI Responses `web_search` tool pass
@@ -124,7 +123,7 @@ export const normalize_tools_object = (tools) => {
         };
 
         // Claude-only extras, carried on the `{type:'function', ...}`
-        // wrapper so `make_claude_tools` can forward them; a top-level
+        // wrapper so `claudeToolPolicy` can forward them; a top-level
         // `strict` (Claude's own convention) moves onto `function.strict`.
         const extras = {};
         if (tool.cache_control !== undefined)
@@ -168,77 +167,4 @@ export const normalize_tools_object = (tools) => {
         tools[i] = normalized_tool;
     }
     return tools;
-};
-
-// OpenAI's own tool conventions pass through untouched.
-const OPENAI_NATIVE_WEB_SEARCH = new Set(['web_search', 'web_search_preview']);
-const ANTHROPIC_WEB_SEARCH_TYPE = (type) =>
-    type === 'web_search_20250305' || /^web_search_2026/.test(type ?? '');
-
-/**
- * Converts a normalized tools object to the format expected by an OpenAI-family
- * dialect: function tools drop their Anthropic-only extras (`cache_control`,
- * `defer_loading`, `eager_input_streaming`, `input_examples`); every other
- * Anthropic typed/server tool (`web_search_20250305`, `advisor_20260301`,
- * `bash_*`, …) is dropped, since none of it is a wire shape OpenAI recognizes.
- * The one exception: an Anthropic web-search tool is translated to OpenAI's own
- * `web_search` tool for the Responses dialect, which supports it natively.
- *
- * @param {any} tools
- * @param {{ dialect?: 'chat' | 'responses' }} [opts]
- * @returns {any[] | undefined}
- */
-export const make_openai_tools = (tools, opts = {}) => {
-    if (!tools) return tools;
-    const dialect = opts.dialect ?? 'chat';
-    const out = [];
-    for (const tool of tools) {
-        if (!tool || typeof tool !== 'object') continue;
-        if (tool.type === 'function') {
-            const stripped = { ...tool };
-            delete stripped.cache_control;
-            delete stripped.defer_loading;
-            delete stripped.eager_input_streaming;
-            delete stripped.input_examples;
-            out.push(stripped);
-            continue;
-        }
-        if (OPENAI_NATIVE_WEB_SEARCH.has(tool.type)) {
-            out.push(tool);
-            continue;
-        }
-        if (dialect === 'responses' && ANTHROPIC_WEB_SEARCH_TYPE(tool.type)) {
-            out.push({
-                type: 'web_search',
-                ...(tool.allowed_domains
-                    ? { filters: { allowed_domains: tool.allowed_domains } }
-                    : {}),
-                ...(tool.user_location
-                    ? { user_location: tool.user_location }
-                    : {}),
-            });
-            continue;
-        }
-        // Any other Anthropic typed/server tool (web_search_* on the chat
-        // dialect, advisor, bash, memory, web_fetch, tool_search, …) has no
-        // OpenAI equivalent — drop it rather than forward an unrecognized type.
-    }
-    return out;
-};
-
-/**
- * This function will convert a normalized tools object to the format expected
- * by Claude: function tools become `{name, description, input_schema, ...}`,
- * and typed/server tools (`web_search`, `web_search_20250305`,
- * `advisor_20260301`, …) go through the allowlist/clamp/reject policy in
- * `claudeToolPolicy` instead of being treated as malformed function
- * definitions.
- *
- * @param {any} tools
- * @param {{ models?: import('../types.js').IChatModel[] }} [opts]
- * @returns {any[] | undefined}
- */
-export const make_claude_tools = (tools, opts = {}) => {
-    if (!tools) return undefined;
-    return claudeToolPolicy(tools, opts.models ?? []).tools;
 };

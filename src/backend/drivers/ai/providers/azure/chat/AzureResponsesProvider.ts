@@ -33,14 +33,14 @@ import type {
     IChatProvider,
     ICompleteArguments,
 } from '../../../interfaces/chat/types.js';
-import { toOpenAiContextManagement } from '../../../interfaces/chat/utils/compaction.js';
-import { make_openai_tools } from '../../../interfaces/chat/utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../../protocols/openaiCompatible/OpenAIUtil.js';
 import {
     clampReasoningEffort,
     openAICompatParams,
     promptCacheRetentionToWire,
     rejectStatefulResponsesFields,
+    toolsToWire,
+    toOpenAiContextManagement,
 } from '../../../protocols/openaiCompatible/openaiParams.js';
 import { buildCostsOverride } from '../../../interfaces/chat/utils/pricing.js';
 import { responseSamplingParams } from '../../../protocols/openaiCompatible/responseSampling.js';
@@ -245,9 +245,7 @@ export class AzureResponsesProvider implements IChatProvider {
                 }
             });
         }
-        const mappedTools = tools
-            ? make_openai_tools(tools, { dialect: 'responses' })
-            : undefined;
+        const mappedTools = tools ? toolsToWire(tools, 'responses') : undefined;
 
         // Strip Anthropic-only shape a fallback-replayed message can carry
         // before the existing in-place coercion mutates only this pass's copy.

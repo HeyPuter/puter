@@ -33,6 +33,7 @@ import type {
     ReasoningEffort,
     ToolChoice,
 } from '../../interfaces/chat/types.js';
+import { readCompaction } from '../../interfaces/chat/utils/compaction.js';
 
 export type OpenAIDialect = 'chat' | 'responses' | 'openrouter';
 
@@ -87,6 +88,62 @@ export const toolChoiceFromWire = (
             ? w.name
             : (w.function as Record<string, unknown> | undefined)?.name;
     return typeof name === 'string' ? { type: 'tool', name } : undefined;
+};
+
+// -- tools ------------------------------------------------------------------
+
+// OpenAI's own tool conventions pass through untouched.
+const OPENAI_NATIVE_WEB_SEARCH = new Set(['web_search', 'web_search_preview']);
+const isAnthropicWebSearch = (type: unknown): boolean =>
+    type === 'web_search_20250305' ||
+    /^web_search_2026/.test(String(type ?? ''));
+
+/**
+ * Normalized tools → the tools an OpenAI-family dialect accepts. Function tools
+ * drop their Anthropic-only extras (`cache_control`, `defer_loading`,
+ * `eager_input_streaming`, `input_examples`). Every other Anthropic typed or
+ * server tool is dropped, since OpenAI recognizes none of them, except that the
+ * Responses dialect gets OpenAI's own `web_search` for an Anthropic web-search
+ * tool.
+ */
+export const toolsToWire = (
+    tools: unknown[],
+    dialect: OpenAIDialect,
+): Record<string, unknown>[] => {
+    const out: Record<string, unknown>[] = [];
+    for (const entry of tools) {
+        if (!entry || typeof entry !== 'object') continue;
+        const tool = entry as Record<string, unknown>;
+        if (tool.type === 'function') {
+            const stripped = { ...tool };
+            delete stripped.cache_control;
+            delete stripped.defer_loading;
+            delete stripped.eager_input_streaming;
+            delete stripped.input_examples;
+            out.push(stripped);
+            continue;
+        }
+        if (OPENAI_NATIVE_WEB_SEARCH.has(tool.type as string)) {
+            out.push(tool);
+            continue;
+        }
+        if (dialect === 'responses' && isAnthropicWebSearch(tool.type)) {
+            out.push({
+                type: 'web_search',
+                ...(tool.allowed_domains
+                    ? { filters: { allowed_domains: tool.allowed_domains } }
+                    : {}),
+                ...(tool.user_location
+                    ? { user_location: tool.user_location }
+                    : {}),
+            });
+            continue;
+        }
+        // Any other Anthropic typed/server tool (web_search_* on the chat
+        // dialect, advisor, bash, memory, web_fetch, tool_search, …) has no
+        // OpenAI equivalent — drop it rather than forward an unrecognized type.
+    }
+    return out;
 };
 
 // -- outputFormat / response_format / text.format ---------------------------
@@ -304,6 +361,33 @@ export const openAICompatParams = (
     }
 
     return out;
+};
+
+// -- compaction -------------------------------------------------------------
+
+/**
+ * Responses `context_management` from the neutral `compaction` opt-in. A raw
+ * `context_management` passthrough (already in OpenAI shape) wins.
+ */
+export const toOpenAiContextManagement = (
+    args: Pick<ICompleteArguments, 'compaction' | 'context_management'>,
+): { type: 'compaction'; compact_threshold?: number }[] | undefined => {
+    if (args.context_management !== undefined) {
+        return args.context_management as {
+            type: 'compaction';
+            compact_threshold?: number;
+        }[];
+    }
+    const { enabled, trigger_tokens } = readCompaction(args.compaction);
+    if (!enabled) return undefined;
+    return [
+        {
+            type: 'compaction',
+            ...(trigger_tokens !== undefined
+                ? { compact_threshold: trigger_tokens }
+                : {}),
+        },
+    ];
 };
 
 // -- prompt caching ----------------------------------------------------------

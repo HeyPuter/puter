@@ -34,7 +34,6 @@ import {
     contextLengthRetryParams,
     isContextLengthError,
 } from './contextLimit.js';
-import { make_openai_tools } from '../../interfaces/chat/utils/FunctionCalling.js';
 import { inlineHttpImageUrls } from './inlineImages.js';
 import { modelSupportsVision } from '../../interfaces/chat/utils/mediaParts.js';
 import {
@@ -46,7 +45,11 @@ import { costKeys } from '../../interfaces/chat/utils/pricing.js';
 import { catalogPrice } from '../../shared/catalogPrice.js';
 import { normalizeModelKey } from '../../interfaces/chat/utils/modelRouting.js';
 import * as OpenAIUtil from './OpenAIUtil.js';
-import { openAICompatParams, type OpenAIDialect } from './openaiParams.js';
+import {
+    openAICompatParams,
+    type OpenAIDialect,
+    toolsToWire,
+} from './openaiParams.js';
 
 /** What the driver hands every keyed provider. */
 export interface ChatProviderConfig {
@@ -198,9 +201,7 @@ export class OpenAICompatProvider implements IChatProvider {
             model,
         );
 
-        const tools = args.tools
-            ? make_openai_tools(args.tools, { dialect: 'chat' })
-            : undefined;
+        const tools = args.tools ? toolsToWire(args.tools, 'chat') : undefined;
         const maxTokens = args.max_tokens ?? options.defaultMaxTokens;
         const streamUsage = options.streamUsage ?? true;
         const shared: Record<string, unknown> = {

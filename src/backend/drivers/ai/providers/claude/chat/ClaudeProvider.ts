@@ -32,10 +32,8 @@ import type {
     IChatCompleteResult,
     UsageDetails,
 } from '../../../interfaces/chat/types.js';
-import {
-    messagesHaveCompaction,
-    toAnthropicContextManagement,
-} from '../../../interfaces/chat/utils/compaction.js';
+import { messagesHaveCompaction } from '../../../interfaces/chat/utils/compaction.js';
+import { toAnthropicContextManagement } from './contextManagement.js';
 import {
     mediaUrlOf,
     parseDataUri,

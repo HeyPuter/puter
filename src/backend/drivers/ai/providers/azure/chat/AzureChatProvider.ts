@@ -38,11 +38,11 @@ import {
     messagesHaveCompaction,
     wantsCompaction,
 } from '../../../interfaces/chat/utils/compaction.js';
-import { make_openai_tools } from '../../../interfaces/chat/utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../../protocols/openaiCompatible/OpenAIUtil.js';
 import {
     clampReasoningEffort,
     openAICompatParams,
+    toolsToWire,
 } from '../../../protocols/openaiCompatible/openaiParams.js';
 import { buildCostsOverride } from '../../../interfaces/chat/utils/pricing.js';
 import { inlineHttpImageUrls } from '../../../protocols/openaiCompatible/inlineImages.js';
@@ -256,9 +256,7 @@ export class AzureChatProvider implements IChatProvider {
         // that's missing. We normalise it here so the token count code works.
         messages = await OpenAiUtil.process_input_messages(messages);
 
-        const mappedTools = tools
-            ? make_openai_tools(tools, { dialect: 'chat' })
-            : undefined;
+        const mappedTools = tools ? toolsToWire(tools, 'chat') : undefined;
 
         const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const requestedVerbosity = verbosity ?? text?.verbosity;

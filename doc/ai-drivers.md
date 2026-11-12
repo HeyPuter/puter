@@ -83,6 +83,8 @@ A provider whose vendor has its own API, such as `ClaudeProvider` or `ElevenLabs
 
 Keep a helper next to its only consumer. Move it up when a second consumer appears, not before.
 
+When one Puter option becomes a different request shape per vendor, the interface reads the option and each dialect maps it. The chat `compaction` option is read in `interfaces/chat/utils/compaction.js`, mapped for OpenAI by `toOpenAiContextManagement` in `protocols/openaiCompatible/openaiParams.ts`, and mapped for Anthropic by `toAnthropicContextManagement` in `providers/claude/chat/contextManagement.ts`. Tools work the same way: `normalize_tools_object` in the interface, then `toolsToWire` for OpenAI and `claudeToolPolicy` for Anthropic.
+
 Tests sit next to the code they test. Fixtures go in a `fixtures/` folder next to the test that reads them.
 
 ## Adding a provider
