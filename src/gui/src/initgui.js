@@ -86,6 +86,7 @@ import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { urlFileLaunchOptions } from './helpers/confirmUrlFileAccess.js';
 import { readSignupBonusCode } from './helpers/signupBonusCode.js';
+import { guiTokenBootStep, pageRenderedForThisLoad, sameTokenClaims } from './helpers/guiToken.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
 import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
 import update_mouse_position from './helpers/updateMousePosition.js';
@@ -121,6 +122,7 @@ import {
     runsUserAppTokenExchange,
 } from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
+import { bootsDashboard } from './helpers/bootsDashboard.js';
 
 /**
  * A share email names the account it went to. When another account is open,
@@ -135,6 +137,7 @@ const follow_share_recipient = async (action) => {
         params: window.url_query_params,
         action,
         embedded: window.embedded_in_popup || window.is_embedded,
+        desktop: !window.is_dashboard_mode,
         current_user: window.user,
         logged_in_users: window.logged_in_users,
     });
@@ -272,15 +275,7 @@ const postAuthActions = async (action) => {
     // Load desktop, only if we're not embedded in a popup and not on the dashboard page
     // -------------------------------------------------------------------------------------
     if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
-        if ( window.is_fullpage_mode ) {
-            // In fullpage mode, skip loading desktop items and background
-            UIDesktop({});
-        } else {
-            await window.get_auto_arrange_data();
-            puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
-                UIDesktop({ desktop_fsentry: desktop_fsentry });
-            });
-        }
+        UIDesktop();
     }
     // -------------------------------------------------------------------------------------
     // Dashboard mode
@@ -1259,17 +1254,13 @@ if (jQuery) {
 
 // are we in dashboard mode?
 // The dashboard is the default interface at the root path; `/dashboard` is kept as an
-// alias, and `/desktop` loads the desktop instead. Direct app landings (`/app/<name>`)
+// alias. Direct app landings (`/app/<name>`)
 // open in the dashboard too: the app comes up maximized in-page with the dashboard
 // route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
-// To land the same app on the desktop instead, prefix the path:
-// `/desktop/app/<name>` doesn't match the dashboard paths below, so it falls
-// through to the desktop.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
-// (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
-// fullpage mode (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
+// (`?embedded_in_popup=`) and iframe embeds. A share link (`?shared=`,
 // from an email) lands in the dashboard: Files, on Shared, with the items it names
-// picked out; `/desktop?shared=` opens the item on the desktop instead. App metadata
+// picked out; the desktop ignores it. App metadata
 // like fullpage_on_landing does NOT opt a landing out of the dashboard; it only
 // affects boots that still go through the desktop flow.
 {
@@ -1288,16 +1279,11 @@ if (jQuery) {
     };
     // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
     const in_iframe = window.location !== window.parent.location;
-    const needs_desktop_at_root =
-        window.embedded_in_popup ||
-        in_iframe ||
-        search_params.has('puter.fullpage') ||
-        search_params.has('app') ||
-        search_params.has('download');
-    const is_dashboard_alias =
-        pathname === '/dashboard' || pathname === '/dashboard/';
-    const is_app_landing = /^\/app\/[^/]+\/?$/.test(pathname);
-    if (is_dashboard_alias || ((pathname === '/' || is_app_landing) && !needs_desktop_at_root)) {
+    if (bootsDashboard({
+        pathname,
+        inIframe: in_iframe,
+        embeddedInPopup: !!window.embedded_in_popup,
+    })) {
         window.is_dashboard_mode = true;
         window.dashboard_initial_route = parseDashboardRoute();
         // A share link outranks the hash: Files, on Shared, with what it names
@@ -1533,10 +1519,6 @@ window.initgui = async function (options) {
     const oidcChallenge = takeOidcLoginChallenge();
     const url = new URL(window.location).href;
     window.url = url;
-    // Route segments with a leading `/desktop` dropped, so the route checks
-    // downstream (app landings, actions) never have to know about the prefix:
-    // `/desktop/app/<name>` opens the app on the desktop the same way
-    // `/app/<name>` opens it in the dashboard.
     const url_paths = parse_url_paths(window.location.pathname);
     window.url_paths = url_paths;
 
@@ -1682,10 +1664,12 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Determine if we are in full-page mode
-    // i.e. https://puter.com/app/<app_name>/?puter.fullpage=true
+    // Determine if we are in full-page mode. The dashboard always shows apps full
+    // page; a desktop boot (embeds, popups) can ask with ?puter.fullpage=true.
     //--------------------------------------------------------------------------------------
-    if (
+    if (window.is_dashboard_mode) {
+        window.is_fullpage_mode = true;
+    } else if (
         window.url_query_params.has('puter.fullpage') &&
         (window.url_query_params.get('puter.fullpage') === 'false' ||
             window.url_query_params.get('puter.fullpage') === '0')
@@ -1696,54 +1680,76 @@ window.initgui = async function (options) {
         (window.url_query_params.get('puter.fullpage') === 'true' ||
             window.url_query_params.get('puter.fullpage') === '1')
     ) {
-        // In fullpage mode, we want to hide the taskbar for better UX
-        window.taskbar_height = 0;
-
         // Puter is in fullpage mode.
-        window.is_fullpage_mode = true;
-    } else if (window.is_dashboard_mode) {
         window.is_fullpage_mode = true;
     }
 
     // Launch services before any UI is rendered
     await launch_services(options);
 
-    // If no token in storage but we have a session cookie (e.g. after OIDC redirect), fetch GUI token
-    try {
-        const r = await fetch(`${window.gui_origin}/get-gui-token`, {
-            credentials: 'include',
-        });
-        if (r.ok) {
-            const { token } = await r.json();
-            window.auth_token = token;
-            // Write the current key; drop any value under the retired one.
-            localStorage.setItem(
-                window.AUTH_TOKEN_KEY_V2 || 'auth_token_v2',
-                token,
-            );
-            try {
-                localStorage.removeItem(
-                    window.AUTH_TOKEN_KEY_RETIRED || 'auth_token',
-                );
-            } catch (e) {
-                /* ignore */
-            }
-            if (typeof puter !== 'undefined')
-                puter.setAuthToken(token, window.api_origin);
-            const tokenChanged = token !== window.auth_token;
-            if (tokenChanged) {
-                // This will update the list of logged in users and set the current one
+    // The session cookie decides the account (an OIDC sign-in sets only the
+    // cookie), so a stored token for any other session is replaced by one for
+    // the cookie's session.
+    const boot_token = puter.authToken;
+    let fs_cache_reset = false;
+    // A token for the stored token's own session differs from it only in when
+    // it was signed, so the stored one stays: nothing for other tabs or the
+    // SDK's connections to pick up.
+    const keep_stored_token = () => {
+        // A cookie boot still starts without the persisted FS cache, which
+        // can predate changes a disconnected socket never heard about.
+        puter._cache.flushall();
+        // Entries still loading from IndexedDB would land after the flush.
+        if (puter._cache.isInitialized === false) {
+            (async () => {
                 try {
-                    const whoami = await puter.os.user({
-                        query: 'icon_size=64',
-                    });
-                    if (whoami) await window.update_auth_data(token, whoami);
+                    await puter._cache.waitForInitialization();
+                    puter._cache.flushall();
                 } catch (e) {
-                    console.error(
-                        'get-gui-token follow-up whoami/update_auth_data',
-                        e,
-                    );
+                    console.error('fs cache flush', e);
                 }
+            })();
+        }
+        fs_cache_reset = true;
+    };
+    let gui_token_step = 'fetch';
+    try {
+        gui_token_step = await guiTokenBootStep({
+            params: window.gui_params,
+            storedToken: window.auth_token,
+            sameOrigin: window.gui_origin === window.location.origin,
+            renderedForThisLoad: pageRenderedForThisLoad(),
+        });
+    } catch (e) {
+        console.error('gui token boot step', e);
+    }
+    if (gui_token_step === 'same-session') keep_stored_token();
+    try {
+        const r = gui_token_step === 'fetch'
+            ? await fetch(`${window.gui_origin}/get-gui-token`, {
+                credentials: 'include',
+            })
+            : null;
+        if (r?.ok) {
+            const { token } = await r.json();
+            if (sameTokenClaims(token, window.auth_token)) {
+                keep_stored_token();
+            } else {
+                window.auth_token = token;
+                // Write the current key; drop any value under the retired one.
+                localStorage.setItem(
+                    window.AUTH_TOKEN_KEY_V2 || 'auth_token_v2',
+                    token,
+                );
+                try {
+                    localStorage.removeItem(
+                        window.AUTH_TOKEN_KEY_RETIRED || 'auth_token',
+                    );
+                } catch (e) {
+                    /* ignore */
+                }
+                if (typeof puter !== 'undefined')
+                    puter.setAuthToken(token, window.api_origin);
             }
         }
     } catch (e) {
@@ -1858,7 +1864,7 @@ window.initgui = async function (options) {
             let session_user = null;
             if (host_user && window.is_auth()) {
                 try {
-                    session = await puter.os.user({ query: 'icon_size=64' });
+                    session = await puter.os.user();
                     session_user = String(session?.uuid ?? '').toLowerCase();
                 } catch (e) {
                     session_user = null;
@@ -1938,9 +1944,7 @@ window.initgui = async function (options) {
             // Ensure current user is in logged_in_users (e.g. after OIDC redirect we have token but no user in list)
             let currentUserUuid = window.user?.uuid ?? null;
             try {
-                const whoami_popup = await puter.os.user({
-                    query: 'icon_size=64',
-                });
+                const whoami_popup = await puter.os.user();
                 currentUserUuid = whoami_popup?.uuid ?? currentUserUuid;
                 await window.update_auth_data(
                     whoami_popup.token || window.auth_token,
@@ -2027,24 +2031,11 @@ window.initgui = async function (options) {
             });
             if (app_info?.metadata?.fullpage_on_landing) {
                 window.is_fullpage_mode = true;
-                window.taskbar_height = 0;
                 window.app_launched_from_url = app_info;
             }
         } catch (e) {
             // App metadata fetch failed; will retry later in UIDesktop
         }
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Desktop background (early)
-    // Set before action=login/signup so the signed-in dialog has the desktop behind it.
-    // Skipped for the full-page form, which it would only flash behind before covering.
-    // -------------------------------------------------------------------------------------
-    const authActionIsPage =
-        action === 'password-recovery' ||
-        (!window.is_auth() && (action === 'login' || action === 'signup'));
-    if (!window.is_fullpage_mode && !window.embedded_in_popup && !authActionIsPage) {
-        window.refresh_desktop_background();
     }
 
     //--------------------------------------------------------------------------------------
@@ -2169,7 +2160,7 @@ window.initgui = async function (options) {
         puter.setAuthToken(query_param_auth_token);
 
         try {
-            whoami = await puter.os.user({ query: 'icon_size=64' });
+            whoami = await puter.os.user();
         } catch (e) {
             if (e.status === 401) {
                 window.logout();
@@ -2305,8 +2296,8 @@ window.initgui = async function (options) {
                 sessionStorage.removeItem('puter.authme_redirect_attempted');
             } catch (e) { /* sessionStorage unavailable */ }
         }
-        // remove the token from URL, keeping the current path (e.g. `/` or
-        // `/desktop`) and hash (dashboard tab links like /#usage).
+        // remove the token from URL, keeping the current path and hash
+        // (dashboard tab links like /#usage).
         //
         // `replaceState`, not `pushState`: pushing leaves the token-bearing URL
         // as the previous history entry, so Back returns to a URL containing a
@@ -2444,13 +2435,9 @@ window.initgui = async function (options) {
         $('.context-menu').remove();
         // remove desktop
         $('.desktop').remove();
-        // remove taskbar
-        $('.taskbar').remove();
         // disable native browser exit confirmation
         window.onbeforeunload = null;
-        // go back to the interface the user was in: dashboard users to the root
-        // dashboard, desktop users to /desktop
-        window.location.replace(window.is_dashboard_mode ? '/' : '/desktop');
+        window.location.replace('/');
     });
 
     $(document).ajaxError(async function (event, jqxhr) {
@@ -2473,6 +2460,12 @@ window.initgui = async function (options) {
     // Authed
     // -------------------------------------------------------------------------------------
     if (window.is_auth()) {
+        // An FS cache this boot hasn't reset or re-keyed may predate changes
+        // made since; it is checked before anything renders from it.
+        const fs_cache_check =
+            fs_cache_reset || puter.authToken !== boot_token
+                ? null
+                : puter.fs.checkCacheAndPurge();
         // A sign-in popup whose user kept the account it opened with, and whose
         // exchange just proved the session, already has this user's data.
         if (
@@ -2492,7 +2485,7 @@ window.initgui = async function (options) {
         // try to get user data using /whoami, only if that data is missing
         if (!whoami) {
             try {
-                whoami = await puter.os.user({ query: 'icon_size=64' });
+                whoami = await puter.os.user();
             } catch (e) {
                 if (e.status === 401) {
                     bad_session_logout();
@@ -2613,6 +2606,7 @@ window.initgui = async function (options) {
                 whoami,
             );
 
+            await fs_cache_check;
             await postAuthActions(action);
             // ----------------------------------------------------------
             // Get user's sites
@@ -2620,25 +2614,16 @@ window.initgui = async function (options) {
             window.update_sites_cache();
         }
     }
-    // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
-    // real account even on a first visit — never a temp user. So does a share
-    // link: a share only ever reaches a real account, so a temporary one could
-    // never see what it points at.
+    // App landing pages (`/app/<name>`) require a real account even on a first
+    // visit — never a temp user. So does a share link on the dashboard: a share
+    // only ever reaches a real account, so a temporary one could never see what
+    // it points at.
     const is_app_landing_page = window.url_paths[0] === 'app' && !!window.url_paths[1];
-    const is_share_link = window.url_query_params.has('shared');
+    const is_share_link = !!window.is_dashboard_mode && window.url_query_params.has('shared');
     const needsSignIn =
         !window.is_auth() &&
         (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link);
 
-    // -------------------------------------------------------------------------------------
-    // Desktop Background
-    // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background
-    // because it's not visible anyway and it's a waste of bandwidth. Same behind the sign-in page.
-    // -------------------------------------------------------------------------------------
-    const showsSignInPage = needsSignIn && window.logged_in_users.length === 0;
-    if (!window.is_fullpage_mode && !window.embedded_in_popup && !showsSignInPage) {
-        window.refresh_desktop_background();
-    }
     // -------------------------------------------------------------------------------------
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
@@ -2692,12 +2677,6 @@ window.initgui = async function (options) {
         const needs_action = action === 'authme' || action === 'copyauth';
         const reload_on_success = needs_action;
         if (window.logged_in_users.length > 0) {
-            // dashboard mode skips the wallpaper (fullpage), but the account
-            // picker is a dialog, not a page — restore the wallpaper so it
-            // isn't on a blank page
-            if (window.is_dashboard_mode) {
-                window.refresh_desktop_background();
-            }
             await UIAuthAccountPicker({
                 redirect_url: needs_action ? window.location.href : undefined,
             });
@@ -3038,7 +3017,6 @@ window.initgui = async function (options) {
                 });
                 if (app_info?.metadata?.fullpage_on_landing) {
                     window.is_fullpage_mode = true;
-                    window.taskbar_height = 0;
                     window.app_launched_from_url = app_info;
                 }
             } catch (e) {
@@ -3087,10 +3065,6 @@ window.initgui = async function (options) {
 
         // click on anything will close all popovers, but there are some exceptions
         if (
-            !$(e.target).hasClass('start-app') &&
-            !$(e.target).hasClass('launch-search') &&
-            !$(e.target).hasClass('launch-search-clear') &&
-            $(e.target).closest('.start-app').length === 0 &&
             !isMobile.phone &&
             !isMobile.tablet &&
             !$(e.target).hasClass('popover') &&
@@ -3100,9 +3074,6 @@ window.initgui = async function (options) {
                 $('.popover').remove();
             });
         }
-
-        // Close all tooltips
-        $('.ui-tooltip').remove();
 
         // rename items whose names were being edited
         if (!$(e.target).hasClass('item-name-editor')) {
@@ -3138,21 +3109,6 @@ window.initgui = async function (options) {
     // Window Activation
     //--------------------------------------------------------
     $(document).on('mousedown', function (e) {
-        // if taskbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('taskbar') ||
-            $(e.target).closest('.taskbar').length > 0
-        ) {
-            return;
-        }
-        // if toolbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('toolbar') ||
-            $(e.target).closest('.toolbar').length > 0
-        ) {
-            return;
-        }
-
         // if close or minimize button clicked, drop the event
         if (
             document
@@ -3236,16 +3192,6 @@ $(document).on('click', '.generic-close-window-button', function (e) {
     $(this).closest('.window').close();
 });
 
-$(document).on('click', function (e) {
-    if (
-        !$(e.target).hasClass('window-search') &&
-        $(e.target).closest('.window-search').length === 0 &&
-        !$(e.target).is('.toolbar-btn.search-btn')
-    ) {
-        $('.window-search').close();
-    }
-});
-
 // Re-calculate desktop height and width on window resize and re-position the login and signup windows
 $(window).on('resize', function () {
     // If host env is popup, don't continue because the popup window has its own resize requirements.
@@ -3255,8 +3201,7 @@ $(window).on('resize', function () {
 
     const ratio = window.desktop_width / window.innerWidth;
 
-    window.desktop_height =
-        window.innerHeight - window.toolbar_height - window.taskbar_height;
+    window.desktop_height = window.innerHeight - window.toolbar_height;
     window.desktop_width = window.innerWidth;
 
     // Re-center the login window

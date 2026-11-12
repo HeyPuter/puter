@@ -28,25 +28,15 @@ const ur = {
         access_granted_to: 'رسائی مسموح ہے',
         add_another_account: 'دوسرا اکاؤنٹ شامل کریں',
         all_fields_required: 'تمام شعبوں کی ضرورت ہے',
-        apply: 'لگائیں ',
         ascending: 'بڑھتی ہوئی',
-        auto_arrange: 'خودکار ترتیب',
-        background: 'پس منظر',
-        browse: 'تلاش کریں',
         cancel: 'منسوخ کریں',
-        center: 'مرکز',
-        change_desktop_background: 'ڈیسک ٹاپ کا پس منظر تبدیل کریں',
         change_email: 'ای میل تبدیل کریں',
         change_language: 'زبان تبدیل کریں',
         change_password: 'پاس ورڈ تبدیل کریں',
-        change_ui_colors: 'یوزر انٹرفیس کے رنگ تبدیل کریں۔',
         change_username: 'صارف کا نام تبدیل کریں',
         close: 'بند کریں',
-        close_all_windows: 'تمام ونڈوز بند کریں',
-        close_all_windows_confirm: 'کیا آپ واقعی تمام ونڈوز بند کرنا چاہتے ہیں؟',
         close_all_windows_and_log_out: 'ونڈوز بند کریں اور لاگ آؤٹ کریں۔',
         change_always_open_with: 'کیا آپ ہمیشہ اس قسم کی فائل کو کھولنا چاہتے ہیں۔',
-        color: 'رنگ',
         confirm_2fa_setup: 'میں نے کوڈ کو اپنی تصدیق کنندہ ایپ میں شامل کر دیا ہے۔',
         confirm_2fa_recovery:
       'میں نے اپنے ریکوری کوڈز کو محفوظ جگہ پر محفوظ کر لیا ہے۔',
@@ -76,13 +66,11 @@ const ur = {
         contact_us: 'ہم سے رابطہ کریں',
         contact_us_verification_required:
       'اسے استعمال کرنے کے لیے آپ کے پاس تصدیق شدہ ای میل پتہ ہونا ضروری ہے۔',
-        contain: 'شامل کریں',
         continue: 'جاری رہے',
         copy: 'کاپی کریں',
         copy_link: 'لنک کاپی کریں',
         copying: 'کاپی کر رہا ہے',
         copying_file: '%% کاپی کر رہا ہے',
-        cover: 'احاطہ',
         create_account: 'اکاؤنٹ بنائیں',
         create_free_account: 'مفت اکاؤنٹ بنائیں',
         create_shortcut: 'شارٹ کٹ تخلیق کریں',
@@ -90,7 +78,6 @@ const ur = {
         current_password: 'موجودہ پاس ورڈ',
         cut: 'کاٹیں',
         date_modified: 'تاریخ تبدیل',
-        default: 'پہلے سے طے شدہ',
         delete: 'حذف کریں',
         delete_account: 'اکاؤنٹ حذف کریں',
         delete_permanently: 'مستقل حذف کریں',
@@ -100,16 +87,13 @@ const ur = {
         desktop: 'ڈیسک ٹاپ',
         desktop_background_fit: 'ڈیسک ٹاپ کا پس منظر مناسب ہو',
         developers: 'ڈویلپرز',
-        dir_published_as_website: 'ڈائریکٹری کو ویب سائٹ کے طور پر شائع کیا گیا',
         disable_2fa: '2FA کو غیر فعال کریں۔',
         disable_2fa_confirm: 'کیا آپ واقعی 2FA کو غیر فعال کرنا چاہتے ہیں؟',
         disable_2fa_instructions:
       '2FA کو غیر فعال کرنے کے لیے اپنا پاس ورڈ درج کریں۔',
-        disassociate_dir: 'ڈائرکٹری کو الگ کریں۔',
         documents: 'دستاویزات',
         download: 'ڈاؤن لوڈ کریں ',
         download_file: 'فائل ڈاؤن لوڈ کریں',
-        downloading: 'ڈاؤن لوڈ ہو رہا ہے ',
         email: 'ای میل',
         email_change_confirmation_sent:
       'ایک تصدیقی ای میل آپ کے نئے ای میل پتے پر بھیج دیا گیا ہے۔ براہ کرم اپنا ان باکس چیک کریں اور عمل کو مکمل کرنے کے لیے ہدایات پر عمل کریں۔',
@@ -121,8 +105,6 @@ const ur = {
         emptying_trash: 'کچرا خالی ہو رہا ہے',
         enable_2fa: '2FA کو فعال کریں۔',
         end_hard: 'ہارڈ کو ختم کریں۔',
-        end_process_force_confirm:
-      'کیا آپ واقعی اس عمل کو زبردستی چھوڑنا چاہتے ہیں؟',
         end_soft: 'اینڈ نرم',
         enlarged_qr_code: 'بڑھا ہوا QR کوڈ',
         enter_password_to_confirm_delete_user:
@@ -133,38 +115,31 @@ const ur = {
         feedback: 'رائے ',
         feedback_c2a: ' رائے ',
         feedback_sent_confirmation: 'تبادلہ رائے بھیجے جانے کی تصدیق ',
-        fit: 'فٹ',
-        force_quit: 'زبردستی چھوڑیں۔',
         forgot_pass_c2a: 'پاس ورڈ بھول گئے ہیں؟',
         from: 'سے',
         general: 'عام ',
         get_a_copy_of_on_puter: "Puter.com پر '%%' کی ایک کاپی حاصل کریں!",
         get_copy_link: 'کاپی لنک حاصل کریں',
-        hide_all_windows: 'تمام ونڈوز چھپائیں ',
         home: 'گھر',
         html_document: 'ایچ ٹی ایم ایل دستاویز',
         hue: 'رنگت',
-        image: 'تصویر',
         incorrect_password: 'غلط پاس ورڈ',
         invite_link: 'دعوتی لنک',
         item: 'آئٹم',
         items_in_trash_cannot_be_renamed:
       'کچرے میں موجود اشیاء کا نام تبدیل نہیں کیا جا سکتا',
         jpeg_image: 'جے پی ای جی_تصویر',
-        keep_in_taskbar: 'ٹاسک بار میں رکھیں ',
         language: 'زبان',
         license: 'License',
         lightness: 'لائسنس',
         link_copied: 'لنک کاپی ہو گیا۔',
         loading: 'لوڈ ہو رہا ہے۔',
         log_in: 'لاگ ان کریں',
-        log_into_another_account_anyway: 'بہر حال دوسرے اکاؤنٹ میں لاگ ان کریں۔',
         log_out: 'لاگ آؤٹ',
         looks_good: 'اچھا لگ رہا ہے!',
         manage_sessions: 'سیشنز کا نظم کریں۔',
         move: 'منتقل کریں',
         moving_file: 'منتقل ہو رہا ہے %%',
-        my_websites: 'میری ویب سائٹیں ',
         name: 'نام',
         name_cannot_be_empty: 'نام خالی نہیں ہو سکتا',
         name_cannot_contain_double_period: 'نام میں ڈبل پرانا نہیں ہو سکتا ',
@@ -178,8 +153,6 @@ const ur = {
         new_password: 'نیا پاس ورڈ ',
         new_username: 'نیا صارف کا نام ',
         no: 'نہیں',
-        no_dir_associated_with_site: 'کوئی ڈائریکٹری سائٹ سے منسلک نہیں ہے',
-        no_websites_published: 'کوئی ویب سائٹیں شائع نہیں ہوئیں',
         ok: 'ٹھیک ہے',
         open: 'کھولیں',
         open_in_new_tab: 'نئی ٹیب میں کھولیں',
@@ -200,8 +173,6 @@ const ur = {
         paste: 'چسپاں کریں',
         paste_into_folder: 'فولڈر میں چسپاں کریں',
         personalization: 'متشکل',
-        pick_name_for_website: 'ویب سائٹ کے لئے نام منتخب کریں ',
-        picture: 'تصویر ',
         pictures: 'تصویریں',
         plural_suffix: 'س',
         powered_by_puter_js:
@@ -212,34 +183,22 @@ const ur = {
         privacy: 'رازداری',
         proceed_to_login: 'لاگ ان کرنے کے لیے آگے بڑھیں۔',
         proceed_with_account_deletion: 'اکاؤنٹ حذف کرنے کے ساتھ آگے بڑھیں۔',
-        process_status_initializing: 'شروع کر رہا ہے۔',
-        process_status_running: 'چل رہا ہے۔',
-        process_type_app: 'ایپ',
-        process_type_init: 'اس میں',
-        process_type_ui: 'UI',
         properties: 'خصوصیات ',
         public: 'عوام',
         publish: 'شائع کریں',
         publish_as_website: 'ویب سائٹ کے طور پر شائع کریں',
         puter_description: 'Puter ایک رازداری کا پہلا ذاتی کلاؤڈ ہے جو آپ کی تمام فائلوں، ایپس اور گیمز کو ایک محفوظ جگہ پر رکھتا ہے، کسی بھی وقت کہیں سے بھی قابل رسائی ہے۔',
         reading_file: 'پڑھنا %strong%',
-        recent: 'حال ہی میں',
-        recommended: 'تجویز کردہ',
         recover_password: 'پاس ورڈ بازیاب کریں ',
         refer_friends_c2a:
       '! ہر دوست کے اکاؤنٹ بنانے اور اکاؤنٹ کی تصدیق کرنے پر 1 گیگابائٹ حاصل کریں۔ آپ کا دوست بھی 1 گیگابائٹ حاصل کرے گا ',
         refer_friends_social_media_c2a:
       'پیوٹر ڈاٹ کام پر مفت 1 گیگابائٹ ذخیرہ حاصل کریں!',
         refresh: 'تازہ کریں ',
-        release_address_confirmation: 'ایڈریس کی تصدیق جاری ',
-        remove_from_taskbar: 'ٹاسک بار سے ہٹائیں ',
         rename: 'دوبارہ نام دیں',
-        repeat: 'دہرایؐں',
         replace: 'بدل دیں۔',
         replace_all: 'سبھی کو تبدیل کریں۔',
         resend_confirmation_code: 'تصدیقی کوڈ دوبارہ بھیجیں',
-        reset_colors: 'رنگوں کو دوبارہ ترتیب دیں۔',
-        restart_puter_confirm: 'کیا آپ واقعی Puter کو دوبارہ شروع کرنا چاہتے ہیں؟',
         restore: 'بحال کریں',
         saturation: 'سنترپتی',
         save_account: 'اکاؤنٹ محفوظ کریں۔',
@@ -248,24 +207,18 @@ const ur = {
         save_account_to_publish: 'شائع کرنے کے لئے اکاؤنٹ محفوظ کریں',
         save_session: 'سیشن محفوظ کریں۔',
         save_session_c2a: 'سیشن کو محفوظ کریں ',
-        scan_qr_c2a:
-      '!دیے گئے کوڈ کو اسکین کریں! تاکہ دوسری ڈیواسؐز سے اس سیشن میں لاگ ان کیا جا سکے',
         scan_qr_2fa: 'اپنی تصدیق کنندہ ایپ سے QR کوڈ اسکین کریں۔',
-        scan_qr_generic:
-      'اس QR کوڈ کو اپنے فون یا کسی دوسرے آلے کا استعمال کرکے اسکین کریں۔',
         search: 'تلاش کریں۔',
         seconds: 'سیکنڈ',
         security: 'سیکورٹی',
         select: 'منتخب کریں',
         selected: 'منتخب شدہ',
-        select_color: 'رنگ منتخب کریں',
         send: 'بھیجیں',
         send_password_recovery_email: 'پاس ورڈ بحالی ای میل بھیجیں',
         session_saved: 'سیشن محفوظ ہوگیا ہے ',
         settings: 'ترتیبات',
         set_new_password: 'نیا پاس ورڈ مقرر کریں ',
         share_to: ' کے ساتھ شیئر کریں',
-        show_all_windows: 'تمام ونڈوز دکھائیں ',
         show_hidden: 'پوشیدہ دکھائیں ',
         sign_in_with_puter: 'پیوٹر کے ساتھ سائن ان کریں',
         sign_up: 'سائن اپ کریں',
@@ -274,15 +227,10 @@ const ur = {
         skip: 'چھوڑ دو',
         something_went_wrong: 'کچھ غلط ہو گیا۔',
         sort_by: ' ترتیب دیں',
-        start: 'شروع کریں ',
         status: 'حالت',
         storage_usage: 'اسٹوریج کا استعمال',
         storage_puter_used: 'Puter کی طرف سے استعمال کیا جاتا ہے',
         taking_longer_than_usual: 'عام طور پر سے زیادہ وقت لگ رہا ہے ',
-        task_manager: 'ٹاسک مینیجر',
-        taskmgr_header_name: 'نام',
-        taskmgr_header_status: 'حالت',
-        taskmgr_header_type: 'قسم',
         terms: 'شرائط',
         text_document: 'متن دستاویز',
         tos_fineprint: 'براہ کرم "مفت اکاؤنٹ بنائیں" پر کلک کرکے ',
@@ -294,7 +242,6 @@ const ur = {
         type: 'لکہنا',
         type_confirm_to_delete_account:
       "اپنا اکاؤنٹ حذف کرنے کے لیے 'تصدیق' ٹائپ کریں۔",
-        ui_colors: 'UI رنگ',
         ui_manage_sessions: 'سیشن مینیجر',
         ui_revoke: 'منسوخ کرنا',
         undo: 'واپسی کریں',
@@ -310,7 +257,6 @@ const ur = {
         videos: 'ویڈیوز',
         visibility: 'مرئیت',
         yes: 'جی ہاں',
-        yes_release_it: 'ہاں اسے جاری کریں',
         you_have_been_referred_to_puter_by_a_friend:
       'آپ کو ایک دوست نے پیوٹر کی جانب رجوع کیا ہے!',
         zip: 'زپ فائل',
@@ -435,30 +381,16 @@ const ur = {
         'create_shortcut_s': 'شارٹ کٹس بنائیں', // In English: "Create Shortcuts"
         'minimize': 'چھوٹا کریں', // In English: "Minimize"
         'reload_app': 'ایپ دوبارہ لوڈ کریں', // In English: "Reload App"
-        'new_window': 'نیا ونڈو', // In English: "New Window"
-        'open_trash': 'ری سائیکل بن کھولیں', // In English: "Open Trash"
-        'pick_name_for_worker': 'اپنے ورکر کے لیے ایک نام منتخب کریں:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'ورکر کے طور پر شائع کریں', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'فل اسکرین پر جائیں', // In English: "Enter Full Screen"
         'toolbar.github': 'گیٹ ہب', // In English: "GitHub"
         'toolbar.refer': 'ریفر کریں', // In English: "Refer"
-        'toolbar.save_account': 'اکاؤنٹ محفوظ کریں', // In English: "Save Account"
-        'toolbar.search': 'تلاش کریں', // In English: "Search"
-        'toolbar.qrcode': 'کیو آر کوڈ', // In English: "QR Code"
         'used_of': '{{used}} استعمال شدہ از {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'ورکر', // In English: "Worker"
         'billing.offering.basic': 'بنیادی', // In English: "Basic"
         'too_many_attempts': 'بہت زیادہ کوششیں۔ براہ کرم بعد میں دوبارہ کوشش کریں۔', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'سرور کے جواب میں بہت زیادہ وقت لگ گیا۔ براہ کرم دوبارہ کوشش کریں۔', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'سائن اپ کے دوران ایک خرابی پیش آئی۔ براہ کرم دوبارہ کوشش کریں۔', // In English: "An error occurred during signup. Please try again."
-        'welcome_title': 'اپنے ذاتی انٹرنیٹ کمپیوٹر میں خوش آمدید', // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': 'فائلیں محفوظ کریں، گیمز کھیلیں، زبردست ایپس تلاش کریں، اور بھی بہت کچھ! سب کچھ ایک ہی جگہ پر، ہر جگہ اور ہر وقت دستیاب۔', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': 'شروع کریں', // In English: "Get Started"
-        'welcome_terms': 'شرائط', // In English: "Terms"
-        'welcome_privacy': 'رازداری', // In English: "Privacy"
-        'welcome_developers': 'ڈیولپرز', // In English: "Developers"
-        'welcome_open_source': 'اوپن سورس', // In English: "Open Source"
-        'welcome_instant_login_title': 'فوری لاگ ان!', // In English: "Instant Login!"
         'alert_error_title': 'خرابی!', // In English: "Error!"
         'alert_warning_title': 'انتباہ!', // In English: "Warning!"
         'alert_info_title': 'معلومات', // In English: "Info"
@@ -476,19 +408,12 @@ const ur = {
         'window_title_select_font': 'فونٹ منتخب کریں…', // In English: "Select font…"
         'window_title_session_list': 'سیشن فہرست!', // In English: "Session List!"
         'window_title_set_new_password': 'نیا پاس ورڈ سیٹ کریں', // In English: "Set New Password"
-        'window_title_instant_login': 'فوری لاگ ان!', // In English: "Instant Login!"
         'window_title_publish_website': 'ویب سائٹ شائع کریں', // In English: "Publish Website"
         'window_title_publish_worker': 'ورکر شائع کریں', // In English: "Publish Worker"
         'window_title_authenticating': 'تصدیق جاری ہے...', // In English: "Authenticating..."
         'window_title_refer_friend': 'کسی دوست کو ریفر کریں!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'ڈیسک ٹاپ دکھائیں', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'کھلی ہوئی ونڈوز دکھائیں', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'فل اسکرین سے باہر نکلیں', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'فل اسکرین پر جائیں', // In English: "Enter Full Screen"
-        'desktop_position': 'پوزیشن', // In English: "Position"
-        'desktop_position_left': 'بائیں', // In English: "Left"
-        'desktop_position_bottom': 'نیچے', // In English: "Bottom"
-        'desktop_position_right': 'دائیں', // In English: "Right"
         'item_shared_with_you': 'کسی صارف نے یہ آئٹم آپ کے ساتھ شیئر کیا ہے۔', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'آپ نے یہ آئٹم کم از کم ایک دوسرے صارف کے ساتھ شیئر کیا ہے۔', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'شارٹ کٹ', // In English: "Shortcut"
@@ -503,8 +428,6 @@ const ur = {
         'window_title_pictures': 'تصاویر', // In English: "Pictures"
         'window_title_puter': 'پیوٹر', // In English: "Puter"
         'window_folder_empty': 'یہ فولڈر خالی ہے', // In English: "This folder is empty"
-        'manage_your_subdomains': 'اپنے سب ڈومینز کو منظم کریں', // In English: "Manage Your Subdomains"
-        'open_containing_folder': 'موجودہ فولڈر کھولیں', // In English: "Open Containing Folder"
 
     },
 };

@@ -93,7 +93,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  * minimize, and maximize buttons.
  * @property {number} [height] Height of the window in pixels.
  * @property {boolean} [is_resizable] If `true`, the user can resize the window.
- * @property {boolean} [show_in_taskbar] If `true`, the window is represented in the taskbar.
+ * @property {boolean} [show_in_taskbar] Deprecated and ignored.
  * @property {string} [title] Title of the window.
  * @property {number} [width] Width of the window in pixels.
  */
@@ -110,8 +110,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  * @property {FSItem[]} [items] `FSItem` objects to open with the launched app.
  * @property {string} [pseudonym] A pseudonym to launch the app under.
  * @property {boolean} [background] If `true`, the app starts with its window hidden, for an app
- * launched to do work rather than to be looked at. It still appears in the taskbar, so the user can
- * show it (or close it) at any time, and it can show itself with `puter.ui.showWindow()`.
+ * launched to do work rather than to be looked at. It can show itself with `puter.ui.showWindow()`.
  * @property {(connection: AppConnection) => void} [callback]
  */
 
@@ -173,7 +172,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  * Options that configure `showColorPicker()`.
  *
  * @typedef {Object} ColorPickerOptions
- * @property {string} [defaultColor] The color initially selected when the picker opens.
+ * @property {string} [defaultColor] The color initially selected when the picker opens, as a hex string. Alpha in an 8-digit hex is ignored.
  */
 
 /**
@@ -1670,12 +1669,13 @@ export class UIModule extends EventListener {
     };
 
     /**
-     * Shows a color picker. Resolves to the chosen color. Accepts either a
-     * default color or an options object. `default` and `defaultValue` are
-     * legacy aliases for `defaultColor`.
+     * Shows a color picker. Resolves to the chosen color as a lowercase
+     * 6-digit hex string (`#rrggbb`), or `null` if the user cancels. Accepts
+     * either a default color or an options object. `default` and
+     * `defaultValue` are legacy aliases for `defaultColor`.
      *
      * @param {string | (ColorPickerOptions & { default?: string, defaultValue?: string })} [options]
-     * @returns {Promise<string>}
+     * @returns {Promise<string | null>}
      */
     showColorPicker (options) {
         if ( this.messageTarget ) {

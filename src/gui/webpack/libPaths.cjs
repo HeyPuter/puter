@@ -27,7 +27,6 @@ module.exports = [
     'jquery.dragster.js',
     'html-entities.js',
     'timeago.min.js',
-    'iro.min.js',
     'isMobile.min.js',
     'fflate-0.8.2.min.js',
 ];

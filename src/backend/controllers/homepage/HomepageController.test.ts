@@ -79,6 +79,7 @@ interface CapturedResponse {
     statusCode: number;
     body: unknown;
     contentType?: string;
+    location?: string;
 }
 
 const makeReq = (init: {
@@ -87,6 +88,7 @@ const makeReq = (init: {
     actor?: Actor;
     hostname?: string;
     protocol?: string;
+    originalUrl?: string;
 }): Request => {
     return {
         body: {},
@@ -94,6 +96,7 @@ const makeReq = (init: {
         headers: {},
         params: init.params ?? {},
         path: init.path ?? '/',
+        originalUrl: init.originalUrl ?? init.path ?? '/',
         hostname: init.hostname ?? 'test.local',
         protocol: init.protocol ?? 'http',
         actor: init.actor,
@@ -129,6 +132,11 @@ const makeRes = () => {
         }),
         type: vi.fn((value: string) => {
             captured.contentType = value;
+            return res;
+        }),
+        redirect: vi.fn((location: string) => {
+            captured.statusCode = 302;
+            captured.location = location;
             return res;
         }),
     };
@@ -214,22 +222,71 @@ describe('HomepageController shell routes', () => {
         expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
     });
 
-    it('serves the shell on /settings, /dashboard, /desktop, /action, /@:username', async () => {
-        for (const path of [
-            '/settings',
-            '/settings/*splat',
-            '/dashboard',
-            '/dashboard/',
-            '/desktop',
-            '/desktop/',
-            '/action/*splat',
-            '/@:username',
-        ]) {
+    it('leaves guiTokenDigest out for a session cookie that is not a user session', async () => {
+        const { actor } = await makeUser();
+        const appActor = {
+            ...actor,
+            app: { id: 1, uid: 'app-test' },
+            session: { uid: uuidv4() },
+        } as unknown as Actor;
+        const req = Object.assign(makeReq({ path: '/', actor: appActor }), {
+            tokenSource: 'cookie',
+            cookies: { puter_token_v2: 'legacy' },
+        });
+        const { res, captured } = makeRes();
+        await callRoute('get', '/', req, res);
+        expect(String(captured.body)).not.toContain('guiTokenDigest');
+    });
+
+    it('serves the shell on /dashboard and /action', async () => {
+        for (const path of ['/dashboard', '/dashboard/', '/action/*splat']) {
             const { res, captured } = makeRes();
             await callRoute('get', path, makeReq({ path }), res);
             expect(typeof captured.body).toBe('string');
             expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
         }
+    });
+
+    it('redirects /desktop to the root, keeping the query', async () => {
+        for (const path of ['/desktop', '/desktop/']) {
+            const { res, captured } = makeRes();
+            await callRoute(
+                'get',
+                path,
+                makeReq({ path, originalUrl: `${path}?ref=abc&x=1` }),
+                res,
+            );
+            expect(captured.statusCode).toBe(302);
+            expect(captured.location).toBe('/?ref=abc&x=1');
+            expect(captured.body).toBeUndefined();
+        }
+
+        const { res, captured } = makeRes();
+        await callRoute('get', '/desktop', makeReq({ path: '/desktop' }), res);
+        expect(captured.location).toBe('/');
+    });
+
+    it('redirects /settings to the dashboard Home tab', async () => {
+        for (const path of ['/settings', '/settings/*splat']) {
+            const { res, captured } = makeRes();
+            await callRoute('get', path, makeReq({ path }), res);
+            expect(captured.statusCode).toBe(302);
+            expect(captured.location).toBe('/dashboard#home');
+            expect(captured.body).toBeUndefined();
+        }
+    });
+
+    it('redirects /@:username to the dashboard', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/@:username',
+            makeReq({ path: '/@alice', params: { username: 'alice' } }),
+            res,
+        );
+        expect(captured.statusCode).toBe(302);
+        expect(captured.location).toBe('/');
+        expect(captured.body).toBeUndefined();
     });
 });
 
@@ -360,47 +417,21 @@ describe('HomepageController GET /app/:name', () => {
         expect(html).not.toContain('owner_user_id');
     });
 
-    it('serves the same app shell under /desktop/app/:name', async () => {
-        const { userId } = await makeUser();
-        const name = `desk-${Math.random().toString(36).slice(2, 10)}`;
-        await server.stores.app.create(
-            {
-                name,
-                title: 'Desktop App',
-                description: 'opens on the desktop instead of the dashboard',
-                index_url: `https://example.com/${name}/`,
-                approved_for_listing: 1,
-            },
-            { ownerUserId: userId },
-        );
-
-        const { res, captured } = makeRes();
-        await callRoute(
-            'get',
-            '/desktop/app/:name',
-            makeReq({ params: { name }, path: `/desktop/app/${name}` }),
-            res,
-        );
-
-        expect(captured.statusCode).toBe(200);
-        const html = String(captured.body);
-        expect(html).toMatch(/<!DOCTYPE html>/i);
-        expect(html).toContain('Desktop App');
-    });
-
-    it('returns 404 under /desktop/app/:name when the app is unknown', async () => {
+    it('redirects /desktop/app/:name to /app/:name, keeping the query', async () => {
         const { res, captured } = makeRes();
         await callRoute(
             'get',
             '/desktop/app/:name',
             makeReq({
-                params: { name: 'no-such-app' },
-                path: '/desktop/app/no-such-app',
+                params: { name: 'editor' },
+                path: '/desktop/app/editor',
+                originalUrl: '/desktop/app/editor?file=%2Falice%2Fa.txt&x=1',
             }),
             res,
         );
-        expect(captured.statusCode).toBe(404);
-        expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
+        expect(captured.statusCode).toBe(302);
+        expect(captured.location).toBe('/app/editor?file=%2Falice%2Fa.txt&x=1');
+        expect(captured.body).toBeUndefined();
     });
 
     it('omits index_url even for a public app — the shell is not the launch authority', async () => {
@@ -434,19 +465,17 @@ describe('HomepageController GET /app/:name', () => {
 // -- app landing rate limit --
 
 describe('HomepageController app landing rate limit', () => {
-    it('rate-limits /app/:name and /desktop/app/:name per network', () => {
-        for (const path of ['/app/:name', '/desktop/app/:name']) {
-            const route = router.routes.find(
-                (r) => r.method === 'get' && r.path === path,
-            );
-            if (!route) throw new Error(`No GET ${path} route`);
-            expect(route.options.rateLimit).toEqual({
-                scope: 'app-landing',
-                limit: 600,
-                window: 60_000,
-                key: 'ip',
-            });
-        }
+    it('rate-limits /app/:name per network', () => {
+        const route = router.routes.find(
+            (r) => r.method === 'get' && r.path === '/app/:name',
+        );
+        if (!route) throw new Error('No GET /app/:name route');
+        expect(route.options.rateLimit).toEqual({
+            scope: 'app-landing',
+            limit: 600,
+            window: 60_000,
+            key: 'ip',
+        });
     });
 });
 

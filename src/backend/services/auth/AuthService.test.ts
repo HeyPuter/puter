@@ -186,6 +186,96 @@ describe('AuthService (integration)', () => {
         });
     });
 
+    describe('signedSessionClaims', () => {
+        it('names the user and session of a session token', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                {},
+            );
+            expect(authService.signedSessionClaims(token)).toEqual({
+                userUid: user.uuid,
+                sessionUuid: (session as { uuid: string }).uuid,
+            });
+        });
+
+        it('names the app too for an app token', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const sessionUuid = uuidv4();
+            const token = server.services.token.sign('auth', {
+                type: 'app-under-user',
+                version: '2',
+                user_uid: user.uuid,
+                app_uid: appUid,
+                session_uid: sessionUuid,
+            });
+            expect(authService.signedSessionClaims(token)).toEqual({
+                userUid: user.uuid,
+                sessionUuid,
+                appUid,
+            });
+        });
+
+        it('reads the session from `uuid` on a token without `session_uid`', () => {
+            const [userUid, sessionUuid] = [uuidv4(), uuidv4()];
+            const token = server.services.token.sign('auth', {
+                type: 'gui',
+                version: '0.0.0',
+                uuid: sessionUuid,
+                user_uid: userUid,
+            });
+            expect(authService.signedSessionClaims(token)).toEqual({
+                userUid,
+                sessionUuid,
+            });
+        });
+
+        it('returns null for worker, access, expired, tampered and session-less tokens', async () => {
+            const user = await makeUser();
+            const accessToken = await authService.createAccessToken(
+                {
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                } as Actor,
+                [[`user:${user.uuid}:email:read`]],
+            );
+            const sign = (claims: Record<string, unknown>, expiresIn?: number) =>
+                server.services.token.sign(
+                    'auth',
+                    claims,
+                    expiresIn === undefined ? undefined : { expiresIn },
+                );
+            const sessionUuid = uuidv4();
+            const session = {
+                type: 'session',
+                version: '2',
+                uuid: sessionUuid,
+                session_uid: sessionUuid,
+                user_uid: user.uuid,
+            };
+            const valid = sign(session);
+            for (const token of [
+                accessToken,
+                sign({ ...session, worker: true, worker_name: 'w' }),
+                sign({
+                    type: 'app-under-user',
+                    version: '2',
+                    user_uid: user.uuid,
+                    app_uid: `app-${uuidv4()}`,
+                }),
+                sign(session, -120),
+                `${valid.slice(0, -4)}AAAA`,
+                'not-a-jwt',
+            ]) {
+                expect(authService.signedSessionClaims(token)).toBeNull();
+            }
+        });
+    });
+
     // ── Rich `authenticate()` result shape ──────────────────────────
 
     describe('authenticate (reauth signal)', () => {
@@ -3099,7 +3189,7 @@ describe('AuthService (integration)', () => {
             const emit = vi.spyOn(server.clients.event, 'emit');
             const announced = () =>
                 emit.mock.calls.filter(
-                    (c) => c[0] === 'auth.access-token.revoked',
+                    (c) => c[0] === 'outer.auth.access-token.revoked',
                 ).length;
 
             const scoped = await authService.createAccessToken(actor, [
@@ -3115,6 +3205,35 @@ describe('AuthService (integration)', () => {
             expect(announced()).toBe(1);
 
             emit.mockRestore();
+        });
+
+        it('announces a desktop app token it replaces past its max age', async () => {
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user);
+            const actor = makeActor({
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                session: { uid: String(session.uuid), kind: 'web' },
+            });
+            const app = { uid: `app-${uuidv4()}`, title: 'Retire probe' };
+            const { token } = await authService.getGodmodeAppToken(actor, app);
+            const { token_uid } = server.services.token.verify<{
+                token_uid: string;
+            }>('auth', token);
+
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            const later = Date.now() + 8 * 24 * 60 * 60 * 1000;
+            vi.spyOn(Date, 'now').mockReturnValue(later);
+            try {
+                await authService.getGodmodeAppToken(actor, app);
+                expect(emit).toHaveBeenCalledWith(
+                    'outer.auth.access-token.revoked',
+                    { token_uid },
+                    {},
+                );
+            } finally {
+                vi.mocked(Date.now).mockRestore();
+                emit.mockRestore();
+            }
         });
 
         it('revokeAccessToken rejects with 404 when the token belongs to another user', async () => {

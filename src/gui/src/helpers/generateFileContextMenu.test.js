@@ -23,18 +23,14 @@ import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 vi.mock('../UI/UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../UI/UIWindowItemProperties.js', () => ({ default: vi.fn() }));
-vi.mock('../UI/UIWindowPublishWorker.js', () => ({ default: vi.fn() }));
-vi.mock('../UI/UIWindowShare.js', () => ({ default: vi.fn() }));
-vi.mock('./publishAsWebsite.js', () => ({ default: vi.fn() }));
-vi.mock('./ensureCanPublish.js', () => ({ default: vi.fn() }));
 vi.mock('./openItem.js', () => ({ default: vi.fn() }));
 vi.mock('./openWithAI.js', () => ({ default: vi.fn() }));
 vi.mock('./launchApp.js', () => ({ default: vi.fn() }));
-vi.mock('./pathOwner.js', () => ({ is_owned_by_me: () => false }));
+vi.mock('./pathOwner.js', () => ({ is_owned_by_me: vi.fn(() => false) }));
 vi.mock('./sharedAccess.js', () => ({
     can_rename: async () => false,
     can_restructure: async () => false,
-    can_share: async () => false,
+    can_share: vi.fn(async () => false),
     invalidate_shared_roots: vi.fn(),
 }));
 
@@ -53,6 +49,8 @@ const { default: generate_file_context_menu } =
 const { default: launch_app } = await import('./launchApp.js');
 const { default: UIAlert } = await import('../UI/UIAlert.js');
 const { unshareAnswering, allRefused, goneRefused } = await import('../../tests/fixtures/sdkUnshare.js');
+const { can_share } = await import('./sharedAccess.js');
+const { is_owned_by_me } = await import('./pathOwner.js');
 
 const sharedRow = () => {
     const row = document.createElement('div');
@@ -88,6 +86,93 @@ it('does not offer it on a share held through a team', async () => {
     expect(await labels({ holderTeam: team })).not.toContain(
         'share_remove_from_shared',
     );
+});
+
+describe('Share', () => {
+    const shareItem = async (options) => {
+        can_share.mockResolvedValueOnce(true);
+        const items = await generate_file_context_menu({
+            element: sharedRow(),
+            fsentry: { name: 'notes.txt', path: '/ann/uid-1/notes.txt' },
+            associated_app_name: 'editor',
+            ...options,
+        });
+        return items.find((item) => item !== '-' && item.html === 'share_ellipsis');
+    };
+
+    it('hands the item to onShare', async () => {
+        const onShare = vi.fn();
+        await (await shareItem({ onShare })).onClick();
+        expect(onShare).toHaveBeenCalledWith(expect.objectContaining({
+            name: 'notes.txt',
+            path: '/ann/uid-1/notes.txt',
+        }));
+    });
+
+    it('is left out without onShare', async () => {
+        expect(await shareItem({})).toBeUndefined();
+    });
+});
+
+describe('Publish as Website', () => {
+    const publishItem = async (options) => {
+        is_owned_by_me.mockReturnValueOnce(true);
+        can_share.mockResolvedValueOnce(true);
+        const row = document.createElement('div');
+        row.setAttribute('data-path', '/me/Site');
+        row.setAttribute('data-name', 'Site');
+        const items = await generate_file_context_menu({
+            element: row,
+            fsentry: { uid: 'dir-1', name: 'Site', path: '/me/Site', is_dir: true },
+            associated_app_name: 'editor',
+            ...options,
+        });
+        return items.find((item) => item !== '-' && item.html === 'publish_as_website');
+    };
+
+    it('hands the folder to onPublishWebsite', async () => {
+        const onPublishWebsite = vi.fn();
+        await (await publishItem({ onPublishWebsite })).onClick();
+        expect(onPublishWebsite).toHaveBeenCalledWith({
+            uid: 'dir-1',
+            name: 'Site',
+            path: '/me/Site',
+        });
+    });
+
+    it('is left out without onPublishWebsite', async () => {
+        expect(await publishItem({})).toBeUndefined();
+    });
+});
+
+describe('Publish as Worker', () => {
+    const publishItem = async (options) => {
+        is_owned_by_me.mockReturnValueOnce(true);
+        const row = document.createElement('div');
+        row.setAttribute('data-path', '/me/worker.js');
+        row.setAttribute('data-name', 'worker.js');
+        const items = await generate_file_context_menu({
+            element: row,
+            fsentry: { uid: 'file-1', name: 'worker.js', path: '/me/worker.js' },
+            associated_app_name: 'editor',
+            ...options,
+        });
+        return items.find((item) => item !== '-' && item.html === 'publish_as_serverless_worker');
+    };
+
+    it('hands the file to onPublishWorker', async () => {
+        const onPublishWorker = vi.fn();
+        await (await publishItem({ onPublishWorker })).onClick();
+        expect(onPublishWorker).toHaveBeenCalledWith({
+            uid: 'file-1',
+            name: 'worker.js',
+            path: '/me/worker.js',
+        });
+    });
+
+    it('is left out without onPublishWorker', async () => {
+        expect(await publishItem({})).toBeUndefined();
+    });
 });
 
 describe('Remove from Shared', () => {

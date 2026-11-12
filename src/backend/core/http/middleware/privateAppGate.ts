@@ -86,6 +86,10 @@ export interface PrivateIdentity {
     hasValidPrivateCookie?: boolean;
 }
 
+type PublicCookieClaims = Awaited<
+    ReturnType<AuthService['verifyHostedAssetToken']>
+>;
+
 interface SubdomainLike {
     user_id?: number | null;
 }
@@ -533,8 +537,63 @@ export async function resolvePublicHostedIdentity(opts: {
         }
     }
 
+    const { name: publicCookieNameV2, legacyName: publicCookieNameLegacy } =
+        HOSTED_ASSET_COOKIES.public;
+    const publicCookieToken =
+        (typeof cookies?.[publicCookieNameV2] === 'string'
+            ? cookies[publicCookieNameV2]
+            : null) ??
+        (typeof cookies?.[publicCookieNameLegacy] === 'string'
+            ? cookies[publicCookieNameLegacy]
+            : null);
+    let publicCookieClaims: Promise<PublicCookieClaims | null> | undefined;
+    const verifyPublicCookie = () =>
+        (publicCookieClaims ??= (async () => {
+            if (!publicCookieToken) return null;
+            try {
+                return await authService.verifyHostedAssetToken(
+                    'public',
+                    publicCookieToken,
+                    {
+                        appUid: expectedAppUid,
+                        subdomain: expectedSubdomain,
+                        host: expectedHost,
+                    },
+                );
+            } catch {
+                // v1-signed cookies land here and get re-minted.
+                return null;
+            }
+        })());
+    const publicCookieIdentity = (claims: PublicCookieClaims) => ({
+        source: 'public-cookie' as const,
+        userUid: claims.userUid,
+        sessionUuid: claims.sessionUuid,
+        hasValidPublicCookie: true,
+    });
+
     const bootstrap = getBootstrapToken(req);
     if (bootstrap) {
+        // A launched app's own assets carry its launch token in the Referer.
+        // When that token names the cookie's user and session, the cookie
+        // already stands for it and nothing needs re-authenticating or minting.
+        if (
+            bootstrap.source === 'referrer' &&
+            publicCookieToken &&
+            expectedAppUid
+        ) {
+            const named = authService.signedSessionClaims(bootstrap.token);
+            if (named && (!named.appUid || named.appUid === expectedAppUid)) {
+                const claims = await verifyPublicCookie();
+                if (
+                    claims &&
+                    claims.userUid === named.userUid &&
+                    claims.sessionUuid === named.sessionUuid
+                ) {
+                    return publicCookieIdentity(claims);
+                }
+            }
+        }
         try {
             const actor = await authService.authenticateFromToken(
                 bootstrap.token,
@@ -554,36 +613,8 @@ export async function resolvePublicHostedIdentity(opts: {
         }
     }
 
-    const { name: publicCookieNameV2, legacyName: publicCookieNameLegacy } =
-        HOSTED_ASSET_COOKIES.public;
-    const publicCookieToken =
-        (typeof cookies?.[publicCookieNameV2] === 'string'
-            ? cookies[publicCookieNameV2]
-            : null) ??
-        (typeof cookies?.[publicCookieNameLegacy] === 'string'
-            ? cookies[publicCookieNameLegacy]
-            : null);
-    if (publicCookieToken) {
-        try {
-            const claims = await authService.verifyHostedAssetToken(
-                'public',
-                publicCookieToken,
-                {
-                    appUid: expectedAppUid,
-                    subdomain: expectedSubdomain,
-                    host: expectedHost,
-                },
-            );
-            return {
-                source: 'public-cookie',
-                userUid: claims.userUid,
-                sessionUuid: claims.sessionUuid,
-                hasValidPublicCookie: true,
-            };
-        } catch {
-            /* fall through — v1-signed cookies land here and get re-minted */
-        }
-    }
+    const claims = await verifyPublicCookie();
+    if (claims) return publicCookieIdentity(claims);
 
     return { source: 'none' };
 }
