@@ -18,7 +18,6 @@
  */
 
 import UIWindow from './UIWindow.js';
-import UIWindowMyWebsites from './UIWindowMyWebsites.js';
 import { underPath } from '../helpers/pathElements.js';
 
 async function UIWindowPublishWebsite (target_dir_uid, target_dir_name, target_dir_path) {
@@ -122,12 +121,7 @@ async function UIWindowPublishWebsite (target_dir_uid, target_dir_name, target_d
 
         } catch ( err ) {
             const errorMessage = err.message || (err.error && err.error.message) || 'An error occurred while publishing';
-            $(el_window).find('.publish-website-error-msg').html(
-                errorMessage + (
-                    err.error && err.error.code === 'subdomain_limit_reached' ?
-                        ` <span class="manage-your-websites-link">${ i18n('manage_your_subdomains') }</span>` : ''
-                ),
-            );
+            $(el_window).find('.publish-website-error-msg').html(errorMessage);
             $(el_window).find('.publish-website-error-msg').fadeIn();
             // re-enable 'Publish' button
             $(el_window).find('.publish-btn').prop('disabled', false);
@@ -138,9 +132,5 @@ async function UIWindowPublishWebsite (target_dir_uid, target_dir_name, target_d
         $(el_window).close();
     });
 }
-
-$(document).on('click', '.manage-your-websites-link', async function (e) {
-    UIWindowMyWebsites();
-});
 
 export default UIWindowPublishWebsite;

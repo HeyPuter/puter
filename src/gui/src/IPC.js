@@ -32,7 +32,6 @@ import UIPrompt from './UI/UIPrompt.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
-import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
 import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
@@ -1625,26 +1624,34 @@ const ipc_listener = async (event, handled) => {
             return;
         }
 
-        // set options
-        if ( typeof event.data.options === 'string' ) {
-            event.data.options = { defaultColor: event.data.options };
-        }
-        event.data.options = event.data.options ?? {};
+        const options = typeof event.data.options === 'string'
+            ? { defaultColor: event.data.options }
+            : (event.data.options ?? {});
+        const requested_color = options.defaultValue ?? options.defaultColor ?? options.default;
+        // The picker has no alpha, so an 8-digit hex loses its last two digits.
+        // Anything still not a 3- or 6-digit hex is left out: older builds of
+        // the picker fail to open on it.
+        const default_color = typeof requested_color === 'string'
+            ? requested_color.trim().replace(/^(#?[0-9a-f]{6})[0-9a-f]{2}$/i, '$1')
+            : '';
 
-        // Clear window_options for security reasons
-        event.data.options.window_options = {};
+        // The same picker puter.js shows outside Puter, so an app gets one
+        // answer shape everywhere: a 6-digit hex string, or null on cancel.
+        const picker = document.createElement('puter-color-picker');
+        if ( /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.test(default_color) ) picker.setAttribute('default-color', default_color);
+        const selected_color = await new Promise((resolve) => {
+            picker.addEventListener('response', (e) => resolve(e.detail ?? null), { once: true });
+            document.body.appendChild(picker);
+            picker.open();
+        });
+        // Older builds leave the element behind when Escape closes it.
+        picker.remove();
 
-        // Set app as parent window of the font picker window
-        event.data.options.window_options.parent_uuid = event.data.appInstanceID;
-
-        // Open color picker
-        let selected_color = await UIWindowColorPicker(event.data.options);
-
-        // Send selected color to requester window
-        target_iframe.contentWindow.postMessage({
+        // The app may have closed while the picker was up.
+        target_iframe.contentWindow?.postMessage({
             msg: 'colorPicked',
             original_msg_id: msg_id,
-            color: selected_color ? selected_color.color : undefined,
+            color: selected_color,
         }, '*');
         $(target_iframe).get(0).focus({ preventScroll: true });
     }

@@ -3343,8 +3343,7 @@ p.myapps-add-error {
 }
 
 /* -- Share modal --
-   Responsive, from-scratch replacement for UIWindowShare in the Dashboard:
-   a centered card on desktop, a bottom sheet on mobile. Mirrors the item
+   A centered card on desktop, a bottom sheet on mobile. Mirrors the item
    properties modal's shell so the two read as one system. */
 .share-modal-overlay {
     position: fixed;
@@ -3705,9 +3704,8 @@ select.share-modal-row-mode:disabled {
     font-size: 16px;
 }
 
-/* Recipient suggestions. The structure lives in style.css, shared with the
-   desktop share dialog; only the palette is restated here so the list picks
-   up the dashboard's tokens in both themes. */
+/* Recipient suggestions. The structure lives in style.css; only the palette
+   is set here so the list picks up the dashboard's tokens in both themes. */
 .share-modal {
     --share-suggest-bg: var(--dashboard-card-background);
     --share-suggest-border: var(--dashboard-border);

@@ -29,25 +29,18 @@ const id = {
         add_another_account: 'Tambahkan Akun Lain',
         all_fields_required: 'Semua kolom diperlukan.',
         allow: 'Izinkan',
-        apply: 'Terapkan',
         ascending: 'Menaik',
         associated_websites: 'Situs Web Terkait',
         auto_arrange: 'Atur Otomatis',
-        background: 'Latar Belakang',
-        browse: 'Jelajahi',
         cancel: 'Batal',
-        center: 'Tengah',
-        change_desktop_background: 'Ubah latar belakang desktop…',
         change_email: 'Ubah Email',
         change_language: 'Ubah Bahasa',
         change_password: 'Ubah Kata Sandi',
         change_username: 'Ubah Nama Pengguna',
         close: 'Tutup',
         close_all_windows: 'Tutup Semua Jendela',
-        close_all_windows_confirm: 'Apakah Anda yakin ingin menutup semua jendela?',
         close_all_windows_and_log_out: 'Tutup Jendela dan Keluar',
         change_always_open_with: 'Apakah Anda ingin selalu membuka jenis file ini dengan',
-        color: 'Warna',
         confirm: 'Konfirmasi',
         confirm_2fa_setup: 'Saya telah menambahkan kode ke aplikasi autentikator saya',
         confirm_2fa_recovery: 'Saya telah menyimpan kode pemulihan saya di tempat yang aman',
@@ -77,13 +70,11 @@ const id = {
         contact_us: 'Hubungi Kami',
         contact_us_verification_required:
       'Anda harus memiliki alamat email yang terverifikasi untuk menggunakan ini.',
-        contain: 'Berisi',
         continue: 'Lanjutkan',
         copy: 'Salin',
         copy_link: 'Salin Tautan',
         copying: 'Menyalin',
         copying_file: 'Menyalin berkas',
-        cover: 'Sampul',
         create_account: 'Buat Akun',
         create_free_account: 'Buat Akun Gratis',
         create_shortcut: 'Buat Pintasan',
@@ -93,7 +84,6 @@ const id = {
         close_all: 'Tutup Semua',
         created: 'Dibuat',
         date_modified: 'Tanggal diubah',
-        default: 'Bawaan',
         delete: 'Hapus',
         delete_account: 'Hapus Akun',
         delete_permanently: 'Hapus Permanen',
@@ -107,7 +97,6 @@ const id = {
         disable_2fa: 'Nonaktifkan 2FA',
         disable_2fa_confirm: 'Apakah Anda yakin ingin menonaktifkan 2FA?',
         disable_2fa_instructions: 'Masukkan kata sandi Anda untuk menonaktifkan 2FA.',
-        disassociate_dir: 'Pisahkan Direktori',
         documents: 'Dokumen',
         dont_allow: 'Jangan Izinkan',
         download: 'Unduh',
@@ -124,7 +113,6 @@ const id = {
         emptying_trash: 'Mengosongkan Sampah…',
         enable_2fa: 'Aktifkan 2FA',
         end_hard: 'Paksa Akhiri',
-        end_process_force_confirm: 'Apakah Anda yakin menghentikan paksa proses ini?',
         end_soft: 'Akhiri',
         enlarged_qr_code: 'Kode QR Diperbesar',
         enter_password_to_confirm_delete_user:
@@ -138,9 +126,7 @@ const id = {
       'Silakan gunakan formulir di bawah ini untuk mengirimkan umpan balik, komentar, dan laporan bug kepada kami.',
         feedback_sent_confirmation:
       'Terima kasih telah menghubungi kami. Jika Anda memiliki email yang terhubung dengan akun Anda, Anda akan menerima balasan dari kami sesegera mungkin.',
-        fit: 'Cocokkan',
         folder: 'Folder',
-        force_quit: 'Paksa Keluar',
         forgot_pass_c2a: 'Lupa kata sandi?',
         from: 'Dari',
         general: 'Umum',
@@ -150,7 +136,6 @@ const id = {
         home: 'Beranda',
         html_document: 'Dokumen HTML',
         hue: 'Hue',
-        image: 'Gambar',
         incorrect_password: 'Kata sandi salah',
         invite_link: 'Tautan Undangan',
         item: 'barang',
@@ -163,14 +148,12 @@ const id = {
         link_copied: 'Tautan disalin',
         loading: 'Memuat',
         log_in: 'Masuk',
-        log_into_another_account_anyway: 'Tetap masuk ke akun lain',
         log_out: 'Keluar',
         looks_good: 'Tampak bagus!',
         manage_sessions: 'Kelola Sesi',
         modified: 'Dimodifikasi',
         move: 'Pindahkan',
         moving_file: 'Memindahkan %%',
-        my_websites: 'Situs Web Saya',
         name: 'Nama',
         name_cannot_be_empty: 'Nama tidak boleh kosong.',
         name_cannot_contain_double_period: "Nama tidak boleh mengandung karakter '..'.",
@@ -184,9 +167,6 @@ const id = {
         new_password: 'Kata Sandi Baru',
         new_username: 'Nama Pengguna Baru',
         no: 'Tidak',
-        no_dir_associated_with_site: 'Tidak ada direktori yang terkait dengan alamat ini.',
-        no_websites_published:
-      'Anda belum memublikasikan situs web. Klik kanan pada folder untuk memulai.',
         ok: 'OK',
         open: 'Buka',
         open_in_new_tab: 'Buka di Tab Baru',
@@ -212,7 +192,6 @@ const id = {
         path: 'Lokasi',
         personalization: 'Personalisasi',
         pick_name_for_website: 'Pilih nama untuk situs web Anda:',
-        picture: 'Gambar',
         pictures: 'Gambar',
         plural_suffix: 's',
         powered_by_puter_js: 'Ditenagai oleh {{link=docs}}Puter.js{{/link}}',
@@ -222,32 +201,22 @@ const id = {
         privacy: 'Privasi',
         proceed_to_login: 'Lanjutkan masuk',
         proceed_with_account_deletion: 'Lanjutkan Penghapusan Akun',
-        process_status_initializing: 'Memulai',
-        process_status_running: 'Berjalan',
-        process_type_app: 'Aplikasi',
-        process_type_init: 'Inisialisasi',
-        process_type_ui: 'Tampilan',
         properties: 'Properti',
         public: 'Publik',
         publish: 'Publikasi',
         publish_as_website: 'Publikasikan sebagai situs web',
         puter_description: 'Puter adalah cloud pribadi yang mengutamakan privasi untuk menyimpan semua file, aplikasi, dan permainan Anda di satu tempat yang aman, dapat diakses dari mana pun dan kapan pun.',
         reading_file: 'Membaca %strong%',
-        recent: 'Terbaru',
-        recommended: 'Direkomendasikan',
         recover_password: 'Pulihkan Kata Sandi',
         refer_friends_c2a:
       'Dapatkan 1 GB untuk setiap teman yang membuat dan mengonfirmasi akun di Puter. Teman Anda juga akan mendapatkan 1 GB!',
         refer_friends_social_media_c2a: 'Dapatkan 1 GB penyimpanan gratis di Puter.com!',
         refresh: 'Muat Ulang',
-        release_address_confirmation: 'Apakah Anda yakin ingin melepaskan alamat ini?',
         remove_from_taskbar: 'Hapus dari Bilah Tugas',
         rename: 'Ganti Nama',
-        repeat: 'Ulangi',
         replace: 'Ganti',
         replace_all: 'Ganti Semua',
         resend_confirmation_code: 'Kirim Ulang Kode Konfirmasi',
-        restart_puter_confirm: 'Apakah Anda yakin ingin memulai ulang Puter?',
         restore: 'Pulihkan',
         save: 'Simpan',
         saturation: 'Saturasi',
@@ -257,15 +226,12 @@ const id = {
         save_session: 'Simpan sesi',
         save_session_c2a:
       'Buat akun untuk menyimpan sesi Anda saat ini agar yang Anda kerjakan tidak hilang.',
-        scan_qr_c2a: 'Pindai kode di bawah ini\nuntuk masuk ke sesi ini dari perangkat lain',
         scan_qr_2fa: 'Pindai kode QR dengan aplikasi autentikator Anda',
-        scan_qr_generic: 'Pindai kode QR ini menggunakan ponsel atau perangkat lain Anda',
         search: 'Pencarian',
         seconds: 'detik',
         security: 'Keamanan',
         select: 'Pilih',
         selected: 'dipilih',
-        select_color: 'Pilih warna…',
         sessions: 'Sesi',
         send: 'Kirim',
         send_password_recovery_email: 'Kirim Email Pemulihan Kata Sandi',
@@ -274,7 +240,6 @@ const id = {
         set_new_password: 'Tetapkan Kata Sandi Baru',
         share: 'Bagikan',
         share_to: 'Bagikan ke',
-        share_with: 'Bagikan dengan:',
         shortcut_to: 'Pintasan ke',
         show_all_windows: 'Tampilkan Semua Jendela',
         show_hidden: 'Tampilkan yang tersembunyi',
@@ -285,16 +250,11 @@ const id = {
         skip: 'Lewatkan',
         something_went_wrong: 'Terjadi kesalahan.',
         sort_by: 'Urutkan berdasarkan',
-        start: 'Mulai',
         status: 'Status',
         storage_usage: 'Penggunaan Penyimpanan',
         storage_puter_used: 'digunakan oleh Puter',
         taking_longer_than_usual:
       'Memakan waktu sedikit lebih lama dari biasanya. Silakan tunggu...',
-        task_manager: 'Pengelola Tugas',
-        taskmgr_header_name: 'Nama',
-        taskmgr_header_status: 'Status',
-        taskmgr_header_type: 'Tipe',
         terms: 'Persyaratan',
         text_document: 'Dokumen Teks',
         tos_fineprint: 'Dengan mengklik \'Buat Akun Gratis\', Anda menyetujui {{link=terms}}Syarat Layanan{{/link}} dan {{link=privacy}}Kebijakan Privasi{{/link}} Puter.',
@@ -320,7 +280,6 @@ const id = {
         videos: 'Video',
         visibility: 'Visibilitas',
         yes: 'Ya',
-        yes_release_it: 'Ya, Lepaskan',
         you_have_been_referred_to_puter_by_a_friend:
       'Anda telah dirujuk ke Puter oleh seorang teman!',
         zip: 'Zip',
@@ -431,28 +390,16 @@ const id = {
         'reload_app': 'Muat Ulang Aplikasi', // In English: "Reload App"
         'new_window': 'Jendela Baru', // In English: "New Window"
         'open_trash': 'Buka Tempat Sampah', // In English: "Open Trash"
-        'pick_name_for_worker': 'Tentukan nama untuk worker Anda:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Publikasikan sebagai Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
         'toolbar.github': 'Github', // In English: "GitHub"
         'toolbar.refer': 'Rujuk', // In English: "Refer"
-        'toolbar.save_account': 'Simpan Akun', // In English: "Save Account"
-        'toolbar.search': 'Cari', // In English: "Search"
-        'toolbar.qrcode': 'Kode QR', // In English: "QR Code"
         'used_of': 'terpakai {{used}} dari {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker".
         'billing.offering.basic': 'Basic', // In English: "Basic"
         'too_many_attempts': 'Terlalu banyak percobaan. Silakan coba kembali nanti', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'Server terlalu lama merespons. Silakan coba kembali nanti', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Terjadi kegagalan saat proses daftar. Silakan coba kembali nanti', // In English: "An error occurred during signup. Please try again."
-        'welcome_title': 'Selamat datang di Komputer Internet Pribadi Anda', // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': 'Simpan berkas, mainkan permainan, temukan aplikasi keren, dan masih banyak lagi! Semua dalam satu tempat, Mudah diakses di mana pun, kapan pun.', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': 'Ayo Mulai', // In English: "Get Started"
-        'welcome_terms': 'Persyaratan', // In English: "Terms"
-        'welcome_privacy': 'Privasi', // In English: "Privacy"
-        'welcome_developers': 'Pengembang', // In English: "Developers"
-        'welcome_open_source': 'Sumber Terbuka', // In English: "Open Source"
-        'welcome_instant_login_title': 'Login Instan', // In English: "Instant Login!"
         'alert_error_title': 'Galat!', // In English: "Error!"
         'alert_warning_title': 'Peringatan!', // In English: "Warning!"
         'alert_info_title': 'Informasi', // In English: "Info"
@@ -470,7 +417,6 @@ const id = {
         'window_title_select_font': 'Pilih font...', // In English: "Select font…"
         'window_title_session_list': 'Daftar Sesi', // In English: "Session List!"
         'window_title_set_new_password': 'Tentukan Kata Sandi Baru', // In English: "Set New Password"
-        'window_title_instant_login': 'Login Instan', // In English: "Instant Login!"
         'window_title_publish_website': 'Publikasikan Situs Web', // In English: "Publish Website"
         'window_title_publish_worker': 'Publikasikan Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Proses Autentikasi...', // In English: "Authenticating..."
@@ -497,8 +443,6 @@ const id = {
         'window_title_pictures': 'Gambar', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Folder ini kosong', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Kelola Subdomain Anda', // In English: "Manage Your Subdomains"
-        'open_containing_folder': 'Buka Folder Saat Ini', // In English: "Open Containing Folder"
 
     },
 };

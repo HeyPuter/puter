@@ -173,7 +173,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  * Options that configure `showColorPicker()`.
  *
  * @typedef {Object} ColorPickerOptions
- * @property {string} [defaultColor] The color initially selected when the picker opens.
+ * @property {string} [defaultColor] The color initially selected when the picker opens, as a hex string. Alpha in an 8-digit hex is ignored.
  */
 
 /**
@@ -1670,12 +1670,13 @@ export class UIModule extends EventListener {
     };
 
     /**
-     * Shows a color picker. Resolves to the chosen color. Accepts either a
-     * default color or an options object. `default` and `defaultValue` are
-     * legacy aliases for `defaultColor`.
+     * Shows a color picker. Resolves to the chosen color as a lowercase
+     * 6-digit hex string (`#rrggbb`), or `null` if the user cancels. Accepts
+     * either a default color or an options object. `default` and
+     * `defaultValue` are legacy aliases for `defaultColor`.
      *
      * @param {string | (ColorPickerOptions & { default?: string, defaultValue?: string })} [options]
-     * @returns {Promise<string>}
+     * @returns {Promise<string | null>}
      */
     showColorPicker (options) {
         if ( this.messageTarget ) {

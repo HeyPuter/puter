@@ -22,28 +22,22 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 vi.mock('../helpers/launchApp.js', () => ({ default: vi.fn() }));
-vi.mock('./UIContextMenu.js', () => ({ default: vi.fn() }));
 
 globalThis.$ = globalThis.jQuery = jQuery;
-globalThis.i18n = (key) => (key === 'start' ? 'Start' : key);
+globalThis.i18n = (key) => key;
 globalThis.html_encode = (value) => String(value ?? '');
 globalThis.isMobile = { phone: false, tablet: false };
 await import('../lib/jquery-ui-1.13.2/jquery-ui.js');
 const { default: UITaskbar } = await import('./UITaskbar.js');
 
-const app = { name: 'test-app', uuid: 'test-uid', title: 'Test app' };
-let launchApps;
-let start;
 let requests;
 
 afterEach(() => {
-    $('.popover-launcher, .taskbar').remove();
+    $('.taskbar').remove();
     $(document).off();
     $(window).off();
     document.body.innerHTML = '';
-    delete window.launch_apps;
     vi.unstubAllGlobals();
-    vi.useRealTimers();
     vi.restoreAllMocks();
 });
 
@@ -56,126 +50,26 @@ beforeEach(async () => {
         api_origin: 'http://api.test',
         auth_token: 'test-token',
         icons: {},
-        user: {},
-        launch_recent_apps_count: 10,
+        user: { taskbar_items: [{ name: 'notes', title: 'Notes' }] },
+        trash_path: '/test/Trash',
     });
     vi.stubGlobal('puter', {
         kv: { get: async () => 'bottom' },
         fs: { stat: async () => ({ is_empty: true }) },
     });
-    launchApps = { recent: [app], recommended: [] };
     requests = [];
-    $.ajaxTransport('+*', () => {
-        let complete;
-        const request = {
-            send(headers, done) {
-                complete = done;
-            },
-            abort: vi.fn(),
-            resolve(data) {
-                complete(
-                    200,
-                    'OK',
-                    { text: JSON.stringify(data) },
-                    'Content-Type: application/json',
-                );
-            },
-        };
-        requests.push(request);
-        return request;
+    $.ajaxTransport('+*', (options) => {
+        requests.push(options.url);
+        return { send () {}, abort () {} };
     });
     await UITaskbar();
-    requests[0].resolve(launchApps);
-    start = $('.taskbar-item[data-name="Start"]');
 });
 
-it.each([true, false])(
-    'keeps cached search usable after a timeout, cached=%s',
-    async (cached) => {
-        if (!cached) window.launch_apps = [];
-        vi.spyOn(console, 'error').mockImplementation(() => {});
-        vi.useFakeTimers();
-        start.trigger('click');
-        await vi.advanceTimersByTimeAsync(30000);
-        expect(requests.at(-1).abort).toHaveBeenCalledOnce();
-        expect($('.launch-search')).toHaveLength(1);
-        expect($('.start-app')).toHaveLength(cached ? 1 : 0);
-    },
-);
-
-function deferRefresh() {
-    return (data) => requests.at(-1).resolve(data);
-}
-
-it('refreshes reopened Start without losing cached tiles or search input', async () => {
-    const survivor = {
-        name: 'survivor',
-        uuid: 'survivor-uid',
-        title: 'Survivor',
-    };
-    launchApps.recent.push(survivor);
-    start.trigger('click');
-    requests.at(-1).resolve(launchApps);
-    start.trigger('click');
-    const resolve = deferRefresh();
-    start.trigger('click');
-    const input = $('.launch-search').get(0);
-    expect(input).toBeDefined();
-    expect($('.start-app[data-app-name="test-app"]')).toHaveLength(1);
-    input.value = 'notes';
-    const onChange = vi.fn();
-    $(input).on('change', onChange);
-    resolve({
-        recent: [survivor],
-        recommended: [{ name: 'notes', uuid: 'notes-uid', title: 'Notes' }],
-    });
-    await vi.waitFor(() =>
-        expect($('.start-app[data-app-name="notes"]')).toHaveLength(1),
-    );
-    expect($('.launch-search').get(0)).toBe(input);
-    expect(input.value).toBe('notes');
-    expect(document.activeElement).toBe(input);
-    expect(onChange).toHaveBeenCalledOnce();
-    expect($('.start-app[data-app-name="survivor"]')).toHaveLength(1);
-    expect($('.start-app[data-app-name="test-app"]')).toHaveLength(0);
+it('starts the taskbar at Explorer, followed by pinned apps and Trash', () => {
+    const apps = $('.taskbar .taskbar-item').map((_, el) => el.dataset.app).get();
+    expect(apps).toEqual(['explorer', 'separator', 'notes', 'separator', 'trash']);
 });
 
-it('cancels closed menus and ignores their late responses', () => {
-    start.trigger('click');
-    const old = requests.at(-1);
-    start.trigger('click');
-    expect(old.abort).toHaveBeenCalledOnce();
-    start.trigger('click');
-    requests.at(-1).resolve({ recent: [], recommended: [] });
-    old.resolve({ recent: [app], recommended: [] });
-    expect(window.launch_apps.recent).toHaveLength(0);
-    expect($('.start-app')).toHaveLength(0);
-});
-
-it('cancels the startup request when Start opens', async () => {
-    requests = [];
-    document.body.innerHTML = '<div class="desktop"></div>';
-    await UITaskbar();
-    const startup = requests[0];
-    $('.taskbar-item[data-name="Start"]').trigger('click');
-    expect(startup.abort).toHaveBeenCalledOnce();
-});
-
-it('hides apps the backend marks unlaunchable', () => {
-    start.trigger('click');
-    requests.at(-1).resolve({
-        recent: [
-            app,
-            {
-                name: 'reclaimed',
-                uuid: 'reclaimed-uid',
-                title: 'Reclaimed',
-                index_url: null,
-                privateAccess: { hasAccess: false },
-            },
-        ],
-        recommended: [],
-    });
-    expect($('.start-app[data-app-name="test-app"]')).toHaveLength(1);
-    expect($('.start-app[data-app-name="reclaimed"]')).toHaveLength(0);
+it('does not fetch launch apps when the taskbar loads', () => {
+    expect(requests.filter(url => url.includes('/get-launch-apps'))).toEqual([]);
 });

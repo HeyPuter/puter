@@ -3087,10 +3087,6 @@ window.initgui = async function (options) {
 
         // click on anything will close all popovers, but there are some exceptions
         if (
-            !$(e.target).hasClass('start-app') &&
-            !$(e.target).hasClass('launch-search') &&
-            !$(e.target).hasClass('launch-search-clear') &&
-            $(e.target).closest('.start-app').length === 0 &&
             !isMobile.phone &&
             !isMobile.tablet &&
             !$(e.target).hasClass('popover') &&
@@ -3145,14 +3141,6 @@ window.initgui = async function (options) {
         ) {
             return;
         }
-        // if toolbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('toolbar') ||
-            $(e.target).closest('.toolbar').length > 0
-        ) {
-            return;
-        }
-
         // if close or minimize button clicked, drop the event
         if (
             document
@@ -3234,16 +3222,6 @@ function requestOpenerOrigin() {
 
 $(document).on('click', '.generic-close-window-button', function (e) {
     $(this).closest('.window').close();
-});
-
-$(document).on('click', function (e) {
-    if (
-        !$(e.target).hasClass('window-search') &&
-        $(e.target).closest('.window-search').length === 0 &&
-        !$(e.target).is('.toolbar-btn.search-btn')
-    ) {
-        $('.window-search').close();
-    }
 });
 
 // Re-calculate desktop height and width on window resize and re-position the login and signup windows

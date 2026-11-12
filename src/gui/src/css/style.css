@@ -1694,71 +1694,6 @@ span.header-sort-icon img {
     width: 110px;
 }
 
-.mywebsites-card {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    position: relative;
-    border: 1px solid #CCC;
-    padding: 10px;
-    margin-bottom: 10px;
-    border-radius: 4px;
-    background-color: white;
-}
-
-.mywebsites-address-link {
-    color: #0d6efd;
-    text-decoration: none;
-}
-
-.mywebsites-address-link:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-dir-path {
-    cursor: pointer;
-    font-size: 14px;
-    margin-bottom: 0;
-}
-
-.mywebsites-dir-path img {
-    width: 16px;
-    margin-bottom: -3px;
-    margin-right: 5px;
-}
-
-.mywebsites-dir-path:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-dis-dir {
-    cursor: pointer;
-}
-
-.mywebsites-dis-dir:hover {
-    text-decoration: underline;
-}
-
-.mywebsites-no-dir-notice {
-    margin-bottom: 0;
-    color: #7e7e7e;
-    font-size: 14px;
-}
-
-.mywebsites-release-address {
-    color: red;
-    cursor: pointer;
-    font-size: 13px;
-}
-
-.mywebsites-site-setting {
-    position: absolute;
-    right: 5px;
-    top: 5px;
-    cursor: pointer;
-    width: 20px;
-    height: 20px;
-}
-
 /***********************
  * Context Menu
  ***********************/
@@ -2116,114 +2051,7 @@ label {
     font-size: 14px;
 }
 
-/***********************************
- * Toolbar
- ***********************************/
-
-.toolbar {
-    background-color: #00000040;
-    height: 30px;
-    position: relative;
-    z-index: 999999;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: row;
-    justify-content: flex-end;
-    align-content: center;
-    flex-wrap: wrap;
-    padding-right: 10px;
-    left: 50%;
-    right: 50%;
-    left: 50%;
-    transform: translate(-50%);
-    top: 0px;
-    border-top-right-radius: 0px;
-    border-top-left-radius: 0px;
-    border-bottom-left-radius: 10px;
-    border-bottom-right-radius: 10px;
-    width: max-content;
-    overflow: clip;
-    box-shadow: rgb(255 255 255 / 14%) 0px 0px 0px 0.5px inset, rgba(0, 0, 0, 0.2) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.2) 0px 2px 14px;
-    position: absolute;
-    overflow-y: hidden;
-}
-
-.toolbar-hidden {
-    box-shadow: rgb(255 255 255 / 44%) 0px 0px 0px 0.5px inset, rgba(0, 0, 0, 0.2) 0px 0px 0px 0.5px, rgba(0, 0, 0, 0.2) 0px 2px 14px;
-}
-
-.device-phone .toolbar {
-    z-index: 1;
-}
-
-@supports ((backdrop-filter: blur())) {
-    .toolbar {
-        background-color: #00000040;
-        backdrop-filter: blur(10px);
-    }
-}
-
-.toolbar-btn {
-    padding: 4px;
-    font-size: 14px;
-    width: auto;
-    padding: 0 5px;
-    margin-left: 20px;
-    overflow-y: hidden !important;
-    overflow-x: hidden !important;
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
-    display: inline-block;
-    width: 22px;
-    height: 22px;
-    padding: 3px;
-    box-sizing: border-box;
-    background-origin: content-box;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    opacity: 0.8;
-}
-
-.toolbar-btn:hover {
-    opacity: 1 !important;
-}
-
-.toolbar-hidden .toolbar-btn {
-    opacity: 0;
-}
-
-.user-options-menu-btn.has-open-contextmenu {
-    background-color: rgb(255 255 255 / 35%);
-    border-radius: 3px;
-}
-
-.user-options-menu-username {
-    color: black;
-    margin-left: 5px;
-    display: block;
-    max-width: 70px;
-    text-overflow: ellipsis;
-    float: right;
-    overflow: hidden;
-}
-
-.user-options-menu-username:empty {
-    margin-left: 0;
-}
-
-.user-options-login-btn, .user-options-create-account-btn {
-    padding: 0 15px;
-}
-
-.toolbar-btn:hover:not(.has-open-contextmenu) {
-    background-color: rgb(255 255 255 / 15%);
-    border-radius: 3px;
-}
-/***************************************************/
-
-.login-error-msg, .signup-error-msg, .publish-website-error-msg, .form-error-msg, .publish-worker-error-msg {
+.login-error-msg, .signup-error-msg, .publish-website-error-msg, .form-error-msg {
     display: none;
     color: red;
     border: 1px solid red;
@@ -2232,10 +2060,6 @@ label {
     margin-bottom: 15px;
     text-align: center;
     font-size: 13px;
-}
-
-.publish-worker-error-msg{
-    text-align: left;
 }
 
 .signup-blocked-overlay {
@@ -2325,29 +2149,23 @@ label {
     margin-top: 20px;
 }
 
-.window-publishWebsite-success, .window-give-item-access-success, .window-publishWorker-success {
+.window-publishWebsite-success, .window-give-item-access-success {
     display: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     height: auto;
 }
 
-.manage-your-websites-link {
-    color: #007cff;
-    text-decoration: underline;
-    cursor: pointer;
-}
-
-.publishWebsite-published-link, .publishWorker-published-link {
+.publishWebsite-published-link {
     text-decoration: none;
     color: #007cff;
 }
 
-.publishWebsite-published-link:hover, .publishWorker-published-link:hover {
+.publishWebsite-published-link:hover {
     text-decoration: underline;
 }
 
-.publishWebsite-published-link-icon, .publishWorker-published-link-icon {
+.publishWebsite-published-link-icon {
     display: inline-block;
     width: 12px;
     margin-left: 5px;
@@ -2679,103 +2497,6 @@ label {
     color: #fff;
     border-radius: 5px;
     border: 1px solid #4092da;
-}
-
-.feedback-sent-success {
-    display: none;
-    padding: 10px;
-    margin-bottom: 20px;
-    border: 1px solid #59d959;
-    border-radius: 3px;
-    background-color: #e4f9e4;
-    position: relative;
-}
-
-/* Contact Us attachments (screenshots and screen recordings on bug reports) */
-.feedback-form {
-    border: 1px dashed transparent;
-    border-radius: 4px;
-    /* Hold the dashed drop outline off the fields without shifting them. */
-    margin: -6px;
-    padding: 6px;
-}
-
-.feedback-form-dragover {
-    border-color: #4092da;
-    background-color: rgb(64 146 218 / 6%);
-}
-
-.feedback-attachments {
-    margin-top: 10px;
-}
-
-.feedback-attach-hint {
-    display: block;
-    margin-top: 6px;
-    font-size: 12px;
-    color: #5f6b7a;
-}
-
-.feedback-attachment-list {
-    list-style: none;
-    margin: 8px 0 0;
-    padding: 0;
-}
-
-.feedback-attachment {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 8px;
-    margin-bottom: 4px;
-    font-size: 13px;
-    border: 1px solid #dfe3e8;
-    border-radius: 4px;
-    background-color: #fff;
-}
-
-.feedback-attachment-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.feedback-attachment-size {
-    flex-shrink: 0;
-    color: #5f6b7a;
-    font-size: 12px;
-}
-
-.feedback-attachment-remove {
-    flex-shrink: 0;
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    border: none;
-    border-radius: 3px;
-    background: none;
-    color: #5f6b7a;
-    font-size: 17px;
-    line-height: 18px;
-    cursor: pointer;
-}
-
-.feedback-attachment-remove:hover:not(:disabled) {
-    background-color: #eef1f4;
-    color: #12181f;
-}
-
-.feedback-attachment-remove:disabled {
-    opacity: 0.5;
-    cursor: default;
-}
-
-.feedback-error {
-    margin: 10px 0 0;
-    font-size: 13px;
-    color: #b3261e;
 }
 
 .save-account-success {
@@ -3162,115 +2883,6 @@ label {
     100% { transform: rotate(360deg); }
 }
 
-/*****************************************************
- * Task Manager
- *****************************************************/
-
-.task-manager-container {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    background-color: rgba(255,255,255,0.8);
-    border: 2px inset rgba(127, 127, 127, 0.3);
-    overflow: auto;
-}
-
-.task-manager-container table {
-    box-sizing: border-box;
-    border-collapse: collapse;
-    width: 100%;
-}
-
-.task-manager-container thead th {
-    box-shadow: 0 1px 4px -2px rgba(0,0,0,0.2);
-    backdrop-filter: blur(2px);
-    position: sticky;
-    z-index: 100;
-    padding: calc(10 * var(--scale)) calc(2.5 * var(--scale)) calc(5 * var(--scale)) calc(2.5 * var(--scale));
-    top: 0;
-    background-color: hsla(0, 0%, 100%, 0.8);
-    text-align: left;
-    border-bottom: 1px solid var(--dashboard-border);
-    padding: 5px;
-}
-
-.task-manager-container thead th:not(:last-of-type) {
-    border-right: 1px solid var(--dashboard-border);
-}
-
-.task-manager-container tbody > tr > td {
-    border-bottom: 1px solid var(--dashboard-border);
-    padding: 0 calc(2.5 * var(--scale));
-    vertical-align: middle;
-    padding-left: 0;
-}
-
-.task-manager-container td > span {
-    padding: 0 calc(2.5 * var(--scale));
-}
-
-.task {
-    display: flex;
-    height: calc(10 * var(--scale));
-    line-height: calc(10 * var(--scale));
-}
-
-.task-name {
-    flex-grow: 1;
-    padding-left: calc(2.5 * var(--scale));
-}
-
-.task-indentation {
-    display: flex;
-}
-
-.indentcell {
-    position: relative;
-    align-items: right;
-    width: calc(10 * var(--scale));
-    height: calc(10 * var(--scale));
-}
-
-.indentcell-trunk {
-    position: absolute;
-    top: 0;
-    left: calc(5 * var(--scale));
-    width: calc(5 * var(--scale));
-    height: calc(10 * var(--scale));
-    border-left: 2px solid var(--line-color);
-}
-
-.indentcell-branch {
-    position: absolute;
-    top: 0;
-    left: calc(5 * var(--scale));
-    width: calc(5 * var(--scale));
-    height: calc(5 * var(--scale));
-    border-left: 2px solid var(--line-color);
-    border-bottom: 2px solid var(--line-color);
-    border-radius: 0 0 0 calc(2.5 * var(--scale));
-}
-
-
-.toolbar-spacer {
-    margin-right: auto;
-}
-
-.desktop-bg-settings-wrapper {
-    display: none;
-    overflow: hidden;
-}
-
-.desktop-bg-color-block {
-    width: 25px;
-    height: 25px;
-    float: left;
-    margin: 5px;
-    border: 1px solid #898989;
-    box-sizing: border-box;
-    border-radius: 2px;
-}
-
 @supports ((backdrop-filter: blur())) {
     .taskbar {
         background-color: hsla(var(--taskbar-hue),
@@ -3516,13 +3128,6 @@ label {
     box-shadow: 0px 0px 15px #00000066;
 }
 
-@supports ((backdrop-filter: blur())) {
-    .launch-popover {
-        background-color: rgba(231, 238, 245, .92);
-        backdrop-filter: blur(3px);
-    }
-}
-
 .popover-apps-item {
     clear: both;
     margin-bottom: 10px;
@@ -3678,121 +3283,6 @@ label {
     opacity: 1 !important;
 }
 
-/*****************************************************
- * Start
- *****************************************************/
-.launch-popover {
-    width: 530px;
-    height: 500px;
-    padding: 20px 20px 20px;
-    border: 1px solid #bbc2c9;
-    border-radius: 4px;
-    background-color: rgba(231, 238, 245, .92);
-    backdrop-filter: blur(3px);
-    box-sizing: border-box;
-    overflow-y: scroll;
-}
-
-.close-launch-popover {
-    position: absolute;
-    top: 2px;
-    right: 3px;
-    display: none;
-}
-
-.device-phone .close-launch-popover {
-    display: block;
-}
-
-.device-phone .launch-popover {
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh;
-    background-color: rgba(231, 238, 245);
-}
-
-.start-section-heading {
-    font-size: 13px;
-    margin: 0;
-    padding: 0;
-    height: 15px;
-    margin-left: 5px;
-    margin-right: 5px;
-    border-bottom: 1px solid #CCC;
-    padding-bottom: 10px;
-    color: #677a86;
-    clear: both;
-}
-
-.start-app-card {
-    height: 100px;
-    width: 20%;
-    float: left;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    box-sizing: content-box;
-}
-
-.start-app {
-    width: 70px;
-    height: 70px;
-    text-align: center;
-    overflow: hidden;
-    margin: 0 auto;
-    padding: 5px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    border-radius: 4px;
-    transition: 0.1s background-color;
-}
-
-.start-app-icon {
-    filter: drop-shadow(0px 0px .3px rgb(51, 51, 51));
-    display: block;
-    margin: 0 auto;
-    width: 38px;
-    height: 38px;
-    margin-top: 2px;
-}
-
-.start-app.ui-draggable-dragging {
-    background-color: transparent !important;
-    width: 40px !important;
-    height: 40px !important;
-}
-
-.start-app.ui-draggable-dragging img {
-    width: 26px !important;
-    height: 26px !important;
-}
-
-.start-app.ui-draggable-dragging .start-app-title {
-    display: none;
-}
-
-.start-app:hover, .launch-app-selected .start-app {
-    background-color: #ffffff;
-}
-
-.start-app:active {
-    background-color: white;
-}
-
-.start-app-title {
-    font-size: 12px;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    text-overflow: ellipsis;
-    display: block;
-    margin-top: 8px;
-    width: 100%;
-    box-sizing: border-box;
-    white-space: nowrap;
-    overflow: hidden;
-}
-
 /* UIWindowEmailConfirmationRequired */
 fieldset[name=number-code] {
     min-width: 0;
@@ -3877,30 +3367,6 @@ fieldset[name=number-code] {
 
 .qr-code-window-close-btn:hover, .generic-close-window-button {
     opacity: 1;
-}
-
-.welcome-window-close-button {
-    opacity: 0.7;
-    font-weight: 300;
-    top: 5px;
-    right: 5px;
-}
-
-.welcome-window-close-button:hover {
-    opacity: 1;
-}
-
-.otp-qr-code {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    flex-direction: column;
-    align-items: center;
-}
-
-.otp-qr-code img {
-    width: 355px;
-    margin-bottom: 20px;
 }
 
 .otp-as-text {
@@ -4131,47 +3597,6 @@ fieldset[name=number-code] {
     display: inline-block;
     margin-right: 10px;
 }
-
-.launch-search {
-    border-radius: 5px;
-    background-repeat: no-repeat;
-    width: 100%;
-    box-sizing: border-box;
-    background-color: white;
-    padding: 5px;
-    background-size: 20px;
-    background-position-y: center;
-    background-position-x: 5px;
-    padding-left: 35px;
-    padding-right: 35px;
-    border: 2px solid #CCC;
-}
-
-.launch-search-wrapper {
-    margin-bottom: 10px;
-    padding: 5px;
-    position: relative;
-}
-
-.device-phone .launch-search-wrapper {
-    margin-top: 15px;
-}
-
-.launch-search-clear {
-    display: none;
-    position: absolute;
-    right: 8px;
-    top: 8px;
-    height: 28px;
-    opacity: 0.5;
-}
-
-.launch-search-clear:hover {
-    opacity: 1;
-}
-
-.launch-app-selected {}
-
 
 .website-badge-popover-title {
     font-size: 14px;
@@ -4958,10 +4383,6 @@ fieldset[name=number-code] {
     margin-top: 20px;
     margin-bottom: 20px;
     background-color: #c5cdd4;
-}
-
-.profile-image-has-picture {
-    border: 1px solid white;
 }
 
 .driver-usage {
@@ -6125,73 +5546,6 @@ html.dark-mode .usage-table-fade-overlay {
     display: block;
 }
 
-.welcome-window-footer {
-    position: absolute;
-    bottom: 20px;
-}
-
-.welcome-window-footer a {
-    color: #727c8d;
-    text-decoration: none;
-    font-size: 12px;
-    -webkit-font-smoothing: antialiased;
-}
-
-.welcome-window-footer a:hover {
-    color: #1d1e23;
-}
-
-/*
-* ------------------------------------
-* Search
-* ------------------------------------
-*/
-.search-input-wrapper {
-    width: 100%;
-    border-radius: 5px;
-    padding-bottom: 10px;
-    padding-top: 20px;
-    position: absolute;
-    padding-left: 15px;
-    padding-right: 15px;
-    box-sizing: border-box;
-    background: #f1f6fc;
-}
-
-.search-input {
-    padding-left: 33px !important;
-    background-repeat: no-repeat;
-    background-position: 5px center;
-    background-size: 20px;
-}
-
-.search-results {
-    padding-right: 15px;
-    margin-top: 70px;
-    padding-left: 15px;
-    padding-right: 15px;
-    padding-bottom: 5px;
-    display: none;
-}
-
-.search-result {
-    padding: 10px;
-    cursor: pointer;
-    font-size: 13px;
-    display: flex;
-    align-items: center;
-}
-
-.search-result-active {
-    background-color: #4092da;
-    color: #fff;
-    border-radius: 5px;
-}
-
-.search-results .search-result:last-child {
-    margin-bottom: 0;
-}
-
 .device-phone .window:not(.window-alert), .device-tablet .window:not(.window-alert) {
     transform: none;
     width: 100%;
@@ -6202,17 +5556,6 @@ html.dark-mode .usage-table-fade-overlay {
     height: 100dvh !important;
 }
 
-.device-phone .window.window-search {
-    left: 50% !important;
-    transform: translateX(-50%) !important;
-    width: calc(100% - 40px);
-    max-width: calc(100% - 40px);
-    max-height: fit-content;
-    border-radius: 5px;
-
-}
-
-.device-phone .window.window-qr,
 .device-phone .window.window-progress,
 .device-phone .window.window-login-progress,
 .device-phone .window-confirm-email-using-code {
@@ -6220,14 +5563,6 @@ html.dark-mode .usage-table-fade-overlay {
     transform: translate(-50%) !important;
     height: initial !important;
     max-width: calc(100% - 30px);
-}
-
-.device-phone .window.window-task-manager {
-    height: initial !important;
-}
-
-.device-phone .window.window-feedback {
-    height: initial !important;
 }
 
 .device-phone .window.window-app-feedback {
@@ -6271,14 +5606,6 @@ html.dark-mode .usage-table-fade-overlay {
     height: 100dvh;
     top: 0 !important;
     border-radius: 0;
-}
-
-.device-phone .send-feedback-btn {
-    width: 100%;
-}
-
-.device-phone .feedback-attach-btn {
-    width: 100%;
 }
 
 /* Taskbar container */
@@ -6330,85 +5657,6 @@ html.dark-mode .usage-table-fade-overlay {
     display: flex;
     align-items: center;
     justify-content: center;
-}
-
-.device-phone .popover-launcher, .device-phone .launch-popover {
-    border-radius: 0;
-}
-
-/* Main launcher container */
-.device-phone .launch-popover {
-    /* Enable smooth scrolling on iOS */
-    -webkit-overflow-scrolling: touch;
-
-    /* Allow vertical touch scrolling while preventing horizontal */
-    touch-action: pan-y;
-
-    /* Base dimensions */
-    width: 100%;
-    height: 100%;
-
-    /* Scrolling behavior */
-    overflow-y: scroll;
-    overflow-x: hidden;
-
-    /* Background and styling */
-    background-color: rgba(231, 238, 245);
-    padding: 0;
-    margin: 0;
-
-    /* Hide scrollbars while keeping functionality */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-
-    padding-left: 10px;
-    padding-right: 10px;
-}
-
-/* Hide scrollbar while keeping functionality */
-.device-phone .launch-popover::-webkit-scrollbar {
-    display: none;
-}
-
-/* Ensure content can receive touch events */
-.device-phone .launch-popover * {
-    touch-action: pan-y;
-}
-
-/* Make sure the search wrapper doesn't interfere with scrolling */
-.launch-search-wrapper {
-    position: sticky;
-    top: -20px;
-    z-index: 1;
-    background: rgba(231, 238, 245);
-    padding-top: 7px;
-}
-
-.device-phone .launch-search-wrapper {
-    top: 0;
-}
-
-.device-phone .popover-launcher {
-    left: 50% !important;
-    border-radius: 10px;
-    top: 5px !important;
-    transform: translateX(-50%);
-    width: calc(100% - 25px);
-    height: calc(100vh - 65px);
-    height: calc(100dvh - 65px);
-}
-
-.device-phone .start-app-card {
-    width: 25%;
-}
-
-.device-phone .start-app-icon {
-    width: 50px;
-    height: 50px;
-}
-
-.device-phone .start-app-title {
-    margin-top: 5px;
 }
 
 .device-phone .desktop {
@@ -6831,7 +6079,7 @@ html.dark-mode .usage-table-fade-overlay {
 }
 
 /**
- * Share dialog
+ * Share dialog layout, used by the Blocked Senders window
  */
 .share-dialog {
     padding: 20px;
@@ -6843,29 +6091,10 @@ html.dark-mode .usage-table-fade-overlay {
     margin-bottom: 15px;
 }
 
-.share-dialog .share-recipient {
-    flex: 1;
-}
-
-.share-dialog .share-mode {
-    width: 130px;
-    flex: none;
-}
-
 /* -- Recipient suggestions --
-   Shared by this dialog and the Dashboard's share modal; each host sets the
-   palette below through its own tokens (dashboard.css restates them for
-   .share-modal). The list is anchored to the recipient row and floats over
-   what follows it, so opening and closing it never resizes the dialog. */
-.share-dialog {
-    --share-suggest-bg: #fff;
-    --share-suggest-border: #dfe3e8;
-    --share-suggest-hover: #eef1f4;
-    --share-suggest-shadow: rgba(15, 23, 42, 0.12);
-    --share-suggest-fg: #3e5362;
-    --share-suggest-muted: #7f8b99;
-    --share-suggest-picked-bg: #eef4fb;
-}
+   Used by the Dashboard's share modal, which sets the palette through its own
+   tokens in dashboard.css. The list is anchored to the recipient row and floats
+   over what follows it, so opening and closing it never resizes the modal. */
 
 .share-suggest-field {
     position: relative;
@@ -7063,28 +6292,6 @@ html.dark-mode .usage-table-fade-overlay {
     letter-spacing: 0.04em;
 }
 
-/* General access: the owner's switch between people-only and anyone with
-   the link. */
-.share-general-access {
-    margin-top: 18px;
-}
-
-.share-dialog .share-link-access {
-    flex: 1;
-    min-width: 0;
-}
-
-.share-dialog .share-link-mode {
-    width: 130px;
-    flex: none;
-}
-
-.share-link-note {
-    font-size: 12px;
-    color: #7f8b99;
-    margin: -8px 0 12px;
-}
-
 .share-dialog-empty {
     font-size: 13px;
     color: #7f8b99;
@@ -7133,64 +6340,3 @@ html.dark-mode .usage-table-fade-overlay {
     white-space: nowrap;
 }
 
-.share-row-mode {
-    color: #7f8b99;
-    font-size: 12px;
-    margin-left: auto;
-    flex: none;
-}
-
-.share-dialog .share-row-mode-select {
-    width: auto;
-    min-width: 110px;
-    margin-left: auto;
-    flex: none;
-    padding: 4px 6px;
-    font-size: 13px;
-}
-
-.share-row-inherited {
-    color: #7f8b99;
-}
-
-.share-row-via {
-    font-size: 12px;
-    color: #9aa5b1;
-    flex: none;
-}
-
-.share-row-inherited .share-row-mode {
-    margin-left: 0;
-}
-
-.share-dialog .share-revoke {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    flex: none;
-    border: none;
-    border-radius: 4px;
-    background: none;
-    color: #6b7785;
-    cursor: pointer;
-}
-
-.share-dialog .share-revoke:hover:not(:disabled) {
-    background-color: #eceff2;
-    color: #d1242f;
-}
-
-.share-dialog .share-revoke:disabled {
-    opacity: 0.4;
-    cursor: default;
-}
-
-.share-row-owner {
-    color: #7f8b99;
-    font-size: 12px;
-    flex: none;
-    padding-right: 4px;
-}

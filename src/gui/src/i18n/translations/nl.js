@@ -29,25 +29,18 @@ const nl = {
         add_another_account: 'Ander Account Toevoegen',
         all_fields_required: 'Alle velden zijn vereist.',
         allow: 'Toestaan',
-        apply: 'Toepassen',
         ascending: 'Oplopend',
         associated_websites: 'Geassocieerde Websites',
         auto_arrange: 'Automatisch sorteren',
-        background: 'Achtergrond',
-        browse: 'Bladeren',
         cancel: 'Annuleren',
-        center: 'Centreren',
-        change_desktop_background: 'Bureaubladachtergrond veranderen…',
         change_email: 'E-mail Wijzigen',
         change_language: 'Taal veranderen',
         change_password: 'Wachtwoord veranderen',
         change_username: 'Gebruikersnaam veranderen',
         close: 'Sluiten',
         close_all_windows: 'Alle vensters sluiten',
-        close_all_windows_confirm: 'Weet u zeker dat u alle vensters wilt sluiten?',
         close_all_windows_and_log_out: 'Vensters sluiten en afmelden',
         change_always_open_with: 'Wilt u dit bestandstype altijd openen met',
-        color: 'Kleur',
         confirm: 'Bevestig',
         confirm_2fa_setup: 'Ik heb de code toegevoegd aan mijn authenticatie-app',
         confirm_2fa_recovery: 'Ik heb mijn herstelcodes op een veilige plaats opgeslagen',
@@ -70,13 +63,11 @@ const nl = {
         confirm_your_email_address: 'Bevestig Uw E-mailadres',
         contact_us: 'Neem Contact Op',
         contact_us_verification_required: 'U moet een geverifieerd e-mailadres hebben om dit te gebruiken.',
-        contain: 'Bevatten',
         continue: 'Doorgaan',
         copy: 'Kopiëren',
         copy_link: 'Link Kopiëren',
         copying: 'Kopiëren',
         copying_file: 'Bestand Kopiëren %%',
-        cover: 'Omslag',
         create_account: 'Account Aanmaken',
         create_free_account: 'Gratis Account Aanmaken',
         create_shortcut: 'Snelkoppeling Maken',
@@ -86,7 +77,6 @@ const nl = {
         close_all: 'Alles Sluiten',
         created: 'Gemaakt',
         date_modified: 'Datum Gewijzigd',
-        default: 'Standaard',
         delete: 'Verwijderen',
         delete_account: 'Account Verwijderen',
         delete_permanently: 'Permanent Verwijderen',
@@ -100,7 +90,6 @@ const nl = {
         disable_2fa: '2FA Uitschakelen',
         disable_2fa_confirm: 'Weet u zeker dat u 2FA wilt uitschakelen?',
         disable_2fa_instructions: 'Voer uw wachtwoord in om 2FA uit te schakelen.',
-        disassociate_dir: 'Map Loskoppelen',
         documents: 'Documenten',
         dont_allow: 'Niet Toestaan',
         download: 'Downloaden',
@@ -116,7 +105,6 @@ const nl = {
         emptying_trash: 'Prullenbak Legen…',
         enable_2fa: '2FA Inschakelen',
         end_hard: 'Hard Stoppen',
-        end_process_force_confirm: 'Weet u zeker dat u dit proces geforceerd wilt beëindigen?',
         end_soft: 'Zacht Stoppen',
         enlarged_qr_code: 'Vergrote QR Code',
         enter_password_to_confirm_delete_user: 'Voer uw wachtwoord in om de verwijdering van het account te bevestigen',
@@ -127,9 +115,7 @@ const nl = {
         feedback: 'Feedback',
         feedback_c2a: 'Gebruik het onderstaande formulier om ons uw feedback, opmerkingen en bugrapporten te sturen.',
         feedback_sent_confirmation: 'Bedankt dat u contact met ons heeft opgenomen. Als u een e-mail heeft gekoppeld aan uw account, hoort u zo snel mogelijk van ons.',
-        fit: 'Aanpassen',
         folder: 'Map',
-        force_quit: 'Geforceerd Stoppen',
         forgot_pass_c2a: 'Wachtwoord vergeten?',
         from: 'Van',
         general: 'Algemeen',
@@ -139,7 +125,6 @@ const nl = {
         home: 'Home',
         html_document: 'HTML-document',
         hue: 'Tint',
-        image: 'Afbeelding',
         incorrect_password: 'Onjuist wachtwoord',
         invite_link: 'Uitnodigingslink',
         item: 'item',
@@ -152,7 +137,6 @@ const nl = {
         link_copied: 'Link gekopieerd',
         loading: 'Laden',
         log_in: 'Inloggen',
-        log_into_another_account_anyway: 'Log toch in op een ander account',
         log_out: 'Uitloggen',
         looks_good: 'Ziet er goed uit!',
         manage_sessions: 'Sessies Beheren',
@@ -160,7 +144,6 @@ const nl = {
         modified: 'Gewijzigd',
         move: 'Verplaatsen',
         moving_file: 'Verplaatsen %%',
-        my_websites: 'Mijn Websites',
         name: 'Naam',
         name_cannot_be_empty: 'Naam kan niet leeg zijn.',
         name_cannot_contain_double_period: 'Naam mag geen dubbele punt \'..\' bevatten.',
@@ -174,8 +157,6 @@ const nl = {
         new_password: 'Nieuw Wachtwoord',
         new_username: 'Nieuwe Gebruikersnaam',
         no: 'Nee',
-        no_dir_associated_with_site: 'Geen map geassocieerd met dit adres.',
-        no_websites_published: 'Je hebt nog geen websites gepubliceerd. Klik met de rechtermuisknop op een map om te beginnen.',
         ok: 'OK',
         open: 'Openen',
         open_in_new_tab: 'Openen in Nieuw Tabblad',
@@ -197,7 +178,6 @@ const nl = {
         path: 'Pad',
         personalization: 'Personalisatie',
         pick_name_for_website: 'Kies een naam voor uw website',
-        picture: 'Afbeelding',
         pictures: 'Afbeeldingen',
         plural_suffix: 'en',
         powered_by_puter_js: 'Aangedreven door {{link=docs}}Puter.js{{/link}}',
@@ -207,31 +187,21 @@ const nl = {
         privacy: 'Privacy',
         proceed_to_login: 'Doorgaan naar inloggen',
         proceed_with_account_deletion: 'Doorgaan met accountverwijdering',
-        process_status_initializing: 'Initialiseren',
-        process_status_running: 'Bezig',
-        process_type_app: 'App',
-        process_type_init: 'Init',
-        process_type_ui: 'UI',
         properties: 'Eigenschappen',
         public: 'Openbaar',
         publish: 'Publiceren',
         publish_as_website: 'Publiceer als website',
         puter_description: 'Puter is een privacy-first persoonlijke cloud om al je bestanden, apps en games op één veilige plek te bewaren, overal en altijd toegankelijk.',
         reading_file: 'Lezen %strong%',
-        recent: 'Recent',
-        recommended: 'Aanbevolen',
         recover_password: 'Wachtwoord herstellen',
         refer_friends_c2a: 'Krijg 1 GB voor elke vriend die een account aanmaakt en bevestigt op Puter. Je vriend krijgt ook 1 GB!',
         refer_friends_social_media_c2a: 'Krijg 1 GB gratis opslagruimte op Puter.com!',
         refresh: 'Vernieuwen',
-        release_address_confirmation: 'Weet je zeker dat je dit adres wilt vrijgeven?',
         remove_from_taskbar: 'Verwijderen van taakbalk',
         rename: 'Hernoemen',
-        repeat: 'Herhalen',
         replace: 'Vervangen',
         replace_all: 'Alles vervangen',
         resend_confirmation_code: 'Bevestigingscode opnieuw verzenden',
-        restart_puter_confirm: 'Weet je zeker dat je Puter wilt herstarten?',
         restore: 'Herstellen',
         save: 'Opslaan',
         saturation: 'Verzadiging',
@@ -240,15 +210,12 @@ const nl = {
         save_account_to_publish: 'Maak een account aan om verder te gaan.',
         save_session: 'Sessie opslaan',
         save_session_c2a: 'Maak een account aan om je huidige sessie op te slaan en verlies van werk te voorkomen.',
-        scan_qr_c2a: 'Scan de onderstaande code\nom in te loggen op deze sessie vanaf andere apparaten',
         scan_qr_2fa: 'Scan de QR-code met je authenticator-app',
-        scan_qr_generic: 'Scan deze QR-code met je telefoon of een ander apparaat',
         search: 'Zoeken',
         seconds: 'seconden',
         security: 'Beveiliging',
         select: 'Selecteren',
         selected: 'geselecteerd',
-        select_color: 'Selecteer kleur…',
         sessions: 'Sessies',
         send: 'Verzenden',
         send_password_recovery_email: 'Wachtwoordherstelsmail verzenden',
@@ -257,7 +224,6 @@ const nl = {
         set_new_password: 'Nieuw wachtwoord instellen',
         share: 'Delen',
         share_to: 'Delen met',
-        share_with: 'Delen met:',
         shortcut_to: 'Snelkoppeling naar',
         show_all_windows: 'Toon alle vensters',
         show_hidden: 'Toon verborgen',
@@ -268,15 +234,10 @@ const nl = {
         skip: 'Overslaan',
         something_went_wrong: 'Er is iets misgegaan.',
         sort_by: 'Sorteren op',
-        start: 'Start',
         status: 'Status',
         storage_usage: 'Opslaggebruik',
         storage_puter_used: 'gebruikt door Puter',
         taking_longer_than_usual: 'Het duurt langer dan normaal. Even geduld alstublieft...',
-        task_manager: 'Taakbeheer',
-        taskmgr_header_name: 'Naam',
-        taskmgr_header_status: 'Status',
-        taskmgr_header_type: 'Type',
         terms: 'Voorwaarden',
         text_document: 'Tekstdocument',
         tos_fineprint: 'Door op \'Gratis Account Aanmaken\' te klikken, ga je akkoord met de {{link=terms}}Servicevoorwaarden{{/link}} en de {{link=privacy}}Privacybeleid{{/link}} van Puter.',
@@ -302,7 +263,6 @@ const nl = {
         videos: 'Video\'s',
         visibility: 'Zichtbaarheid',
         yes: 'Ja',
-        yes_release_it: 'Ja, vrijgeven',
         you_have_been_referred_to_puter_by_a_friend: 'Je bent door een vriend doorverwezen naar Puter!',
         zip: 'Zip',
         zipping_file: 'Bestand inpakken %strong%',
@@ -409,28 +369,16 @@ const nl = {
         'reload_app': 'App herladen', // In English: "Reload App"
         'new_window': 'Nieuw venster', // In English: "New Window"
         'open_trash': 'Prullenbak openen', // In English: "Open Trash"
-        'pick_name_for_worker': 'Kies een naam voor uw worker:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Publiceer als Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Naar volledig scherm', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Vriend uitnodigen', // In English: "Refer"
-        'toolbar.save_account': 'Account opslaan', // In English: "Save Account"
-        'toolbar.search': 'Zoeken', // In English: "Search"
-        'toolbar.qrcode': 'QR-code', // In English: "QR Code"
         'used_of': '{{used}} van {{available}} gebruikt', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker" (No direct Dutch equivalent, commonly used in tech context)
         'billing.offering.basic': 'Basis', // In English: "Basic"
         'too_many_attempts': 'Te veel pogingen. Probeer het later opnieuw.', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'De server reageerde te langzaam. Probeer het opnieuw.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Er is een fout opgetreden bij het aanmelden. Probeer het opnieuw.', // In English: "An error occurred during signup. Please try again."
-        'welcome_title': 'Welkom bij uw Persoonlijke Internetcomputer', // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': 'Sla bestanden op, speel games, vind geweldige apps en nog veel meer! Alles op één plek, overal en altijd toegankelijk.', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': 'Aan de slag', // In English: "Get Started"
-        'welcome_terms': 'Voorwaarden', // In English: "Terms"
-        'welcome_privacy': 'Privacy', // In English: "Privacy"
-        'welcome_developers': 'Ontwikkelaars', // In English: "Developers"
-        'welcome_open_source': 'Open Source', // In English: "Open Source"
-        'welcome_instant_login_title': 'Direct Inloggen!', // In English: "Instant Login!"
         'alert_error_title': 'Fout!', // In English: "Error!"
         'alert_warning_title': 'Waarschuwing!', // In English: "Warning!"
         'alert_info_title': 'Info', // In English: "Info"
@@ -448,7 +396,6 @@ const nl = {
         'window_title_select_font': 'Lettertype selecteren…', // In English: "Select font…"
         'window_title_session_list': 'Sessielijst!', // In English: "Session List!"
         'window_title_set_new_password': 'Nieuw wachtwoord instellen', // In English: "Set New Password"
-        'window_title_instant_login': 'Direct Inloggen!', // In English: "Instant Login!"
         'window_title_publish_website': 'Website publiceren', // In English: "Publish Website"
         'window_title_publish_worker': 'Worker publiceren', // In English: "Publish Worker"
         'window_title_authenticating': 'Authenticatie bezig...', // In English: "Authenticating..."
@@ -476,8 +423,6 @@ const nl = {
         'window_title_pictures': 'Afbeeldingen', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Deze map is leeg', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Beheer uw subdomeinen', // In English: "Manage Your Subdomains"
-        'open_containing_folder': 'Bestandslocatie openen', // In English: "Open Containing Folder"
     },
 };
 

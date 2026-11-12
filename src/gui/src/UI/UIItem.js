@@ -18,12 +18,9 @@
  */
 
 import UIWindowItemProperties from './UIWindowItemProperties.js';
-import ensureConfirmedEmail from '../helpers/ensureConfirmedEmail.js';
 import UIPopover from './UIPopover.js';
 import UIContextMenu from './UIContextMenu.js';
 import UIAlert from './UIAlert.js';
-import UIWindowPublishWorker from './UIWindowPublishWorker.js';
-import UIWindowShare from './UIWindowShare.js';
 import path from '../lib/path.js';
 import truncate_filename from '../helpers/truncateFilename.js';
 import launch_app from '../helpers/launchApp.js';
@@ -32,7 +29,7 @@ import publish_as_website from '../helpers/publishAsWebsite.js';
 import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/pathOwner.js';
-import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
+import { can_rename, can_restructure, invalidate_shared_roots } from '../helpers/sharedAccess.js';
 import { is_default_app } from '../helpers/defaultApp.js';
 import openWithAI from '../helpers/openWithAI.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
@@ -329,7 +326,6 @@ async function UIItem (options) {
             last_window_dragged_over = null;
 
             window.an_item_is_being_dragged = true;
-            $('.toolbar').css('pointer-events', 'none');
         },
         drag: function (event, ui) {
             // Constrain item within desktop bounds
@@ -442,7 +438,6 @@ async function UIItem (options) {
             clearTimeout(longer_hover_timeout);
             last_window_dragged_over = null;
             window.an_item_is_being_dragged = false;
-            $('.toolbar').css('pointer-events', 'auto');
         },
     });
 
@@ -1099,11 +1094,6 @@ async function UIItem (options) {
             // Someone else's, however we got here — including items reached by
             // opening a shared folder, which carry no share markers.
             const is_not_mine = !is_owned_by_me($(el_item).attr('data-path'));
-            // `manage` inherits downwards, so a file inside a folder you manage
-            // counts too — the row itself only carries a mode at a shared root.
-            const can_manage_share =
-                $(el_item).attr('data-share_mode') === 'manage'
-                || (await shared_mode_for($(el_item).attr('data-path'))) === 'manage';
             // Moving and deleting go by the holding folder, not by the item.
             const may_restructure = !is_not_mine
                 || await can_restructure($(el_item).attr('data-path'));
@@ -1269,19 +1259,6 @@ async function UIItem (options) {
                 });
 
             }
-            //-------------------------------------------
-            // Publish as Worker
-            // -------------------------------------------
-            // The backend refuses deploys from a file someone else owns.
-            if ( !is_trashed && !is_trash && !is_not_mine && !options.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
-                menu_items.push({
-                    html: i18n('publish_as_serverless_worker'),
-                    onClick: async function () {
-                        if ( ! await ensureConfirmedEmail(i18n('save_account_to_publish')) ) return;
-                        UIWindowPublishWorker(options.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
-                    },
-                });
-            }
             // -------------------------------------------
             // Deploy As App
             // -------------------------------------------
@@ -1311,20 +1288,6 @@ async function UIItem (options) {
                     html: i18n('empty_trash'),
                     onClick: async function () {
                         window.empty_trash();
-                    },
-                });
-            }
-            // -------------------------------------------
-            // Share
-            // -------------------------------------------
-            if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
-                menu_items.push({
-                    html: i18n('share_ellipsis'),
-                    onClick: async function () {
-                        UIWindowShare({
-                            path: $(el_item).attr('data-path'),
-                            name: $(el_item).attr('data-name'),
-                        });
                     },
                 });
             }

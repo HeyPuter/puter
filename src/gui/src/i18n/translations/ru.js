@@ -29,26 +29,19 @@ const ru = {
         add_another_account: 'Добавить другую учетную запись',
         all_fields_required: 'Все поля обязательны для заполнения.',
         allow: 'Разрешить',
-        apply: 'Применить',
         ascending: 'По возрастанию',
         associated_websites: 'Связанные сайты',
         auto_arrange: 'Автоупорядочивание',
-        background: 'Фон',
-        browse: 'Пролистать',
         cancel: 'Отмена',
-        center: 'По центру',
-        change_desktop_background: 'Сменить фон рабочего стола…',
         change_email: 'Изменить электронную почту',
         change_language: 'Изменить язык',
         change_password: 'Изменить пароль',
         change_username: 'Изменить имя пользователя',
         close: 'Закрыть',
         close_all_windows: 'Закрыть все окна',
-        close_all_windows_confirm: 'Вы уверены, что хотите закрыть все окна?',
         close_all_windows_and_log_out: 'Закрыть все окна и выйти',
         change_always_open_with:
       'Хотите всегда открывать файлы этого типа с помощью',
-        color: 'Цвет',
         confirm: 'Подтвердить',
         confirm_2fa_setup: 'Я добавил код в приложение для аутентификации',
         confirm_2fa_recovery:
@@ -79,13 +72,11 @@ const ru = {
         contact_us: 'Связаться с нами',
         contact_us_verification_required:
       'Подтвердите адрес электронной почты чтобы продожить.',
-        contain: 'Содержание',
         continue: 'Продолжить',
         copy: 'Копировать',
         copy_link: 'Скопировать ссылку',
         copying: 'Создаю копию',
         copying_file: 'Создаю копию %%',
-        cover: 'Обложка',
         create_account: 'Создать учетную запись',
         create_free_account: 'Создать бесплатную учетную запись',
         create_shortcut: 'Создать ярлык',
@@ -95,7 +86,6 @@ const ru = {
         close_all: 'Закрыть все',
         created: 'Создано',
         date_modified: 'Дата изменения',
-        default: 'По умолчанию',
         delete: 'Удалить',
         delete_account: 'Удалить учетную запись',
         delete_permanently: 'Удалить безвозвратно',
@@ -111,7 +101,6 @@ const ru = {
       'Вы уверены, что хотите отключить двойную аутентификацию?',
         disable_2fa_instructions:
       'Введите пароль чтобы отключить двойную аутентификацию.',
-        disassociate_dir: 'Отключить директорию',
         documents: 'Документы',
         dont_allow: 'Доступ запрещён',
         download: 'Загрузить',
@@ -128,8 +117,6 @@ const ru = {
         emptying_trash: 'Очистка Корзины…',
         enable_2fa: 'Включить двойную аутентификацию',
         end_hard: 'Принудительно закрыть',
-        end_process_force_confirm:
-      'Вы уверены, что хотите принудительно завершить этот процесс?',
         end_soft: 'Закрыть',
         enlarged_qr_code: 'Увеличить QR код',
         enter_password_to_confirm_delete_user:
@@ -143,9 +130,7 @@ const ru = {
       'Пожалуйста, используйте форму ниже, чтобы отправить отзыв, комментарии и сообщения об ошибках.',
         feedback_sent_confirmation:
       'Спасибо, что связались с нами. Если у вас есть электронная почта, связанная с вашим аккаунтом, мы ответим вам как можно скорее.',
-        fit: 'Вместить',
         folder: 'Папка',
-        force_quit: 'Принудительно закрыть',
         forgot_pass_c2a: 'Забыли пароль?',
         from: 'От',
         general: 'Общее',
@@ -155,7 +140,6 @@ const ru = {
         home: 'Домой',
         html_document: 'HTML документ',
         hue: 'Оттенок',
-        image: 'Изображение',
         incorrect_password: 'Неверный пароль',
         invite_link: 'Ссылка для приглашения',
         item: 'элемент',
@@ -168,14 +152,12 @@ const ru = {
         link_copied: 'Ссылка скопирована',
         loading: 'Загружается',
         log_in: 'Войти',
-        log_into_another_account_anyway: 'Все-равно войти в другой аккаунт',
         log_out: 'Выйти',
         looks_good: 'Выглядит здорово!',
         manage_sessions: 'Управление Сеансами',
         modified: 'Изменено',
         move: 'Переместить',
         moving_file: 'Перемещаю %%',
-        my_websites: 'Мои Сайты',
         name: 'Имя',
         name_cannot_be_empty: 'Имя не может быть пустым.',
         name_cannot_contain_double_period: "Имя не может быть '..' символом.",
@@ -189,8 +171,6 @@ const ru = {
         new_password: 'Новый пароль',
         new_username: 'Новое имя пользователя',
         no: 'Нет',
-        no_dir_associated_with_site: 'Нет директории, связанной с этим адресом.',
-        no_websites_published: 'Вы еще не опубликовали ни одного сайта.',
         ok: 'OK',
         open: 'Открыть',
         open_in_new_tab: 'Открыть в новой вкладке',
@@ -218,7 +198,6 @@ const ru = {
         path: 'Путь',
         personalization: 'Персонализация',
         pick_name_for_website: 'Выберите имя для вашего сайта:',
-        picture: 'Изображение',
         pictures: 'Изображения',
         plural_suffix: 's', //does not exist in Russian language
         powered_by_puter_js: 'Создано на {{link=docs}}Puter.js{{/link}}',
@@ -228,32 +207,22 @@ const ru = {
         privacy: 'Конфиденциальность',
         proceed_to_login: 'Перейти ко входу',
         proceed_with_account_deletion: 'Продолжить удаление учетной записи',
-        process_status_initializing: 'Инициализация',
-        process_status_running: 'Выполняется',
-        process_type_app: 'Прил.',
-        process_type_init: 'Иниц.',
-        process_type_ui: 'Пользовательский интерфейс',
         properties: 'Свойства',
         publish: 'Опубликовать',
         public: 'Общий доступ',
         publish_as_website: 'Опубликовать как сайт',
         puter_description: 'Puter — это персональное облако, обеспечивающее конфиденциальность, позволяющее хранить все ваши файлы, приложения и игры в одном безопасном месте, доступном из любого места в любое время.',
         reading_file: 'Чтение %strong%',
-        recent: 'Недавнее',
-        recommended: 'Рекоммендации',
         recover_password: 'Восстановить Пароль',
         refer_friends_c2a:
       'Получите 1 ГБ за каждого друга, который создаст и подтвердит учетную запись на Puter. Ваш друг тоже получит 1 ГБ!',
         refer_friends_social_media_c2a: 'Получите 1 ГБ бесплатного хранилища на Puter.com!',
         refresh: 'Обновить',
-        release_address_confirmation: 'Вы уверены, что хотите освободить этот адрес?',
         remove_from_taskbar: 'Удалить из панели задач',
         rename: 'Переименовать',
-        repeat: 'Повторить',
         replace: 'Заменить',
         replace_all: 'Заменить все',
         resend_confirmation_code: 'Повторно отправить код подтверждения',
-        restart_puter_confirm: 'Вы уверены, что хотите перезапустить Puter?',
         restore: 'Восстановить',
         save: 'Сохранить',
         saturation: 'Насыщенность',
@@ -265,17 +234,12 @@ const ru = {
         save_session: 'Сохранить сеанс',
         save_session_c2a:
       'Создайте учетную запись, чтобы сохранить текущий сеанс и не потерять данные.',
-        scan_qr_c2a:
-      'Отсканируйте код ниже, чтобы войти в этот сеанс с других устройств',
         scan_qr_2fa: 'Отсканируйте QR-код с помощью приложения аутентификации',
-        scan_qr_generic:
-      'Отсканируйте этот QR-код с помощью телефона или другого устройства',
         search: 'Поиск',
         seconds: 'секунды',
         security: 'Безопасность',
         select: 'Выбрать',
         selected: 'выбрано',
-        select_color: 'Выбрать цвет…',
         sessions: 'Сеансы',
         send: 'Отправить',
         send_password_recovery_email:
@@ -286,7 +250,6 @@ const ru = {
         set_new_password: 'Установить новый пароль',
         share: 'Поделиться',
         share_to: 'Поделиться',
-        share_with: 'Поделиться с: ',
         shortcut_to: 'Ярлык для',
         show_all_windows: 'Показать Все Окна',
         show_hidden: 'Показать скрытые',
@@ -297,16 +260,11 @@ const ru = {
         skip: 'Пропустить',
         something_went_wrong: 'Что-то пошло не так.',
         sort_by: 'Отсортировать по',
-        start: 'Начать',
         status: 'Статус',
         storage_usage: 'Использование хранилища',
         storage_puter_used: 'использовано Puter',
         taking_longer_than_usual:
       'Это занимает немного больше времени чем обычно, пожалуйста, подождите...',
-        task_manager: 'Диспетчер задач',
-        taskmgr_header_name: 'Имя',
-        taskmgr_header_status: 'Статус',
-        taskmgr_header_type: 'Тип',
         terms: 'Условия',
         text_document: 'Текстовый документ',
         tos_fineprint: 'Нажимая \'Создать бесплатную учетную запись\', вы соглашаетесь с {{link=terms}}Условиями Использования{{/link}} и {{link=privacy}}Политикой Конфиденциальности{{/link}} Puter.',
@@ -333,7 +291,6 @@ const ru = {
         videos: 'Видео',
         visibility: 'Видимость',
         yes: 'Да',
-        yes_release_it: 'Да, освободить.',
         you_have_been_referred_to_puter_by_a_friend:
       'Вы были приглашены в Puter другом!',
         zip: 'Добавить в архив',
@@ -441,28 +398,16 @@ const ru = {
         'reload_app': 'Перезагрузить приложение', // In English: "Reload App"
         'new_window': 'Новое окно', // In English: "New Window"
         'open_trash': 'Открыть корзину', // In English: "Open Trash"
-        'pick_name_for_worker': 'Выберите имя для вашего воркера:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'опубликовать как воркера', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Перейти в полноэкранный режим', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Рекомендовать', // In English: "Refer"
-        'toolbar.save_account': 'Сохранить аккаунт', // In English: "Save Account"
-        'toolbar.search': 'Поиск', // In English: "Search"
-        'toolbar.qrcode': 'QR-код', // In English: "QR Code"
         'used_of': 'Использовано', // In English: "{{used}} used of {{available}}"
         'worker': 'Воркер', // In English: "Worker"
         'billing.offering.basic': 'Базовый', // In English: "Basic"
         'too_many_attempts': 'Слишком много попыток. Попробуйте позже.', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'Слишком много попыток. Пожалуйста, попробуйте позже.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Сервер слишком долго не отвечал. Пожалуйста, попробуйте снова.', // In English: "An error occurred during signup. Please try again."
-        'welcome_title': 'Добро пожаловать в ваш персональный интернет-компьютер', // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': 'Храните файлы, играйте в игры, находите классные приложения и многое другое! Всё в одном месте, доступно из любой точки мира в любое время.', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': 'Начать', // In English: "Get Started"
-        'welcome_terms': 'Условия', // In English: "Terms"
-        'welcome_privacy': 'Конфиденциальность', // In English: "Privacy"
-        'welcome_developers': 'Разработчики', // In English: "Developers"
-        'welcome_open_source': 'Открытый исходный код', // In English: "Open Source"
-        'welcome_instant_login_title': 'Мгновенный вход!', // In English: "Instant Login!"
         'alert_error_title': 'Ошибка!', // In English: "Error!"
         'alert_warning_title': 'Предупреждение!', // In English: "Warning!"
         'alert_info_title': 'Информация', // In English: "Info"
@@ -480,7 +425,6 @@ const ru = {
         'window_title_select_font': 'Выберите шрифт...', // In English: "Select font…"
         'window_title_session_list': 'Список сессий!', // In English: "Session List!"
         'window_title_set_new_password': 'Установить новый пароль', // In English: "Set New Password"
-        'window_title_instant_login': 'Мгновенный вход!', // In English: "Instant Login!"
         'window_title_publish_website': 'Опубликовать веб-сайт', // In English: "Publish Website"
         'window_title_publish_worker': 'Опубликовать воркер', // In English: "Publish Worker"
         'window_title_authenticating': 'Идёт проверка подлинности...', // In English: "Authenticating..."
@@ -507,8 +451,6 @@ const ru = {
         'window_title_pictures': 'Изображения', // In English: "Pictures"
         'window_title_puter': 'Путер', // In English: "Puter"
         'window_folder_empty': 'Эта папка пуста', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Управление вашими поддоменами', // In English: "Manage Your Subdomains"
-        'open_containing_folder': 'Открыть содержащую папку', // In English: "Open Containing Folder"
 
     },
 };

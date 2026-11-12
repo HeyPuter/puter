@@ -29,25 +29,18 @@ const sv = {
         add_another_account: 'Lägg till ett annat konto',
         all_fields_required: 'Alla fält är obligatoriska.',
         allow: 'Tillåt',
-        apply: 'Tillämpa',
         ascending: 'Stigande',
         associated_websites: 'Anknytande webbplatser',
         auto_arrange: 'Auto Arrange',
-        background: 'Bakgrund',
-        browse: 'Bläddra',
         cancel: 'Avbryt',
-        center: 'Centrera',
-        change_desktop_background: 'Ändra skrivbordsbakgrund…',
         change_email: 'Ändra e-postadress',
         change_language: 'Ändra språk',
         change_password: 'Byt lösenord',
         change_username: 'Byt användarnamn',
         close: 'Stäng',
         close_all_windows: 'Stäng alla fönster',
-        close_all_windows_confirm: 'Är det säkert att du vill stänga alla fönster?',
         close_all_windows_and_log_out: 'Stäng alla fönster och logga ut',
         change_always_open_with: 'Vill du alltid öppna den här filtypen med',
-        color: 'Färg',
         confirm: 'Bekräfta',
         confirm_2fa_setup: 'Jag har lagt in koden i min autentiseringsapp',
         confirm_2fa_recovery: 'Jag har sparat mina återställningskoder på en säker plats',
@@ -70,13 +63,11 @@ const sv = {
         confirm_your_email_address: 'Bekräfta din e-postadress',
         contact_us: 'Kontakta oss',
         contact_us_verification_required: 'Du behöver en verifierad e-postadress för att använda den här funktionen.',
-        contain: 'Innehåll',
         continue: 'Continue',
         copy: 'Kopiera',
         copy_link: 'Kopiera länk',
         copying: 'Kopierar',
         copying_file: 'Kopierar %%',
-        cover: 'Täck',
         create_account: 'Skapa konto',
         create_free_account: 'Skapa gratis konto',
         create_shortcut: 'Skapa genväg',
@@ -86,7 +77,6 @@ const sv = {
         close_all: 'Stäng alla',
         created: 'Skapad',
         date_modified: 'Ändringsdatum',
-        default: 'Förval',
         delete: 'Ta bort',
         delete_account: 'Ta bort kontot',
         delete_permanently: 'Radera permanent',
@@ -100,7 +90,6 @@ const sv = {
         disable_2fa: 'Stäng av 2FA',
         disable_2fa_confirm: 'Är det säkert att du vill stänga av 2FA?',
         disable_2fa_instructions: 'Fyll i ditt lösenord för att stänga av 2FA.',
-        disassociate_dir: 'Avassociera mapp',
         documents: 'Dokument',
         dont_allow: 'Tillåt inte',
         download: 'Ladda ner',
@@ -116,7 +105,6 @@ const sv = {
         emptying_trash: 'Tömmer papperskorgen…',
         enable_2fa: 'Aktivera 2FA',
         end_hard: 'Hårt slut',
-        end_process_force_confirm: 'Är det säkert att du vill tvinga avslut för den här processen?',
         end_soft: 'Mjukt slut',
         enlarged_qr_code: 'Förstorad QR-kod',
         enter_password_to_confirm_delete_user: 'Fyll i ditt lösenord för att bekräfta kontots borttagning.',
@@ -127,9 +115,7 @@ const sv = {
         feedback: 'Feedback',
         feedback_c2a: 'Vänligen använd formuläret nedan för att skicka oss din feedback, kommentarer och felrapporter.',
         feedback_sent_confirmation: 'Tack för att du kontaktade oss. Om du har en e-post kopplad till ditt konto kommer du att höra från oss så snart som möjligt.',
-        fit: 'Anpassa',
         folder: 'Mapp',
-        force_quit: 'Tvinga avslut',
         forgot_pass_c2a: 'Glömt lösenord?',
         from: 'Från',
         general: 'Allmänt',
@@ -139,7 +125,6 @@ const sv = {
         home: 'Hem',
         html_document: 'HTML-dokument',
         hue: 'Färgton',
-        image: 'Bild',
         incorrect_password: 'Felaktigt lösenord',
         invite_link: 'Länk för inbjudan',
         item: 'Objekt',
@@ -152,14 +137,12 @@ const sv = {
         link_copied: 'Länk kopierad',
         loading: 'Laddar',
         log_in: 'Logga in',
-        log_into_another_account_anyway: 'Logga ändå in till annat konto',
         log_out: 'Logga ut',
         looks_good: 'Ser bra ut!',
         manage_sessions: 'Hantera sessioner',
         modified: 'Ändrad',
         move: 'Flytta',
         moving_file: 'Flyttar %%',
-        my_websites: 'Mina webbplatser',
         name: 'Namn',
         name_cannot_be_empty: 'Namn kan inte vara tomt.',
         name_cannot_contain_double_period: "Namn kan inte innehålla '..'.",
@@ -173,8 +156,6 @@ const sv = {
         new_password: 'Nytt lösenord',
         new_username: 'Nytt användarnamn',
         no: 'Nej',
-        no_dir_associated_with_site: 'Ingen mapp är associerad med denna adress.',
-        no_websites_published: 'Du har ännu inte publicerat några webbplatser.',
         ok: 'OK',
         open: 'Öppna',
         open_in_new_tab: 'Öppna i ny flik',
@@ -196,7 +177,6 @@ const sv = {
         path: 'Filväg',
         personalization: 'Personalisering',
         pick_name_for_website: 'Välj ett namn för din webbplats:',
-        picture: 'Bild',
         pictures: 'Bilder',
         plural_suffix: '', // neutrum has "", utrum has "or", "ar", "er"
         powered_by_puter_js: 'Drivs av {{link=docs}}Puter.js{{/link}}',
@@ -206,31 +186,21 @@ const sv = {
         privacy: 'Integritet',
         proceed_to_login: 'Förtsätt till inloggning',
         proceed_with_account_deletion: 'Försätt med kontoborttagning',
-        process_status_initializing: 'Processen påbörjas',
-        process_status_running: 'Processen körs',
-        process_type_app: 'App',
-        process_type_init: 'Init',
-        process_type_ui: 'UI',
         properties: 'Egenskaper',
         public: 'Offentligt',
         publish: 'Publicera',
         publish_as_website: 'Publicera som webbplats',
         puter_description: 'Puter är ett integritetsvänligt personligt moln för alla dina filer, appar och spel på ett säkert ställe, tillgängligt varsomhelst och närsomhelst.',
         reading_file: 'Läser in %strong%',
-        recent: 'Senaste',
-        recommended: 'Rekommenderat',
         recover_password: 'Återställ lösenord',
         refer_friends_c2a: 'Få 1 GB för varje vän som skapar och bekräftar ett konto på Puter. Din vän får också 1 GB.',
         refer_friends_social_media_c2a: 'Få 1 GB gratis lagringsutrymme på Puter.com!',
         refresh: 'Uppdatera',
-        release_address_confirmation: 'Är du säker på att du vill frigöra denna adress?',
         remove_from_taskbar: 'Ta bort från aktivitetsfältet',
         rename: 'Byt namn',
-        repeat: 'Upprepa',
         replace: 'Ersätt',
         replace_all: 'Ersätt alla',
         resend_confirmation_code: 'Skicka bekräftelsekoden igen',
-        restart_puter_confirm: 'Är det säkert att du vill starta om Puter?',
         restore: 'Återställ',
         save: 'Spara',
         saturation: 'Mättnad',
@@ -239,15 +209,12 @@ const sv = {
         save_account_to_publish: 'Vänligen skapa ett konto för att fortsätta.',
         save_session: 'Spara sessionen',
         save_session_c2a: 'Skapa ett konto för att spara den nuvarande sessionen och undvika att ditt arbete går förlorat.',
-        scan_qr_c2a: 'Skanna koden nedan för att logga in på denna session från andra enheter',
         scan_qr_2fa: 'Skanna QR-koden med din autentiseringsapp',
-        scan_qr_generic: 'Skanna den här QR-koden med din telefon eller en annan enhet',
         search: 'Sök',
         seconds: 'sekunder',
         security: 'Säkerhet',
         select: 'Välj',
         selected: 'vald',
-        select_color: 'Välj färg…',
         sessions: 'Sessioner',
         send: 'Skicka',
         send_password_recovery_email: 'Skicka e-post för återställning av lösenord',
@@ -256,7 +223,6 @@ const sv = {
         set_new_password: 'Ange nytt lösenord',
         share: 'Dela',
         share_to: 'Dela till',
-        share_with: 'Dela med:',
         shortcut_to: 'Genväg till',
         show_all_windows: 'Visa alla fönster',
         show_hidden: 'Visa dolda',
@@ -267,15 +233,10 @@ const sv = {
         skip: 'Hoppa över',
         something_went_wrong: 'Någonting gick fel.',
         sort_by: 'Sortera efter',
-        start: 'Start',
         status: 'Tillstånd',
         storage_usage: 'Användning av lagringsutrymme',
         storage_puter_used: 'använt av Puter',
         taking_longer_than_usual: 'Detta tar längre tid än vanligt. Vänligen vänta...',
-        task_manager: 'Aktivitetshanteraren',
-        taskmgr_header_name: 'Namn',
-        taskmgr_header_status: 'Tillstånd',
-        taskmgr_header_type: 'Typ',
         terms: 'Villkor',
         text_document: 'Textdokument',
         tos_fineprint: "Genom att klicka på 'Skapa gratis konto' godkänner du Puters {{link=terms}}användarvillkor{{/link}} och {{link=privacy}}integritetspolicy{{/link}}.",
@@ -301,7 +262,6 @@ const sv = {
         videos: 'Videor',
         visibility: 'Synlighet',
         yes: 'Ja',
-        yes_release_it: 'Ja, frigör den',
         you_have_been_referred_to_puter_by_a_friend: 'Du har blivit hänvisad till Puter av en vän!',
         zip: 'Zippa',
         zipping_file: 'Komprimerar %strong%',
@@ -407,29 +367,17 @@ const sv = {
         'reload_app': 'Ladda om app', // In English: "Reload App"
         'new_window': 'Nytt fönster', // In English: "New Window"
         'open_trash': 'Öppna papperskorgen', // In English: "Open Trash"
-        'pick_name_for_worker': 'Välj ett namn för din worker:', // In English: "Pick a name for your worker:"
         'plural_suffix': 'ar', // In English: "s"
         'publish_as_serverless_worker': 'Publicera som Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Aktivera helskärm', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Rekommendera', // In English: "Refer"
-        'toolbar.save_account': 'Spara konto', // In English: "Save Account"
-        'toolbar.search': 'Sök', // In English: "Search"
-        'toolbar.qrcode': 'QR-kod', // In English: "QR Code"
         'used_of': '{{used}} använt av {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Bas', // In English: "Basic"
         'too_many_attempts': 'För många försök. Försök igen senare.', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'Servern tog för lång tid att svara. Försök igen.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Ett fel uppstod vid registreringen. Försök igen.', // In English: "An error occurred during signup. Please try again."
-        'welcome_title': 'Välkommen till din personliga internetdator', // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': 'Lagra filer, spela spel, hitta fantastiska appar och mycket mer! Allt på ett ställe, tillgängligt var som helst och när som helst.', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': 'Kom igång', // In English: "Get Started"
-        'welcome_terms': 'Villkor', // In English: "Terms"
-        'welcome_privacy': 'Integritet', // In English: "Privacy"
-        'welcome_developers': 'Utvecklare', // In English: "Developers"
-        'welcome_open_source': 'Öppen källkod', // In English: "Open Source"
-        'welcome_instant_login_title': 'Direkt inloggning!', // In English: "Instant Login!"
         'alert_error_title': 'Fel!', // In English: "Error!"
         'alert_warning_title': 'Varning!', // In English: "Warning!"
         'alert_info_title': 'Information', // In English: "Info"
@@ -447,7 +395,6 @@ const sv = {
         'window_title_select_font': 'Välj typsnitt…', // In English: "Select font…"
         'window_title_session_list': 'Sessionslista!', // In English: "Session List!"
         'window_title_set_new_password': 'Ange nytt lösenord', // In English: "Set New Password"
-        'window_title_instant_login': 'Direkt inloggning!', // In English: "Instant Login!"
         'window_title_publish_website': 'Publicera webbplats', // In English: "Publish Website"
         'window_title_publish_worker': 'Publicera Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autentiserar...', // In English: "Authenticating..."
@@ -474,8 +421,6 @@ const sv = {
         'window_title_pictures': 'Bilder', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Denna mapp är tom', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Hantera dina subdomäner', // In English: "Manage Your Subdomains"
-        'open_containing_folder': 'Öppna innehållande mapp', // In English: "Open Containing Folder"
 
     },
 };

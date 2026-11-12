@@ -29,25 +29,18 @@ const zh = {
         add_another_account: '添加其他帐号',
         all_fields_required: '所有字段都是必需的。',
         allow: '允许',
-        apply: '应用',
         ascending: '升序',
         associated_websites: '相关网站',
         auto_arrange: '自动排序',
-        background: '背景',
-        browse: '浏览',
         cancel: '取消',
-        center: '中心',
-        change_desktop_background: '更改桌面背景…',
         change_email: '更改邮箱',
         change_language: '更改语言',
         change_password: '更改密码',
         change_username: '更改用户名',
         close: '关闭',
         close_all_windows: '关闭所有窗口',
-        close_all_windows_confirm: '确定要关闭所有窗口吗?',
         close_all_windows_and_log_out: '关闭窗口并退出',
         change_always_open_with: '以后都这样打开此类型的文件？',
-        color: '颜色',
         confirm: '确认',
         confirm_2fa_setup: '我已完成在身份验证应用中添加代码',
         confirm_2fa_recovery: '我已完成保存恢复码到安全地方',
@@ -70,13 +63,11 @@ const zh = {
         confirm_your_email_address: '请确认您的邮箱地址',
         contact_us: '联系我们',
         contact_us_verification_required: '需要提供有效的邮箱地址以完成此操作',
-        contain: '包含',
         continue: '继续',
         copy: '复制',
         copy_link: '复制链接',
         copying: '复制',
         copying_file: '正在复制 %%',
-        cover: '封面',
         create_account: '创建帐户',
         create_free_account: '创建免费帐户',
         create_shortcut: '创建快捷方式',
@@ -86,7 +77,6 @@ const zh = {
         close_all: '关闭全部',
         created: '已创建',
         date_modified: '修改日期',
-        default: '默认',
         delete: '删除',
         delete_account: '删除账号',
         delete_permanently: '永久删除',
@@ -100,7 +90,6 @@ const zh = {
         disable_2fa: '关闭二次认证',
         disable_2fa_confirm: '您确定要关闭二次认证?',
         disable_2fa_instructions: '请输入您的密码以关闭二次认证',
-        disassociate_dir: '取消关联目录',
         documents: '文档',
         dont_allow: '操作不允许!',
         download: '下载',
@@ -116,7 +105,6 @@ const zh = {
         emptying_trash: '正在清空回收站…',
         enable_2fa: '启用二次身份验证',
         end_hard: '强制关闭',
-        end_process_force_confirm: '您确定要强制关闭此程序吗？',
         end_soft: '等待响应',
         enlarged_qr_code: '放大二维码',
         enter_password_to_confirm_delete_user: '请输入您的密码以确认删除账号',
@@ -127,9 +115,7 @@ const zh = {
         feedback: '反馈',
         feedback_c2a: '请使用下面的表格向我们发送您的反馈、评论和错误报告。',
         feedback_sent_confirmation: '感谢您与我们联系。如果您的帐户关联有电子邮件，我们会尽快回复您。',
-        fit: '适应',
         folder: '文件夹',
-        force_quit: '强制退出',
         forgot_pass_c2a: '忘记密码？',
         from: '从',
         general: '常用',
@@ -139,7 +125,6 @@ const zh = {
         home: '主页',
         html_document: 'HTML 文档',
         hue: '色调',
-        image: '图像',
         incorrect_password: '密码不正确',
         invite_link: '邀请链接',
         item: '项目',
@@ -152,14 +137,12 @@ const zh = {
         link_copied: '链接已复制',
         loading: '正在加载',
         log_in: '登录',
-        log_into_another_account_anyway: '强制切换账号',
         log_out: '退出',
         looks_good: '看起来不错！',
         manage_sessions: '会话管理',
         modified: '已修改',
         move: '移动',
         moving_file: '移动 %%',
-        my_websites: '我的网站',
         name: '名称',
         name_cannot_be_empty: '名称不能为空。',
         name_cannot_contain_double_period: "名称不能是'..'字符。",
@@ -173,8 +156,6 @@ const zh = {
         new_password: '新密码',
         new_username: '新用户名',
         no: '取消',
-        no_dir_associated_with_site: '此地址没有关联的目录。',
-        no_websites_published: '您尚未发布任何网站。',
         ok: '好的',
         open: '打开',
         open_in_new_tab: '在新标签页中打开',
@@ -196,7 +177,6 @@ const zh = {
         path: '路径',
         personalization: '个性化',
         pick_name_for_website: '为您的网站选择一个名称：',
-        picture: '图片',
         pictures: '图片',
         plural_suffix: '',
         powered_by_puter_js: '由 {{link=docs}}Puter.js{{/link}} 提供支持',
@@ -206,31 +186,21 @@ const zh = {
         privacy: '隐私',
         proceed_to_login: '完成登录',
         proceed_with_account_deletion: '完成账号删除操作',
-        process_status_initializing: '初始化',
-        process_status_running: '运行中',
-        process_type_app: '应用',
-        process_type_init: '初始',
-        process_type_ui: '界面',
         properties: '属性',
         public: '公开',
         publish: '发布',
         publish_as_website: '发布为网站',
         puter_description: 'Puter 是一个隐私优先的个人云，可将您的所有文件、应用程序和游戏保存在一个安全的地方，方便随时随地访问。',
         reading_file: '正在读取 %strong%',
-        recent: '最近',
-        recommended: '推荐',
         recover_password: '找回密码',
         refer_friends_c2a: '每个创建并确认 Puter 帐户的朋友都会为您获得 1 GB。您的朋友也将获得 1 GB！',
         refer_friends_social_media_c2a: '在 Puter.com 上获取 1 GB 的免费存储空间！',
         refresh: '刷新',
-        release_address_confirmation: '您确定要释放此地址吗？',
         remove_from_taskbar: '从任务栏中删除',
         rename: '重命名',
-        repeat: '重复',
         replace: '替换',
         replace_all: '全部替换',
         resend_confirmation_code: '重新发送确认码',
-        restart_puter_confirm: '确定要重启Puter?',
         restore: '还原',
         save: '保存',
         saturation: '饱和度',
@@ -239,15 +209,12 @@ const zh = {
         save_account_to_publish: '请创建帐户以继续。',
         save_session: '保存会话',
         save_session_c2a: '创建帐户以保存当前会话，避免丢失工作。',
-        scan_qr_c2a: '扫描下面的代码以从其他设备登录此会话',
         scan_qr_2fa: '请使用身份认证应用扫描二维码',
-        scan_qr_generic: '请使用您的手机或其它设备扫描二维码',
         search: '查找',
         seconds: '秒',
         security: '安全',
         select: '选择',
         selected: '已选择',
-        select_color: '选择颜色…',
         sessions: '会话',
         send: '发送',
         send_password_recovery_email: '发送密码恢复电子邮件',
@@ -256,7 +223,6 @@ const zh = {
         set_new_password: '设置新密码',
         share: '分享',
         share_to: '分享到',
-        share_with: '分享:',
         shortcut_to: '快捷方式',
         show_all_windows: '显示所有窗口',
         show_hidden: '显示隐藏',
@@ -267,15 +233,10 @@ const zh = {
         skip: '跳过',
         something_went_wrong: '操作出差了！',
         sort_by: '排序方式',
-        start: '开始',
         status: '状态',
         storage_usage: '存储使用量',
         storage_puter_used: '被Puter使用',
         taking_longer_than_usual: '需要的时间比平时长一点。请稍等...',
-        task_manager: '任务管理器',
-        taskmgr_header_name: '状态',
-        taskmgr_header_status: '名称',
-        taskmgr_header_type: '类型',
         terms: '条款',
         text_document: '文本文档',
         tos_fineprint: '点击“创建免费帐户”即表示您同意 Puter 的 {{link=terms}}服务条款{{/link}} 和 {{link=privacy}}隐私政策{{/link}}。',
@@ -301,7 +262,6 @@ const zh = {
         videos: '视频',
         visibility: '可见性',
         yes: '确定',
-        yes_release_it: '是的，释放它',
         you_have_been_referred_to_puter_by_a_friend: '您已经被朋友推荐到 Puter！',
         zip: '压缩',
         zipping_file: '正在压缩 %strong%',
@@ -406,28 +366,16 @@ const zh = {
         'reload_app': '重新加载应用', // In English: "Reload App"
         'new_window': '新窗口', // In English: "New Window"
         'open_trash': '打开回收站', // In English: "Open Trash"
-        'pick_name_for_worker': '为您的 Worker 选择一个名称：', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': '发布为 Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': '进入全屏', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': '推荐', // In English: "Refer"
-        'toolbar.save_account': '保存账号', // In English: "Save Account"
-        'toolbar.search': '搜索', // In English: "Search"
-        'toolbar.qrcode': '二维码', // In English: "QR Code"
         'used_of': '已用 {{used}} / 共 {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': '基础', // In English: "Basic"
         'too_many_attempts': '尝试次数过多。请稍后再试。', // In English: "Too many attempts. Please try again later."
         'server_timeout': '服务器响应超时。请重试。', // In English: "The server took too long to respond. Please try again."
         'signup_error': '注册过程中发生错误。请重试。', // In English: "An error occurred during signup. Please try again."
-        'welcome_title': '欢迎使用您的个人互联网计算机', // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': '存储文件、玩游戏、发现精彩应用，远不止如此！一切尽在一处，随时随地可访问。', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': '开始使用', // In English: "Get Started"
-        'welcome_terms': '条款', // In English: "Terms"
-        'welcome_privacy': '隐私', // In English: "Privacy"
-        'welcome_developers': '开发人员', // In English: "Developers"
-        'welcome_open_source': '开源', // In English: "Open Source"
-        'welcome_instant_login_title': '快速登录！', // In English: "Instant Login!"
         'alert_error_title': '错误！', // In English: "Error!"
         'alert_warning_title': '警告！', // In English: "Warning!"
         'alert_info_title': '提示', // In English: "Info"
@@ -445,7 +393,6 @@ const zh = {
         'window_title_select_font': '选择字体…', // In English: "Select font…"
         'window_title_session_list': '会话列表！', // In English: "Session List!"
         'window_title_set_new_password': '设置新密码', // In English: "Set New Password"
-        'window_title_instant_login': '快速登录！', // In English: "Instant Login!"
         'window_title_publish_website': '发布网站', // In English: "Publish Website"
         'window_title_publish_worker': '发布 Worker', // In English: "Publish Worker"
         'window_title_authenticating': '正在验证…', // In English: "Authenticating..."
@@ -472,8 +419,6 @@ const zh = {
         'window_title_pictures': '图片', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': '此文件夹为空', // In English: "This folder is empty"
-        'manage_your_subdomains': '管理您的子域名', // In English: "Manage Your Subdomains"
-        'open_containing_folder': '打开所在文件夹', // In English: "Open Containing Folder"
     },
 };
 

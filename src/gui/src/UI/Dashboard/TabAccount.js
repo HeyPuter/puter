@@ -20,6 +20,7 @@
 import UIWindow from '../UIWindow.js';
 import {
     openChangeEmailDialog,
+    openChangeLanguageDialog,
     openChangePasswordDialog,
     openChangeUsernameDialog,
     openCreateTokenDialog,
@@ -141,6 +142,21 @@ const TabAccount = {
             h += '</div>';
         }
 
+        // Language card
+        const language = window.listSupportedLanguages().find((lang) => lang.code === window.locale);
+        h += '<div class="dashboard-card dashboard-settings-card">';
+        h += '<div class="dashboard-settings-card-content">';
+        h += '<div class="dashboard-settings-card-icon">';
+        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+        h += '</div>';
+        h += '<div class="dashboard-settings-card-info">';
+        h += `<strong>${i18n('language')}</strong>`;
+        h += `<span>${html_encode(language?.name ?? window.locale)}</span>`;
+        h += '</div>';
+        h += '</div>';
+        h += `<button class="button change-language">${i18n('change_language')}</button>`;
+        h += '</div>';
+
         // API token card
         h += '<div class="dashboard-card dashboard-settings-card">';
         h += '<div class="dashboard-settings-card-content">';
@@ -213,6 +229,9 @@ const TabAccount = {
         $el_window.find('.dashboard-section-account .change-email').on('click', function () {
             openChangeEmailDialog(dialogOptions(this));
         });
+        $el_window.find('.dashboard-section-account .change-language').on('click', function () {
+            openChangeLanguageDialog(dialogOptions(this));
+        });
         $el_window.find('.dashboard-section-account .copy-auth-token').on('click', function () {
             openCreateTokenDialog({ ...dialogOptions(this), $sessionsParent: $el_window });
         });
@@ -251,8 +270,6 @@ const TabAccount = {
         function showProfilePicture (picture) {
             const url = picture ?? window.icons['profile.svg'];
             $('.profile-pic').css('background-image', `url(${ html_encode(url) })`);
-            $('.profile-image').css('background-image', `url(${ html_encode(url) })`);
-            $('.profile-image').toggleClass('profile-image-has-picture', !! picture);
         }
         // A save started after another one owns the avatar and the hint; the
         // earlier one's answer must not put its picture (or a failure) back.

@@ -29,25 +29,18 @@ const ku = {
         add_another_account: 'زیادکردنی هەژمارێکی تر',
         all_fields_required: 'هەموو بوارەکان پێویستە.',
         allow: 'ڕێگەدان',
-        apply: 'بەکارهێنان',
         ascending: 'سەرووەی',
         associated_websites: 'وێبسایتەکان پەیوەندیدار',
         auto_arrange: 'ڕیزکردنی ئۆتۆماتیکی',
-        background: 'پاشبنەما',
-        browse: 'گەڕان',
         cancel: 'ڕەتکردنەوە',
-        center: 'ناوەڕاست',
-        change_desktop_background: 'گۆڕینی پاشبنەمای ڕوومیزی...',
         change_email: 'گۆڕینی ئیمەیل',
         change_language: 'گۆڕینی زمان',
         change_password: 'گۆڕینی وشەی تێپەڕ',
         change_username: 'گۆڕینی ناوی بەکارهێنەر',
         close: 'داخستن',
         close_all_windows: 'داخستنی هەموو پەنجەکان',
-        close_all_windows_confirm: 'دڵنیایت کە ئەتەوێت هەموو پەنجەکان داخەیت؟',
         close_all_windows_and_log_out: 'داخستن و چوونە دەرەوە',
         change_always_open_with: 'ئەتەوێت هەمیشە ئەم جۆرە فایلە بکرێتەوە بە',
-        color: 'ڕەنگ',
         confirm: 'پشتڕاستکردنەوە',
         confirm_2fa_setup: 'کۆدەکە زیادم کردووە بۆ وەرگرەری پشتڕاستکراوەکان',
         confirm_2fa_recovery:
@@ -77,13 +70,11 @@ const ku = {
         contact_us: 'پەیوەندی پێوە بکە',
         contact_us_verification_required:
       'پێویستە ناونیشانی ئیمەیلەکەت پشتڕاست بکرێت بۆ بەکارهێنان.',
-        contain: 'پێکەوە',
         continue: 'بەردەوامبوون',
         copy: 'کۆپی',
         copy_link: 'کۆپی کردنەوەی بەستەر',
         copying: 'کۆپی کردنەوە',
         copying_file: 'کۆپی کردنەوەی %%',
-        cover: 'پەوشکردنەوە',
         create_account: 'دروستکردنی هەژمار',
         create_free_account: 'دروستکردنی هەژماری ئازاد',
         create_shortcut: 'دروستکردنی شارتی',
@@ -93,7 +84,6 @@ const ku = {
         close_all: 'داخستنەوەی هەموو',
         created: 'دروستکراو',
         date_modified: 'بەرواری گۆڕاوە',
-        default: 'بە ڕێگای بنەڕەت',
         delete: 'سڕینەوە',
         delete_account: 'سڕینەوەی هەژمار',
         delete_permanently: 'هەمی سڕینەوە',
@@ -107,7 +97,6 @@ const ku = {
         disable_2fa: 'ناچالاککردنی 2FA',
         disable_2fa_confirm: 'دڵنیایت کە ئەتەوێت 2FA ناچالاک بکەیت؟',
         disable_2fa_instructions: 'وشەی تێپەڕی نووسە بۆ ناچالاککردنی 2FA.',
-        disassociate_dir: 'جیاکردنەوەی ڕێکەوت',
         documents: 'بەڵگەکان',
         dont_allow: 'ڕێگەندان',
         download: 'داگرتن',
@@ -124,8 +113,6 @@ const ku = {
         emptying_trash: 'بەتاڵکردنەوەی کوڵە...',
         enable_2fa: 'چالاککردنی 2FA',
         end_hard: 'کۆتای بەهێز',
-        end_process_force_confirm:
-      'دڵنیایت کە ئەتەوێت بەهێزەوە کۆتای پڕۆسەکە بگریت؟',
         end_soft: 'کۆتای هەواڵ',
         enlarged_qr_code: 'کۆدی QR گەورەکراو',
         enter_password_to_confirm_delete_user:
@@ -139,9 +126,7 @@ const ku = {
       'تکایە فۆرمەکەی خوارەوە بەکاربە بۆ ناردنی فیدباک، لێدوان، و ڕاپۆرتی کێشەکان بۆ ئێمە.',
         feedback_sent_confirmation:
       'سوپاس بۆ پەیوەندی کردن. گەر ناونیشانی ئیمەیلەکەت هەیە، بە زووترین کات لەگەڵت پەیوەندیدەکەین.',
-        fit: 'ڕێکخستن',
         folder: 'فۆڵدەر',
-        force_quit: 'بەهێزەوە کوژاندنەوە',
         forgot_pass_c2a: 'وشەی تێپەڕت لەبیرچووە؟',
         from: 'لە',
         general: 'گشتی',
@@ -151,7 +136,6 @@ const ku = {
         home: 'ماڵەوە',
         html_document: 'بەڵگەی HTML',
         hue: 'هیو',
-        image: 'وێنە',
         incorrect_password: 'وشەی تێپەڕ هەڵەیە',
         invite_link: 'بەستەری بانگکردن',
         item: 'بابەت',
@@ -164,14 +148,12 @@ const ku = {
         link_copied: 'بەستەر کۆپی کرا',
         loading: 'بارکردنەوە',
         log_in: 'چوونەژوورەوە',
-        log_into_another_account_anyway: 'بە هەژماری دیگە هەرچۆنێکەوە چوونەژوورەوە',
         log_out: 'چوونە دەرەوە',
         looks_good: 'پەیوەندیدارە!',
         manage_sessions: 'بەڕێوەبردنی دانیشتنەکان',
         modified: 'گۆڕاو',
         move: 'جوڵاندن',
         moving_file: 'جوڵاندنەوەی %%',
-        my_websites: 'وێبسایتەکانم',
         name: 'ناو',
         name_cannot_be_empty: 'ناو ناتوانرێت بەتاڵ بێت.',
         name_cannot_contain_double_period: "ناو ناتوانرێت '..' هەبێت.",
@@ -185,10 +167,6 @@ const ku = {
         new_password: 'وشەی تێپەڕی نوێ',
         new_username: 'ناوی بەکارهێنەری نوێ',
         no: 'نەخێر',
-        no_dir_associated_with_site:
-      'هیچ ڕێکەوتێک پەیوەندیداری ئەم ناونیشانە نییە.',
-        no_websites_published:
-      'هێشتا هیچ وێبسایتێکت نەبڵاوکردووە. لەسەر فۆڵدەرەکە پەنجەکەی راستبکە بۆ دەستپێکردن.',
         ok: 'باشە',
         open: 'کردنەوە',
         open_in_new_tab: 'کردنەوە لە تابێکی نوێ',
@@ -215,7 +193,6 @@ const ku = {
         path: 'ڕێکەوت',
         personalization: 'بەشداربوون',
         pick_name_for_website: 'ناوێک دیاربکە بۆ وێبسایتەکەت:',
-        picture: 'وێنە',
         pictures: 'وێنەکان',
         plural_suffix: 'کان',
         powered_by_puter_js: 'پێشکەشکراوە لە {{link=docs}}پوتەر.js{{/link}}',
@@ -225,32 +202,22 @@ const ku = {
         privacy: 'تایبەتمەندی',
         proceed_to_login: 'بەردەوام بوون بۆ چوونەژوورەوە',
         proceed_with_account_deletion: 'بەردەوام بوون بە سڕینەوەی هەژمار',
-        process_status_initializing: 'دەستپێکردن',
-        process_status_running: 'کاریگەری',
-        process_type_app: 'ئەپ',
-        process_type_init: 'دەستپێکردن',
-        process_type_ui: 'وێنەی بەکارهێنەر',
         properties: 'تایبەتمەندیەکان',
         public: 'گشتی',
         publish: 'بڵاوکردنەوە',
         publish_as_website: 'بڵاوکردنەوە وەک وێبسایت',
         puter_description: 'پوتەر پێشکەشکراوە بۆ پاراستنی تایبەتیە کەسایەتی، جێگایەکی ئازاد بۆ گەیاندنی هەموو فایلەکان، ئەپەکان، و یارییەکان لە هەر شوێنێک بێ هەموو کاتێک.',
         reading_file: 'خوێندنی %strong%',
-        recent: 'نوێترین',
-        recommended: 'پێشنیارکراوەکان',
         recover_password: 'ڕێکخستنەوەی وشەی تێپەڕ',
         refer_friends_c2a:
       '1 گیگابایت بۆ هەر هاوڕێک دەست بەرکە، پەیوەندیدانی هەژمارێک بۆ پوتەر دروست بکە و پشتڕاست بکە. هاوڕێتیش 1 گیگابایت وەرگرتن دەبێت!',
         refer_friends_social_media_c2a: '1 گیگابایت پارێزگاکانی پوتەر.com بۆ هەر هاوڕێک بکە!',
         refresh: 'بوژانەوە',
-        release_address_confirmation: 'دڵنیایت کە ئەتەوێت ئەم ناونیشانە بۆ هەڵگرتن؟',
         remove_from_taskbar: 'لابردن لە تاکسبار',
         rename: 'ناونانەوە',
-        repeat: 'دووبارەکردنەوە',
         replace: 'لە نوێکردنەوە',
         replace_all: 'لە نوێکردنەوەی هەموو',
         resend_confirmation_code: 'دووبارە ناردنی کۆدی پشتڕاستکردنەوە',
-        restart_puter_confirm: 'دڵنیایت کە ئەتەوێت پوتەر دووبارە دەستپێبکەیت؟',
         restore: 'گەڕاندنەوە',
         save: 'پاشەکەوت',
         saturation: 'سەرەخۆشی',
@@ -260,16 +227,12 @@ const ku = {
         save_session: 'پاشەکەوتکردنی دانیشتن',
         save_session_c2a:
       'هەژمارێک دروست بکە بۆ پاشەکەوتکردنی دانیشتنەکەت و جلە نبەرینەوەی کاریەکانت.',
-        scan_qr_c2a:
-      'کۆدی خوارەوە پشکنین\nبۆ چوونەژوورەوەی ئەم دانیشتنە لە ئامرازە ترەکان',
         scan_qr_2fa: 'کۆدی QR پشکنین بە ئەپەکەت',
-        scan_qr_generic: 'ئەم کۆدی QR پشکنین بە بەکارەریکەت یان ئامرازێکی تر',
         search: 'گەڕان',
         seconds: 'چرکە',
         security: 'پاراستن',
         select: 'دیاریکردن',
         selected: 'دیاریکراو',
-        select_color: 'دیاریکردنی ڕەنگ …',
         sessions: 'دانیشتنەکان',
         send: 'ناردن',
         send_password_recovery_email: 'پەیامی ڕێکخستنەوەی وشەی تێپەڕ ناردن',
@@ -278,7 +241,6 @@ const ku = {
         set_new_password: 'وشەی تێپەڕی نوێ دانان',
         share: 'هاوبەشکردن',
         share_to: 'هاوبەشکردن بۆ',
-        share_with: 'هاوبەشکردن بە:',
         shortcut_to: 'شارتی بۆ',
         show_all_windows: 'پیشاندانی هەموو پەنجەکان',
         show_hidden: 'پیشاندانی شاردراوەکان',
@@ -289,15 +251,10 @@ const ku = {
         skip: 'هەڵگرتن',
         something_went_wrong: 'هەڵەیەکی رووی دا.',
         sort_by: 'ڕیزکردن بە',
-        start: 'دەستپێکردن',
         status: 'دۆخ',
         storage_usage: 'بەکاربردنی پارێزگا',
         storage_puter_used: 'بەکاربردنی لەلایەن پوتەر',
         taking_longer_than_usual: 'کەمێک زیاتر کەوتە، تکایە چاوەڕوانبە...',
-        task_manager: 'بەڕێوەبەری کارەکان',
-        taskmgr_header_name: 'ناو',
-        taskmgr_header_status: 'دۆخ',
-        taskmgr_header_type: 'جۆر',
         terms: 'مەرجەکان',
         text_document: 'بەڵگەی دەقی',
         tos_fineprint:
@@ -324,7 +281,6 @@ const ku = {
         videos: 'ڤیدیۆکان',
         visibility: 'پیشاندانی',
         yes: 'بەڵێ',
-        yes_release_it: 'بەڵێ، بڵاوکردنەوە',
         you_have_been_referred_to_puter_by_a_friend:
       'هاوڕێکت پەیوەندیداری پوتەر کردووە!',
         zip: 'زیپ',
@@ -431,28 +387,16 @@ const ku = {
         'reload_app': 'ئەپلیکەیشن دووبارە بار بکە', // In English: "Reload App"
         'new_window': 'پەنجەرەی نوێ', // In English: "New Window"
         'open_trash': 'زبڵدانە بکەرەوە', // In English: "Open Trash"
-        'pick_name_for_worker': 'ناوێک بۆ کارمەندەکەت هەلبژێرە', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'بڵاوکردنەوە وەک کارمەند', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'بە تەواوی شاشە بچۆرە', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'بانگهێشت بکە', // In English: "Refer"
-        'toolbar.save_account': 'هەژمار پاشەکەوت بکە', // In English: "Save Account"
-        'toolbar.search': 'گەڕان', // In English: "Search"
-        'toolbar.qrcode': 'کۆدی QR', // In English: "QR Code"
         'used_of': '{{used}} بەکارهاتوو لە {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'کارمەند', // In English: "Worker"
         'billing.offering.basic': 'بنەڕەتی', // In English: "Basic"
         'too_many_attempts': 'هەوڵی زۆر دراوە. تکایە دواتر دووبارە هەوڵ بدە.', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'سێرڤەرەکە زۆر ماوەیەکی درێژ وەڵامی نەدا. تکایە دووبارە هەوڵ بدە.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'هەڵەیەک ڕووی دا لە کاتی تۆماربووندا. تکایە دووبارە هەوڵبدە.', // In English: "An error occurred during signup. Please try again."
-        'welcome_title': 'بەخێربێیت بۆ کۆمپیوتەری تایبەتی ئینتەرنێتی خۆت', // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': 'پەڕگەکانت خەزن بکە، یارییەکان یاریدەبە، ئەپلیکەیشنی سەرسوڕهێنەر بدۆزەوە، و زۆر شتی تر! هەمووی لە شوێنێک، بە ئاسانی دەستگەیشتنی لە هەموو کاتێک و شوێنێک.', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': 'دەست پێبکە', // In English: "Get Started"
-        'welcome_terms': 'مەرجەکان', // In English: "Terms"
-        'welcome_privacy': 'تایبەتمەندی', // In English: "Privacy"
-        'welcome_developers': 'گەشەپێدەرەکان', // In English: "Developers"
-        'welcome_open_source': 'سەرچاوەی کراوە', // In English: "Open Source"
-        'welcome_instant_login_title': 'چوونەژوورەوەی خێرا!', // In English: "Instant Login!"
         'alert_error_title': 'هەڵە', // In English: "Error!"
         'alert_warning_title': 'ئاگاداری', // In English: "Warning!"
         'alert_info_title': 'زانیاری', // In English: "Info"
@@ -470,7 +414,6 @@ const ku = {
         'window_title_select_font': 'فۆنت هەڵبژێرە', // In English: "Select font…"
         'window_title_session_list': 'لیستی دانیشتنەکان!', // In English: "Session List!"
         'window_title_set_new_password': 'وشەی نهێنی نوێ دابنێ', // In English: "Set New Password"
-        'window_title_instant_login': 'چوونەژوورەوەی خێرا!', // In English: "Instant Login!"
         'window_title_publish_website': 'بڵاوکردنەوەی وێب‌سایت', // In English: "Publish Website"
         'window_title_publish_worker': 'بڵاوکردنەوەی کارمەند', // In English: "Publish Worker"
         'window_title_authenticating': 'پەسندکردنەوە', // In English: "Authenticating..."
@@ -497,8 +440,6 @@ const ku = {
         'window_title_pictures': 'وێنە', // In English: "Pictures"
         'window_title_puter': 'پوتێر', // In English: "Puter"
         'window_folder_empty': 'ئەم بوخچەیە بەتاڵە', // In English: "This folder is empty"
-        'manage_your_subdomains': 'بەڕێوەبردنی ژێر دۆمەینەکانت', // In English: "Manage Your Subdomains"
-        'open_containing_folder': 'کردنەوەی بوخچەیەکەی کە پەڕگەکە تێدایە', // In English: "Open Containing Folder"
     },
 };
 

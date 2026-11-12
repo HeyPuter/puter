@@ -884,7 +884,7 @@ export default suite('kv', {
         t.assert.equal(await t.puter.kv.get('menubar_style'), 'system');
         t.assert.equal(await t.puter.kv.get('menubar_style'), 'system');
         t.assert.equal(
-            await t.puter.kv.get('has_seen_welcome_window'),
+            await t.puter.kv.get('window_sidebar_width'),
             null,
             'an unset boot key comes back empty',
         );

@@ -29,25 +29,18 @@ const he = {
         add_another_account: 'הוספת חשבון נוסף',
         all_fields_required: 'כל השדות הם שדות חובה.',
         allow: 'להרשות',
-        apply: 'ביצוע',
         ascending: 'בסדר עולה',
         associated_websites: 'אתרים קשורים',
         auto_arrange: 'סידור אוטומטי',
-        background: 'רקע',
-        browse: 'דפדף',
         cancel: 'ביטול',
-        center: 'אמצע',
-        change_desktop_background: 'שינוי רקע לשולחן העבודה…',
         change_email: 'שינוי כתובת אימייל',
         change_language: 'החלפת שפה',
         change_password: 'שינוי סיסמה',
         change_username: 'שינוי שם משתמש',
         close: 'סגירה',
         close_all_windows: 'סגירת כל החלונות',
-        close_all_windows_confirm: 'האם אתה בטוח שברצונך לסגור את כל החלונות?',
         close_all_windows_and_log_out: 'סגור את החלונות והתנתק',
         change_always_open_with: 'האם אתה רוצה תמיד לפתוח סוג זה של קובץ עם',
-        color: 'צבע',
         confirm: 'לאשר',
         confirm_2fa_setup: 'הוספתי את הקוד לאפליקצית האימות שלי',
         confirm_2fa_recovery: 'שמרתי את קודי השחזור שלי במיקום מאובטח',
@@ -76,13 +69,11 @@ const he = {
         contact_us: 'צור קשר',
         contact_us_verification_required:
       'עליך להיות בעל כתובת אימייל מאומתת כדי להשתמש בזה.',
-        contain: 'מכיל',
         continue: 'המשיך',
         copy: 'העתק',
         copy_link: 'העתק קישור',
         copying: 'מעתיק',
         copying_file: 'מעתיק %%',
-        cover: 'כיסוי',
         create_account: 'יצירת חשבון',
         create_free_account: 'יצירת חשבון חנמי',
         create_shortcut: 'יצירת קיצור דרך',
@@ -92,7 +83,6 @@ const he = {
         close_all: 'סגירת הכל',
         created: 'נוצר',
         date_modified: 'תאריך שינוי',
-        default: 'ברירת מחדל',
         delete: 'מחיקה',
         delete_account: 'מחיקת חשבון',
         delete_permanently: 'מחיקה לצמיתות',
@@ -106,7 +96,6 @@ const he = {
         disable_2fa: 'השבתת אימות דו-שלבי',
         disable_2fa_confirm: 'האם אתם בטוחים שברצונכם להשבית אימות דו-שלבי?',
         disable_2fa_instructions: 'הזינו את הסיסמה שלכם כדי להשבית אימות דו-שלבי.',
-        disassociate_dir: 'נתק מדריך',
         documents: 'מסמכים',
         dont_allow: 'אל תאפשר',
         download: 'הורדה',
@@ -123,8 +112,6 @@ const he = {
         emptying_trash: 'מרוקן אשפה…',
         enable_2fa: 'הפעלת אימות דו-שלבי',
         end_hard: 'נגמר קשה',
-        end_process_force_confirm:
-      'האם אתה בטוח שאתה רוצה להפסיק בכוח את התהליך הזה?',
         end_soft: 'נגמר ברכות',
         enlarged_qr_code: 'קוד QR מוגדל',
         enter_password_to_confirm_delete_user:
@@ -138,9 +125,7 @@ const he = {
       'אנא השתמש בטופס שלהלן כדי לשלוח לנו את המשוב, ההערות ודוחות הבאגים שלך.',
         feedback_sent_confirmation:
       'תודה שפנית אלינו. אם יש לך איממיל המשויך לחשבון שלך, נחזור אליכם בהקדם האפשרי.',
-        fit: 'התאמה',
         folder: 'תיקיה',
-        force_quit: 'לעזוב בכוח',
         forgot_pass_c2a: 'שכחת את הסיסמא?',
         from: 'טופס',
         general: 'כללי',
@@ -150,7 +135,6 @@ const he = {
         home: 'בית',
         html_document: 'מסמך HTML',
         hue: 'דרגת צבע',
-        image: 'תמונה',
         incorrect_password: 'סיסמה שגויה',
         invite_link: 'קישור הזמנה',
         item: 'פריט',
@@ -163,14 +147,12 @@ const he = {
         link_copied: 'הקישור הועתק',
         loading: 'טוען',
         log_in: 'התחברות',
-        log_into_another_account_anyway: 'התחבר לחשבון אחר בכל מקרה',
         log_out: 'התנתק',
         looks_good: 'נראה טוב!',
         manage_sessions: 'ניהול חיבורים פעילים',
         modified: 'שונה',
         move: 'לעבור',
         moving_file: 'מעביר %%',
-        my_websites: 'אתרי האינטרנט שלי',
         name: 'שם',
         name_cannot_be_empty: 'השם לא יכול להיות ריק.',
         name_cannot_contain_double_period: "השם לא יכול להיות עם סימן '..'.",
@@ -184,9 +166,6 @@ const he = {
         new_password: 'סיסמה חדשה',
         new_username: 'שם משתמש חדש',
         no: 'לא',
-        no_dir_associated_with_site: 'אין ספריה המשויכת לכתובת זו.',
-        no_websites_published:
-      'עדיין לא פרסמת אתרי אינטרנט. לחץ לחיצה ימנית על תיקיה כדי להתחיל.',
         ok: 'בסדר',
         open: 'פתח',
         open_in_new_tab: 'פתח בלשונית חדשה',
@@ -211,7 +190,6 @@ const he = {
         path: 'מסלול',
         personalization: 'התאמה אישית',
         pick_name_for_website: 'בחר שם לאתר האינטרנט שלך:',
-        picture: 'תמונה',
         pictures: 'תמונות',
         plural_suffix: 's',
         powered_by_puter_js: 'מונע ע"י {{link=docs}}Puter.js{{/link}}',
@@ -221,32 +199,22 @@ const he = {
         privacy: 'פרטיות',
         proceed_to_login: 'המשך לכניסה',
         proceed_with_account_deletion: 'המשך למחיקת חשבון',
-        process_status_initializing: 'אתחול',
-        process_status_running: 'עובד',
-        process_type_app: 'אפליקציה',
-        process_type_init: 'התחלתי',
-        process_type_ui: 'ממשק משתמש',
         properties: 'תכונות',
         public: 'ציבורי',
         publish: 'פרסם',
         publish_as_website: 'פרסום כאתר אינטרנט',
         puter_description: 'הוא ענן אישי ששם את הפרטיות בראש סדר העדיפויות כדי לשמור על כל הקבצים, המשחקים, והיישומים שלך במקום מאובטח אחד, נגיש מכל מקום ובכל זמן Puter',
         reading_file: 'קורא %strong%',
-        recent: 'לאחרונה',
-        recommended: 'מומלץ',
         recover_password: 'שחזור סיסמה',
         refer_friends_c2a:
       'קבל 1 גיגה בייט עבור כל חבר שיוצר ומאשר חשבון ב  Puter. גם החבר שלך יקבל 1 גיגה בייט!',
         refer_friends_social_media_c2a: 'קבל שטח אחסון של 1 גיגה בייט בחינם Puter.com!',
         refresh: 'רענן',
-        release_address_confirmation: 'האם אתה בטוח שברצונך לשחרר כתובת זו?',
         remove_from_taskbar: 'הסרה משורת המשימות',
         rename: 'שנה שם',
-        repeat: 'חזור',
         replace: 'החלף',
         replace_all: 'החלף הכל',
         resend_confirmation_code: 'שליחה מחדש של קוד אישור',
-        restart_puter_confirm: 'האם אתה בטוח שברצונך להפעיל Puter מחדש ?',
         restore: 'שחזור',
         save: 'שמירה',
         saturation: 'סטורציה',
@@ -256,15 +224,12 @@ const he = {
         save_session: 'שמירת חיבור',
         save_session_c2a:
       'צור חשבון כדי לשמור את החיבור הנוכחי שלך ולהימנע מאובדן העבודה שלך.',
-        scan_qr_c2a: 'סרוק את הקוד שלהלן\nכדי להתחבר לחיבור זה ממכשירים אחרים',
         scan_qr_2fa: 'סרוק את קוד ה- QR באמצעות אפליקציית האימות שלך',
-        scan_qr_generic: 'סרוק קוד QR זה באמצעות הטלפון שלך או מכשיר אחר',
         search: 'חיפוש',
         seconds: 'שניות',
         security: 'אבטחה',
         select: 'לבחירה',
         selected: 'נבחר',
-        select_color: 'בחירת צבע…',
         sessions: 'חיבורים',
         send: 'שלח',
         send_password_recovery_email: 'שלח אימייל שחזור סיסמה',
@@ -273,7 +238,6 @@ const he = {
         set_new_password: 'הגדרת סיסמה חדשה',
         share: 'שיתוף',
         share_to: 'שתף אל',
-        share_with: 'שתף עם:',
         shortcut_to: 'קיצור דרך אל',
         show_all_windows: 'הצג את כל החלונות',
         show_hidden: 'הצג מוסתר',
@@ -284,15 +248,10 @@ const he = {
         skip: 'דלג',
         something_went_wrong: 'משהו השתבש.',
         sort_by: 'מיין לפי',
-        start: 'התחלה',
         status: 'סטטוס',
         storage_usage: 'שימוש באחסון',
         storage_puter_used: 'Puter בשימוש על ידי',
         taking_longer_than_usual: 'לוקח קצת יותר זמן מהרגיל. חכה בבקשה...',
-        task_manager: 'מנהל משימות',
-        taskmgr_header_name: 'שם',
-        taskmgr_header_status: 'סטטוס',
-        taskmgr_header_type: 'סוג',
         terms: 'תנאים',
         text_document: 'מסמך טקסטואלי',
         tos_fineprint: 'על ידי לחיצה על \'צור חשבון חינם\' אתה מסכים Puter\'s {{link=terms}}תנאי שימוש{{/link}} ו {{link=privacy}}מדיניות פרטיות{{/link}}.',
@@ -318,7 +277,6 @@ const he = {
         videos: 'סרטונים',
         visibility: 'נראות',
         yes: 'כן',
-        yes_release_it: 'כן, שחררו אותו',
         you_have_been_referred_to_puter_by_a_friend: 'הופנית אל Puter על ידי חבר!',
         zip: 'מכווץ',
         zipping_file: 'מכווץ קובץ %strong%',
@@ -422,28 +380,16 @@ const he = {
         'reload_app': 'טען מחדש', // In English: "Reload App"
         'new_window': 'חלון חדש', // In English: "New Window"
         'open_trash': 'פתח אשפה', // In English: "Open Trash"
-        'pick_name_for_worker': ':בחר שם לעובד שלך', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'פרסם כעובד', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'מסך מלא', // In English: "Enter Full Screen"
         'toolbar.github': 'גיטהאב', // In English: "GitHub"
         'toolbar.refer': 'הפנה', // In English: "Refer"
-        'toolbar.save_account': 'שמור משתמש', // In English: "Save Account"
-        'toolbar.search': 'חפש', // In English: "Search"
-        'toolbar.qrcode': 'QR קוד', // In English: "QR Code"
         'used_of': '{{available}} משומש מתוך {{used}}', // In English: "{{used}} used of {{available}}"
         'worker': 'עובד', // In English: "Worker"
         'billing.offering.basic': 'בסיסי', // In English: "Basic"
         'too_many_attempts': '.יותר מדי נסיונות. אנא נסה מאוחר יותר', // In English: "Too many attempts. Please try again later."
         'server_timeout': '.לשרת לקח זמן רב מדי להגיב. אנא נסה שנית', // In English: "The server took too long to respond. Please try again."
         'signup_error': '.ארעה תקלה בעת ההרשמה. אנא נסה שנית', // In English: "An error occurred during signup. Please try again."
-        'welcome_title': 'ברוך הבא למחשב האינטרנט האישי שלך', // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': 'אחסן קבצים, שחק במשחקים, מצא ישומים מדהימים, והרבה יותר! הכל במקום אחד, נגיש מכל מקום בכל זמן', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': 'התחל', // In English: "Get Started"
-        'welcome_terms': 'תנאים', // In English: "Terms"
-        'welcome_privacy': 'פרטיות', // In English: "Privacy"
-        'welcome_developers': 'מפתחים', // In English: "Developers"
-        'welcome_open_source': 'מקור פתוח', // In English: "Open Source"
-        'welcome_instant_login_title': '!כניסה מידית', // In English: "Instant Login!"
         'alert_error_title': '!תקלה', // In English: "Error!"
         'alert_warning_title': '!אזהרה', // In English: "Warning!"
         'alert_info_title': 'מידע', // In English: "Info"
@@ -461,7 +407,6 @@ const he = {
         'window_title_select_font': '...בחר גופן', // In English: "Select font…"
         'window_title_session_list': 'רשימת חיבורים', // In English: "Session List!"
         'window_title_set_new_password': 'בחר סיסמא חדשה', // In English: "Set New Password"
-        'window_title_instant_login': '!כניסה מידית', // In English: "Instant Login!"
         'window_title_publish_website': 'פרסם אתר', // In English: "Publish Website"
         'window_title_publish_worker': 'פרסם עובד', // In English: "Publish Worker"
         'window_title_authenticating': 'מאמת', // In English: "Authenticating..."
@@ -488,8 +433,6 @@ const he = {
         'window_title_pictures': 'תמונות', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'תיקייה זו ריקה', // In English: "This folder is empty"
-        'manage_your_subdomains': 'ניהול תת-הדומיינים שלך', // In English: "Manage Your Subdomains"
-        'open_containing_folder': 'פתח תיקייה מכילה', // In English: "Open Containing Folder"
     },
 };
 

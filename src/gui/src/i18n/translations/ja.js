@@ -29,25 +29,18 @@ const ja = {
         add_another_account: '別のアカウントを追加',
         all_fields_required: '全ての項目が必須です。',
         allow: '許可',
-        apply: '適用',
         ascending: '昇順',
         associated_websites: '関連ウェブサイト',
         auto_arrange: '自動配置',
-        background: '背景',
-        browse: 'ブラウズ',
         cancel: 'キャンセル',
-        center: '中央',
-        change_desktop_background: 'デスクトップの背景を変更…',
         change_email: 'メールアドレスを変更',
         change_language: '言語を変更',
         change_password: 'パスワードを変更',
         change_username: 'ユーザー名を変更',
         close: '閉じる',
         close_all_windows: 'すべてのウィンドウを閉じる',
-        close_all_windows_confirm: 'すべてのウィンドウを閉じてよろしいですか？',
         close_all_windows_and_log_out: 'ウィンドウを閉じてログアウト',
         change_always_open_with: 'この種類のファイルを常にこのアプリで開きますか？',
-        color: '色',
         confirm: '確認',
         confirm_2fa_setup: '認証アプリにコードを追加しました',
         confirm_2fa_recovery: 'リカバリーコードを安全な場所に保存しました',
@@ -70,13 +63,11 @@ const ja = {
         confirm_your_email_address: 'メールアドレスを確認',
         contact_us: 'お問い合わせ',
         contact_us_verification_required: 'この機能を使用するには、確認済みのメールアドレスが必要です。',
-        contain: '合わせる',
         continue: '続行',
         copy: 'コピー',
         copy_link: 'リンクをコピー',
         copying: 'コピー中',
         copying_file: '%% コピー中',
-        cover: '全体に表示',
         create_account: 'アカウントを作成',
         create_free_account: '無料アカウントを作成',
         create_shortcut: 'ショートカットを作成',
@@ -86,7 +77,6 @@ const ja = {
         close_all: 'すべて閉じる',
         created: '作成日',
         date_modified: '更新日',
-        default: 'デフォルト',
         delete: '削除',
         delete_account: 'アカウントを削除',
         delete_permanently: '完全に削除',
@@ -100,7 +90,6 @@ const ja = {
         disable_2fa: '2FAを無効にする',
         disable_2fa_confirm: '2FAを無効にしてよろしいですか？',
         disable_2fa_instructions: 'パスワードを入力して2FAを無効にします。',
-        disassociate_dir: 'ディレクトリの関連付けを解除',
         documents: 'ドキュメント',
         dont_allow: '許可しない',
         download: 'ダウンロード',
@@ -116,7 +105,6 @@ const ja = {
         emptying_trash: 'ゴミ箱を空にしています…',
         enable_2fa: '2FAを有効にする',
         end_hard: 'ハード終了',
-        end_process_force_confirm: 'このプロセスを強制終了してもよろしいですか？',
         end_soft: 'ソフト終了',
         enlarged_qr_code: '拡大QRコード',
         enter_password_to_confirm_delete_user: 'アカウント削除を確認するためにパスワードを入力してください',
@@ -127,9 +115,7 @@ const ja = {
         feedback: 'フィードバック',
         feedback_c2a: '以下のフォームを使用して、フィードバック、コメント、およびバグ報告をお送りください。',
         feedback_sent_confirmation: 'お問い合わせいただきありがとうございます。アカウントに関連付けられたメールがある場合は、できるだけ早く返信いたします。',
-        fit: 'フィット',
         folder: 'フォルダー',
-        force_quit: '強制終了',
         forgot_pass_c2a: 'パスワードを忘れましたか？',
         from: '送信者',
         general: '一般',
@@ -139,7 +125,6 @@ const ja = {
         home: 'ホーム',
         html_document: 'HTML文書',
         hue: '色合い',
-        image: '画像',
         incorrect_password: 'パスワードが間違っています',
         invite_link: '招待リンク',
         item: 'アイテム',
@@ -152,14 +137,12 @@ const ja = {
         link_copied: 'リンクがコピーされました',
         loading: '読み込み中',
         log_in: 'ログイン',
-        log_into_another_account_anyway: '別のアカウントにログインする',
         log_out: 'ログアウト',
         looks_good: 'ナイス！',
         manage_sessions: 'セッションを管理',
         modified: '変更日時',
         move: '移動',
         moving_file: '移動中 %%',
-        my_websites: '私のウェブサイト',
         name: '名前',
         name_cannot_be_empty: '名前は空にできません。',
         name_cannot_contain_double_period: "名前には '..' 文字を含めることはできません。",
@@ -173,8 +156,6 @@ const ja = {
         new_password: '新しいパスワード',
         new_username: '新しいユーザー名',
         no: 'いいえ',
-        no_dir_associated_with_site: 'このアドレスには関連付けられたディレクトリがありません。',
-        no_websites_published: 'まだウェブサイトを公開していません。開始するにはフォルダーを右クリックしてください。',
         ok: 'OK',
         open: '開く',
         open_in_new_tab: '新しいタブで開く',
@@ -196,7 +177,6 @@ const ja = {
         path: 'パス',
         personalization: 'パーソナライズ',
         pick_name_for_website: 'ウェブサイトの名前を選んでください：',
-        picture: '写真',
         pictures: '写真',
         plural_suffix: '',
         powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} によって提供されています',
@@ -206,31 +186,21 @@ const ja = {
         privacy: 'プライバシー',
         proceed_to_login: 'ログインに進む',
         proceed_with_account_deletion: 'アカウントの削除を続行',
-        process_status_initializing: '初期化中',
-        process_status_running: '実行中',
-        process_type_app: 'アプリ',
-        process_type_init: '初期化',
-        process_type_ui: 'UI',
         properties: 'プロパティ',
         public: '公開',
         publish: '公開',
         publish_as_website: 'ウェブサイトとして公開',
         puter_description: 'Puterは、すべてのファイル、アプリ、およびゲームを一か所に安全に保管し、いつでもどこからでもアクセスできるプライバシー重視の個人用クラウドです。',
         reading_file: '読み込み中 %strong%',
-        recent: '最近',
-        recommended: 'おすすめ',
         recover_password: 'パスワードを回復',
         refer_friends_c2a: '友達がPuterでアカウントを作成して確認すると、1GBを獲得できます。友達も1GBを獲得できます！',
         refer_friends_social_media_c2a: 'Puter.comで1GBの無料ストレージを手に入れよう！',
         refresh: '更新',
-        release_address_confirmation: 'このアドレスを解放してもよろしいですか？',
         remove_from_taskbar: 'タスクバーから削除',
         rename: '名前を変更',
-        repeat: '繰り返す',
         replace: '置換',
         replace_all: 'すべて置換',
         resend_confirmation_code: '確認コードを再送信',
-        restart_puter_confirm: 'Puterを再起動してもよろしいですか？',
         restore: '復元',
         save: '保存',
         saturation: '彩度',
@@ -239,15 +209,12 @@ const ja = {
         save_account_to_publish: '続行するにはアカウントを作成してください。',
         save_session: 'セッションを保存',
         save_session_c2a: '現在のセッションを保存して、作業を失わないようにするにはアカウントを作成してください。',
-        scan_qr_c2a: '以下のコードをスキャンすると、他のデバイスからこのセッションにログインできます',
         scan_qr_2fa: '認証アプリでQRコードをスキャンしてください',
-        scan_qr_generic: 'スマートフォンまたは他のデバイスでこのQRコードをスキャンしてください',
         search: '検索',
         seconds: '秒',
         security: 'セキュリティ',
         select: '選択',
         selected: '選択済み',
-        select_color: '色を選択…',
         sessions: 'セッション',
         send: '送信',
         send_password_recovery_email: 'パスワード回復メールを送信',
@@ -256,7 +223,6 @@ const ja = {
         set_new_password: '新しいパスワードを設定',
         share: '共有',
         share_to: '共有先',
-        share_with: '共有相手：',
         shortcut_to: 'ショートカット先',
         show_all_windows: 'すべてのウィンドウを表示',
         show_hidden: '隠しファイルを表示',
@@ -267,15 +233,10 @@ const ja = {
         skip: 'スキップ',
         something_went_wrong: '問題が発生しました。',
         sort_by: '並べ替え',
-        start: '開始',
         status: 'ステータス',
         storage_usage: 'ストレージ使用量',
         storage_puter_used: 'Puterで使用中',
         taking_longer_than_usual: 'いつもより少し時間がかかっています。お待ちください...',
-        task_manager: 'タスクマネージャー',
-        taskmgr_header_name: '名前',
-        taskmgr_header_status: 'ステータス',
-        taskmgr_header_type: 'タイプ',
         terms: '利用規約',
         text_document: 'テキスト文書',
         tos_fineprint: '「無料アカウントを作成」をクリックすることで、Puterの{{link=terms}}利用規約{{/link}}および{{link=privacy}}プライバシーポリシー{{/link}}に同意するものとします。',
@@ -301,7 +262,6 @@ const ja = {
         videos: '動画',
         visibility: '見え方',
         yes: 'はい',
-        yes_release_it: 'はい、解放します',
         you_have_been_referred_to_puter_by_a_friend: '友達からPuterに紹介されました！',
         zip: '圧縮',
         zipping_file: '圧縮中 %strong%',
@@ -411,28 +371,16 @@ const ja = {
         'reload_app': 'アプリを再読み込み', // In English: "Reload App"
         'new_window': '新しいウィンドウ', // In English: "New Window"
         'open_trash': 'ゴミ箱を開く', // In English: "Open Trash"
-        'pick_name_for_worker': 'ワーカーの名前を選択してください:', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'ワーカーとして公開', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': '全画面表示にする', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': '参照する', // In English: "Refer"
-        'toolbar.save_account': 'アカウントを保存', // In English: "Save Account"
-        'toolbar.search': '検索する', // In English: "Search"
-        'toolbar.qrcode': 'QRコード', // In English: "QR Code"
         'used_of': '{{available}} のうち {{used}} を使用', // In English: "{{used}} used of {{available}}"
         'worker': 'ワーカー', // In English: "Worker"
         'billing.offering.basic': 'ベーシック', // In English: "Basic"
         'too_many_attempts': '試行回数の上限に達しました。時間をおいてからもう一度お試しください。', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'サーバーからの応答がありません。もう一度お試しください。', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'サインアップ中にエラーが発生しました。もう一度お試しください。', // In English: "An error occurred during signup. Please try again."
-        'welcome_title': 'あなた専用のインターネット・コンピュータへようこそ', // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': 'ファイルを保存したり、ゲームで遊んだり、素晴らしいアプリを見つけたり！全てのことが一つの場所で、いつでも、どこからでもアクセス可能です。', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': '今すぐ始める', // In English: "Get Started"
-        'welcome_terms': '利用規約', // In English: "Terms"
-        'welcome_privacy': 'プライバシー', // In English: "Privacy"
-        'welcome_developers': '開発者', // In English: "Developers"
-        'welcome_open_source': 'オープンソース', // In English: "Open Source"
-        'welcome_instant_login_title': '今すぐログイン!', // In English: "Instant Login!"
         'alert_error_title': 'エラー!', // In English: "Error!"
         'alert_warning_title': '警告!', // In English: "Warning!"
         'alert_info_title': '情報', // In English: "Info"
@@ -450,7 +398,6 @@ const ja = {
         'window_title_select_font': 'フォントを選択...', // In English: "Select font…"
         'window_title_session_list': 'セッション一覧!', // In English: "Session List!"
         'window_title_set_new_password': '新しいパスワードを設定', // In English: "Set New Password"
-        'window_title_instant_login': '今すぐログイン!', // In English: "Instant Login!"
         'window_title_publish_website': 'ウェブサイトを公開', // In English: "Publish Website"
         'window_title_publish_worker': 'ワーカーを公開', // In English: "Publish Worker"
         'window_title_authenticating': '認証中...', // In English: "Authenticating..."
@@ -477,8 +424,6 @@ const ja = {
         'window_title_pictures': '写真', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'このフォルダーは空です', // In English: "This folder is empty"
-        'manage_your_subdomains': 'サブドメインを管理する', // In English: "Manage Your Subdomains"
-        'open_containing_folder': '保存先のフォルダーを開く', // In English: "Open Containing Folder"
     },
 };
 
