@@ -240,6 +240,66 @@ describe('ShareService: deleting a shared item', () => {
         );
     });
 
+    it('reads no grants or shares from the primary for an owner with nothing shared', async () => {
+        const owner = await makeUser();
+        const { dir } = await makeDirWithFile(owner.user);
+        const trash = await dirAt(`/${owner.user.username}/Trash`);
+
+        const pread = vi.spyOn(server.clients.db, 'pread');
+        try {
+            await move(owner, dir, trash);
+            const retireReads = pread.mock.calls
+                .map(([sql]) => String(sql))
+                .filter((sql) =>
+                    /`user_to_user_permissions`|`user_to_group_permissions`|FROM `share`/u.test(
+                        sql,
+                    ),
+                );
+            expect(retireReads).toEqual([]);
+        } finally {
+            pread.mockRestore();
+        }
+    });
+
+    it('withdraws a share made just now that the replica has not seen', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+        await share(owner.actor, {
+            uid: dir.uuid,
+            recipient: { username: recipient.user.username },
+            mode: 'read',
+        });
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+        const trash = await dirAt(`/${owner.user.username}/Trash`);
+
+        // The replica has neither the grant nor the share row yet.
+        const db = server.clients.db;
+        const primaryRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(primaryRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                /`user_to_user_permissions`|FROM `share`/u.test(String(sql))
+                    ? []
+                    : primaryRead(sql, params),
+            );
+        let moved;
+        try {
+            moved = await move(owner, dir, trash);
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+
+        expect(
+            await canRead(recipient.actor, `${moved.path}/${file.name}`),
+        ).toBe(false);
+        expect(
+            await server.stores.share.listAllByFsentrySubtree(dir.id),
+        ).toEqual([]);
+    });
+
     it("does not honour a lagging replica's copy of a link the delete removed", async () => {
         const owner = await makeUser();
         const stranger = await makeUser();

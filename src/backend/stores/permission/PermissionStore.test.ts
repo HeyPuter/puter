@@ -1006,21 +1006,28 @@ describe('PermissionStore', () => {
             }
         });
 
-        it('removes a grant the replica has not seen yet with its node', async () => {
+        it('removes a grant the replica has not seen yet with its node, when asked to read the primary', async () => {
             const issuer = await makeUser();
             const groupId = await seedGroup(issuer.id);
             const node = uuidv4();
             await seedGroupPerm(issuer.id, groupId, `fs:${node}:read`);
 
             const restore = lagReplica('user_to_group_permissions', () => []);
+            let unasked;
             let removed;
             try {
-                removed = await store.deleteUserGroupPermsByPermissionPrefixes([
+                unasked = await store.deleteUserGroupPermsByPermissionPrefixes([
                     `fs:${node}`,
                 ]);
+                removed = await store.deleteUserGroupPermsByPermissionPrefixes(
+                    [`fs:${node}`],
+                    { primary: true },
+                );
             } finally {
                 restore();
             }
+            // Unasked, the replica's answer stands and the primary is left alone.
+            expect(unasked?.rows).toEqual([]);
             expect(removed?.rows).toEqual([
                 { group_id: groupId, permission: `fs:${node}:read` },
             ]);
@@ -1824,7 +1831,7 @@ describe('PermissionStore', () => {
             ).toHaveLength(1);
         });
 
-        it('removes a grant the replica has not seen yet with its node', async () => {
+        it('removes a grant the replica has not seen yet with its node, when asked to read the primary', async () => {
             const issuer = await makeUser();
             const holder = await makeUser();
             const node = uuidv4();
@@ -1836,14 +1843,21 @@ describe('PermissionStore', () => {
             );
 
             const restore = lagReplica('user_to_user_permissions', () => []);
+            let unasked;
             let removed;
             try {
-                removed = await store.deleteUserUserPermsByPermissionPrefixes([
+                unasked = await store.deleteUserUserPermsByPermissionPrefixes([
                     `fs:${node}`,
                 ]);
+                removed = await store.deleteUserUserPermsByPermissionPrefixes(
+                    [`fs:${node}`],
+                    { primary: true },
+                );
             } finally {
                 restore();
             }
+            // Unasked, the replica's answer stands and the primary is left alone.
+            expect(unasked).toEqual([]);
             expect(removed).toHaveLength(1);
             expect(
                 await store.readLinkedUserUserPermsFromPrimary(holder.id, [

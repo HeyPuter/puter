@@ -1325,7 +1325,7 @@ describe('ShareStore', () => {
                 };
             };
 
-            it('lists every share in a subtree, even one the replica lacks', async () => {
+            it('lists a share the replica lacks in a subtree when asked to read the primary', async () => {
                 const entry = await makeEntry(issuer);
                 const link = await store.upsertAnyone({
                     issuerUserId: issuer.id,
@@ -1334,7 +1334,12 @@ describe('ShareStore', () => {
                 });
                 const restore = lagShares([]);
                 try {
-                    const rows = await store.listAllByFsentrySubtree(entry.id);
+                    expect(
+                        await store.listAllByFsentrySubtree(entry.id),
+                    ).toEqual([]);
+                    const rows = await store.listAllByFsentrySubtree(entry.id, {
+                        primary: true,
+                    });
                     expect(rows.map((row) => row.uid)).toEqual([link.uid]);
                 } finally {
                     restore();

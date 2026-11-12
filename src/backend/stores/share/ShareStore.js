@@ -365,13 +365,17 @@ export class ShareStore extends PuterStore {
      * Every share row on a node and everything beneath it, whatever kind —
      * user, group and link shares plus unclaimed invites.
      * `listByFsentrySubtree` answers the narrower question; this one is for
-     * retiring the lot.
+     * retiring the lot. Pass `primary` when a share may be too new for a
+     * replica.
      *
      * @param {number} fsentryId
+     * @param {{ primary?: boolean }} [opts]
      */
-    async listAllByFsentrySubtree(fsentryId) {
-        // The primary: a share made just now must be retired too.
-        const rows = await this.clients.db.pread(
+    async listAllByFsentrySubtree(fsentryId, { primary = false } = {}) {
+        const read = primary
+            ? this.clients.db.pread.bind(this.clients.db)
+            : this.clients.db.read.bind(this.clients.db);
+        const rows = await read(
             this.#subtreeCte() +
                 'SELECT `share`.* FROM `share` ' +
                 'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +

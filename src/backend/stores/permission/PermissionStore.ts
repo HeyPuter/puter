@@ -654,9 +654,17 @@ export class PermissionStore extends PuterStore {
         }));
     }
 
+    /** `primary` when a grant may be too new for a replica to have it. */
+    #grantRead(primary: boolean): DbRead {
+        return primary
+            ? this.clients.db.pread.bind(this.clients.db)
+            : this.clients.db.read.bind(this.clients.db);
+    }
+
     /** The group analogue: a deleted node's group grants must go with it. */
     async deleteUserGroupPermsByPermissionPrefixes(
         permissions: string[],
+        { primary = false }: { primary?: boolean } = {},
     ): Promise<{
         rows: Array<{ group_id: number; permission: string }>;
         members: GroupMember[];
@@ -664,8 +672,7 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return { rows: [], members: [] };
         const { where, params } = subtreeClause(permissions);
 
-        // The primary: a grant made just now may not have reached a replica.
-        const rows = (await this.clients.db.pread(
+        const rows = (await this.#grantRead(primary)(
             'SELECT `group_id`, `permission` FROM `user_to_group_permissions` ' +
                 `WHERE ${where}`,
             params,
@@ -695,6 +702,7 @@ export class PermissionStore extends PuterStore {
      */
     async deleteUserUserPermsByPermissionPrefixes(
         permissions: string[],
+        { primary = false }: { primary?: boolean } = {},
     ): Promise<
         Array<{
             holder_user_id: number;
@@ -705,8 +713,7 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return [];
         const { where, params } = subtreeClause(permissions);
 
-        // The primary: a grant made just now may not have reached a replica.
-        const rows = (await this.clients.db.pread(
+        const rows = (await this.#grantRead(primary)(
             'SELECT `holder_user_id`, `issuer_user_id`, `permission` FROM `user_to_user_permissions` ' +
                 `WHERE ${where}`,
             params,
