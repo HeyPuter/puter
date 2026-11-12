@@ -108,7 +108,8 @@ Tests sit next to the code they test. Fixtures go in a `fixtures/` folder next t
 5. Read credentials from `config.providers[<key>]`. The key is part of the self-hosting config contract, so reuse the vendor's existing key when it has one.
 6. Add tests next to the provider. Mock the vendor SDK or `fetch` at the network boundary and drive the provider through the real driver where you can. A live test is a `*.integration.test.ts` file that skips itself, with `skipUnlessEnv` from [testEnv.ts](../src/backend/testEnv.ts), unless its `PUTER_TEST_AI_*` variable is set. Helpers for provider tests are in [shared/integrationTestUtil.ts](../src/backend/drivers/ai/shared/integrationTestUtil.ts).
 7. For a chat provider, add its static catalog to `CATALOGS` in [modelCatalogs.test.ts](../src/backend/drivers/ai/interfaces/chat/modelCatalogs.test.ts) and the provider to [providerConsistency.test.ts](../src/backend/drivers/ai/interfaces/chat/providerConsistency.test.ts). The catalog test fails when a `providers/*/chat/` file with "model" in its name exports a catalog that isn't listed.
-8. Update the published docs for the models and limits the provider adds, following [contributing-apis.md](contributing-apis.md).
+8. Add the provider's config key to the `providers` config of the interface's [fuzz suite](#fuzz-tests), and its id to the list of providers the suite expects.
+9. Update the published docs for the models and limits the provider adds, following [contributing-apis.md](contributing-apis.md).
 
 ### OpenAI-compatible vendors
 
@@ -116,10 +117,36 @@ A vendor that speaks the OpenAI Chat Completions protocol extends `OpenAICompatP
 
 Vendors share one constants-only folder only when at least six of them differ in nothing but base URL and model catalog. Each then becomes one data file under `providers/openaiCompatible/providers/`, read by a single implementation. No vendor qualifies today, because every subclass overrides request, catalog, or billing behavior.
 
+## Fuzz tests
+
+Two seeded suites send malformed input through the real drivers and providers. They run with the rest of the backend tests.
+
+| Suite | Covers |
+| --- | --- |
+| [interfaces/chat/ChatCompletionDriver.fuzz.test.ts](../src/backend/drivers/ai/interfaces/chat/ChatCompletionDriver.fuzz.test.ts) | Chat requests with a few values changed, and valid requests against wrong statuses, bodies of the wrong shape, and broken event streams. |
+| [interfaces/mediaDrivers.fuzz.test.ts](../src/backend/drivers/ai/interfaces/mediaDrivers.fuzz.test.ts) | Image, video, speech and OCR requests with a few values changed. Every vendor refuses the request. |
+
+What the suites assert:
+
+- A malformed request never fails with an error that has no status, which `/drivers/call` would report as an unclassified 500.
+- For chat, with the vendors answering, a malformed request also never fails with a 5xx and never marks a route unhealthy.
+- When the upstream misbehaves, chat ends with an answer or an `HttpError`. A stream only has to end: the error line a stream carries isn't checked, so a malformed event can still end one with a 500.
+
+The vendors are played at the HTTP boundary by `upstream` in [shared/fuzzTestUtil.ts](../src/backend/drivers/ai/shared/fuzzTestUtil.ts), which stands in for global `fetch`, undici `fetch` and axios, and makes `https.request` throw so an SDK with its own client fails the suite. The vendors' SDKs run, except Groq's, which is swapped for the OpenAI SDK, and the AWS clients, whose `send` is stubbed. The media suite calls the drivers as a user with unlimited metering, so a request gets past file input and the credit hold to the vendor. A provider that loads its catalog from the vendor registers no models there, so the suites skip it.
+
+A failure lists each distinct finding with its case number and input. The random source is seeded, so the same case fails again on the next run. To search further, raise the case count:
+
+```sh
+PUTER_FUZZ_CASES=100000 npx vitest run --config src/backend/vitest.config.ts src/backend/drivers/ai/interfaces/chat/ChatCompletionDriver.fuzz.test.ts
+```
+
+When a suite finds a crash, validate the value where the request enters, in the driver or in `normalize_single_message`, so every provider is covered. Reject only what crashed: a value a provider ignored or refused before must still reach it. An option a driver reads as text, a number or a flag goes in the driver's `SCALAR_OPTIONS`, and `assertScalarOptions` from `shared/scalarOptions.ts` answers 400 for a value there that can't be converted to text. Add a unit test for the case next to the fix.
+
 ## Adding an interface
 
 1. Create `interfaces/<interface>/` with the driver class and a `types.ts` for the contracts providers implement.
 2. Register the driver in [src/backend/drivers/index.ts](../src/backend/drivers/index.ts).
 3. Use `AI_RATE_LIMIT` and `AI_CONCURRENT` from `shared/aiLimits.ts`, and publish any new limit in [rate-limits-and-quotas.md](../src/docs/src/rate-limits-and-quotas.md).
 4. Meter through `withAiCostFactor` from `src/backend/util/aiCostFactor.ts`, and route between providers with `ProviderRegistry` from `shared/providerRegistry.ts`.
-5. Follow [contributing-apis.md](contributing-apis.md) for the puter.js method, types, docs, and tests.
+5. List the options the providers read as text, a number or a flag in a `SCALAR_OPTIONS` array, and call `assertScalarOptions` from `shared/scalarOptions.ts` first in each method. Add the driver to [mediaDrivers.fuzz.test.ts](../src/backend/drivers/ai/interfaces/mediaDrivers.fuzz.test.ts).
+6. Follow [contributing-apis.md](contributing-apis.md) for the puter.js method, types, docs, and tests.
