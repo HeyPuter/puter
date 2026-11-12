@@ -3973,12 +3973,6 @@ $.fn.showWindow = async function (options) {
 };
 
 window.toggle_empty_folder_message = function (el_item_container) {
-    // if the item container is the desktop, don't show/hide the empty message
-    if ( $(el_item_container).hasClass('desktop') )
-    {
-        return;
-    }
-
     // if the item container is empty, show the empty message
     if ( $(el_item_container).has('.item').length === 0 ) {
         $(el_item_container).find('.explorer-empty-message').show();

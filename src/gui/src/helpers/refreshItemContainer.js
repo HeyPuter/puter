@@ -279,31 +279,6 @@ const refresh_item_container = function (el_item_container, options) {
                     }
                 }
 
-                // if this is desktop, add Trash
-                if ( $(el_item_container).hasClass('desktop') ) {
-                    try {
-                        const trash = await puter.fs.stat({ path: window.trash_path, consistency: options.consistency ?? 'eventual' });
-                        if ( ! is_current() ) {
-                            return;
-                        }
-                        UIItem({
-                            appendTo: el_item_container,
-                            uid: trash.id,
-                            immutable: trash.immutable,
-                            path: window.trash_path,
-                            icon: { image: (trash.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']), type: 'icon' },
-                            name: trash.name,
-                            is_dir: trash.is_dir,
-                            sort_by: trash.sort_by,
-                            type: trash.type,
-                            is_trash: true,
-                            sortable: false,
-                        });
-                        window.sort_items(el_item_container, $(el_item_container).attr('data-sort_by'), $(el_item_container).attr('data-sort_order'));
-                    } catch (e) {
-                    // Ignored
-                    }
-                }
                 // sort items
                 window.sort_items(
                     el_item_container,

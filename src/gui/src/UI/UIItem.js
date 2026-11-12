@@ -1522,7 +1522,7 @@ async function UIItem (options) {
 
         // Create ContextMenu
         UIContextMenu({
-            parent_element: ($(options.appendTo).hasClass('desktop') ? undefined : options.appendTo),
+            parent_element: options.appendTo,
             position: menu_position,
             items: menu_items,
         });
