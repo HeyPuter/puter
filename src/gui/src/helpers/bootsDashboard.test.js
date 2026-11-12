@@ -21,8 +21,8 @@ import { describe, it, expect } from 'vitest';
 import { bootsDashboard } from './bootsDashboard.js';
 
 const boots = (url, { inIframe = false, embeddedInPopup = false } = {}) => {
-    const { pathname, searchParams } = new URL(url, 'https://puter.com');
-    return bootsDashboard({ pathname, searchParams, inIframe, embeddedInPopup });
+    const { pathname } = new URL(url, 'https://puter.com');
+    return bootsDashboard({ pathname, inIframe, embeddedInPopup });
 };
 
 describe('bootsDashboard', () => {
@@ -39,7 +39,6 @@ describe('bootsDashboard', () => {
     });
 
     it('boots the desktop for flows only the desktop handles', () => {
-        expect(boots('/?puter.fullpage=true')).toBe(false);
         expect(boots('/', { inIframe: true })).toBe(false);
         expect(boots('/', { embeddedInPopup: true })).toBe(false);
     });
@@ -48,10 +47,13 @@ describe('bootsDashboard', () => {
         expect(boots('/dashboard', { inIframe: true })).toBe(true);
     });
 
-    it('boots the dashboard for share, download and ?app= links', () => {
+    it('boots the dashboard whatever the query asks for', () => {
         expect(boots('/?shared=%2Fann%2Fuid%2Fnotes.txt')).toBe(true);
         expect(boots('/?download=https%3A%2F%2Fexample.com%2Ffile.zip')).toBe(true);
         expect(boots('/?app=explorer&path=%2Falice%2FDocuments')).toBe(true);
         expect(boots('/app/editor?app=explorer')).toBe(true);
+        expect(boots('/app/editor?puter.fullpage=true')).toBe(true);
+        expect(boots('/app/editor?puter.fullpage=false')).toBe(true);
+        expect(boots('/?puter.fullpage=1')).toBe(true);
     });
 });

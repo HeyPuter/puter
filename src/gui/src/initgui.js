@@ -1265,7 +1265,7 @@ if (jQuery) {
 // open in the dashboard too: the app comes up maximized in-page with the dashboard
 // route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
-// (`?embedded_in_popup=`), fullpage mode (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
+// (`?embedded_in_popup=`) and iframe embeds. A share link (`?shared=`,
 // from an email) lands in the dashboard: Files, on Shared, with the items it names
 // picked out; the desktop ignores it. App metadata
 // like fullpage_on_landing does NOT opt a landing out of the dashboard; it only
@@ -1288,7 +1288,6 @@ if (jQuery) {
     const in_iframe = window.location !== window.parent.location;
     if (bootsDashboard({
         pathname,
-        searchParams: search_params,
         inIframe: in_iframe,
         embeddedInPopup: !!window.embedded_in_popup,
     })) {
@@ -1672,10 +1671,12 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Determine if we are in full-page mode
-    // i.e. https://puter.com/app/<app_name>/?puter.fullpage=true
+    // Determine if we are in full-page mode. The dashboard always shows apps full
+    // page; a desktop boot (embeds, popups) can ask with ?puter.fullpage=true.
     //--------------------------------------------------------------------------------------
-    if (
+    if (window.is_dashboard_mode) {
+        window.is_fullpage_mode = true;
+    } else if (
         window.url_query_params.has('puter.fullpage') &&
         (window.url_query_params.get('puter.fullpage') === 'false' ||
             window.url_query_params.get('puter.fullpage') === '0')
@@ -1687,8 +1688,6 @@ window.initgui = async function (options) {
             window.url_query_params.get('puter.fullpage') === '1')
     ) {
         // Puter is in fullpage mode.
-        window.is_fullpage_mode = true;
-    } else if (window.is_dashboard_mode) {
         window.is_fullpage_mode = true;
     }
 
