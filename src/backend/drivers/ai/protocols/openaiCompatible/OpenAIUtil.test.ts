@@ -1,0 +1,2218 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { Writable } from 'node:stream';
+import { describe, expect, it, vi } from 'vitest';
+import { Context } from '../../../../core/context.js';
+import { withTestActor } from '../../../integrationTestUtil.js';
+// @ts-expect-error — sibling JS module without an adjacent .d.ts
+import {
+    create_chat_stream_handler,
+    create_chat_stream_handler_responses_api,
+    extractMeteredUsage,
+    handle_completion_output,
+    handle_completion_output_responses_api,
+    process_input_messages,
+    process_input_messages_responses_api,
+    splitCachedPrompt,
+    toOpenAIChatMessages,
+    usageDetailsFromTrackedUsage,
+} from './OpenAIUtil.js';
+// @ts-expect-error — sibling JS module without an adjacent .d.ts
+import { AIChatStream } from '../../interfaces/chat/utils/Streaming.js';
+
+// ── Stream test harness ─────────────────────────────────────────────
+//
+// These stream handlers (and AIChatStream itself) write
+// newline-delimited JSON into a Writable. Tests use a real
+// `AIChatStream` wired to a buffering Writable, then parse the
+// captured chunks back out so assertions can inspect the live
+// shape — no method spies on the stream classes.
+
+const makeCapturingChatStream = () => {
+    const chunks: string[] = [];
+    const sink = new Writable({
+        write(chunk, _enc, cb) {
+            chunks.push(chunk.toString('utf8'));
+            cb();
+        },
+    });
+    const chatStream = new AIChatStream({ stream: sink });
+    return {
+        chatStream,
+        events: () =>
+            chunks
+                .join('')
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => JSON.parse(line)),
+    };
+};
+
+const asAsyncIterable = <T>(items: T[]): AsyncIterable<T> => ({
+    async *[Symbol.asyncIterator]() {
+        for (const item of items) {
+            yield item;
+        }
+    },
+});
+
+// -- toOpenAIChatMessages ---------------------------------------------
+
+describe('toOpenAIChatMessages', () => {
+    it('drops thinking, redacted_thinking and server_tool_use blocks', () => {
+        const messages = [
+            {
+                role: 'assistant',
+                content: [
+                    { type: 'thinking', thinking: 'secret', signature: 'sig' },
+                    { type: 'redacted_thinking', data: 'opaque' },
+                    {
+                        type: 'server_tool_use',
+                        id: 'srvtoolu_1',
+                        name: 'web_search',
+                        input: {},
+                    },
+                    { type: 'text', text: 'hello' },
+                ],
+            },
+        ];
+        const [out] = toOpenAIChatMessages(messages);
+        expect(out.content).toEqual([{ type: 'text', text: 'hello' }]);
+    });
+
+    it('drops a message entirely when only Anthropic-only blocks remain', () => {
+        const messages = [
+            {
+                role: 'assistant',
+                content: [{ type: 'thinking', thinking: 'x', signature: 'y' }],
+            },
+            { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        ];
+        const out = toOpenAIChatMessages(messages);
+        expect(out).toHaveLength(1);
+        expect(out[0].role).toBe('user');
+    });
+
+    it('drops *_tool_result server blocks', () => {
+        const messages = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'web_search_tool_result',
+                        tool_use_id: 'srvtoolu_1',
+                        content: [],
+                    },
+                    { type: 'text', text: 'kept' },
+                ],
+            },
+        ];
+        const [out] = toOpenAIChatMessages(messages);
+        expect(out.content).toEqual([{ type: 'text', text: 'kept' }]);
+    });
+
+    it('flattens a tool_result content array and prefixes is_error', () => {
+        const messages = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: 'call_1',
+                        is_error: true,
+                        content: [
+                            { type: 'text', text: 'boom' },
+                            { type: 'image', source: { type: 'file' } },
+                            { type: 'tool_reference', name: 'bash' },
+                        ],
+                    },
+                ],
+            },
+        ];
+        const [out] = toOpenAIChatMessages(messages);
+        expect(out.content[0].type).toBe('tool_result');
+        expect(out.content[0].content).toBe(
+            'Error: boom' +
+                '{error: image content is not supported by this model; the user did not write this message}' +
+                '[tool reference: bash]',
+        );
+        expect(out.content[0].is_error).toBeUndefined();
+    });
+
+    it('strips citations, cache_control and clear_at unless keepCacheControl', () => {
+        const messages = [
+            {
+                role: 'system',
+                clear_at: 'next_user_message',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'hi',
+                        citations: [{ type: 'char_location' }],
+                        cache_control: { type: 'ephemeral' },
+                    },
+                ],
+            },
+        ];
+        const [stripped] = toOpenAIChatMessages(messages);
+        expect(stripped.clear_at).toBeUndefined();
+        expect(stripped.content[0].citations).toBeUndefined();
+        expect(stripped.content[0].cache_control).toBeUndefined();
+
+        const [kept] = toOpenAIChatMessages(messages, {
+            keepCacheControl: true,
+        });
+        expect(kept.content[0].cache_control).toEqual({ type: 'ephemeral' });
+    });
+
+    it('strips a message-level cache_control even when content is a bare string', () => {
+        const messages = [
+            { role: 'user', content: 'hi', cache_control: { type: 'ephemeral' } },
+        ];
+        const [out] = toOpenAIChatMessages(messages);
+        expect(out.cache_control).toBeUndefined();
+        expect(out.content).toBe('hi');
+
+        const [kept] = toOpenAIChatMessages(messages, { keepCacheControl: true });
+        expect(kept.cache_control).toEqual({ type: 'ephemeral' });
+    });
+
+    it('drops a system block starting with the billing header marker', () => {
+        const messages = [
+            {
+                role: 'system',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'x-anthropic-billing-header: secret',
+                    },
+                ],
+            },
+        ];
+        expect(toOpenAIChatMessages(messages)).toHaveLength(0);
+    });
+
+    it('does not mutate the caller\'s message or block objects', () => {
+        const block = { type: 'text', text: 'hi', cache_control: { type: 'ephemeral' } };
+        const message = { role: 'user', content: [block] };
+        const out = toOpenAIChatMessages([message]);
+        expect(out[0]).not.toBe(message);
+        expect(out[0].content[0]).not.toBe(block);
+        expect(block.cache_control).toEqual({ type: 'ephemeral' });
+    });
+});
+
+// -- usageDetailsFromTrackedUsage -------------------------------------
+
+describe('usageDetailsFromTrackedUsage', () => {
+    it('maps prompt/completion tokens to inputTokens/outputTokens', () => {
+        expect(
+            usageDetailsFromTrackedUsage({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+            }),
+        ).toEqual({ inputTokens: 10, outputTokens: 5 });
+    });
+
+    it('includes cacheReadTokens/cacheWrite5mTokens only when present', () => {
+        expect(
+            usageDetailsFromTrackedUsage({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                cached_tokens: 3,
+                cache_write_tokens: 2,
+            }),
+        ).toEqual({
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 3,
+            cacheWrite5mTokens: 2,
+        });
+    });
+
+    it('labels cache writes by the lifetime the provider says it wrote them with', () => {
+        expect(
+            usageDetailsFromTrackedUsage(
+                {
+                    prompt_tokens: 10,
+                    completion_tokens: 5,
+                    cached_tokens: 3,
+                    cache_write_tokens: 11,
+                    cache_write_12h_tokens: 6012,
+                },
+                { writeTtl: '30m' },
+            ),
+        ).toEqual({
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 3,
+            cacheWrite30mTokens: 11,
+            cacheWrite12hTokens: 6012,
+        });
+        // Zero counts, as OpenAI reports on a cache hit, add no field.
+        expect(
+            usageDetailsFromTrackedUsage(
+                {
+                    prompt_tokens: 10,
+                    completion_tokens: 5,
+                    cached_tokens: 3,
+                    cache_write_tokens: 0,
+                    cache_write_12h_tokens: 0,
+                },
+                { writeTtl: '30m' },
+            ),
+        ).toEqual({ inputTokens: 10, outputTokens: 5, cacheReadTokens: 3 });
+    });
+
+    it('returns undefined for a missing/non-object usage', () => {
+        expect(usageDetailsFromTrackedUsage(undefined)).toBeUndefined();
+        expect(usageDetailsFromTrackedUsage(null)).toBeUndefined();
+    });
+
+    it('maps the {prompt, completion, input_cache_read} shape OpenRouter tracks', () => {
+        expect(
+            usageDetailsFromTrackedUsage({
+                prompt: 7,
+                completion: 3,
+                input_cache_read: 2,
+                request: 1,
+            }),
+        ).toEqual({ inputTokens: 7, outputTokens: 3, cacheReadTokens: 2 });
+    });
+
+    it('leaves an unrecognized usage shape to the driver', () => {
+        expect(
+            usageDetailsFromTrackedUsage({ input_tokens: 5, output_tokens: 1 }),
+        ).toBeUndefined();
+    });
+});
+
+// ── process_input_messages ──────────────────────────────────────────
+
+describe('process_input_messages', () => {
+    it('infers `image_url` and `video_url` types when missing', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [
+                    { image_url: 'https://cdn.test/a.png' },
+                    { video_url: 'https://cdn.test/a.mp4' },
+                    { type: 'text', text: 'hello' },
+                ],
+            },
+        ];
+
+        const result = (await process_input_messages(messages)) as Array<
+            Record<string, unknown>
+        >;
+        const content = (result[0]!.content ?? []) as Array<
+            Record<string, unknown>
+        >;
+        expect(content[0]?.type).toBe('image_url');
+        expect(content[1]?.type).toBe('video_url');
+        // Existing typed blocks are left alone.
+        expect(content[2]?.type).toBe('text');
+    });
+
+    it('hoists tool_use blocks into top-level tool_calls and clears content', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_1',
+                        name: 'lookup',
+                        input: { q: 'puter' },
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages(messages)) as Array<
+            Record<string, unknown>
+        >;
+        // tool_calls flipped to OpenAI shape; content is null when this
+        // message was originally just a tool call.
+        expect(out!.content).toBeNull();
+        expect(out!.tool_calls).toEqual([
+            {
+                id: 'call_1',
+                type: 'function',
+                function: {
+                    name: 'lookup',
+                    // input is JSON-stringified for the OpenAI wire format.
+                    arguments: JSON.stringify({ q: 'puter' }),
+                },
+            },
+        ]);
+    });
+
+    it("keeps a replayed call's serialized arguments verbatim", async () => {
+        // An OpenAI-shaped `tool_calls` entry normalizes with its arguments
+        // still a JSON string.
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_1',
+                        name: 'lookup',
+                        input: '{"q":"puter"}',
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages(messages)) as Array<{
+            tool_calls: Array<{ function: { arguments: string } }>;
+        }>;
+        expect(out!.tool_calls[0]!.function.arguments).toBe('{"q":"puter"}');
+    });
+
+    describe('tool call extra_content', () => {
+        const turn = (): Array<Record<string, unknown>> => [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_2',
+                        name: 'lookup',
+                        input: {},
+                        extra_content: { hint: 'metadata' },
+                    },
+                ],
+            },
+        ];
+        const firstCall = (out: unknown[]) =>
+            (
+                (out[0] as Record<string, unknown>).tool_calls as Array<
+                    Record<string, unknown>
+                >
+            )[0]!;
+
+        it('drops it by default', async () => {
+            const out = await process_input_messages(turn());
+            expect(firstCall(out)).not.toHaveProperty('extra_content');
+        });
+
+        it('keeps it when asked', async () => {
+            const out = await process_input_messages(turn(), {
+                keepExtraContent: true,
+            });
+            expect(firstCall(out).extra_content).toEqual({ hint: 'metadata' });
+        });
+    });
+
+    describe('parallel tool call order', () => {
+        const parallelTurn = (): Array<Record<string, unknown>> => [
+            {
+                role: 'assistant',
+                content: [
+                    { type: 'tool_use', id: 'a', name: 'first', input: {} },
+                    { type: 'tool_use', id: 'b', name: 'second', input: {} },
+                ],
+            },
+        ];
+        const callIds = (out: unknown[]) =>
+            (
+                (out[0] as Record<string, unknown>).tool_calls as Array<{
+                    id: string;
+                }>
+            ).map((call) => call.id);
+
+        it('keeps the existing reversed order by default', async () => {
+            expect(callIds(await process_input_messages(parallelTurn()))).toEqual(
+                ['b', 'a'],
+            );
+        });
+
+        it('keeps content order when asked to', async () => {
+            expect(
+                callIds(
+                    await process_input_messages(parallelTurn(), {
+                        preserveToolCallOrder: true,
+                    }),
+                ),
+            ).toEqual(['a', 'b']);
+        });
+
+        it('appends after tool_calls the message already had, without reordering them', async () => {
+            const [turn] = parallelTurn();
+            turn!.tool_calls = [
+                { id: 'y', type: 'function', function: { name: 'y', arguments: '{}' } },
+                { id: 'x', type: 'function', function: { name: 'x', arguments: '{}' } },
+            ];
+            expect(
+                callIds(
+                    await process_input_messages([turn!], {
+                        preserveToolCallOrder: true,
+                    }),
+                ),
+            ).toEqual(['y', 'x', 'a', 'b']);
+        });
+    });
+
+    it('coerces tool_result blocks into a top-level tool message', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: 'call_1',
+                        content: 'result body',
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages(messages)) as Array<
+            Record<string, unknown>
+        >;
+        expect(out!.role).toBe('tool');
+        expect(out!.tool_call_id).toBe('call_1');
+        expect(out!.content).toBe('result body');
+    });
+
+    it('skips messages with falsy or non-object content', async () => {
+        const messages = [
+            { role: 'system', content: 'hello' },
+            { role: 'user', content: null },
+        ];
+        const out = (await process_input_messages(messages)) as Array<
+            Record<string, unknown>
+        >;
+        // Strings + null are passed through unchanged.
+        expect(out[0]?.content).toBe('hello');
+        expect(out[1]?.content).toBeNull();
+    });
+});
+
+// ── process_input_messages_responses_api ────────────────────────────
+
+describe('process_input_messages_responses_api', () => {
+    it('rewrites tool messages into function_call_output', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'tool',
+                tool_call_id: 'call_1',
+                content: 'tool said hi',
+            },
+        ];
+
+        const [out] = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out!.type).toBe('function_call_output');
+        expect(out!.call_id).toBe('call_1');
+        expect(out!.output).toBe('tool said hi');
+        // Original tool-shape fields are stripped.
+        expect(out!.role).toBeUndefined();
+        expect(out!.content).toBeUndefined();
+        expect(out!.tool_call_id).toBeUndefined();
+    });
+
+    it('serializes complex tool content into the output string', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'tool',
+                tool_call_id: 'call_1',
+                content: [
+                    { text: 'part-a' },
+                    'part-b',
+                    { content: 'part-c' },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out!.output).toBe('part-apart-bpart-c');
+    });
+
+    it('rewrites a round-tripped compaction content block into a top-level compaction item', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'compaction',
+                        id: 'cmpct_1',
+                        encrypted_content: 'ENC',
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out!.type).toBe('compaction');
+        expect(out!.encrypted_content).toBe('ENC');
+        expect(out!.id).toBe('cmpct_1');
+        expect(out!.role).toBeUndefined();
+        expect(out!.content).toBeUndefined();
+    });
+
+    it('splits a compaction block + reply text into a compaction item plus a preserved message', async () => {
+        // Round-tripping an assistant turn that carries BOTH the compaction
+        // artifact and the reply text must keep the reply, not drop it.
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'compaction',
+                        id: 'cmpct_1',
+                        encrypted_content: 'ENC',
+                    },
+                    { type: 'text', text: 'earlier reply' },
+                ],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+
+        // Compaction item comes first (it represents prior history)...
+        expect(out).toHaveLength(2);
+        expect(out[0]).toEqual({
+            type: 'compaction',
+            id: 'cmpct_1',
+            encrypted_content: 'ENC',
+        });
+        // ...followed by the assistant message with the reply preserved
+        // (assistant text upgraded to output_text).
+        expect(out[1]!.role).toBe('assistant');
+        expect(out[1]!.content).toEqual([
+            { type: 'output_text', text: 'earlier reply' },
+        ]);
+    });
+
+    it('expands round-tripped reasoning_details into reasoning input items', async () => {
+        // The replay contract documented in Objects/chatresponse.md: a caller
+        // resends the whole normalized assistant message, reasoning_details
+        // included, and the Responses input schema gets back the item shape it
+        // issued — output-only fields stripped so the request is accepted.
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: 'earlier reply',
+                reasoning: 'thought',
+                refusal: null,
+                reasoning_details: [
+                    {
+                        type: 'reasoning',
+                        id: 'rs_1',
+                        encrypted_content: 'ENC',
+                        summary: [{ type: 'summary_text', text: 'thought' }],
+                    },
+                ],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+
+        expect(out).toHaveLength(2);
+        // Reasoning item precedes the message it belonged to.
+        expect(out[0]).toEqual({
+            type: 'reasoning',
+            id: 'rs_1',
+            encrypted_content: 'ENC',
+            summary: [{ type: 'summary_text', text: 'thought' }],
+        });
+        expect(out[1]!.role).toBe('assistant');
+        // Output-only fields would be rejected by the input schema.
+        expect('reasoning_details' in out[1]!).toBe(false);
+        expect('reasoning' in out[1]!).toBe(false);
+        expect('refusal' in out[1]!).toBe(false);
+    });
+
+    it('does not mutate the caller\'s message objects', async () => {
+        const callerMessage = Object.freeze({
+            role: 'assistant',
+            content: 'earlier reply',
+            reasoning: 'thought',
+            refusal: null,
+            normalized: true,
+            reasoning_details: Object.freeze([
+                Object.freeze({ type: 'reasoning', id: 'rs_1' }),
+            ]),
+        });
+        const before = JSON.parse(JSON.stringify(callerMessage));
+
+        const out = (await process_input_messages_responses_api([
+            callerMessage,
+        ] as never)) as Array<Record<string, unknown>>;
+
+        expect(callerMessage).toEqual(before);
+        // The stripped copy is what goes upstream.
+        expect('reasoning_details' in out[1]!).toBe(false);
+        expect('normalized' in out[1]!).toBe(false);
+    });
+
+    it('leaves messages without reasoning artifacts alone', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            { role: 'user', content: 'hi' },
+        ];
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out).toHaveLength(1);
+        expect(out[0]!.role).toBe('user');
+    });
+
+    it('upgrades user/system text blocks to input_text', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [{ type: 'text', text: 'hello' }],
+            },
+            {
+                role: 'system',
+                content: [{ type: 'text', text: 'sys' }],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const userBlocks = out[0]!.content as Array<Record<string, unknown>>;
+        const sysBlocks = out[1]!.content as Array<Record<string, unknown>>;
+        expect(userBlocks[0]?.type).toBe('input_text');
+        expect(sysBlocks[0]?.type).toBe('input_text');
+    });
+
+    it('upgrades assistant text blocks to output_text', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'hi from gpt' }],
+            },
+        ];
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const blocks = out[0]!.content as Array<Record<string, unknown>>;
+        expect(blocks[0]?.type).toBe('output_text');
+    });
+
+    it('rewrites canonical image parts into `input_image` items', async () => {
+        const imagePart = {
+            type: 'image_url',
+            image_url: { url: 'https://cdn.test/a.png', detail: 'high' },
+        };
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [{ type: 'text', text: 'what is this' }, imagePart],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const blocks = out[0]!.content as Array<Record<string, unknown>>;
+        expect(blocks[0]).toEqual({ type: 'input_text', text: 'what is this' });
+        // Responses wants a bare string URL with `detail` beside it — the
+        // Chat Completions object form is rejected with "Invalid value:
+        // 'image_url'".
+        expect(blocks[1]).toEqual({
+            type: 'input_image',
+            image_url: 'https://cdn.test/a.png',
+            detail: 'high',
+        });
+        // The caller's part is untouched: the driver reuses it on fallback.
+        expect(imagePart).toEqual({
+            type: 'image_url',
+            image_url: { url: 'https://cdn.test/a.png', detail: 'high' },
+        });
+        expect(messages[0]!.content).toBe(blocks === messages[0]!.content ? blocks : messages[0]!.content);
+        expect((messages[0]!.content as unknown[])[0]).toEqual({
+            type: 'text',
+            text: 'what is this',
+        });
+    });
+
+    it('types an untyped shorthand image part, defaults detail to auto, keeps file_id', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [
+                    { image_url: { url: 'data:image/png;base64,AAAA' } },
+                    { type: 'image_url', file_id: 'file_123' },
+                ],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const blocks = out[0]!.content as Array<Record<string, unknown>>;
+        expect(blocks[0]).toEqual({
+            type: 'input_image',
+            image_url: 'data:image/png;base64,AAAA',
+            detail: 'auto',
+        });
+        expect(blocks[1]).toEqual({
+            type: 'input_image',
+            file_id: 'file_123',
+            detail: 'auto',
+        });
+    });
+
+    it('replaces video parts with an inline note — Responses has no video item', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [{ video_url: { url: 'https://cdn.test/a.mp4' } }],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        const blocks = out[0]!.content as Array<Record<string, unknown>>;
+        expect(blocks[0]!.type).toBe('input_text');
+        expect(blocks[0]!.text).toMatch(/video input is not supported/);
+    });
+
+    it('hoists a single assistant tool_use into a top-level function_call', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_1',
+                        canonical_id: 'fc_1',
+                        name: 'lookup',
+                        input: { q: 'puter' },
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out!.type).toBe('function_call');
+        expect(out!.call_id).toBe('call_1');
+        expect(out!.id).toBe('fc_1');
+        expect(out!.name).toBe('lookup');
+        expect(out!.arguments).toBe(JSON.stringify({ q: 'puter' }));
+        expect(out!.role).toBeUndefined();
+        expect(out!.content).toBeUndefined();
+    });
+
+    it("keeps a replayed call's serialized arguments verbatim", async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_1',
+                        name: 'lookup',
+                        input: '{"q":"puter"}',
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out!.type).toBe('function_call');
+        expect(out!.arguments).toBe('{"q":"puter"}');
+    });
+
+    it('rewrites tool_result blocks into function_call_output', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: 'call_1',
+                        content: 'result',
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out!.type).toBe('function_call_output');
+        expect(out!.call_id).toBe('call_1');
+        expect(out!.output).toBe('result');
+    });
+
+    it('splits a parallel tool-call turn into one function_call item per tool_use block', async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_1',
+                        canonical_id: 'fc_1',
+                        name: 'lookup',
+                        input: { q: 'puter' },
+                    },
+                    {
+                        type: 'tool_use',
+                        id: 'call_2',
+                        canonical_id: 'fc_2',
+                        name: 'weather',
+                        input: { city: 'nyc' },
+                    },
+                ],
+            },
+        ];
+
+        const out = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out).toHaveLength(2);
+        expect(out[0]).toMatchObject({
+            type: 'function_call',
+            call_id: 'call_1',
+            id: 'fc_1',
+            name: 'lookup',
+            arguments: JSON.stringify({ q: 'puter' }),
+        });
+        expect(out[1]).toMatchObject({
+            type: 'function_call',
+            call_id: 'call_2',
+            id: 'fc_2',
+            name: 'weather',
+            arguments: JSON.stringify({ city: 'nyc' }),
+        });
+    });
+});
+
+// ── extractMeteredUsage ─────────────────────────────────────────────
+
+describe('extractMeteredUsage', () => {
+    it('extracts prompt/completion/cached counts with safe defaults', () => {
+        expect(
+            extractMeteredUsage({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                prompt_tokens_details: { cached_tokens: 3 },
+            }),
+        ).toEqual({
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            cached_tokens: 3,
+        });
+    });
+
+    it('defaults missing fields to 0', () => {
+        expect(extractMeteredUsage({})).toEqual({
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            cached_tokens: 0,
+        });
+    });
+});
+
+// ── splitCachedPrompt ───────────────────────────────────────────────
+
+describe('splitCachedPrompt', () => {
+    it('takes cached reads out of prompt_tokens', () => {
+        expect(
+            splitCachedPrompt({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                prompt_tokens_details: { cached_tokens: 3 },
+            }),
+        ).toEqual({
+            prompt_tokens: 7,
+            completion_tokens: 5,
+            cached_tokens: 3,
+        });
+    });
+
+    it('reads a missing usage as nothing used', () => {
+        expect(splitCachedPrompt(undefined)).toEqual({
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            cached_tokens: 0,
+        });
+    });
+
+    it('takes cache writes out of prompt_tokens under their own key', () => {
+        expect(
+            splitCachedPrompt({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                prompt_tokens_details: { cached_tokens: 3, cache_write_tokens: 4 },
+            }),
+        ).toEqual({
+            prompt_tokens: 3,
+            completion_tokens: 5,
+            cached_tokens: 3,
+            cache_write_tokens: 4,
+        });
+    });
+
+    it('leaves cache writes out when the upstream reports no count', () => {
+        expect(
+            splitCachedPrompt({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                prompt_tokens_details: { cached_tokens: 3, cache_write_tokens: null },
+            }),
+        ).toEqual({
+            prompt_tokens: 7,
+            completion_tokens: 5,
+            cached_tokens: 3,
+        });
+    });
+
+    it('reads the Responses usage spelling', () => {
+        expect(
+            splitCachedPrompt({
+                input_tokens: 6026,
+                output_tokens: 5,
+                input_tokens_details: { cached_tokens: 0, cache_write_tokens: 6023 },
+            }),
+        ).toEqual({
+            prompt_tokens: 3,
+            completion_tokens: 5,
+            cached_tokens: 0,
+            cache_write_tokens: 6023,
+        });
+    });
+
+    it('splits 12h writes out of the write count when the breakdown is reported', () => {
+        // One request can write both lifetimes: an explicit 12h breakpoint
+        // plus the implicit 30m one OpenAI adds at the end of the prompt.
+        expect(
+            splitCachedPrompt({
+                input_tokens: 6026,
+                output_tokens: 5,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 6023,
+                    cache_write_tokens_details: {
+                        ttl_12h_tokens: 6012,
+                        ttl_30m_tokens: 11,
+                    },
+                },
+            }),
+        ).toEqual({
+            prompt_tokens: 3,
+            completion_tokens: 5,
+            cached_tokens: 0,
+            cache_write_tokens: 11,
+            cache_write_12h_tokens: 6012,
+        });
+    });
+
+    it('never reports more 12h writes than writes in total', () => {
+        expect(
+            splitCachedPrompt({
+                input_tokens: 100,
+                output_tokens: 1,
+                input_tokens_details: {
+                    cached_tokens: 0,
+                    cache_write_tokens: 40,
+                    cache_write_tokens_details: { ttl_12h_tokens: 50 },
+                },
+            }),
+        ).toEqual({
+            prompt_tokens: 60,
+            completion_tokens: 1,
+            cached_tokens: 0,
+            cache_write_tokens: 0,
+            cache_write_12h_tokens: 40,
+        });
+    });
+});
+
+// ── recorded usage costs ────────────────────────────────────────────
+
+describe('chat completion handlers carry the recorded usage costs', () => {
+    const usage_calculator = ({
+        usage,
+        setUsageCosts,
+    }: {
+        usage: Record<string, number>;
+        setUsageCosts: (costs: Record<string, number>) => void;
+    }) => {
+        setUsageCosts({ prompt_tokens: 42 });
+        return usage;
+    };
+
+    it('onto a non-stream result', async () => {
+        const result = await handle_completion_output({
+            stream: false,
+            completion: {
+                choices: [{ message: { content: 'hi' } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            },
+            usage_calculator,
+        });
+        expect(result.usageCosts).toEqual({ prompt_tokens: 42 });
+    });
+
+    it('onto the chat stream', async () => {
+        const { chatStream } = makeCapturingChatStream();
+        await create_chat_stream_handler({
+            completion: asAsyncIterable([
+                {
+                    choices: [{ delta: { content: 'hi' }, finish_reason: 'stop' }],
+                    usage: { prompt_tokens: 1, completion_tokens: 1 },
+                },
+            ]),
+            usage_calculator,
+        })({ chatStream });
+        expect(chatStream.usageCosts).toEqual({ prompt_tokens: 42 });
+    });
+});
+
+// ── create_chat_stream_handler ──────────────────────────────────────
+
+describe('create_chat_stream_handler', () => {
+    it('streams text deltas through to a `text` content block', async () => {
+        const completion = asAsyncIterable([
+            { choices: [{ delta: { content: 'hel' } }] },
+            { choices: [{ delta: { content: 'lo' } }] },
+            { choices: [{ delta: {} }], usage: { prompt_tokens: 1 } },
+        ]);
+        const init = create_chat_stream_handler({
+            deviations: undefined,
+            completion,
+            usage_calculator: ({ usage }: { usage: unknown }) => ({
+                forwarded: usage,
+            }),
+        });
+
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        // Deltas land as separate text events.
+        const textEvents = events.filter((e) => e.type === 'text');
+        expect(textEvents.map((e) => e.text)).toEqual(['hel', 'lo']);
+        // Final usage event uses the calculator output.
+        const usageEvent = events.find((e) => e.type === 'usage');
+        expect(usageEvent?.usage).toEqual({ forwarded: { prompt_tokens: 1 } });
+    });
+
+    it('emits a separate reasoning event for `reasoning_content`', async () => {
+        const completion = asAsyncIterable([
+            { choices: [{ delta: { reasoning_content: 'thinking…' } }] },
+            { choices: [{ delta: { content: 'done' } }] },
+            { choices: [{ delta: {} }], usage: { prompt_tokens: 1 } },
+        ]);
+        const init = create_chat_stream_handler({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        expect(events.some((e) => e.type === 'reasoning')).toBe(true);
+        const reasoning = events.find((e) => e.type === 'reasoning');
+        expect(reasoning?.reasoning).toBe('thinking…');
+    });
+
+    it('builds a tool_use block from streamed function-call deltas', async () => {
+        const completion = asAsyncIterable([
+            {
+                choices: [
+                    {
+                        delta: {
+                            tool_calls: [
+                                {
+                                    index: 0,
+                                    id: 'call_1',
+                                    function: {
+                                        name: 'lookup',
+                                        arguments: '{"q":',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            {
+                choices: [
+                    {
+                        delta: {
+                            tool_calls: [
+                                {
+                                    index: 0,
+                                    function: { arguments: '"puter"}' },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            { choices: [{ delta: {} }], usage: { prompt_tokens: 2 } },
+        ]);
+        const init = create_chat_stream_handler({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        const toolEvent = events.find((e) => e.type === 'tool_use');
+        expect(toolEvent).toBeDefined();
+        expect(toolEvent?.id).toBe('call_1');
+        expect(toolEvent?.name).toBe('lookup');
+        // Buffered partial-JSON is parsed once on `.end()`.
+        expect(toolEvent?.input).toEqual({ q: 'puter' });
+    });
+
+    it('captures choice.finish_reason into the end chunk', async () => {
+        const completion = asAsyncIterable([
+            { choices: [{ delta: { content: 'hi' } }] },
+            {
+                choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+                usage: { prompt_tokens: 1, completion_tokens: 2 },
+            },
+        ]);
+        const init = create_chat_stream_handler({
+            deviations: undefined,
+            completion,
+            usage_calculator: ({ usage }: { usage: unknown }) => usage,
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const usageEvent = harness.events().find((e) => e.type === 'usage');
+        expect(usageEvent?.finish_reason).toBe('tool_calls');
+        expect(usageEvent?.stopReason).toBe('tool_use');
+    });
+
+    it('sets usageDetails from the tracked-usage shape, cached tokens included', async () => {
+        const completion = asAsyncIterable([
+            { choices: [{ delta: { content: 'hi' } }] },
+            { choices: [{ delta: {} }], usage: { prompt_tokens: 10 } },
+        ]);
+        const init = create_chat_stream_handler({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({
+                prompt_tokens: 7,
+                completion_tokens: 3,
+                cached_tokens: 4,
+            }),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const usageEvent = harness.events().find((e) => e.type === 'usage');
+        expect(usageEvent?.usageDetails).toEqual({
+            inputTokens: 7,
+            outputTokens: 3,
+            cacheReadTokens: 4,
+        });
+    });
+
+    it('honors the deviations.chunk_but_like_actually unwrap', async () => {
+        // Mistral wraps each chunk under `.data`.
+        const completion = asAsyncIterable([
+            { data: { choices: [{ delta: { content: 'hi' } }] } },
+            {
+                data: {
+                    choices: [{ delta: {} }],
+                    usage: { prompt_tokens: 1 },
+                },
+            },
+        ]);
+        const init = create_chat_stream_handler({
+            deviations: {
+                chunk_but_like_actually: (
+                    chunk: { data: Record<string, unknown> },
+                ) => chunk.data,
+            },
+            completion,
+            usage_calculator: ({ usage }: { usage: unknown }) => usage,
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        expect(events.some((e) => e.type === 'text' && e.text === 'hi')).toBe(
+            true,
+        );
+        const usage = events.find((e) => e.type === 'usage');
+        expect(usage?.usage).toEqual({ prompt_tokens: 1 });
+    });
+});
+
+// ── create_chat_stream_handler_responses_api ────────────────────────
+
+describe('create_chat_stream_handler_responses_api', () => {
+    it('streams text from response.output_text.delta chunks', async () => {
+        const completion = asAsyncIterable([
+            { type: 'response.output_text.delta', delta: 'hel' },
+            { type: 'response.output_text.delta', delta: 'lo' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: ({ usage }: { usage: unknown }) => ({
+                forwarded: usage,
+            }),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        const textEvents = events.filter((e) => e.type === 'text');
+        expect(textEvents.map((e) => e.text)).toEqual(['hel', 'lo']);
+        const usage = events.find((e) => e.type === 'usage');
+        expect(usage?.usage).toEqual({
+            forwarded: { input_tokens: 1, output_tokens: 2 },
+        });
+    });
+
+    it('routes reasoning-summary deltas to the reasoning channel', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.reasoning_summary_text.delta',
+                delta: 'first thought',
+            },
+            {
+                type: 'response.reasoning_summary_part.added',
+                summary_index: 1,
+            },
+            {
+                type: 'response.reasoning_summary_text.delta',
+                delta: 'second thought',
+            },
+            { type: 'response.output_text.delta', delta: 'answer' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        // Same event type the chat-completions handler emits, so a streamed
+        // reasoning model reads identically whichever API served it.
+        expect(
+            events
+                .filter((e) => e.type === 'reasoning')
+                .map((e) => e.reasoning)
+                .join(''),
+        ).toBe('first thought\n\nsecond thought');
+        expect(
+            events.filter((e) => e.type === 'text').map((e) => e.text),
+        ).toEqual(['answer']);
+    });
+
+    it('does not separate the first summary part with a blank line', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.reasoning_summary_part.added',
+                summary_index: 0,
+            },
+            { type: 'response.reasoning_summary_text.delta', delta: 'only' },
+            { type: 'response.output_text.delta', delta: 'answer' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        expect(
+            harness
+                .events()
+                .filter((e) => e.type === 'reasoning')
+                .map((e) => e.reasoning)
+                .join(''),
+        ).toBe('only');
+    });
+
+    it('emits a compaction event when a compaction output_item completes', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.output_item.done',
+                item: {
+                    type: 'compaction',
+                    id: 'cmpct_1',
+                    encrypted_content: 'ENC',
+                },
+            },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const compaction = harness
+            .events()
+            .find((e: { type: string }) => e.type === 'compaction');
+        expect(compaction).toEqual({
+            type: 'compaction',
+            id: 'cmpct_1',
+            encrypted_content: 'ENC',
+        });
+    });
+
+    it('emits a tool_use block when a function_call output_item completes', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.output_item.done',
+                item: {
+                    type: 'function_call',
+                    id: 'fc_1',
+                    call_id: 'call_1',
+                    name: 'lookup',
+                    arguments: '{"q":"puter"}',
+                },
+            },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        const tool = events.find((e) => e.type === 'tool_use');
+        expect(tool).toBeDefined();
+        expect(tool?.id).toBe('call_1');
+        expect(tool?.canonical_id).toBe('fc_1');
+        expect(tool?.name).toBe('lookup');
+        expect(tool?.input).toEqual({ q: 'puter' });
+    });
+
+    it('sets stopReason to tool_use when a function_call completed', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.output_item.done',
+                item: {
+                    type: 'function_call',
+                    id: 'fc_1',
+                    call_id: 'call_1',
+                    name: 'lookup',
+                    arguments: '{}',
+                },
+            },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const usage = harness.events().find((e) => e.type === 'usage');
+        expect(usage?.stopReason).toBe('tool_use');
+        expect(usage?.finish_reason).toBe('tool_calls');
+    });
+
+    it('meters and stops as max_tokens on a response.incomplete (truncated) stream', async () => {
+        const completion = asAsyncIterable([
+            { type: 'response.output_text.delta', delta: 'hi' },
+            {
+                type: 'response.incomplete',
+                response: {
+                    status: 'incomplete',
+                    incomplete_details: { reason: 'max_output_tokens' },
+                    usage: { input_tokens: 1, output_tokens: 2 },
+                },
+            },
+        ]);
+        const usageCalculator = vi.fn(() => ({
+            prompt_tokens: 1,
+            completion_tokens: 2,
+        }));
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: usageCalculator,
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        expect(usageCalculator).toHaveBeenCalledWith(
+            expect.objectContaining({
+                usage: { input_tokens: 1, output_tokens: 2 },
+            }),
+        );
+        const usage = harness.events().find((e) => e.type === 'usage');
+        expect(usage?.stopReason).toBe('max_tokens');
+        expect(usage?.finish_reason).toBe('length');
+    });
+
+    it('defaults stopReason to end_turn for a plain text turn', async () => {
+        const completion = asAsyncIterable([
+            { type: 'response.output_text.delta', delta: 'hi' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const usage = harness.events().find((e) => e.type === 'usage');
+        expect(usage?.stopReason).toBe('end_turn');
+        expect(usage?.finish_reason).toBe('stop');
+    });
+
+    it('emits a reasoning_detail chunk for a completed reasoning item', async () => {
+        const completion = asAsyncIterable([
+            {
+                type: 'response.output_item.done',
+                item: {
+                    type: 'reasoning',
+                    id: 'rs_1',
+                    encrypted_content: 'ENC',
+                    summary: [{ type: 'summary_text', text: 'because' }],
+                },
+            },
+            { type: 'response.output_text.delta', delta: 'answer' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const detail = harness
+            .events()
+            .find((e) => e.type === 'reasoning_detail');
+        expect(detail?.detail).toEqual({
+            type: 'reasoning',
+            id: 'rs_1',
+            encrypted_content: 'ENC',
+            summary: [{ type: 'summary_text', text: 'because' }],
+        });
+    });
+
+    it('sets usageDetails on the end chunk', async () => {
+        const completion = asAsyncIterable([
+            { type: 'response.output_text.delta', delta: 'hi' },
+            {
+                type: 'response.completed',
+                response: { usage: { input_tokens: 1, output_tokens: 2 } },
+            },
+        ]);
+        const init = create_chat_stream_handler_responses_api({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({
+                prompt_tokens: 5,
+                completion_tokens: 1,
+                cached_tokens: 2,
+            }),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const usage = harness.events().find((e) => e.type === 'usage');
+        expect(usage?.usageDetails).toEqual({
+            inputTokens: 5,
+            outputTokens: 1,
+            cacheReadTokens: 2,
+        });
+    });
+});
+
+// ── handle_completion_output (non-stream) ───────────────────────────
+
+describe('handle_completion_output non-stream', () => {
+    it('returns the first choice with usage from the calculator', async () => {
+        const completion = {
+            choices: [
+                {
+                    message: { content: 'hello there' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+        };
+        const result = await handle_completion_output({
+            deviations: undefined,
+            stream: false,
+            completion,
+            moderate: undefined,
+            usage_calculator: ({ usage }: { usage: unknown }) => ({
+                forwarded: usage,
+            }),
+            finally_fn: undefined,
+        });
+        expect(result.message.content).toBe('hello there');
+        expect(result.usage).toEqual({
+            forwarded: { prompt_tokens: 10, completion_tokens: 5 },
+        });
+    });
+
+    it('sets usageDetails from the calculator output, cached tokens included', async () => {
+        const completion = {
+            choices: [
+                { message: { content: 'hi' }, finish_reason: 'stop' },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+        };
+        const result = await handle_completion_output({
+            deviations: undefined,
+            stream: false,
+            completion,
+            moderate: undefined,
+            usage_calculator: () => ({
+                prompt_tokens: 6,
+                completion_tokens: 5,
+                cached_tokens: 4,
+            }),
+            finally_fn: undefined,
+        });
+        expect(result.usageDetails).toEqual({
+            inputTokens: 6,
+            outputTokens: 5,
+            cacheReadTokens: 4,
+        });
+    });
+
+    it('falls back to a raw input/output token shape when no calculator', async () => {
+        const completion = {
+            choices: [{ message: { content: 'ok' } }],
+            usage: { prompt_tokens: 1, completion_tokens: 2 },
+        };
+        const result = await handle_completion_output({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect(result.usage).toEqual({ input_tokens: 1, output_tokens: 2 });
+    });
+
+    it.each([
+        ['missing', {}],
+        ['null', { choices: null }],
+        ['empty', { choices: [] }],
+    ])(
+        'throws bad_response when choices are %s',
+        async (_label, completion) => {
+            await expect(
+                handle_completion_output({
+                    deviations: undefined,
+                    stream: false,
+                    completion,
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_response',
+                message: 'no completion was returned',
+            });
+        },
+    );
+
+    it('carries an in-band upstream error message', async () => {
+        await expect(
+            handle_completion_output({
+                deviations: undefined,
+                stream: false,
+                completion: { error: { message: 'Provider returned error' } },
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_response',
+            message: 'Provider returned error',
+        });
+    });
+
+    it('throws 400 when moderation flags the completion text', async () => {
+        const completion = {
+            choices: [{ message: { content: 'banned content' } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        };
+        const moderate = vi.fn(async () => ({ flagged: true }));
+        await expect(
+            handle_completion_output({
+                deviations: undefined,
+                stream: false,
+                completion,
+                moderate,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(moderate).toHaveBeenCalledWith('banned content');
+    });
+
+    it('withholds the completion as moderation_unavailable when the check throws', async () => {
+        const warn = vi
+            .spyOn(console, 'warn')
+            .mockImplementation(() => undefined);
+        const completion = {
+            choices: [{ message: { content: 'unchecked' } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        };
+        const usage_calculator = vi.fn(({ usage }) => usage);
+        await expect(
+            handle_completion_output({
+                deviations: undefined,
+                stream: false,
+                completion,
+                usage_calculator,
+                moderate: async () => {
+                    throw Object.assign(new Error('moderation down'), {
+                        status: 503,
+                    });
+                },
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'moderation_unavailable',
+        });
+        // Metered before the check: the completion was still produced.
+        expect(usage_calculator).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+    });
+
+    it('skips moderation when the completion content is null', async () => {
+        const completion = {
+            choices: [{ message: { content: null } }],
+            usage: { prompt_tokens: 1, completion_tokens: 0 },
+        };
+        const moderate = vi.fn(async () => ({ flagged: true }));
+        const result = await handle_completion_output({
+            deviations: undefined,
+            stream: false,
+            completion,
+            moderate,
+        });
+        expect(moderate).not.toHaveBeenCalled();
+        expect(result.message.content).toBeNull();
+    });
+
+    it('runs `finally_fn` before returning on the non-stream path', async () => {
+        const completion = {
+            choices: [{ message: { content: 'ok' } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        };
+        const finally_fn = vi.fn(async () => {});
+        await handle_completion_output({
+            deviations: undefined,
+            stream: false,
+            completion,
+            finally_fn,
+        });
+        expect(finally_fn).toHaveBeenCalled();
+    });
+
+    it('returns a stream init descriptor when stream=true (does not call finally_fn yet)', async () => {
+        const completion = asAsyncIterable([]);
+        const finally_fn = vi.fn(async () => {});
+        const result = await handle_completion_output({
+            deviations: undefined,
+            stream: true,
+            completion,
+            finally_fn,
+        });
+        expect(result.stream).toBe(true);
+        expect(typeof result.init_chat_stream).toBe('function');
+        // finally_fn is forwarded for the caller to invoke after streaming.
+        expect(result.finally_fn).toBe(finally_fn);
+        expect(finally_fn).not.toHaveBeenCalled();
+    });
+
+    it('honors deviations.coerce_completion_usage (Mistral shape)', async () => {
+        const completion = {
+            choices: [{ message: { content: 'ok' } }],
+            // Mistral wraps usage in a wrapper object — coerce drills in.
+            wrapper: { prompt_tokens: 7, completion_tokens: 3 },
+        };
+        const result = await handle_completion_output({
+            deviations: {
+                coerce_completion_usage: (
+                    c: { wrapper: Record<string, unknown> },
+                ) => c.wrapper,
+            },
+            stream: false,
+            completion,
+        });
+        expect(result.usage).toEqual({ input_tokens: 7, output_tokens: 3 });
+    });
+});
+
+// ── handle_completion_output_responses_api (non-stream) ─────────────
+
+describe('handle_completion_output_responses_api non-stream', () => {
+    it('shapes responses.output_text into a v1 chat-completion message', async () => {
+        const completion = {
+            output: [{ role: 'assistant', type: 'message' }],
+            output_text: 'hi',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect(result.finish_reason).toBe('stop');
+        expect(result.message.content).toBe('hi');
+        expect(result.role).toBe('assistant');
+        expect(result.usage).toEqual({ input_tokens: 1, output_tokens: 2 });
+        // Sanity: no leftover `type` field bleeds into the response.
+        expect(result.type).toBeUndefined();
+    });
+
+    it('maps finish_reason to length when incomplete for max_output_tokens', async () => {
+        const completion = {
+            status: 'incomplete',
+            incomplete_details: { reason: 'max_output_tokens' },
+            output: [{ role: 'assistant', type: 'message' }],
+            output_text: 'partial',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect(result.finish_reason).toBe('length');
+    });
+
+    it('sets usageDetails from the calculator output', async () => {
+        const completion = {
+            output: [{ role: 'assistant', type: 'message' }],
+            output_text: 'hi',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+            usage_calculator: () => ({
+                prompt_tokens: 9,
+                completion_tokens: 2,
+                cached_tokens: 1,
+            }),
+        });
+        expect(result.usageDetails).toEqual({
+            inputTokens: 9,
+            outputTokens: 2,
+            cacheReadTokens: 1,
+        });
+    });
+
+    it('surfaces tool_calls from output[type=function_call] entries', async () => {
+        const completion = {
+            output: [
+                {
+                    type: 'function_call',
+                    id: 'fc_1',
+                    call_id: 'call_1',
+                    name: 'lookup',
+                    arguments: '{"q":"puter"}',
+                },
+            ],
+            output_text: '',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect(result.message.tool_calls).toEqual([
+            {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'lookup', arguments: '{"q":"puter"}' },
+                canonical_id: 'fc_1',
+            },
+        ]);
+    });
+
+    it('throws 400 when output_text is empty AND there are no tool calls', async () => {
+        const completion = {
+            output: [],
+            output_text: '   ',
+            usage: { input_tokens: 1, output_tokens: 0 },
+        };
+        await expect(
+            handle_completion_output_responses_api({
+                deviations: undefined,
+                stream: false,
+                completion,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('attaches a compaction artifact and allows a compaction-only output', async () => {
+        const completion = {
+            output: [
+                {
+                    type: 'compaction',
+                    id: 'cmpct_1',
+                    encrypted_content: 'ENC',
+                },
+            ],
+            output_text: '   ',
+            usage: { input_tokens: 1, output_tokens: 0 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        // Compaction-only output is not rejected as "empty".
+        expect(result.compaction).toEqual({
+            type: 'compaction',
+            id: 'cmpct_1',
+            encrypted_content: 'ENC',
+        });
+    });
+
+    it('runs moderation against output_text when a moderate fn is supplied', async () => {
+        const completion = {
+            output: [{ role: 'assistant' }],
+            output_text: 'questionable content',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const moderate = vi.fn(async () => ({ flagged: true }));
+        await expect(
+            handle_completion_output_responses_api({
+                deviations: undefined,
+                stream: false,
+                completion,
+                moderate,
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(moderate).toHaveBeenCalledWith('questionable content');
+    });
+
+    it('joins multi-part reasoning summaries with a blank line', async () => {
+        const completion = {
+            output: [
+                {
+                    type: 'reasoning',
+                    summary: [
+                        { type: 'summary_text', text: 'First thought.' },
+                        { type: 'summary_text', text: 'Second thought.' },
+                    ],
+                },
+                { role: 'assistant', type: 'message' },
+            ],
+            output_text: 'answer',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect(result.message.reasoning).toBe(
+            'First thought.\n\nSecond thought.',
+        );
+    });
+
+    it('carries reasoning item id and encrypted_content for replay', async () => {
+        const completion = {
+            output: [
+                {
+                    type: 'reasoning',
+                    id: 'rs_1',
+                    encrypted_content: 'ENC',
+                    summary: [{ type: 'summary_text', text: 'thought' }],
+                },
+                { role: 'assistant', type: 'message' },
+            ],
+            output_text: 'answer',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect(result.message.reasoning_details).toEqual([
+            {
+                type: 'reasoning',
+                id: 'rs_1',
+                encrypted_content: 'ENC',
+                summary: [{ type: 'summary_text', text: 'thought' }],
+            },
+        ]);
+        expect(result.message.reasoning).toBe('thought');
+    });
+
+    it('omits reasoning_details when there are no reasoning items', async () => {
+        const completion = {
+            output: [{ role: 'assistant', type: 'message' }],
+            output_text: 'answer',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect('reasoning_details' in result.message).toBe(false);
+    });
+
+    it('omits reasoning entirely when no summaries were requested', async () => {
+        const completion = {
+            output: [
+                { type: 'reasoning', summary: [] },
+                { role: 'assistant', type: 'message' },
+            ],
+            output_text: 'answer',
+            usage: { input_tokens: 1, output_tokens: 2 },
+        };
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: false,
+            completion,
+        });
+        expect('reasoning' in result.message).toBe(false);
+    });
+
+    it('returns a stream init descriptor when stream=true', async () => {
+        const completion = asAsyncIterable([]);
+        const result = await handle_completion_output_responses_api({
+            deviations: undefined,
+            stream: true,
+            completion,
+        });
+        expect(result.stream).toBe(true);
+        expect(typeof result.init_chat_stream).toBe('function');
+    });
+});
+
+describe('cancelled upstream iterators', () => {
+    it.each([
+        [
+            'chat completions',
+            create_chat_stream_handler,
+            { choices: [{ delta: { content: 'partial' } }] },
+        ],
+        [
+            'responses',
+            create_chat_stream_handler_responses_api,
+            { type: 'response.output_text.delta', delta: 'partial' },
+        ],
+    ])(
+        'does not emit success when %s ends cleanly after cancellation',
+        async (_name, handler, chunk) => {
+            const abort = new AbortController();
+            const usageCalculator = vi.fn();
+            const completion = {
+                async *[Symbol.asyncIterator]() {
+                    yield chunk;
+                    abort.abort();
+                },
+            };
+            const harness = makeCapturingChatStream();
+            await expect(
+                withTestActor(() => {
+                    Context.set('upstreamSignal', abort.signal);
+                    return handler({
+                        completion,
+                        usage_calculator: usageCalculator,
+                    })({ chatStream: harness.chatStream });
+                }),
+            ).rejects.toMatchObject({ name: 'AbortError' });
+            expect(harness.events()).toEqual([
+                { type: 'text', text: 'partial' },
+            ]);
+            expect(usageCalculator).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([
+        [
+            'chat completions',
+            create_chat_stream_handler,
+            [
+                { choices: [{ delta: { content: 'partial' } }] },
+                {
+                    choices: [],
+                    usage: { prompt_tokens: 3, completion_tokens: 5 },
+                },
+            ],
+        ],
+        [
+            'responses',
+            create_chat_stream_handler_responses_api,
+            [
+                { type: 'response.output_text.delta', delta: 'partial' },
+                {
+                    type: 'response.completed',
+                    response: {
+                        status: 'completed',
+                        usage: { input_tokens: 3, output_tokens: 5 },
+                    },
+                },
+            ],
+        ],
+    ])(
+        'meters %s usage that arrived before the caller left',
+        async (_name, handler, chunks) => {
+            const abort = new AbortController();
+            const usageCalculator = vi.fn(() => ({ output_tokens: 5 }));
+            const completion = {
+                async *[Symbol.asyncIterator]() {
+                    yield* chunks;
+                    abort.abort();
+                },
+            };
+            const harness = makeCapturingChatStream();
+            await withTestActor(() => {
+                Context.set('abortSignal', abort.signal);
+                return handler({
+                    completion,
+                    usage_calculator: usageCalculator,
+                })({ chatStream: harness.chatStream });
+            });
+            expect(usageCalculator).toHaveBeenCalledTimes(1);
+            expect(harness.chatStream.reportedUsage).toEqual({
+                output_tokens: 5,
+            });
+        },
+    );
+});
+
+
+describe('Responses stream failure events', () => {
+    it.each(['response.failed', 'error'])(
+        'rejects %s instead of producing a successful usage event',
+        async (type) => {
+            const harness = makeCapturingChatStream();
+            const init = create_chat_stream_handler_responses_api({
+                completion: asAsyncIterable([
+                    { type: 'response.output_text.delta', delta: 'partial' },
+                    { type, message: 'upstream failed', response: {
+                        error: { message: 'upstream failed' },
+                    } },
+                ]),
+                usage_calculator: () => ({}),
+            });
+            await expect(init({ chatStream: harness.chatStream }))
+                .rejects.toThrow('upstream failed');
+            expect(harness.events().some((event) => event.type === 'usage')).toBe(false);
+        },
+    );
+});
+
+
+describe('provider stream backpressure', () => {
+    it('stops consuming a completion while its output is buffered', async () => {
+        let reads = 0;
+        const chunks: string[] = [];
+        let release: (() => void) | undefined;
+        let firstWrite!: () => void;
+        const wrote = new Promise<void>(resolve => { firstWrite = resolve; });
+        let slow = true;
+        const sink = new Writable({
+            highWaterMark: 1,
+            write(chunk, _encoding, callback) {
+                chunks.push(chunk.toString());
+                if (slow) { release = callback; firstWrite(); }
+                else callback();
+            },
+        });
+        const chatStream = new AIChatStream({ stream: sink });
+        const completion = {
+            async *[Symbol.asyncIterator]() {
+                for (let i = 0; i < 100; i++) {
+                    reads++;
+                    yield { choices: [{ delta: { content: 'hello' }, finish_reason: i === 99 ? 'stop' : null }] };
+                }
+            },
+        };
+        const pumping = create_chat_stream_handler({
+            completion, deviations: undefined, usage_calculator: () => ({}),
+        })({ chatStream });
+        await wrote;
+        await new Promise(resolve => setImmediate(resolve));
+        expect(reads).toBeLessThanOrEqual(2);
+        expect(chunks).toHaveLength(1);
+        slow = false;
+        release!();
+        await pumping;
+        expect(reads).toBe(100);
+        expect(chunks.filter(chunk => JSON.parse(chunk).type === 'text')).toHaveLength(100);
+    });
+});

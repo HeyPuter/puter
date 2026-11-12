@@ -18,7 +18,7 @@
 # Backend AI
 
 /src/backend/controllers/puterai/ @404oops @ProgrammerIn-wonderland @Salazareo
-/src/backend/drivers/ai-\*/ @404oops @ProgrammerIn-wonderland @Salazareo
+/src/backend/drivers/ai/ @404oops @ProgrammerIn-wonderland @Salazareo
 
 # Backend: AI, hosting, workers, networking, and WebDAV
 

@@ -1,0 +1,1118 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * Offline unit tests for OpenAiChatProvider (Chat Completions API).
+ *
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
+ * redis) and constructs OpenAiChatProvider directly against the live
+ * wired `MeteringService`, `stores`, and `FSService`. The OpenAI SDK
+ * is mocked at the module boundary; that's the real network egress
+ * point. The companion integration test
+ * (OpenAiChatCompletionsProvider.integration.test.ts) exercises the
+ * real OpenAI endpoint.
+ */
+
+import { Writable } from 'node:stream';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+    type MockInstance,
+} from 'vitest';
+
+import { Context } from '../../../../../core/context.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../../../core/actor.js';
+import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
+import { PuterServer } from '../../../../../server.js';
+import { setupTestServer } from '../../../../../testUtil.js';
+import {
+    expectedIdentifierFields,
+    makeActorMatrix,
+    sentIdentifierFields,
+    withTestActor,
+} from '../../../../integrationTestUtil.js';
+import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
+import { OPEN_AI_MODELS } from './models.js';
+import { OpenAiChatProvider } from './OpenAiChatCompletionsProvider.js';
+import { modelLookupNames } from '../../../interfaces/chat/utils/modelRouting.js';
+
+// ── OpenAI SDK mock ─────────────────────────────────────────────────
+
+const { createMock, moderationsCreateMock, openAICtor } = vi.hoisted(() => ({
+    createMock: vi.fn(),
+    moderationsCreateMock: vi.fn(),
+    openAICtor: vi.fn(),
+}));
+
+vi.mock('openai', () => {
+    const OpenAICtor = vi.fn().mockImplementation(function (
+        this: Record<string, unknown>,
+        opts: unknown,
+    ) {
+        openAICtor(opts);
+        this.chat = { completions: { create: createMock } };
+        this.moderations = { create: moderationsCreateMock };
+    });
+    return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
+});
+
+// ── Test harness ────────────────────────────────────────────────────
+
+let server: PuterServer;
+let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
+
+beforeAll(async () => {
+    server = await setupTestServer();
+});
+
+afterAll(async () => {
+    await server?.shutdown();
+});
+
+const makeProvider = () => {
+    const provider = new OpenAiChatProvider(
+        { apiKey: 'test-key' },
+        server.services.metering,
+    );
+    return { provider };
+};
+
+const asAsyncIterable = <T>(items: T[]): AsyncIterable<T> => ({
+    async *[Symbol.asyncIterator]() {
+        for (const item of items) {
+            yield item;
+        }
+    },
+});
+
+const makeCapturingChatStream = () => {
+    const chunks: string[] = [];
+    const sink = new Writable({
+        write(chunk, _enc, cb) {
+            chunks.push(chunk.toString('utf8'));
+            cb();
+        },
+    });
+    const chatStream = new AIChatStream({ stream: sink });
+    return {
+        chatStream,
+        events: () =>
+            chunks
+                .join('')
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => JSON.parse(line)),
+    };
+};
+
+beforeEach(() => {
+    createMock.mockReset();
+    moderationsCreateMock.mockReset();
+    openAICtor.mockReset();
+    recordSpy = vi.spyOn(server.services.metering, 'utilRecordUsageObject');
+});
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
+
+// ── Construction ────────────────────────────────────────────────────
+
+describe('OpenAiChatProvider construction', () => {
+    it('constructs the OpenAI SDK with the configured API key', () => {
+        makeProvider();
+        expect(openAICtor).toHaveBeenCalledTimes(1);
+        expect(openAICtor).toHaveBeenCalledWith({
+
+            apiKey: 'test-key',
+
+            maxRetries: 0,
+
+            timeout: 10 * 60 * 1000,
+
+        });
+    });
+});
+
+// ── Model catalog ───────────────────────────────────────────────────
+
+describe('OpenAiChatProvider model catalog', () => {
+    it('returns gpt-6-luna as the default', () => {
+        const { provider } = makeProvider();
+        expect(provider.getDefaultModel()).toBe('gpt-6-luna');
+    });
+
+    it('models() excludes Responses-only entries and includes dual-API entries', () => {
+        const { provider } = makeProvider();
+        const ids = provider.models().map((m) => m.id);
+        const responsesOnly = OPEN_AI_MODELS.filter(
+            (m) => m.responses_api_only,
+        ).map((m) => m.id);
+        for (const id of responsesOnly) {
+            expect(ids).not.toContain(id);
+        }
+        // gpt-5.2 is a Chat-Completions model, must be present.
+        expect(ids).toContain('gpt-5.2-2025-12-11');
+        expect(ids).toContain('gpt-6-astra');
+        expect(ids).toContain('gpt-6.1-sol');
+        expect(ids).toContain('gpt-6.1-terra');
+        expect(ids).toContain('gpt-6-sol');
+        expect(ids).toContain('gpt-6-luna');
+    });
+
+    it('list() flattens canonical ids and aliases', () => {
+        const { provider } = makeProvider();
+        const ids = modelLookupNames(provider.models());
+        expect(ids).toContain('gpt-5.2-2025-12-11');
+        expect(ids).toContain('gpt-5.2');
+        expect(ids).toContain('openai/gpt-5.2');
+    });
+});
+
+// ── Argument validation ─────────────────────────────────────────────
+
+describe('OpenAiChatProvider.complete argument validation', () => {
+    it('throws 400 when messages is not an array', async () => {
+        const { provider } = makeProvider();
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-5.2',
+                    messages: 'hello' as unknown as never,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it('throws 400 when web_search is requested without a Responses sibling provider', async () => {
+        const { provider } = makeProvider();
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-5.2',
+                    messages: [{ role: 'user', content: 'search' }],
+                    tools: [{ type: 'web_search' }] as never,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it('delegates to the Responses provider when web_search is requested and one is wired', async () => {
+        const { provider } = makeProvider();
+        const sibling = {
+            complete: vi.fn().mockResolvedValue({ delegated: true }),
+        };
+        provider.setResponsesProvider(
+            sibling as unknown as Parameters<
+                typeof provider.setResponsesProvider
+            >[0],
+        );
+
+        const params = {
+            model: 'gpt-5.2',
+            messages: [{ role: 'user', content: 'search' }],
+            tools: [{ type: 'web_search' }] as never,
+        };
+        const result = await withTestActor(() => provider.complete(params));
+
+        // The Completions provider should have handed off entirely — no
+        // chat.completions.create call, and the sibling sees the same args.
+        expect(createMock).not.toHaveBeenCalled();
+        expect(sibling.complete).toHaveBeenCalledWith(params);
+        expect(result).toEqual({ delegated: true });
+    });
+
+    it('delegates a 12h cache lifetime to the Responses provider, which is the only API that writes it', async () => {
+        const { provider } = makeProvider();
+        const sibling = {
+            complete: vi.fn().mockResolvedValue({ delegated: true }),
+        };
+        provider.setResponsesProvider(
+            sibling as unknown as Parameters<
+                typeof provider.setResponsesProvider
+            >[0],
+        );
+
+        const params = {
+            model: 'gpt-6-luna',
+            messages: [{ role: 'user', content: 'hi' }],
+            prompt_cache_options: { ttl: '12h' as const },
+        };
+        const result = await withTestActor(() => provider.complete(params));
+
+        expect(createMock).not.toHaveBeenCalled();
+        expect(sibling.complete).toHaveBeenCalledWith(params);
+        expect(result).toEqual({ delegated: true });
+    });
+
+    it.each([
+        ['30m', { mode: 'explicit', ttl: '30m' }],
+        ['12h', { mode: 'explicit', ttl: '12h' }],
+    ])(
+        'delegates a %s breakpoint lifetime to the Responses provider, since Chat Completions rejects the field',
+        async (_ttl, breakpoint) => {
+            const { provider } = makeProvider();
+            const sibling = {
+                complete: vi.fn().mockResolvedValue({ delegated: true }),
+            };
+            provider.setResponsesProvider(
+                sibling as unknown as Parameters<
+                    typeof provider.setResponsesProvider
+                >[0],
+            );
+
+            const params = {
+                model: 'gpt-6-luna',
+                messages: [
+                    {
+                        role: 'system',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'long prefix',
+                                prompt_cache_breakpoint: breakpoint,
+                            },
+                        ],
+                    },
+                    { role: 'user', content: 'hi' },
+                ],
+            };
+            const result = await withTestActor(() =>
+                provider.complete(params as never),
+            );
+
+            expect(createMock).not.toHaveBeenCalled();
+            expect(sibling.complete).toHaveBeenCalledWith(params);
+            expect(result).toEqual({ delegated: true });
+        },
+    );
+
+    it('keeps a breakpoint without a lifetime on the Chat Completions path, intact', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [
+                    {
+                        role: 'system',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'long prefix',
+                                prompt_cache_breakpoint: { mode: 'explicit' },
+                            },
+                        ],
+                    },
+                    { role: 'user', content: 'hi' },
+                ],
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.messages[0]).toMatchObject({
+            role: 'system',
+            content: [
+                {
+                    type: 'text',
+                    text: 'long prefix',
+                    prompt_cache_breakpoint: { mode: 'explicit' },
+                },
+            ],
+        });
+    });
+
+    it('throws 400 for a 12h cache lifetime without a Responses sibling provider', async () => {
+        const { provider } = makeProvider();
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    prompt_cache_options: { ttl: '12h' },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it('requestPricing delegates to the Responses sibling (web_search\'s own hold), and no-ops without one', async () => {
+        const { provider } = makeProvider();
+        const args = {
+            model: 'gpt-5.2',
+            messages: [],
+            tools: [{ type: 'web_search' }],
+        } as never;
+        const model = { id: 'gpt-5.2' } as never;
+
+        expect(provider.requestPricing!(args, model)).toEqual({});
+
+        const sibling = {
+            requestPricing: vi.fn().mockReturnValue({ extraCost: 1_000_000 }),
+        };
+        provider.setResponsesProvider(
+            sibling as unknown as Parameters<
+                typeof provider.setResponsesProvider
+            >[0],
+        );
+        expect(provider.requestPricing!(args, model)).toEqual({
+            extraCost: 1_000_000,
+        });
+        expect(sibling.requestPricing).toHaveBeenCalledWith(args, model);
+    });
+});
+
+// ── Request shape ───────────────────────────────────────────────────
+
+describe('OpenAiChatProvider.complete request shape', () => {
+    const baseCompletion = {
+        choices: [
+            {
+                message: { content: 'hi', role: 'assistant' },
+                finish_reason: 'stop',
+            },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+    };
+
+    it('forwards model + messages and renames max_tokens to max_completion_tokens', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hello' }],
+                max_tokens: 256,
+                temperature: 0.4,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        // alias gpt-5.2 resolves to its canonical id.
+        expect(args.model).toBe('gpt-5.2-2025-12-11');
+        expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
+        expect(args.max_completion_tokens).toBe(256);
+        expect(args.temperature).toBe(0.4);
+    });
+
+    it('sends the actor uuid and effective app uid as user/safety_identifier', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValue(baseCompletion);
+
+        for (const actor of makeActorMatrix()) {
+            await withTestActor(
+                () =>
+                    provider.complete({
+                        model: 'gpt-5.2',
+                        messages: [{ role: 'user', content: 'hello' }],
+                    }),
+                actor,
+            );
+        }
+
+        const fields = ['user', 'safety_identifier', 'prompt_cache_key'];
+        expect(sentIdentifierFields(createMock.mock.calls, fields)).toEqual(
+            expectedIdentifierFields(fields),
+        );
+    });
+
+    it('forwards a caller-supplied prompt_cache_key instead of the derived identifier', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'gpt-5.2',
+                    messages: [{ role: 'user', content: 'hello' }],
+                    prompt_cache_key: 'caller-key',
+                }),
+            makeActor({ user: { id: 42, uuid: 'u42', username: 'alice' } }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.prompt_cache_key).toBe('caller-key');
+        expect(args.safety_identifier).toBe('puter-u42');
+    });
+
+    it('forwards 30m prompt_cache_options and the wire spelling of prompt_cache_retention', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hello' }],
+                prompt_cache_retention: 'in-memory',
+                prompt_cache_options: {
+                    mode: 'explicit',
+                    ttl: '30m',
+                    prewarm: true,
+                } as never,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.prompt_cache_retention).toBe('in_memory');
+        expect(args.prompt_cache_options).toEqual({
+            mode: 'explicit',
+            ttl: '30m',
+        });
+    });
+
+    it.each([
+        'gpt-6-astra',
+        'gpt-6.1-sol',
+        'gpt-6.1-terra',
+        'gpt-6-sol',
+        'gpt-6-luna',
+    ])('resolves the namespaced %s alias', async (model) => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: `openai/${model}`,
+                messages: [{ role: 'user', content: 'hello' }],
+                reasoning_effort: 'low',
+            }),
+        );
+
+        expect(createMock.mock.calls[0]![0].model).toBe(model);
+        expect(createMock.mock.calls[0]![0].reasoning_effort).toBe('low');
+        expect(recordSpy).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.anything(),
+            `openai:${model}`,
+            expect.any(Object),
+        );
+    });
+
+    it('omits parallel_tool_calls/tool_choice when no tool is sent (Chat Completions rejects them alone)', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hello' }],
+                parallel_tool_calls: true,
+                tool_choice: { type: 'auto' },
+            }),
+        );
+        const [noTools] = createMock.mock.calls[0]!;
+        expect('parallel_tool_calls' in noTools).toBe(false);
+        expect('tool_choice' in noTools).toBe(false);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hello' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                parallel_tool_calls: true,
+                tool_choice: { type: 'auto' },
+            }),
+        );
+        const [withTools] = createMock.mock.calls[1]!;
+        expect(withTools.parallel_tool_calls).toBe(true);
+        expect(withTools.tool_choice).toBe('auto');
+    });
+
+    it('forwards temperature 0 and max_tokens 0 instead of dropping them', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hello' }],
+                max_tokens: 0,
+                temperature: 0,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.max_completion_tokens).toBe(0);
+        expect(args.temperature).toBe(0);
+    });
+
+    it('forwards reasoning_effort and verbosity for gpt-5-prefixed models', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'high',
+                verbosity: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.reasoning_effort).toBe('high');
+        expect(args.verbosity).toBe('high');
+    });
+
+    it('drops reasoning_effort and verbosity for a non-reasoning model (e.g. gpt-4o)', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-4o',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'high',
+                verbosity: 'high',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect('reasoning_effort' in args).toBe(false);
+        expect('verbosity' in args).toBe(false);
+    });
+
+    it('forwards reasoning_effort and verbosity for non-gpt-5 reasoning models (e.g. gpt-6-luna)', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'medium',
+                verbosity: 'low',
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.reasoning_effort).toBe('medium');
+        expect(args.verbosity).toBe('low');
+    });
+
+    it('drops temperature/top_p once a clamped effort above none is set, keeps them at none', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.4',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'high',
+                temperature: 0.5,
+                top_p: 0.9,
+            } as never),
+        );
+        const [withEffort] = createMock.mock.calls[0]!;
+        expect('temperature' in withEffort).toBe(false);
+        expect('top_p' in withEffort).toBe(false);
+        expect(withEffort.reasoning_effort).toBe('high');
+
+        createMock.mockResolvedValueOnce(baseCompletion);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.4',
+                messages: [{ role: 'user', content: 'hi' }],
+                reasoning_effort: 'none',
+                temperature: 0.5,
+                top_p: 0.9,
+            } as never),
+        );
+        const [withNone] = createMock.mock.calls[1]!;
+        expect(withNone.temperature).toBe(0.5);
+        expect(withNone.top_p).toBe(0.9);
+        expect(withNone.reasoning_effort).toBe('none');
+    });
+
+    it('only sets stream_options.include_usage when streaming', async () => {
+        const { provider } = makeProvider();
+
+        createMock.mockResolvedValueOnce(baseCompletion);
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: false,
+            }),
+        );
+        expect('stream_options' in createMock.mock.calls[0]![0]).toBe(false);
+
+        createMock.mockReturnValueOnce(asAsyncIterable([]));
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+            }),
+        );
+        expect(createMock.mock.calls[1]![0].stream_options).toEqual({
+            include_usage: true,
+        });
+    });
+});
+
+// ── Non-stream completion ───────────────────────────────────────────
+
+describe('OpenAiChatProvider.complete non-stream output', () => {
+    it('returns the first choice and meters usage with cached-token splitting', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi there', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 50,
+                prompt_tokens_details: { cached_tokens: 10 },
+            },
+        });
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(result).toMatchObject({
+            message: { content: 'hi there', role: 'assistant' },
+            finish_reason: 'stop',
+        });
+        // prompt_tokens is reduced by cached_tokens — they are billed as a
+        // separate line item.
+        expect((result as { usage: unknown }).usage).toEqual({
+            prompt_tokens: 90,
+            completion_tokens: 50,
+            cached_tokens: 10,
+        });
+
+        const gpt52 = OPEN_AI_MODELS.find(
+            (m) => m.id === 'gpt-5.2-2025-12-11',
+        )!;
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+        const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
+        expect(actor).toBe(SYSTEM_ACTOR);
+        expect(prefix).toBe('openai:gpt-5.2-2025-12-11');
+        expect(usage).toEqual({
+            prompt_tokens: 90,
+            completion_tokens: 50,
+            cached_tokens: 10,
+        });
+        expect(overrides).toEqual({
+            prompt_tokens: 90 * Number(gpt52.costs.prompt_tokens),
+            completion_tokens: 50 * Number(gpt52.costs.completion_tokens),
+            cached_tokens: 10 * Number(gpt52.costs.cached_tokens ?? 0),
+        });
+    });
+
+    it('bills cached tokens at the input rate when the model prices no cache read', async () => {
+        // No current Chat Completions entry lacks a cached_tokens rate, so
+        // strip it from a copy. Cached tokens are subtracted out of
+        // prompt_tokens, so pricing them at zero would bill them nowhere.
+        const gpt41 = OPEN_AI_MODELS.find((m) => m.id === 'gpt-4.1')!;
+        const { cached_tokens: _cached, ...uncachedCosts } = gpt41.costs;
+        const uncached = { ...gpt41, costs: uncachedCosts };
+
+        const { provider } = makeProvider();
+        vi.spyOn(provider, 'models').mockReturnValue([uncached]);
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'cached', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 2989,
+                completion_tokens: 12,
+                prompt_tokens_details: { cached_tokens: 2816 },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-4.1',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [, , , overrides] = recordSpy.mock.calls[0]!;
+        const inputRate = Number(uncached.costs.prompt_tokens);
+        expect(overrides).toEqual({
+            prompt_tokens: (2989 - 2816) * inputRate,
+            completion_tokens: 12 * Number(uncached.costs.completion_tokens),
+            cached_tokens: 2816 * inputRate,
+        });
+        expect(
+            (overrides as Record<string, number>).cached_tokens,
+        ).toBeGreaterThan(0);
+    });
+
+    it('splits cache writes out of prompt_tokens and bills them at 1.25x input', async () => {
+        const luna = OPEN_AI_MODELS.find((m) => m.id === 'gpt-6-luna')!;
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'hi', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 5000,
+                completion_tokens: 12,
+                prompt_tokens_details: {
+                    cached_tokens: 1000,
+                    cache_write_tokens: 3000,
+                },
+            },
+        });
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage).toEqual({
+            prompt_tokens: 1000,
+            completion_tokens: 12,
+            cached_tokens: 1000,
+            cache_write_tokens: 3000,
+        });
+        expect(overrides).toEqual({
+            prompt_tokens: 1000 * Number(luna.costs.prompt_tokens),
+            completion_tokens: 12 * Number(luna.costs.completion_tokens),
+            cached_tokens: 1000 * Number(luna.costs.cached_tokens),
+            cache_write_tokens: 3000 * Number(luna.costs.cache_write_tokens),
+        });
+        // Chat Completions only writes OpenAI's default 30m entries.
+        expect((result as { usageDetails: unknown }).usageDetails).toEqual({
+            inputTokens: 1000,
+            outputTokens: 12,
+            cacheReadTokens: 1000,
+            cacheWrite30mTokens: 3000,
+        });
+    });
+
+    it('zeroes cached_tokens when prompt_tokens_details is missing', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 7, completion_tokens: 3 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [usage] = recordSpy.mock.calls[0]!;
+        expect(usage.cached_tokens).toBe(0);
+        expect(usage.prompt_tokens).toBe(7);
+    });
+});
+
+// ── Streaming deltas ────────────────────────────────────────────────
+
+describe('OpenAiChatProvider.complete streaming', () => {
+    it('streams text deltas through to text events and meters final usage', async () => {
+        const { provider } = makeProvider();
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                { choices: [{ delta: { content: 'hel' } }] },
+                { choices: [{ delta: { content: 'lo' } }] },
+                {
+                    choices: [{ delta: {} }],
+                    usage: {
+                        prompt_tokens: 4,
+                        completion_tokens: 2,
+                        prompt_tokens_details: { cached_tokens: 1 },
+                    },
+                },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'say hi' }],
+                stream: true,
+            }),
+        );
+        expect((result as { stream: boolean }).stream).toBe(true);
+
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        const textEvents = events.filter((e) => e.type === 'text');
+        expect(textEvents.map((e) => e.text)).toEqual(['hel', 'lo']);
+
+        const usageEvent = events.find((e) => e.type === 'usage');
+        expect(usageEvent?.usage).toEqual({
+            prompt_tokens: 3,
+            completion_tokens: 2,
+            cached_tokens: 1,
+        });
+
+        const gpt52 = OPEN_AI_MODELS.find(
+            (m) => m.id === 'gpt-5.2-2025-12-11',
+        )!;
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+        const [, , prefix, overrides] = recordSpy.mock.calls[0]!;
+        expect(prefix).toBe('openai:gpt-5.2-2025-12-11');
+        expect(overrides).toEqual({
+            prompt_tokens: 3 * Number(gpt52.costs.prompt_tokens),
+            completion_tokens: 2 * Number(gpt52.costs.completion_tokens),
+            cached_tokens: 1 * Number(gpt52.costs.cached_tokens ?? 0),
+        });
+    });
+});
+
+describe('OpenAiChatProvider.complete streaming parallel tool calls', () => {
+    it('emits a tool_use chunk for every parallel call, in order', async () => {
+        const { provider } = makeProvider();
+        const call = (index: number, extra: Record<string, unknown>) => ({
+            choices: [{ delta: { tool_calls: [{ index, ...extra }] } }],
+        });
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                call(0, { id: 'call_a', function: { name: 'lookup', arguments: '{"q":' } }),
+                call(0, { function: { arguments: '"a"}' } }),
+                call(1, { id: 'call_b', function: { name: 'lookup', arguments: '{"q":"b"}' } }),
+                {
+                    choices: [{ delta: {}, finish_reason: 'tool_calls' }],
+                    usage: { prompt_tokens: 4, completion_tokens: 2 },
+                },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'look up a and b' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                stream: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const toolUses = harness.events().filter((e) => e.type === 'tool_use');
+        expect(toolUses.map((e) => [e.id, e.input])).toEqual([
+            ['call_a', { q: 'a' }],
+            ['call_b', { q: 'b' }],
+        ]);
+    });
+
+    it('stops as tool_use when the stream carried tool calls but no finish_reason', async () => {
+        const { provider } = makeProvider();
+        createMock.mockReturnValueOnce(
+            asAsyncIterable([
+                {
+                    choices: [
+                        {
+                            delta: {
+                                tool_calls: [
+                                    {
+                                        index: 0,
+                                        id: 'call_a',
+                                        function: { name: 'lookup', arguments: '{}' },
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+                {
+                    choices: [{ delta: {} }],
+                    usage: { prompt_tokens: 4, completion_tokens: 2 },
+                },
+            ]),
+        );
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.2',
+                messages: [{ role: 'user', content: 'look up a' }],
+                tools: [
+                    {
+                        type: 'function',
+                        function: { name: 'lookup', parameters: {} },
+                    },
+                ],
+                stream: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+        const usage = harness.events().find((e) => e.type === 'usage');
+        expect(usage?.stopReason).toBe('tool_use');
+        expect(usage?.finish_reason).toBe('tool_calls');
+    });
+});
+
+// ── Moderation ──────────────────────────────────────────────────────
+
+describe('OpenAiChatProvider.checkModeration', () => {
+    it('flags content when any category score exceeds 0.8', async () => {
+        const { provider } = makeProvider();
+        moderationsCreateMock.mockResolvedValueOnce({
+            results: [
+                {
+                    category_scores: { violence: 0.9, hate: 0.1 },
+                },
+            ],
+        });
+
+        const result = await provider.checkModeration('something risky');
+
+        // The driver can't fall back from a moderation check, so it keeps
+        // the SDK retries the completion clients turn off.
+        expect(moderationsCreateMock).toHaveBeenCalledWith(
+            { model: 'omni-moderation-latest', input: 'something risky' },
+            { maxRetries: 2 },
+        );
+        expect(result.flagged).toBe(true);
+    });
+
+    it('does NOT flag when all category scores are at/under 0.8', async () => {
+        const { provider } = makeProvider();
+        moderationsCreateMock.mockResolvedValueOnce({
+            results: [
+                {
+                    // 0.8 is at the threshold — provider only flags >0.8.
+                    category_scores: { violence: 0.8, hate: 0.5 },
+                },
+            ],
+        });
+
+        const result = await provider.checkModeration('borderline');
+        expect(result.flagged).toBe(false);
+    });
+});
+
+// ── Error mapping ───────────────────────────────────────────────────
+
+describe('OpenAiChatProvider.complete error mapping', () => {
+    it('rethrows errors raised by the OpenAI client unchanged', async () => {
+        const { provider } = makeProvider();
+        const apiError = new Error('OpenAI exploded');
+        createMock.mockRejectedValueOnce(apiError);
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-5.2',
+                    messages: [{ role: 'user', content: 'boom' }],
+                }),
+            ),
+        ).rejects.toBe(apiError);
+
+        expect(recordSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('provider request cancellation', () => {
+    it.each([false, true])(
+        'passes the upstream signal to the SDK with stream=%s',
+        async (stream) => {
+            const { provider } = makeProvider();
+            const abort = new AbortController();
+            createMock.mockResolvedValueOnce(
+                stream
+                    ? asAsyncIterable([])
+                    : {
+                          choices: [
+                              {
+                                  message: { content: 'hi', role: 'assistant' },
+                                  finish_reason: 'stop',
+                              },
+                          ],
+                          usage: { prompt_tokens: 1, completion_tokens: 1 },
+                      },
+            );
+            await withTestActor(() => {
+                Context.set('upstreamSignal', abort.signal);
+                return provider.complete({
+                    model: 'gpt-4o-mini',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    stream,
+                });
+            });
+            expect(createMock.mock.calls[0][1]?.signal).toBe(abort.signal);
+        },
+    );
+});

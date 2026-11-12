@@ -30,12 +30,12 @@ import {
     acquireConcurrent,
     checkRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
-import { SPEECH_TO_TEXT_COSTS } from '../../drivers/ai-speech2txt/costs.js';
+import { SPEECH_TO_TEXT_COSTS } from '../../drivers/ai/providers/openai/speechToText/costs.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
-} from '../../drivers/util/aiCostFactor.js';
-import { readProviderKey } from '../../drivers/util/providerRegistry.js';
+} from '../../drivers/ai/shared/aiCostFactor.js';
+import { readProviderKey } from '../../drivers/ai/shared/providerRegistry.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { kv } from '../../util/kvSingleton.js';
@@ -1123,15 +1123,13 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     identity?.type === 'app-under-user'
                         ? identity.session
                         : undefined;
-                if (
-                    !(
-                        sessionUids?.has(sessionUid ?? '') ||
-                        sessionUids?.has(parentUid ?? '') ||
-                        (tokenUid &&
-                            identity?.type === 'access-token' &&
-                            identity.token_uid === tokenUid)
-                    )
-                )
+                if (!(
+                    sessionUids?.has(sessionUid ?? '') ||
+                    sessionUids?.has(parentUid ?? '') ||
+                    (tokenUid &&
+                        identity?.type === 'access-token' &&
+                        identity.token_uid === tokenUid)
+                ))
                     return;
                 if (token) {
                     kv.del(realtimeAuthKey(token));

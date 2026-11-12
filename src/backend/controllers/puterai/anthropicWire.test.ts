@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { IChatMessageResult } from '../../drivers/ai-chat/types.js';
+import type { IChatMessageResult } from '../../drivers/ai/interfaces/chat/types.js';
 import {
     anthropicUsage,
     parseAnthropicRequest,

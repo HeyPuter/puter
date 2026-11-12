@@ -1,0 +1,536 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { Together } from 'together-ai';
+import type { Actor } from '../../../../../core/actor.js';
+import { Context } from '../../../../../core/context.js';
+import { HttpError } from '../../../../../core/http/HttpError.js';
+import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
+import type { CreditHold } from '../../../../../services/metering/types.js';
+import { sniffVideoMime } from '../../../../../util/mediaSniff.js';
+import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import { dataUriBytes, parseDataUri } from '../../../../util/dataUri.js';
+import { isHttpUrl } from '../../../shared/imageInput.js';
+import {
+    type MediaInputDeps,
+    signedPuterVideoUrl,
+} from '../../../shared/mediaInput.js';
+import type {
+    IGenerateVideoParams,
+    IVideoModel,
+} from '../../../interfaces/video/types.js';
+import { capSecondsToRemainingCredits } from '../../../interfaces/video/creditCap.js';
+import { VideoProvider } from '../../../interfaces/video/VideoProvider.js';
+import {
+    JobHold,
+    pollUntilSettled,
+    VIDEO_HOLD_TTL_MS,
+    videoJobFailure,
+} from '../../../shared/polling.js';
+import {
+    TOGETHER_VIDEO_GENERATION_MODELS,
+    type ITogetherVideoModel,
+} from './models.js';
+
+const DEFAULT_TEST_VIDEO_URL = 'https://assets.puter.site/txt2vid.mp4';
+const POLL_INTERVAL_MS = 5_000;
+const REQUEST_TIMEOUT_MS = 60 * 1000;
+const DEFAULT_MODEL = 'Wan-AI/wan2.7-t2v';
+const DEFAULT_DURATION_SECONDS = 6;
+/** A Puter file Together fetches itself as the source video. */
+export const TOGETHER_MAX_VIDEO_BYTES = 32 * 1024 * 1024;
+
+// Resolution tiers ('720p', '1080P') mark models that size their output
+// through `resolution` (+ `ratio`) rather than width/height.
+const isResolutionTier = (value: string): boolean => /^\d{3,4}p$/i.test(value);
+
+// The SDK's create params trail the API: `resolution`, `ratio`,
+// `generate_audio` and `media` are documented request fields it does not type
+// yet.
+type TogetherCreatePayload = Together.VideoCreateParams & {
+    metadata?: object;
+    resolution?: string;
+    ratio?: string;
+    generate_audio?: boolean;
+    media?: { source_video: string };
+};
+
+const badRequest = (message: string): HttpError =>
+    new HttpError(400, message, { legacyCode: 'bad_request' });
+
+export class TogetherVideoProvider extends VideoProvider {
+    #client: Together;
+    #meteringService: AiMeteringService;
+    #files: MediaInputDeps;
+
+    constructor(
+        config: { apiKey: string },
+        meteringService: AiMeteringService,
+        files: MediaInputDeps,
+    ) {
+        super();
+        if (!config.apiKey) {
+            throw new Error('Together AI video generation requires an API key');
+        }
+        // Bounds each create/retrieve call; a slow poll is retried by the
+        // loop rather than failing the job.
+        this.#client = new Together({
+            apiKey: config.apiKey,
+            timeout: REQUEST_TIMEOUT_MS,
+        });
+        this.#meteringService = meteringService;
+        this.#files = files;
+    }
+
+    getDefaultModel(): string {
+        return 'togetherai:wan-ai/wan2.7-t2v';
+    }
+
+    async models(): Promise<IVideoModel[]> {
+        return TOGETHER_VIDEO_GENERATION_MODELS.map((model) => ({
+            ...model,
+            aliases: [model.model],
+            durationSeconds: model.durationSeconds ?? undefined,
+            dimensions: model.dimensions ?? undefined,
+            fps: model.fps ?? undefined,
+            keyframes: model.keyframes ?? undefined,
+            promptLength: model.promptLength ?? undefined,
+            promptSupported: model.promptSupported ?? undefined,
+        }));
+    }
+
+    async generate(params: IGenerateVideoParams): Promise<unknown> {
+        const {
+            prompt,
+            model: requestedModel,
+            seconds,
+            no_extra_params,
+            duration,
+            size,
+            resolution,
+            width,
+            height,
+            fps,
+            steps,
+            guidance_scale: guidanceScale,
+            seed,
+            output_format: outputFormat,
+            output_quality: outputQuality,
+            negative_prompt: negativePrompt,
+            generate_audio: generateAudio,
+            reference_images: referenceImages,
+            frame_images: frameImages,
+            input_reference: inputReference,
+            last_frame: lastFrame,
+            input_video: inputVideo,
+            metadata,
+            test_mode: testMode,
+        } = params ?? {};
+
+        if (typeof prompt !== 'string' || !prompt.trim()) {
+            throw new HttpError(400, 'prompt must be a non-empty string', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        const selectedModel = this.#getModel(requestedModel);
+        const model =
+            selectedModel?.model ??
+            this.#stripTogetherPrefix(requestedModel ?? DEFAULT_MODEL);
+
+        const hasInputVideo = inputVideo !== undefined && inputVideo !== null;
+        if (hasInputVideo) {
+            if (typeof inputVideo !== 'string' || !inputVideo.trim()) {
+                throw badRequest(
+                    'input_video must be a video URL, data URI or Puter file path',
+                );
+            }
+            if (
+                [referenceImages, frameImages, inputReference, lastFrame].some(
+                    (input) => input !== undefined && input !== null,
+                )
+            ) {
+                throw badRequest(
+                    'input_video cannot be combined with image inputs',
+                );
+            }
+        }
+
+        if (testMode) {
+            return DEFAULT_TEST_VIDEO_URL;
+        }
+
+        const costs = selectedModel?.costs ?? {};
+        const resolutionTier = this.#resolveResolutionTier(
+            size ?? resolution,
+            selectedModel,
+        );
+        const perSecondCents = hasInputVideo
+            ? costs['per-second-video-input']
+            : ((resolutionTier !== undefined
+                  ? costs[`per-second-${resolutionTier.toLowerCase()}`]
+                  : undefined) ?? costs['per-second']);
+        const perVideoCents = costs['per-video'];
+        if (!perSecondCents && !perVideoCents) {
+            throw new Error(`No pricing configured for video model ${model}`);
+        }
+
+        let normalizedSeconds = this.#coercePositiveInteger(
+            seconds ?? duration,
+        );
+
+        if (!no_extra_params) {
+            normalizedSeconds ??= DEFAULT_DURATION_SECONDS;
+        }
+
+        const actor = Context.get('actor');
+        if (!actor) {
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
+        }
+
+        const usageKey = `together-video:${model}`;
+        // Per-second models are clamped to what the balance buys, like Veo
+        // and Seedance; per-clip models stay all-or-nothing. Either way the
+        // cost is held until the job is metered.
+        let estimateMicroCents: number;
+        let billedUnits: number;
+        let hold: CreditHold;
+        if (perSecondCents) {
+            const capped = await capSecondsToRemainingCredits({
+                metering: this.#meteringService,
+                actor,
+                usageType: usageKey,
+                perSecondMicroCents: perSecondCents * 1_000_000,
+                requestedSeconds: normalizedSeconds ?? DEFAULT_DURATION_SECONDS,
+                allowedSeconds: hasInputVideo
+                    ? (selectedModel?.videoInputDurationSeconds ??
+                      selectedModel?.durationSeconds)
+                    : selectedModel?.durationSeconds,
+            });
+            normalizedSeconds = capped.seconds;
+            hold = capped.hold;
+            estimateMicroCents = Math.round(
+                perSecondCents * 1_000_000 * normalizedSeconds,
+            );
+            billedUnits = normalizedSeconds;
+        } else {
+            estimateMicroCents = perVideoCents! * 1_000_000;
+            const perVideoHold = await this.#meteringService.reserveAiCredits(
+                actor,
+                usageKey,
+                estimateMicroCents,
+                { ttlMs: VIDEO_HOLD_TTL_MS },
+            );
+            if (!perVideoHold) {
+                throw insufficientCreditsError();
+            }
+            hold = perVideoHold;
+            billedUnits = 1;
+        }
+
+        const jobHold = new JobHold(hold);
+        try {
+            // Read only once credit is held; the hold is released if it fails.
+            const sourceVideo = hasInputVideo
+                ? await this.#sourceVideo(actor as Actor, inputVideo as string)
+                : undefined;
+            const createPayload: TogetherCreatePayload = {
+                prompt,
+                model,
+            };
+
+            if (normalizedSeconds) {
+                createPayload.seconds = String(normalizedSeconds);
+            }
+            if (resolutionTier !== undefined) {
+                createPayload.resolution = resolutionTier;
+                const ratio = this.#deriveRatio(
+                    width,
+                    height,
+                    selectedModel?.ratios,
+                );
+                if (ratio) {
+                    createPayload.ratio = ratio;
+                }
+            } else {
+                if (this.#isFiniteNumber(width)) {
+                    createPayload.width = Number(width);
+                }
+                if (this.#isFiniteNumber(height)) {
+                    createPayload.height = Number(height);
+                }
+            }
+            if (this.#isFiniteNumber(fps)) {
+                createPayload.fps = Number(fps);
+            }
+            if (this.#isFiniteNumber(steps)) {
+                createPayload.steps = Number(steps);
+            }
+            if (this.#isFiniteNumber(guidanceScale)) {
+                createPayload.guidance_scale = Number(guidanceScale);
+            }
+            if (this.#isFiniteNumber(seed)) {
+                createPayload.seed = Number(seed);
+            }
+            if (typeof outputFormat === 'string' && outputFormat.trim()) {
+                createPayload.output_format =
+                    outputFormat.trim() as Together.VideoCreateParams['output_format'];
+            }
+            if (this.#isFiniteNumber(outputQuality)) {
+                createPayload.output_quality = Number(outputQuality);
+            }
+            if (typeof negativePrompt === 'string' && negativePrompt.trim()) {
+                createPayload.negative_prompt = negativePrompt;
+            }
+            if (typeof generateAudio === 'boolean') {
+                createPayload.generate_audio = generateAudio;
+            }
+            if (Array.isArray(referenceImages) && referenceImages.length > 0) {
+                createPayload.reference_images = referenceImages.filter(
+                    (item: string) =>
+                        typeof item === 'string' && item.trim().length > 0,
+                );
+            }
+            if (Array.isArray(frameImages) && frameImages.length > 0) {
+                createPayload.frame_images = frameImages.filter(
+                    (frame: any) =>
+                        frame &&
+                        typeof frame === 'object' &&
+                        typeof frame.input_image === 'string',
+                ) as Together.VideoCreateParams['frame_images'];
+            } else {
+                // `input_reference` / `last_frame` are the cross-provider names
+                // for Together's keyframes; an explicit `frame_images` wins.
+                const keyframes = [
+                    [inputReference, 'first'],
+                    [lastFrame, 'last'],
+                ]
+                    .filter(
+                        ([image]) => typeof image === 'string' && image.trim(),
+                    )
+                    .map(([image, frame]) => ({
+                        input_image: (image as string).trim(),
+                        frame,
+                    }));
+                if (keyframes.length > 0) {
+                    createPayload.frame_images =
+                        keyframes as unknown as Together.VideoCreateParams['frame_images'];
+                }
+            }
+            if (metadata && typeof metadata === 'object') {
+                createPayload.metadata = metadata;
+            }
+            if (sourceVideo !== undefined) {
+                createPayload.media = { source_video: sourceVideo };
+            }
+
+            // Together reports what it actually charged for the job; the
+            // catalog rate above is only the pre-flight estimate. Without a
+            // reported cost a finished job is charged the estimate, a failed
+            // or cancelled one nothing.
+            const meter = async (finalJob: any, settled: boolean) => {
+                const reportedCost = finalJob?.outputs?.cost;
+                const reported =
+                    typeof reportedCost === 'number' &&
+                    Number.isFinite(reportedCost) &&
+                    reportedCost >= 0
+                        ? Math.round(reportedCost * 100 * 1_000_000)
+                        : undefined;
+                const succeeded =
+                    finalJob?.status !== 'failed' &&
+                    finalJob?.status !== 'cancelled';
+                const cost =
+                    reported ??
+                    (succeeded || !settled ? estimateMicroCents : 0);
+                if (!cost) return;
+                await this.#meteringService.incrementUsage(
+                    actor,
+                    usageKey,
+                    billedUnits,
+                    cost,
+                );
+            };
+
+            const job = await this.#client.videos.create(createPayload);
+            const finalJob = await this.#pollUntilComplete(
+                job.id,
+                meter,
+                jobHold,
+            );
+
+            if (finalJob.status === 'failed') {
+                const errorMessage =
+                    finalJob?.error?.message ??
+                    finalJob?.info?.errors?.[0]?.message ??
+                    finalJob?.info?.errors?.message ??
+                    finalJob?.info?.errors ??
+                    'Video generation failed';
+                throw videoJobFailure(
+                    'together',
+                    typeof errorMessage === 'string'
+                        ? errorMessage
+                        : JSON.stringify(errorMessage),
+                    finalJob?.error?.code,
+                );
+            }
+
+            if (finalJob.status === 'cancelled') {
+                throw videoJobFailure(
+                    'together',
+                    'Video generation was cancelled',
+                );
+            }
+
+            const videoUrl = finalJob?.outputs?.video_url;
+            if (typeof videoUrl === 'string' && videoUrl.trim()) {
+                return videoUrl;
+            }
+
+            throw new Error('Together AI response did not include a video URL');
+        } finally {
+            await jobHold.release();
+        }
+    }
+
+    /**
+     * The source video as Together takes it: a web URL as given, a small data
+     * URI typed by its bytes, and a Puter file as a short-lived signed URL
+     * Together fetches, so the file never passes through this server.
+     */
+    async #sourceVideo(actor: Actor, input: string): Promise<string> {
+        if (isHttpUrl(input)) return input;
+        if (input.startsWith('data:')) {
+            const uri = parseDataUri(input, 'application/octet-stream');
+            const bytes = uri && dataUriBytes(uri);
+            const mimeType = bytes && sniffVideoMime(bytes);
+            if (!mimeType) {
+                throw badRequest(
+                    'input_video must be an MP4, QuickTime, WebM or Matroska video',
+                );
+            }
+            return `data:${mimeType};base64,${bytes.toString('base64')}`;
+        }
+        return signedPuterVideoUrl(this.#files, actor, input, {
+            maxBytes: TOGETHER_MAX_VIDEO_BYTES,
+            expiresInSeconds: VIDEO_HOLD_TTL_MS / 1000,
+        });
+    }
+
+    async #pollUntilComplete(
+        jobId: string,
+        meter: (job: any, settled: boolean) => Promise<unknown>,
+        hold: JobHold,
+    ): Promise<any> {
+        // any here because sdk types are wrong https://docs.together.ai/docs/videos-overview -> "Job Status Reference"
+        return await pollUntilSettled<any>({
+            provider: 'together',
+            providerLabel: 'Together AI',
+            intervalMs: POLL_INTERVAL_MS,
+            fetch: () => (this.#client as any).videos.retrieve(jobId),
+            isPending: (job) =>
+                job.status === 'queued' || job.status === 'in_progress',
+            meter,
+            hold,
+        });
+    }
+
+    #getModel(requestedModel?: string): ITogetherVideoModel | undefined {
+        const bareModel = this.#stripTogetherPrefix(
+            requestedModel ?? DEFAULT_MODEL,
+        );
+        return TOGETHER_VIDEO_GENERATION_MODELS.find(
+            (m) => m.model.toLowerCase() === bareModel.toLowerCase(),
+        );
+    }
+
+    #stripTogetherPrefix(model: string): string {
+        if (typeof model === 'string' && model.startsWith('togetherai:')) {
+            return model.slice('togetherai:'.length);
+        }
+        return model;
+    }
+
+    /**
+     * The catalog spelling of the requested tier, or the model's default tier;
+     * undefined for models sized by width/height.
+     */
+    #resolveResolutionTier(
+        candidate: unknown,
+        model?: ITogetherVideoModel,
+    ): string | undefined {
+        const tiers = (model?.dimensions ?? []).filter(isResolutionTier);
+        if (tiers.length === 0) return undefined;
+        if (typeof candidate === 'string') {
+            const wanted = candidate.trim().toLowerCase();
+            const match = tiers.find((t) => t.toLowerCase() === wanted);
+            if (match) return match;
+        }
+        return tiers[0];
+    }
+
+    /** Snap width/height to one of the model's `ratio` strings. */
+    #deriveRatio(
+        width?: number,
+        height?: number,
+        ratios?: string[] | null,
+    ): string | undefined {
+        if (
+            !ratios?.length ||
+            !this.#isFiniteNumber(width) ||
+            !this.#isFiniteNumber(height)
+        ) {
+            return undefined;
+        }
+        const w = Math.round(Number(width));
+        const h = Math.round(Number(height));
+        if (w <= 0 || h <= 0) return undefined;
+        const gcd = (a: number, b: number): number =>
+            b === 0 ? a : gcd(b, a % b);
+        const d = gcd(w, h) || 1;
+        const candidate = `${w / d}:${h / d}`;
+        return ratios.includes(candidate) ? candidate : undefined;
+    }
+
+    #coercePositiveInteger(value: unknown): number | undefined {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            const rounded = Math.round(value);
+            return rounded > 0 ? rounded : undefined;
+        }
+        if (typeof value === 'string') {
+            const numeric = Number.parseInt(value, 10);
+            return Number.isFinite(numeric) && numeric > 0
+                ? numeric
+                : undefined;
+        }
+        return undefined;
+    }
+
+    #isFiniteNumber(value: unknown): boolean {
+        if (typeof value === 'number') {
+            return Number.isFinite(value);
+        }
+        if (typeof value === 'string') {
+            const numeric = Number(value);
+            return Number.isFinite(numeric);
+        }
+        return false;
+    }
+}

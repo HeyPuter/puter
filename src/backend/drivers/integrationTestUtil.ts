@@ -37,7 +37,7 @@ import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
 import { runWithContext } from '../core/context.js';
 import { NO_CREDIT_HOLD } from '../services/metering/types.js';
 import type { DriverStreamResult } from './meta.js';
-import type { AiMeteringService } from './util/aiCostFactor.js';
+import type { AiMeteringService } from './ai/shared/aiCostFactor.js';
 
 /**
  * Returns the env var value, or `undefined` if missing/empty. Used as the gate
