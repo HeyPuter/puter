@@ -869,6 +869,107 @@ describe.each(engines.filter((engine) => !engine.skip))(
             expect(await names(dir)).toEqual(['📁 Work']);
         });
 
+        it('treats a folder only the collation matches as missing, not as holding the name', async () => {
+            const dir = await freshDir();
+            const file = await write(`${dir}/😀dir/file.txt`, 'original', {
+                createMissingParents: true,
+            });
+            const requested = `${dir}/😁dir/file.txt`;
+
+            expect(
+                await server.stores.fsEntry.getEntryByPath(requested, {
+                    foldedNames: true,
+                }),
+            ).toBeNull();
+            expect(
+                await server.stores.fsEntry.getEntryByPath(requested, {
+                    useTryHardRead: true,
+                    foldedNames: true,
+                }),
+            ).toBeNull();
+
+            const missing = await caught(() =>
+                write(requested, 'replacement', { overwrite: true }),
+            );
+            expect(missing.statusCode).toBe(404);
+            const taken = await caught(() =>
+                write(requested, 'replacement', {
+                    overwrite: true,
+                    createMissingParents: true,
+                }),
+            );
+            expect(taken.statusCode).toBe(409);
+            expect(taken.message).toContain('😁dir');
+
+            expect(await names(dir)).toEqual(['😀dir']);
+            const kept = (await at(`${dir}/😀dir/file.txt`))!;
+            expect(kept.uuid).toBe(file.uuid);
+            expect(await readBack(kept)).toBe('original');
+        });
+
+        // Only MySQL's path collation folds kana; the emulation does not.
+        it.skipIf(label !== 'MySQL')(
+            'writes into a folder whose path only the path collation folds onto a sibling folder',
+            async () => {
+                const dir = await freshDir();
+                const file = await write(`${dir}/あ/file.txt`, 'hiragana', {
+                    createMissingParents: true,
+                });
+                const written = await write(`${dir}/ア/file.txt`, 'katakana', {
+                    createMissingParents: true,
+                });
+                expect(written.uuid).not.toBe(file.uuid);
+                expect(await names(dir)).toEqual(['あ', 'ア']);
+                expect(await readBack((await at(`${dir}/あ/file.txt`))!)).toBe(
+                    'hiragana',
+                );
+                expect(await readBack((await at(`${dir}/ア/file.txt`))!)).toBe(
+                    'katakana',
+                );
+            },
+        );
+
+        it.each([
+            ['the folder and the file store', true],
+            ['only the file stores', false],
+        ])(
+            'refuses a rename onto a taken name when %s the folder under another spelling',
+            async (_label, folderStale) => {
+                const dir = await freshDir();
+                const a = await write(`${dir}/Résumés/a.txt`, 'a', {
+                    createMissingParents: true,
+                });
+                const b = await write(`${dir}/Résumés/b.txt`, 'b');
+                const folder = (await at(`${dir}/Résumés`))!;
+                const respelled: Array<[string, string]> = [
+                    [a.uuid, `${dir}/Resumes/a.txt`],
+                ];
+                if (folderStale) respelled.push([folder.uuid, `${dir}/Resumes`]);
+                for (const [uuid, path] of respelled) {
+                    await server.clients.db.write(
+                        'UPDATE fsentries SET path = ? WHERE uuid = ?',
+                        [path, uuid],
+                    );
+                }
+                await server.clients.redis.flushall();
+
+                const stale = (await server.stores.fsEntry.getEntryByPath(
+                    `${dir}/Resumes/a.txt`,
+                ))!;
+                expect(stale.uuid).toBe(a.uuid);
+                const error = await caught(() =>
+                    runWithContext({ actor }, () =>
+                        fs.rename(userId, stale, 'b.txt'),
+                    ),
+                );
+                expect(error.statusCode).toBe(409);
+                const kept = (await at(`${dir}/Résumés/b.txt`))!;
+                expect(kept.uuid).toBe(b.uuid);
+                expect(await readBack(kept)).toBe('b');
+                expect(await fs.listDirectory(folder.uuid)).toHaveLength(2);
+            },
+        );
+
         describe('over WebDAV', () => {
             const dav = async (
                 method: 'mkcol' | 'copy' | 'move',

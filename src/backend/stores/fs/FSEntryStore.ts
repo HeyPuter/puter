@@ -1216,8 +1216,17 @@ export class FSEntryStore extends PuterStore {
             await this.#writeEntryToCache(entry);
             if (entryNamesMatch(entry.path, normalizedPath)) return entry;
             // Another spelling: a different entry, or this one with a stale
-            // `path`. The walk below compares names and heals the path.
-            if (options.foldedNames) pathMatch = entry;
+            // `path`. The walk below compares names and heals the path. A
+            // name in another folder doesn't take this one.
+            if (
+                options.foldedNames &&
+                entryNamesMatch(
+                    pathPosix.dirname(entry.path),
+                    pathPosix.dirname(normalizedPath),
+                )
+            ) {
+                pathMatch = entry;
+            }
         }
 
         // Fallback for legacy rows whose `path` column was never populated
@@ -1305,6 +1314,7 @@ export class FSEntryStore extends PuterStore {
         const lineage: LineageRow[] = [];
         const storedNames: string[] = [];
         let parentUuid: string | null = null;
+        let foldedFolder = false;
         for (let depth = 1; depth <= segments.length; depth++) {
             const segment = segments[depth - 1]!;
             const candidates = rows.filter(
@@ -1317,6 +1327,12 @@ export class FSEntryStore extends PuterStore {
                 candidates.find((r) => entryNamesMatch(r.name, segment)) ??
                 (foldedNames ? candidates[0] : undefined);
             if (!picked) return null;
+            if (
+                depth < segments.length &&
+                !entryNamesMatch(picked.name, segment)
+            ) {
+                foldedFolder = true;
+            }
             lineage.push({
                 id: Number(picked.id),
                 uuid: picked.uuid,
@@ -1324,6 +1340,21 @@ export class FSEntryStore extends PuterStore {
             });
             storedNames[depth - 1] = picked.name;
             parentUuid = picked.uuid;
+        }
+        // A folder named otherwise is another folder, unless the request
+        // spells the parent the way its stored path does.
+        const parentRow = lineage.at(-2);
+        if (
+            foldedFolder &&
+            !(
+                parentRow?.path &&
+                entryNamesMatch(
+                    parentRow.path,
+                    pathPosix.dirname(normalizedPath),
+                )
+            )
+        ) {
+            return null;
         }
 
         // The stored names, not the caller's spelling: a collation can match

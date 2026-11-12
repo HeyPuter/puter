@@ -4318,18 +4318,24 @@ export class FSService extends PuterService {
         const collision = await this.stores.fsEntry.getEntryByPath(newPath, {
             foldedNames: true,
         });
-        if (collision && collision.uuid !== entry.uuid) {
-            throw new HttpError(
-                409,
-                `An entry named \`${newName}\` already exists`,
-                { legacyCode: 'conflict' },
-            );
-        }
+        const taken = (name: string) =>
+            new HttpError(409, `An entry named \`${name}\` already exists`, {
+                legacyCode: 'conflict',
+            });
+        if (collision && collision.uuid !== entry.uuid) throw taken(newName);
 
-        const updated = await this.stores.fsEntry.updateEntry(entry.uuid, {
-            name: newName,
-            path: newPath,
-        });
+        let updated: FSEntry;
+        try {
+            updated = await this.stores.fsEntry.updateEntry(entry.uuid, {
+                name: newName,
+                path: newPath,
+            });
+        } catch (err) {
+            // Taken after the probe, or by a sibling it can't see through
+            // another spelling of the folder's path.
+            if (isUniqueViolation(err)) throw taken(newName);
+            throw err;
+        }
 
         if (entry.isDir) {
             await this.stores.fsEntry.updatePathPrefixForUser(
