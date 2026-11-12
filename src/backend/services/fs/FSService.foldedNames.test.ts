@@ -814,6 +814,61 @@ describe.each(engines.filter((engine) => !engine.skip))(
             }
         });
 
+        // Replica reads leave out `hidden` rows; primary reads still see them.
+        const withLaggingReplica = async <T>(
+            hidden: Set<string>,
+            run: () => Promise<T>,
+        ): Promise<T> => {
+            const db = server.clients.db as unknown as Record<string, unknown>;
+            const read = db.read as (
+                sql: string,
+                params?: unknown[],
+            ) => Promise<Array<Record<string, unknown>>>;
+            const replica = async (sql: string, params?: unknown[]) =>
+                (await read.call(db, sql, params)).filter(
+                    (row) => !hidden.has(row.uuid as string),
+                );
+            const patched = {
+                read: replica,
+                replicaRead: replica,
+                // SQLite's pread goes through read.
+                pread: (sql: string, params?: unknown[]) =>
+                    read.call(db, sql, params),
+                hasReadReplica: () => true,
+            };
+            const own = Object.keys(patched).filter((key) =>
+                Object.hasOwn(db, key),
+            );
+            const saved = Object.fromEntries(own.map((key) => [key, db[key]]));
+            Object.assign(db, patched);
+            try {
+                return await run();
+            } finally {
+                for (const key of Object.keys(patched)) delete db[key];
+                Object.assign(db, saved);
+            }
+        };
+
+        it('answers a mkdir that races a folded name the replica has not seen yet with 409', async () => {
+            const dir = await freshDir();
+            const work = await fs.mkdir(userId, { path: `${dir}/📁 Work` });
+            await server.clients.redis.flushall();
+
+            await withLaggingReplica(new Set([work.uuid]), async () => {
+                const found = await server.stores.fsEntry.getEntryByPath(
+                    `${dir}/📂 Work`,
+                    { useTryHardRead: true, foldedNames: true },
+                );
+                expect(found?.uuid).toBe(work.uuid);
+
+                const error = await caught(() =>
+                    fs.mkdir(userId, { path: `${dir}/📂 Work` }),
+                );
+                expect(error.statusCode).toBe(409);
+            });
+            expect(await names(dir)).toEqual(['📁 Work']);
+        });
+
         describe('over WebDAV', () => {
             const dav = async (
                 method: 'mkcol' | 'copy' | 'move',

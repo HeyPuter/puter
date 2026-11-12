@@ -823,10 +823,10 @@ export class FSEntryStore extends PuterStore {
             LINEAGE_LOOKUP_CONCURRENCY,
             async (path) => ({
                 path,
-                entry: await this.#resolveEntryByPathLineage(
-                    path,
-                    options.foldedNames,
-                ),
+                entry: await this.#resolveEntryByPathLineage(path, {
+                    foldedNames: options.foldedNames,
+                    primary: useTryHardRead,
+                }),
             }),
         );
         for (const result of lineageResults) {
@@ -1231,21 +1231,24 @@ export class FSEntryStore extends PuterStore {
         // With `foldedNames`, a row only the path collation matches still
         // holds the name when no row's `name` matches.
         return (
-            (await this.#resolveEntryByPathLineage(
-                normalizedPath,
-                options.foldedNames,
-            )) ?? pathMatch
+            (await this.#resolveEntryByPathLineage(normalizedPath, {
+                foldedNames: options.foldedNames,
+            })) ?? pathMatch
         );
     }
 
     /**
      * Recursive-CTE lineage resolver. Returns the entry at `path`, or null if
      * any segment is unresolvable. On success, backfills the `path` column on
-     * every row in the lineage whose stored path differs.
+     * every row in the lineage whose stored path differs. `primary` reads
+     * there, for rows a replica may not have yet.
      */
     async #resolveEntryByPathLineage(
         normalizedPath: string,
-        foldedNames = false,
+        {
+            foldedNames = false,
+            primary = false,
+        }: { foldedNames?: boolean; primary?: boolean } = {},
     ): Promise<FSEntry | null> {
         if (normalizedPath === '/') return null;
         const segments = normalizedPath.split('/').filter(Boolean);
@@ -1282,7 +1285,11 @@ export class FSEntryStore extends PuterStore {
             SELECT id, uuid, parent_uid, name, path, depth FROM lineage ORDER BY depth ASC, id ASC
         `;
 
-        const rows = (await this.clients.db.read(sql, segments)) as {
+        const rows = (
+            primary
+                ? await this.clients.db.pread(sql, segments)
+                : await this.clients.db.read(sql, segments)
+        ) as {
             id: number | string;
             uuid: string;
             parent_uid: string | null;
@@ -1325,7 +1332,10 @@ export class FSEntryStore extends PuterStore {
         const healed = await this.#backfillLineagePaths(lineage, storedNames);
 
         const target = lineage[lineage.length - 1]!;
-        if (!healed.has(target.uuid)) return this.getEntryByUuid(target.uuid);
+        if (!healed.has(target.uuid)) {
+            const entry = await this.getEntryByUuid(target.uuid);
+            if (entry || !primary) return entry;
+        }
         // A replica may not have the new path yet.
         const entry = await this.getEntryByUuidFromPrimary(target.uuid);
         if (entry) await this.#writeEntryToCache(entry);
