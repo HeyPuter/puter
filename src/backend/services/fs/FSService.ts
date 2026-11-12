@@ -4329,6 +4329,8 @@ export class FSService extends PuterService {
                 entry.userId,
                 entry.path,
                 newPath,
+                undefined,
+                entry.uuid,
             );
         }
         this.#emitFsEvent(
@@ -5293,6 +5295,7 @@ export class FSService extends PuterService {
                 source.path,
                 finalPath,
                 newOwnerId,
+                source.uuid,
             );
         }
 

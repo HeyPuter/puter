@@ -566,5 +566,56 @@ describe.each(engines.filter((engine) => !engine.skip))(
             expect(moved.uuid).toBe(moving.uuid);
             expect(await names(dest)).toEqual(['report.txt']);
         });
+
+        const storedPath = async (entry: FSEntry) =>
+            (
+                (await server.clients.db.pread(
+                    'SELECT path FROM fsentries WHERE uuid = ?',
+                    [entry.uuid],
+                )) as Array<{ path: string }>
+            )[0]?.path;
+
+        it('renames a folder without taking the subtree of a sibling its path folds onto', async () => {
+            const dir = await freshDir();
+            const hiragana = await fs.mkdir(userId, { path: `${dir}/あ` });
+            const inHiragana = await write(`${dir}/あ/one.txt`, 'one');
+            // `name` keeps the two kana apart and `path` folds them, so such a
+            // pair can sit in old rows. Placed by hand: no create accepts it.
+            const katakana = await fs.mkdir(userId, { path: `${dir}/other` });
+            const inKatakana = await write(`${dir}/other/two.txt`, 'two');
+            await server.clients.db.write(
+                'UPDATE fsentries SET name = ?, path = ? WHERE uuid = ?',
+                ['ア', `${dir}/ア`, katakana.uuid],
+            );
+            await server.clients.db.write(
+                'UPDATE fsentries SET path = ? WHERE uuid = ?',
+                [`${dir}/ア/two.txt`, inKatakana.uuid],
+            );
+
+            await runWithContext({ actor }, () =>
+                fs.rename(userId, hiragana, 'renamed'),
+            );
+
+            expect(await storedPath(inHiragana)).toBe(
+                `${dir}/renamed/one.txt`,
+            );
+            expect(await storedPath(inKatakana)).toBe(`${dir}/ア/two.txt`);
+        });
+
+        it('takes along descendants stored under another spelling of the renamed folder', async () => {
+            const dir = await freshDir();
+            const folder = await fs.mkdir(userId, { path: `${dir}/Photos` });
+            const nested = await fs.mkdir(userId, {
+                path: `${dir}/photos/2024/trip`,
+                createMissingParents: true,
+            });
+            expect(await storedPath(nested)).toBe(`${dir}/photos/2024/trip`);
+
+            await runWithContext({ actor }, () =>
+                fs.rename(userId, folder, 'Pictures'),
+            );
+
+            expect(await storedPath(nested)).toBe(`${dir}/Pictures/2024/trip`);
+        });
     },
 );

@@ -3915,12 +3915,15 @@ export class FSEntryStore extends PuterStore {
 
     // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`,
     // and drops their cached copies. Used by move/rename when a directory is
-    // relocated. Pass `newUserId` when the subtree also changes hands.
+    // relocated. Pass `newUserId` when the subtree also changes hands, and
+    // `movedUuid`, the relocated directory, so a sibling whose path LIKE can't
+    // tell from `oldPrefix` keeps its own subtree.
     async updatePathPrefixForUser(
         userId: number,
         oldPrefix: string,
         newPrefix: string,
         newUserId?: number,
+        movedUuid?: string,
     ): Promise<number> {
         const normalizedOld = this.#normalizePath(oldPrefix);
         const normalizedNew = this.#normalizePath(newPrefix);
@@ -3955,28 +3958,85 @@ export class FSEntryStore extends PuterStore {
             rootPaths: [normalizedOld, normalizedNew],
             primary: true,
         });
-        for (const patterns of groups) {
-            const result = await this.clients.db.write(
-                `UPDATE fsentries
-                 SET path = ${rewrittenPath},
-                     ${reowning ? 'user_id = ?,' : ''}
-                     modified = ?
-                 WHERE ${this.#pathLikeAny(patterns)}`,
-                [
-                    normalizedNew,
-                    oldPrefixLen + 1,
-                    ...(reowning ? [newUserId] : []),
-                    now,
-                    ...patterns,
-                ],
+        const setClause = `path = ${rewrittenPath}, ${reowning ? 'user_id = ?, ' : ''}modified = ?`;
+        const setParams = [
+            normalizedNew,
+            oldPrefixLen + 1,
+            ...(reowning ? [newUserId] : []),
+            now,
+        ];
+        if (movedUuid && (await this.#hasPathTwin(normalizedOld, movedUuid))) {
+            affected = await this.#rebaseByParentLinks(
+                movedUuid,
+                likePattern,
+                setClause,
+                setParams,
             );
-            affected += this.#affectedRows(result);
+        } else {
+            for (const patterns of groups) {
+                const result = await this.clients.db.write(
+                    `UPDATE fsentries
+                     SET ${setClause}
+                     WHERE ${this.#pathLikeAny(patterns)}`,
+                    [...setParams, ...patterns],
+                );
+                affected += this.#affectedRows(result);
+            }
         }
         await this.#invalidateRebasedSubtree(
             normalizedOld,
             normalizedNew,
             groups,
         );
+        return affected;
+    }
+
+    // Whether a row other than `uuid` sits at a path LIKE matches to `path`:
+    // LIKE compares under the path collation (ASCII case on SQLite), so a
+    // prefix pattern for one of them also covers the other's subtree.
+    async #hasPathTwin(path: string, uuid: string): Promise<boolean> {
+        const rows = (await this.clients.db.pread(
+            "SELECT uuid FROM fsentries WHERE path LIKE ? ESCAPE '!' AND uuid <> ? LIMIT 1",
+            [this.#escapeLikePattern(path), uuid],
+        )) as unknown[];
+        return rows.length > 0;
+    }
+
+    // The prefix rewrite for a directory with a path twin: level by level down
+    // the parent links from `rootUuid`, which only its own subtree hangs from.
+    async #rebaseByParentLinks(
+        rootUuid: string,
+        likePattern: string,
+        setClause: string,
+        setParams: unknown[],
+    ): Promise<number> {
+        let affected = 0;
+        const seen = new Set([rootUuid]);
+        let parents = [rootUuid];
+        while (parents.length > 0) {
+            const next: string[] = [];
+            for (const chunk of this.#chunk(parents, BULK_QUERY_CHUNK_SIZE)) {
+                const marks = chunk.map(() => '?').join(', ');
+                const dirs = (await this.clients.db.pread(
+                    `SELECT uuid FROM fsentries
+                     WHERE parent_uid IN (${marks}) AND is_dir = ${this.clients.db.booleanLiteral(true)}`,
+                    chunk,
+                )) as Array<{ uuid: string }>;
+                const result = await this.clients.db.write(
+                    `UPDATE fsentries
+                     SET ${setClause}
+                     WHERE parent_uid IN (${marks}) AND path LIKE ? ESCAPE '!'`,
+                    [...setParams, ...chunk, likePattern],
+                );
+                affected += this.#affectedRows(result);
+                for (const { uuid } of dirs) {
+                    if (seen.has(uuid)) continue;
+                    seen.add(uuid);
+                    next.push(uuid);
+                }
+            }
+            parents = next;
+        }
         return affected;
     }
 
