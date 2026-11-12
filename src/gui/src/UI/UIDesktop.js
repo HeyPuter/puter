@@ -24,7 +24,6 @@ import UIItem from './UIItem.js';
 import UIAlert from './UIAlert.js';
 import UIWindow from './UIWindow.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
-import UIAuthLogin from './Auth/UIAuthLogin.js';
 
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
@@ -34,7 +33,6 @@ import UINotification from './UINotification.js';
 import launch_app from '../helpers/launchApp.js';
 import { urlFileLaunchOptions } from '../helpers/confirmUrlFileAccess.js';
 import item_icon from '../helpers/itemIcon.js';
-import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
 import {
     answerNotificationReceipts,
@@ -1302,44 +1300,6 @@ async function UIDesktop (options) {
         // `stat` returns the path this viewer may use, which is the one to open.
         await open_path_target(stat.path ?? shared_path, stat);
         return true;
-    }
-
-    /**
-     * Act on a share link. A share to a person only ever reaches a real
-     * account, so for a temporary session the item is tried first — an item
-     * open to anyone with the link resolves for it — and only a miss asks
-     * for a sign-in, rather than burning the link on a "not found" as
-     * somebody who can't see it. The link stays in the address bar across
-     * the prompt because login reloads on success, which brings it back for
-     * the account that can actually open it.
-     */
-    async function handle_shared_link (shared_path) {
-        if ( window.user?.is_temp ) {
-            const stat = await resolve_shared_item(puter.fs, shared_path);
-            if ( stat ) {
-                clear_shared_param();
-                await open_path_target(stat.path ?? shared_path, stat);
-                return;
-            }
-            await UIAuthLogin({
-                reload_on_success: true,
-                page: true,
-            });
-            // Dismissed without signing in: drop the link rather than loop.
-            if ( window.user?.is_temp ) clear_shared_param();
-            return;
-        }
-        clear_shared_param();
-        await open_shared_item(shared_path);
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Opening an item someone shared, on the desktop
-    // i.e. https://puter.com/desktop?shared=%2F<owner>%2F<uuid>%2F<name>
-    // (the same link at the root lands in the dashboard's Shared view instead)
-    //--------------------------------------------------------------------------------------
-    if ( window.url_query_params.has(SHARED_PATH_PARAM) ) {
-        await handle_shared_link(window.url_query_params.get(SHARED_PATH_PARAM));
     }
 }
 

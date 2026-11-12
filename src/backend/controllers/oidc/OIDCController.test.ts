@@ -372,26 +372,6 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
         );
     });
 
-    it('bakes a whitelisted desktop app landing (/desktop/app/<name>) into the state redirect_uri', async () => {
-        const { res, captured } = makeRes();
-        await callRoute(
-            'get',
-            '/auth/oidc/:provider/start',
-            makeReq({
-                params: { provider: 'custom' },
-                query: { return_to: '/desktop/app/my-App_2' },
-            }),
-            res,
-        );
-        const state = new URL(captured.redirectUrl ?? '').searchParams.get(
-            'state',
-        );
-        const decoded = oidc().verifyState(state!);
-        expect(String(decoded?.redirect_uri)).toBe(
-            `${TEST_ORIGIN}/desktop/app/my-App_2`,
-        );
-    });
-
     it('ignores a non-whitelisted return_to', async () => {
         const bad_values = [
             '/app/evil/extra',
@@ -400,6 +380,7 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
             '//evil.test',
             '/settings',
             `/app/${'a'.repeat(101)}`,
+            '/desktop/app/my-App_2',
             '/desktop/app/evil/extra',
             '/desktop/app/',
             '/dashboard/app/name',

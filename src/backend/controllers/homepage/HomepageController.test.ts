@@ -88,6 +88,7 @@ const makeReq = (init: {
     actor?: Actor;
     hostname?: string;
     protocol?: string;
+    originalUrl?: string;
 }): Request => {
     return {
         body: {},
@@ -95,6 +96,7 @@ const makeReq = (init: {
         headers: {},
         params: init.params ?? {},
         path: init.path ?? '/',
+        originalUrl: init.originalUrl ?? init.path ?? '/',
         hostname: init.hostname ?? 'test.local',
         protocol: init.protocol ?? 'http',
         actor: init.actor,
@@ -378,47 +380,21 @@ describe('HomepageController GET /app/:name', () => {
         expect(html).not.toContain('owner_user_id');
     });
 
-    it('serves the same app shell under /desktop/app/:name', async () => {
-        const { userId } = await makeUser();
-        const name = `desk-${Math.random().toString(36).slice(2, 10)}`;
-        await server.stores.app.create(
-            {
-                name,
-                title: 'Desktop App',
-                description: 'opens on the desktop instead of the dashboard',
-                index_url: `https://example.com/${name}/`,
-                approved_for_listing: 1,
-            },
-            { ownerUserId: userId },
-        );
-
-        const { res, captured } = makeRes();
-        await callRoute(
-            'get',
-            '/desktop/app/:name',
-            makeReq({ params: { name }, path: `/desktop/app/${name}` }),
-            res,
-        );
-
-        expect(captured.statusCode).toBe(200);
-        const html = String(captured.body);
-        expect(html).toMatch(/<!DOCTYPE html>/i);
-        expect(html).toContain('Desktop App');
-    });
-
-    it('returns 404 under /desktop/app/:name when the app is unknown', async () => {
+    it('redirects /desktop/app/:name to /app/:name, keeping the query', async () => {
         const { res, captured } = makeRes();
         await callRoute(
             'get',
             '/desktop/app/:name',
             makeReq({
-                params: { name: 'no-such-app' },
-                path: '/desktop/app/no-such-app',
+                params: { name: 'editor' },
+                path: '/desktop/app/editor',
+                originalUrl: '/desktop/app/editor?file=%2Falice%2Fa.txt&x=1',
             }),
             res,
         );
-        expect(captured.statusCode).toBe(404);
-        expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
+        expect(captured.statusCode).toBe(302);
+        expect(captured.location).toBe('/app/editor?file=%2Falice%2Fa.txt&x=1');
+        expect(captured.body).toBeUndefined();
     });
 
     it('omits index_url even for a public app — the shell is not the launch authority', async () => {
@@ -452,19 +428,17 @@ describe('HomepageController GET /app/:name', () => {
 // -- app landing rate limit --
 
 describe('HomepageController app landing rate limit', () => {
-    it('rate-limits /app/:name and /desktop/app/:name per network', () => {
-        for (const path of ['/app/:name', '/desktop/app/:name']) {
-            const route = router.routes.find(
-                (r) => r.method === 'get' && r.path === path,
-            );
-            if (!route) throw new Error(`No GET ${path} route`);
-            expect(route.options.rateLimit).toEqual({
-                scope: 'app-landing',
-                limit: 600,
-                window: 60_000,
-                key: 'ip',
-            });
-        }
+    it('rate-limits /app/:name per network', () => {
+        const route = router.routes.find(
+            (r) => r.method === 'get' && r.path === '/app/:name',
+        );
+        if (!route) throw new Error('No GET /app/:name route');
+        expect(route.options.rateLimit).toEqual({
+            scope: 'app-landing',
+            limit: 600,
+            window: 60_000,
+            key: 'ip',
+        });
     });
 });
 

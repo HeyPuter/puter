@@ -106,9 +106,6 @@ const runLaunch = async (options) => {
         const launchAttributes = {
             'launch.app': options?.name ?? options?.app_obj?.name ?? 'unknown',
             'launch.dashboard_mode': !! window.is_dashboard_mode,
-            // url_paths has the `/desktop` prefix stripped, so this counts the
-            // desktop-booted landing (`/desktop/app/<name>`) as the app URL
-            // it is.
             'launch.from_app_url':
                 window.url_paths?.[0]?.toLocaleLowerCase() === 'app'
                 && !! window.url_paths?.[1],
