@@ -90,7 +90,6 @@ const fil = {
         desktop: 'Desktop',
         desktop_background_fit: 'Pagkakasya',
         developers: 'Mga developer',
-        dir_published_as_website: 'Na-publish ang %strong% sa:',
         disable_2fa: 'I-disable ang 2FA',
         disable_2fa_confirm: 'I-disable mo ba ang 2FA?',
         disable_2fa_instructions: 'Ilagay ang password mo para i-disable ang 2FA.',
@@ -98,7 +97,6 @@ const fil = {
         dont_allow: 'Huwag payagan',
         download: 'I-download',
         download_file: 'I-download ang file',
-        downloading: 'Dina-download',
         email: 'Email',
         email_change_confirmation_sent:
       'Napadala na ang confirmation email sa bago mong email. Buksan ang inbox at sundin ang mga hakbang para matapos ang proseso.',
@@ -186,7 +184,6 @@ const fil = {
         paste_into_folder: 'I-paste sa folder',
         path: 'Lokasyon',
         personalization: 'Personalization',
-        pick_name_for_website: 'Pumili ng pangalan para sa website mo:',
         pictures: 'Mga larawan',
         plural_suffix: '',
         powered_by_puter_js: 'Pinapagana ng {{link=docs}}Puter.js{{/link}}',

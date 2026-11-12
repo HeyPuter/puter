@@ -101,7 +101,6 @@ const es = {
         desktop: 'Escritorio',
         desktop_background_fit: 'Ajustar',
         developers: 'Desarrolladores',
-        dir_published_as_website: '%strong% ha sido publicado en:',
         disable_2fa: 'Deshabilitar 2FA',
         disable_2fa_confirm: '¿Estás seguro que quieres deshabilitar 2FA?',
         disable_2fa_instructions: 'Ingresa tu contraseña para deshabilitar 2FA.',
@@ -109,7 +108,6 @@ const es = {
         dont_allow: 'No permitir',
         download: 'Descargar',
         download_file: 'Descargar archivo',
-        downloading: 'Descargando',
         email: 'Correo electrónico',
         email_change_confirmation_sent:
       'Se ha enviado un mensaje de confirmación a tu nueva dirección de correo electrónico. Por favor, revisa tu bandeja de entrada y sigue las instrucciónes para completar el proceso.',
@@ -199,7 +197,6 @@ const es = {
         paste_into_folder: 'Pegar en la Carpeta',
         path: 'Ruta',
         personalization: 'Personalización',
-        pick_name_for_website: 'Escoge un nombre para tu página web:',
         pictures: 'Imagenes',
         plural_suffix: 's',
         powered_by_puter_js: 'Creado por {{link=docs}}Puter.js{{/link}}',

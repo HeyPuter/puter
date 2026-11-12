@@ -92,7 +92,6 @@ const ku = {
         desktop: 'سەروروومیزی',
         desktop_background_fit: 'ڕێکخستن',
         developers: 'پەرەپێدانەران',
-        dir_published_as_website: '%strong% بەشکراوە بۆ:',
         disable_2fa: 'ناچالاککردنی 2FA',
         disable_2fa_confirm: 'دڵنیایت کە ئەتەوێت 2FA ناچالاک بکەیت؟',
         disable_2fa_instructions: 'وشەی تێپەڕی نووسە بۆ ناچالاککردنی 2FA.',
@@ -100,7 +99,6 @@ const ku = {
         dont_allow: 'ڕێگەندان',
         download: 'داگرتن',
         download_file: 'داگرتنی فایل',
-        downloading: 'داگرتن',
         email: 'ئیمەیل',
         email_change_confirmation_sent:
       'پەیامی پشتڕاستکردنی ئیمەیل بۆ ناونیشانی ئیمەیلە نوێتەوە نێردرا. تکایە پەیامەکانت بپشکنە و ڕێنیشانەکان پەیڕەو بکە بۆ تەواوبوونەوەی ئەم کارە.',
@@ -189,7 +187,6 @@ const ku = {
         paste_into_folder: 'دانان لە فۆڵدەرەکە',
         path: 'ڕێکەوت',
         personalization: 'بەشداربوون',
-        pick_name_for_website: 'ناوێک دیاربکە بۆ وێبسایتەکەت:',
         pictures: 'وێنەکان',
         plural_suffix: 'کان',
         powered_by_puter_js: 'پێشکەشکراوە لە {{link=docs}}پوتەر.js{{/link}}',

@@ -29,7 +29,6 @@ vi.mock('./UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('./UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/launchApp.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openItem.js', () => ({ default: vi.fn() }));
-vi.mock('../helpers/publishAsWebsite.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openWithAI.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/refreshItemContainer.js', () => ({ default: vi.fn() }));
 
@@ -173,6 +172,27 @@ describe('UIItem Publish as Worker', () => {
             shared_by: undefined,
         });
         expect(labels).not.toContain('publish_as_serverless_worker');
+    });
+});
+
+describe('UIItem Publish as Website', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on a folder the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/Site',
+            name: 'Site',
+            is_dir: true,
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('publish_as_website');
+        expect(labels).toContain('deploy_as_app');
     });
 });
 

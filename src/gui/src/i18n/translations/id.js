@@ -92,7 +92,6 @@ const id = {
         desktop: 'Desktop',
         desktop_background_fit: 'Cocokkan',
         developers: 'Pengembang',
-        dir_published_as_website: '%strong% telah dipublikasikan di:',
         disable_2fa: 'Nonaktifkan 2FA',
         disable_2fa_confirm: 'Apakah Anda yakin ingin menonaktifkan 2FA?',
         disable_2fa_instructions: 'Masukkan kata sandi Anda untuk menonaktifkan 2FA.',
@@ -100,7 +99,6 @@ const id = {
         dont_allow: 'Jangan Izinkan',
         download: 'Unduh',
         download_file: 'Unduh File',
-        downloading: 'Mengunduh',
         email: 'Email',
         email_change_confirmation_sent:
       'Email konfirmasi telah dikirim ke alamat email baru Anda. Silakan periksa kotak masuk Anda dan ikuti petunjuk untuk menyelesaikan prosesnya.',
@@ -188,7 +186,6 @@ const id = {
         paste_into_folder: 'Tempel ke dalam Folder',
         path: 'Lokasi',
         personalization: 'Personalisasi',
-        pick_name_for_website: 'Pilih nama untuk situs web Anda:',
         pictures: 'Gambar',
         plural_suffix: 's',
         powered_by_puter_js: 'Ditenagai oleh {{link=docs}}Puter.js{{/link}}',

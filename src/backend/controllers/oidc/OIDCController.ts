@@ -102,16 +102,15 @@ function signupOptionsFromState(
 }
 
 // GUI pages an OIDC flow may return to: the root (where a share email lands),
-// /desktop, /dashboard, and direct app landings (/app/<name> and its
-// desktop-booted twin /desktop/app/<name>, mirroring APP_NAME_REGEX in
-// AppDriver). Strict whitelist — never a client-supplied URL (no open
-// redirect).
+// /desktop, /dashboard, and direct app landings (/app/<name>, mirroring
+// APP_NAME_REGEX in AppDriver). Strict whitelist — never a client-supplied URL
+// (no open redirect).
 function isWhitelistedReturnPath(path: string): boolean {
     return (
         path === '/' ||
         path === '/desktop' ||
         path === '/dashboard' ||
-        /^(\/desktop)?\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
+        /^\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
     );
 }
 

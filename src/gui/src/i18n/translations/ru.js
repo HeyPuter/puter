@@ -94,7 +94,6 @@ const ru = {
         desktop: 'Рабочий стол',
         desktop_background_fit: 'Вместить',
         developers: 'Разработчики',
-        dir_published_as_website: '%strong% опубликован в:',
         disable_2fa: 'Отключить двойную аутентификацию',
         disable_2fa_confirm:
       'Вы уверены, что хотите отключить двойную аутентификацию?',
@@ -104,7 +103,6 @@ const ru = {
         dont_allow: 'Доступ запрещён',
         download: 'Загрузить',
         download_file: 'Загрузить файл',
-        downloading: 'Загрузка',
         email: 'Электронная почта',
         email_change_confirmation_sent:
       'На ваш новый адрес электронной почты было отправлено письмо с подтверждением. Пожалуйста, проверьте свой ящик электронной почты и следуйте инструкциям, чтобы завершить процесс.',
@@ -194,7 +192,6 @@ const ru = {
         paste_into_folder: 'Вставить в папку',
         path: 'Путь',
         personalization: 'Персонализация',
-        pick_name_for_website: 'Выберите имя для вашего сайта:',
         pictures: 'Изображения',
         plural_suffix: 's', //does not exist in Russian language
         powered_by_puter_js: 'Создано на {{link=docs}}Puter.js{{/link}}',

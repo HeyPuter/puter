@@ -97,7 +97,6 @@ const fr = {
         desktop: 'Bureau',
         desktop_background_fit: 'Ajuster',
         developers: 'Développeurs',
-        dir_published_as_website: '%strong% a été publié sur :',
         disable_2fa: "Désactiver l'A2F",
         disable_2fa_confirm: "Êtes-vous sûr de vouloir désactiver l'A2F ?",
         disable_2fa_instructions: "Entrez votre mot de passe pour désactiver l'A2F.",
@@ -105,11 +104,7 @@ const fr = {
         documents: 'Documents',
         dont_allow: 'Ne pas autoriser',
         download: 'Télécharger',
-        confirm_download_file_to_desktop: 'Êtes-vous sûr de vouloir télécharger %% sur votre bureau ?',
         download_file: 'Télécharger le fichier',
-        downloading: 'Téléchargement en cours',
-        downloading_file: 'Téléchargement de %%',
-        error_download_failed: 'Échec du téléchargement du fichier',
         email: 'E-mail',
         email_change_confirmation_sent: 'Un e-mail de confirmation a été envoyé à votre nouvelle adresse e-mail. Veuillez vérifier votre boîte de réception et suivre les instructions pour terminer le processus.',
         email_invalid: 'L\'e-mail n\'est pas valide.',
@@ -194,7 +189,6 @@ const fr = {
         paste_into_folder: 'Coller dans le dossier',
         path: 'Chemin',
         personalization: 'Personnalisation',
-        pick_name_for_website: 'Choisissez un nom pour votre site internet :',
         pictures: 'Images',
         pixel_ratio: 'Ratio de pixels',
         plural_suffix: 's',
@@ -285,7 +279,6 @@ const fr = {
         untarring: 'Extraction de %strong% (.tar)',
         upload: 'Importer',
         uploading: 'Importation en cours',
-        uploading_file: 'Importation de %%',
         upload_here: 'Importer ici',
         uptime: 'Temps de disponibilité',
         used_of: '{{used}} utilisé sur {{available}}',
@@ -461,7 +454,6 @@ const fr = {
         'perm_subdomains_write': 'gérer vos sous-domaines',
 
         'error_user_or_path_not_found': 'Utilisateur ou chemin introuvable.',
-        'error_invalid_username': 'Nom d\'utilisateur invalide.',
 
         // Auth token
         auth_token: 'Jeton d\'authentification',

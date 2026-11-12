@@ -28,7 +28,6 @@ import { atPath } from '../helpers/pathElements.js';
 import { resolve_typed_path } from '../helpers/expandHomePath.js';
 import UIWindowAppFeedback from './UIWindowAppFeedback.js';
 import launch_app from '../helpers/launchApp.js';
-import publish_as_website from '../helpers/publishAsWebsite.js';
 
 import item_icon from '../helpers/itemIcon.js';
 import { parent_path_for, shared_crumbs_for } from '../helpers/sharePaths.js';
@@ -2543,20 +2542,6 @@ async function UIWindow (options) {
                     // -
                     // -------------------------------------------
                     menu_items.push('-');
-                    // -------------------------------------------
-                    // Publish As Website
-                    // -------------------------------------------
-                    menu_items.push({
-                        html: i18n('publish_as_website'),
-                        disabled: !options.is_dir,
-                        onClick: async function () {
-                            await publish_as_website({
-                                uid: $(el_window).attr('data-uid'),
-                                name: $(el_window).attr('data-name'),
-                                path: $(el_window).attr('data-path'),
-                            });
-                        },
-                    });
                     // -------------------------------------------
                     // Deploy as App
                     // -------------------------------------------

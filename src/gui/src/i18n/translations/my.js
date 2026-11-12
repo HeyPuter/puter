@@ -105,7 +105,6 @@ const my = {
         desktop: 'Desktop',
         desktop_background_fit: 'Suaikan',
         developers: 'Pembangun',
-        dir_published_as_website: '%strong% telah diterbitkan di:',
         disable_2fa: 'Menyahaktifkan 2FA',
         disable_2fa_confirm: 'Adakah anda yakin mahu menyahaktifkan 2FA?',
         disable_2fa_instructions: 'Masukkan kata laluan anda untuk menyahaktifkan 2FA.',
@@ -113,7 +112,6 @@ const my = {
         dont_allow: 'Tidak Izinkan',
         download: 'Muat Naik',
         download_file: 'Muat Naik Fail',
-        downloading: 'Memuat Naik',
         email: 'Emel',
         email_change_confirmation_sent:
       'Emel pengesahan telah dihantar ke alamat emel baharu anda. Sila semak peti emel anda dan ikut arahan terbabit bagi menyelesaikan proses ini.',
@@ -196,7 +194,6 @@ const my = {
         paste_into_folder: 'Tampal Ke Dalam Folder',
         path: 'Laluan',
         personalization: 'Pemperibadian',
-        pick_name_for_website: 'Pilih nama laman web anda:',
         pictures: 'Gambar',
         plural_suffix: 's',
         powered_by_puter_js: 'Dikuasakan oleh {{link=docs}}Puter.js{{/link}}',

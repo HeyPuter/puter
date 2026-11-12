@@ -93,7 +93,6 @@ const ig = {
         desktop: 'desktọpụ',
         desktop_background_fit: 'dabara',
         developers: 'Ndị mme ya',
-        dir_published_as_website: '%strong% e bipụtara ya:',
         disable_2fa: 'Gbanyụọ 2FA',
         disable_2fa_confirm: "Ị ji n'aka na ịchọrọ gbanyụọ 2FA?",
         disable_2fa_instructions: 'Tinye paswọọdụ gị i ji gbanyụọ 2FA.',
@@ -101,7 +100,6 @@ const ig = {
         dont_allow: 'Ekwela',
         download: 'Budata',
         download_file: 'Budata faịlụ',
-        downloading: 'Nbudata',
         email: 'Email',
         email_change_confirmation_sent:
       'ezipula email nkwenye na adreesị ozi-e ọhụrụ gị. Biko lelee igbe mbata gị ma soro ntuziaka ka ịmechaa usoro ahụ.',
@@ -190,7 +188,6 @@ const ig = {
         paste_into_folder: "Tinye n'ime nchekwa",
         path: 'ụzọ',
         personalization: 'Nhazi onwe',
-        pick_name_for_website: 'Họrọ aha maka weebụsaịtị gị:',
         pictures: 'Foto',
         plural_suffix: 's',
         powered_by_puter_js: 'Kwadoro site na {{link=docs}}Puter.js{{/link}}',

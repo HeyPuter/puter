@@ -274,12 +274,19 @@ export class HomepageController extends PuterController {
 
         router.get('/action/*splat', {}, (req, res) => sendShell(req, res));
 
-        router.get('/@:username', {}, (req, res) => sendShell(req, res));
+        // Old links to a user's public folder land on the dashboard.
+        router.get('/@:username', {}, (_req, res) => res.redirect('/'));
+
+        // Old desktop app links open the app in the dashboard, query intact.
+        router.get('/desktop/app/:name', {}, (req, res) => {
+            const separator = req.originalUrl.indexOf('?');
+            const query =
+                separator === -1 ? '' : req.originalUrl.slice(separator);
+            const name = encodeURIComponent(String(req.params.name ?? ''));
+            res.redirect(`/app/${name}${query}`);
+        });
 
         // -- /app/:name - app metadata baked into the shell ----------
-        // `/desktop/app/:name` is the same landing booted on the desktop
-        // instead of the dashboard; the GUI strips the prefix and treats the
-        // rest of the path identically, so both render the same shell.
 
         const sendAppShell = async (
             req: express.Request,
@@ -331,11 +338,6 @@ export class HomepageController extends PuterController {
 
         router.get(
             '/app/:name',
-            { rateLimit: APP_LANDING_LIMIT },
-            sendAppShell,
-        );
-        router.get(
-            '/desktop/app/:name',
             { rateLimit: APP_LANDING_LIMIT },
             sendAppShell,
         );

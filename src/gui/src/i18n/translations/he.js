@@ -91,7 +91,6 @@ const he = {
         desktop: 'שולחן העבודה ',
         desktop_background_fit: 'התאים',
         developers: 'מפתחים',
-        dir_published_as_website: '%strong% פורסם ל:',
         disable_2fa: 'השבתת אימות דו-שלבי',
         disable_2fa_confirm: 'האם אתם בטוחים שברצונכם להשבית אימות דו-שלבי?',
         disable_2fa_instructions: 'הזינו את הסיסמה שלכם כדי להשבית אימות דו-שלבי.',
@@ -99,7 +98,6 @@ const he = {
         dont_allow: 'אל תאפשר',
         download: 'הורדה',
         download_file: 'הורדת קובץ',
-        downloading: 'מוריד',
         email: 'אימייל',
         email_change_confirmation_sent:
       'אימייל אישור נשלח לכתובת האימייל החדשה שלך. אנא בדוק את תיבת הדואר הנכנס ופעל לפי ההוראות להשלמת התהליך.',
@@ -186,7 +184,6 @@ const he = {
         paste_into_folder: 'הדבק בתיקיה',
         path: 'מסלול',
         personalization: 'התאמה אישית',
-        pick_name_for_website: 'בחר שם לאתר האינטרנט שלך:',
         pictures: 'תמונות',
         plural_suffix: 's',
         powered_by_puter_js: 'מונע ע"י {{link=docs}}Puter.js{{/link}}',

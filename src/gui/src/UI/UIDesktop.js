@@ -24,9 +24,7 @@ import UIItem from './UIItem.js';
 import UIAlert from './UIAlert.js';
 import UIWindow from './UIWindow.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
-import UIAuthLogin from './Auth/UIAuthLogin.js';
 
-import UIWindowProgress from './UIWindowProgress.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
 import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers/pathElements.js';
@@ -35,7 +33,6 @@ import UINotification from './UINotification.js';
 import launch_app from '../helpers/launchApp.js';
 import { urlFileLaunchOptions } from '../helpers/confirmUrlFileAccess.js';
 import item_icon from '../helpers/itemIcon.js';
-import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
 import {
     answerNotificationReceipts,
@@ -72,58 +69,6 @@ async function UIDesktop (options) {
 
     let h = '';
 
-    // Set up the desktop channel for communication between different tabs in the same browser
-    window.channel = new BroadcastChannel('puter-desktop-channel');
-    channel.onmessage = function (e) {
-    };
-
-    // Initialize desktop icons visibility preference - move this earlier in the initialization
-    // Add this near the very beginning of the UIDesktop function
-    window.desktop_icons_hidden = false; // Set default value immediately
-
-    // Give Camera and Recorder write permissions to Desktop
-    puter.kv.get('has_set_default_app_user_permissions').then(async (user_permissions) => {
-        if ( ! user_permissions ) {
-            // Camera
-            try {
-                await fetch(`${window.api_origin }/auth/grant-user-app`, {
-                    'headers': {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${ window.auth_token}`,
-                    },
-                    'body': JSON.stringify({
-                        app_uid: 'app-5584fbf7-ed69-41fc-99cd-85da21b1ef51',
-                        permission: `fs:${html_encode(window.desktop_path)}:write`,
-                    }),
-                    'method': 'POST',
-                });
-            } catch ( err ) {
-                console.error(err);
-            }
-
-            // Recorder
-            try {
-                await fetch(`${window.api_origin }/auth/grant-user-app`, {
-                    'headers': {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${ window.auth_token}`,
-                    },
-                    'body': JSON.stringify({
-                        app_uid: 'app-7bdca1a4-6373-4c98-ad97-03ff2d608ca1',
-                        permission: `fs:${html_encode(window.desktop_path)}:write`,
-                    }),
-                    'method': 'POST',
-                });
-            } catch ( err ) {
-                console.error(err);
-            }
-
-            // Set flag to true
-            await puter.kv.set('has_set_default_app_user_permissions', true);
-        }
-    // Awaited above so a failed write reaches this: it leaves the flag unset
-    // and the whole thing is retried next boot, which is what we want.
-    }).catch(err => console.warn('Could not apply default app permissions:', err));
     // connect socket.
     window.socket = io(`${window.gui_origin }/`, {
         auth: {
@@ -758,16 +703,6 @@ async function UIDesktop (options) {
     // Append to <body>
     $('body').append(h);
 
-    // Initialize the preference early
-    puter.kv.get('desktop_icons_hidden').then(async (val) => {
-        window.desktop_icons_hidden = (val === 'true' || val === true);
-
-        // Apply the setting immediately if needed
-        if ( window.desktop_icons_hidden ) {
-            hideDesktopIcons();
-        }
-    }).catch(err => console.warn('Could not load desktop_icons_hidden:', err));
-
     const el_desktop = document.querySelector('.desktop');
 
     window.active_element = el_desktop;
@@ -1000,15 +935,6 @@ async function UIDesktop (options) {
                         },
                     },
                     // -------------------------------------------
-                    // Hide Desktop Icons
-                    // -------------------------------------------
-                    {
-                        html: window.desktop_icons_hidden ? i18n('Show desktop icons') : i18n('Hide desktop icons'),
-                        onClick: function () {
-                            toggleDesktopIcons();
-                        },
-                    },
-                    // -------------------------------------------
                     // -
                     // -------------------------------------------
                     '-',
@@ -1207,34 +1133,9 @@ async function UIDesktop (options) {
         window.open('/dashboard/#home', '_blank');
     }
     // ---------------------------------------------
-    // Run apps from insta-login URL
-    // ---------------------------------------------
-    if ( window.url_query_params.has('app') ) {
-        let url_app_name = window.url_query_params.get('app');
-        if ( url_app_name === 'explorer' ) {
-            let predefined_path = window.home_path;
-            if ( window.url_query_params.has('path') )
-            {
-                predefined_path = window.url_query_params.get('path');
-            }
-            // launch explorer
-            UIWindow({
-                path: predefined_path,
-                title: path.basename(predefined_path),
-                icon: await item_icon({ is_dir: true, path: predefined_path }),
-                // todo
-                // uid: $(el_item).attr('data-uid'),
-                is_dir: true,
-                // todo
-                // sort_by: $(el_item).attr('data-sort_by'),
-                app: 'explorer',
-            });
-        }
-    }
-    // ---------------------------------------------
     // load from direct app URLs: /app/app-name
     // ---------------------------------------------
-    else if ( window.app_launched_from_url ) {
+    if ( window.app_launched_from_url ) {
         if ( ! window.url_query_params.has('c') ) {
             let posargs = undefined;
             if ( window.app_query_params && window.app_query_params.posargs ) {
@@ -1282,43 +1183,6 @@ async function UIDesktop (options) {
         // hide all global menubars
         $('.window-menubar-global').hide();
     });
-
-    //--------------------------------------------------------------------------------------
-    // Trying to view a user's public folder?
-    // i.e. https://puter.com/@<username>
-    //--------------------------------------------------------------------------------------
-    const url_paths = window.location.pathname.split('/').filter(element => element);
-    if ( window.url_paths[0]?.startsWith('@') ) {
-        const username = window.url_paths[0].substring(1);
-        let item_path = `/${ username }/Public`;
-        if ( window.url_paths.length > 1 ) {
-            item_path += `/${ window.url_paths.slice(1).join('/')}`;
-        }
-
-        // GUARD: avoid invalid user directories
-        {
-            if ( ! username.match(/^[a-z0-9_]+$/i) ) {
-                UIAlert({
-                    message: i18n('error_invalid_username'),
-                });
-                return;
-            }
-        }
-
-        let stat;
-        try {
-            stat = await puter.fs.stat({ path: item_path, consistency: 'eventual' });
-        } catch ( e ) {
-            window.history.replaceState(null, document.title, '/desktop');
-            UIAlert({
-                message: i18n('error_user_or_path_not_found'),
-                type: 'error',
-            });
-            return;
-        }
-
-        await open_path_target(item_path, stat);
-    }
 
     /**
      * Open a path as double-clicking would: the associated app for a file, an
@@ -1412,157 +1276,6 @@ async function UIDesktop (options) {
         await open_path_target(stat.path ?? shared_path, stat);
         return true;
     }
-
-    /**
-     * Act on a share link. A share to a person only ever reaches a real
-     * account, so for a temporary session the item is tried first — an item
-     * open to anyone with the link resolves for it — and only a miss asks
-     * for a sign-in, rather than burning the link on a "not found" as
-     * somebody who can't see it. The link stays in the address bar across
-     * the prompt because login reloads on success, which brings it back for
-     * the account that can actually open it.
-     */
-    async function handle_shared_link (shared_path) {
-        if ( window.user?.is_temp ) {
-            const stat = await resolve_shared_item(puter.fs, shared_path);
-            if ( stat ) {
-                clear_shared_param();
-                await open_path_target(stat.path ?? shared_path, stat);
-                return;
-            }
-            await UIAuthLogin({
-                reload_on_success: true,
-                page: true,
-            });
-            // Dismissed without signing in: drop the link rather than loop.
-            if ( window.user?.is_temp ) clear_shared_param();
-            return;
-        }
-        clear_shared_param();
-        await open_shared_item(shared_path);
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Opening an item someone shared, on the desktop
-    // i.e. https://puter.com/desktop?shared=%2F<owner>%2F<uuid>%2F<name>
-    // (the same link at the root lands in the dashboard's Shared view instead)
-    //--------------------------------------------------------------------------------------
-    if ( window.url_query_params.has(SHARED_PATH_PARAM) ) {
-        await handle_shared_link(window.url_query_params.get(SHARED_PATH_PARAM));
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Direct download link
-    // i.e. https://puter.com/?download=<file_url> or https://puter.com/desktop?download=<file_url>
-    //--------------------------------------------------------------------------------------
-    const is_bare_desktop_path = window.url_paths.length === 0
-        || (window.url_paths.length === 1 && window.url_paths[0]?.toLocaleLowerCase() === 'desktop');
-    if ( is_bare_desktop_path && window.url_query_params.has('download') ) {
-        const url = window.url_query_params.get('download');
-        let file_name = url.split('/').pop().split('?')[0];
-
-        let response = await UIAlert({
-            message: i18n('confirm_download_file_to_desktop', file_name),
-            type: 'confirm',
-            buttons: [
-                { label: i18n('alert_yes'), value: true, type: 'primary' },
-                { label: i18n('alert_no'), value: false, type: 'secondary' },
-            ],
-        });
-
-        if ( ! response )
-        {
-            return;
-        }
-
-        let cancelled = false;
-        let upload_xhr = null;
-        const abort_controller = new AbortController();
-
-        // create progressbar dialog
-        let progwin = await UIWindowProgress({
-            title: i18n('downloading'),
-            icon: window.icons['app-icon-uploader.svg'],
-            operation_id: window.uuidv4(),
-            show_progress: true,
-            on_cancel: () => {
-                cancelled = true;
-                abort_controller.abort();
-                if ( upload_xhr ) {
-                    upload_xhr.abort();
-                }
-            },
-        });
-        progwin?.set_status(i18n('downloading_file', file_name));
-
-        (async () => {
-            try {
-                // download the file
-                const response = await puter.net.fetch(url, {
-                    signal: abort_controller.signal,
-                });
-
-                const total = Number(response.headers.get('content-length'));
-                const reader = response.body.getReader();
-
-                const chunks = [];
-                let received = 0;
-
-                while ( true ) {
-                    const { done, value } = await reader.read();
-                    if ( done || cancelled ) break;
-
-                    if ( value ) {
-                        // store the chunk
-                        chunks.push(value);
-                        received += value.length;
-                        // calculate progress
-                        const progress = Number.isFinite(total) && total > 0
-                            ? received / total
-                            : 0;
-                        // update progressbar
-                        progwin?.set_progress(Math.floor(progress * 100));
-                    }
-                }
-
-                if ( cancelled ) {
-                    progwin?.close();
-                    return;
-                }
-
-                // combine chunks into a blob
-                let blob = new Blob(chunks, {
-                    type: response.headers.get('content-type') ?? 'application/octet-stream',
-                });
-
-                // reset progressbar
-                progwin?.set_progress(0);
-                progwin?.set_status(i18n('uploading_file', file_name));
-
-                // upload to user's desktop
-                await puter.fs.write(`~/Desktop/${file_name}`, blob, {
-                    dedupeName: true,
-                    progress: (_, percent) => {
-                        // update progressbar
-                        progwin?.set_progress(percent);
-                    },
-                    init: (_, xhr) => {
-                        upload_xhr = xhr;
-                    },
-                });
-            } catch (e) {
-                // alert the user if there's a genuine error
-                if ( !cancelled && e.name !== 'AbortError' ) {
-                    await UIAlert({
-                        message: `${i18n('error_download_failed') }: ${ e.message}`,
-                        type: 'error',
-                    });
-                }
-            }
-            // close progress window
-            progwin?.close();
-        })();
-    }
 }
 
 window.enter_fullpage_mode = (el_window) => {
@@ -1595,30 +1308,6 @@ window.reset_window_size_and_position = (el_window) => {
         top: 'calc(50% - 190px)',
         left: 'calc(50% - 340px)',
     });
-};
-
-// Modify the hide/show functions to use CSS rules that will apply to all icons, including future ones
-window.hideDesktopIcons = function () {
-    $('.desktop.item-container').addClass('desktop-icons-hidden');
-};
-
-window.showDesktopIcons = function () {
-    $('.desktop.item-container').removeClass('desktop-icons-hidden');
-};
-
-// Add this function to the global scope
-window.toggleDesktopIcons = function () {
-    window.desktop_icons_hidden = !window.desktop_icons_hidden;
-
-    if ( window.desktop_icons_hidden ) {
-        hideDesktopIcons();
-    } else {
-        showDesktopIcons();
-    }
-
-    // Save preference
-    puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString())
-        .catch(err => console.warn('Could not save desktop_icons_hidden:', err));
 };
 
 export default UIDesktop;

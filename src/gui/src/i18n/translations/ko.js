@@ -94,7 +94,6 @@ const ko = {
         desktop: '바탕화면',
         desktop_background_fit: '맞추기',
         developers: '개발자',
-        dir_published_as_website: '%strong%에 게시되었습니다.',
         disable_2fa: '2FA 비활성화',
         disable_2fa_confirm: '정말 2FA를 비활성화하시겠습니까?',
         disable_2fa_instructions: '2FA를 비활성화하려면 비밀번호를 입력해주세요.',
@@ -102,7 +101,6 @@ const ko = {
         dont_allow: '허용하지 않음',
         download: '다운로드',
         download_file: '파일 다운로드',
-        downloading: '다운로드 중',
         email: '이메일',
         email_change_confirmation_sent:
       '새 이메일 주소로 확인 메일이 전송되었습니다. 받은 편지함을 확인 후 안내에 따라 절차를 완료해주세요.',
@@ -193,7 +191,6 @@ const ko = {
         paste_into_folder: '폴더에 붙여넣기',
         path: '경로',
         personalization: '개인 설정',
-        pick_name_for_website: '웹사이트 이름을 선택하세요.',
         pictures: '사진',
         plural_suffix: '',
         powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} 제공',
