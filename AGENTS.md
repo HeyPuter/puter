@@ -145,13 +145,14 @@ AI drivers live in [src/backend/drivers/ai/](src/backend/drivers/ai/): `interfac
 
 Layout: SDK modules in [src/puter-js/src/modules/](src/puter-js/src/modules/) (one file or directory per area — `FileSystem/`, `kv/`, `ai/`, …), shared plumbing in [src/puter-js/src/lib/](src/puter-js/src/lib/), generated (gitignored) type declarations in `src/puter-js/types/`, API tests in [src/puter-js/tests/api/](src/puter-js/tests/api/), UI e2e tests in [src/puter-js/tests/e2e/](src/puter-js/tests/e2e/), developer docs in [src/docs/](src/docs/).
 
-Every SDK change carries all five of these, or the PR is incomplete. [doc/contributing-apis.md](doc/contributing-apis.md) has the steps for each.
+Every SDK change carries all six of these, or the PR is incomplete. [doc/contributing-apis.md](doc/contributing-apis.md) has the steps for each.
 
 1. **Backward compatibility**, unless a maintainer explicitly signs off on a break ([rules](doc/contributing-apis.md#maintaining-an-existing-api)).
 2. **Tests** in the cross-platform API suite, or the Playwright harness for desktop-rendered `puter.ui.*` ([steps](doc/contributing-apis.md#6-tests)).
 3. **Docs** in [src/docs/src/](src/docs/src/) that match the implementation exactly ([steps](doc/contributing-apis.md#5-docs), [writing rules](#developer-docs)).
 4. **Types**, per the rules below.
 5. **Error handling**: `{ message, code }` with stable `snake_case` codes, as in [modules/kv/](src/puter-js/src/modules/kv/) ([steps](doc/contributing-apis.md#3-puterjs)).
+6. **Changelog** entry for anything a developer would notice ([rules](#changelog)).
 
 ### Types
 
@@ -224,7 +225,7 @@ These apply to reference pages and recipes alike.
 
 - **Document the developer-facing side only.** The reader is building on top of puter.js, so cover what affects their code: signatures, defaults, return shapes, errors, limits, and behavior they can observe. Leave out internal workings (which service handles the call, storage layout, caching, retries) unless they change what the developer has to do. [rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md) is the exception: it publishes every limit, including timeouts and caps that come from how the backend works.
 - **Document Puter as it runs on puter.com.** The docs are for developers building on production Puter. Leave out behavior that only happens on a self-hosted or differently configured server, such as a provider that isn't set up there.
-- **Describe the current state.** Docs aren't a changelog. Write how the API behaves now, without "now", "no longer", "existing code is unaffected", or other wording that compares it to an older version.
+- **Describe the current state.** Docs aren't a changelog; [changelog.md](src/docs/src/changelog.md) is the one page that describes changes ([rules](#changelog)). Write how the API behaves now, without "now", "no longer", "existing code is unaffected", or other wording that compares it to an older version.
 - **Verify before you document.** Run the calls you describe against a running Puter instead of inferring behavior from the source.
 - **Write plainly.** Use the literal words a developer would say out loud, with contractions and everyday words. No idioms or figurative verbs ("walk away from something shared with you" → "remove your own access", "nothing to page through" → "without pagination"). No formal register ("present only while more pages remain" → "includes a `cursor` if there are more pages to load"). Prefer dev terms such as atomic, concurrent, and insertion order.
 - **State the rule, then its consequence, in short sentences.** No metaphor in place of a rule. Name a concrete action ("you can create any files and folders inside it") over an abstract permission ("yours to organize freely"). Cut a sentence that only repeats the next one.
@@ -249,6 +250,15 @@ Recipes are tested, copy-pasteable patterns for a task, one layer above the per-
 - **Code.** Platform-neutral: just the code, with top-level `await`. No `<script>` or `<html>` wrapper, no IIFE.
 - **Tradeoffs.** Justify a choice with one scenario the reader can picture right away, in about two short paragraphs, or fold each point into the section where it matters. The description states the benefit only.
 - **Notes.** Leave out `## Notes` by default. Use it only to point to an architecturally different approach. A limit the recipe needs goes in the section it applies to, and other facts belong on the linked reference page.
+
+### Changelog
+
+[src/docs/src/changelog.md](src/docs/src/changelog.md) lists the changes a developer building on puter.js would notice, newest first. A PR that makes one adds its entry in the same PR, whether the change is in puter.js, the backend, or the docs.
+
+- **What gets an entry.** A change gets an entry only if it matters to a developer whose app relies on puter.js. The entry says what they can do now or what their code sees differently. That covers new, changed, or removed methods, options, return fields, events, and error codes, new AI models and providers, bug fixes with an effect a developer can see, and changes to a limit, quota, or price. Docs changes don't get one, such as a new recipe or a page that moved or got renamed. Neither do refactors, internal fixes, GUI-only changes, tests, or changes to APIs only Puter's own apps can call.
+- **One heading per day.** Entries go under a `## Month D, YYYY` heading, such as `## November 12, 2026`, for the UTC day the PR merges. Use the day you open the PR, and move the entry if it merges on a later day. If that day's heading already exists, add your bullet under it. A day never gets two headings, and a day with no changes gets none. When two PRs conflict on the same day's heading, keep one heading and both bullets.
+- **One bullet per change.** Start with a past-tense verb (Added, Changed, Fixed, Removed, Renamed, Raised, Lowered) and keep it to one or two sentences. Link the page that has the details instead of copying options or limits into the entry. A removal or rename says what to use instead.
+- **Same writing rules as the other pages** ([above](#writing-docs)), so link every API mention and skip em dashes. Leave past entries as written, except to fix a link after a page moves.
 
 ---
 

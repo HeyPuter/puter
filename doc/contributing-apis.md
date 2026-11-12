@@ -64,6 +64,7 @@ Type the method in JSDoc on the implementation, following the [puter.js type rul
 
 - Add the method page at [src/docs/src/](../src/docs/src/)`<Area>/<method>.md` — frontmatter (`title`, `description`, `platforms`), syntax, parameters, return value, and at least one runnable example — and update the area overview (`<Area>.md`). Copy the structure of an existing page.
 - The docs are the contract users code against: signatures, defaults, and return shapes match the implementation exactly.
+- Add a bullet to [src/docs/src/changelog.md](../src/docs/src/changelog.md) under the day the PR merges, per the [changelog rules](../AGENTS.md#changelog).
 
 ### 6. Tests
 
@@ -101,6 +102,7 @@ The old surface keeps working. Mark it `@deprecated` in the type declarations, n
 - [ ] puter.js method matches sibling conventions; errors are `{ message, code }` with stable codes
 - [ ] Types updated and matching runtime behavior
 - [ ] Docs page + area overview updated, with a runnable example
+- [ ] Changelog entry added
 - [ ] Tests: backend + three-platform SDK suite (+ e2e for desktop-rendered UI)
 - [ ] Security pass on the diff
 - [ ] You ran it end to end

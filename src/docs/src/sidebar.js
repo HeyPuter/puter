@@ -58,6 +58,11 @@ let sidebar = [
                 source: '/examples.md',
                 path: '/examples',
             },
+            {
+                title: 'Changelog',
+                source: '/changelog.md',
+                path: '/changelog',
+            },
         ],
     },
     {
