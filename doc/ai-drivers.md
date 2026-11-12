@@ -64,7 +64,7 @@ A provider whose vendor has its own API, such as `ClaudeProvider` or `ElevenLabs
 - `shared/` imports nothing from `interfaces/`, `providers/`, or `protocols/`.
 - Nothing in `services/`, `stores/`, or `clients/` imports from `drivers/ai/`. Code that a service and a driver both need goes in `src/backend/util/`.
 - `providers/` and `protocols/` import an interface's `types.ts` and helpers. They never import a driver class. Their tests can, to drive a provider through the real driver.
-- A driver imports its providers to register them.
+- Only an interface's driver file imports providers, to register them. The interface's helpers don't.
 - An interface doesn't import another interface. When a second interface needs a helper, move the helper to `shared/`, or to `providers/<vendor>/` when it belongs to one vendor.
 - A vendor folder imports another vendor's folder only when it serves that vendor's models. `providers/azure/` reads the OpenAI and xAI catalogs for that reason.
 
@@ -95,7 +95,7 @@ Tests sit next to the code they test. Fixtures go in a `fixtures/` folder next t
     | Interface | Contract | Base class |
     | --- | --- | --- |
     | chat | `IChatProvider` | `OpenAICompatProvider` for an OpenAI-compatible vendor |
-    | image | `IImageProvider` | `ImageProvider` |
+    | image | `IImageProvider` | none |
     | video | `IVideoProvider` | `VideoProvider` |
     | textToSpeech | `ITTSProvider` | none |
     | speechToText | `ISpeechToTextProvider` | `SpeechToTextProvider` |
