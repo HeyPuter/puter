@@ -656,6 +656,112 @@ describe('ReplicateImageGenerationProvider.generate upstream rejections', () => 
             statusCode: 400,
             code: 'moderation_flagged',
         });
+        expect(createPredictionMock).toHaveBeenCalledTimes(1);
+    });
+
+    describe('output safety checker that asks for another run', () => {
+        const RERUN_MESSAGE =
+            'NSFW content detected. Try running it again, or try a different prompt.';
+        const flagged = { id: 'flagged', status: 'failed', error: RERUN_MESSAGE };
+        const passed = {
+            id: 'passed',
+            status: 'succeeded',
+            output: ['https://r.example/passed.png'],
+            metrics: { predict_time: 2 },
+        };
+        const generateTurbo = (extra: Record<string, unknown> = {}) =>
+            withTestActor(() =>
+                makeProvider().generate({
+                    model: 'adirik/realvisxl-v3.0-turbo',
+                    prompt: 'a small red cube on a white table',
+                    ...extra,
+                } as never),
+            );
+
+        it('reruns the prediction and meters only the run that succeeded', async () => {
+            createPredictionMock
+                .mockResolvedValueOnce(flagged)
+                .mockResolvedValueOnce(passed);
+
+            await expect(generateTurbo()).resolves.toBe(
+                'https://r.example/passed.png',
+            );
+            expect(createPredictionMock).toHaveBeenCalledTimes(2);
+            expect(createPredictionMock.mock.calls[1]![0].input).toEqual(
+                createPredictionMock.mock.calls[0]![0].input,
+            );
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledTimes(1);
+            expect(batchIncrementUsagesSpy).toHaveBeenCalledWith(
+                expect.anything(),
+                [
+                    {
+                        usageType: 'replicate:adirik/realvisxl-v3.0-turbo:second',
+                        usageAmount: 2,
+                        costOverride: 195000,
+                    },
+                ],
+            );
+        });
+
+        it('reruns when the rejection arrives while polling', async () => {
+            createPredictionMock
+                .mockResolvedValueOnce({ id: 'slow', status: 'processing', output: null })
+                .mockResolvedValueOnce(passed);
+            waitMock.mockRejectedValueOnce(
+                new Error(`Prediction failed: ${RERUN_MESSAGE}`),
+            );
+
+            await expect(generateTurbo()).resolves.toBe(
+                'https://r.example/passed.png',
+            );
+            expect(createPredictionMock).toHaveBeenCalledTimes(2);
+            expect(cancelMock).not.toHaveBeenCalled();
+        });
+
+        it('stops after two reruns and reports 400 moderation_flagged without metering', async () => {
+            createPredictionMock.mockResolvedValue(flagged);
+
+            await expect(generateTurbo()).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'moderation_flagged',
+                message: RERUN_MESSAGE,
+            });
+            expect(createPredictionMock).toHaveBeenCalledTimes(3);
+            expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
+        });
+
+        it('does not rerun a pinned seed, which would be rejected again', async () => {
+            createPredictionMock.mockResolvedValue(flagged);
+
+            await expect(generateTurbo({ seed: 32099 })).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'moderation_flagged',
+            });
+            expect(createPredictionMock).toHaveBeenCalledTimes(1);
+            expect(createPredictionMock.mock.calls[0]![0].input.seed).toBe(32099);
+        });
+
+        it('does not rerun once the caller has gone away', async () => {
+            const controller = new AbortController();
+            createPredictionMock.mockImplementation(async () => {
+                controller.abort();
+                return flagged;
+            });
+
+            await expect(
+                withTestActor(() =>
+                    runWithContext(
+                        { actor: Context.get('actor'), abortSignal: controller.signal },
+                        () =>
+                            makeProvider().generate({
+                                model: 'adirik/realvisxl-v3.0-turbo',
+                                prompt: 'a small red cube on a white table',
+                            }),
+                    ),
+                ),
+            ).rejects.toMatchObject({ legacyCode: 'client_aborted' });
+            expect(createPredictionMock).toHaveBeenCalledTimes(1);
+        });
     });
 
     it('maps any other failed prediction to 502 upstream_failed, keeping the cause', async () => {

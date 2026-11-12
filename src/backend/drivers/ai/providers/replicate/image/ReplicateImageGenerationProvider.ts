@@ -75,6 +75,11 @@ const INPUT_MEASURE_TIMEOUT_MS = 30_000;
 
 const PREDICTION_FAILED_PREFIX = 'Prediction failed:';
 
+// Some community models run a safety checker on the output that rejects a
+// share of seeds for any prompt, and say so by asking for another run.
+const SAFETY_RERUN_HINT = /try running it again/i;
+const MAX_SAFETY_RERUNS = 2;
+
 function hasUpstreamStatus(err: unknown): boolean {
     const e = err as {
         status?: unknown;
@@ -351,81 +356,99 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
                         fields: { provider: 'replicate' },
                     },
                 );
-            let interrupted: unknown;
             let output: unknown;
             let predictionSeconds: number | undefined;
+            // A flagged seed is flagged again, so only an unpinned seed is rerun.
+            const canRerun = (error: unknown) =>
+                input.seed == null &&
+                !signal?.aborted &&
+                !expired() &&
+                error instanceof Error &&
+                error.message.startsWith(PREDICTION_FAILED_PREFIX) &&
+                SAFETY_RERUN_HINT.test(error.message);
             try {
-                // Keep the creation response so a disconnect cannot discard the ID needed to cancel.
-                let prediction = await this.#client.predictions.create({
-                    ...(selectedModel.replicateVersion
-                        ? { version: selectedModel.replicateVersion }
-                        : {
-                              model: selectedModel.replicateId as `${string}/${string}`,
-                          }),
-                    input,
-                    wait: 60,
-                });
-                const pending = () =>
-                    prediction.status === 'starting' ||
-                    prediction.status === 'processing';
-                if (pending() && !signal?.aborted && !expired()) {
+                for (let rerun = 0; ; rerun++) {
                     try {
-                        prediction = await this.#client.wait(
-                            prediction,
-                            { interval: 2000 },
-                            async (current) =>
-                                signal?.aborted ||
-                                expired() ||
-                                !['starting', 'processing'].includes(
-                                    current.status,
-                                ),
-                        );
+                        let interrupted: unknown;
+                        // Keep the creation response so a disconnect cannot discard the ID needed to cancel.
+                        let prediction = await this.#client.predictions.create({
+                            ...(selectedModel.replicateVersion
+                                ? { version: selectedModel.replicateVersion }
+                                : {
+                                      model: selectedModel.replicateId as `${string}/${string}`,
+                                  }),
+                            input,
+                            wait: 60,
+                        });
+                        const pending = () =>
+                            prediction.status === 'starting' ||
+                            prediction.status === 'processing';
+                        if (pending() && !signal?.aborted && !expired()) {
+                            try {
+                                prediction = await this.#client.wait(
+                                    prediction,
+                                    { interval: 2000 },
+                                    async (current) =>
+                                        signal?.aborted ||
+                                        expired() ||
+                                        !['starting', 'processing'].includes(
+                                            current.status,
+                                        ),
+                                );
+                            } catch (error) {
+                                // Only our own abort or deadline is an interruption worth
+                                // cancelling for. A poll failure or the SDK's "Prediction
+                                // failed" throw is the prediction's real outcome: it must
+                                // not cancel a healthy run or bill a stale one.
+                                if (!signal?.aborted && !expired()) throw error;
+                            }
+                        }
+                        if (signal?.aborted) interrupted = aborted();
+                        else if (expired()) interrupted = timeout();
+                        if (interrupted && pending()) {
+                            try {
+                                prediction =
+                                    await this.#client.predictions.cancel(
+                                        prediction.id,
+                                    );
+                            } catch {
+                                // Recheck briefly for a completed result; the upstream deadline bounds remaining work.
+                            }
+                            if (pending()) {
+                                const cleanupDeadline =
+                                    Date.now() + CLEANUP_WINDOW_MS;
+                                prediction = await this.#client.wait(
+                                    prediction,
+                                    { interval: 2000 },
+                                    async (current) =>
+                                        Date.now() >= cleanupDeadline ||
+                                        !['starting', 'processing'].includes(
+                                            current.status,
+                                        ),
+                                );
+                            }
+                        }
+                        if (prediction.status !== 'succeeded' && interrupted) {
+                            throw interrupted;
+                        }
+                        if (
+                            prediction.status === 'failed' ||
+                            prediction.status === 'canceled' ||
+                            (prediction.status as string) === 'aborted'
+                        ) {
+                            if (signal?.aborted) throw aborted();
+                            throw new Error(
+                                `Prediction failed: ${prediction.error || prediction.status}`,
+                            );
+                        }
+                        output = prediction.output;
+                        predictionSeconds = prediction.metrics?.predict_time;
+                        break;
                     } catch (error) {
-                        // Only our own abort or deadline is an interruption worth
-                        // cancelling for. A poll failure or the SDK's "Prediction
-                        // failed" throw is the prediction's real outcome: it must
-                        // not cancel a healthy run or bill a stale one.
-                        if (!signal?.aborted && !expired()) throw error;
+                        if (rerun >= MAX_SAFETY_RERUNS || !canRerun(error))
+                            throw error;
                     }
                 }
-                if (signal?.aborted) interrupted = aborted();
-                else if (expired()) interrupted = timeout();
-                if (interrupted && pending()) {
-                    try {
-                        prediction = await this.#client.predictions.cancel(
-                            prediction.id,
-                        );
-                    } catch {
-                        // Recheck briefly for a completed result; the upstream deadline bounds remaining work.
-                    }
-                    if (pending()) {
-                        const cleanupDeadline = Date.now() + CLEANUP_WINDOW_MS;
-                        prediction = await this.#client.wait(
-                            prediction,
-                            { interval: 2000 },
-                            async (current) =>
-                                Date.now() >= cleanupDeadline ||
-                                !['starting', 'processing'].includes(
-                                    current.status,
-                                ),
-                        );
-                    }
-                }
-                if (prediction.status !== 'succeeded' && interrupted) {
-                    throw interrupted;
-                }
-                if (
-                    prediction.status === 'failed' ||
-                    prediction.status === 'canceled' ||
-                    (prediction.status as string) === 'aborted'
-                ) {
-                    if (signal?.aborted) throw aborted();
-                    throw new Error(
-                        `Prediction failed: ${prediction.error || prediction.status}`,
-                    );
-                }
-                output = prediction.output;
-                predictionSeconds = prediction.metrics?.predict_time;
             } catch (err) {
                 if (signal?.aborted) throw aborted();
                 if (expired()) throw timeout();
