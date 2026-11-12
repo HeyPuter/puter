@@ -23,6 +23,7 @@ import { makeActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { createSecret as otpCreateSecret } from '../../services/auth/OTPUtil.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
+import { tokenClaimsDigest } from '../../../gui/src/helpers/guiToken.js';
 import {
     createTestUser,
     setupPuterTestEnv,
@@ -713,5 +714,68 @@ describe('session token helpers over HTTP', () => {
         expect(sync.headers.get('set-cookie') ?? '').not.toContain(
             'puter_auth_token=',
         );
+    });
+
+    describe("the shell's guiTokenDigest", () => {
+        /** The session cookie `/session/sync-cookie` sets for `token`. */
+        const sessionCookie = async (token: string) => {
+            const sync = await get('/session/sync-cookie', token);
+            expect(sync.status).toBe(204);
+            const value = /puter_auth_token=([^;]+)/.exec(
+                sync.headers.get('set-cookie') ?? '',
+            )?.[1];
+            expect(value).toBeTruthy();
+            return `puter_auth_token=${value}`;
+        };
+
+        /** What the shell at `path` renders for `guiTokenDigest`. */
+        const shellDigest = async (path: string, cookie?: string) => {
+            const res = await fetch(new URL(path, env.origin), {
+                headers: cookie ? { cookie } : {},
+            });
+            expect(res.status).toBe(200);
+            const html = await res.text();
+            const match = /"guiTokenDigest":(null|"[0-9a-f]{32}")/.exec(html);
+            if (!match) {
+                expect(html).not.toContain('guiTokenDigest');
+                return undefined;
+            }
+            return JSON.parse(match[1]) as string | null;
+        };
+
+        it("names the token /get-gui-token hands over for the session cookie", async () => {
+            const { token } = await signupTemp();
+            const cookie = await sessionCookie(token);
+
+            const gui = await fetch(new URL('/get-gui-token', env.origin), {
+                headers: { cookie },
+            });
+            expect(gui.status).toBe(200);
+            const { token: guiToken } = (await gui.json()) as { token: string };
+
+            const digest = await shellDigest('/', cookie);
+            expect(digest).toBe(await tokenClaimsDigest(guiToken));
+            // The token the browser stored at sign-up is for the same session.
+            expect(await tokenClaimsDigest(token)).toBe(digest);
+        });
+
+        it('is null without a session cookie, even with a token in the URL', async () => {
+            const { token } = await signupTemp();
+            expect(await shellDigest('/')).toBe(null);
+            expect(
+                await shellDigest(`/?auth_token=${encodeURIComponent(token)}`),
+            ).toBe(null);
+        });
+
+        it('is left out when the session cookie does not resolve to a session', async () => {
+            const { token } = await signupTemp();
+            const cookie = await sessionCookie(token);
+            await env.server.services.auth.revokeSession(claims(token).session_uid);
+
+            expect(await shellDigest('/', cookie)).toBe(undefined);
+            expect(await shellDigest('/', 'puter_auth_token=garbage')).toBe(
+                undefined,
+            );
+        });
     });
 });

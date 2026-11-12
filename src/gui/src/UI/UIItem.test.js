@@ -27,11 +27,8 @@ vi.mock('./UIPopover.js', () => ({ default: vi.fn() }));
 vi.mock('./UIWindowEmailConfirmationRequired.js', () => ({ default: vi.fn() }));
 vi.mock('./UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('./UIAlert.js', () => ({ default: vi.fn() }));
-vi.mock('./UIWindowPublishWorker.js', () => ({ default: vi.fn() }));
-vi.mock('./UIWindowShare.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/launchApp.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openItem.js', () => ({ default: vi.fn() }));
-vi.mock('../helpers/publishAsWebsite.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openWithAI.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/refreshItemContainer.js', () => ({ default: vi.fn() }));
 
@@ -137,5 +134,64 @@ describe('UIItem Remove from Shared', () => {
         expect($('.item')).toHaveLength(1);
         expect(refresh_item_container).toHaveBeenCalledTimes(1);
         expect(refresh_item_container.mock.calls[0][0][0]).toBe($('.item-container')[0]);
+    });
+});
+
+describe('UIItem Share', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on an item the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/Photos',
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('share_ellipsis');
+    });
+});
+
+describe('UIItem Publish as Worker', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on a .js file the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/worker.js',
+            name: 'worker.js',
+            is_dir: false,
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('publish_as_serverless_worker');
+    });
+});
+
+describe('UIItem Publish as Website', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on a folder the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/Site',
+            name: 'Site',
+            is_dir: true,
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('publish_as_website');
+        expect(labels).toContain('deploy_as_app');
     });
 });

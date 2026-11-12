@@ -28,7 +28,6 @@ const lib_paths = [
     '/lib/jquery.dragster.js',
     '/lib/html-entities.js',
     '/lib/timeago.min.js',
-    '/lib/iro.min.js',
     '/lib/isMobile.min.js',
     '/lib/fflate-0.8.2.min.js',
 ];

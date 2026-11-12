@@ -186,6 +186,96 @@ describe('AuthService (integration)', () => {
         });
     });
 
+    describe('signedSessionClaims', () => {
+        it('names the user and session of a session token', async () => {
+            const user = await makeUser();
+            const { token, session } = await authService.createSessionToken(
+                user,
+                {},
+            );
+            expect(authService.signedSessionClaims(token)).toEqual({
+                userUid: user.uuid,
+                sessionUuid: (session as { uuid: string }).uuid,
+            });
+        });
+
+        it('names the app too for an app token', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const sessionUuid = uuidv4();
+            const token = server.services.token.sign('auth', {
+                type: 'app-under-user',
+                version: '2',
+                user_uid: user.uuid,
+                app_uid: appUid,
+                session_uid: sessionUuid,
+            });
+            expect(authService.signedSessionClaims(token)).toEqual({
+                userUid: user.uuid,
+                sessionUuid,
+                appUid,
+            });
+        });
+
+        it('reads the session from `uuid` on a token without `session_uid`', () => {
+            const [userUid, sessionUuid] = [uuidv4(), uuidv4()];
+            const token = server.services.token.sign('auth', {
+                type: 'gui',
+                version: '0.0.0',
+                uuid: sessionUuid,
+                user_uid: userUid,
+            });
+            expect(authService.signedSessionClaims(token)).toEqual({
+                userUid,
+                sessionUuid,
+            });
+        });
+
+        it('returns null for worker, access, expired, tampered and session-less tokens', async () => {
+            const user = await makeUser();
+            const accessToken = await authService.createAccessToken(
+                {
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                } as Actor,
+                [[`user:${user.uuid}:email:read`]],
+            );
+            const sign = (claims: Record<string, unknown>, expiresIn?: number) =>
+                server.services.token.sign(
+                    'auth',
+                    claims,
+                    expiresIn === undefined ? undefined : { expiresIn },
+                );
+            const sessionUuid = uuidv4();
+            const session = {
+                type: 'session',
+                version: '2',
+                uuid: sessionUuid,
+                session_uid: sessionUuid,
+                user_uid: user.uuid,
+            };
+            const valid = sign(session);
+            for (const token of [
+                accessToken,
+                sign({ ...session, worker: true, worker_name: 'w' }),
+                sign({
+                    type: 'app-under-user',
+                    version: '2',
+                    user_uid: user.uuid,
+                    app_uid: `app-${uuidv4()}`,
+                }),
+                sign(session, -120),
+                `${valid.slice(0, -4)}AAAA`,
+                'not-a-jwt',
+            ]) {
+                expect(authService.signedSessionClaims(token)).toBeNull();
+            }
+        });
+    });
+
     // ── Rich `authenticate()` result shape ──────────────────────────
 
     describe('authenticate (reauth signal)', () => {
@@ -3153,7 +3243,7 @@ describe('AuthService (integration)', () => {
             const emit = vi.spyOn(server.clients.event, 'emit');
             const announced = () =>
                 emit.mock.calls.filter(
-                    (c) => c[0] === 'auth.access-token.revoked',
+                    (c) => c[0] === 'outer.auth.access-token.revoked',
                 ).length;
 
             const scoped = await authService.createAccessToken(actor, [
@@ -3169,6 +3259,35 @@ describe('AuthService (integration)', () => {
             expect(announced()).toBe(1);
 
             emit.mockRestore();
+        });
+
+        it('announces a desktop app token it replaces past its max age', async () => {
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user);
+            const actor = makeActor({
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                session: { uid: String(session.uuid), kind: 'web' },
+            });
+            const app = { uid: `app-${uuidv4()}`, title: 'Retire probe' };
+            const { token } = await authService.getGodmodeAppToken(actor, app);
+            const { token_uid } = server.services.token.verify<{
+                token_uid: string;
+            }>('auth', token);
+
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            const later = Date.now() + 8 * 24 * 60 * 60 * 1000;
+            vi.spyOn(Date, 'now').mockReturnValue(later);
+            try {
+                await authService.getGodmodeAppToken(actor, app);
+                expect(emit).toHaveBeenCalledWith(
+                    'outer.auth.access-token.revoked',
+                    { token_uid },
+                    {},
+                );
+            } finally {
+                vi.mocked(Date.now).mockRestore();
+                emit.mockRestore();
+            }
         });
 
         it('revokeAccessToken rejects with 404 when the token belongs to another user', async () => {
@@ -3778,6 +3897,163 @@ describe('AuthService (integration)', () => {
                 authService.revokeAccessToken(otherActor, decoded.token_uid),
             ).rejects.toMatchObject({ statusCode: 404 });
             expect(await authService.authenticateFromToken(jwt)).toBeTruthy();
+        });
+
+        const migratedTokenRow = async (userId: number) => {
+            const legacyUid = uuidv4();
+            const row = await server.stores.session.create(userId, {
+                kind: 'access_token',
+                legacy_token_uid: legacyUid,
+                created_via: 'legacy_backfill',
+            });
+            return { legacyUid, rowUuid: row.uuid as string };
+        };
+
+        it('soft-revokes a migrated token row named by its legacy token uid', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const { legacyUid, rowUuid } = await migratedTokenRow(user.id);
+
+            await authService.revokeAccessToken(actor, legacyUid);
+
+            expect(await server.stores.session.getByUuid(rowUuid)).toBeNull();
+        });
+
+        it('404s for a raw uid that names no token row', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+
+            await expect(
+                authService.revokeAccessToken(actor, uuidv4()),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it("404s when another user names a migrated token's legacy uid", async () => {
+            const owner = await makeUser();
+            const other = await makeUser();
+            const otherActor = {
+                user: {
+                    id: other.id,
+                    uuid: other.uuid,
+                    username: other.username,
+                },
+            } as Actor;
+            const { legacyUid, rowUuid } = await migratedTokenRow(owner.id);
+
+            await expect(
+                authService.revokeAccessToken(otherActor, legacyUid),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(
+                await server.stores.session.getByUuid(rowUuid),
+            ).toBeTruthy();
+        });
+    });
+
+    describe('tokens minted by a full-access token', () => {
+        const fullAccessToken = async () => {
+            const user = await makeUser();
+            const userActor = makeActor({
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            });
+            const jwt = await authService.createAccessToken(userActor, [
+                [FULL_API_ACCESS],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                token_uid: string;
+                session_uid: string;
+                auth_id: string;
+            };
+            return { user, userActor, jwt, decoded };
+        };
+
+        const parentOf = async (token: string) => {
+            const { session_uid } = server.services.token.verify(
+                'auth',
+                token,
+            ) as { session_uid: string };
+            const rows = (await server.clients.db.read(
+                'SELECT `parent_session_id` FROM `sessions` WHERE `uuid` = ?',
+                [session_uid],
+            )) as Array<{ parent_session_id: string | null }>;
+            return rows[0]?.parent_session_id;
+        };
+
+        /** A replica that has not seen any access-token row yet. */
+        const lagTokenRows = () => {
+            const db = server.clients.db;
+            const original = db.read.bind(db);
+            const spy = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql: string, params?: unknown[]) =>
+                    sql.includes("FROM `sessions` WHERE `kind` = 'access_token'")
+                        ? []
+                        : original(sql, params),
+                );
+            return () => spy.mockRestore();
+        };
+
+        it('parents the child to the minting token row while the replica lags, and revoking it takes the child', async () => {
+            const { user, userActor, jwt, decoded } = await fullAccessToken();
+            const minter = await authService.authenticateFromToken(jwt);
+
+            const restore = lagTokenRows();
+            let child: string;
+            try {
+                child = await authService.createAccessToken(minter!, [
+                    [`user:${user.uuid}:email:read`],
+                ]);
+            } finally {
+                restore();
+            }
+
+            expect(await parentOf(child)).toBe(decoded.session_uid);
+            expect(await authService.authenticateFromToken(child)).toBeTruthy();
+            await authService.revokeAccessToken(userActor, jwt);
+            expect(await authService.authenticateFromToken(child)).toBeNull();
+        });
+
+        it('carries the row whether auth read it from the cache or the database', async () => {
+            const { jwt, decoded } = await fullAccessToken();
+            const key = `sessions:v2:uuid:${decoded.session_uid}`;
+
+            expect(await server.clients.redis.get(key)).toBeTruthy();
+            const cached = await authService.authenticateFromToken(jwt);
+            await server.clients.redis.del(key);
+            const fromDb = await authService.authenticateFromToken(jwt);
+
+            expect(cached?.accessToken?.sessionUid).toBe(decoded.session_uid);
+            expect(fromDb?.accessToken?.sessionUid).toBe(decoded.session_uid);
+        });
+
+        it('looks the row up by token uid when the claim names no row of its own', async () => {
+            const { user, decoded } = await fullAccessToken();
+            const otherSession = await authService.createSessionToken(user, {});
+            const claims = {
+                type: 'access-token',
+                version: '2',
+                token_uid: decoded.token_uid,
+                user_uid: user.uuid,
+                auth_id: decoded.auth_id,
+                full_access: true,
+            };
+            const unclaimed = server.services.token.sign('auth', claims);
+            const misclaimed = server.services.token.sign('auth', {
+                ...claims,
+                session_uid: (otherSession.session as { uuid: string }).uuid,
+            });
+
+            for (const token of [unclaimed, misclaimed]) {
+                const minter = await authService.authenticateFromToken(token);
+                expect(minter?.accessToken?.sessionUid).toBeUndefined();
+                const child = await authService.createAccessToken(minter!, [
+                    [`user:${user.uuid}:email:read`],
+                ]);
+                expect(await parentOf(child)).toBe(decoded.session_uid);
+            }
         });
     });
 

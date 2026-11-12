@@ -221,7 +221,7 @@ describe('aggregateShares', () => {
 
     it('falls back to the handle, then the uid, for an unnamed team', () => {
         // Whatever team_label says, so a team reads the same here as it does
-        // in the desktop dialog's access list.
+        // in the recipient suggestions.
         const named = (team) => aggregateShares(['/me/a'], new Map([
             ['/me/a', [grant(null, 'read', { holderTeam: team })]],
         ]))[0].name;
