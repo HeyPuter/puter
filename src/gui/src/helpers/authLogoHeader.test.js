@@ -57,8 +57,8 @@ describe('authLogoHeader', () => {
     });
 
     it('makes the logo a named link when it leads somewhere', () => {
-        const h = authLogoHeader({ logoSrc: LOGO, logoHref: '/desktop' });
-        expect(h).toContain('<a class="auth-logo-link" href="/desktop">');
+        const h = authLogoHeader({ logoSrc: LOGO, logoHref: '/' });
+        expect(h).toContain('<a class="auth-logo-link" href="/">');
         expect(h).toContain('alt="Puter"');
     });
 

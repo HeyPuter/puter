@@ -18,7 +18,7 @@
  */
 
 import type { Request } from 'express';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor } from '../../actor';
 import {
@@ -1132,13 +1132,149 @@ describe('resolvePublicHostedIdentity', () => {
     const reqOf = (init: {
         cookies?: Record<string, string>;
         actor?: unknown;
+        headers?: Record<string, string>;
+        query?: Record<string, string>;
     }): Request =>
         ({
             cookies: init.cookies ?? {},
             actor: init.actor,
-            headers: {},
-            query: {},
+            headers: init.headers ?? {},
+            query: init.query ?? {},
         }) as unknown as Request;
+
+    describe('with the launch token in the Referer', () => {
+        const host = 'launch.site.puter.localhost';
+        const cookieName = HOSTED_ASSET_COOKIES.public.name;
+
+        const launch = async () => {
+            const user = await makeUser();
+            const sub = `launch-${uuidv4().slice(0, 8)}`;
+            const app = await server.stores.app.create(
+                { name: sub, title: sub, index_url: `http://${host}/` },
+                { ownerUserId: user.id },
+            );
+            const token = await authService.getUserAppToken(
+                { user } as unknown as Parameters<
+                    typeof authService.getUserAppToken
+                >[0],
+                app.uid,
+            );
+            const actor = (await authService.authenticateFromToken(token))!;
+            const cookie = await authService.createHostedAssetToken('public', {
+                appUid: app.uid,
+                userUid: user.uuid,
+                sessionUuid: actor.session?.uid,
+                subdomain: 'launch',
+                host,
+            });
+            return { user, appUid: app.uid, token, cookie, actor };
+        };
+
+        const resolve = (
+            appUid: string,
+            init: Parameters<typeof reqOf>[0],
+            expectedHost = host,
+        ) =>
+            resolvePublicHostedIdentity({
+                req: reqOf(init),
+                authService,
+                sessionCookieName: 'puter_auth_token',
+                expectedAppUid: appUid,
+                expectedSubdomain: 'launch',
+                expectedHost,
+            });
+
+        const refererFor = (token: string) =>
+            `http://${host}/?puter.auth.token=${encodeURIComponent(token)}`;
+
+        it('takes the cookie when the token names its user and session', async () => {
+            const { user, appUid, token, cookie } = await launch();
+            const authenticate = vi.spyOn(authService, 'authenticate');
+            try {
+                const out = await resolve(appUid, {
+                    cookies: { [cookieName]: cookie },
+                    headers: { referer: refererFor(token) },
+                });
+                expect(out).toMatchObject({
+                    source: 'public-cookie',
+                    userUid: user.uuid,
+                    hasValidPublicCookie: true,
+                });
+                expect(authenticate).not.toHaveBeenCalled();
+            } finally {
+                authenticate.mockRestore();
+            }
+        });
+
+        it('authenticates a query token even when it names the cookie identity', async () => {
+            const { user, appUid, token, cookie } = await launch();
+            const out = await resolve(appUid, {
+                cookies: { [cookieName]: cookie },
+                query: { 'puter.auth.token': token },
+            });
+            expect(out.source).toBe('query');
+            expect(out.userUid).toBe(user.uuid);
+            expect(
+                (out as { hasValidPublicCookie?: boolean })
+                    .hasValidPublicCookie,
+            ).toBeUndefined();
+        });
+
+        it('authenticates the token when the cookie was minted for another host', async () => {
+            const { user, appUid, token, cookie } = await launch();
+            const out = await resolve(
+                appUid,
+                {
+                    cookies: { [cookieName]: cookie },
+                    headers: { referer: refererFor(token) },
+                },
+                'other.site.puter.localhost',
+            );
+            expect(out.source).toBe('referrer');
+            expect(out.userUid).toBe(user.uuid);
+        });
+
+        it('authenticates a token that names another app under the same session', async () => {
+            const { user, appUid, cookie, actor } = await launch();
+            const otherAppToken = server.services.token.sign('auth', {
+                type: 'app-under-user',
+                version: '2',
+                user_uid: user.uuid,
+                app_uid: `app-${uuidv4()}`,
+                session_uid: actor.session!.uid,
+            });
+            const authenticate = vi.spyOn(authService, 'authenticate');
+            try {
+                const out = await resolve(appUid, {
+                    cookies: { [cookieName]: cookie },
+                    headers: { referer: refererFor(otherAppToken) },
+                });
+                expect(authenticate).toHaveBeenCalledTimes(1);
+                expect(out.source).toBe('public-cookie');
+            } finally {
+                authenticate.mockRestore();
+            }
+        });
+
+        it('never resolves a scoped access token, with or without the cookie', async () => {
+            const { user, appUid, cookie } = await launch();
+            const scoped = await authService.createAccessToken(
+                makeActor({
+                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                }),
+                [[`user:${user.uuid}:email:read`]],
+            );
+            const withCookie = await resolve(appUid, {
+                cookies: { [cookieName]: cookie },
+                headers: { referer: refererFor(scoped) },
+            });
+            expect(withCookie.source).toBe('public-cookie');
+            const withoutCookie = await resolve(appUid, {
+                headers: { referer: refererFor(scoped) },
+            });
+            expect(withoutCookie.source).toBe('none');
+        });
+    });
 
     it('returns the cookie identity when present and valid', async () => {
         const user = await makeUser();

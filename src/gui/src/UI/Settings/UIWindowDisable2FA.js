@@ -79,7 +79,6 @@ async function UIWindowDisable2FA (options) {
         width: 350,
         height: 'auto',
         dominant: true,
-        show_in_taskbar: false,
         on_before_exit: async () => {
             if ( ! disabled_successfully ) {
                 promise.resolve(false);
