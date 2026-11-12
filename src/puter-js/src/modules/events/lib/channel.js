@@ -37,14 +37,15 @@ const subscribePayload = (sub) => ({
     ...(sub.includeValue ? { includeValue: true } : {}),
 });
 
-// The wire, fixed by the server: four verbs answered with an ack, one sent
-// without, and the channels events arrive on.
+// The wire, fixed by the server: five verbs answered with an ack, and the
+// channels events arrive on.
 const SUBSCRIBE_VERB = 'events.subscribe';
 const UNSUBSCRIBE_VERB = 'events.unsubscribe';
 const ACK_VERB = 'events.ack';
 const NACK_VERB = 'events.nack';
-// A server that doesn't know it ignores it, which is why nothing waits on it.
+// A server that doesn't know it never answers, so only a refusal is acted on.
 const HANDLE_VERB = 'events.handle';
+const HANDLE_TIMEOUT_MS = 10000;
 const DELIVERY_CHANNEL = 'events.delivery';
 const ENDED_CHANNEL = 'events.ended';
 
@@ -63,6 +64,7 @@ export const DEFAULT_TIMEOUT_MS = 30000;
 
 // A reconnect re-issues every subscription at once, so the ones past the
 // per-minute call budget wait this long for another pass rather than lapsing.
+// A refused handler announce waits the same.
 const RESUBSCRIBE_RETRY_MS = 10000;
 
 // Backoff for a socket the server hung up on: doubling delay, capped, giving
@@ -183,6 +185,10 @@ export class EventChannel {
         this.durable = new Map();
         /** @internal @type {boolean} */
         this.announcing = false;
+        /** @internal Whether this connection has named any handler yet. */
+        this.handlersAnnounced = false;
+        /** @internal @type {ReturnType<typeof setTimeout> | null} */
+        this.announceRetryTimer = null;
         /** @internal Rejectors for verbs still waiting on an ack. */
         this.waiters = new Set();
         /** @internal Subscribes that have not resolved yet. */
@@ -314,7 +320,8 @@ export class EventChannel {
     /**
      * Tell the server which persistent subscriptions this connection runs a
      * handler for, so their queued deliveries come here instead of going
-     * straight to the events worker. Sent again on every connect.
+     * straight to the events worker. Sent again on every connect, and retried
+     * while the server refuses it for the call budget.
      *
      * @internal
      * @returns {void}
@@ -325,9 +332,36 @@ export class EventChannel {
         this.announcing = true;
         queueMicrotask(() => {
             this.announcing = false;
-            if ( ! this.socket?.connected ) return;
-            this.socket.emit(HANDLE_VERB, { subIds: [...this.durable.keys()] });
+            const socket = this.socket;
+            if ( ! socket?.connected ) return;
+            const subIds = [...this.durable.keys()];
+            // The server holds nothing for a connection that never named one.
+            if ( subIds.length === 0 && ! this.handlersAnnounced ) return;
+            if ( subIds.length > 0 ) this.handlersAnnounced = true;
+            if ( this.announceRetryTimer ) clearTimeout(this.announceRetryTimer);
+            this.announceRetryTimer = null;
+            socket.timeout(HANDLE_TIMEOUT_MS).emit(HANDLE_VERB, { subIds }, (error, response) => {
+                if ( error || response?.error?.code !== 'too_many_requests' ) return;
+                this.retryAnnounce(socket);
+            });
         });
+    }
+
+    /**
+     * Announce again once the call budget has had time to refill, unless the
+     * connection changed meanwhile (a new one announces on connect).
+     *
+     * @internal
+     * @param {import('socket.io-client').Socket} socket
+     * @returns {void}
+     */
+    retryAnnounce (socket) {
+        if ( this.announceRetryTimer || this.socket !== socket ) return;
+        this.announceRetryTimer = setTimeout(() => {
+            this.announceRetryTimer = null;
+            if ( this.socket === socket ) this.announceHandlers();
+        }, RESUBSCRIBE_RETRY_MS);
+        this.announceRetryTimer?.unref?.();
     }
 
     /**
@@ -367,6 +401,7 @@ export class EventChannel {
         socket.on('connect', () => {
             this.connectedAt = Date.now();
             for ( const registration of this.durable.values() ) registration.lapseReported = false;
+            this.handlersAnnounced = false;
             this.announceHandlers();
             this.resubscribe();
         });
@@ -792,6 +827,8 @@ export class EventChannel {
     close () {
         if ( this.retryTimer ) clearTimeout(this.retryTimer);
         this.retryTimer = null;
+        if ( this.announceRetryTimer ) clearTimeout(this.announceRetryTimer);
+        this.announceRetryTimer = null;
         if ( this.reconnectTimer ) clearTimeout(this.reconnectTimer);
         this.reconnectTimer = null;
         const socket = this.socket;
