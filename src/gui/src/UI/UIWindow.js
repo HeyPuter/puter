@@ -37,6 +37,8 @@ import { is_window_hidden, is_unseen_background_window, user_facing_windows } fr
 
 const el_body = document.getElementsByTagName('body')[0];
 const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
+// Above any z-index an ordinary desktop window reaches in practice.
+const DESKTOP_BACKDROP_MIN_ZINDEX = 99999;
 
 async function UIWindow (options) {
     const win_id = window.global_element_id++;
@@ -538,7 +540,12 @@ async function UIWindow (options) {
 
     // backdrop
     if ( options.backdrop ) {
-        h = `<div class="window-backdrop" style="z-index:${zindex};">${ h }</div>`;
+        // On the desktop a backdrop stays above every ordinary window, even one
+        // focused after it opened, so the dialog it holds stays modal.
+        const backdrop_zindex = (options.stay_on_top || window.is_dashboard_mode || window.is_fullpage_mode)
+            ? zindex
+            : Math.max(zindex, DESKTOP_BACKDROP_MIN_ZINDEX);
+        h = `<div class="window-backdrop" style="z-index:${backdrop_zindex};">${ h }</div>`;
     }
 
     // Append
@@ -2809,10 +2816,6 @@ $(document).on('click', '.window-sidebar-item', async function (e) {
             // todo
             // sort_by: $(el_item).attr('data-sort_by'),
             app: 'explorer',
-            // top: options.maximized ? 0 : undefined,
-            // left: options.maximized ? 0 : undefined,
-            // height: options.maximized ? `calc(100% - ${window.taskbar_height + 1}px)` : undefined,
-            // width: options.maximized ? `100%` : undefined,
         });
     }
     // update window path only if it's a new path AND no ctrl/cmd key pressed
@@ -2873,10 +2876,6 @@ $(document).on('contextmenu taphold', '.window-sidebar-item', function (event) {
                         // todo
                         // sort_by: $(el_item).attr('data-sort_by'),
                         app: 'explorer',
-                        // top: options.maximized ? 0 : undefined,
-                        // left: options.maximized ? 0 : undefined,
-                        // height: options.maximized ? `calc(100% - ${window.taskbar_height + 1}px)` : undefined,
-                        // width: options.maximized ? `100%` : undefined,
                     });
                 },
             },

@@ -104,3 +104,20 @@ describe('minimize', () => {
         expect({ top: el_window.style.top, left: el_window.style.left }).toEqual(before);
     });
 });
+
+describe('backdrop', () => {
+    const backdropZ = (el_window) => Number($(el_window).closest('.window-backdrop').css('z-index'));
+
+    it('stays above ordinary windows on the desktop', async () => {
+        const el_window = await openWindow({ backdrop: true });
+
+        expect(backdropZ(el_window)).toBeGreaterThan(window.last_window_zindex + 1000);
+    });
+
+    it('stacks at the window counter on the dashboard', async () => {
+        window.is_dashboard_mode = true;
+        const el_window = await openWindow({ backdrop: true });
+
+        expect(backdropZ(el_window)).toBeLessThanOrEqual(window.last_window_zindex);
+    });
+});
