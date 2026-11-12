@@ -51,15 +51,15 @@ import type { DriverStreamResult } from '../../../meta.js';
 import {
     OggOpusClock,
     outputBytesPerSecond,
-    type VoiceChangerDriver,
     wavDataOffset,
-} from './VoiceChangerDriver.js';
+} from '../../providers/elevenlabs/speechToSpeech/measuredOutput.js';
+import type { VoiceChangerDriver } from './VoiceChangerDriver.js';
 import {
     callerError,
     readStreamResult,
     withAiCostFactorHook,
 } from '../../../integrationTestUtil.js';
-import { VOICE_CHANGER_COSTS } from './costs.js';
+import { VOICE_CHANGER_COSTS } from '../../providers/elevenlabs/speechToSpeech/costs.js';
 
 const { webFetchMock } = vi.hoisted(() => ({ webFetchMock: vi.fn() }));
 vi.mock('undici', async (importOriginal) => ({

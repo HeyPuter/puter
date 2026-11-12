@@ -54,14 +54,10 @@ A provider whose vendor has its own API, such as `ClaudeProvider` or `ElevenLabs
 ## Import rules
 
 - `shared/` imports nothing from `interfaces/`, `providers/`, or `protocols/`.
-- `providers/` and `protocols/` import an interface's `types.ts` and helpers. They never import a driver class.
+- `providers/` and `protocols/` import an interface's `types.ts` and helpers. They never import a driver class. Their tests can, to drive a provider through the real driver.
 - A driver imports its providers to register them.
 - An interface doesn't import another interface. When a second interface needs a helper, move the helper to `shared/`, or to `providers/<vendor>/` when it belongs to one vendor.
 - A vendor folder imports another vendor's folder only when it serves that vendor's models. `providers/azure/` reads the OpenAI and xAI catalogs for that reason.
-
-### Not split out yet
-
-One place still breaks these rules: `VoiceChangerDriver` calls ElevenLabs itself and reads the output formats from the ElevenLabs text-to-speech provider.
 
 ## Where a file goes
 
@@ -93,8 +89,10 @@ Tests sit next to the code they test. Fixtures go in a `fixtures/` folder next t
     | speechToText | `ISpeechToTextProvider` | `SpeechToTextProvider` |
     | ocr | `IOcrProvider` | none |
 
+    Speech to speech has one provider, so `VoiceChangerDriver` uses `ElevenLabsSpeechToSpeechProvider` directly. Add a contract to its `types.ts` when a second provider needs one.
+
 3. Put the model catalog and prices in the same folder, as `models.ts` or `costs.ts`. A provider that loads its catalog from the vendor wraps the fetch in `cachedRemoteCatalog` from `shared/`.
-4. Register the provider in the interface's driver, in `#registerProviders()`. A chat provider built from an API key and an optional base URL is one row in `KEYED_PROVIDERS` instead. Text to speech and speech to text also list the provider id and its aliases in `providerAliases.ts`.
+4. Register the provider in the interface's driver: in `#registerProviders()`, or in `onServerStart()` for OCR and speech to speech. A chat provider built from an API key and an optional base URL is one row in `KEYED_PROVIDERS` instead. Text to speech and speech to text also list the provider id and its aliases in `providerAliases.ts`.
 5. Read credentials from `config.providers[<key>]`. The key is part of the self-hosting config contract, so reuse the vendor's existing key when it has one.
 6. Add tests next to the provider. Mock the vendor SDK or `fetch` at the network boundary and drive the provider through the real driver where you can. A live test is a `*.integration.test.ts` file that skips itself unless its `PUTER_TEST_AI_*` variable is set; see [integrationTestUtil.ts](../src/backend/drivers/integrationTestUtil.ts).
 7. For a chat provider, add its static catalog to `CATALOGS` in [modelCatalogs.test.ts](../src/backend/drivers/ai/interfaces/chat/modelCatalogs.test.ts) and the provider to [providerConsistency.test.ts](../src/backend/drivers/ai/interfaces/chat/providerConsistency.test.ts). The catalog test fails when a `providers/*/chat/` file with "model" in its name exports a catalog that isn't listed.
@@ -104,7 +102,7 @@ Tests sit next to the code they test. Fixtures go in a `fixtures/` folder next t
 
 A vendor that speaks the OpenAI Chat Completions protocol extends `OpenAICompatProvider` and overrides only what differs. It still gets its own `providers/<vendor>/chat/` folder.
 
-A vendor moves into a shared constants-only folder only when at least six vendors differ in nothing but base URL and model catalog. No vendor qualifies today, because every subclass overrides request, catalog, or billing behavior.
+Vendors share one constants-only folder only when at least six of them differ in nothing but base URL and model catalog. Each then becomes one data file under `providers/openaiCompatible/providers/`, read by a single implementation. No vendor qualifies today, because every subclass overrides request, catalog, or billing behavior.
 
 ## Adding an interface
 

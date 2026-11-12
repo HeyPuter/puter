@@ -37,47 +37,15 @@ import {
     meterPerCharacter,
     TTS_UPSTREAM_TIMEOUT_MS,
 } from '../../../interfaces/textToSpeech/common.js';
+import { DEFAULT_OUTPUT_FORMAT, OUTPUT_FORMATS } from '../outputFormats.js';
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
 const DEFAULT_MODEL = 'eleven_multilingual_v2';
 const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
-const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
 const VOICES_TTL_MS = 10 * 60 * 1000;
 // ElevenLabs voice IDs are 20 alphanumeric characters.
 const VOICE_ID_PATTERN = /^[A-Za-z0-9]{20}$/;
 const VOICE_SEARCH_MAX_PAGES = 5;
-// https://elevenlabs.io/docs/api-reference/text-to-speech/convert
-// mp3_44100_192 needs the Creator tier; pcm/wav at 44.1 kHz need Pro.
-export const OUTPUT_FORMATS = new Set([
-    'alaw_8000',
-    'mp3_22050_32',
-    'mp3_24000_48',
-    'mp3_44100_32',
-    'mp3_44100_64',
-    'mp3_44100_96',
-    'mp3_44100_128',
-    'mp3_44100_192',
-    'opus_48000_32',
-    'opus_48000_64',
-    'opus_48000_96',
-    'opus_48000_128',
-    'opus_48000_192',
-    'pcm_8000',
-    'pcm_16000',
-    'pcm_22050',
-    'pcm_24000',
-    'pcm_32000',
-    'pcm_44100',
-    'pcm_48000',
-    'ulaw_8000',
-    'wav_8000',
-    'wav_16000',
-    'wav_22050',
-    'wav_24000',
-    'wav_32000',
-    'wav_44100',
-    'wav_48000',
-]);
 // OpenAI-style `response_format` names. ElevenLabs ignored the body field
 // these used to travel in, so callers passing them always got MP3; map them to
 // the closest native format instead of letting the vendor reject them.
