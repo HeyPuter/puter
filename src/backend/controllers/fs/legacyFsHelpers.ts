@@ -212,7 +212,8 @@ export async function resolveOrNotFound(
 ): Promise<FSEntry> {
     try {
         const entry = await resolveNode(fsEntryStore, ref, { required: true });
-        if (entry) return entry;
+        // An entry with no resolvable path can't be access-checked.
+        if (entry?.path) return entry;
     } catch (err) {
         if (!(err instanceof HttpError && err.statusCode === 404)) throw err;
     }

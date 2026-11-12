@@ -63,6 +63,7 @@ describe('ACL checks read the ancestor chain lazily', () => {
         mode: AclMode,
     ) => {
         if (isSystemActor(actor)) return true;
+        if (typeof path !== 'string') return false;
         if (path === '/') return ['read', 'list', 'see'].includes(mode);
         const chain = await server.stores.fsEntry.getAncestorChain(path);
         return acl.check(
@@ -190,9 +191,8 @@ describe('ACL checks read the ancestor chain lazily', () => {
                 }
             }
         }
-        // Grants, refusals, the 400 for a refused path and the failure for a
-        // missing one all came up.
-        expect([...seen].sort()).toEqual(['400', 'false', 'true', 'undefined']);
+        // Grants, refusals and the 400 for a refused path all came up.
+        expect([...seen].sort()).toEqual(['400', 'false', 'true']);
     });
 
     it("answers an owner's own path without reading the chain", async () => {

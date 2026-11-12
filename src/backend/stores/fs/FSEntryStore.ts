@@ -1275,7 +1275,18 @@ export class FSEntryStore extends PuterStore {
 
         const target = byDepth.get(segments.length);
         if (!target) return null;
-        return this.getEntryByUuid(target.uuid);
+        const targetRows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
+            [target.uuid],
+        )) as unknown as FSEntryRow[];
+        if (!targetRows[0]) return null;
+        // A lagging replica can still hold the pre-backfill path.
+        const entry = {
+            ...this.#mapFSEntryRow(targetRows[0]),
+            path: `/${storedNames.join('/')}`,
+        };
+        await this.#writeEntryToCache(entry);
+        return entry;
     }
 
     async #backfillLineagePaths(
@@ -1302,8 +1313,7 @@ export class FSEntryStore extends PuterStore {
      *
      * Walks `parent_uid` chains from the entry up to the home row (`parent_uid
      * IS NULL`), then reuses `#backfillLineagePaths` to write the correct
-     * `path` on every ancestor + the entry itself. Returns the re-fetched
-     * target entry so the caller doesn't need a second query.
+     * `path` on every ancestor + the entry itself. Returns `entry`, healed.
      *
      * Returns null if the chain is broken (an intermediate `parent_uid` doesn't
      * resolve to a row) — those rows are unrecoverable from this direction and
@@ -1314,9 +1324,7 @@ export class FSEntryStore extends PuterStore {
      * resolves + heals data, it does not authorize access. Callers still gate
      * via ACL on the returned entry.
      */
-    async #healEntryPathByLineageUp(
-        targetUuid: string,
-    ): Promise<FSEntry | null> {
+    async #healEntryPathByLineageUp(entry: FSEntry): Promise<FSEntry | null> {
         const sql = `
             WITH RECURSIVE
               ancestors(id, uuid, parent_uid, name, depth) AS (
@@ -1334,7 +1342,7 @@ export class FSEntryStore extends PuterStore {
             FROM ancestors
             ORDER BY depth ASC
         `;
-        const rows = (await this.clients.db.read(sql, [targetUuid])) as Array<{
+        const rows = (await this.clients.db.read(sql, [entry.uuid])) as Array<{
             id: number | string;
             uuid: string;
             parent_uid: string | null;
@@ -1364,15 +1372,7 @@ export class FSEntryStore extends PuterStore {
         }
 
         await this.#backfillLineagePaths(byDepth, segments);
-
-        // Re-fetch the target so the caller gets an entry with the now
-        // populated `path` column (and the full column projection).
-        const refreshed = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
-            [targetUuid],
-        )) as unknown as FSEntryRow[];
-        if (!refreshed[0]) return null;
-        return this.#mapFSEntryRow(refreshed[0]);
+        return { ...entry, path: `/${segments.join('/')}` };
     }
 
     /**
@@ -1393,11 +1393,9 @@ export class FSEntryStore extends PuterStore {
             if (entries[index].path) continue;
             const slot = index;
             healJobs.push(
-                this.#healEntryPathByLineageUp(entries[slot].uuid).then(
-                    (healed) => {
-                        if (healed) entries[slot] = healed;
-                    },
-                ),
+                this.#healEntryPathByLineageUp(entries[slot]).then((healed) => {
+                    if (healed) entries[slot] = healed;
+                }),
             );
         }
         if (healJobs.length === 0) return;
@@ -1554,10 +1552,10 @@ export class FSEntryStore extends PuterStore {
         }
         let entry = this.#mapFSEntryRow(row);
         if (!entry.path) {
-            const healed = await this.#healEntryPathByLineageUp(entry.uuid);
+            const healed = await this.#healEntryPathByLineageUp(entry);
             if (healed) entry = healed;
         }
-        await this.#writeEntryToCache(entry);
+        if (entry.path) await this.#writeEntryToCache(entry);
         return entry;
     }
 
@@ -1608,7 +1606,9 @@ export class FSEntryStore extends PuterStore {
                 // Heal any legacy NULL-path rows in this chunk before caching.
                 await this.#healEntriesWithMissingPathsInPlace(entries);
                 await Promise.all(
-                    entries.map((entry) => this.#writeEntryToCache(entry)),
+                    entries
+                        .filter((entry) => entry.path)
+                        .map((entry) => this.#writeEntryToCache(entry)),
                 );
                 return entries;
             },
@@ -3081,7 +3081,7 @@ export class FSEntryStore extends PuterStore {
         // consumers (GUI, suggested-apps, downstream `pathPosix.dirname`
         // callers) all expect a populated path on every child.
         await this.#healEntriesWithMissingPathsInPlace(entries);
-        await this.#writeEntriesToCache(entries);
+        await this.#writeEntriesToCache(entries.filter((entry) => entry.path));
         return entries;
     }
 

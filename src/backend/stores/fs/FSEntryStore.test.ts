@@ -783,6 +783,57 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         });
     });
 
+    /** Serves `uuid`'s row from before the backfill to every replica read. */
+    const lagReplicaFor = async (uuid: string) => {
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        const [stale] = (await originalRead.call(
+            db,
+            `SELECT * FROM fsentries WHERE uuid = ?`,
+            [uuid],
+        )) as Array<Record<string, unknown>>;
+        return vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                const rows = (await originalRead.call(db, sql, params)) as
+                    unknown[] | undefined;
+                if (!Array.isArray(rows)) return rows;
+                return rows.map((row) =>
+                    (row as { uuid?: string }).uuid === uuid &&
+                    'path' in (row as object)
+                        ? { ...(row as object), path: stale.path }
+                        : row,
+                );
+            });
+    };
+
+    it.each([
+        ['path', (folder: FSEntry) => store.getEntryByPath(folder.path)],
+        ['uuid', (folder: FSEntry) => store.getEntryByUuid(folder.uuid)],
+    ])(
+        'gives an entry healed by %s its written path while the replica lags',
+        async (_route, lookup) => {
+            const user = await makeUser();
+            const folder = await createFile(
+                user,
+                `${user.home}/Documents/lagged`,
+                { isDir: true },
+            );
+            await blankPath(folder.uuid);
+
+            const spy = await lagReplicaFor(folder.uuid);
+            try {
+                await expect(lookup(folder)).resolves.toMatchObject({
+                    uuid: folder.uuid,
+                    path: folder.path,
+                });
+            } finally {
+                spy.mockRestore();
+            }
+            await expect(pathOf(folder.uuid)).resolves.toBe(folder.path);
+        },
+    );
+
     it('leaves an entry alone when its ancestor chain is broken', async () => {
         const user = await makeUser();
         const orphan = await createFile(
@@ -799,6 +850,9 @@ describe('FSEntryStore legacy NULL-path healing', () => {
             uuid: orphan.uuid,
             path: null,
         });
+        await expect(
+            server.clients.redis.get(`prodfsv2:fsentry:uuid:${orphan.uuid}`),
+        ).resolves.toBeNull();
     });
 
     it('heals path-less rows surfaced by a batched id lookup and by search', async () => {
