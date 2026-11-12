@@ -61,10 +61,7 @@ A provider whose vendor has its own API, such as `ClaudeProvider` or `ElevenLabs
 
 ### Not split out yet
 
-Two places still break these rules:
-
-- `OCRDriver` calls AWS Textract and Mistral itself. Only the Textract price list lives in `providers/awsTextract/ocr/`.
-- `VoiceChangerDriver` calls ElevenLabs itself and reads the output formats from the ElevenLabs text-to-speech provider.
+One place still breaks these rules: `VoiceChangerDriver` calls ElevenLabs itself and reads the output formats from the ElevenLabs text-to-speech provider.
 
 ## Where a file goes
 
@@ -94,6 +91,7 @@ Tests sit next to the code they test. Fixtures go in a `fixtures/` folder next t
     | video | `IVideoProvider` | `VideoProvider` |
     | textToSpeech | `ITTSProvider` | none |
     | speechToText | `ISpeechToTextProvider` | `SpeechToTextProvider` |
+    | ocr | `IOcrProvider` | none |
 
 3. Put the model catalog and prices in the same folder, as `models.ts` or `costs.ts`. A provider that loads its catalog from the vendor wraps the fetch in `cachedRemoteCatalog` from `shared/`.
 4. Register the provider in the interface's driver, in `#registerProviders()`. A chat provider built from an API key and an optional base URL is one row in `KEYED_PROVIDERS` instead. Text to speech and speech to text also list the provider id and its aliases in `providerAliases.ts`.
