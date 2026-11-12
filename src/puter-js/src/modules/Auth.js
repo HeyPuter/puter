@@ -721,6 +721,15 @@ export class AuthModule extends PuterModule {
             includePuterAuth: true,
             logContext: { service: 'auth', operation: 'usage', params: {} },
         });
+        if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw {
+                status: resp.status,
+                message: body?.message ?? body?.error
+                    ?? `getMonthlyUsage failed with status ${resp.status}`,
+                ...(body?.code ? { code: body.code } : {}),
+            };
+        }
         return await resp.json();
     }
 
@@ -747,6 +756,15 @@ export class AuthModule extends PuterModule {
                 },
             },
         );
+        if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw {
+                status: resp.status,
+                message: body?.message ?? body?.error
+                    ?? `getDetailedAppUsage failed with status ${resp.status}`,
+                ...(body?.code ? { code: body.code } : {}),
+            };
+        }
         return await resp.json();
     }
 
@@ -767,6 +785,15 @@ export class AuthModule extends PuterModule {
                 params: {},
             },
         });
+        if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw {
+                status: resp.status,
+                message: body?.message ?? body?.error
+                    ?? `getGlobalUsage failed with status ${resp.status}`,
+                ...(body?.code ? { code: body.code } : {}),
+            };
+        }
         return await resp.json();
     }
 }
