@@ -658,14 +658,23 @@ export class SessionStore extends PuterStore {
      */
     async findActiveByAccessTokenUid(tokenUid) {
         if (!tokenUid) return null;
+        // One indexed lookup per column: an OR across both can't use either
+        // index on MySQL. MySQL indexes the legacy uid only through its
+        // active-row generated column, equal to it while `revoked_at` is NULL.
+        const legacyColumn = this.clients.db.case({
+            mysql: 'legacy_token_unique_key',
+            otherwise: 'legacy_token_uid',
+        });
         const now = nowSeconds();
-        // A token minted moments ago may not be on the replica yet.
-        const rows = await this.clients.db.tryHardRead(
-            "SELECT * FROM `sessions` WHERE `kind` = 'access_token' AND (`access_token_uid` = ? OR `legacy_token_uid` = ?) AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) ORDER BY `id` DESC LIMIT 1",
-            [tokenUid, tokenUid, now],
-            { race: false },
+        // Sent together, and to the primary only when both miss on the
+        // replica, so a token minted moments ago is found while it catches up.
+        const [own, legacy] = await this.clients.db.tryHardReadAll(
+            ['access_token_uid', legacyColumn].map((column) => ({
+                query: `SELECT * FROM \`sessions\` WHERE \`kind\` = 'access_token' AND \`${column}\` = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) ORDER BY \`id\` DESC LIMIT 1`,
+                params: [tokenUid, now],
+            })),
         );
-        return this.#normalizeRow(rows[0]);
+        return this.#normalizeRow(own[0]) ?? this.#normalizeRow(legacy[0]);
     }
 
     /**

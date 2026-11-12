@@ -838,13 +838,19 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 {},
             );
         });
-        this.clients.event.on('auth.access-token.revoked', (_key, data) => {
-            this.clients.event.emit(
-                'pubsub.realtime.auth-revoked',
-                { tokenUid: data.token_uid },
-                {},
-            );
-        });
+        this.clients.event.on(
+            'outer.auth.access-token.revoked',
+            (_key, data) => {
+                const tokenUid = (data as { token_uid?: unknown } | null)
+                    ?.token_uid;
+                if (typeof tokenUid !== 'string' || !tokenUid) return;
+                this.clients.event.emit(
+                    'pubsub.realtime.auth-revoked',
+                    { tokenUid },
+                    {},
+                );
+            },
+        );
         // Raw WebSockets do not participate in socket.io's cluster adapter.
         this.clients.event.on('pubsub.realtime.auth-revoked', (_key, data) => {
             const revoked = data.sessionUids
@@ -1117,15 +1123,13 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     identity?.type === 'app-under-user'
                         ? identity.session
                         : undefined;
-                if (
-                    !(
-                        sessionUids?.has(sessionUid ?? '') ||
-                        sessionUids?.has(parentUid ?? '') ||
-                        (tokenUid &&
-                            identity?.type === 'access-token' &&
-                            identity.token_uid === tokenUid)
-                    )
-                )
+                if (!(
+                    sessionUids?.has(sessionUid ?? '') ||
+                    sessionUids?.has(parentUid ?? '') ||
+                    (tokenUid &&
+                        identity?.type === 'access-token' &&
+                        identity.token_uid === tokenUid)
+                ))
                     return;
                 if (token) {
                     kv.del(realtimeAuthKey(token));

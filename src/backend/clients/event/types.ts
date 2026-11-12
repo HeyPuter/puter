@@ -874,8 +874,11 @@ export type EventMap = {
         session_uids: string[];
     };
 
-    /** One access token was revoked; only its own connections should drop. */
-    'auth.access-token.revoked': { token_uid: string };
+    /**
+     * One access token was revoked; only its own connections should drop.
+     * `outer.*` for the same reason as `outer.auth.sessions.revoked`.
+     */
+    'outer.auth.access-token.revoked': { token_uid: string };
 
     /** Same-cluster eviction for raw realtime WebSockets. */
     'pubsub.realtime.auth-revoked': {
@@ -1083,11 +1086,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1098,10 +1100,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    | 'received'
-    | 'unreceived'
-    | 'no-socket'
-    | 'remote-only';
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

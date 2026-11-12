@@ -50,7 +50,7 @@ import { assertVerifiedEmail } from '../verifiedEmail';
 // Make sure the `Express.Request.actor` augmentation is in scope.
 import '../expressAugmentation';
 
-const rejectAuth = (req: Request): HttpError => {
+const rejectAuth = (req: Request): unknown => {
     if (req.requiresReauth) {
         return new HttpError(401, 'Re-authentication required', {
             legacyCode: 'reauth_required',
@@ -71,6 +71,9 @@ const rejectAuth = (req: Request): HttpError => {
             legacyCode: 'token_auth_failed',
         });
     }
+    // The token couldn't be checked, so a 401 would wrongly tell the client
+    // to discard it; the error handler answers (503 for a database outage).
+    if (req.tokenAuthError !== undefined) return req.tokenAuthError;
     return new HttpError(401, 'Missing authentication token', {
         legacyCode: 'token_missing',
     });

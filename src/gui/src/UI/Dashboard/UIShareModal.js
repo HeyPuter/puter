@@ -109,10 +109,9 @@ const count_label = (count) => (count === 1
     : i18n('items_count_other', { count }));
 
 /**
- * A responsive, from-scratch sharing modal for the Dashboard's Files tab.
- * Unlike UIWindowShare (which spawns a desktop UIWindow), this renders a
- * self-contained overlay that behaves as a centered card on desktop and a
- * bottom sheet on mobile, styled with the dashboard's design tokens.
+ * A responsive sharing modal for the Dashboard's Files tab: a self-contained
+ * overlay that behaves as a centered card on desktop and a bottom sheet on
+ * mobile, styled with the dashboard's design tokens.
  *
  * Shares one item or a whole selection. With several items the access list is
  * one row per person folded across them ({@link aggregateShares}), so every
@@ -120,10 +119,9 @@ const count_label = (count) => (count === 1
  * rather than a chore repeated per file. A person who holds only some of the
  * selection says so, and can be extended to the rest in one click.
  *
- * Feature-equivalent to UIWindowShare: grant access by email or username,
- * list who has access (owner, direct grants, grants inherited from an
- * ancestor folder), change a grant's mode, and revoke — with the revoke
- * confirmation inlined into the row instead of a stacked alert window.
+ * Grants access by email or username, lists who has access (owner, direct
+ * grants, grants inherited from an ancestor folder), changes a grant's mode,
+ * and revokes, with the revoke confirmation inlined into the row.
  *
  * @param {Object} opts
  * @param {Array<Object>} [opts.items] - The items to share, each
