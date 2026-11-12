@@ -4579,6 +4579,209 @@ describe('MeteringService', () => {
         });
     });
 
+    describe('settling when a balance read fails', () => {
+        const monthKey = (a: Actor) =>
+            `${METRICS_V2_PREFIX}:actor:${a.user!.uuid}:${currentMonthString()}`;
+
+        /** Rejects the next `times` reads `match` picks; the rest go through. */
+        const failReads = (
+            match: (args: {
+                key: unknown;
+                consistentRead?: boolean;
+            }) => boolean,
+            times = Infinity,
+        ) => {
+            const kv = server.stores.kv;
+            const realGet = kv.get.bind(kv);
+            let left = times;
+            return vi
+                .spyOn(kv, 'get')
+                .mockImplementation(
+                    async (...args: Parameters<typeof realGet>) => {
+                        if (left > 0 && match(args[0] as never)) {
+                            left--;
+                            throw new Error(
+                                'ProvisionedThroughputExceededException',
+                            );
+                        }
+                        return realGet(...args);
+                    },
+                );
+        };
+        const isAddonsRead = ({ key }: { key: unknown }) =>
+            typeof key === 'string' && key.endsWith(':addons');
+
+        const pools = async (a: Actor) => {
+            await server.stores.meteringBuffer.flushCycle();
+            const { usage } = await target.getActorCurrentMonthUsageDetails(a);
+            const addons = await target.getActorAddons(a, {
+                consistentRead: true,
+            });
+            return {
+                total: usage.total,
+                allowanceUsed: usage.allowanceUsed ?? 0,
+                consumed: addons.consumedPurchaseCredits ?? 0,
+            };
+        };
+
+        it('charges the allowance when the purchased-credit read fails', async () => {
+            await target.updateAddonCredit(actor.user.uuid!, 1_000_000);
+            await target.incrementUsage(actor, 'ai:chat', 1, 1000);
+            const before = await target.getAllowedUsage(actor);
+
+            const get = failReads(isAddonsRead);
+            const result = await target.incrementUsage(
+                actor,
+                'ai:chat',
+                1,
+                5000,
+            );
+            get.mockRestore();
+
+            expect(result.total).toBe(6000);
+            expect(await pools(actor)).toEqual({
+                total: 6000,
+                allowanceUsed: 6000,
+                consumed: 0,
+            });
+            const after = await target.getAllowedUsage(actor);
+            expect(before.remaining - after.remaining).toBe(5000);
+        });
+
+        it('charges only the allowance share past the allowance, and nothing later charges the rest', async () => {
+            const { monthUsageAllowance: allowance } =
+                await target.getActorSubscription(actor);
+            await target.updateAddonCredit(actor.user.uuid!, 1_000_000);
+            await target.incrementUsage(actor, 'ai:chat', 1, allowance - 100);
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+
+            const alarm = vi.spyOn(server.clients.alarm, 'create');
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            const get = failReads(isAddonsRead);
+            await target.incrementUsage(actor, 'ai:chat', 1, 1000);
+            get.mockRestore();
+
+            // 100 fits the allowance; the 900 credit would cover isn't drawn.
+            expect(await pools(actor)).toEqual({
+                total: allowance + 900,
+                allowanceUsed: allowance,
+                consumed: 0,
+            });
+            expect(alarm).toHaveBeenCalledWith(
+                'metering_settle_read_failed',
+                expect.any(String),
+                expect.objectContaining({
+                    userId: actor.user.uuid,
+                    unchargedCost: 900,
+                }),
+                'info',
+            );
+            expect(
+                alarm.mock.calls.some(([id]) =>
+                    String(id).startsWith('metering service error'),
+                ),
+            ).toBe(false);
+            // The unread credit isn't taken as spent.
+            expect(
+                emit.mock.calls.some(
+                    ([name]) => name === 'metering.credit-state',
+                ),
+            ).toBe(false);
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+            alarm.mockRestore();
+            emit.mockRestore();
+
+            // The next settle charges its own cost once, and only that.
+            await target.incrementUsage(actor, 'ai:chat', 1, 700);
+            expect(await pools(actor)).toEqual({
+                total: allowance + 1600,
+                allowanceUsed: allowance,
+                consumed: 700,
+            });
+        });
+
+        it('charges the allowance from the buffered total when the exact read fails', async () => {
+            const Service = target.constructor as typeof MeteringService;
+            const interval = Service.EXACT_READ_MIN_INTERVAL_MS;
+            Service.EXACT_READ_MIN_INTERVAL_MS = 0;
+            try {
+                const { monthUsageAllowance: allowance } =
+                    await target.getActorSubscription(actor);
+                await target.incrementUsage(
+                    actor,
+                    'ai:chat',
+                    1,
+                    allowance - 3000,
+                );
+                await server.stores.meteringBuffer.flushCycle();
+
+                const key = monthKey(actor);
+                const alarm = vi.spyOn(server.clients.alarm, 'create');
+                const get = failReads(
+                    (args) => args.key === key && !!args.consistentRead,
+                );
+                const result = await target.incrementUsage(
+                    actor,
+                    'ai:chat',
+                    1,
+                    1000,
+                );
+                const failedReads = get.mock.calls.length;
+                get.mockRestore();
+
+                expect(failedReads).toBeGreaterThan(0);
+                expect(result.total).toBe(allowance - 2000);
+                expect(await pools(actor)).toEqual({
+                    total: allowance - 2000,
+                    allowanceUsed: allowance - 2000,
+                    consumed: 0,
+                });
+                expect(alarm).toHaveBeenCalledWith(
+                    'metering_settle_read_failed',
+                    expect.any(String),
+                    expect.objectContaining({ unchargedCost: 0 }),
+                    'info',
+                );
+                alarm.mockRestore();
+            } finally {
+                Service.EXACT_READ_MIN_INTERVAL_MS = interval;
+            }
+        });
+
+        it('charges each of two racing calls once when one of their reads fails', async () => {
+            await target.updateAddonCredit(actor.user.uuid!, 1_000_000);
+            await target.incrementUsage(actor, 'ai:chat', 1, 1000);
+
+            const get = failReads(isAddonsRead, 1);
+            await Promise.all([
+                target.incrementUsage(actor, 'ai:chat', 1, 2000),
+                target.incrementUsage(actor, 'ai:chat', 1, 3000),
+            ]);
+            get.mockRestore();
+
+            expect(await pools(actor)).toEqual({
+                total: 6000,
+                allowanceUsed: 6000,
+                consumed: 0,
+            });
+        });
+
+        it('charges a failed call and the calls after it exactly once each', async () => {
+            await target.updateAddonCredit(actor.user.uuid!, 1_000_000);
+            const costs = [1000, 2000, 3000, 4000];
+            for (const [i, cost] of costs.entries()) {
+                const get = failReads(isAddonsRead, i % 2 === 0 ? 1 : 0);
+                await target.incrementUsage(actor, 'ai:chat', 1, cost);
+                get.mockRestore();
+            }
+            expect(await pools(actor)).toEqual({
+                total: 10_000,
+                allowanceUsed: 10_000,
+                consumed: 0,
+            });
+        });
+    });
+
     // ── Resolver registration ────────────────────────────────────────
 
     describe('resolver registration', () => {

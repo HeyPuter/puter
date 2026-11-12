@@ -40,7 +40,6 @@ vi.mock('./UI/UIPopover.js', stub);
 vi.mock('./UI/UIPrompt.js', stub);
 vi.mock('./UI/UIWindow.js', stub);
 vi.mock('./UI/UIWindowAppFeedback.js', stub);
-vi.mock('./UI/UIWindowColorPicker.js', stub);
 vi.mock('./UI/UIWindowEmailConfirmationRequired.js', stub);
 vi.mock('./UI/UIWindowFontPicker.js', stub);
 vi.mock('./UI/UIPermissionDialog.js', () => ({ default: permissionDialog }));

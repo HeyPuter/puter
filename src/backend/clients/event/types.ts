@@ -874,8 +874,11 @@ export type EventMap = {
         session_uids: string[];
     };
 
-    /** One access token was revoked; only its own connections should drop. */
-    'auth.access-token.revoked': { token_uid: string };
+    /**
+     * One access token was revoked; only its own connections should drop.
+     * `outer.*` for the same reason as `outer.auth.sessions.revoked`.
+     */
+    'outer.auth.access-token.revoked': { token_uid: string };
 
     /** Same-cluster eviction for raw realtime WebSockets. */
     'pubsub.realtime.auth-revoked': {

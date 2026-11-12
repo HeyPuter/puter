@@ -29,8 +29,8 @@ const FALLBACK_ATTR = 'data-icon-fallback';
 /**
  * Pick the URL to load an app's icon from, plus the one URL to retry with.
  *
- * @param {Object} app - App record from the backend (taskbar item, launch app,
- *   installedApps row). Reads `iconCdnUrl` and `iconUrl`/`icon`.
+ * @param {Object} app - App record from the backend (launch app, installedApps
+ *   row). Reads `iconCdnUrl` and `iconUrl`/`icon`.
  * @param {string} [defaultIcon] - Used when the app carries no icon at all.
  * @returns {{ src: string; fallback: string }} `fallback` is empty when there
  *   is nothing left to try.
