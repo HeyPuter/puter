@@ -852,6 +852,45 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         },
     );
 
+    it('misses a path whose row has moved by the time it is healed', async () => {
+        const user = await makeUser();
+        await createFile(user, `${user.home}/Documents/gone/keep.txt`);
+        const folder = (await store.getEntryByPath(
+            `${user.home}/Documents/gone`,
+        ))!;
+        await blankPath(folder.uuid);
+
+        const spy = await lagReplicaFor(folder.uuid);
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE uuid = ?',
+            [`${user.home}/Desktop/gone`, folder.uuid],
+        );
+        try {
+            await expect(
+                store.getEntryByPath(`${user.home}/Documents/gone`),
+            ).resolves.toBeNull();
+        } finally {
+            spy.mockRestore();
+        }
+        await expect(
+            server.clients.redis.get(`prodfsv2:fsentry:uuid:${folder.uuid}`),
+        ).resolves.toBeNull();
+    });
+
+    it('invalidates only the rows a heal fills', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/fill.txt`);
+        await blankPath(file.uuid);
+
+        const spy = vi.spyOn(store, 'invalidateEntryCacheByUuid');
+        try {
+            await store.getEntryByPath(file.path);
+            expect(spy.mock.calls).toEqual([[file.uuid]]);
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
     it('keeps a path written by a move that lands before the heal', async () => {
         const user = await makeUser();
         const file = await createFile(

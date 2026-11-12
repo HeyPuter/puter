@@ -1259,7 +1259,9 @@ export class FSEntryStore extends PuterStore {
         const rowAt = new Map(rows.map((r) => [`${r.depth}:${r.uuid}`, r]));
         const byDepth = new Map<number, { id: number; uuid: string }>();
         const storedNames: string[] = [];
-        let row = rows.find((r) => Number(r.depth) === segments.length);
+        const target = rows.find((r) => Number(r.depth) === segments.length);
+        if (!target) return null;
+        let row: typeof target | undefined = target;
         for (let depth = segments.length; depth >= 1; depth--) {
             if (!row) return null;
             byDepth.set(depth, { id: Number(row.id), uuid: row.uuid });
@@ -1272,10 +1274,10 @@ export class FSEntryStore extends PuterStore {
         // access check.
         await this.#backfillLineagePaths(byDepth, storedNames);
 
-        const target = byDepth.get(segments.length);
-        if (!target) return null;
         const entry = await this.getEntryByUuidFromPrimary(target.uuid);
-        if (entry) await this.#writeEntryToCache(entry);
+        // A row that has since moved is not the entry at this path.
+        if (entry?.path !== `/${storedNames.join('/')}`) return null;
+        await this.#writeEntryToCache(entry);
         return entry;
     }
 
@@ -1283,17 +1285,23 @@ export class FSEntryStore extends PuterStore {
         byDepth: Map<number, { id: number; uuid: string }>,
         segments: string[],
     ): Promise<void> {
-        for (let depth = 1; depth <= segments.length; depth++) {
-            const row = byDepth.get(depth);
-            if (!row) continue;
-            const expected = '/' + segments.slice(0, depth).join('/');
-            await this.clients.db.write(
-                `UPDATE fsentries SET path = ?
-                 WHERE id = ? AND path IS NULL`,
-                [expected, row.id],
-            );
-            await this.invalidateEntryCacheByUuid(row.uuid);
-        }
+        const depths = segments.map((_, i) => i + 1);
+        await runWithConcurrencyLimit(
+            depths,
+            DEFAULT_DB_CHUNK_CONCURRENCY,
+            async (depth) => {
+                const row = byDepth.get(depth);
+                if (!row) return;
+                const expected = '/' + segments.slice(0, depth).join('/');
+                const result = await this.clients.db.write(
+                    `UPDATE fsentries SET path = ?
+                     WHERE id = ? AND path IS NULL`,
+                    [expected, row.id],
+                );
+                if (this.#affectedRows(result) === 0) return;
+                await this.invalidateEntryCacheByUuid(row.uuid);
+            },
+        );
     }
 
     /**

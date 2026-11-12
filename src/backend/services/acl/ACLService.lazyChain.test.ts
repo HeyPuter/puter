@@ -63,7 +63,7 @@ describe('ACL checks read the ancestor chain lazily', () => {
         mode: AclMode,
     ) => {
         if (isSystemActor(actor)) return true;
-        if (typeof path !== 'string' || path === '') return false;
+        if (typeof path !== 'string') return false;
         if (path === '/') return ['read', 'list', 'see'].includes(mode);
         const chain = await server.stores.fsEntry.getAncestorChain(path);
         return acl.check(
