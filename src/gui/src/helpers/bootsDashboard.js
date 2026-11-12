@@ -19,18 +19,17 @@
 
 /**
  * Whether a page load boots the dashboard instead of the desktop. The root
- * path and `/app/<name>` boot the dashboard unless the page is an iframe embed
- * or a popup, which the desktop still handles; `/dashboard` always does.
+ * path and `/app/<name>` boot the dashboard unless the page is a popup, which
+ * the desktop still handles; `/dashboard` always does.
  *
  * @param {Object} location
  * @param {string} location.pathname
- * @param {boolean} location.inIframe
  * @param {boolean} location.embeddedInPopup
  * @returns {boolean}
  */
-export function bootsDashboard ({ pathname, inIframe, embeddedInPopup }) {
+export function bootsDashboard ({ pathname, embeddedInPopup }) {
     if ( pathname === '/dashboard' || pathname === '/dashboard/' ) return true;
     const isAppLanding = /^\/app\/[^/]+\/?$/.test(pathname);
     if ( pathname !== '/' && !isAppLanding ) return false;
-    return !embeddedInPopup && !inIframe;
+    return !embeddedInPopup;
 }

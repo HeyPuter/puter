@@ -27,7 +27,6 @@ import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers
 import truncate_filename from '../helpers/truncateFilename.js';
 import UINotification from './UINotification.js';
 import launch_app from '../helpers/launchApp.js';
-import { urlFileLaunchOptions } from '../helpers/confirmUrlFileAccess.js';
 import item_icon from '../helpers/itemIcon.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
 import {
@@ -56,12 +55,8 @@ import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import { resolve_default_app } from '../helpers/defaultApp.js';
 
 async function UIDesktop () {
-    // start a transaction if we're not in embedded or fullpage mode
-    let transaction;
-    if ( !window.is_embedded && !window.is_fullpage_mode ) {
-        transaction = new window.Transaction('desktop-is-ready');
-        transaction.start();
-    }
+    const transaction = new window.Transaction('desktop-is-ready');
+    transaction.start();
 
     let h = '';
 
@@ -700,12 +695,10 @@ async function UIDesktop () {
         if ( event.target === el_desktop ) event.preventDefault();
     });
 
-    if ( !window.is_embedded && !window.is_fullpage_mode ) {
-        transaction.end();
+    transaction.end();
 
-        // warm the home directory listing for the first Explorer window
-        puter.fs.readdir({ path: window.home_path, consistency: 'strong' });
-    }
+    // warm the home directory listing for the first Explorer window
+    puter.fs.readdir({ path: window.home_path, consistency: 'strong' });
 
     // notification container
     $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
@@ -716,64 +709,6 @@ async function UIDesktop () {
     //-----------------------------
     window.dispatchEvent(new CustomEvent('desktop:ready'));
     globalThis.services.emit('gui:ready');
-
-    //--------------------------------------------------------------------------------------
-    // Determine if an app was launched from URL
-    // i.e. https://puter.com/app/<app_name>
-    //--------------------------------------------------------------------------------------
-    if ( window.url_paths[0]?.toLocaleLowerCase() === 'app' && window.url_paths[1] ) {
-        // If app metadata was already fetched early (for fullpage detection), reuse it
-        if ( !window.app_launched_from_url?.name ) {
-            window.app_launched_from_url = window.url_paths[1];
-            // get app metadata
-            try {
-                window.app_launched_from_url = await puter.apps.get(window.url_paths[1], { icon_size: 64 });
-                window.is_fullpage_mode = window.app_launched_from_url.metadata?.fullpage_on_landing ?? window.is_fullpage_mode ?? false;
-            } catch (e) {
-                console.error('UIDesktop app path launch error', e);
-            }
-        }
-
-        // get query params, any param that doesn't start with 'puter.' will be passed to the app
-        window.app_query_params = {};
-        for ( let [key, value] of window.url_query_params ) {
-            if ( ! key.startsWith('puter.') )
-            {
-                window.app_query_params[key] = value;
-            }
-        }
-    }
-    // ---------------------------------------------
-    // load from direct app URLs: /app/app-name
-    // ---------------------------------------------
-    if ( window.app_launched_from_url ) {
-        if ( ! window.url_query_params.has('c') ) {
-            let posargs = undefined;
-            if ( window.app_query_params && window.app_query_params.posargs ) {
-                posargs = JSON.parse(window.app_query_params.posargs);
-            }
-            // `?file=<path or uid>` opens that file with the app, the same as
-            // double-clicking it would — but the link picked both, so the user
-            // is asked before the app is given the file.
-            launch_app({
-                app: window.app_launched_from_url.name,
-                app_obj: window.app_launched_from_url,
-                readURL: window.url_query_params.get('readURL'),
-                maximized: window.url_query_params.get('maximized'),
-                params: window.app_query_params ?? [],
-                ...urlFileLaunchOptions(window.url_query_params.get('file')),
-                ...(posargs ? {
-                    args: {
-                        command_line: { args: posargs },
-                    },
-                } : {}),
-                is_fullpage: window.is_fullpage_mode,
-                window_options: {
-                    stay_on_top: false,
-                },
-            });
-        }
-    }
 
     $(el_desktop).on('mousedown touchstart', { passive: true }, function (e) {
         // dimiss touchstart on regular devices
