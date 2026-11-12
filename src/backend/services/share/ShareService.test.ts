@@ -1270,9 +1270,13 @@ describe('ShareService', () => {
                 expect(listByFsentry).not.toHaveBeenCalled();
                 expect(getEntriesByIds).not.toHaveBeenCalled();
                 const prefixes = [`fs:${file.uuid}`, `manage:fs:${file.uuid}`];
-                expect(revokeUserGrants).toHaveBeenCalledWith(prefixes);
-                expect(revokeGroupGrants).toHaveBeenCalledWith(prefixes);
-                expect(deleteRows).toHaveBeenCalledWith([file.id]);
+                expect(revokeUserGrants).toHaveBeenCalledWith(prefixes, {
+                    primary: true,
+                });
+                expect(revokeGroupGrants).toHaveBeenCalledWith(prefixes, {
+                    primary: true,
+                });
+                expect(deleteRows).toHaveBeenCalledWith([file.id], [file.uuid]);
                 // Grants go before the rows that record them.
                 expect(
                     revokeUserGrants.mock.invocationCallOrder[0]!,
