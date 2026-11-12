@@ -6,6 +6,7 @@ import { invalidateShareCache, toShareItems, toShareRecipients } from './shareUt
 /** @typedef {import('../types.js').ShareRecipient} ShareRecipient */
 /** @typedef {import('../types.js').UnshareResult} UnshareResult */
 /** @typedef {import('../types.js').UnshareFailure} UnshareFailure */
+/** @typedef {import('../types.js').UnshareError} UnshareError */
 
 // The recipient or the item is gone: nothing to withdraw.
 const GONE_CODES = ['user_does_not_exist', 'subject_does_not_exist'];
@@ -34,7 +35,7 @@ const toFailure = (result) => ({
  * was nothing to withdraw, and the recipient/item pairs that were refused. A
  * refused pair does not fail the others. The promise rejects only when every
  * pair was refused and at least one for a reason other than the recipient or
- * the item being gone.
+ * the item being gone; that rejection is an `UnshareError`.
  *
  * @type {{
  *   (options: UnshareOptions): Promise<UnshareResult>,
@@ -66,7 +67,7 @@ const unshare = defineOperation({
                     // A pair the server could not complete names no code.
                     const { message, code } =
                         refusals.find((f) => f.code !== UNNAMED_CODE) ?? refusals[0];
-                    throw { message, code };
+                    throw /** @type {UnshareError} */ ({ message, code, failed });
                 }
                 const revoked = Number(response.revoked ?? 0);
                 if ( revoked > 0 ) invalidateShareCache(items);

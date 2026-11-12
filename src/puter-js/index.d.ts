@@ -187,6 +187,7 @@ export type {
     SignResult,
     SpaceInfo,
     StatOptions,
+    UnshareError,
     UnshareFailure,
     UnshareOptions,
     UnshareResult,
