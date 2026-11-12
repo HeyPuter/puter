@@ -736,6 +736,8 @@ export type EventMap = {
     'outer.permission.flatInvalidated': {
         entries: Array<{ holderUserId: number; permission: string }>;
     };
+    /** Links on these nodes were removed; read them from the primary. */
+    'outer.share.linksRevoked': { fsentryIds: number[]; uuids: string[] };
     /**
      * A user's subscription set changed, so every process must drop its cached
      * "does this user have any subscriptions" answer. Carries the counter the

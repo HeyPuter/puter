@@ -568,6 +568,8 @@ const en = {
         share_access_updated_items:
             'Updated access for {{recipient}} on {{count}} items',
         share_access_removed_items: 'Removed {{recipient}} from {{count}} items',
+        share_access_removed_partial:
+            'Removed {{recipient}} from {{count}} of {{total}} items',
         block: 'Block',
         unblock: 'Unblock',
         manage: 'Manage',
@@ -614,6 +616,8 @@ const en = {
         share_link_on_write_items: 'Anyone with the link can now edit these items',
         share_link_off: 'Only people with access can open this item now',
         share_link_off_items: 'Only people with access can open these items now',
+        share_link_off_partial:
+            'Only people with access can open {{count}} of {{total}} items now',
         share_link_requires_plan:
             'Sharing with anyone who has the link requires a subscription.',
         share_copy_link: 'Copy link',

@@ -1417,10 +1417,11 @@ async function UIItem (options) {
                     html: i18n('share_remove_from_shared'),
                     onClick: async function () {
                         try {
-                            await puter.fs.unshare(
+                            const left = await puter.fs.unshare(
                                 $(el_item).attr('data-path'),
                                 window.user.username,
                             );
+                            if ( left?.failed?.length ) throw left.failed[0];
                             // Or mode lookups keep answering for a share we
                             // just walked away from.
                             invalidate_shared_roots();
