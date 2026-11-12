@@ -880,9 +880,9 @@ export default suite('kv', {
     // The GUI batch-reads a fixed set of keys while it boots. No runner is
     // the GUI, so here those names are ordinary keys.
     'get of a GUI boot key returns the stored value': async (t) => {
-        await t.puter.kv.set('menubar_style', 'system');
-        t.assert.equal(await t.puter.kv.get('menubar_style'), 'system');
-        t.assert.equal(await t.puter.kv.get('menubar_style'), 'system');
+        await t.puter.kv.set('user_preferences.auto_arrange_desktop', 'true');
+        t.assert.equal(await t.puter.kv.get('user_preferences.auto_arrange_desktop'), 'true');
+        t.assert.equal(await t.puter.kv.get('user_preferences.auto_arrange_desktop'), 'true');
         t.assert.equal(
             await t.puter.kv.get('window_sidebar_width'),
             null,
@@ -891,12 +891,12 @@ export default suite('kv', {
     },
 
     'writes to a GUI boot key are visible to the next get': async (t) => {
-        await t.puter.kv.set('desktop_icons_hidden', 'true');
+        await t.puter.kv.set('sidebar_items', '[]');
         t.assert.equal(await t.puter.kv.get('desktop_item_positions'), null);
         await t.puter.kv.set('desktop_item_positions', '{}');
         t.assert.equal(await t.puter.kv.get('desktop_item_positions'), '{}');
-        await t.puter.kv.del('desktop_icons_hidden');
-        t.assert.equal(await t.puter.kv.get('desktop_icons_hidden'), null);
+        await t.puter.kv.del('sidebar_items');
+        t.assert.equal(await t.puter.kv.get('sidebar_items'), null);
     },
 
     'a GUI boot key written by another client reads fresh': async (t) => {

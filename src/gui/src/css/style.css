@@ -5194,11 +5194,6 @@ html.dark-mode .usage-table-fade-overlay {
     touch-action: pan-y;
 }
 
-/* Hide desktop icons when the desktop-icons-hidden class is applied */
-.desktop.item-container.desktop-icons-hidden>.item {
-    visibility: hidden;
-}
-
 
 .progress-report{
     font-size:15px; 

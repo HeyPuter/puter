@@ -317,12 +317,23 @@ describe('kv.get GUI boot cache', () => {
             result: body.args.key.map((key) => `${key}-value`),
         });
         await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-value');
-        await expect(kv.get('menubar_style')).resolves.toBe('menubar_style-value');
+        await expect(kv.get('window_sidebar_width')).resolves.toBe('window_sidebar_width-value');
         expect(FakeXHR.requests).toHaveLength(1);
         const body = lastBody();
         expect(body.method).toBe('get');
         expect(Array.isArray(body.args.key)).toBe(true);
         expect(body.args.key).toContain('sidebar_items');
+    });
+
+    it('leaves keys the GUI no longer reads out of the batch', async () => {
+        FakeXHR.respondWith = (body) => ({
+            success: true,
+            result: body.args.key.map(() => null),
+        });
+        await kv.get('sidebar_items');
+        expect(lastBody().args.key).not.toContain('desktop_icons_hidden');
+        expect(lastBody().args.key).not.toContain('menubar_style');
+        expect(lastBody().args.key).not.toContain('user_preferences.clock_visible');
     });
 
     it('a failed batch makes get(bootKey) issue a normal call', async () => {
@@ -387,24 +398,24 @@ describe('kv.get GUI boot cache', () => {
             ['expireAt(key, timestamp)', () => kv.expireAt('sidebar_items', 1)],
             ['flush()', () => kv.flush()],
         ])('%s makes the next get(key) read the store', async (_label, write) => {
-            await expect(kv.get('menubar_style')).resolves.toBe('stale');
+            await expect(kv.get('window_sidebar_width')).resolves.toBe('stale');
             await write();
             await expect(kv.get('sidebar_items')).resolves.toBe('fresh');
             expect(lastBody()).toMatchObject({ method: 'get', args: { key: 'sidebar_items' } });
         });
 
         it('keeps serving the boot keys that were not written', async () => {
-            await kv.get('menubar_style');
+            await kv.get('window_sidebar_width');
             await kv.set('sidebar_items', 'v');
             const requests = FakeXHR.requests.length;
-            await expect(kv.get('menubar_style')).resolves.toBe('stale');
+            await expect(kv.get('window_sidebar_width')).resolves.toBe('stale');
             expect(FakeXHR.requests).toHaveLength(requests);
         });
 
         it('a write before the batch is fetched still bypasses it for that key', async () => {
             await kv.set('sidebar_items', 'v');
             await expect(kv.get('sidebar_items')).resolves.toBe('fresh');
-            await expect(kv.get('menubar_style')).resolves.toBe('stale');
+            await expect(kv.get('window_sidebar_width')).resolves.toBe('stale');
         });
 
         it('a write issued while the batch is in flight bypasses it', async () => {
@@ -415,7 +426,7 @@ describe('kv.get GUI boot cache', () => {
         });
 
         it('a rejected write still bypasses the batch', async () => {
-            await kv.get('menubar_style');
+            await kv.get('window_sidebar_width');
             FakeXHR.respondWith = (body) => body.method === 'set'
                 ? { success: false, error: { code: 'insufficient_funds' } }
                 : { success: true, result: 'fresh' };
@@ -434,11 +445,11 @@ describe('kv.get boot keys outside the GUI', () => {
             FakeXHR.respondWith = (body) => ({ success: true, result: `${body.args.key}-value` });
             await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-value');
             await expect(kv.get('sidebar_items')).resolves.toBe('sidebar_items-value');
-            await expect(kv.get('menubar_style')).resolves.toBe('menubar_style-value');
+            await expect(kv.get('window_sidebar_width')).resolves.toBe('window_sidebar_width-value');
             expect(FakeXHR.requests.map((xhr) => JSON.parse(xhr.requestBody).args)).toEqual([
                 { key: 'sidebar_items' },
                 { key: 'sidebar_items' },
-                { key: 'menubar_style' },
+                { key: 'window_sidebar_width' },
             ]);
         },
     );

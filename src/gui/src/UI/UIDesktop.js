@@ -72,15 +72,6 @@ async function UIDesktop (options) {
 
     let h = '';
 
-    // Set up the desktop channel for communication between different tabs in the same browser
-    window.channel = new BroadcastChannel('puter-desktop-channel');
-    channel.onmessage = function (e) {
-    };
-
-    // Initialize desktop icons visibility preference - move this earlier in the initialization
-    // Add this near the very beginning of the UIDesktop function
-    window.desktop_icons_hidden = false; // Set default value immediately
-
     // Give Camera and Recorder write permissions to Desktop
     puter.kv.get('has_set_default_app_user_permissions').then(async (user_permissions) => {
         if ( ! user_permissions ) {
@@ -758,16 +749,6 @@ async function UIDesktop (options) {
     // Append to <body>
     $('body').append(h);
 
-    // Initialize the preference early
-    puter.kv.get('desktop_icons_hidden').then(async (val) => {
-        window.desktop_icons_hidden = (val === 'true' || val === true);
-
-        // Apply the setting immediately if needed
-        if ( window.desktop_icons_hidden ) {
-            hideDesktopIcons();
-        }
-    }).catch(err => console.warn('Could not load desktop_icons_hidden:', err));
-
     const el_desktop = document.querySelector('.desktop');
 
     window.active_element = el_desktop;
@@ -997,15 +978,6 @@ async function UIDesktop (options) {
                                 show_hidden_files: !window.user_preferences.show_hidden_files,
                             });
                             window.show_or_hide_files(document.querySelectorAll('.item-container'));
-                        },
-                    },
-                    // -------------------------------------------
-                    // Hide Desktop Icons
-                    // -------------------------------------------
-                    {
-                        html: window.desktop_icons_hidden ? i18n('Show desktop icons') : i18n('Hide desktop icons'),
-                        onClick: function () {
-                            toggleDesktopIcons();
                         },
                     },
                     // -------------------------------------------
@@ -1595,30 +1567,6 @@ window.reset_window_size_and_position = (el_window) => {
         top: 'calc(50% - 190px)',
         left: 'calc(50% - 340px)',
     });
-};
-
-// Modify the hide/show functions to use CSS rules that will apply to all icons, including future ones
-window.hideDesktopIcons = function () {
-    $('.desktop.item-container').addClass('desktop-icons-hidden');
-};
-
-window.showDesktopIcons = function () {
-    $('.desktop.item-container').removeClass('desktop-icons-hidden');
-};
-
-// Add this function to the global scope
-window.toggleDesktopIcons = function () {
-    window.desktop_icons_hidden = !window.desktop_icons_hidden;
-
-    if ( window.desktop_icons_hidden ) {
-        hideDesktopIcons();
-    } else {
-        showDesktopIcons();
-    }
-
-    // Save preference
-    puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString())
-        .catch(err => console.warn('Could not save desktop_icons_hidden:', err));
 };
 
 export default UIDesktop;
