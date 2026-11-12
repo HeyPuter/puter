@@ -672,9 +672,12 @@ export class SessionStore extends PuterStore {
             );
             return this.#normalizeRow(rows[0]);
         };
-        return (
-            (await findBy('access_token_uid')) ?? (await findBy(legacyColumn))
-        );
+        // Sent together, so a miss on the first costs no second round trip.
+        const [own, legacy] = await Promise.all([
+            findBy('access_token_uid'),
+            findBy(legacyColumn),
+        ]);
+        return own ?? legacy;
     }
 
     /**
