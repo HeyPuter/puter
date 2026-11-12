@@ -124,6 +124,21 @@ describe('resolveNode', () => {
         expect(error.message).toContain('uuid=ghost');
     });
 
+    it('treats a path-less row found by uid or id as missing', async () => {
+        const orphan = makeEntry({ path: null as unknown as string });
+        const store = makeStore({
+            getEntryByUuid: vi.fn(async () => orphan),
+            getEntryById: vi.fn(async () => orphan),
+        });
+
+        await expect(resolveNode(store, { uid: 'uuid-7' })).resolves.toBeNull();
+        await expectHttpError(
+            () => resolveNode(store, { id: 7 }, { required: true }),
+            404,
+            'subject_does_not_exist',
+        );
+    });
+
     it('falls back to id lookup when uid is blank', async () => {
         const entry = makeEntry();
         const store = makeStore({ getEntryById: vi.fn(async () => entry) });

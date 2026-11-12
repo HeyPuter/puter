@@ -27,7 +27,7 @@ A set of key/value pairs that configure the window.
 | `is_resizable` | `Boolean` | If set to `true`, the user can resize the window. |
 | `has_head` | `Boolean` | If set to `true`, the window has a head which contains the icon and the close, minimize, and maximize buttons. |
 | `disable_parent_window` | `Boolean` | If set to `true`, the parent window is blocked until the current window is closed. |
-| `show_in_taskbar` | `Boolean` | If set to `true`, the window is represented in the taskbar. |
+| `show_in_taskbar` | `Boolean` | Deprecated. It has no effect. |
 
 ## Return value
 A `Promise` that resolves to a window handle object with an `id` (String) property identifying the created window. This `id` can be passed as the `window_id` argument to the `setWindow*` methods.
@@ -50,7 +50,6 @@ A `Promise` that resolves to a window handle object with an `id` (String) proper
             is_resizable: false,
             has_head: true,
             center: true,
-            show_in_taskbar: false,
         })
     </script>
 </body>

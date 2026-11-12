@@ -21,22 +21,9 @@
  * Splits a GUI pathname into the route segments the boot code matches on
  * (`window.url_paths`), dropping empty segments.
  *
- * A leading `desktop` segment is dropped with them: `/desktop` only picks the
- * interface, and everything after it is the same route it would be at the
- * root. So `/desktop/app/<name>` yields `['app', '<name>']` — the app landing
- * every route check downstream already understands — and the only difference
- * from `/app/<name>` is that the dashboard-mode check (see initgui.js) doesn't
- * claim the path, leaving the app to open on the desktop.
- *
- * @param {string} pathname - the pathname to parse, e.g. `/desktop/app/editor`
+ * @param {string} pathname - the pathname to parse, e.g. `/app/editor`
  * @returns {string[]} route segments
  */
-export const parse_url_paths = (pathname) => {
-    const paths = String(pathname ?? '')
-        .split('/')
-        .filter((element) => element);
-    if ( paths[0]?.toLocaleLowerCase() === 'desktop' ) {
-        paths.shift();
-    }
-    return paths;
-};
+export const parse_url_paths = (pathname) => String(pathname ?? '')
+    .split('/')
+    .filter((element) => element);

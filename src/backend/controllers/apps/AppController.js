@@ -52,8 +52,8 @@ const APP_READ_LIMIT = {
 /**
  * Unauthenticated icon serving; no actor to key on, so the bucket is the
  * address — and an address is a NAT, a campus or a carrier gateway that can
- * hold hundreds of desktops. Each desktop boot pulls the taskbar's icons at
- * once, so a single burst from one network is already thousands of requests.
+ * hold hundreds of desktops. Each dashboard load pulls its app icons at once,
+ * so a single burst from one network is already thousands of requests.
  * Responses are publicly cacheable and usually a redirect, so the ceiling is
  * not protecting bandwidth; it is there so a client looping on a broken icon
  * can't spin unbounded.
@@ -523,7 +523,7 @@ export class AppController extends PuterController {
         };
 
         // Icons are <img src> targets from the GUI (root) AND resolved via
-        // api_base_url in taskbar payloads. Register on both so either origin
+        // api_base_url in app summaries. Register on both so either origin
         // works without a cross-subdomain redirect.
         router.get(
             '/app-icon/:app_uid',

@@ -293,6 +293,57 @@ describe('create API token', () => {
     });
 });
 
+describe('change language', () => {
+    beforeEach(() => {
+        window.locale = 'en';
+        window.listSupportedLanguages = () => [
+            { code: 'en', name: 'English' },
+            { code: 'de', name: 'Deutsch' },
+            { code: 'ja', name: '日本語' },
+        ];
+        window.mutate_user_preferences = vi.fn();
+        globalThis.puter.kv = { set: vi.fn(async () => true) };
+    });
+
+    it('lists every language by its own name, with the current one selected', () => {
+        dialogs.openChangeLanguageDialog();
+        const options = field('language').find('option').map((_, el) => [[el.value, el.textContent]]).get();
+        expect(options).toEqual([['en', 'English'], ['de', 'Deutsch'], ['ja', '日本語']]);
+        expect(field('language').val()).toBe('en');
+    });
+
+    it('closes without saving when the language is unchanged', async () => {
+        dialogs.openChangeLanguageDialog();
+
+        await submitWith({ language: 'en' });
+
+        expect(puter.kv.set).not.toHaveBeenCalled();
+        expect(isOpen()).toBe(false);
+    });
+
+    it('saves the picked language to the account', async () => {
+        dialogs.openChangeLanguageDialog();
+
+        await submitWith({ language: 'de' });
+
+        expect(puter.kv.set).toHaveBeenCalledWith('user_preferences.language', 'de');
+        expect(window.mutate_user_preferences).toHaveBeenCalledWith({ language: 'de' });
+        expect(status()).toBe('');
+    });
+
+    it('stays open with an error when the save fails', async () => {
+        puter.kv.set.mockRejectedValue(new Error('offline'));
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        dialogs.openChangeLanguageDialog();
+
+        await submitWith({ language: 'de' });
+
+        expect(window.mutate_user_preferences).not.toHaveBeenCalled();
+        expect(status()).toBe('language_save_failed');
+        expect(isOpen()).toBe(true);
+    });
+});
+
 describe('delete account', () => {
     it('asks a temporary account to type confirm', async () => {
         // What the server sends for a temporary account: no password, so `oidc_only` too.

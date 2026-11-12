@@ -295,9 +295,6 @@ function generateDevHtml (options) {
         <meta name="msapplication-TileImage" content="/favicons/ms-icon-144x144.png">
         <meta name="theme-color" content="#ffffff">`;
 
-    // preload images when applicable
-    h += '<link rel="preload" as="image" href="./images/wallpaper.webp">';
-
     // service-script hook: initgui resolves this promise during boot, so the
     // shim must exist before the bundle runs (same shim the backend injects).
     h += `

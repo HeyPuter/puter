@@ -17,30 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-const Component = use('util.Component');
-
 /**
- * Allows using an HTML string as a component.
+ * Whether a page load boots the dashboard instead of the desktop. The root
+ * path and `/app/<name>` boot the dashboard unless the page is an iframe embed
+ * or a popup, which the desktop still handles; `/dashboard` always does.
+ *
+ * @param {Object} location
+ * @param {string} location.pathname
+ * @param {boolean} location.inIframe
+ * @param {boolean} location.embeddedInPopup
+ * @returns {boolean}
  */
-export default def(class JustHTML extends Component {
-    static ID = 'ui.component.JustHTML';
-
-    static PROPERTIES = { html: { value: '' } };
-    create_template ({ template }) {
-        $(template).html('<span></span>');
-    }
-    on_ready ({ listen }) {
-        listen('html', html => {
-            $(this.dom_).find('span').html(html);
-        });
-    }
-
-    _set_dom_based_on_render_mode ({ property_values }) {
-        if ( property_values.no_shadow ) {
-            this.dom_ = this;
-            return;
-        }
-
-        return super._set_dom_based_on_render_mode();
-    }
-});
+export function bootsDashboard ({ pathname, inIframe, embeddedInPopup }) {
+    if ( pathname === '/dashboard' || pathname === '/dashboard/' ) return true;
+    const isAppLanding = /^\/app\/[^/]+\/?$/.test(pathname);
+    if ( pathname !== '/' && !isAppLanding ) return false;
+    return !embeddedInPopup && !inIframe;
+}
