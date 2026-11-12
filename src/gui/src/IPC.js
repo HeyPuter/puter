@@ -1693,7 +1693,7 @@ const ipc_listener = async (event, handled) => {
             } catch ( err ) {
                 console.error(err);
                 await UIAlert({
-                    message: i18n('save_file_not_returned'),
+                    message: i18n('save_file_not_returned', [], false),
                     parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
                 });
                 answer.cancel();
@@ -1771,7 +1771,7 @@ const ipc_listener = async (event, handled) => {
                 // Closing the dialog stops the download and has answered already.
                 if ( answer.answered ) return;
                 await UIAlert({
-                    message: i18n(err.code ?? 'url_save_failed'),
+                    message: i18n(err.code ?? 'url_save_failed', [], false),
                     parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
                 });
                 return;

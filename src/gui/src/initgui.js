@@ -704,7 +704,7 @@ const postAuthActions = async (action) => {
                             // Closing the picker stops the download and answers.
                             if ( answer.answered ) return;
                             await UIAlert({
-                                message: i18n(err.code ?? 'url_save_failed'),
+                                message: i18n(err.code ?? 'url_save_failed', [], false),
                                 parent_uuid,
                             });
                             answer.cancel();
@@ -772,7 +772,7 @@ const postAuthActions = async (action) => {
                     } catch ( err ) {
                         console.error(err);
                         await UIAlert({
-                            message: i18n('save_file_not_returned'),
+                            message: i18n('save_file_not_returned', [], false),
                             parent_uuid,
                         });
                         answer.cancel();
