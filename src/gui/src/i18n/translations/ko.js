@@ -101,7 +101,6 @@ const ko = {
         dont_allow: '허용하지 않음',
         download: '다운로드',
         download_file: '파일 다운로드',
-        downloading: '다운로드 중',
         email: '이메일',
         email_change_confirmation_sent:
       '새 이메일 주소로 확인 메일이 전송되었습니다. 받은 편지함을 확인 후 안내에 따라 절차를 완료해주세요.',

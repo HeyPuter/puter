@@ -50,7 +50,6 @@ const nn = {
         descending: 'Synkande',
         desktop_background_fit: 'Tilpass',
         download: 'Last ned',
-        downloading: 'Lastar ned',
         email: 'E-post',
         email_or_username: 'E-post eller brukarnamn',
         empty_trash: 'Tøm papirkorg',

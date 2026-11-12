@@ -92,7 +92,6 @@ const zh = {
         dont_allow: '操作不允许!',
         download: '下载',
         download_file: '下载文件',
-        downloading: '下载',
         email: '邮箱地址',
         email_change_confirmation_sent: '确认邮件已发送到您的新邮箱，请按指令完成操作',
         email_invalid: '邮箱地址未验证',

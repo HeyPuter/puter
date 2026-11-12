@@ -92,7 +92,6 @@ const hu = {
         dont_allow: 'Nem engedélyez',
         download: 'Letöltés',
         download_file: 'Fájl letöltése',
-        downloading: 'Letöltés',
         email: 'Email',
         email_change_confirmation_sent: 'Megerősítő emailt küldtünk az új email címedre. Kérlek, ellenőrizd a postaládádat és kövesd az utasításokat a folyamat befejezéséhez.',
         email_invalid: 'Érvénytelen email cím.',

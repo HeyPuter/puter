@@ -26,7 +26,6 @@ import UIWindow from './UIWindow.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIAuthLogin from './Auth/UIAuthLogin.js';
 
-import UIWindowProgress from './UIWindowProgress.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
 import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers/pathElements.js';
@@ -1421,119 +1420,6 @@ async function UIDesktop (options) {
     //--------------------------------------------------------------------------------------
     if ( window.url_query_params.has(SHARED_PATH_PARAM) ) {
         await handle_shared_link(window.url_query_params.get(SHARED_PATH_PARAM));
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Direct download link
-    // i.e. https://puter.com/?download=<file_url> or https://puter.com/desktop?download=<file_url>
-    //--------------------------------------------------------------------------------------
-    const is_bare_desktop_path = window.url_paths.length === 0
-        || (window.url_paths.length === 1 && window.url_paths[0]?.toLocaleLowerCase() === 'desktop');
-    if ( is_bare_desktop_path && window.url_query_params.has('download') ) {
-        const url = window.url_query_params.get('download');
-        let file_name = url.split('/').pop().split('?')[0];
-
-        let response = await UIAlert({
-            message: i18n('confirm_download_file_to_desktop', file_name),
-            type: 'confirm',
-            buttons: [
-                { label: i18n('alert_yes'), value: true, type: 'primary' },
-                { label: i18n('alert_no'), value: false, type: 'secondary' },
-            ],
-        });
-
-        if ( ! response )
-        {
-            return;
-        }
-
-        let cancelled = false;
-        let upload_xhr = null;
-        const abort_controller = new AbortController();
-
-        // create progressbar dialog
-        let progwin = await UIWindowProgress({
-            title: i18n('downloading'),
-            icon: window.icons['app-icon-uploader.svg'],
-            operation_id: window.uuidv4(),
-            show_progress: true,
-            on_cancel: () => {
-                cancelled = true;
-                abort_controller.abort();
-                if ( upload_xhr ) {
-                    upload_xhr.abort();
-                }
-            },
-        });
-        progwin?.set_status(i18n('downloading_file', file_name));
-
-        (async () => {
-            try {
-                // download the file
-                const response = await puter.net.fetch(url, {
-                    signal: abort_controller.signal,
-                });
-
-                const total = Number(response.headers.get('content-length'));
-                const reader = response.body.getReader();
-
-                const chunks = [];
-                let received = 0;
-
-                while ( true ) {
-                    const { done, value } = await reader.read();
-                    if ( done || cancelled ) break;
-
-                    if ( value ) {
-                        // store the chunk
-                        chunks.push(value);
-                        received += value.length;
-                        // calculate progress
-                        const progress = Number.isFinite(total) && total > 0
-                            ? received / total
-                            : 0;
-                        // update progressbar
-                        progwin?.set_progress(Math.floor(progress * 100));
-                    }
-                }
-
-                if ( cancelled ) {
-                    progwin?.close();
-                    return;
-                }
-
-                // combine chunks into a blob
-                let blob = new Blob(chunks, {
-                    type: response.headers.get('content-type') ?? 'application/octet-stream',
-                });
-
-                // reset progressbar
-                progwin?.set_progress(0);
-                progwin?.set_status(i18n('uploading_file', file_name));
-
-                // upload to user's desktop
-                await puter.fs.write(`~/Desktop/${file_name}`, blob, {
-                    dedupeName: true,
-                    progress: (_, percent) => {
-                        // update progressbar
-                        progwin?.set_progress(percent);
-                    },
-                    init: (_, xhr) => {
-                        upload_xhr = xhr;
-                    },
-                });
-            } catch (e) {
-                // alert the user if there's a genuine error
-                if ( !cancelled && e.name !== 'AbortError' ) {
-                    await UIAlert({
-                        message: `${i18n('error_download_failed') }: ${ e.message}`,
-                        type: 'error',
-                    });
-                }
-            }
-            // close progress window
-            progwin?.close();
-        })();
     }
 }
 

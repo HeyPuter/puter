@@ -91,7 +91,6 @@ const de = {
         dont_allow: 'Nicht erlauben',
         download: 'Herunterladen',
         download_file: 'Datei herunterladen',
-        downloading: 'Lädt herunter',
         email: 'E-Mail',
         email_change_confirmation_sent: 'Eine Bestätigungs-E-Mail wurde an Ihre neue E-Mail-Adresse gesendet. Bitte überprüfen Sie Ihren Posteingang und folgen Sie den Anweisungen, um den Vorgang abzuschließen.',
         email_invalid: 'E-Mail ist ungültig.',

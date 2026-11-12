@@ -101,7 +101,6 @@ const it = {
         dont_allow: 'Non consentire',
         download: 'Scarica',
         download_file: 'Scarica file',
-        downloading: 'Download in corso',
         email: 'Email',
         email_change_confirmation_sent:
       "Ti abbiamo inviato un'email di conferma. Controlla la tua casella di posta e segui le istruzioni per completare il processo.",

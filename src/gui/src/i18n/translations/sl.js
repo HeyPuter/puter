@@ -96,7 +96,6 @@ const sl = {
         dont_allow: 'Ne dovoli',
         download: 'Prenos',
         download_file: 'Prenesi datoteko',
-        downloading: 'Prenašanje',
         email: 'E-pošta',
         email_change_confirmation_sent: 'Potrditveno e-poštno sporočilo je bilo poslano na vaš novi e-poštni naslov. Preverite svoj poštni predal in sledite navodilom za dokončanje postopka.',
         email_invalid: 'E-pošta ni veljavna.',

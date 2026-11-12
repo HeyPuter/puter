@@ -92,7 +92,6 @@ const sv = {
         dont_allow: 'Tillåt inte',
         download: 'Ladda ner',
         download_file: 'Ladda ner fil',
-        downloading: 'Laddar ner',
         email: 'E-post',
         email_change_confirmation_sent: 'Ett bekräftelsemail har skickats till din nya e-postadress. Var god kontrollera inkorgen och följ instruktionerna för att fullfölja processen.',
         email_invalid: 'Adressen är ogiltig.',

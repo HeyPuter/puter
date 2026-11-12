@@ -97,7 +97,6 @@ const fil = {
         dont_allow: 'Huwag payagan',
         download: 'I-download',
         download_file: 'I-download ang file',
-        downloading: 'Dina-download',
         email: 'Email',
         email_change_confirmation_sent:
       'Napadala na ang confirmation email sa bago mong email. Buksan ang inbox at sundin ang mga hakbang para matapos ang proseso.',

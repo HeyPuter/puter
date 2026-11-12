@@ -92,7 +92,6 @@ const da = {
         dont_allow: 'Tillad ikke',
         download: 'Download',
         download_file: 'Download fil',
-        downloading: 'Downloader',
         email: 'E-mail',
         email_change_confirmation_sent: 'En bekræftelses-e-mail er sendt til din nye e-mailadresse. Kontroller din indbakke og følg instruktionerne for at fuldføre processen.',
         email_invalid: 'E-mail er ugyldig.',

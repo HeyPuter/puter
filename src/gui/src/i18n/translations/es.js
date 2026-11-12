@@ -108,7 +108,6 @@ const es = {
         dont_allow: 'No permitir',
         download: 'Descargar',
         download_file: 'Descargar archivo',
-        downloading: 'Descargando',
         email: 'Correo electrónico',
         email_change_confirmation_sent:
       'Se ha enviado un mensaje de confirmación a tu nueva dirección de correo electrónico. Por favor, revisa tu bandeja de entrada y sigue las instrucciónes para completar el proceso.',

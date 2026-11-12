@@ -121,7 +121,6 @@ const fi = {
         dont_allow: 'Älä salli',
         download: 'Lataa',
         download_file: 'Lataa tiedosto',
-        downloading: 'Ladataan',
         email: 'Sähköpostiosoite',
         email_change_confirmation_sent:
       'Vahvistusviesti on lähetetty uuteen sähköpostiosoitteeseesi. Tarkista postilaatikkosi ja viimeistele prosessi seuraamalla ohjeita.',

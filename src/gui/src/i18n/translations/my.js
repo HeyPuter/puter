@@ -112,7 +112,6 @@ const my = {
         dont_allow: 'Tidak Izinkan',
         download: 'Muat Naik',
         download_file: 'Muat Naik Fail',
-        downloading: 'Memuat Naik',
         email: 'Emel',
         email_change_confirmation_sent:
       'Emel pengesahan telah dihantar ke alamat emel baharu anda. Sila semak peti emel anda dan ikut arahan terbabit bagi menyelesaikan proses ini.',

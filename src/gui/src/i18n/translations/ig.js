@@ -100,7 +100,6 @@ const ig = {
         dont_allow: 'Ekwela',
         download: 'Budata',
         download_file: 'Budata faịlụ',
-        downloading: 'Nbudata',
         email: 'Email',
         email_change_confirmation_sent:
       'ezipula email nkwenye na adreesị ozi-e ọhụrụ gị. Biko lelee igbe mbata gị ma soro ntuziaka ka ịmechaa usoro ahụ.',

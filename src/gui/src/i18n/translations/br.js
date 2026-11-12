@@ -92,7 +92,6 @@ const br = {
         dont_allow: 'Não Permitir',
         download: 'Baixar',
         download_file: 'Baixar Arquivo',
-        downloading: 'Baixando',
         email: 'Email',
         email_change_confirmation_sent: 'Um e-mail de confirmação foi enviado para seu novo endereço de e-mail. Por favor, verifique sua caixa de entrada e siga as instruções para concluir o processo.',
         email_invalid: 'Email inválido.',

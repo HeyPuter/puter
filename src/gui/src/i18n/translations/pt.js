@@ -93,7 +93,6 @@ const pt = {
         dont_allow: 'Não Permitir',
         download: 'Descarregar',
         download_file: 'Descarregar Ficheiro',
-        downloading: 'Fazendo a descarga',
         email: 'Email',
         email_change_confirmation_sent: 'Um email de confirmação foi enviado para o teu novo endereço de email. Por favor, verifique a sua caixa de entrada e siga as instruções para completar o processo.',
         email_invalid: 'O Email que providenciou é invalido.',

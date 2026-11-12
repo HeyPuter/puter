@@ -101,7 +101,6 @@ const nb = {
         dont_allow: 'Ikke tillat',
         download: 'Last ned',
         download_file: 'Last ned fil',
-        downloading: 'Laster ned',
         email: 'E-post',
         email_change_confirmation_sent: 'En bekreftelses-e-post har blitt sendt til din nye e-postadresse. Sjekk innboksen din og følg instruksjonene for å fullføre prosessen.',
         email_invalid: 'Ugyldig e-postadresse.',

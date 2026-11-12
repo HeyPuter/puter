@@ -121,6 +121,7 @@ import {
     runsUserAppTokenExchange,
 } from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
+import { bootsDashboard } from './helpers/bootsDashboard.js';
 
 /**
  * A share email names the account it went to. When another account is open,
@@ -1266,8 +1267,8 @@ if (jQuery) {
 // `/desktop/app/<name>` doesn't match the dashboard paths below, so it falls
 // through to the desktop.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
-// (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
-// fullpage mode (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
+// (`?embedded_in_popup=`), app deep links (`?app=`), fullpage mode
+// (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
 // from an email) lands in the dashboard: Files, on Shared, with the items it names
 // picked out; `/desktop?shared=` opens the item on the desktop instead. App metadata
 // like fullpage_on_landing does NOT opt a landing out of the dashboard; it only
@@ -1288,16 +1289,12 @@ if (jQuery) {
     };
     // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
     const in_iframe = window.location !== window.parent.location;
-    const needs_desktop_at_root =
-        window.embedded_in_popup ||
-        in_iframe ||
-        search_params.has('puter.fullpage') ||
-        search_params.has('app') ||
-        search_params.has('download');
-    const is_dashboard_alias =
-        pathname === '/dashboard' || pathname === '/dashboard/';
-    const is_app_landing = /^\/app\/[^/]+\/?$/.test(pathname);
-    if (is_dashboard_alias || ((pathname === '/' || is_app_landing) && !needs_desktop_at_root)) {
+    if (bootsDashboard({
+        pathname,
+        searchParams: search_params,
+        inIframe: in_iframe,
+        embeddedInPopup: !!window.embedded_in_popup,
+    })) {
         window.is_dashboard_mode = true;
         window.dashboard_initial_route = parseDashboardRoute();
         // A share link outranks the hash: Files, on Shared, with what it names

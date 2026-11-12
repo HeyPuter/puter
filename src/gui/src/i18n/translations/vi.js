@@ -92,7 +92,6 @@ const vi = {
         dont_allow: 'Không cho phép',
         download: 'Tải xuống',
         download_file: 'Tải xuống tệp',
-        downloading: 'Đang tải xuống',
         email: 'Email',
         email_change_confirmation_sent: 'Một email xác nhận đã được gửi đến địa chỉ email mới của bạn. Vui lòng kiểm tra hộp thư đến và làm theo hướng dẫn để hoàn tất quy trình.',
         email_invalid: 'Email không hợp lệ.',

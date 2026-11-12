@@ -55,7 +55,6 @@ const emoji = {
         desktop_background_fit: '🖥️🖼️',
         download: '⬇️',
         download_file: '⬇️📄',
-        downloading: '⬇️➡️',
         email: '📧',
         email_or_username: '📧👤',
         empty_trash: '🗑️🆓',

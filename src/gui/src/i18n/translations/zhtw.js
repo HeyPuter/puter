@@ -110,7 +110,6 @@ const zhtw = {
         dont_allow: '不允許',
         download: '下載',
         download_file: '下載檔案',
-        downloading: '正在下載',
         email: '電子郵件',
         email_change_confirmation_sent: '確認電子郵件已發送到您的新電子郵件地址。請查看您的收件匣並按照指示完成此過程。',
         email_invalid: '電子郵件無效。',
@@ -419,15 +418,11 @@ const zhtw = {
         'window_title_pictures': "圖片", // In English: "Pictures"
         'window_title_puter': "Puter", // In English: "Puter"
         'window_folder_empty': "此資料夾是空的", // In English: "This folder is empty"
-		'confirm_download_file_to_desktop': "您確定要將 %% 下載到您的桌面嗎？", // In English: "Are you sure you want to download %% to your Desktop?"
-        'downloading_file': "正在下載 %%", // In English: "Downloading %%"
-        'error_download_failed': "下載檔案失敗", // In English: "Failed to download file"
         'Resources': "資源", // In English: "Resources"
         'Storage': "儲存空間", // In English: "Storage"
         'untar': "解壓縮 Tar", // In English: "Untar"
         'untarring': "正在解壓縮 %strong%", // In English: "Untarring %strong%"
         'uploading': "正在上傳", // In English: "Uploading"
-        'uploading_file': "正在上傳 %%", // In English: "Uploading %%"
         'tar': "Tar 壓縮", // In English: "Tar"
         'download_as_tar': "下載為 Tar", // In English: "Download as Tar"
         'tarring': "正在建立 Tar 壓縮檔 %strong%", // In English: "Tarring %strong%"

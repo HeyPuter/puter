@@ -92,7 +92,6 @@ const pl = {
         dont_allow: 'Nie pozwalaj',
         download: 'Pobierz',
         download_file: 'Pobierz plik',
-        downloading: 'Pobieranie',
         email: 'Email',
         email_change_confirmation_sent: 'Email z potwierdzeniem został wysłany na twój adres. Sprawdź swoją skrzynkę mailową i wykonaj przesłane instrukcje aby zakończyć proces.',
         email_invalid: 'Email jest nieprawidłowy.',

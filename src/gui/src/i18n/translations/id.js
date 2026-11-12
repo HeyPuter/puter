@@ -99,7 +99,6 @@ const id = {
         dont_allow: 'Jangan Izinkan',
         download: 'Unduh',
         download_file: 'Unduh File',
-        downloading: 'Mengunduh',
         email: 'Email',
         email_change_confirmation_sent:
       'Email konfirmasi telah dikirim ke alamat email baru Anda. Silakan periksa kotak masuk Anda dan ikuti petunjuk untuk menyelesaikan prosesnya.',

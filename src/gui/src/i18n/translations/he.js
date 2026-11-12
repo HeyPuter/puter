@@ -98,7 +98,6 @@ const he = {
         dont_allow: 'אל תאפשר',
         download: 'הורדה',
         download_file: 'הורדת קובץ',
-        downloading: 'מוריד',
         email: 'אימייל',
         email_change_confirmation_sent:
       'אימייל אישור נשלח לכתובת האימייל החדשה שלך. אנא בדוק את תיבת הדואר הנכנס ופעל לפי ההוראות להשלמת התהליך.',

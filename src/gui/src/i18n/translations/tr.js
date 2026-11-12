@@ -91,7 +91,6 @@ const tr = {
         dont_allow: 'İzin Verme',
         download: 'İndir',
         download_file: 'Dosyayı İndir',
-        downloading: 'İndiriliyor',
         email: 'E-posta',
         email_change_confirmation_sent: 'Yeni e-posta adresinize bir onay e-postası gönderilmiştir. Lütfen gelen kutunuzu kontrol edin ve işlemi tamamlamak için talimatları takip edin.',
         email_invalid: 'Geçersiz E-Posta',

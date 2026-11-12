@@ -92,7 +92,6 @@ const ja = {
         dont_allow: '許可しない',
         download: 'ダウンロード',
         download_file: 'ファイルをダウンロード',
-        downloading: 'ダウンロード中',
         email: 'メール',
         email_change_confirmation_sent: '確認メールが新しいメールアドレスに送信されました。受信トレイを確認し、指示に従って手続きを完了してください。',
         email_invalid: 'メールアドレスが無効です。',

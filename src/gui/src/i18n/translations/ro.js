@@ -93,7 +93,6 @@ const ro = {
         dont_allow: 'Nu permiteți',
         download: 'Descarcă',
         download_file: 'Descarcă fișier',
-        downloading: 'Se descarcă',
         email: 'E-mail',
         email_change_confirmation_sent: 'Un e-mail de confirmare a fost trimis către noua dumneavoastră adresă de e-mail. Vă rugăm să verificați ©ăsuța și să urmați intrucțiunile pentru a finaliza procesul.',
         email_invalid: 'E-mailul este invalid.',

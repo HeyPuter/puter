@@ -92,7 +92,6 @@ const nl = {
         dont_allow: 'Niet Toestaan',
         download: 'Downloaden',
         download_file: 'Bestand Downloaden',
-        downloading: 'Downloaden',
         email: 'E-mail',
         email_change_confirmation_sent: 'Er is een bevestigingsmail gestuurd naar uw nieuwe e-mailadres. Controleer uw inbox en volg de instructies om het proces te voltooien.',
         email_invalid: 'E-mail is ongeldig.',
