@@ -29,7 +29,8 @@ export const BUILTIN_PREFIX = 'https://builtins.namespaces.puter.com/';
 // this before posting a message an older GUI has no handler for: such a
 // message is never replied to, and a reply timeout can't stand in for the
 // check because legitimate replies only arrive when the user closes the dialog.
-const GUI_FEATURES = 'feedback-dialog,enable-push,custom-domains,push-status,disable-push';
+// `push-permission`: `requestPermission` settles a held push grant itself.
+const GUI_FEATURES = 'feedback-dialog,enable-push,custom-domains,push-status,disable-push,push-permission';
 
 /**
  * Where an app was launched from, sent to the app as `utm_campaign` so its

@@ -2246,8 +2246,8 @@ export class UIModule extends EventListener {
             || requested.some(p => typeof p !== 'string' || p === '') ) {
             return false;
         }
-        // The desktop answers push itself: it tells a website's own grant apart.
-        if ( this.env === 'app' && requested.includes(PUSH_NOTIFICATIONS_PERMISSION) ) return false;
+        // A desktop that says so answers push itself: it tells a website's own grant apart.
+        if ( this.desktopAnswersPush_() && requested.includes(PUSH_NOTIFICATIONS_PERMISSION) ) return false;
         let expiry;
         try {
             const held = await Promise.race([
@@ -2275,7 +2275,9 @@ export class UIModule extends EventListener {
      * One prompt may cover several scopes: pass `permissions` instead of
      * `permission` and the user answers for the whole list at once.
      *
-     * Access already granted resolves `true` without prompting, except push inside the desktop, which the desktop decides.
+     * Access already granted resolves `true` without prompting. The exception
+     * is `notifications:push` inside a Puter desktop that answers push requests
+     * itself: there, a grant held only from the app's own website is asked for.
      *
      * @param {{ permission?: string, permissions?: string[], create?: boolean | 'dir' | 'file' }} options
      *   `create`: for an `fs:` permission naming a path that doesn't exist,
@@ -2855,9 +2857,14 @@ export class UIModule extends EventListener {
         }
     }
 
-    /** Whether the host GUI lists this IPC dialog in `puter.gui_features` on the app iframe's URL (see launchApp.js); a GUI without the handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */
+    /** Whether the host GUI lists this feature in `puter.gui_features` on the app iframe's URL (see appLaunchUrl.js); a GUI without a dialog's handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */
     #guiOffers (feature) {
         return this.#guiFeatures.includes(feature);
+    }
+
+    /** Whether the host desktop settles a held `notifications:push` itself; one that doesn't say so would prompt for it. @internal @returns {boolean} */
+    desktopAnswersPush_ () {
+        return this.env === 'app' && this.#guiOffers('push-permission');
     }
 
     /** Backs `puter.notifications.status()` inside the desktop: this browser's push state for this app, or null from a desktop that can't answer. @internal @returns {Promise<string | null>} */

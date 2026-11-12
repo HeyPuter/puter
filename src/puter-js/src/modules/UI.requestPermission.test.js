@@ -19,15 +19,17 @@ const held = (permissions = {}) => {
 
 const postMessage = vi.fn();
 
-/** A UI module in one environment, with the GUI it posts to stubbed. */
-const makeUI = ({ env = 'app', authToken = 'token-1' } = {}) =>
-    new UIModule({
+/** A UI module in one environment, with the GUI it posts to stubbed; `features` is what a desktop lists in `puter.gui_features`. */
+const makeUI = ({ env = 'app', authToken = 'token-1', features } = {}) => {
+    if ( features !== undefined ) globalThis.location = { search: `?puter.gui_features=${features}` };
+    return new UIModule({
         env,
         authToken,
         APIOrigin: 'https://api.test',
         appID: 'app-1',
         util: {},
     }, { appInstanceID: 'instance-1' });
+};
 
 /** The messages sent to the GUI, ignoring the constructor's READY. */
 const promptCalls = () =>
@@ -42,6 +44,7 @@ beforeEach(() => {
 
 afterEach(() => {
     delete globalThis.window;
+    delete globalThis.location;
 });
 
 describe('ui.requestPermission on access that is already held', () => {
@@ -81,14 +84,40 @@ describe('ui.requestPermission on access that is already held', () => {
 });
 
 describe('ui.requestPermission for push inside the desktop', () => {
-    it('leaves a held push grant to the desktop, which can tell a website`s own grant apart', async () => {
+    it('leaves a held push grant to a desktop that answers push itself', async () => {
         held({ 'notifications:push': true });
-        const ui = makeUI();
+        const ui = makeUI({ features: 'push-status,push-permission' });
 
         ui.requestPermission({ permission: 'notifications:push' });
 
         await vi.waitFor(() => expect(promptCalls()).toHaveLength(1));
         expect(mockReq).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['lists other features only', 'enable-push,push-status,disable-push'],
+        ['lists no features', undefined],
+    ])('settles a held push grant itself when the desktop %s', async (_label, features) => {
+        held({ 'notifications:push': true });
+        const ui = makeUI({ features });
+
+        await expect(ui.requestPermission({ permission: 'notifications:push' })).resolves.toBe(true);
+        expect(promptCalls()).toHaveLength(0);
+    });
+
+    it('asks such a desktop for a push grant the app does not hold', async () => {
+        const ui = makeUI({ features: 'push-status' });
+
+        ui.requestPermission({ permission: 'notifications:push' });
+
+        await vi.waitFor(() => expect(promptCalls()).toHaveLength(1));
+    });
+
+    it('ignores the feature list on a website', async () => {
+        held({ 'notifications:push': true });
+        const ui = makeUI({ env: 'web', features: 'push-permission' });
+
+        await expect(ui.requestPermission({ permission: 'notifications:push' })).resolves.toBe(true);
     });
 
     it('still settles a held push grant on a website without a popup', async () => {

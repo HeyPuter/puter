@@ -115,12 +115,12 @@ const permissionsOf = (details) => {
  *   to `resolve`.
  */
 
-// The desktop answers push requests: it tells a website's own grant apart.
+// A desktop that says so answers push requests: it tells a website's own grant apart.
 /** @param {PermsQuery} query @returns {boolean} */
 const leftToDesktop = ({ ctx, permissions, prompt }) =>
     prompt &&
-    ctx.puter.env === 'app' &&
-    permissions.includes(PUSH_NOTIFICATIONS_PERMISSION);
+    permissions.includes(PUSH_NOTIFICATIONS_PERMISSION) &&
+    ctx.puter.ui.desktopAnswersPush_();
 
 /**
  * Per resource: the permission strings it needs (`permissions`, which also
