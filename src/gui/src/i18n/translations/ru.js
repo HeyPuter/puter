@@ -34,6 +34,7 @@ const ru = {
         auto_arrange: 'Автоупорядочивание',
         cancel: 'Отмена',
         change_email: 'Изменить электронную почту',
+        change_language: 'Изменить язык',
         change_password: 'Изменить пароль',
         change_username: 'Изменить имя пользователя',
         close: 'Закрыть',

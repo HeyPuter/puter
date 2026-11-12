@@ -34,6 +34,7 @@ const it = {
         auto_arrange: 'Organizzazione automatica',
         cancel: 'Annulla',
         change_email: 'Modifica Email',
+        change_language: 'Cambia lingua',
         change_password: 'Modifica password',
         change_username: 'Modifica Nome Utente',
         close: 'Chiudi',

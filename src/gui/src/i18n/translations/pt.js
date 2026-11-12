@@ -35,6 +35,7 @@ const pt = {
         cancel: 'Cancelar',
         change: 'Alterar',
         change_email: 'Alterar e-mail',
+        change_language: 'Alterar Idioma',
         change_password: 'Alterar Senha',
         change_username: 'Alterar Nome de Utilizador',
         close: 'Fechar',

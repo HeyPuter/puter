@@ -34,6 +34,7 @@ const ja = {
         auto_arrange: '自動配置',
         cancel: 'キャンセル',
         change_email: 'メールアドレスを変更',
+        change_language: '言語を変更',
         change_password: 'パスワードを変更',
         change_username: 'ユーザー名を変更',
         close: '閉じる',

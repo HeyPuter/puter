@@ -41,6 +41,7 @@ const nb = {
         change: 'Endre',
         change_always_open_with: 'Vil du alltid åpne denne filtypen med',
         change_email: 'Endre e-post',
+        change_language: 'Endre språk',
         change_password: 'Endre passord',
         change_username: 'Endre brukernavn',
         close: 'Lukk',

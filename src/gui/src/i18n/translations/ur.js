@@ -32,6 +32,7 @@ const ur = {
         auto_arrange: 'خودکار ترتیب',
         cancel: 'منسوخ کریں',
         change_email: 'ای میل تبدیل کریں',
+        change_language: 'زبان تبدیل کریں',
         change_password: 'پاس ورڈ تبدیل کریں',
         change_username: 'صارف کا نام تبدیل کریں',
         close: 'بند کریں',

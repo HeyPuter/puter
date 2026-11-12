@@ -34,6 +34,7 @@ const da = {
         auto_arrange: 'Auto Arrangere',
         cancel: 'Annuller',
         change_email: 'Ændre e-mail',
+        change_language: 'Ændre sprog',
         change_password: 'Ændre adgangskode',
         change_username: 'Ændre brugernavn',
         close: 'Luk',

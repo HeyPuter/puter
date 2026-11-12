@@ -34,6 +34,7 @@ const hi = {
         auto_arrange: 'स्वचालित व्यवस्तित',
         cancel: 'रद्द',
         change_email: 'ई - मेल बदले',
+        change_language: 'भाषा बदलें',
         change_password: 'पासवर्ड बदलें',
         change_username: 'उपयोगकर्ता नाम बदलें',
         close: 'बंद ',

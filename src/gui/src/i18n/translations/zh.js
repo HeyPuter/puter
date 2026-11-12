@@ -34,6 +34,7 @@ const zh = {
         auto_arrange: '自动排序',
         cancel: '取消',
         change_email: '更改邮箱',
+        change_language: '更改语言',
         change_password: '更改密码',
         change_username: '更改用户名',
         close: '关闭',

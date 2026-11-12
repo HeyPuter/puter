@@ -42,6 +42,7 @@ const my = {
         cancel: 'Batal',
         change: 'Ubah',
         change_email: 'Tukar Emel',
+        change_language: 'Tukar Bahasa',
         change_password: 'Tukar Kata Laluan',
         change_username: 'Tukar Nama Pengguna',
         close: 'Tutup',

@@ -28,6 +28,7 @@ const emoji = {
         ascending: '🔼',
         auto_arrange: '🔄📂📄',
         cancel: '❌',
+        change_language: '🔄🌐',
         change_password: '🔑🔄',
         change_username: '👤🔄',
         close_all_windows: '🖼️❌🖼️',

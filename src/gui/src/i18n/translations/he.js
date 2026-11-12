@@ -34,6 +34,7 @@ const he = {
         auto_arrange: 'סידור אוטומטי',
         cancel: 'ביטול',
         change_email: 'שינוי כתובת אימייל',
+        change_language: 'החלפת שפה',
         change_password: 'שינוי סיסמה',
         change_username: 'שינוי שם משתמש',
         close: 'סגירה',

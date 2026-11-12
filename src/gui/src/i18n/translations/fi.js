@@ -40,6 +40,7 @@ const fi = {
         auto_arrange: 'Järjestä automaattisesti',
         cancel: 'Peruuta',
         change_email: 'Vaihda sähköpostiosoite',
+        change_language: 'Vaihda kieli',
         change_password: 'Vaihda salasana',
         change_username: 'Vaihda käyttäjänimi',
         close: 'Sulje',

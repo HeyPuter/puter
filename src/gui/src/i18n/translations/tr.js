@@ -34,6 +34,7 @@ const tr = {
         auto_arrange: 'Otomatik Düzenle',
         cancel: 'İptal',
         change_email: 'E-postayı Değiştir',
+        change_language: 'Dili Değiştir',
         change_password: 'Parolayı Değiştir',
         change_username: 'Kullanıcı Adını Değiştir',
         close: 'Kapat',

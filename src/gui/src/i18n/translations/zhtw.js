@@ -52,6 +52,7 @@ const zhtw = {
         auto_arrange: '自動排列',
         cancel: '取消',
         change_email: '更改電子郵件',
+        change_language: '更改語言',
         change_password: '更改密碼',
         change_username: '更改使用者名稱',
         close: '關閉',

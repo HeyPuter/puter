@@ -34,6 +34,7 @@ const th = {
         auto_arrange: 'จัดเรียงอัตโนมัติ',
         cancel: 'ยกเลิก',
         change_email: 'เปลี่ยนอีเมล',
+        change_language: 'เปลี่ยนภาษา',
         change_password: 'เปลี่ยนรหัสผ่าน',
         change_username: 'เปลี่ยนชื่อผู้ใช้',
         close: 'ปิด',

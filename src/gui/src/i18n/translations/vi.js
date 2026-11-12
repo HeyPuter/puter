@@ -34,6 +34,7 @@ const vi = {
         auto_arrange: 'Tự động sắp xếp',
         cancel: 'Hủy',
         change_email: 'Thay đổi email',
+        change_language: 'Thay đổi ngôn ngữ',
         change_password: 'Thay đổi mật khẩu',
         change_username: 'Thay đổi tên người dùng',
         close: 'Đóng',

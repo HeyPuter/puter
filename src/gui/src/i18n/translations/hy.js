@@ -34,6 +34,7 @@ const hy = {
         auto_arrange: 'Ավտոմատ դասավորել',
         cancel: 'Չեղարկել',
         change_email: 'Փոխել էլ. փոստը',
+        change_language: 'Փոխել լեզուն',
         change_password: 'Փոխել գաղտնաբառը',
         change_username: 'Փոխել օգտանունը',
         close: 'Փակել',

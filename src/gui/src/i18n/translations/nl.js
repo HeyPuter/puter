@@ -34,6 +34,7 @@ const nl = {
         auto_arrange: 'Automatisch sorteren',
         cancel: 'Annuleren',
         change_email: 'E-mail Wijzigen',
+        change_language: 'Taal veranderen',
         change_password: 'Wachtwoord veranderen',
         change_username: 'Gebruikersnaam veranderen',
         close: 'Sluiten',

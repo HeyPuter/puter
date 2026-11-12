@@ -34,6 +34,7 @@ const id = {
         auto_arrange: 'Atur Otomatis',
         cancel: 'Batal',
         change_email: 'Ubah Email',
+        change_language: 'Ubah Bahasa',
         change_password: 'Ubah Kata Sandi',
         change_username: 'Ubah Nama Pengguna',
         close: 'Tutup',

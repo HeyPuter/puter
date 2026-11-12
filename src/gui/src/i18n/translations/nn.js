@@ -27,6 +27,7 @@ const nn = {
         all_fields_required: 'Alle felt er obligatoriske.',
         ascending: 'Stigande',
         cancel: 'Avbryt',
+        change_language: 'Endre språk',
         change_password: 'Endre passord',
         change_username: 'Endre brukarnamn',
         close_all_windows: 'Lukk alle vindauge',

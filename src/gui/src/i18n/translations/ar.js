@@ -34,6 +34,7 @@ const ar = {
         auto_arrange: 'ترتيب تلقائي',
         cancel: 'إلغاء',
         change_email: 'تغيير البريد الإلكتروني',
+        change_language: 'تغيير اللغة',
         change_password: 'تغيير كلمة المرور',
         change_username: 'تغيير اسم المستخدم',
         close: 'إغلاق',

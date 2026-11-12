@@ -34,6 +34,7 @@ const ta = {
         auto_arrange: 'ஆட்டோ ஏற்பாடு',
         cancel: 'ரத்து செய்',
         change_email: 'மின்னஞ்சலை மாற்றவும்',
+        change_language: 'மொழியை மாற்றவும்',
         change_password: 'கடவுச்சொல்லை மாற்றவும்',
         change_username: 'பயனர் பெயரை மாற்றவும்',
         close: 'மூடு',

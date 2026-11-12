@@ -34,6 +34,7 @@ const ko = {
         auto_arrange: '자동 정렬',
         cancel: '취소',
         change_email: '이메일 변경',
+        change_language: '언어 변경',
         change_password: '비밀번호 변경',
         change_username: '사용자 이름 변경',
         close: '닫기',

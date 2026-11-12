@@ -41,6 +41,7 @@ const es = {
         auto_arrange: 'Organización Automática',
         cancel: 'Cancelar',
         change_email: 'Cambiar Correo Electrónico',
+        change_language: 'Cambiar Idioma',
         change_password: 'Cambiar Contraseña',
         change_username: 'Cambiar Nombre de Usuario',
         close: 'Cerrar',

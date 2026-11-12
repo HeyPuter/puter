@@ -35,6 +35,7 @@ const ua = {
         cancel: 'Відміна',
         change: 'Змінити',
         change_email: 'Змінити Email',
+        change_language: 'Змінити Мову',
         change_password: 'Змінити Пароль',
         change_username: "Змінити Ім\'я Користувача",
         close: 'Закрити',

@@ -34,6 +34,7 @@ const ig = {
         auto_arrange: 'ndokwa onwe',
         cancel: 'Kagbuo',
         change_email: 'ịgbanwe email',
+        change_language: 'ịgbanwe Asụsụ',
         change_password: 'ịgbanwe paswọọdụ',
         change_username: 'ịgbanwe aha njirimara',
         close: 'mmechi',

@@ -64,6 +64,7 @@ const cs = {
         "app_feedback_sent": "Zpětná vazba byla odeslána. Děkujeme!",
         "auto_arrange": "Automaticky uspořádat",
         "browser_version": "Verze prohlížeče",
+        "change_language": "Změnit jazyk",
         "captcha_required": "Dokončete prosím ověření CAPTCHA",
         "change_username": "Změnit uživatelské jméno",
         "change_password": "Změnit heslo",

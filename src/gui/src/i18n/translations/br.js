@@ -34,6 +34,7 @@ const br = {
         auto_arrange: 'Organizar Automaticamente',
         cancel: 'Cancelar',
         change_email: 'Mudar Email',
+        change_language: 'Mudar Idioma',
         change_password: 'Mudar Senha',
         change_username: 'Mudar Nome de Usuário',
         close: 'Fechar',

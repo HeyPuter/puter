@@ -34,6 +34,7 @@ const bn = {
         auto_arrange: 'অটো বিন্যাস',
         cancel: 'বাতিল করুন',
         change_email: 'ই-মেইল পরিবর্তন করুন',
+        change_language: 'ভাষা পরিবর্তন করুন',
         change_password: 'পাসওয়ার্ড পরিবর্তন করুন',
         change_username: 'ইউজারনেম পরিবর্তন করুন',
         close: 'বন্ধ করুন',

@@ -34,6 +34,7 @@ const de = {
         auto_arrange: 'Automatisch anordnen',
         cancel: 'Abbrechen',
         change_email: 'E-Mail ändern',
+        change_language: 'Sprache ändern',
         change_password: 'Passwort ändern',
         change_username: 'Benutzername ändern',
         close: 'Schließen',

@@ -34,6 +34,7 @@ const hu = {
         auto_arrange: 'Automatikus elrendezés',
         cancel: 'Mégsem',
         change_email: 'Email módosítása',
+        change_language: 'Nyelv módosítása',
         change_password: 'Jelszó módosítása',
         change_username: 'Felhasználónév módosítása',
         close: 'Bezár',

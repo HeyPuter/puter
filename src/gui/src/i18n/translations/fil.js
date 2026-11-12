@@ -34,6 +34,7 @@ const fil = {
         auto_arrange: 'Ayusin nang awtomatiko',
         cancel: 'Kanselahin',
         change_email: 'Baguhin ang email',
+        change_language: 'Baguhin ang wika',
         change_password: 'Baguhin ang password',
         change_username: 'Baguhin ang username',
         close: 'Isara',

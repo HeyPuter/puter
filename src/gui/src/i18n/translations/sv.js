@@ -34,6 +34,7 @@ const sv = {
         auto_arrange: 'Auto Arrange',
         cancel: 'Avbryt',
         change_email: 'Ändra e-postadress',
+        change_language: 'Ändra språk',
         change_password: 'Byt lösenord',
         change_username: 'Byt användarnamn',
         close: 'Stäng',

@@ -34,6 +34,7 @@ const ro = {
         auto_arrange: 'Aranjare automată',
         cancel: 'Anulează',
         change_email: 'Schimbă e-mailul',
+        change_language: 'Schimbă Limba',
         change_password: 'Schimbă Parola',
         change_username: 'Schimbă User-ul',
         close: 'Închide',
