@@ -54,6 +54,7 @@ const foldComparisons = (sql: string): string =>
             /\b(WHERE|AND) path = \?/g,
             '$1 mysql_fold(path) = mysql_fold(?)',
         )
+        .replace(/\bpath <> \?/g, 'mysql_fold(path) <> mysql_fold(?)')
         .replace(
             /\bpath IN \(([?, ]+)\)/g,
             (_match, list: string) =>
@@ -153,7 +154,7 @@ const engines: Engine[] = [
 
 describe.each(engines.filter((engine) => !engine.skip))(
     'names the database folds together ($label)',
-    ({ boot }) => {
+    ({ boot, label }) => {
         let server: PuterServer;
         let fs: FSService;
         let teardown: () => Promise<void>;
@@ -435,6 +436,20 @@ describe.each(engines.filter((engine) => !engine.skip))(
             expect(await fs.listDirectory(work.uuid)).toEqual([]);
         });
 
+        // Only MySQL's path collation folds kana; the emulation does not.
+        it.skipIf(label !== 'MySQL')(
+            'refuses a mkdir whose path only the path collation folds onto a sibling folder',
+            async () => {
+                const dir = await freshDir();
+                await fs.mkdir(userId, { path: `${dir}/あ` });
+                const error = await caught(() =>
+                    fs.mkdir(userId, { path: `${dir}/ア` }),
+                );
+                expect(error.statusCode).toBe(409);
+                expect(await names(dir)).toEqual(['あ']);
+            },
+        );
+
         it('still returns the existing folder for a case-only mkdir', async () => {
             const dir = await freshDir();
             const created = await fs.mkdir(userId, { path: `${dir}/Photos` });
@@ -616,6 +631,157 @@ describe.each(engines.filter((engine) => !engine.skip))(
             );
 
             expect(await storedPath(nested)).toBe(`${dir}/Pictures/2024/trip`);
+        });
+
+        // Older rows can store a `path` spelled differently from the names on
+        // their parent chain; the path collation still matches the real one.
+        const spellPathStale = async (dir: string, inFolder: boolean) => {
+            const stale: Array<[string, string]> = inFolder
+                ? [
+                      [`${dir}/Résumés`, `${dir}/Resumes`],
+                      [`${dir}/Résumés/a.txt`, `${dir}/Resumes/a.txt`],
+                  ]
+                : [[`${dir}/Résumé.txt`, `${dir}/Resume.txt`]];
+            for (const [real, spelled] of stale) {
+                const entry = (await at(real))!;
+                await server.clients.db.write(
+                    'UPDATE fsentries SET path = ? WHERE uuid = ?',
+                    [spelled, entry.uuid],
+                );
+            }
+            await server.clients.redis.flushall();
+        };
+
+        const withStalePath = async (inFolder: boolean) => {
+            const dir = await freshDir();
+            const real = inFolder
+                ? `${dir}/Résumés/a.txt`
+                : `${dir}/Résumé.txt`;
+            const file = await write(real, 'one', { createMissingParents: true });
+            await spellPathStale(dir, inFolder);
+            return { dir, real, file };
+        };
+
+        // Lets the listeners a write sets off finish their own reads first.
+        const settle = () => new Promise((resolve) => setTimeout(resolve, 200));
+
+        const countQueries = async <T>(run: () => Promise<T>) => {
+            await settle();
+            const db = server.clients.db as unknown as Record<
+                string,
+                (...args: unknown[]) => unknown
+            >;
+            const counts = { reads: 0, writes: 0 };
+            const originals = new Map<string, (...args: unknown[]) => unknown>();
+            for (const method of ['read', 'pread', 'tryHardRead', 'write']) {
+                const original = db[method]!;
+                originals.set(method, original);
+                db[method] = (...args: unknown[]) => {
+                    if (method === 'write') counts.writes++;
+                    else counts.reads++;
+                    return original.apply(db, args);
+                };
+            }
+            try {
+                return { result: await run(), ...counts };
+            } finally {
+                for (const [method, original] of originals) {
+                    db[method] = original;
+                }
+            }
+        };
+
+        describe.each([
+            ['its own name', false],
+            ['a parent folder', true],
+        ])('an entry whose stored path spells %s differently', (_label, inFolder) => {
+            it('is overwritten, touched and copied over by its real name', async () => {
+                const { dir, real, file } = await withStalePath(inFolder);
+                const replaced = await write(real, 'two', { overwrite: true });
+                expect(replaced.uuid).toBe(file.uuid);
+                expect(await readBack(replaced)).toBe('two');
+                expect(await storedPath(file)).toBe(real);
+
+                await spellPathStale(dir, inFolder);
+                const touched = await fs.touch(userId, { path: real });
+                expect(touched.uuid).toBe(file.uuid);
+
+                await spellPathStale(dir, inFolder);
+                const src = await freshDir();
+                const source = await write(
+                    `${src}/${real.split('/').pop()}`,
+                    'three',
+                );
+                const parent = (await at(real.slice(0, real.lastIndexOf('/'))))!;
+                const copied = await runWithContext({ actor }, () =>
+                    fs.copy(userId, {
+                        source,
+                        destinationParent: parent,
+                        overwrite: true,
+                    }),
+                );
+                expect(await readBack(copied)).toBe('three');
+                expect(await fs.listDirectory(parent.uuid)).toHaveLength(1);
+            });
+
+            it('heals on the first read; later reads take one query and write nothing', async () => {
+                const { real, file } = await withStalePath(inFolder);
+                const first = await countQueries(() =>
+                    server.stores.fsEntry.getEntryByPath(real),
+                );
+                expect(first.result?.uuid).toBe(file.uuid);
+                expect(first.result?.path).toBe(real);
+                expect(first.writes).toBe(inFolder ? 2 : 1);
+                expect(await storedPath(file)).toBe(real);
+
+                const cached = await countQueries(() =>
+                    server.stores.fsEntry.getEntryByPath(real),
+                );
+                expect(cached.result?.uuid).toBe(file.uuid);
+                expect(cached.reads + cached.writes).toBe(0);
+
+                await server.clients.redis.flushall();
+                const uncached = await countQueries(() =>
+                    server.stores.fsEntry.getEntryByPath(real),
+                );
+                expect(uncached.result?.uuid).toBe(file.uuid);
+                expect(uncached).toMatchObject({ reads: 1, writes: 0 });
+            });
+        });
+
+        it('reads either of two names only the path collation folds together without writing', async () => {
+            const dir = await freshDir();
+            const hiragana = await write(`${dir}/あ.txt`, 'hiragana');
+            const katakana = await write(`${dir}/ア.txt`, 'katakana');
+            for (const entry of [hiragana, katakana]) {
+                await server.clients.redis.flushall();
+                const read = await countQueries(() =>
+                    server.stores.fsEntry.getEntryByPath(entry.path),
+                );
+                expect(read.result?.uuid).toBe(entry.uuid);
+                expect(read.writes).toBe(0);
+                expect(read.reads).toBeLessThanOrEqual(3);
+            }
+        });
+
+        it('takes one query for a plain hit and two for a missing path, and none from the cache', async () => {
+            const dir = await freshDir();
+            const file = await write(`${dir}/plain.txt`, 'plain');
+            await server.clients.redis.flushall();
+            const hit = await countQueries(() =>
+                server.stores.fsEntry.getEntryByPath(file.path),
+            );
+            expect(hit.result?.uuid).toBe(file.uuid);
+            expect(hit).toMatchObject({ reads: 1, writes: 0 });
+            const cached = await countQueries(() =>
+                server.stores.fsEntry.getEntryByPath(file.path),
+            );
+            expect(cached).toMatchObject({ reads: 0, writes: 0 });
+            const missing = await countQueries(() =>
+                server.stores.fsEntry.getEntryByPath(`${dir}/missing.txt`),
+            );
+            expect(missing.result).toBeNull();
+            expect(missing).toMatchObject({ reads: 2, writes: 0 });
         });
     },
 );

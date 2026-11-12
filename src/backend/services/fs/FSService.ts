@@ -171,8 +171,12 @@ const foldedNameConflict = (name: string): HttpError =>
         { legacyCode: 'conflict' },
     );
 
-/** `occupant`, found at `path`, is a different name the database folded. */
+/**
+ * `occupant`, found at `path`, is a different name the database folded. The
+ * store resolves a stored path spelled otherwise through the parent chain.
+ */
 const holdsFoldedName = (occupant: FSEntry, path: string): boolean =>
+    !entryNamesMatch(occupant.name, pathPosix.basename(path)) ||
     !entryNamesMatch(occupant.path, path);
 
 /** `/<username>/AppData/<appUid>`: the directory an app's launch provisions. */
