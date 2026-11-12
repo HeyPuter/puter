@@ -18,33 +18,128 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { Actor } from '../../../core/actor.js';
 import { SYSTEM_ACTOR, makeActor } from '../../../core/actor.js';
 import { upstreamUserIdentifier } from './upstreamIdentifier.js';
 
+// Real production shapes: `user.uuid` is a UUID v4 (36 chars) and
+// `app.uid` is `app-<uuid v4>` (40 chars).
+const REAL_UUID = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d';
+const REAL_APP_UID = `app-${REAL_UUID}`;
+
 describe('upstreamUserIdentifier', () => {
-    const user = { id: 42, uuid: 'u-42', username: 'alice' };
+    const user = { id: 42, uuid: 'u42', username: 'alice' };
+    const appUid = 'app-abc';
 
-    it('names a plain user by stable uuid', () => {
-        expect(upstreamUserIdentifier(makeActor({ user }))).toBe('puter-u-42');
+    it('derives a non-sequential id from the user uuid', () => {
+        expect(upstreamUserIdentifier(makeActor({ user }))).toBe('puter-u42');
     });
 
-    it('appends the app an app-under-user actor carries', () => {
-        const actor = makeActor({ user, app: { uid: 'app-1', id: 7 } });
-        expect(upstreamUserIdentifier(actor)).toBe('puter-u-42-app-1');
+    it('attaches the app uid when makeActor derives effectiveApp', () => {
+        const actor = makeActor({ user, app: { uid: appUid } });
+        expect(actor.effectiveApp?.uid).toBe(appUid);
+        expect(upstreamUserIdentifier(actor)).toBe('puter-u42-app-abc');
     });
 
-    it('attributes an app-issued access token to the issuing app', () => {
-        const issuer = makeActor({ user, app: { uid: 'app-1', id: 7 } });
+    it('attaches the app through effectiveApp across an access token', () => {
         const token = makeActor({
             user,
-            accessToken: { uid: 'tok-1', issuer },
+            accessToken: {
+                uid: 'tok-1',
+                issuer: makeActor({ user, app: { uid: appUid } }),
+            },
         });
-        expect(upstreamUserIdentifier(token)).toBe('puter-u-42-app-1');
+        expect(upstreamUserIdentifier(token)).toBe('puter-u42-app-abc');
     });
 
-    it('is undefined when there is no user to name', () => {
-        expect(upstreamUserIdentifier(undefined)).toBeUndefined();
-        expect(upstreamUserIdentifier(null)).toBeUndefined();
+    it('omits the app suffix for an access token issued by a plain user', () => {
+        const token = makeActor({
+            user,
+            accessToken: { uid: 'tok-1', issuer: makeActor({ user }) },
+        });
+        expect(upstreamUserIdentifier(token)).toBe('puter-u42');
+    });
+
+    it('reads only effectiveApp, ignoring a bare app on hand-built actors', () => {
+        const actor = { user, app: { uid: 'direct-app' } } as Actor;
+        expect(upstreamUserIdentifier(actor)).toBe('puter-u42');
+    });
+
+    it('prefers effectiveApp over a bare app on hand-built actors', () => {
+        const actor = {
+            user,
+            app: { uid: 'direct-app' },
+            effectiveApp: { uid: 'effective-app' },
+        } as Actor;
+        expect(upstreamUserIdentifier(actor)).toBe('puter-u42-effective-app');
+    });
+
+    it('returns undefined for the system actor', () => {
         expect(upstreamUserIdentifier(SYSTEM_ACTOR)).toBeUndefined();
+        expect(
+            upstreamUserIdentifier(makeActor({ user, system: true })),
+        ).toBeUndefined();
+    });
+
+    it('returns undefined without an actor or a user uuid', () => {
+        expect(upstreamUserIdentifier()).toBeUndefined();
+        expect(upstreamUserIdentifier(null)).toBeUndefined();
+        expect(
+            upstreamUserIdentifier(makeActor({ user: { id: 42 } })),
+        ).toBeUndefined();
+    });
+
+    it('keeps the full user uuid and truncates only the app token to fit maxLength', () => {
+        const actor = makeActor({
+            user: { ...user, uuid: REAL_UUID },
+            app: { uid: REAL_APP_UID },
+        });
+        const identifier = upstreamUserIdentifier(actor, 64)!;
+        // puter- (6) + uuid (36) + '-' (1) + app token cut to 21 chars = 64.
+        expect(identifier).toBe(
+            `puter-${REAL_UUID}-${REAL_APP_UID.slice(0, 21)}`,
+        );
+        expect(identifier.length).toBe(64);
+        expect(identifier.startsWith(`puter-${REAL_UUID}`)).toBe(true);
+    });
+
+    it('omits the app token entirely when there is no room for it', () => {
+        const actor = makeActor({
+            user: { ...user, uuid: REAL_UUID },
+            app: { uid: appUid },
+        });
+        const base = `puter-${REAL_UUID}`;
+        // No budget for '-<token>' inside the cap: the user-only form wins,
+        // and never a dangling separator.
+        expect(upstreamUserIdentifier(actor, base.length)).toBe(base);
+        expect(upstreamUserIdentifier(actor, base.length + 1)).toBe(base);
+        expect(upstreamUserIdentifier(actor, base.length + 1)).not.toMatch(
+            /-$/,
+        );
+    });
+
+    it('never truncates the user uuid, even under a maxLength below the base length', () => {
+        const actor = makeActor({ user: { ...user, uuid: REAL_UUID } });
+        const base = `puter-${REAL_UUID}`;
+
+        expect(upstreamUserIdentifier(actor, 10)).toBe(base);
+
+        const withApp = makeActor({
+            user: { ...user, uuid: REAL_UUID },
+            app: { uid: REAL_APP_UID },
+        });
+
+        expect(upstreamUserIdentifier(withApp, 30)).toBe(base);
+    });
+
+    it('truncates a long app token to a larger maxLength deterministically', () => {
+        const actor = makeActor({ user, app: { uid: 'long-'.repeat(40) } });
+        const at64 = upstreamUserIdentifier(actor, 64)!;
+        const at128 = upstreamUserIdentifier(actor, 128)!;
+        expect(at64).toHaveLength(64);
+        expect(at128).toHaveLength(128);
+        expect(at64.startsWith('puter-u42-')).toBe(true);
+        expect(at128.startsWith('puter-u42-')).toBe(true);
+        expect(upstreamUserIdentifier(actor)).toBe(at64);
     });
 });
