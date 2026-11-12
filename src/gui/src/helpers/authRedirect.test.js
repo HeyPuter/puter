@@ -42,7 +42,6 @@ afterEach(() => {
 
 describe('get_oidc_return_to', () => {
     it('returns the interface pages the backend whitelists', () => {
-        expect(at('/desktop')).toBe('/desktop');
         expect(at('/dashboard')).toBe('/dashboard');
     });
 
@@ -51,17 +50,12 @@ describe('get_oidc_return_to', () => {
         expect(at('/app/editor/')).toBe('/app/editor');
     });
 
-    it('keeps a desktop app landing on the desktop', () => {
-        expect(at('/desktop/app/editor')).toBe('/desktop/app/editor');
-        expect(at('/desktop/app/editor/')).toBe('/desktop/app/editor');
-    });
-
     it('carries a share link so the item survives the round trip', () => {
         expect(at('/', share_search(shared_path('Report.pdf')))).toBe(
             `/${share_search(shared_path('Report.pdf'))}`,
         );
-        expect(at('/desktop', share_search(shared_path('Report.pdf')))).toBe(
-            `/desktop${share_search(shared_path('Report.pdf'))}`,
+        expect(at('/dashboard', share_search(shared_path('Report.pdf')))).toBe(
+            `/dashboard${share_search(shared_path('Report.pdf'))}`,
         );
         expect(
             at('/', share_search(shared_path('a.txt'), shared_path('b.txt'))),
@@ -83,10 +77,10 @@ describe('get_oidc_return_to', () => {
         expect(at('/', share_search('/alice/Documents/Report.pdf'))).toBe(null);
         expect(at('/', '?shared=')).toBe(null);
         // other parameters are not ours to carry
-        expect(at('/desktop', '?app=editor')).toBe('/desktop');
+        expect(at('/dashboard', '?app=editor')).toBe('/dashboard');
         expect(
-            at('/desktop', `${share_search(shared_path('a.txt'))}&app=editor`),
-        ).toBe(`/desktop${share_search(shared_path('a.txt'))}`);
+            at('/dashboard', `${share_search(shared_path('a.txt'))}&app=editor`),
+        ).toBe(`/dashboard${share_search(shared_path('a.txt'))}`);
     });
 
     it('returns null for anything the backend would reject', () => {
@@ -94,6 +88,8 @@ describe('get_oidc_return_to', () => {
         expect(at('/settings')).toBe(null);
         expect(at('/action/login')).toBe(null);
         expect(at('/app/editor/extra')).toBe(null);
+        expect(at('/desktop')).toBe(null);
+        expect(at('/desktop/app/editor')).toBe(null);
         expect(at('/desktop/app/editor/extra')).toBe(null);
         expect(at('/dashboard/app/editor')).toBe(null);
     });

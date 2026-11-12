@@ -771,6 +771,77 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('findActiveByAccessTokenUid', () => {
+        const tokenRow = (userId: number, fields: Record<string, unknown>) =>
+            target.create(userId, { kind: 'access_token', ...fields });
+
+        it('finds a token row by its access_token_uid', async () => {
+            const user = await makeUser();
+            const tokenUid = uuidv4();
+            const row = await tokenRow(user.id, { access_token_uid: tokenUid });
+
+            const found = await target.findActiveByAccessTokenUid(tokenUid);
+            expect(found?.uuid).toBe(row.uuid);
+        });
+
+        it('finds a migrated row by its legacy token uid', async () => {
+            const user = await makeUser();
+            const legacyUid = uuidv4();
+            const row = await tokenRow(user.id, {
+                legacy_token_uid: legacyUid,
+                created_via: 'legacy_backfill',
+            });
+
+            const found = await target.findActiveByAccessTokenUid(legacyUid);
+            expect(found?.uuid).toBe(row.uuid);
+        });
+
+        it('returns null for a uid no token row carries', async () => {
+            const user = await makeUser();
+            await tokenRow(user.id, { access_token_uid: uuidv4() });
+
+            expect(
+                await target.findActiveByAccessTokenUid(uuidv4()),
+            ).toBeNull();
+        });
+
+        it('skips revoked and expired rows under either uid', async () => {
+            const user = await makeUser();
+            const revokedUid = uuidv4();
+            const revokedLegacyUid = uuidv4();
+            const expiredUid = uuidv4();
+            const revoked = await tokenRow(user.id, {
+                access_token_uid: revokedUid,
+            });
+            const revokedLegacy = await tokenRow(user.id, {
+                legacy_token_uid: revokedLegacyUid,
+            });
+            await tokenRow(user.id, {
+                access_token_uid: expiredUid,
+                expires_at: Math.floor(Date.now() / 1000) - 60,
+            });
+            await target.removeByUuid(revoked.uuid);
+            await target.removeByUuid(revokedLegacy.uuid);
+
+            for (const uid of [revokedUid, revokedLegacyUid, expiredUid]) {
+                expect(await target.findActiveByAccessTokenUid(uid)).toBeNull();
+            }
+        });
+
+        it('ignores a non-token row carrying the uid', async () => {
+            const user = await makeUser();
+            const tokenUid = uuidv4();
+            await target.create(user.id, {
+                kind: 'web',
+                access_token_uid: tokenUid,
+            });
+
+            expect(
+                await target.findActiveByAccessTokenUid(tokenUid),
+            ).toBeNull();
+        });
+    });
+
     describe('getOrCreateGodmodeToken', () => {
         const nowS = () => Math.floor(Date.now() / 1000);
         const mint = (

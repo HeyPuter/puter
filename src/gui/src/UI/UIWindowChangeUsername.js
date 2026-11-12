@@ -68,7 +68,6 @@ async function UIWindowChangeUsername (options) {
         width: 350,
         height: 'auto',
         dominant: true,
-        show_in_taskbar: false,
         onAppend: function (this_window) {
             $(this_window).find('.new-username').get(0)?.focus({ preventScroll: true });
             const oidc_only = !!(window.user && window.user.oidc_only);
