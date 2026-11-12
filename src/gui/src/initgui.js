@@ -3195,7 +3195,7 @@ $(window).on('resize', function () {
 
     const ratio = window.desktop_width / window.innerWidth;
 
-    window.desktop_height = window.innerHeight - window.toolbar_height;
+    window.desktop_height = window.innerHeight;
     window.desktop_width = window.innerWidth;
 
     // Re-center the login window

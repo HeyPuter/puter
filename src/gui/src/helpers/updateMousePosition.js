@@ -22,7 +22,7 @@ const update_mouse_position = function (x, y) {
     window.mouseY = y;
 
     // mouse in top-left corner of screen
-    if ( (window.mouseX < 150 && window.mouseY < window.toolbar_height + 20) || (window.mouseX < 20 && window.mouseY < 150) )
+    if ( (window.mouseX < 150 && window.mouseY < 20) || (window.mouseX < 20 && window.mouseY < 150) )
     {
         window.current_active_snap_zone = 'nw';
     }
@@ -42,7 +42,7 @@ const update_mouse_position = function (x, y) {
         window.current_active_snap_zone = 'e';
     }
     // mouse in top-right corner of screen
-    else if ( (window.mouseX > window.desktop_width - 150 && window.mouseY < window.toolbar_height + 20) || (window.mouseX > window.desktop_width - 20 && window.mouseY < 150) )
+    else if ( (window.mouseX > window.desktop_width - 150 && window.mouseY < 20) || (window.mouseX > window.desktop_width - 20 && window.mouseY < 150) )
     {
         window.current_active_snap_zone = 'ne';
     }
@@ -52,7 +52,7 @@ const update_mouse_position = function (x, y) {
         window.current_active_snap_zone = 'se';
     }
     // mouse in top edge of screen
-    else if ( window.mouseY < window.toolbar_height + 20 && window.mouseX >= 150 && window.mouseX < window.desktop_width - 150 )
+    else if ( window.mouseY < 20 && window.mouseX >= 150 && window.mouseX < window.desktop_width - 150 )
     {
         window.current_active_snap_zone = 'n';
     }

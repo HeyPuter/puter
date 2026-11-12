@@ -177,9 +177,9 @@ async function UIWindow (options) {
 
     if ( isMobile.phone && !options.center && !options.dominant ) {
         options.left = 0;
-        options.top = `${window.toolbar_height }px`;
+        options.top = 0;
         options.width = '100%';
-        options.height = `calc(100% - ${ window.toolbar_height }px)`;
+        options.height = '100%';
     } else {
         options.width += 'px';
         options.height += 'px';
@@ -2145,10 +2145,10 @@ async function UIWindow (options) {
                 }
 
                 // when resizing the top of the window, make sure the window head is not hidden behind the toolbar
-                if ( $(el_window).position().top < window.toolbar_height ) {
-                    var difference = window.toolbar_height - $(el_window).position().top;
+                if ( $(el_window).position().top < 0 ) {
+                    var difference = -$(el_window).position().top;
                     $(el_window).css({
-                        'top': window.toolbar_height,
+                        'top': 0,
                         'height': ui.size.height - difference, // Reduce the height by the difference
                     });
                     // don't resize
@@ -2577,7 +2577,7 @@ async function UIWindow (options) {
                             left = left > (window.innerWidth - window_width) ? (window.innerWidth - window_width) : left;
 
                             let top = window.mouseY;
-                            top = top > (window.innerHeight - (window_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.toolbar_height)) : top;
+                            top = top > (window.innerHeight - window_height) ? (window.innerHeight - window_height) : top;
 
                             UIWindowItemProperties(
                                 options.title,
@@ -2879,10 +2879,10 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
 
     // top
     else if ( $(this).hasClass('ui-resizable-n') ) {
-        let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
+        let height = $(el_window).height() + $(el_window).position().top;
         $(el_window).css({
             height: height,
-            top: window.toolbar_height,
+            top: 0,
         });
     }
     // right
@@ -2922,21 +2922,21 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
     // top right
     else if ( $(this).hasClass('ui-resizable-ne') ) {
         let width = window.innerWidth - $(el_window).position().left;
-        let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
+        let height = $(el_window).height() + $(el_window).position().top;
         $(el_window).css({
             width: width,
             height: height,
-            top: window.toolbar_height,
+            top: 0,
         });
     }
     // top left
     else if ( $(this).hasClass('ui-resizable-nw') ) {
         let width = $(el_window).width() + $(el_window).position().left;
-        let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
+        let height = $(el_window).height() + $(el_window).position().top;
         $(el_window).css({
             width: width,
             height: height,
-            top: window.toolbar_height,
+            top: 0,
             left: 0,
         });
     }
@@ -5367,28 +5367,28 @@ async function saveSidebarOrder (order) {
 window.update_maximized_window = function (el_window) {
     if ( window.is_fullpage_mode ) {
         $(el_window).css({
-            'top': `${window.toolbar_height }px`,
+            'top': 0,
             'left': '0',
             'width': '100%',
-            'height': `calc(100% - ${window.toolbar_height}px)`,
+            'height': '100%',
         });
         return;
     }
 
     $(el_window).css({
-        'top': `${window.toolbar_height }px`,
+        'top': 0,
         'left': '0',
         'width': '100%',
-        'height': `${window.innerHeight - window.toolbar_height - 6 }px`,
+        'height': `${window.innerHeight - 6 }px`,
     });
 };
 
 function getSnapDimensions () {
     return {
         available_width: window.innerWidth,
-        available_height: window.innerHeight - window.toolbar_height,
+        available_height: window.innerHeight,
         start_x: 0,
-        start_y: window.toolbar_height,
+        start_y: 0,
     };
 }
 
