@@ -103,7 +103,6 @@ import { DebugService } from './services/DebugService.js';
 import { ExecService } from './services/ExecService.js';
 import { PictureInPictureService } from './services/PictureInPictureService.js';
 import { IPCService } from './services/IPCService.js';
-import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import { LocaleService } from './services/LocaleService.js';
 import { ProcessService } from './services/ProcessService.js';
 import { ThemeService } from './services/ThemeService.js';
@@ -1188,7 +1187,6 @@ const launch_services = async function (options) {
     register('process', new ProcessService());
     register('locale', new LocaleService());
     register('anti-csrf', new AntiCSRFService());
-    register('__launch-on-init', new LaunchOnInitService());
 
     // === Service-Script Services ===
     for (const [name, script] of service_script_deferred.services) {

@@ -125,7 +125,6 @@ describe('core without a teams registration', () => {
                 actor: { user: row },
             } as never,
             { title: 'Puter' } as never,
-            {} as never,
         );
         const params = JSON.parse(
             /gui\((\{.*?\})\);/s.exec(html)![1].replaceAll('\\u003c', '<'),
