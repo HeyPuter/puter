@@ -51,6 +51,13 @@ declare global {
             tokenAuthFailed?: boolean;
 
             /**
+             * What `authenticate` threw while checking the token (a database
+             * failure, say). The token may be fine; gates rethrow this instead
+             * of answering 401.
+             */
+            tokenAuthError?: unknown;
+
+            /**
              * Set when a token authenticated but its app is on the origin
              * blocklist. The auth probe leaves `actor` unset; gates translate
              * this into a 403 `app_blocked`.

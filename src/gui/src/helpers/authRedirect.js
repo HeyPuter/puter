@@ -63,11 +63,11 @@ export const get_auth_redirect_url = () => {
  */
 const oidc_return_path = () => {
     const pathname = window.location.pathname;
-    if ( pathname === '/' || pathname === '/desktop' || pathname === '/dashboard' ) {
+    if ( pathname === '/' || pathname === '/dashboard' ) {
         return pathname;
     }
     // app landing: normalize away a trailing slash to match the backend whitelist
-    if ( /^(\/desktop)?\/app\/[^/]+\/?$/.test(pathname) ) {
+    if ( /^\/app\/[^/]+\/?$/.test(pathname) ) {
         return pathname.replace(/\/$/, '');
     }
     return null;
@@ -76,10 +76,9 @@ const oidc_return_path = () => {
 /**
  * The `return_to` to send along when starting an OIDC flow, or null if the
  * current page isn't one the backend will return to. The backend strictly
- * whitelists these (never a client-supplied URL): `/desktop`, `/dashboard`,
- * and direct app landings (`/app/<name>`, plus the desktop-booted
- * `/desktop/app/<name>`), so OIDC login started from an app landing comes back
- * to the app — and to the same interface it was opened in.
+ * whitelists these (never a client-supplied URL): `/dashboard` and direct app
+ * landings (`/app/<name>`), so OIDC login started from an app landing comes
+ * back to the app.
  *
  * A share link (`?shared=`, from an email) is carried along with the path: the
  * recipient usually has to sign in before they can see what was shared, and an

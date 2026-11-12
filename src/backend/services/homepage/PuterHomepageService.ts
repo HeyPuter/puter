@@ -44,10 +44,6 @@ export interface PageMeta {
     app?: { name?: string; [k: string]: unknown } | null;
 }
 
-export interface LaunchOptions {
-    on_initialized?: Array<Record<string, unknown>>;
-}
-
 /**
  * A GUI popup a first-party page frames at `/embed/<action>`. `hostOrigin` is
  * that page, read from the referrer and pinned with frame-ancestors; null when
@@ -55,6 +51,17 @@ export interface LaunchOptions {
  */
 export interface PopupFrame {
     hostOrigin: string | null;
+}
+
+export interface ShellContext {
+    req: Request;
+    res: Response;
+    actor?: Actor | null;
+    /**
+     * `AuthService.guiTokenDigest` for the request's session cookie, or null
+     * when it carries none. Omitted when the caller doesn't work it out.
+     */
+    guiTokenDigest?: string | null;
 }
 
 interface PuterGuiAddonsEvent {
@@ -309,12 +316,11 @@ export class PuterHomepageService extends PuterService {
      * called on the happy path.
      */
     async send(
-        ctx: { req: Request; res: Response; actor?: Actor | null },
+        ctx: ShellContext,
         meta: PageMeta,
-        launchOptions: LaunchOptions = {},
         popupFrame?: PopupFrame,
     ): Promise<void> {
-        const { req, res, actor } = ctx;
+        const { req, res, actor, guiTokenDigest } = ctx;
 
         // Easter egg: puter-in-puter detection → render error page instead.
         if (
@@ -334,9 +340,8 @@ export class PuterHomepageService extends PuterService {
         }
 
         const html = await this.#renderShell(
-            { req, actor: actor ?? null },
+            { req, actor: actor ?? null, guiTokenDigest },
             meta,
-            launchOptions,
             popupFrame,
         );
         res.send(html);
@@ -345,12 +350,13 @@ export class PuterHomepageService extends PuterService {
     // -- Internals ----------------------------------------------------
 
     async #renderShell(
-        ctx: { req: Request; actor: Actor | null },
+        ctx: Pick<ShellContext, 'req' | 'guiTokenDigest'> & {
+            actor: Actor | null;
+        },
         meta: PageMeta,
-        launchOptions: LaunchOptions,
         popupFrame?: PopupFrame,
     ): Promise<string> {
-        const { req, actor } = ctx;
+        const { req, actor, guiTokenDigest } = ctx;
         const env = this.config.env ?? 'prod';
         const bundled = env !== 'dev' || this.config.use_bundled_gui === true;
         const assetDir = env === 'dev' ? '/src' : '/dist';
@@ -393,10 +399,13 @@ export class PuterHomepageService extends PuterService {
             // instead of the socket wire.
             eventsNotifications: notificationsFoldInEnabled(this.config),
             ...meta,
-            launch_options: launchOptions,
             // After `meta`, so nothing page-specific can name the opener.
             ...(popupFrame ? { embed_host_origin: popupFrame.hostOrigin } : {}),
         };
+        // Only ever this request's; without one the GUI asks for its token as
+        // it always has.
+        if (guiTokenDigest === undefined) delete guiParams.guiTokenDigest;
+        else guiParams.guiTokenDigest = guiTokenDigest;
 
         const event: PuterGuiAddonsEvent = {
             req,
@@ -516,8 +525,6 @@ export class PuterHomepageService extends PuterService {
     <meta name="msapplication-TileImage" content="${assetDir}/favicons/ms-icon-144x144.png">
     <meta name="theme-color" content="#ffffff">
     ${bundled ? `<link rel="stylesheet" href="${guiCss}">` : ''}
-
-    <link rel="preload" as="image" href="https://puter-assets.b-cdn.net/wallpaper.webp">
 
     <script>
         if ( ! window.service_script ) {

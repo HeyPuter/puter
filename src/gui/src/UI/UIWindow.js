@@ -20,7 +20,6 @@
 import UIAlert from './UIAlert.js';
 import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
-import UITaskbarItem from './UITaskbarItem.js';
 import UIAuthLogin from './Auth/UIAuthLogin.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
@@ -29,7 +28,6 @@ import { atPath } from '../helpers/pathElements.js';
 import { resolve_typed_path } from '../helpers/expandHomePath.js';
 import UIWindowAppFeedback from './UIWindowAppFeedback.js';
 import launch_app from '../helpers/launchApp.js';
-import publish_as_website from '../helpers/publishAsWebsite.js';
 
 import item_icon from '../helpers/itemIcon.js';
 import { parent_path_for, shared_crumbs_for } from '../helpers/sharePaths.js';
@@ -37,7 +35,8 @@ import { has_shared_roots } from '../helpers/sharedAccess.js';
 import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/windowVisibility.js';
 
 const el_body = document.getElementsByTagName('body')[0];
-const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
+// Above any z-index an ordinary desktop window reaches in practice.
+const DESKTOP_BACKDROP_MIN_ZINDEX = 99999;
 
 async function UIWindow (options) {
     const win_id = window.global_element_id++;
@@ -105,7 +104,7 @@ async function UIWindow (options) {
         options.is_resizable = false;
     }
 
-    // In the embedded/fullpage mode every window is on top since there is no taskbar to switch between windows
+    // In the embedded/fullpage mode every window is on top since there is nothing to switch between windows
     // if user has specifically asked for this window to NOT stay on top, honor it.
     if ( (window.is_embedded || window.is_fullpage_mode) && !options.parent_uuid && options.stay_on_top !== false )
     {
@@ -115,11 +114,11 @@ async function UIWindow (options) {
     options.stay_on_top = options.stay_on_top ?? false;
 
     options.is_saveFileDialog = options.is_saveFileDialog ?? false;
-    options.show_minimize_button = options.show_minimize_button ?? true;
+    // Only the dashboard can restore a minimized window, from the app's tile.
+    options.show_minimize_button = (options.show_minimize_button ?? true) && !!window.is_dashboard_mode;
     options.on_close = options.on_close ?? undefined;
     options.parent_uuid = options.parent_uuid ?? null;
     options.selectable_body = (options.selectable_body === undefined || options.selectable_body === true) ? true : false;
-    options.show_in_taskbar = options.show_in_taskbar ?? true;
     options.show_maximize_button = options.show_maximize_button ?? true;
     options.single_instance = options.single_instance ?? false;
     options.sort_by = options.sort_by ?? 'name';
@@ -177,9 +176,9 @@ async function UIWindow (options) {
 
     if ( isMobile.phone && !options.center && !options.dominant ) {
         options.left = 0;
-        options.top = `${window.toolbar_height }px`;
+        options.top = 0;
         options.width = '100%';
-        options.height = `calc(100% - ${ window.toolbar_height }px)`;
+        options.height = '100%';
     } else {
         options.width += 'px';
         options.height += 'px';
@@ -539,24 +538,11 @@ async function UIWindow (options) {
 
     // backdrop
     if ( options.backdrop ) {
-        let backdrop_zindex;
-        // backdrop should also cover over taskbar
-        let taskbar_zindex = $('.taskbar').css('z-index');
-        if ( taskbar_zindex === null || taskbar_zindex === undefined )
-        {
-            backdrop_zindex = zindex;
-        }
-        else {
-            taskbar_zindex = parseInt(taskbar_zindex);
-            backdrop_zindex = taskbar_zindex > zindex ? taskbar_zindex : zindex;
-        }
-
-        // dominant backdrop will cover over toolbar as well
-        if ( options.backdrop_covers_toolbar )
-        {
-            backdrop_zindex = 999999;
-        }
-
+        // On the desktop a backdrop stays above every ordinary window, even one
+        // focused after it opened, so the dialog it holds stays modal.
+        const backdrop_zindex = (options.stay_on_top || window.is_dashboard_mode || window.is_fullpage_mode)
+            ? zindex
+            : Math.max(zindex, DESKTOP_BACKDROP_MIN_ZINDEX);
         h = `<div class="window-backdrop" style="z-index:${backdrop_zindex};">${ h }</div>`;
     }
 
@@ -599,56 +585,6 @@ async function UIWindow (options) {
     const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
     const el_window_filedialog_upload_here = document.querySelector(`#window-${win_id} .window-filedialog-upload-here`);
 
-    // Add Taskbar Item
-    // data-in_taskbar records that this window is one of the item's
-    // data-open-windows, so the close path only decrements a count this
-    // window actually added to (see the close handler) — the two must stay
-    // in step, and a window that never took an item must not take one away.
-    const add_taskbar_item = () => {
-        $(el_window).attr('data-in_taskbar', '1');
-        // add icon if there is no similar app already open
-        if ( $(`.taskbar-item[data-app="${options.app}"]`).length === 0 ) {
-            UITaskbarItem({
-                icon: options.icon,
-                name: options.title,
-                app: options.app,
-                open_windows_count: 1,
-                before_trash: true,
-                onClick: function () {
-                    let open_window_count = parseInt($(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows'));
-                    if ( open_window_count === 0 ) {
-                        launch_app({
-                            name: options.app,
-                        });
-                    } else {
-                        return false;
-                    }
-                },
-            });
-            if ( options.app )
-            {
-                $(`.taskbar-item[data-app="${options.app}"] .active-taskbar-indicator`).show();
-            }
-        } else {
-            if ( options.app ) {
-                $(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows', parseInt($(`.taskbar-item[data-app="${options.app}"]`).attr('data-open-windows')) + 1);
-                $(`.taskbar-item[data-app="${options.app}"] .active-taskbar-indicator`).show();
-            }
-        }
-    };
-    if ( !options.is_openFileDialog && !options.is_saveFileDialog && !options.is_directoryPicker && options.show_in_taskbar ) {
-        // A window started hidden by a background launch gets no taskbar item
-        // yet: it runs for the app that launched it, and an item would both
-        // advertise and hand out an instance the user never asked for. The
-        // item is what the window earns the moment it first becomes visible
-        // — makeWindowVisible calls this, whether the app showed itself with
-        // puter.ui.showWindow() or something else revealed it. An app that is
-        // ALWAYS windowless never reaches here: launch_app leaves
-        // show_in_taskbar false for it, so it keeps having no item at all.
-        if ( options.launched_hidden ) el_window._add_taskbar_item = add_taskbar_item;
-        else add_taskbar_item();
-    }
-
     if ( el_window_filedialog_upload_here ) {
         el_window_filedialog_upload_here.addEventListener('click', function () {
             window.init_upload_using_dialog(el_window_body, `${$(el_window).attr('data-path') }/`);
@@ -673,8 +609,7 @@ async function UIWindow (options) {
         // shrink icon
         $(el_window).find('.window-scale-btn>img').attr('src', window.icons['scale-down-3.svg']);
 
-        // Use taskbar position-aware window positioning
-        window.update_maximized_window_for_taskbar(el_window);
+        window.update_maximized_window(el_window);
     }
 
     // when a window is created, focus is brought to it and
@@ -1734,12 +1669,6 @@ async function UIWindow (options) {
         });
     }
 
-    $(el_window_head).mousedown(function () {
-        if ( window_is_snapped ) {
-            $(el_window).draggable( 'option', 'cursorAt', { left: width_before_snap / 2 });
-        }
-    });
-
     // --------------------------------------------------------
     // Click On The `Scale` Button
     // (the little rectangle in the window head)
@@ -1835,148 +1764,10 @@ async function UIWindow (options) {
     // --------------------------------------------------------
     // Draggable
     // --------------------------------------------------------
-    let width_before_snap = 0;
-    let height_before_snap = 0;
-    let window_is_snapped = false;
-    let snap_placeholder_active = false;
-    let snap_trigger_timeout;
-    let last_snap_zone;
-
     if ( options.is_draggable ) {
-        let window_snap_placeholder = $(`<div class="window-snap-placeholder animate__animated animate__zoomIn animate__faster">
-                <div class="window-snap-placeholder-inner"></div>
-             </div>`);
-
-        const showSnapPlaceholder = (zone) => {
-            if ( window_is_snapped || !zone ) {
-                return false;
-            }
-
-            const snapDims = getSnapDimensions();
-            let css = null;
-
-            if ( zone === 'w' ) {
-                css = {
-                    'display': 'block',
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height,
-                    'top': snapDims.start_y,
-                    'left': snapDims.start_x,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'nw' ) {
-                css = {
-                    'display': 'block',
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height / 2,
-                    'top': snapDims.start_y,
-                    'left': snapDims.start_x,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'ne' ) {
-                css = {
-                    'display': 'block',
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height / 2,
-                    'top': snapDims.start_y,
-                    'left': snapDims.start_x + snapDims.available_width / 2,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'e' ) {
-                css = {
-                    'display': 'block',
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height,
-                    'top': snapDims.start_y,
-                    'left': snapDims.start_x + snapDims.available_width / 2,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'n' ) {
-                css = {
-                    'display': 'block',
-                    'width': snapDims.available_width,
-                    'height': snapDims.available_height,
-                    'top': snapDims.start_y,
-                    'left': snapDims.start_x,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'sw' ) {
-                css = {
-                    'display': 'block',
-                    'top': snapDims.start_y + snapDims.available_height / 2,
-                    'left': snapDims.start_x,
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height / 2,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'se' ) {
-                css = {
-                    'display': 'block',
-                    'top': snapDims.start_y + snapDims.available_height / 2,
-                    'left': snapDims.start_x + snapDims.available_width / 2,
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height / 2,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            }
-
-            if ( ! css ) {
-                return false;
-            }
-
-            window_snap_placeholder.css(css);
-
-            if ( ! snap_placeholder_active ) {
-                snap_placeholder_active = true;
-                $(el_body).append(window_snap_placeholder);
-            }
-
-            width_before_snap = $(el_window).width();
-            height_before_snap = $(el_window).height();
-            return true;
-        };
-
-        const hideSnapPlaceholder = () => {
-            if ( snap_placeholder_active ) {
-                snap_placeholder_active = false;
-                window_snap_placeholder.fadeOut(80);
-            }
-        };
-
         $(el_window).draggable({
             start: function (e, ui) {
                 window.a_window_is_being_dragged = true;
-                last_snap_zone = undefined;
-                if ( snap_trigger_timeout ) {
-                    clearTimeout(snap_trigger_timeout);
-                    snap_trigger_timeout = undefined;
-                }
-                hideSnapPlaceholder();
-                $('.toolbar').css('pointer-events', 'none');
-                // if window is snapped, unsnap it and reset its position to where it was before snapping
-                if ( options.is_resizable && window_is_snapped ) {
-                    window_is_snapped = false;
-                    $(el_window).css({
-                        'width': width_before_snap,
-                        'height': `${height_before_snap }px`,
-                    });
-
-                    // if at any point the window's width is "too small", hide the sidebar
-                    if ( $(el_window).width() < window.window_width_threshold_for_sidebar ) {
-                        if ( width_before_snap >= window.window_width_threshold_for_sidebar && !sidebar_hidden ) {
-                            $(el_window_sidebar).hide();
-                        }
-                        sidebar_hidden = true;
-                    }
-                    // if at any point the window's width is "big enough", show the sidebar
-                    else if ( $(el_window).width() >= window.window_width_threshold_for_sidebar ) {
-                        if ( sidebar_hidden ) {
-                            $(el_window_sidebar).show();
-                        }
-                        sidebar_hidden = false;
-                    }
-                }
-
                 $(el_window).addClass('window-dragging');
 
                 // rm window from original_window_position
@@ -1994,50 +1785,9 @@ async function UIWindow (options) {
                     // maximize icon
                     $(el_window_head_scale_btn).find('img').attr('src', window.icons['scale.svg']);
                 }
-                // --------------------------------------------------------
-                // Snap to screen edges
-                // --------------------------------------------------------
-                if ( options.is_resizable ) {
-                    const activeZone = window.current_active_snap_zone;
-
-                    if ( activeZone !== last_snap_zone ) {
-                        if ( snap_trigger_timeout ) {
-                            clearTimeout(snap_trigger_timeout);
-                            snap_trigger_timeout = undefined;
-                        }
-
-                        hideSnapPlaceholder();
-                        last_snap_zone = activeZone;
-
-                        if ( activeZone ) {
-                            const scheduledZone = activeZone;
-                            snap_trigger_timeout = setTimeout(function () {
-                                snap_trigger_timeout = undefined;
-                                if ( ! $(el_window).hasClass('window-dragging') ) {
-                                    return;
-                                }
-                                if ( window.current_active_snap_zone !== scheduledZone ) {
-                                    return;
-                                }
-                                showSnapPlaceholder(scheduledZone);
-                            }, SNAP_PLACEHOLDER_DELAY_MS);
-                        }
-                    }
-
-                    if ( ! activeZone ) {
-                        hideSnapPlaceholder();
-                    }
-                }
             },
             stop: function () {
                 window.a_window_is_being_dragged = false;
-                if ( snap_trigger_timeout ) {
-                    clearTimeout(snap_trigger_timeout);
-                    snap_trigger_timeout = undefined;
-                }
-                last_snap_zone = undefined;
-                let window_will_snap = false;
-                $(el_window).draggable( 'option', 'cursorAt', false);
 
                 $(el_window).removeClass('window-dragging');
                 $(el_window).attr({
@@ -2047,134 +1797,25 @@ async function UIWindow (options) {
 
                 $(el_window_app_iframe).css('pointer-events', 'all');
                 $('.window').css('pointer-events', 'initial');
-                $('.toolbar').css('pointer-events', 'auto');
-
-                if ( options.is_resizable && snap_placeholder_active && !window_is_snapped ) {
-                    window_will_snap = true;
-                    $(window_snap_placeholder).css('padding', 0);
-
-                    setTimeout(function () {
-                        // Get taskbar-aware snap dimensions for final positioning
-                        const snapDims = getSnapDimensions();
-
-                        // snap to w
-                        if ( window.current_active_snap_zone === 'w' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height - 6,
-                            });
-                        }
-                        // snap to nw
-                        else if ( window.current_active_snap_zone === 'nw' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                            });
-                        }
-                        // snap to ne
-                        else if ( window.current_active_snap_zone === 'ne' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x + snapDims.available_width / 2,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                            });
-                        }
-                        // snap to sw
-                        else if ( window.current_active_snap_zone === 'sw' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y + snapDims.available_height / 2,
-                                'left': snapDims.start_x,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                            });
-                        }
-                        // snap to se
-                        else if ( window.current_active_snap_zone === 'se' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y + snapDims.available_height / 2,
-                                'left': snapDims.start_x + snapDims.available_width / 2,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                            });
-                        }
-                        // snap to e
-                        else if ( window.current_active_snap_zone === 'e' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x + snapDims.available_width / 2,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height - 6,
-                            });
-                        }
-                        // snap to n
-                        else if ( window.current_active_snap_zone === 'n' ) {
-                            window.scale_window(el_window);
-                        }
-                        // snap placeholder is no longer active
-                        snap_placeholder_active = false;
-                        // hide snap placeholder
-                        window_snap_placeholder.css('display', 'none');
-                        window_snap_placeholder.css('padding', '10px');
-                        // mark window as snapped
-                        window_is_snapped = true;
-
-                        // if at any point the window's width is "too small", hide the sidebar
-                        if ( $(el_window).width() < window.window_width_threshold_for_sidebar ) {
-                            if ( width_before_snap >= window.window_width_threshold_for_sidebar && !sidebar_hidden ) {
-                                $(el_window_sidebar).hide();
-                            }
-                            sidebar_hidden = true;
-                        }
-                        // if at any point the window's width is "big enough", show the sidebar
-                        else if ( $(el_window).width() >= window.window_width_threshold_for_sidebar ) {
-                            if ( sidebar_hidden ) {
-                                $(el_window_sidebar).show();
-                            }
-                            sidebar_hidden = false;
-                        }
-                    }, 100);
-                }
 
                 // if window is dropped outside the available area, move it back in
-                // Bottom boundary (account for taskbar position)
-                const taskbar_position = window.taskbar_position || 'bottom';
-                let maxTop;
-                if ( taskbar_position === 'bottom' ) {
-                    maxTop = window.innerHeight - window.taskbar_height - 30;
-                } else {
-                    maxTop = window.innerHeight - 30;
-                }
-                // the lst '- 30' is to account for the window head
-                if ( $(el_window).position().top > maxTop && !window_will_snap ) {
+                // the '- 30' is to account for the window head
+                const maxTop = window.innerHeight - 30;
+                if ( $(el_window).position().top > maxTop ) {
                     $(el_window).animate({
                         top: maxTop - 30,
                     }, 100);
                 }
                 // if window is dropped too far to the right, move it left
-                let maxLeft;
-                if ( taskbar_position === 'right' ) {
-                    maxLeft = window.innerWidth - window.taskbar_height - 50;
-                } else {
-                    maxLeft = window.innerWidth - 50;
-                }
-                if ( $(el_window).position().left > maxLeft && !window_will_snap ) {
+                const maxLeft = window.innerWidth - 50;
+                if ( $(el_window).position().left > maxLeft ) {
                     $(el_window).animate({
                         left: maxLeft,
                     }, 100);
                 }
                 // if window is dropped too far to the left, move it right
-                let minLeft;
-                if ( taskbar_position === 'left' ) {
-                    minLeft = window.taskbar_height - $(el_window).width() + 150;
-                } else {
-                    minLeft = -$(el_window).width() + 150;
-                }
-                if ( $(el_window).position().left < minLeft && !window_will_snap ) {
+                const minLeft = -$(el_window).width() + 150;
+                if ( $(el_window).position().left < minLeft ) {
                     $(el_window).animate({
                         left: minLeft,
                     }, 100);
@@ -2229,10 +1870,10 @@ async function UIWindow (options) {
                 }
 
                 // when resizing the top of the window, make sure the window head is not hidden behind the toolbar
-                if ( $(el_window).position().top < window.toolbar_height ) {
-                    var difference = window.toolbar_height - $(el_window).position().top;
+                if ( $(el_window).position().top < 0 ) {
+                    var difference = -$(el_window).position().top;
                     $(el_window).css({
-                        'top': window.toolbar_height,
+                        'top': 0,
                         'height': ui.size.height - difference, // Reduce the height by the difference
                     });
                     // don't resize
@@ -2299,10 +1940,9 @@ async function UIWindow (options) {
             return;
         }
 
-        const snap_dims = getSnapDimensions();
         const head_height = options.has_head ? $(el_window_head).outerHeight() : 0;
-        const max_body_width = snap_dims.available_width;
-        const max_body_height = Math.max(0, snap_dims.available_height - head_height);
+        const max_body_width = window.innerWidth;
+        const max_body_height = Math.max(0, window.innerHeight - head_height);
 
         if ( max_body_width <= 0 || max_body_height <= 0 ) {
             return;
@@ -2321,8 +1961,8 @@ async function UIWindow (options) {
 
         const window_width = Math.max(1, Math.floor(body_width));
         const window_height = Math.max(1, Math.floor(body_height + head_height));
-        const left = snap_dims.start_x + Math.max(0, (snap_dims.available_width - window_width) / 2);
-        const top = snap_dims.start_y + Math.max(0, (snap_dims.available_height - window_height) / 2);
+        const left = Math.max(0, (window.innerWidth - window_width) / 2);
+        const top = Math.max(0, (window.innerHeight - window_height) / 2);
 
         $(el_window).css({
             width: `${window_width}px`,
@@ -2351,7 +1991,6 @@ async function UIWindow (options) {
             'data-is_maximized': '0',
         });
         $(el_window_head_scale_btn).find('img').attr('src', window.icons['scale.svg']);
-        window_is_snapped = false;
     };
     // --------------------------------------------------------
     // Head Context Menu
@@ -2392,12 +2031,14 @@ async function UIWindow (options) {
                     window.scale_window(el_window);
                 },
             });
-            menu_items.push({
-                html: i18n('minimize'),
-                onClick: function () {
-                    minimize_window(el_window);
-                },
-            });
+            if ( window.is_dashboard_mode ) {
+                menu_items.push({
+                    html: i18n('minimize'),
+                    onClick: function () {
+                        minimize_window(el_window);
+                    },
+                });
+            }
             menu_items.push({
                 html: 'Advanced',
                 items: [
@@ -2625,20 +2266,6 @@ async function UIWindow (options) {
                     // -------------------------------------------
                     menu_items.push('-');
                     // -------------------------------------------
-                    // Publish As Website
-                    // -------------------------------------------
-                    menu_items.push({
-                        html: i18n('publish_as_website'),
-                        disabled: !options.is_dir,
-                        onClick: async function () {
-                            await publish_as_website({
-                                uid: $(el_window).attr('data-uid'),
-                                name: $(el_window).attr('data-name'),
-                                path: $(el_window).attr('data-path'),
-                            });
-                        },
-                    });
-                    // -------------------------------------------
                     // Deploy as App
                     // -------------------------------------------
                     menu_items.push({
@@ -2673,7 +2300,7 @@ async function UIWindow (options) {
                             left = left > (window.innerWidth - window_width) ? (window.innerWidth - window_width) : left;
 
                             let top = window.mouseY;
-                            top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
+                            top = top > (window.innerHeight - window_height) ? (window.innerHeight - window_height) : top;
 
                             UIWindowItemProperties(
                                 options.title,
@@ -2897,10 +2524,6 @@ $(document).on('click', '.window-sidebar-item', async function (e) {
             // todo
             // sort_by: $(el_item).attr('data-sort_by'),
             app: 'explorer',
-            // top: options.maximized ? 0 : undefined,
-            // left: options.maximized ? 0 : undefined,
-            // height: options.maximized ? `calc(100% - ${window.taskbar_height + 1}px)` : undefined,
-            // width: options.maximized ? `100%` : undefined,
         });
     }
     // update window path only if it's a new path AND no ctrl/cmd key pressed
@@ -2961,10 +2584,6 @@ $(document).on('contextmenu taphold', '.window-sidebar-item', function (event) {
                         // todo
                         // sort_by: $(el_item).attr('data-sort_by'),
                         app: 'explorer',
-                        // top: options.maximized ? 0 : undefined,
-                        // left: options.maximized ? 0 : undefined,
-                        // height: options.maximized ? `calc(100% - ${window.taskbar_height + 1}px)` : undefined,
-                        // width: options.maximized ? `100%` : undefined,
                     });
                 },
             },
@@ -2977,16 +2596,16 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
     let el_window = $(this).closest('.window');
     // bottom
     if ( $(this).hasClass('ui-resizable-s') ) {
-        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
+        let height = window.innerHeight - $(el_window).position().top - 6;
         $(el_window).height(height);
     }
 
     // top
     else if ( $(this).hasClass('ui-resizable-n') ) {
-        let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
+        let height = $(el_window).height() + $(el_window).position().top;
         $(el_window).css({
             height: height,
-            top: window.toolbar_height,
+            top: 0,
         });
     }
     // right
@@ -3007,7 +2626,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
     // bottom left
     else if ( $(this).hasClass('ui-resizable-sw') ) {
         let width = $(el_window).width() + $(el_window).position().left;
-        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
+        let height = window.innerHeight - $(el_window).position().top - 6;
         $(el_window).css({
             width: width,
             height: height,
@@ -3017,7 +2636,7 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
     // bottom right
     else if ( $(this).hasClass('ui-resizable-se') ) {
         let width = window.innerWidth - $(el_window).position().left;
-        let height = window.innerHeight - $(el_window).position().top - window.taskbar_height - 6;
+        let height = window.innerHeight - $(el_window).position().top - 6;
         $(el_window).css({
             width: width,
             height: height,
@@ -3026,21 +2645,21 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
     // top right
     else if ( $(this).hasClass('ui-resizable-ne') ) {
         let width = window.innerWidth - $(el_window).position().left;
-        let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
+        let height = $(el_window).height() + $(el_window).position().top;
         $(el_window).css({
             width: width,
             height: height,
-            top: window.toolbar_height,
+            top: 0,
         });
     }
     // top left
     else if ( $(this).hasClass('ui-resizable-nw') ) {
         let width = $(el_window).width() + $(el_window).position().left;
-        let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
+        let height = $(el_window).height() + $(el_window).position().top;
         $(el_window).css({
             width: width,
             height: height,
-            top: window.toolbar_height,
+            top: 0,
             left: 0,
         });
     }
@@ -3673,30 +3292,7 @@ $.fn.close = async function (options) {
             let window_uuid = $(this).attr('data-element_uuid');
             // remove all instances of win_id from window.window_stack
             window.window_stack = window.window_stack.filter(id => id !== win_id);
-            // taskbar update — only for a window that IS one of the item's
-            // open windows (data-in_taskbar, stamped when it took its place
-            // in the count). A window that never counted must not decrement:
-            // an unseen background instance closing alongside the user's own
-            // window would otherwise zero the count and take the item away
-            // while that window is still open.
-            if ( $(this).attr('data-in_taskbar') === '1' ) {
-                let open_window_count = parseInt($(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows'));
-                // update open window count of corresponding taskbar item
-                if ( open_window_count > 0 ) {
-                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows', open_window_count - 1);
-                }
-                // decide whether to remove taskbar item
-                if ( open_window_count === 1 ) {
-                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
-                    window.remove_taskbar_item($(`.taskbar-item[data-app="${$(this).attr('data-app')}"][data-keep-in-taskbar="false"]`));
-                }
-                // if no more windows of this app are open, remove taskbar item
-                if ( open_window_count - 1 === 0 )
-                {
-                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
-                }
-            }
-            // if a fullpage window is closed, show desktop and taskbar
+            // if a fullpage window is closed, show the desktop
             if ( $(this).attr('data-is_fullpage') === '1' ) {
                 window.exit_fullpage_mode();
             }
@@ -3778,9 +3374,6 @@ $.fn.close = async function (options) {
             // remove backdrop
             $(this).closest('.window-backdrop').remove();
 
-            // remove global menubars
-            $(`.window-menubar-global[data-window-id="${win_id}"]`).remove();
-
             // remove DOM element
             if ( options?.shrink_to_target ) {
                 // get target location
@@ -3819,9 +3412,7 @@ $.fn.close = async function (options) {
                 document.activeElement.blur();
                 $('input').blur();
             }
-            // focus back to desktop
-            $('.desktop').find('.item-blurred').removeClass('item-blurred');
-            window.active_item_container = $('.desktop.item-container').get(0);
+            window.active_item_container = null;
         }
     });
 
@@ -3844,13 +3435,7 @@ window.scale_window = (el_window) => {
         // shrink icon
         $(el_window).find('.window-scale-btn>img').attr('src', window.icons['scale-down-3.svg']);
 
-        // Use taskbar position-aware window positioning
-        window.update_maximized_window_for_taskbar(el_window);
-
-        // hide toolbar
-        if ( !isMobile.phone && !isMobile.tablet ) {
-            window.hide_toolbar();
-        }
+        window.update_maximized_window(el_window);
     }
     //shrink
     else {
@@ -3974,19 +3559,12 @@ $.fn.makeWindowVisible = function (options) {
         if ( $(this).hasClass('window') ) {
             // Seen by the user, so no longer a window that exists purely to
             // serve whoever launched it: it outlives its launcher from here on
-            // (see the close path's cleanup of background children), and it
-            // becomes a window the user can act on — hence the taskbar item
-            // its launch deferred, and the dashboard tile's running dot.
-            // Both happen BEFORE the window shows: focusWindow() below marks
-            // the app's taskbar item active, which needs the item to exist.
+            // (see the close path's cleanup of background children), and the
+            // dashboard tile shows it as running.
             const was_launched_hidden = $(this).attr('data-launched_hidden') === '1';
             $(this).removeAttr('data-launched_hidden');
-            if ( was_launched_hidden ) {
-                this._add_taskbar_item?.();
-                delete this._add_taskbar_item;
-                if ( window.is_dashboard_mode && $(this).attr('data-app') ) {
-                    document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
-                }
+            if ( was_launched_hidden && window.is_dashboard_mode && $(this).attr('data-app') ) {
+                document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
             }
 
             $(this).show();
@@ -4033,13 +3611,8 @@ $.fn.makeWindowInvisible = async function (options) {
 $.fn.showWindow = async function (options) {
     $(this).each(async function () {
         if ( $(this).hasClass('window') ) {
-            // A window hidden by puter.ui.hideWindow() is not minimized: it
-            // kept its geometry and has no data-orig-* to restore, so every
-            // path below (all of which un-minimize) would leave it hidden —
-            // and stamp NaN geometry on it from the absent attributes. Simply
-            // un-hiding it is the whole job, and the inverse of what hid it.
-            // This is what makes the taskbar item a real handle on a window
-            // the user cannot currently see.
+            // A window hidden by puter.ui.hideWindow() is not minimized and
+            // kept its geometry, so un-hiding it is the whole job.
             if ( is_window_hidden(this) ) {
                 $(this).makeWindowVisible();
                 return;
@@ -4057,104 +3630,69 @@ $.fn.showWindow = async function (options) {
                 ? 99999999 + (++window.last_window_zindex)
                 : ++window.last_window_zindex);
 
-            // A window minimized with no taskbar to animate toward (dashboard
-            // mode) was hidden in place by hideWindow — its geometry was
-            // never disturbed. If the app's tile is visible on the Apps tab's
-            // current page, grow the window back out of it (the reverse of
-            // hideWindow's zoom-to-tile morph); otherwise just fade it back
-            // in as before. (The explicit flag is used because data-orig-*
-            // can't distinguish the two minimize paths: drag/maximize
-            // handlers set it too.)
-            if ( $(el_window).attr('data-minimized_in_place') === '1' ) {
-                $(el_window).attr({
-                    'data-is_minimized': false,
-                    'data-minimized_in_place': '0',
-                });
-                // On screen again (Back, tile click, Forward), so it is no
-                // longer minimized-because-a-child-took-over: closing that
-                // child must not now send the user to the dashboard.
-                $(el_window).removeAttr('data-minimized_for_child');
-                $(el_window).css('z-index', raised_zindex());
-                const reduce_motion = window.matchMedia
-                    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-                // Skip the morph while another morph still owns the window's
-                // inline styles (reopen mid-minimize-zoom): clearing the
-                // flags above already makes that animation's cleanup leave
-                // the window visible and restored, same as before.
-                const tile = (reduce_motion
-                    || $(el_window).attr('data-window_morphing') === '1')
-                    ? null
-                    : dashboard_tile_in_view($(el_window).attr('data-app'));
-                let morphed = false;
-                if ( tile ) {
-                    // The morph needs the window displayed and laid out to
-                    // measure it; no paint happens between this show() and
-                    // the morph's start state, so nothing flashes.
-                    const was_hidden = ! $(el_window).is(':visible');
-                    if ( was_hidden ) $(el_window).show();
-                    // The lighter cut of the launch morph — window half
-                    // only, on a shorter path — so un-minimizing reads as
-                    // the window coming back out of the tile, not the app
-                    // launching again (no icon flourish, no launch pacing).
-                    morphed = morph_window_from_tile(el_window, tile, {
-                        icon_half: false,
-                        duration: 0.3,
-                    });
-                    if ( ! morphed && was_hidden ) $(el_window).hide();
-                }
-                if ( ! morphed ) $(el_window).fadeIn(150);
-                // Restores come back with the control drawer collapsed —
-                // whatever state it was minimized in (headless dashboard
-                // windows only; no-op otherwise).
-                el_window._dashboard_drawer_collapse?.();
-                // A restore re-claims the URL for this app — except when
-                // the restore was DRIVEN by a history traversal (popstate
-                // passes no_history: the entry is already current).
-                if ( ! options?.no_history
-                    && $(el_window).attr('data-update_window_url') === 'true'
-                    && $(el_window).attr('data-app') !== 'explorer' ) {
-                    push_dashboard_app_url($(el_window).attr('data-app'), $(el_window).attr('data-name'));
-                }
-                setTimeout(() => {
-                    $(this).focusWindow();
-                }, 80);
-                return;
-            }
-
-            $(el_window).css({
-                'transition': 'top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s',
-                top: `${$(el_window).attr('data-orig-top') }px`,
-                left: `${$(el_window).attr('data-orig-left') }px`,
-                width: `${$(el_window).attr('data-orig-width') }px`,
-                height: `${$(el_window).attr('data-orig-height') }px`,
-            });
-            $(el_window).css('z-index', raised_zindex());
-
+            // hideWindow hid the window in place, so its geometry was never
+            // disturbed. If the app's tile is visible on the Apps tab's current
+            // page, grow the window back out of it (the reverse of hideWindow's
+            // zoom-to-tile morph); otherwise just fade it back in.
+            if ( $(el_window).attr('data-minimized_in_place') !== '1' ) return;
             $(el_window).attr({
                 'data-is_minimized': false,
+                'data-minimized_in_place': '0',
             });
-
+            // On screen again (Back, tile click, Forward), so it is no
+            // longer minimized-because-a-child-took-over: closing that
+            // child must not now send the user to the dashboard.
+            $(el_window).removeAttr('data-minimized_for_child');
+            $(el_window).css('z-index', raised_zindex());
+            const reduce_motion = window.matchMedia
+                && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            // Skip the morph while another morph still owns the window's
+            // inline styles (reopen mid-minimize-zoom): clearing the
+            // flags above already makes that animation's cleanup leave
+            // the window visible and restored, same as before.
+            const tile = (reduce_motion
+                || $(el_window).attr('data-window_morphing') === '1')
+                ? null
+                : dashboard_tile_in_view($(el_window).attr('data-app'));
+            let morphed = false;
+            if ( tile ) {
+                // The morph needs the window displayed and laid out to
+                // measure it; no paint happens between this show() and
+                // the morph's start state, so nothing flashes.
+                const was_hidden = ! $(el_window).is(':visible');
+                if ( was_hidden ) $(el_window).show();
+                // The lighter cut of the launch morph — window half
+                // only, on a shorter path — so un-minimizing reads as
+                // the window coming back out of the tile, not the app
+                // launching again (no icon flourish, no launch pacing).
+                morphed = morph_window_from_tile(el_window, tile, {
+                    icon_half: false,
+                    duration: 0.3,
+                });
+                if ( ! morphed && was_hidden ) $(el_window).hide();
+            }
+            if ( ! morphed ) $(el_window).fadeIn(150);
+            // Restores come back with the control drawer collapsed —
+            // whatever state it was minimized in (headless dashboard
+            // windows only; no-op otherwise).
+            el_window._dashboard_drawer_collapse?.();
+            // A restore re-claims the URL for this app — except when
+            // the restore was DRIVEN by a history traversal (popstate
+            // passes no_history: the entry is already current).
+            if ( ! options?.no_history
+                && $(el_window).attr('data-update_window_url') === 'true'
+                && $(el_window).attr('data-app') !== 'explorer' ) {
+                push_dashboard_app_url($(el_window).attr('data-app'), $(el_window).attr('data-name'));
+            }
             setTimeout(() => {
                 $(this).focusWindow();
             }, 80);
-
-            // remove `transitions` a good while after setting css to make sure
-            // it doesn't interfere with an ongoing animation
-            setTimeout(() => {
-                $(el_window).css('transition', 'none');
-            }, 250);
         }
     });
     return this;
 };
 
 window.toggle_empty_folder_message = function (el_item_container) {
-    // if the item container is the desktop, don't show/hide the empty message
-    if ( $(el_item_container).hasClass('desktop') )
-    {
-        return;
-    }
-
     // if the item container is empty, show the empty message
     if ( $(el_item_container).has('.item').length === 0 ) {
         $(el_item_container).find('.explorer-empty-message').show();
@@ -4220,11 +3758,6 @@ $.fn.focusWindow = function (event) {
             });
         }
 
-        // hide other global menubars
-        $('.window-menubar-global').not(`.window-menubar-global[data-window-id="${win_id}"]`).hide();
-        // show this window's global menubar
-        $(`.window-menubar-global[data-window-id="${win_id}"]`).show();
-
         // if a menubar or any of its items are clicked, don't focus the iframe. This is important to preserve the focus on the menubar
         // and to enable keyboard navigation through the menubar items
         if ( $(event?.target).hasClass('window-menubar') || $(event?.target).closest('.window-menubar').length > 0 ) {
@@ -4255,8 +3788,8 @@ $.fn.focusWindow = function (event) {
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
         // Update the tab title to the focused window. The URL itself is
-        // deliberately NOT touched here: on the desktop it stays /desktop
-        // (apps don't rewrite it), and in dashboard mode the open app owns
+        // deliberately NOT touched here: on the desktop apps don't rewrite
+        // it, and in dashboard mode the open app owns
         // it through real history entries (push_dashboard_app_url).
         if ( ! window.is_dashboard_mode ) {
             const update_window_url = $(this).attr('data-update_window_url');
@@ -4264,10 +3797,8 @@ $.fn.focusWindow = function (event) {
                 document.title = $(this).attr('data-name');
             }
         }
-        $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).addClass('taskbar-item-active');
     } else {
         $('.window').find('.item-selected').addClass('item-blurred');
-        $('.desktop').find('.item-blurred').removeClass('item-blurred');
     }
 
     return this;
@@ -5246,230 +4777,167 @@ function morph_window_from_tile (el_window, tile, morph_options = {}) {
 $.fn.hideWindow = async function (options) {
     $(this).each(async function () {
         if ( $(this).hasClass('window') ) {
-            // get taskbar item location
-            let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
+            // If the app's tile is visible on the dashboard's Apps tab, shrink
+            // the window into it so the user sees where the app went; otherwise
+            // simply hide the window in place. Either way the geometry is
+            // untouched afterwards and showWindow() un-hides via the
+            // data-minimized_in_place flag.
+            const el_window = this;
+            const $win = $(this);
+            const reduce_motion = window.matchMedia
+                && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            // (A morph already in flight — either direction — owns the
+            // window's inline transform/opacity and will restore them at
+            // its end, so don't start another on top; fall back to the
+            // plain fade below, exactly as before the morphs existed.)
+            const tile = (reduce_motion
+                || $win.attr('data-window_morphing') === '1')
+                ? null
+                : dashboard_tile_in_view($win.attr('data-app'));
 
-            // No taskbar item to animate toward (e.g. dashboard mode, which
-            // has no taskbar): if the app's tile is visible on the Apps tab's
-            // current page, shrink the window into it so the user sees where
-            // the app went; otherwise simply hide the window in place. Either
-            // way the geometry is untouched afterwards and showWindow()
-            // un-hides via the data-minimized_in_place flag.
-            if ( ! taskbar_item_pos ) {
-                const el_window = this;
-                const $win = $(this);
-                const reduce_motion = window.matchMedia
-                    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-                // (A morph already in flight — either direction — owns the
-                // window's inline transform/opacity and will restore them at
-                // its end, so don't start another on top; fall back to the
-                // plain fade below, exactly as before the morphs existed.)
-                const tile = (reduce_motion
-                    || $win.attr('data-window_morphing') === '1')
-                    ? null
-                    : dashboard_tile_in_view($win.attr('data-app'));
+            if ( tile ) {
+                // iOS-style zoom-to-icon morph, two congruent layers on
+                // the same 450ms decelerating path so it reads as ONE
+                // object transforming:
+                //   1. the LIVE window scales onto the tile's icon box,
+                //      its corner radius growing toward the squircle,
+                //      fading OUT once it has mostly shrunk;
+                //   2. an enlarged clone of the icon ("ghost") starts
+                //      covering the window and flies/shrinks with it,
+                //      fading IN as the window fades out, landing exactly
+                //      on the real icon's slot (the real icon is hidden
+                //      until the ghost lands, so nothing doubles).
+                // Transform + opacity animate on the compositor (no
+                // per-frame reflow of the app's iframe); the window's
+                // geometry (top/left/width/height) is never touched, so
+                // restore is trivial.
+                const icon = tile.querySelector('.myapps-tile-icon') || tile;
+                const win_rect = el_window.getBoundingClientRect();
+                const icon_rect = icon.getBoundingClientRect();
+                if ( win_rect.width > 0 && win_rect.height > 0
+                    && icon_rect.width > 0 && icon_rect.height > 0 ) {
+                    // Everything touched is restored from these exact
+                    // inline values once the animation ends.
+                    const orig_style = {
+                        transform: el_window.style.transform,
+                        transformOrigin: el_window.style.transformOrigin,
+                        opacity: el_window.style.opacity,
+                        borderRadius: el_window.style.borderRadius,
+                        overflow: el_window.style.overflow,
+                        willChange: el_window.style.willChange,
+                        pointerEvents: el_window.style.pointerEvents,
+                        transition: el_window.style.transition,
+                    };
+                    const icon_orig_visibility = icon.style.visibility;
+                    // Map the window rect exactly onto the icon rect (and
+                    // the ghost the exact inverse: icon rect onto window
+                    // rect), so the two layers stay congruent throughout.
+                    const scale_x = icon_rect.width / win_rect.width;
+                    const scale_y = icon_rect.height / win_rect.height;
+                    const dx = icon_rect.left - win_rect.left;
+                    const dy = icon_rect.top - win_rect.top;
 
-                if ( tile ) {
-                    // iOS-style zoom-to-icon morph, two congruent layers on
-                    // the same 450ms decelerating path so it reads as ONE
-                    // object transforming:
-                    //   1. the LIVE window scales onto the tile's icon box,
-                    //      its corner radius growing toward the squircle,
-                    //      fading OUT once it has mostly shrunk;
-                    //   2. an enlarged clone of the icon ("ghost") starts
-                    //      covering the window and flies/shrinks with it,
-                    //      fading IN as the window fades out, landing exactly
-                    //      on the real icon's slot (the real icon is hidden
-                    //      until the ghost lands, so nothing doubles).
-                    // Transform + opacity animate on the compositor (no
-                    // per-frame reflow of the app's iframe); the window's
-                    // geometry (top/left/width/height) is never touched, so
-                    // restore is trivial.
-                    const icon = tile.querySelector('.myapps-tile-icon') || tile;
-                    const win_rect = el_window.getBoundingClientRect();
-                    const icon_rect = icon.getBoundingClientRect();
-                    if ( win_rect.width > 0 && win_rect.height > 0
-                        && icon_rect.width > 0 && icon_rect.height > 0 ) {
-                        // Everything touched is restored from these exact
-                        // inline values once the animation ends.
-                        const orig_style = {
-                            transform: el_window.style.transform,
-                            transformOrigin: el_window.style.transformOrigin,
-                            opacity: el_window.style.opacity,
-                            borderRadius: el_window.style.borderRadius,
-                            overflow: el_window.style.overflow,
-                            willChange: el_window.style.willChange,
-                            pointerEvents: el_window.style.pointerEvents,
-                            transition: el_window.style.transition,
-                        };
-                        const icon_orig_visibility = icon.style.visibility;
-                        // Map the window rect exactly onto the icon rect (and
-                        // the ghost the exact inverse: icon rect onto window
-                        // rect), so the two layers stay congruent throughout.
-                        const scale_x = icon_rect.width / win_rect.width;
-                        const scale_y = icon_rect.height / win_rect.height;
-                        const dx = icon_rect.left - win_rect.left;
-                        const dy = icon_rect.top - win_rect.top;
+                    const ghost = icon.cloneNode(true);
+                    ghost.style.position = 'fixed';
+                    ghost.style.left = `${icon_rect.left}px`;
+                    ghost.style.top = `${icon_rect.top}px`;
+                    ghost.style.width = `${icon_rect.width}px`;
+                    ghost.style.height = `${icon_rect.height}px`;
+                    ghost.style.margin = '0';
+                    ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 1;
+                    ghost.style.pointerEvents = 'none';
+                    ghost.style.transformOrigin = 'top left';
+                    ghost.style.willChange = 'transform, opacity';
+                    ghost.style.opacity = '0';
+                    // UNIFORM start scale so the icon stays square (a
+                    // rect-onto-rect mapping stretches it), sized to fit
+                    // INSIDE the window (contain, centered) — a covering
+                    // square would protrude past the card's short edge
+                    // and the protruding halo pops in mid-crossfade
+                    // (visible jitter). Contained, the ghost's side
+                    // tracks the card's short edge exactly for the whole
+                    // flight (both interpolate linearly between the same
+                    // start and end sizes), so the card's rectangular
+                    // flanks simply melt away around a steady square.
+                    const ghost_scale = Math.min(
+                        win_rect.width / icon_rect.width,
+                        win_rect.height / icon_rect.height,
+                    );
+                    const ghost_left = win_rect.left + (win_rect.width - icon_rect.width * ghost_scale) / 2;
+                    const ghost_top = win_rect.top + (win_rect.height - icon_rect.height * ghost_scale) / 2;
+                    ghost.style.transform = `translate(${ghost_left - icon_rect.left}px, ${ghost_top - icon_rect.top}px) scale(${ghost_scale})`;
+                    document.body.appendChild(ghost);
+                    icon.style.visibility = 'hidden';
 
-                        const ghost = icon.cloneNode(true);
-                        ghost.style.position = 'fixed';
-                        ghost.style.left = `${icon_rect.left}px`;
-                        ghost.style.top = `${icon_rect.top}px`;
-                        ghost.style.width = `${icon_rect.width}px`;
-                        ghost.style.height = `${icon_rect.height}px`;
-                        ghost.style.margin = '0';
-                        ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 1;
-                        ghost.style.pointerEvents = 'none';
-                        ghost.style.transformOrigin = 'top left';
-                        ghost.style.willChange = 'transform, opacity';
-                        ghost.style.opacity = '0';
-                        // UNIFORM start scale so the icon stays square (a
-                        // rect-onto-rect mapping stretches it), sized to fit
-                        // INSIDE the window (contain, centered) — a covering
-                        // square would protrude past the card's short edge
-                        // and the protruding halo pops in mid-crossfade
-                        // (visible jitter). Contained, the ghost's side
-                        // tracks the card's short edge exactly for the whole
-                        // flight (both interpolate linearly between the same
-                        // start and end sizes), so the card's rectangular
-                        // flanks simply melt away around a steady square.
-                        const ghost_scale = Math.min(
-                            win_rect.width / icon_rect.width,
-                            win_rect.height / icon_rect.height,
-                        );
-                        const ghost_left = win_rect.left + (win_rect.width - icon_rect.width * ghost_scale) / 2;
-                        const ghost_top = win_rect.top + (win_rect.height - icon_rect.height * ghost_scale) / 2;
-                        ghost.style.transform = `translate(${ghost_left - icon_rect.left}px, ${ghost_top - icon_rect.top}px) scale(${ghost_scale})`;
-                        document.body.appendChild(ghost);
-                        icon.style.visibility = 'hidden';
+                    $win.attr({
+                        'data-is_minimized': true,
+                        'data-minimized_in_place': '1',
+                        'data-window_morphing': '1',
+                    });
+                    el_window.style.transformOrigin = 'top left';
+                    el_window.style.overflow = 'hidden'; // let the radius clip the content
+                    el_window.style.willChange = 'transform, opacity';
+                    el_window.style.pointerEvents = 'none';
+                    // Flush the starting state (both layers) so the
+                    // transitions animate from it rather than snapping.
+                    void el_window.offsetWidth;
+                    // The handoff: by ~130ms the decelerating curve has
+                    // done ~80% of the shrink — the ghost fades in just
+                    // before (80→240ms) and the window fades out just
+                    // after (120→320ms). The overlap means there is never
+                    // a hole, and since both ride the same path the swap
+                    // is invisible: the window "becomes" the icon.
+                    el_window.style.transition = [
+                        'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                        'border-radius 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                        'opacity 0.2s ease-out 0.12s',
+                    ].join(', ');
+                    el_window.style.transform = `translate(${dx}px, ${dy}px) scale(${scale_x}, ${scale_y})`;
+                    // Percentage radius stays proportional under the
+                    // scale — ~22% is the icon-squircle look.
+                    el_window.style.borderRadius = '22%';
+                    el_window.style.opacity = '0';
+                    ghost.style.transition = [
+                        'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                        'opacity 0.16s ease-in 0.08s',
+                    ].join(', ');
+                    ghost.style.transform = 'none';
+                    ghost.style.opacity = '1';
 
-                        $win.attr({
-                            'data-is_minimized': true,
-                            'data-minimized_in_place': '1',
-                            'data-window_morphing': '1',
-                        });
-                        el_window.style.transformOrigin = 'top left';
-                        el_window.style.overflow = 'hidden'; // let the radius clip the content
-                        el_window.style.willChange = 'transform, opacity';
-                        el_window.style.pointerEvents = 'none';
-                        // Flush the starting state (both layers) so the
-                        // transitions animate from it rather than snapping.
-                        void el_window.offsetWidth;
-                        // The handoff: by ~130ms the decelerating curve has
-                        // done ~80% of the shrink — the ghost fades in just
-                        // before (80→240ms) and the window fades out just
-                        // after (120→320ms). The overlap means there is never
-                        // a hole, and since both ride the same path the swap
-                        // is invisible: the window "becomes" the icon.
-                        el_window.style.transition = [
-                            'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
-                            'border-radius 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
-                            'opacity 0.2s ease-out 0.12s',
-                        ].join(', ');
-                        el_window.style.transform = `translate(${dx}px, ${dy}px) scale(${scale_x}, ${scale_y})`;
-                        // Percentage radius stays proportional under the
-                        // scale — ~22% is the icon-squircle look.
-                        el_window.style.borderRadius = '22%';
-                        el_window.style.opacity = '0';
-                        ghost.style.transition = [
-                            'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
-                            'opacity 0.16s ease-in 0.08s',
-                        ].join(', ');
-                        ghost.style.transform = 'none';
-                        ghost.style.opacity = '1';
-
+                    setTimeout(() => {
+                        // End of the zoom: the ghost has landed on the
+                        // real icon's slot — swap them back in the same
+                        // frame, hide the window, and put every touched
+                        // inline property back while nothing is visible.
+                        // If the user re-opened the window mid-animation
+                        // (tile click → showWindow cleared the flags),
+                        // restore but leave it visible.
+                        ghost.remove();
+                        icon.style.visibility = icon_orig_visibility;
+                        $win.attr('data-window_morphing', '0');
+                        const minimized = $win.attr('data-is_minimized');
+                        if ( minimized === '1' || minimized === 'true' ) $win.hide();
+                        el_window.style.transition = 'none';
+                        el_window.style.transform = orig_style.transform;
+                        el_window.style.transformOrigin = orig_style.transformOrigin;
+                        el_window.style.opacity = orig_style.opacity;
+                        el_window.style.borderRadius = orig_style.borderRadius;
+                        el_window.style.overflow = orig_style.overflow;
+                        el_window.style.willChange = orig_style.willChange;
+                        el_window.style.pointerEvents = orig_style.pointerEvents;
                         setTimeout(() => {
-                            // End of the zoom: the ghost has landed on the
-                            // real icon's slot — swap them back in the same
-                            // frame, hide the window, and put every touched
-                            // inline property back while nothing is visible.
-                            // If the user re-opened the window mid-animation
-                            // (tile click → showWindow cleared the flags),
-                            // restore but leave it visible.
-                            ghost.remove();
-                            icon.style.visibility = icon_orig_visibility;
-                            $win.attr('data-window_morphing', '0');
-                            const minimized = $win.attr('data-is_minimized');
-                            if ( minimized === '1' || minimized === 'true' ) $win.hide();
-                            el_window.style.transition = 'none';
-                            el_window.style.transform = orig_style.transform;
-                            el_window.style.transformOrigin = orig_style.transformOrigin;
-                            el_window.style.opacity = orig_style.opacity;
-                            el_window.style.borderRadius = orig_style.borderRadius;
-                            el_window.style.overflow = orig_style.overflow;
-                            el_window.style.willChange = orig_style.willChange;
-                            el_window.style.pointerEvents = orig_style.pointerEvents;
-                            setTimeout(() => {
-                                el_window.style.transition = orig_style.transition;
-                            }, 50);
-                        }, 480);
-                        return;
-                    }
+                            el_window.style.transition = orig_style.transition;
+                        }, 50);
+                    }, 480);
+                    return;
                 }
-
-                $win.attr({
-                    'data-is_minimized': true,
-                    'data-minimized_in_place': '1',
-                });
-                $win.fadeOut(150);
-                return;
             }
 
-            // Calculate animation target based on taskbar position
-            let animationTarget = {};
-            const taskbarPosition = window.taskbar_position || 'bottom';
-
-            if ( taskbarPosition === 'bottom' ) {
-                // taskbar position is center of window minus half of taskbar item width
-                taskbar_item_pos.left = taskbar_item_pos.left + ($(window).width() / 2) - ($('.taskbar').width() / 2);
-                animationTarget = {
-                    top: 'calc(100% - 60px)',
-                    left: taskbar_item_pos.left + 14.5,
-                };
-            } else if ( taskbarPosition === 'left' ) {
-                animationTarget = {
-                    top: taskbar_item_pos.top + ($(window).height() / 2) - ($('.taskbar').height() / 2) + 14.5,
-                    left: '5px',
-                };
-            } else if ( taskbarPosition === 'right' ) {
-                animationTarget = {
-                    top: taskbar_item_pos.top + ($(window).height() / 2) - ($('.taskbar').height() / 2) + 14.5,
-                    left: 'calc(100% - 60px)',
-                };
-            }
-
-            $(this).attr({
-                'data-orig-width': $(this).width(),
-                'data-orig-height': $(this).height(),
-                'data-orig-top': $(this).position().top,
-                'data-orig-left': $(this).position().left,
+            $win.attr({
                 'data-is_minimized': true,
+                'data-minimized_in_place': '1',
             });
-
-            $(this).css({
-                ...(!isMobile.phone ? {
-                    'transition': 'top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s',
-                } : {}),
-                width: '0',
-                height: '0',
-                ...animationTarget,
-            });
-
-            // remove transitions a good while after setting css to make sure
-            // it doesn't interfere with an ongoing animation
-            setTimeout(() => {
-                $(this).css({
-                    'transition': 'none',
-                    'transform': 'none',
-                });
-            }, 250);
-
-            // reset the tab title (the URL is not touched — apps never
-            // rewrite it on the desktop) — only if this window owned it
-            const update_window_url = $(this).attr('data-update_window_url');
-            if ( ! window.is_dashboard_mode && (update_window_url === 'true' || update_window_url === null) ) {
-                document.title = i18n('window_title_puter');
-            }
+            $win.fadeOut(150);
         }
     });
     return this;
@@ -5611,79 +5079,23 @@ async function saveSidebarOrder (order) {
     }
 }
 
-// Function to update maximized window positioning based on taskbar position
-window.update_maximized_window_for_taskbar = function (el_window) {
-    const position = window.taskbar_position || 'bottom';
-
-    // Handle fullpage mode differently
+window.update_maximized_window = function (el_window) {
     if ( window.is_fullpage_mode ) {
         $(el_window).css({
-            'top': `${window.toolbar_height }px`,
+            'top': 0,
             'left': '0',
             'width': '100%',
-            'height': `calc(100% - ${window.toolbar_height}px)`,
+            'height': '100%',
         });
         return;
     }
 
-    if ( position === 'bottom' ) {
-        let height = window.innerHeight - window.taskbar_height - window.toolbar_height - 6;
-        let width = '100%';
-
-        $(el_window).css({
-            'top': `${window.toolbar_height }px`,
-            'left': '0',
-            'width': width,
-            'height': `${height }px`,
-        });
-    } else if ( position === 'left' ) {
-        let width = window.innerWidth - window.taskbar_height - 1;
-
-        $(el_window).css({
-            'top': `${window.toolbar_height }px`,
-            'left': `${window.taskbar_height + 1 }px`,
-            'width': width,
-            'height': `calc(100% - ${window.toolbar_height}px)`,
-        });
-    } else if ( position === 'right' ) {
-        $(el_window).css({
-            'top': `${window.toolbar_height }px`,
-            'left': '0',
-            'width': `calc(100% - ${window.taskbar_height + 1}px)`,
-            'height': `calc(100% - ${window.toolbar_height}px)`,
-        });
-    }
+    $(el_window).css({
+        'top': 0,
+        'left': '0',
+        'width': '100%',
+        'height': `${window.innerHeight - 6 }px`,
+    });
 };
-
-// Function to get snap dimensions and positions based on taskbar position
-function getSnapDimensions () {
-    const taskbar_position = window.taskbar_position || 'bottom';
-
-    let available_width, available_height, start_x, start_y;
-
-    if ( taskbar_position === 'left' ) {
-        available_width = window.innerWidth - window.taskbar_height;
-        available_height = window.innerHeight - window.toolbar_height;
-        start_x = window.taskbar_height;
-        start_y = window.toolbar_height;
-    } else if ( taskbar_position === 'right' ) {
-        available_width = window.innerWidth - window.taskbar_height;
-        available_height = window.innerHeight - window.toolbar_height;
-        start_x = 0;
-        start_y = window.toolbar_height;
-    } else { // bottom (default)
-        available_width = window.innerWidth;
-        available_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
-        start_x = 0;
-        start_y = window.toolbar_height;
-    }
-
-    return {
-        available_width,
-        available_height,
-        start_x,
-        start_y,
-    };
-}
 
 export default UIWindow;

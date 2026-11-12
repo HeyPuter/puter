@@ -1271,7 +1271,7 @@ describe('AppController app-icon rate limit', () => {
     it('sizes the icon bucket for a whole network rather than one desktop', () => {
         // Icons are unauthenticated `<img src>` targets, so the only key is
         // the address — which one NAT shares across every desktop behind it,
-        // and each boot pulls the taskbar's icons in a burst.
+        // and each dashboard load pulls its app icons in a burst.
         for (const path of ['/app-icon/:app_uid', '/app-icon/:app_uid/:size']) {
             const route = router.routes.find(
                 (r) => r.method === 'get' && r.path === path,
