@@ -32,7 +32,6 @@ import type { UserRow } from '../../stores/user/UserStore';
 import type {
     PuterHomepageService,
     PageMeta,
-    LaunchOptions,
     PopupFrame,
     ShellContext,
 } from '../../services/homepage/PuterHomepageService';
@@ -173,7 +172,6 @@ export class HomepageController extends PuterController {
             req: express.Request,
             res: express.Response,
             metaOverrides: Partial<PageMeta> = {},
-            launch: LaunchOptions = {},
             popupFrame?: PopupFrame,
         ) => {
             const meta = { ...defaultMeta(req), ...metaOverrides };
@@ -191,7 +189,6 @@ export class HomepageController extends PuterController {
                     guiTokenDigest: this.#guiTokenDigest(req, actor),
                 },
                 meta,
-                launch,
                 popupFrame,
             );
         };
@@ -264,7 +261,6 @@ export class HomepageController extends PuterController {
                 await sendShell(
                     req,
                     res,
-                    {},
                     {},
                     {
                         hostOrigin: embedHostOrigin(
@@ -367,20 +363,10 @@ export class HomepageController extends PuterController {
             sendAppShell,
         );
 
-        // -- /show/* - launch explorer with the requested file path --
-
+        // Old /show links open the path in the dashboard's Files tab, query intact.
         router.get('/show/*splat', {}, (req, res) => {
             const filePath = req.path.slice('/show'.length);
-            const launch: LaunchOptions = {
-                on_initialized: [
-                    {
-                        $: 'window-call',
-                        fn_name: 'launch_app',
-                        args: [{ name: 'explorer', path: filePath }],
-                    },
-                ],
-            };
-            return sendShell(req, res, {}, launch);
+            res.redirect(`/dashboard${queryOf(req)}#files${filePath}`);
         });
 
         // -- /sw.js - the service worker, scoped to the whole origin --

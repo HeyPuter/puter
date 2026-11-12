@@ -318,8 +318,8 @@ async function UIItem (options) {
             // Constrain item within desktop bounds
             const minLeft = -50;
             const maxLeft = window.desktop_width - 50;
-            const minTop = window.toolbar_height;
-            const maxTop = window.desktop_height + window.toolbar_height;
+            const minTop = 0;
+            const maxTop = window.desktop_height;
 
             // Apply constraints to ui.position
             ui.position.left = Math.max(minLeft, Math.min(maxLeft, ui.position.left));
@@ -1505,7 +1505,7 @@ async function UIItem (options) {
                     left = left > (window.innerWidth - window_width) ? (window.innerWidth - window_width) : left;
 
                     let top = $(el_item).position().top + $(el_item).height();
-                    top = top > (window.innerHeight - (window_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.toolbar_height)) : top;
+                    top = top > (window.innerHeight - window_height) ? (window.innerHeight - window_height) : top;
 
                     UIWindowItemProperties(
                         $(el_item).attr('data-name'),

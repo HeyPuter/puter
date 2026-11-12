@@ -40,20 +40,13 @@ const hy = {
         close_all_windows_and_log_out: 'Փակել պատուհաններն ու դուրս գալ',
         change_always_open_with: 'Ցանկանու՞մ եք այս տեսակի ֆայլը միշտ բացել',
         confirm: 'Հաստատել',
-        confirm_2fa_setup: 'Ես ավելացրել եմ կոդը իմ իսկորոշիչ հավելվածում',
-        confirm_2fa_recovery: 'Ես պահել եմ վերականգնման կոդերը ապահով վայրում',
         confirm_account_for_free_referral_storage_c2a:
       'Ստեղծեք հաշիվ և հաստատեք ձեր էլ. հասցեն 1 ԳԲ անվճար պահեստ ստանալու համար: Ձեր ընկերը նույնպես կստանա 1 ԳԲ անվճար պահեստ:',
         confirm_code_generic_incorrect: 'Սխալ կոդ:',
         confirm_code_generic_too_many_requests:
       'Չափազանց շատ հարցումներ: Խնդրում ենք սպասել մի քանի րոպե:',
-        confirm_code_generic_submit: 'Հաստատել կոդը',
-        confirm_code_generic_try_again: 'Կրկին փորձեք',
-        confirm_code_generic_title: 'Մուտքագրեք հաստատման կոդը',
         confirm_code_2fa_instruction:
       'Մուտքագրեք 6 նիշանոց կոդը ձեր իսկորոշիչ հավելվածից:',
-        confirm_code_2fa_submit_btn: 'Հաստատել',
-        confirm_code_2fa_title: 'Մուտքագրեք 2FA կոդը',
         confirm_delete_multiple_items:
       'Վստա՞հ եք, որ ցանկանում եք ընդմիշտ ջնջել այս տարրերը:',
         confirm_delete_single_item: 'Ցանկանու՞մ եք ընդմիշտ ջնջել այս տարրը:',
@@ -66,8 +59,6 @@ const hy = {
         confirm_session_revoke: 'Վստա՞հ եք, որ ցանկանում եք չեղարկել այս սեսիան:',
         confirm_your_email_address: 'Հաստատեք ձեր էլ. փոստի հասցեն',
         contact_us: 'Հետադարձ կապ',
-        contact_us_verification_required:
-      'Սա օգտագործելու համար դուք պետք է ունենաք հաստատված էլ․ հասցե։:',
         continue: 'Շարունակել',
         copy: 'Պատճենել',
         copy_link: 'Պատճենել հղումը',
@@ -89,10 +80,8 @@ const hy = {
         deploy_as_app: 'Տեղադրել որպես հավելված',
         descending: 'Նվազող',
         desktop: 'Աշխատասեղան',
-        desktop_background_fit: 'Հարմարեցնել',
         developers: 'Ծրագրավորողներ',
         disable_2fa: 'Անջատել 2FA',
-        disable_2fa_confirm: 'Վստա՞հ եք, որ ցանկանում եք անջատել 2FA-ն:',
         disable_2fa_instructions:
       'Մուտքագրեք ձեր գաղտնաբառը՝ 2FA-ն անջատելու համար:',
         documents: 'Փաստաթղթեր',
@@ -128,13 +117,10 @@ const hy = {
         forgot_pass_c2a: 'Մոռացե՞լ եք գաղտնաբառը',
         from: 'Ումից՝',
         general: 'Ընդհանուր',
-        get_a_copy_of_on_puter: "Ստանալ '%%'-ի պատճենը Puter.com-ում!",
-        get_copy_link: 'Ստանալ պատճենված հղումը',
         home: 'Գլխավոր',
         html_document: 'HTML փաստաթուղթ',
         hue: 'Երանգ',
         incorrect_password: 'Սխալ գաղտնաբառ',
-        invite_link: 'Հրավերի հղում',
         item: 'տարր',
         items_in_trash_cannot_be_renamed:
       'Այս տարրը չի կարող վերանվանվել, քանի որ այն աղբարկղում է: Այս տարրը վերանվանելու համար նախ տեղափոխեք այն աղբարկղից:',
@@ -146,7 +132,6 @@ const hy = {
         loading: 'Բեռնում',
         log_in: 'Մուտք գործել',
         log_out: 'Դուրս գալ',
-        looks_good: 'Լավ է նայվում!',
         manage_sessions: 'Սեսիաների կառավարում',
         modified: 'Փոփոխված',
         move: 'Տեղափոխել',
@@ -171,7 +156,6 @@ const hy = {
         open_with: 'Բացել հավելվածով',
         original_name: 'սկզբնական անուն',
         original_path: 'սկզբնական ուղի',
-        oss_code_and_content: 'Բաց կոդով ծրագրակազմ և բովանդակություն',
         password: 'Գաղտնաբառ',
         password_changed: 'Գաղտնաբառը փոփոխված է',
         password_recovery_rate_limit:
@@ -188,27 +172,20 @@ const hy = {
         paste: 'Տեղադրել',
         paste_into_folder: 'Տեղադրել պանակում',
         path: 'Ուղի',
-        personalization: 'Անհատականացում',
         pictures: 'Նկարներ',
         plural_suffix: 'ներ',
-        powered_by_puter_js: 'Աջակցվում է {{link=docs}}Puter.js{{/link}}-ի կողմից',
         preparing: 'Պատրաստվում է...',
-        preparing_for_upload: 'Պատրաստվում է վերբեռնել...',
         print: 'Տպել',
         privacy: 'Գաղտնիություն',
         proceed_to_login: 'Շարունակել մուտք գործելը',
-        proceed_with_account_deletion: 'Շարունակել հաշվի ջնջումը',
         properties: 'Հատկություններ',
         public: 'Հանրային',
         publish: 'Հրապարակել',
         publish_as_website: 'Հրապարակել որպես կայք',
-        puter_description:
-      'Փութերը գաղտնիության առաջնահերթություն ունեցող անձնական ամպ է՝ ձեր բոլոր ֆայլերը, հավելվածները և խաղերը մեկ անվտանգ տեղում պահելու համար, որը հասանելի է ցանկացած վայրից ցանկացած ժամանակ:',
         reading_file: 'Ընթերցում է %strong%',
         recover_password: 'Վերականգնել գաղտնաբառը',
         refer_friends_c2a:
       'Ստացեք 1 ԳԲ յուրաքանչյուր ընկերոջ համար, ով ստեղծում և հաստատում է հաշիվ Փութերում: Ձեր ընկերը նույնպես կստանա 1 ԳԲ!',
-        refer_friends_social_media_c2a: 'Ստացեք 1 ԳԲ անվճար պահեստ Puter.com-ում!',
         refresh: 'Թարմացնել',
         rename: 'Վերանվանել',
         replace: 'Փոխարինել',
@@ -218,13 +195,10 @@ const hy = {
         save: 'Պահպանել',
         saturation: 'Հագեցվածություն',
         save_account: 'Պահպանել հաշիվը',
-        save_account_to_get_copy_link:
-      'Շարունակելու համար խնդրում ենք ստեղծել հաշիվ:',
         save_account_to_publish: 'Շարունակելու համար խնդրում ենք ստեղծել հաշիվ:',
         save_session: 'Պահպանել սեսիան',
         save_session_c2a:
       'Ստեղծեք հաշիվ՝ ձեր ընթացիկ սեսիան պահպանելու և աշխատանքը չկորցնելու համար:',
-        scan_qr_2fa: 'Սկանավորեք QR-կոդը ձեր իսկորոշիչ հավելվածով',
         search: 'Որոնել',
         seconds: 'վայրկյաններ',
         security: 'Անվտանգություն',
@@ -244,13 +218,11 @@ const hy = {
         show_hidden: 'Ցույց տալ թաքնված տարրերը',
         sign_in_with_puter: 'Մուտք գործել Փութերի միջոցով',
         sign_up: 'Գրանցվել',
-        signing_in: 'Մուտք է գործում…',
         size: 'Չափ',
         skip: 'Բաց թողնել',
         something_went_wrong: 'Ինչ-որ բան սխալ գնաց:',
         sort_by: 'Տեսակավորել ըստ՝',
         status: 'Կարգավիճակ',
-        storage_usage: 'Պահեստի օգտագործում',
         storage_puter_used: 'օգտագործվում է Փութերի կողմից',
         taking_longer_than_usual:
       'Սովորականից մի փոքր ավելի երկար է տևում: Խնդրում ենք սպասել...',
@@ -280,31 +252,24 @@ const hy = {
         videos: 'Տեսանյութեր',
         visibility: 'Տեսանելիություն',
         yes: 'Այո',
-        you_have_been_referred_to_puter_by_a_friend:
-      'Դուք ուղղորդվել եք Փութեր ձեր ընկերոջ կողմից!',
         zip: 'Ավելացնել արխիվում',
         zipping_file: 'Ավելացվում է արխիվում %strong%-ը',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Բացեք ձեր իսկորոշիչ հավելվածը',
         setup2fa_1_instructions: `
         Դուք կարող եք օգտագործել ցանկացած իսկորոշիչ հավելված, որն աջակցում է ժամանակի վրա հիմնված միանգամյա գաղտնաբառ (TOTP) պրոտոկոլը:
         Կան բազմաթիվ տարբերակներ, բայց եթե վստահ չեք,
         <a target="_blank" href="https://authy.com/download">Authy</a>
         լավ ընտրություն է Android-ի և iOS-ի համար:
     `,
-        setup2fa_2_step_heading: 'Սկանավորեք QR-կոդը',
         setup2fa_3_step_heading: 'Մուտքագրեք 6 նիշանոց կոդը',
-        setup2fa_4_step_heading: 'Պատճենեք ձեր վերականգնման կոդերը',
         setup2fa_4_instructions: `
         Այս վերականգնման կոդերը միակ միջոցն են մուտք գործելու ձեր հաշիվ, եթե կորցնեք ձեր հեռախոսը կամ չկարողանաք օգտագործել ձեր իսկորոշիչ հավելվածը:
         Պարտադիր դրանք պահեք ապահով վայրում:
     `,
-        setup2fa_5_step_heading: 'Հաստատեք 2FA կարգավորումը',
         setup2fa_5_confirmation_1:
       'Ես իմ վերականգնման կոդերը պահել եմ ապահով վայրում',
         setup2fa_5_confirmation_2: 'Ես պատրաստ եմ միացնել 2FA',
-        setup2fa_5_button: 'Միացնել 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Մուտքագրեք 2FA կոդը',
@@ -314,7 +279,6 @@ const hy = {
         login2fa_recovery_instructions:
       'Մուտքագրեք ձեր վերականգնման կոդերից մեկը ձեր հաշիվ մուտք գործելու համար:',
         login2fa_use_recovery_code: 'Օգտագործել վերականգնման կոդը',
-        login2fa_recovery_back: 'Հետ',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'Փոփոխել',
@@ -390,20 +354,13 @@ const hy = {
         'billing.accelerated': 'Արագացված',
         'billing.enjoy_msg':
       'Վայելեք %% ամպային պահեստավորում և այլ առավելություններ',
-        choose_publishing_option: 'Ընտրեք ձեր կայքը հրապարակելու եղանակը։',
-        create_desktop_shortcut: 'Ստեղծել դյուրանցում (Աշխատասեղան)',
-        create_desktop_shortcut_s: 'Ստեղծել դյուրանցումներ (Աշխատասեղան)',
         create_shortcut_s: 'Ստեղծել դյուրանցումներ',
         minimize: 'Փոքրացնել',
         reload_app: 'Վերաբեռնել հավելվածը',
         publish_as_serverless_worker: 'Հրապարակել որպես Worker',
-        'toolbar.enter_fullscreen': 'Լիաէկրան ռեժիմ',
-        'toolbar.github': 'GitHub',
-        'toolbar.refer': 'Հրավիրել',
         used_of: '{{used}} օգտագործված է {{available}}-ից',
         worker: 'Worker',
         'billing.offering.basic': 'Հիմնական',
-        too_many_attempts: 'Չափազանց շատ փորձեր։ Խնդրում ենք փորձել ավելի ուշ։',
         server_timeout:
       'Սերվերը չի պատասխանել ժամանակին։ Խնդրում ենք կրկին փորձել։',
         signup_error:
@@ -423,15 +380,10 @@ const hy = {
         window_title_open: 'Բացել',
         window_title_change_password: 'Փոխել գաղտնաբառը',
         window_title_select_font: 'Ընտրել տառատեսակ…',
-        window_title_session_list: 'Սեսիաների ցանկ',
         window_title_set_new_password: 'Սահմանել նոր գաղտնաբառ',
         window_title_publish_website: 'Հրապարակել կայք',
         window_title_publish_worker: 'Հրապարակել Worker',
         window_title_authenticating: 'Նույնականացում…',
-        window_title_refer_friend: 'Հրավիրել ընկերոջը',
-        desktop_exit_full_screen: 'Ելք լիաէկրան ռեժիմից',
-        desktop_enter_full_screen: 'Լիաէկրան ռեժիմ',
-        item_shared_with_you: 'Օգտատերը կիսվել է այս տարրով ձեզ հետ.',
         item_shared_by_you:
       'Դուք կիսվել եք այս տարրով առնվազն մեկ այլ օգտատիրոջ հետ.',
         item_shortcut: 'Դյուրանցում',
@@ -441,9 +393,6 @@ const hy = {
         window_click_to_go_back: 'Սեղմեք՝ վերադառնալու համար.',
         window_click_to_go_forward: 'Սեղմեք՝ առաջ անցնելու համար.',
         window_click_to_go_up: 'Սեղմեք՝ մեկ պանակ վեր բարձրանալու համար.',
-        window_title_public: 'Հրապարակային',
-        window_title_videos: 'Տեսանյութեր',
-        window_title_pictures: 'Նկարներ',
         window_title_puter: 'Puter',
         window_folder_empty: 'Այս պանակը դատարկ է',
     },

@@ -323,7 +323,7 @@ Please try recreating the link.`);
             app: 'explorer',
             top: options.maximized ? 0 : undefined,
             left: options.maximized ? 0 : undefined,
-            height: options.maximized ? `calc(100% - ${window.toolbar_height + 1}px)` : undefined,
+            height: options.maximized ? 'calc(100% - 1px)' : undefined,
             width: options.maximized ? '100%' : undefined,
         });
     }

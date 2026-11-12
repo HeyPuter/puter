@@ -710,9 +710,6 @@ async function UIDesktop () {
     // notification container
     $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
 
-    // adjust window container to take into account the toolbar height
-    $('.window-container').css('top', window.toolbar_height);
-
     // track: checkpoint
     //-----------------------------
     // GUI is ready to launch apps!
@@ -791,11 +788,9 @@ async function UIDesktop () {
         window.active_item_container = null;
     });
 
-    $(el_desktop).on('click', function (e) {
+    $(el_desktop).on('click', function () {
         // blur all windows
         $('.window-active').removeClass('window-active');
-        // hide all global menubars
-        $('.window-menubar-global').hide();
     });
 
     /**
@@ -897,7 +892,7 @@ window.enter_fullpage_mode = (el_window) => {
     $(el_window).css({
         width: '100%',
         height: '100%',
-        top: `${window.toolbar_height }px`,
+        top: 0,
         left: 0,
         'border-radius': 0,
     });

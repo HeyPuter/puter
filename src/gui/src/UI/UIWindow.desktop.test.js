@@ -57,7 +57,6 @@ beforeEach(() => {
         window_counter: 0,
         last_window_zindex: 1,
         window_stack: [],
-        toolbar_height: 0,
         icons: {},
         uuidv4: () => crypto.randomUUID(),
         is_dashboard_mode: false,

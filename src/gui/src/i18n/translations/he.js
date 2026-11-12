@@ -40,19 +40,12 @@ const he = {
         close_all_windows_and_log_out: 'סגור את החלונות והתנתק',
         change_always_open_with: 'האם אתה רוצה תמיד לפתוח סוג זה של קובץ עם',
         confirm: 'לאשר',
-        confirm_2fa_setup: 'הוספתי את הקוד לאפליקצית האימות שלי',
-        confirm_2fa_recovery: 'שמרתי את קודי השחזור שלי במיקום מאובטח',
         confirm_account_for_free_referral_storage_c2a:
       'צור חשבון ואשר את כתובת הדוא"ל שלך כדי לקבל 1 גיגה בייט של אחסון בחינם. חברך יקבל גם 1 גיגה בייט של אחסון בחינם.',
         confirm_code_generic_incorrect: 'קוד שגוי.',
         confirm_code_generic_too_many_requests:
       'יותר מדי בקשות. אנא המתינו מספר דקות.',
-        confirm_code_generic_submit: 'שלח קוד',
-        confirm_code_generic_try_again: 'נסה שוב',
-        confirm_code_generic_title: 'הזן קוד אישור',
         confirm_code_2fa_instruction: 'הזינו את הקוד בן 6 הספרות מאפליקציית המאמת.',
-        confirm_code_2fa_submit_btn: 'שלח',
-        confirm_code_2fa_title: 'הזינו קוד אימות דו-שלבי',
         confirm_delete_multiple_items:
       'האם אתה בטוח שברצונך למחוק פריטים אלה לצמיתות?',
         confirm_delete_single_item: 'האם ברצונך למחוק פריט זה לצמיתות?',
@@ -65,8 +58,6 @@ const he = {
         confirm_session_revoke: '?האם אתה בטוח שברצונך לבטל חיבור פעיל זה',
         confirm_your_email_address: 'אשר את כתובת האימייל שלך',
         contact_us: 'צור קשר',
-        contact_us_verification_required:
-      'עליך להיות בעל כתובת אימייל מאומתת כדי להשתמש בזה.',
         continue: 'המשיך',
         copy: 'העתק',
         copy_link: 'העתק קישור',
@@ -88,10 +79,8 @@ const he = {
         deploy_as_app: 'לפרוס כאפליקציה',
         descending: 'בסדר יורד',
         desktop: 'שולחן העבודה ',
-        desktop_background_fit: 'התאים',
         developers: 'מפתחים',
         disable_2fa: 'השבתת אימות דו-שלבי',
-        disable_2fa_confirm: 'האם אתם בטוחים שברצונכם להשבית אימות דו-שלבי?',
         disable_2fa_instructions: 'הזינו את הסיסמה שלכם כדי להשבית אימות דו-שלבי.',
         documents: 'מסמכים',
         dont_allow: 'אל תאפשר',
@@ -125,13 +114,10 @@ const he = {
         forgot_pass_c2a: 'שכחת את הסיסמא?',
         from: 'טופס',
         general: 'כללי',
-        get_a_copy_of_on_puter: 'קבל עותק של \'%%\' ב Puter.com!',
-        get_copy_link: 'קבל העתק קישור',
         home: 'בית',
         html_document: 'מסמך HTML',
         hue: 'דרגת צבע',
         incorrect_password: 'סיסמה שגויה',
-        invite_link: 'קישור הזמנה',
         item: 'פריט',
         items_in_trash_cannot_be_renamed: 'לא ניתן לשנות את שם הפריט הזה כי הוא נמצא באשפה. כדי לשנות את שם הפריט הזה, תחילה גרור אותו מחוץ לאשפה.',
         jpeg_image: 'JPEG תמונת',
@@ -142,7 +128,6 @@ const he = {
         loading: 'טוען',
         log_in: 'התחברות',
         log_out: 'התנתק',
-        looks_good: 'נראה טוב!',
         manage_sessions: 'ניהול חיבורים פעילים',
         modified: 'שונה',
         move: 'לעבור',
@@ -167,7 +152,6 @@ const he = {
         open_with: 'לפתוח באמצעות',
         original_name: 'שם מקורי',
         original_path: 'מסלול מקורי',
-        oss_code_and_content: 'תוכנה ותוכן בקוד פתוח',
         password: 'סיסמה',
         password_changed: 'הסיסמה השתנתה.',
         password_recovery_rate_limit:
@@ -182,26 +166,20 @@ const he = {
         paste: 'הדבק',
         paste_into_folder: 'הדבק בתיקיה',
         path: 'מסלול',
-        personalization: 'התאמה אישית',
         pictures: 'תמונות',
         plural_suffix: 's',
-        powered_by_puter_js: 'מונע ע"י {{link=docs}}Puter.js{{/link}}',
         preparing: 'מכין...',
-        preparing_for_upload: 'מתכוננים להעלאה...',
         print: 'הדפס',
         privacy: 'פרטיות',
         proceed_to_login: 'המשך לכניסה',
-        proceed_with_account_deletion: 'המשך למחיקת חשבון',
         properties: 'תכונות',
         public: 'ציבורי',
         publish: 'פרסם',
         publish_as_website: 'פרסום כאתר אינטרנט',
-        puter_description: 'הוא ענן אישי ששם את הפרטיות בראש סדר העדיפויות כדי לשמור על כל הקבצים, המשחקים, והיישומים שלך במקום מאובטח אחד, נגיש מכל מקום ובכל זמן Puter',
         reading_file: 'קורא %strong%',
         recover_password: 'שחזור סיסמה',
         refer_friends_c2a:
       'קבל 1 גיגה בייט עבור כל חבר שיוצר ומאשר חשבון ב  Puter. גם החבר שלך יקבל 1 גיגה בייט!',
-        refer_friends_social_media_c2a: 'קבל שטח אחסון של 1 גיגה בייט בחינם Puter.com!',
         refresh: 'רענן',
         rename: 'שנה שם',
         replace: 'החלף',
@@ -211,12 +189,10 @@ const he = {
         save: 'שמירה',
         saturation: 'סטורציה',
         save_account: 'שמירת חשבון',
-        save_account_to_get_copy_link: 'אנא צור חשבון כדי להמשיך.',
         save_account_to_publish: 'אנא צור חשבון כדי להמשיך.',
         save_session: 'שמירת חיבור',
         save_session_c2a:
       'צור חשבון כדי לשמור את החיבור הנוכחי שלך ולהימנע מאובדן העבודה שלך.',
-        scan_qr_2fa: 'סרוק את קוד ה- QR באמצעות אפליקציית האימות שלך',
         search: 'חיפוש',
         seconds: 'שניות',
         security: 'אבטחה',
@@ -234,13 +210,11 @@ const he = {
         show_hidden: 'הצג מוסתר',
         sign_in_with_puter: 'להתחבר עם Puter',
         sign_up: 'הרשמה',
-        signing_in: 'התחברות…',
         size: 'גודל',
         skip: 'דלג',
         something_went_wrong: 'משהו השתבש.',
         sort_by: 'מיין לפי',
         status: 'סטטוס',
-        storage_usage: 'שימוש באחסון',
         storage_puter_used: 'Puter בשימוש על ידי',
         taking_longer_than_usual: 'לוקח קצת יותר זמן מהרגיל. חכה בבקשה...',
         terms: 'תנאים',
@@ -268,29 +242,23 @@ const he = {
         videos: 'סרטונים',
         visibility: 'נראות',
         yes: 'כן',
-        you_have_been_referred_to_puter_by_a_friend: 'הופנית אל Puter על ידי חבר!',
         zip: 'מכווץ',
         zipping_file: 'מכווץ קובץ %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'פתחו את אפליקציית המאמת',
         setup2fa_1_instructions: `
             אתה יכול להשתמש בכל אפליקציית אימות התומכת בפרוטוקול סיסמה חד פעמית מבוססת זמן (TOTP).
  יש הרבה לבחירה, אבל אם אתה לא בטוח
             <a target="_blank" href="https://authy.com/download">Authy</a>
             היא בחירה סולידית עבור אנדרואיד ו- iOS.
         `,
-        setup2fa_2_step_heading: 'סרוק את קוד ה- QR',
         setup2fa_3_step_heading: 'הזן את הקוד בן 6 הספרות',
-        setup2fa_4_step_heading: 'העתק את קודי השחזור שלך',
         setup2fa_4_instructions: `
             קודי שחזור אלו הם הדרך היחידה לגשת לחשבון שלך במידה של איבוד הטלפון או אי יכולת שימוש באפליקציית המאמת .
  הקפד לאחסן אותם במקום בטוח.
         `,
-        setup2fa_5_step_heading: 'אשר את הגדרת האימות הדו-שלבי',
         setup2fa_5_confirmation_1: 'שמרתי את קודי השחזור שלי במיקום מאובטח',
         setup2fa_5_confirmation_2: 'אני מוכן להפעיל אימות דו-שלבי',
-        setup2fa_5_button: 'הפעלת אימות דו-שלבי',
 
         // === 2FA Login ===
         login2fa_otp_title: 'הזינו קוד אימות דו-שלבי',
@@ -299,7 +267,6 @@ const he = {
         login2fa_recovery_instructions:
       'הזן אחד מקודי השחזור שלך כדי לגשת לחשבון שלך.',
         login2fa_use_recovery_code: 'שימוש בקוד שחזור',
-        login2fa_recovery_back: 'לאחור',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'שנה', // In English: "Change"
@@ -363,20 +330,13 @@ const he = {
         'billing.expanded': 'מורחב', // In English: "Expanded"
         'billing.accelerated': 'מואץ', // In English: "Accelerated"
         'billing.enjoy_msg': 'תהנו מ  %% של אחסון ענן בנוסף להטבות נוספות', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-        'choose_publishing_option': 'בחר כיצד לפרסם את האתר שלך', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'צור קיצור דרך (שולחן עבודה)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'צור קיצורי דרך (שולחן עבודה)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'צור קיצורי דרך', // In English: "Create Shortcuts"
         'minimize': 'מזער', // In English: "Minimize"
         'reload_app': 'טען מחדש', // In English: "Reload App"
         'publish_as_serverless_worker': 'פרסם כעובד', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'מסך מלא', // In English: "Enter Full Screen"
-        'toolbar.github': 'גיטהאב', // In English: "GitHub"
-        'toolbar.refer': 'הפנה', // In English: "Refer"
         'used_of': '{{available}} משומש מתוך {{used}}', // In English: "{{used}} used of {{available}}"
         'worker': 'עובד', // In English: "Worker"
         'billing.offering.basic': 'בסיסי', // In English: "Basic"
-        'too_many_attempts': '.יותר מדי נסיונות. אנא נסה מאוחר יותר', // In English: "Too many attempts. Please try again later."
         'server_timeout': '.לשרת לקח זמן רב מדי להגיב. אנא נסה שנית', // In English: "The server took too long to respond. Please try again."
         'signup_error': '.ארעה תקלה בעת ההרשמה. אנא נסה שנית', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': '!תקלה', // In English: "Error!"
@@ -394,15 +354,10 @@ const he = {
         'window_title_open': 'פתח', // In English: "Open"
         'window_title_change_password': 'שנה סיסמא', // In English: "Change Password"
         'window_title_select_font': '...בחר גופן', // In English: "Select font…"
-        'window_title_session_list': 'רשימת חיבורים', // In English: "Session List!"
         'window_title_set_new_password': 'בחר סיסמא חדשה', // In English: "Set New Password"
         'window_title_publish_website': 'פרסם אתר', // In English: "Publish Website"
         'window_title_publish_worker': 'פרסם עובד', // In English: "Publish Worker"
         'window_title_authenticating': 'מאמת', // In English: "Authenticating..."
-        'window_title_refer_friend': '!הפנה חבר', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'בטל מסך מלא', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'הפעל מסך מלא', // In English: "Enter Full Screen"
-        'item_shared_with_you': 'משתמש שיתף עמך פריט זה', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'שיתפת פריט זה עם לפחות משתמש אחד נוסף', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'קיצור דרך', // In English: "Shortcut"
         'item_associated_websites': 'אתר משויך', // In English: "Associated website"
@@ -411,9 +366,6 @@ const he = {
         'window_click_to_go_back': 'לחץ כדי לחזור', // In English: "Click to go back."
         'window_click_to_go_forward': 'לחץ כדי להתקדם', // In English: "Click to go forward."
         'window_click_to_go_up': 'לחץ כדי לעלות ספרייה אחת מעלה', // In English: "Click to go one directory up."
-        'window_title_public': 'ציבורי', // In English: "Public"
-        'window_title_videos': 'סרטונים', // In English: "Videos"
-        'window_title_pictures': 'תמונות', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'תיקייה זו ריקה', // In English: "This folder is empty"
     },
