@@ -342,6 +342,9 @@ export class MeteringService extends PuterService {
     /** Bumped on every drop, so a read that straddles one isn't cached. */
     #spentAddonsDrops = 0;
 
+    /** Running sum reported by `#alarmSettleReadFailed`. */
+    #unchargedSinceStart = 0;
+
     /**
      * Uuid → until when a near-allowance read bypasses the exact-read throttle.
      * Set on a credits change (a purchase, an admin correction): for a short
@@ -675,49 +678,84 @@ export class MeteringService extends PuterService {
                 appCallCount: usages.length,
             });
 
+            // The usage is already being recorded, so a failed balance read
+            // must not skip settling it.
+            let settleReadError: Error | null = null;
             const [usageResult, subscription, actorAddons] = await Promise.all([
                 usageResultPromise,
                 this.#actorSubscriptionWithStatus(actor),
-                this.#addonsForSettle(actor),
+                (async () => {
+                    try {
+                        return await this.#addonsForSettle(actor);
+                    } catch (e) {
+                        settleReadError = e as Error;
+                        return null;
+                    }
+                })(),
             ]);
             const { policy: actorSubscription, provisionalUntil } =
                 subscription;
 
-            const actorUsages = await this.exactUsageNearAllowance(
-                userId,
-                actorUsageKey,
-                usageResult,
-                actorSubscription.monthUsageAllowance,
-            );
+            let actorUsages: UsageByType;
+            try {
+                actorUsages = await this.exactUsageNearAllowance(
+                    userId,
+                    actorUsageKey,
+                    usageResult,
+                    actorSubscription.monthUsageAllowance,
+                );
+            } catch (e) {
+                settleReadError ??= e as Error;
+                actorUsages = usageResult.res as unknown as UsageByType;
+            }
 
+            // After a failed read only the allowance share is charged:
+            // purchased credit is never drawn against an unread balance.
+            const readAddons = settleReadError ? null : actorAddons;
             const settledAllowanceUsed = await this.settleIncrementCharges(
                 userId,
                 actorUsageKey,
                 actorUsages,
                 actorSubscription,
-                actorAddons,
+                readAddons ?? ({} as UsageAddons),
                 totalBatchCost,
             );
             // Before any hold this usage stands for is released.
             await this.stores.creditHold.bump(userId);
 
-            this.maybeAlertOveruse({
-                actor,
-                userId,
-                actorUsages,
-                actorSubscription,
-                actorAddons,
-                incrementCost: totalBatchCost,
-                batchUsages: usages,
-            });
+            if (!readAddons) {
+                const usedBefore = MeteringService.allowanceUsedBefore(
+                    actorUsages,
+                    actorSubscription.monthUsageAllowance,
+                    totalBatchCost,
+                );
+                this.#alarmSettleReadFailed(
+                    actor,
+                    settleReadError,
+                    Math.max(
+                        0,
+                        totalBatchCost - (settledAllowanceUsed - usedBefore),
+                    ),
+                );
+            } else {
+                this.maybeAlertOveruse({
+                    actor,
+                    userId,
+                    actorUsages,
+                    actorSubscription,
+                    actorAddons,
+                    incrementCost: totalBatchCost,
+                    batchUsages: usages,
+                });
 
-            this.rememberRemainingCredits(
-                userId,
-                settledAllowanceUsed,
-                actorSubscription,
-                actorAddons,
-                provisionalUntil,
-            );
+                this.rememberRemainingCredits(
+                    userId,
+                    settledAllowanceUsed,
+                    actorSubscription,
+                    actorAddons,
+                    provisionalUntil,
+                );
+            }
 
             const own = this.#withDetail(actorUsages, usageResult.detail);
             const charged = await this.applyMonthlyCharges(
@@ -2955,6 +2993,31 @@ export class MeteringService extends PuterService {
         }
         await Promise.all(writes);
         return usedBefore + allowanceCharge;
+    }
+
+    /**
+     * One alarm id for every actor, so a store brownout is a single alarm with
+     * a count. `unchargedCost` is what credit would have covered, had any been
+     * left; nothing charges it later.
+     */
+    #alarmSettleReadFailed(
+        actor: Actor,
+        error: Error | null,
+        unchargedCost: number,
+    ): void {
+        this.#unchargedSinceStart += unchargedCost;
+        this.clients.alarm.create(
+            'metering_settle_read_failed',
+            'Metering settled usage to the allowance only: a balance read failed',
+            {
+                userId: actor.user?.uuid,
+                appId: actor.effectiveApp?.uid,
+                unchargedCost,
+                unchargedSinceStart: this.#unchargedSinceStart,
+                error: error ?? undefined,
+            },
+            'info',
+        );
     }
 
     private maybeAlertOveruse(ctx: {
