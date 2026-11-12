@@ -39,7 +39,6 @@ const pt = {
         change_password: 'Alterar Senha',
         change_username: 'Alterar Nome de Utilizador',
         close: 'Fechar',
-        close_all_windows: 'Fechar Todas as Janelas',
         close_all_windows_and_log_out: 'Fechar Janelas e Sair',
         change_always_open_with: 'Queres que ficheiros deste tipo abram sempre com',
         confirm: 'Confirmar',
@@ -122,7 +121,6 @@ const pt = {
         general: 'Geral',
         get_a_copy_of_on_puter: 'Obter uma cópia de \'%%\' em Puter.com!',
         get_copy_link: 'Copiar Link',
-        hide_all_windows: 'Ocultar Todas as Janelas',
         home: 'Home',
         html_document: 'Documento HTML',
         hue: 'Hue',
@@ -131,7 +129,6 @@ const pt = {
         item: 'item',
         items_in_trash_cannot_be_renamed: 'Este item não pode ser renomeado porque está no lixo. Para alterar o nome, primeiro arrasta-o para fora do Lixo.',
         jpeg_image: 'Imagem JPEG',
-        keep_in_taskbar: 'Manter na Barra de Tarefas',
         language: 'Língua',
         license: 'Licença',
         lightness: 'Lightness',
@@ -199,7 +196,6 @@ const pt = {
         refer_friends_c2a: 'Ganha 1 GB por cada amigo que criar e confirmar uma conta Puter. Os teus amigos também ganham 1 GB!',
         refer_friends_social_media_c2a: 'Ganha 1 GB de armazenamento gratuito em Puter.com!',
         refresh: 'Atualizar',
-        remove_from_taskbar: 'Remover da Barra de Tarefas',
         rename: 'Renomear',
         replace: 'Substituir',
         replace_all: 'Substituir Todos',
@@ -227,7 +223,6 @@ const pt = {
         share: 'Partilhar',
         share_to: 'Partilhar com',
         shortcut_to: 'Atalho para',
-        show_all_windows: 'Mostrar Todas as Janelas',
         show_hidden: 'Exibir janelas ocultas',
         sign_in_with_puter: 'Entrar em Puter',
         sign_up: 'Registar',
@@ -365,8 +360,6 @@ const pt = {
         'create_shortcut_s': 'Criar Atalhos', // In English: "Create Shortcuts"
         'minimize': 'Minimizar', // In English: "Minimize"
         'reload_app': 'Recarregar Aplicação', // In English: "Reload App"
-        'new_window': 'Nova Janela', // In English: "New Window"
-        'open_trash': 'Abrir Lixeira', // In English: "Open Trash"
         'publish_as_serverless_worker': 'Publicar como Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Entrar em Tela Cheia', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -398,14 +391,8 @@ const pt = {
         'window_title_publish_worker': 'Publicar Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticando...', // In English: "Authenticating..."
         'window_title_refer_friend': 'Indicar um amigo!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'Mostrar Área de Trabalho', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Mostrar Janelas Abertas', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Sair da Tela Cheia', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Entrar em Tela Cheia', // In English: "Enter Full Screen"
-        'desktop_position': 'Posição', // In English: "Position"
-        'desktop_position_left': 'Esquerda', // In English: "Left"
-        'desktop_position_bottom': 'Inferior', // In English: "Bottom"
-        'desktop_position_right': 'Direita', // In English: "Right"
         'item_shared_with_you': 'Um usuário compartilhou este item com você.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Você compartilhou este item com pelo menos um outro usuário.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Atalho', // In English: "Shortcut"

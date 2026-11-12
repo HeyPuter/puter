@@ -38,7 +38,6 @@ const id = {
         change_password: 'Ubah Kata Sandi',
         change_username: 'Ubah Nama Pengguna',
         close: 'Tutup',
-        close_all_windows: 'Tutup Semua Jendela',
         close_all_windows_and_log_out: 'Tutup Jendela dan Keluar',
         change_always_open_with: 'Apakah Anda ingin selalu membuka jenis file ini dengan',
         confirm: 'Konfirmasi',
@@ -132,7 +131,6 @@ const id = {
         general: 'Umum',
         get_a_copy_of_on_puter: 'Dapatkan salinan \'%%\' di Puter.com!',
         get_copy_link: 'Dapatkan Salinan Tautan',
-        hide_all_windows: 'Sembunyikan Semua Jendela',
         home: 'Beranda',
         html_document: 'Dokumen HTML',
         hue: 'Hue',
@@ -141,7 +139,6 @@ const id = {
         item: 'barang',
         items_in_trash_cannot_be_renamed: 'Barang ini tidak dapat diganti namanya karena berada di sampah. Untuk mengganti nama barang ini, pindahkan dahulu dari Sampah.',
         jpeg_image: 'Gambar JPEG',
-        keep_in_taskbar: 'Pertahankan di Bilah Tugas',
         language: 'Bahasa',
         license: 'Lisensi',
         lightness: 'Kecerahan',
@@ -212,7 +209,6 @@ const id = {
       'Dapatkan 1 GB untuk setiap teman yang membuat dan mengonfirmasi akun di Puter. Teman Anda juga akan mendapatkan 1 GB!',
         refer_friends_social_media_c2a: 'Dapatkan 1 GB penyimpanan gratis di Puter.com!',
         refresh: 'Muat Ulang',
-        remove_from_taskbar: 'Hapus dari Bilah Tugas',
         rename: 'Ganti Nama',
         replace: 'Ganti',
         replace_all: 'Ganti Semua',
@@ -241,7 +237,6 @@ const id = {
         share: 'Bagikan',
         share_to: 'Bagikan ke',
         shortcut_to: 'Pintasan ke',
-        show_all_windows: 'Tampilkan Semua Jendela',
         show_hidden: 'Tampilkan yang tersembunyi',
         sign_in_with_puter: 'Masuk dengan Puter',
         sign_up: 'Daftar',
@@ -388,8 +383,6 @@ const id = {
         'create_shortcut_s': 'Buat Pintasan', // In English: "Create Shortcuts"
         'minimize': 'Kecilkan', // In English: "Minimize"
         'reload_app': 'Muat Ulang Aplikasi', // In English: "Reload App"
-        'new_window': 'Jendela Baru', // In English: "New Window"
-        'open_trash': 'Buka Tempat Sampah', // In English: "Open Trash"
         'publish_as_serverless_worker': 'Publikasikan sebagai Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
         'toolbar.github': 'Github', // In English: "GitHub"
@@ -421,14 +414,8 @@ const id = {
         'window_title_publish_worker': 'Publikasikan Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Proses Autentikasi...', // In English: "Authenticating..."
         'window_title_refer_friend': 'Ajak Teman!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'Tunjukkan Desktop', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Tampilkan Jendela yang Terbuka', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Keluar dari Layar Penuh', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
-        'desktop_position': 'Posisi', // In English: "Position"
-        'desktop_position_left': 'Kiri', // In English: "Left"
-        'desktop_position_bottom': 'Bawah', // In English: "Bottom"
-        'desktop_position_right': 'Kanan', // In English: "Right"
         'item_shared_with_you': 'Pengguna lain berbagi barang ini dengan Anda', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Anda telah membagikan barang ini dengan setidaknya satu pengguna lain', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Pintasan', // In English: "Shortcut"

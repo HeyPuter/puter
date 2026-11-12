@@ -38,7 +38,6 @@ const ku = {
         change_password: 'گۆڕینی وشەی تێپەڕ',
         change_username: 'گۆڕینی ناوی بەکارهێنەر',
         close: 'داخستن',
-        close_all_windows: 'داخستنی هەموو پەنجەکان',
         close_all_windows_and_log_out: 'داخستن و چوونە دەرەوە',
         change_always_open_with: 'ئەتەوێت هەمیشە ئەم جۆرە فایلە بکرێتەوە بە',
         confirm: 'پشتڕاستکردنەوە',
@@ -132,7 +131,6 @@ const ku = {
         general: 'گشتی',
         get_a_copy_of_on_puter: 'کۆپیێک وەرگرتنەوەی \'%%\' لە پوتەر.com!',
         get_copy_link: 'کۆپی بەستەر وەرگرتن',
-        hide_all_windows: 'شاردنەوەی هەموو پەنجەکان',
         home: 'ماڵەوە',
         html_document: 'بەڵگەی HTML',
         hue: 'هیو',
@@ -141,7 +139,6 @@ const ku = {
         item: 'بابەت',
         items_in_trash_cannot_be_renamed: 'ئەم بابەتە ناتوانرێت ناونوسێت چونکە لە کوڵەدا هەیە. بۆ ناونوسین، سەبارەکەی لە کوڵەکە دەر بکە.',
         jpeg_image: 'وێنەی JPEG',
-        keep_in_taskbar: 'ڕێپێدان لە تاکسبار',
         language: 'زمان',
         license: 'لایسەنس',
         lightness: 'رووناکی',
@@ -213,7 +210,6 @@ const ku = {
       '1 گیگابایت بۆ هەر هاوڕێک دەست بەرکە، پەیوەندیدانی هەژمارێک بۆ پوتەر دروست بکە و پشتڕاست بکە. هاوڕێتیش 1 گیگابایت وەرگرتن دەبێت!',
         refer_friends_social_media_c2a: '1 گیگابایت پارێزگاکانی پوتەر.com بۆ هەر هاوڕێک بکە!',
         refresh: 'بوژانەوە',
-        remove_from_taskbar: 'لابردن لە تاکسبار',
         rename: 'ناونانەوە',
         replace: 'لە نوێکردنەوە',
         replace_all: 'لە نوێکردنەوەی هەموو',
@@ -242,7 +238,6 @@ const ku = {
         share: 'هاوبەشکردن',
         share_to: 'هاوبەشکردن بۆ',
         shortcut_to: 'شارتی بۆ',
-        show_all_windows: 'پیشاندانی هەموو پەنجەکان',
         show_hidden: 'پیشاندانی شاردراوەکان',
         sign_in_with_puter: 'چوونەژوورەوە بە پوتەر',
         sign_up: 'خۆتۆمارکردن',
@@ -385,8 +380,6 @@ const ku = {
         'create_shortcut_s': 'دروستکردنی کورتەڕەوەکان', // In English: "Create Shortcuts"
         'minimize': 'بچووککردنەوە', // In English: "Minimize"
         'reload_app': 'ئەپلیکەیشن دووبارە بار بکە', // In English: "Reload App"
-        'new_window': 'پەنجەرەی نوێ', // In English: "New Window"
-        'open_trash': 'زبڵدانە بکەرەوە', // In English: "Open Trash"
         'publish_as_serverless_worker': 'بڵاوکردنەوە وەک کارمەند', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'بە تەواوی شاشە بچۆرە', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -418,14 +411,8 @@ const ku = {
         'window_title_publish_worker': 'بڵاوکردنەوەی کارمەند', // In English: "Publish Worker"
         'window_title_authenticating': 'پەسندکردنەوە', // In English: "Authenticating..."
         'window_title_refer_friend': 'هاوڕێک بانگهێشت بکە!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'دێسک‌تۆپ پیشان بدە', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'پەنجەرە کراوەکان پیشان بدە', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'دەرچوون لە شاشەی پڕە', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'چوونە شاشەی پڕە', // In English: "Enter Full Screen"
-        'desktop_position': 'شوێن', // In English: "Position"
-        'desktop_position_left': 'چەپ', // In English: "Left"
-        'desktop_position_bottom': 'خوارەوە', // In English: "Bottom"
-        'desktop_position_right': 'ڕاست', // In English: "Right"
         'item_shared_with_you': 'بەکارهێنەرێک ئەم شتەیە لەگەڵ تۆ هاوبەش کردووە.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'تۆ ئەم شتە بە هەندێک بەکارهێنەرێکی تر هاوبەش کردووە.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'کورتەڕەو', // In English: "Shortcut"

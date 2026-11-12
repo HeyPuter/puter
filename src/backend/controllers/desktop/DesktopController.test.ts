@@ -136,50 +136,11 @@ describe('DesktopController routes', () => {
             router.routes.some((r) => r.path === '/set-desktop-bg'),
         ).toBe(false);
     });
-});
 
-// ── /update-taskbar-items ───────────────────────────────────────────
-
-describe('DesktopController POST /update-taskbar-items', () => {
-    it('persists items as a JSON-encoded string', async () => {
-        const { actor, userId } = await makeUser();
-        const items = [{ name: 'editor' }, { name: 'browser' }];
-        const { res } = makeRes();
-        await callRoute(
-            'post',
-            '/update-taskbar-items',
-            makeReq({ body: { items }, actor }),
-            res,
-        );
-
-        const refreshed = await server.stores.user.getById(userId);
-        expect(refreshed?.taskbar_items).toBe(JSON.stringify(items));
-    });
-
-    it('throws 400 when items is missing', async () => {
-        const { actor } = await makeUser();
-        const { res } = makeRes();
-        await expect(
-            callRoute(
-                'post',
-                '/update-taskbar-items',
-                makeReq({ body: {}, actor }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('throws 400 when items is not an array', async () => {
-        const { actor } = await makeUser();
-        const { res } = makeRes();
-        await expect(
-            callRoute(
-                'post',
-                '/update-taskbar-items',
-                makeReq({ body: { items: 'oops' }, actor }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+    it('has no taskbar items route', () => {
+        expect(
+            router.routes.some((r) => r.path === '/update-taskbar-items'),
+        ).toBe(false);
     });
 });
 

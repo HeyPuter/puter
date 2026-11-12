@@ -38,7 +38,6 @@ const ar = {
         change_password: 'تغيير كلمة المرور',
         change_username: 'تغيير اسم المستخدم',
         close: 'إغلاق',
-        close_all_windows: 'إغلاق جميع النوافذ',
         close_all_windows_and_log_out: 'إغلاق النوافذ وتسجيل الخروج',
         change_always_open_with: 'هل تريد دائمًا فتح هذا النوع من الملفات باستخدام',
         confirm: 'تأكيد',
@@ -132,7 +131,6 @@ const ar = {
         general: 'عام',
         get_a_copy_of_on_puter: "Puter.com! :احصل على نسخة من '%%' على",
         get_copy_link: 'احصل على رابط النسخ',
-        hide_all_windows: 'إخفاء جميع النوافذ',
         home: 'الصفحة الرئيسية',
         html_document: 'HTML مستند',
         hue: 'درجة اللون',
@@ -142,7 +140,6 @@ const ar = {
         items_in_trash_cannot_be_renamed:
       '.لا يمكن إعادة تسمية هذا العنصر لأنه في سلة المهملات. لإعادة تسمية هذا العنصر، اسحبه أولاً خارج سلة المهملات',
         jpeg_image: 'JPEG صورة',
-        keep_in_taskbar: 'الاحتفاظ في شريط المهام',
         language: 'اللغة',
         license: 'رخصة',
         lightness: 'إضاءة',
@@ -215,7 +212,6 @@ const ar = {
         refer_friends_social_media_c2a:
       'Puter.com! احصل على 1 جيجابايت من التخزين المجاني على',
         refresh: 'تحديث',
-        remove_from_taskbar: 'إزالة من شريط المهام',
         rename: 'إعادة تسمية',
         replace: 'استبدال',
         replace_all: 'استبدال الكل',
@@ -243,7 +239,6 @@ const ar = {
         share: 'مشاركة',
         share_to: 'مشاركة إلى',
         shortcut_to: 'اختصار إلى',
-        show_all_windows: 'عرض جميع النوافذ',
         show_hidden: 'إظهار المخفي',
         sign_in_with_puter: 'Puter تسجيل الدخول باستخدام',
         sign_up: 'تسجيل',
@@ -390,8 +385,6 @@ const ar = {
         create_shortcut_s: 'إنشاء اختصارات', // In English: "Create Shortcuts"
         minimize: 'تصغير', // In English: "Minimize"
         reload_app: 'إعادة تحميل التطبيق', // In English: "Reload App"
-        new_window: 'نافذة جديدة', // In English: "New Window"
-        open_trash: 'فتح سلة المهملات', // In English: "Open Trash"
         publish_as_serverless_worker: 'النشر كعامل', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'وضع ملء الشاشة', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -424,14 +417,8 @@ const ar = {
         window_title_publish_worker: 'نشر العامل',
         window_title_authenticating: '…جارٍ التحقق',
         window_title_refer_friend: '!أوصِ صديقًا',
-        desktop_show_desktop: 'عرض سطح المكتب',
-        desktop_show_open_windows: 'عرض النوافذ المفتوحة',
         desktop_exit_full_screen: 'الخروج من وضع ملء الشاشة',
         desktop_enter_full_screen: 'وضع ملء الشاشة',
-        desktop_position: 'الموضع',
-        desktop_position_left: 'اليسار',
-        desktop_position_bottom: 'الأسفل',
-        desktop_position_right: 'اليمين',
         item_shared_with_you: '.قام مستخدم بمشاركة هذا العنصر معك',
         item_shared_by_you: '.لقد قمت بمشاركة هذا العنصر مع مستخدم آخر على الأقل',
         item_shortcut: 'اختصار',

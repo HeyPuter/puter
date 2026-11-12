@@ -465,7 +465,7 @@ const generate_file_context_menu = async function (options) {
             left = left > (window.innerWidth - window_width) ? (window.innerWidth - window_width) : left;
 
             let top = $(el_item).position().top + $(el_item).height();
-            top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
+            top = top > (window.innerHeight - (window_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.toolbar_height)) : top;
 
             UIWindowItemProperties(
                 $(el_item).attr('data-name'),

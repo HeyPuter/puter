@@ -38,7 +38,6 @@ const hi = {
         change_password: 'पासवर्ड बदलें',
         change_username: 'उपयोगकर्ता नाम बदलें',
         close: 'बंद ',
-        close_all_windows: 'सभी विंडोज़ बंद करें',
         close_all_windows_and_log_out: 'विंडोज़ बंद करें और लॉग आउट करें',
         change_always_open_with: 'क्या आप इस प्रकार की फ़ाइल को हमेशा खोलना चाहते हैं?',
         confirm_2fa_setup: 'मैंने अपने प्रमाणक ऐप में कोड जोड़ दिया है',
@@ -120,7 +119,6 @@ const hi = {
         general: 'सामान्य',
         get_a_copy_of_on_puter: "Purer.com पर '%%' की एक कॉपी प्राप्त करें!",
         get_copy_link: 'कॉपी लिंक प्राप्त करें',
-        hide_all_windows: 'सभी विंडोज़ छिपाएँ',
         home: 'घर',
         html_document: 'एचटीएमएल दस्तावेज़',
         hue: 'रंग',
@@ -129,7 +127,6 @@ const hi = {
         item: 'वस्तु',
         items_in_trash_cannot_be_renamed: 'इस वस्तु का नाम नहीं बदला जा सकता क्योंकि यह कूड़ेदान में है। इस वस्तु का नाम बदलने के लिए, पहले इसे ट्रैश से बाहर खींचें।',
         jpeg_image: 'जेपीईजी छवि',
-        keep_in_taskbar: 'टास्कबार में रखें',
         language: 'भाषा',
         license: 'लाइसेंस',
         lightness: 'चमक',
@@ -195,7 +192,6 @@ const hi = {
         refer_friends_c2a: 'पुटर पर खाता बनाने और पुष्टि करने वाले प्रत्येक मित्र के लिए 1 जीबी प्राप्त करें। आपके दोस्त को भी मिलेगा 1 जीबी!',
         refer_friends_social_media_c2a: 'Purer.com पर 1 जीबी निःशुल्क स्टोरेज प्राप्त करें!',
         refresh: 'ताजा करना ',
-        remove_from_taskbar: 'टास्कबार से हटाएँ',
         rename: 'नाम बदलें',
         replace: 'प्रतिस्थापित करें',
         replace_all: 'सबको बदली करें',
@@ -223,7 +219,6 @@ const hi = {
         share: 'आदान-प्रदान',
         share_to: 'साझा',
         shortcut_to: 'के लिए शॉर्टकट',
-        show_all_windows: 'सभी विंडोज़ दिखाएँ',
         show_hidden: 'छिपा हुआ दिखाएं',
         sign_in_with_puter: 'पुटर के साथ साइन इन करें',
         sign_up: 'साइन अप करें',
@@ -355,8 +350,6 @@ const hi = {
         'create_shortcut_s': 'शॉर्टकट्स बनाएँ', // In English: "Create Shortcuts"
         'minimize': 'मिनिमाइज़ करें', // In English: "Minimize"
         'reload_app': 'ऐप पुनः लोड करें', // In English: "Reload App"
-        'new_window': 'नई विंडो', // In English: "New Window"
-        'open_trash': 'ट्रैश खोलें', // In English: "Open Trash"
         'publish_as_serverless_worker': 'वर्कर के रूप में प्रकाशित करें', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'पूर्ण स्क्रीन में जाएँ', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -388,14 +381,8 @@ const hi = {
         'window_title_publish_worker': 'वर्कर प्रकाशित करें', // In English: "Publish Worker"
         'window_title_authenticating': 'प्रमाणित किया जा रहा है...', // In English: "Authenticating..."
         'window_title_refer_friend': 'मित्र को रेफ़र करें!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'डेस्कटॉप दिखाएँ', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'खुली विंडो दिखाएँ', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'पूर्ण स्क्रीन से बाहर निकलें', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'पूर्ण स्क्रीन में जाएँ', // In English: "Enter Full Screen"
-        'desktop_position': 'स्थिति', // In English: "Position"
-        'desktop_position_left': 'बाएँ', // In English: "Left"
-        'desktop_position_bottom': 'नीचे', // In English: "Bottom"
-        'desktop_position_right': 'दाएँ', // In English: "Right"
         'item_shared_with_you': 'एक उपयोगकर्ता ने यह वस्तु आपके साथ साझा की है।', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'आपने यह वस्तु कम से कम एक अन्य उपयोगकर्ता के साथ साझा की है।', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'शॉर्टकट', // In English: "Shortcut"

@@ -30,7 +30,6 @@ const nn = {
         change_language: 'Endre språk',
         change_password: 'Endre passord',
         change_username: 'Endre brukarnamn',
-        close_all_windows: 'Lukk alle vindauge',
         confirm_account_for_free_referral_storage_c2a:
       'Opprett ein konto og stadfest e-postadressa di for å få 1 GB gratis lagringsplass. Vennen din vil òg få 1 GB gratis lagringsplass.',
         confirm_new_password: 'Stadfest nytt passord',
@@ -68,13 +67,11 @@ const nn = {
         general: 'Generelt',
         get_a_copy_of_on_puter: "Få ein kopi av '%%' på Puter.com!",
         get_copy_link: 'Få kopilenkje',
-        hide_all_windows: 'Skjul alle vindauge',
         html_document: 'HTML-dokument',
         invite_link: 'Invitasjonslenkje',
         items_in_trash_cannot_be_renamed:
       'Dette elementet kan ikkje omdøypast fordi det er i papirkorga. For å omdøype dette elementet, dra det først ut av papirkorga.',
         jpeg_image: 'JPEG-bilete',
-        keep_in_taskbar: 'Behald i oppgåvelinja',
         log_in: 'Logg inn',
         log_out: 'Logg ut',
         move: 'Flytt',
@@ -112,7 +109,6 @@ const nn = {
       'Få 1 GB for kvar ven som opprettar og stadfestar ein konto på Puter. Vennen din får òg 1 GB.',
         refer_friends_social_media_c2a: 'Få 1 GB gratis lagringsplass på Puter.com!',
         refresh: 'Oppdater',
-        remove_from_taskbar: 'Fjern frå oppgåvelinja',
         rename: 'Gje nytt namn',
         resend_confirmation_code: 'Send stadfestingskoden på nytt',
         restore: 'Gjenopprett',
@@ -125,7 +121,6 @@ const nn = {
         session_saved: 'Takk for at du oppretta ein konto. Denne økta er lagra.',
         set_new_password: 'Set nytt passord',
         share_to: 'Del',
-        show_all_windows: 'Vis alle vindauge',
         show_hidden: 'Vis skjulte',
         sign_in_with_puter: 'Logg inn med Puter',
         sign_up: 'Registrer deg',
@@ -379,8 +374,6 @@ const nn = {
         create_shortcut_s: 'Lag snarvegar', // "Original English: Create Shortcuts"
         minimize: 'Minimer', // "Original English: Minimize"
         reload_app: 'Last inn app på nytt', // "Original English: Reload App"
-        new_window: 'Nytt vindauge', // "Original English: New Window"
-        open_trash: 'Opne papirkorg', // "Original English: Open Trash"
         publish_as_serverless_worker: 'Publiser som Worker', // "Original English: Publish as Worker - 'Worker' kept as technical term"
         'toolbar.enter_fullscreen': 'Gå til fullskjerm', // "Original English: Enter Full Screen"
         'toolbar.github': 'GitHub', // "Original English: GitHub - Brand name kept unchanged"
@@ -412,14 +405,8 @@ const nn = {
         window_title_publish_worker: 'Publiser Worker', // "Original English: Publish Worker"
         window_title_authenticating: 'Autentiserer...', // "Original English: Authenticating..."
         window_title_refer_friend: 'Verv ein ven!', // "Original English: Refer a friend!"
-        desktop_show_desktop: 'Vis skrivebord', // "Original English: Show Desktop"
-        desktop_show_open_windows: 'Vis opne vindauge', // "Original English: Show Open Windows"
         desktop_exit_full_screen: 'Avslutt fullskjerm', // "Original English: Exit Full Screen"
         desktop_enter_full_screen: 'Gå til fullskjerm', // "Original English: Enter Full Screen"
-        desktop_position: 'Posisjon', // "Original English: Position"
-        desktop_position_left: 'Venstre', // "Original English: Left"
-        desktop_position_bottom: 'Botn', // "Original English: Bottom"
-        desktop_position_right: 'Høgre', // "Original English: Right"
         item_shared_with_you: 'Ein brukar har delt denne tingen med deg.', // "Original English: A user has shared this item with you."
         item_shared_by_you: 'Du har delt denne tingen med minst ein annan brukar.', // "Original English: You have shared this item with at least one other user."
         item_shortcut: 'Snarveg', // "Original English: Shortcut"

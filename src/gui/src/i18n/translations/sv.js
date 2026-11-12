@@ -38,7 +38,6 @@ const sv = {
         change_password: 'Byt lösenord',
         change_username: 'Byt användarnamn',
         close: 'Stäng',
-        close_all_windows: 'Stäng alla fönster',
         close_all_windows_and_log_out: 'Stäng alla fönster och logga ut',
         change_always_open_with: 'Vill du alltid öppna den här filtypen med',
         confirm: 'Bekräfta',
@@ -121,7 +120,6 @@ const sv = {
         general: 'Allmänt',
         get_a_copy_of_on_puter: "Få en kopia av '%%' på Puter.com!",
         get_copy_link: 'Få kopieringslänk',
-        hide_all_windows: 'Dölj alla fönster',
         home: 'Hem',
         html_document: 'HTML-dokument',
         hue: 'Färgton',
@@ -130,7 +128,6 @@ const sv = {
         item: 'Objekt',
         items_in_trash_cannot_be_renamed: 'Det här objektet kan inte byta namn eftersom det är i papperskorgen. För att byta namn på detta objekt, dra det först ur papperskorgen.',
         jpeg_image: 'JPEG-bild',
-        keep_in_taskbar: 'Behåll i aktivitetsfältet',
         language: 'Språk',
         license: 'Licens',
         lightness: 'Ljus',
@@ -196,7 +193,6 @@ const sv = {
         refer_friends_c2a: 'Få 1 GB för varje vän som skapar och bekräftar ett konto på Puter. Din vän får också 1 GB.',
         refer_friends_social_media_c2a: 'Få 1 GB gratis lagringsutrymme på Puter.com!',
         refresh: 'Uppdatera',
-        remove_from_taskbar: 'Ta bort från aktivitetsfältet',
         rename: 'Byt namn',
         replace: 'Ersätt',
         replace_all: 'Ersätt alla',
@@ -224,7 +220,6 @@ const sv = {
         share: 'Dela',
         share_to: 'Dela till',
         shortcut_to: 'Genväg till',
-        show_all_windows: 'Visa alla fönster',
         show_hidden: 'Visa dolda',
         sign_in_with_puter: 'Logga in med Puter',
         sign_up: 'Skapa konto',
@@ -365,8 +360,6 @@ const sv = {
         'create_shortcut_s': 'Skapa genvägar', // In English: "Create Shortcuts"
         'minimize': 'Minimera', // In English: "Minimize"
         'reload_app': 'Ladda om app', // In English: "Reload App"
-        'new_window': 'Nytt fönster', // In English: "New Window"
-        'open_trash': 'Öppna papperskorgen', // In English: "Open Trash"
         'plural_suffix': 'ar', // In English: "s"
         'publish_as_serverless_worker': 'Publicera som Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Aktivera helskärm', // In English: "Enter Full Screen"
@@ -399,14 +392,8 @@ const sv = {
         'window_title_publish_worker': 'Publicera Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autentiserar...', // In English: "Authenticating..."
         'window_title_refer_friend': 'Rekommendera en vän!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'Visa skrivbord', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Visa öppna fönster', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Avsluta helskärm', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Aktivera helskärm', // In English: "Enter Full Screen"
-        'desktop_position': 'Position', // In English: "Position"
-        'desktop_position_left': 'Vänster', // In English: "Left"
-        'desktop_position_bottom': 'Botten', // In English: "Bottom"
-        'desktop_position_right': 'Höger', // In English: "Right"
         'item_shared_with_you': 'En användare har delat detta objekt med dig.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Du har delat detta objekt med minst en annan användare.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Genväg', // In English: "Shortcut"

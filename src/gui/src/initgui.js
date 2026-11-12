@@ -1696,9 +1696,6 @@ window.initgui = async function (options) {
         (window.url_query_params.get('puter.fullpage') === 'true' ||
             window.url_query_params.get('puter.fullpage') === '1')
     ) {
-        // In fullpage mode, we want to hide the taskbar for better UX
-        window.taskbar_height = 0;
-
         // Puter is in fullpage mode.
         window.is_fullpage_mode = true;
     } else if (window.is_dashboard_mode) {
@@ -1734,9 +1731,7 @@ window.initgui = async function (options) {
             if (tokenChanged) {
                 // This will update the list of logged in users and set the current one
                 try {
-                    const whoami = await puter.os.user({
-                        query: 'icon_size=64',
-                    });
+                    const whoami = await puter.os.user();
                     if (whoami) await window.update_auth_data(token, whoami);
                 } catch (e) {
                     console.error(
@@ -1858,7 +1853,7 @@ window.initgui = async function (options) {
             let session_user = null;
             if (host_user && window.is_auth()) {
                 try {
-                    session = await puter.os.user({ query: 'icon_size=64' });
+                    session = await puter.os.user();
                     session_user = String(session?.uuid ?? '').toLowerCase();
                 } catch (e) {
                     session_user = null;
@@ -1938,9 +1933,7 @@ window.initgui = async function (options) {
             // Ensure current user is in logged_in_users (e.g. after OIDC redirect we have token but no user in list)
             let currentUserUuid = window.user?.uuid ?? null;
             try {
-                const whoami_popup = await puter.os.user({
-                    query: 'icon_size=64',
-                });
+                const whoami_popup = await puter.os.user();
                 currentUserUuid = whoami_popup?.uuid ?? currentUserUuid;
                 await window.update_auth_data(
                     whoami_popup.token || window.auth_token,
@@ -2027,7 +2020,6 @@ window.initgui = async function (options) {
             });
             if (app_info?.metadata?.fullpage_on_landing) {
                 window.is_fullpage_mode = true;
-                window.taskbar_height = 0;
                 window.app_launched_from_url = app_info;
             }
         } catch (e) {
@@ -2157,7 +2149,7 @@ window.initgui = async function (options) {
         puter.setAuthToken(query_param_auth_token);
 
         try {
-            whoami = await puter.os.user({ query: 'icon_size=64' });
+            whoami = await puter.os.user();
         } catch (e) {
             if (e.status === 401) {
                 window.logout();
@@ -2432,8 +2424,6 @@ window.initgui = async function (options) {
         $('.context-menu').remove();
         // remove desktop
         $('.desktop').remove();
-        // remove taskbar
-        $('.taskbar').remove();
         // disable native browser exit confirmation
         window.onbeforeunload = null;
         // go back to the interface the user was in: dashboard users to the root
@@ -2480,7 +2470,7 @@ window.initgui = async function (options) {
         // try to get user data using /whoami, only if that data is missing
         if (!whoami) {
             try {
-                whoami = await puter.os.user({ query: 'icon_size=64' });
+                whoami = await puter.os.user();
             } catch (e) {
                 if (e.status === 401) {
                     bad_session_logout();
@@ -3011,7 +3001,6 @@ window.initgui = async function (options) {
                 });
                 if (app_info?.metadata?.fullpage_on_landing) {
                     window.is_fullpage_mode = true;
-                    window.taskbar_height = 0;
                     window.app_launched_from_url = app_info;
                 }
             } catch (e) {
@@ -3070,9 +3059,6 @@ window.initgui = async function (options) {
             });
         }
 
-        // Close all tooltips
-        $('.ui-tooltip').remove();
-
         // rename items whose names were being edited
         if (!$(e.target).hasClass('item-name-editor')) {
             // blurring an Item Name Editor will automatically trigger renaming the item
@@ -3107,13 +3093,6 @@ window.initgui = async function (options) {
     // Window Activation
     //--------------------------------------------------------
     $(document).on('mousedown', function (e) {
-        // if taskbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('taskbar') ||
-            $(e.target).closest('.taskbar').length > 0
-        ) {
-            return;
-        }
         // if close or minimize button clicked, drop the event
         if (
             document
@@ -3206,8 +3185,7 @@ $(window).on('resize', function () {
 
     const ratio = window.desktop_width / window.innerWidth;
 
-    window.desktop_height =
-        window.innerHeight - window.toolbar_height - window.taskbar_height;
+    window.desktop_height = window.innerHeight - window.toolbar_height;
     window.desktop_width = window.innerWidth;
 
     // Re-center the login window

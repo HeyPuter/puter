@@ -114,8 +114,6 @@ if ( window.user_preferences === null ) {
 
 window.window_stack = [];
 window.toolbar_height = 0;
-window.default_taskbar_height = 50;
-window.taskbar_height = window.default_taskbar_height;
 window.upload_progress_hide_delay = 500;
 window.active_uploads = {};
 window.copy_progress_hide_delay = 1000;
@@ -159,14 +157,12 @@ window.child_launch_callbacks = {};
 // Is puter being loaded inside an iframe?
 if ( window.location !== window.parent.location ) {
     window.is_embedded = true;
-    // taskbar is not needed in embedded mode
-    window.taskbar_height = 0;
 } else {
     window.is_embedded = false;
 }
 
 // calculate desktop height and width
-window.desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+window.desktop_height = window.innerHeight - window.toolbar_height;
 window.desktop_width = window.innerWidth;
 
 // {id: {left: 0, top: 0}}
@@ -180,7 +176,7 @@ $(window).on( 'resize', function () {
     if ( window.a_window_is_resizing ) return;
     if ( window.a_window_sidebar_is_resizing ) return;
 
-    const new_desktop_height = window.innerHeight - window.toolbar_height - window.taskbar_height;
+    const new_desktop_height = window.innerHeight - window.toolbar_height;
     const new_desktop_width = window.innerWidth;
 
     window.desktop_height = new_desktop_height;
@@ -188,7 +184,7 @@ $(window).on( 'resize', function () {
 
     // Update all maximized windows to fit the new viewport
     $('.window[data-is_maximized="1"]').each(function () {
-        window.update_maximized_window_for_taskbar(this);
+        window.update_maximized_window(this);
     });
 });
 

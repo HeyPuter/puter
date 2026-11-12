@@ -38,7 +38,6 @@ const ig = {
         change_password: 'ịgbanwe paswọọdụ',
         change_username: 'ịgbanwe aha njirimara',
         close: 'mmechi',
-        close_all_windows: 'mmechi Windows niile',
         close_all_windows_and_log_out: 'mmechi Windows na wee pụọ',
         change_always_open_with: 'Ị chọrọ I na mepee ụdị faịlụ site na',
         confirm: 'gosi',
@@ -133,7 +132,6 @@ const ig = {
         general: 'Izugbe',
         get_a_copy_of_on_puter: 'Nweta otu \'%%\' na Puter.com!',
         get_copy_link: 'Nweta njikọ nke',
-        hide_all_windows: 'Ezo Windows niile',
         home: 'ụlọ',
         html_document: 'akwụkwọ HTML',
         hue: 'Hue',
@@ -142,7 +140,6 @@ const ig = {
         item: 'ihe',
         items_in_trash_cannot_be_renamed: 'Enweghị ike ịnyegharị ihe a aha n\'ihi na ọ nọ na ahịhịa. Iji nyegharịa ihe a aha, buru ụzọ dọrọ ya na ahịhịa.',
         jpeg_image: 'Foto JPEG',
-        keep_in_taskbar: 'Debe na Taskbar',
         language: 'Asụsụ',
         license: 'ikike',
         lightness: 'ìhè',
@@ -214,7 +211,6 @@ const ig = {
       'Nweta 1 GB maka enyi ọ bụla mepụtara ma kwado akaụntụ na Puter. Enyi gị ga-enwetakwa 1 GB!',
         refer_friends_social_media_c2a: 'Nweta 1 GB nke nchekwa efu na Puter.com!',
         refresh: 'Weghachite ume',
-        remove_from_taskbar: 'Wepu na Taskbar',
         rename: 'Nyegharịa aha',
         replace: 'Dochie',
         replace_all: 'Dochie ihe niile',
@@ -243,7 +239,6 @@ const ig = {
         share: 'ike',
         share_to: 'ike nye',
         shortcut_to: 'Ụzọ mkpirisi ka',
-        show_all_windows: 'Gosi Windows niile',
         show_hidden: 'Gosi ihe ezozo',
         sign_in_with_puter: 'Jiri Puter banye',
         sign_up: 'Debanye aha',
@@ -390,8 +385,6 @@ const ig = {
         'create_shortcut_s': 'Mepụta ụzọ mkpirisi', // In English: "Create Shortcuts"
         'minimize': 'Wedata', // In English: "Minimize"
         'reload_app': 'Bugharịa ngwa', // In English: "Reload App"
-        'new_window': 'Window ọhụrụ', // In English: "New Window"
-        'open_trash': 'Mepee ahịhịa', // In English: "Open Trash"
         'publish_as_serverless_worker': 'Bipụta dị ka onye ọrụ', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Tinye ihuenyo zuru oke', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -423,14 +416,8 @@ const ig = {
         'window_title_publish_worker': 'Bipụta Onye Ọrụ', // In English: "Publish Worker"
         'window_title_authenticating': 'Na-achọpụta...', // In English: "Authenticating..."
         'window_title_refer_friend': 'Tụgharịa enyi!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'Gosi Desktọpụ', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Gosi Windows mepere emepe', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Wepụ ihuenyo zuru oke', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Tinye ihuenyo zuru oke', // In English: "Enter Full Screen"
-        'desktop_position': 'Ọnọdụ', // In English: "Position"
-        'desktop_position_left': 'Aka ekpe', // In English: "Left"
-        'desktop_position_bottom': "N'okpuru", // In English: "Bottom"
-        'desktop_position_right': 'Right', // In English: "Right"
         'item_shared_with_you': 'Onye ọrụ ekenyela gị ihe a.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Ị kekọrịtala ihe a na opekata mpe otu onye ọrụ ọzọ', // In English: " with at least one other user."
         'item_shortcut': 'Ụzọ mkpirisi', // In English: "Shortcut"

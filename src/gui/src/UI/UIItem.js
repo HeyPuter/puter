@@ -414,8 +414,7 @@ async function UIItem (options) {
             // the desktop itself, not a window showing the Desktop folder
             if ( $(el_item).closest('.item-container').hasClass('desktop') &&
                 !window.is_auto_arrange_enabled && $(el_item).attr('data-path') !== window.trash_path && !ui.helper.data('dropped') &&
-                // Item must be dropped on the Desktop and not on the taskbar
-                window.mouseover_window === undefined && ui.position.top <= window.desktop_height - window.taskbar_height - 15 ) {
+                window.mouseover_window === undefined && ui.position.top <= window.desktop_height - 15 ) {
 
                 el_item.style.position = 'absolute';
                 el_item.style.left = `${ui.position.left }px`;
@@ -1554,7 +1553,7 @@ async function UIItem (options) {
                     left = left > (window.innerWidth - window_width) ? (window.innerWidth - window_width) : left;
 
                     let top = $(el_item).position().top + $(el_item).height();
-                    top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
+                    top = top > (window.innerHeight - (window_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.toolbar_height)) : top;
 
                     UIWindowItemProperties(
                         $(el_item).attr('data-name'),

@@ -276,9 +276,9 @@ Please try recreating the link.`);
         }
     }
     //----------------------------------------------------------------
-    // Dashboard: is this file already open in an app window? In
-    // dashboard mode there is no taskbar — the file's row is where a
-    // user goes looking for a window they minimized — so restore that
+    // Dashboard: is this file already open in an app window? The
+    // file's row is where a user goes looking for a window they
+    // minimized, so restore that
     // window (edits intact) instead of minting a second instance.
     //----------------------------------------------------------------
     // The user's own windows only: a file opened in an instance another app
@@ -323,7 +323,7 @@ Please try recreating the link.`);
             app: 'explorer',
             top: options.maximized ? 0 : undefined,
             left: options.maximized ? 0 : undefined,
-            height: options.maximized ? `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)` : undefined,
+            height: options.maximized ? `calc(100% - ${window.toolbar_height + 1}px)` : undefined,
             width: options.maximized ? '100%' : undefined,
         });
     }

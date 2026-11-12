@@ -27,7 +27,6 @@ import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIAuthLogin from './Auth/UIAuthLogin.js';
 
 import UIWindowProgress from './UIWindowProgress.js';
-import UITaskbar from './UITaskbar.js';
 import new_context_menu_item from '../helpers/newContextMenuItem.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
 import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers/pathElements.js';
@@ -759,9 +758,6 @@ async function UIDesktop (options) {
     // Append to <body>
     $('body').append(h);
 
-    // Set desktop height based on taskbar height
-    $('.desktop').css('height', `calc(100vh - ${window.taskbar_height + window.toolbar_height}px)`);
-
     // Initialize the preference early
     puter.kv.get('desktop_icons_hidden').then(async (val) => {
         window.desktop_icons_hidden = (val === 'true' || val === true);
@@ -771,18 +767,6 @@ async function UIDesktop (options) {
             hideDesktopIcons();
         }
     }).catch(err => console.warn('Could not load desktop_icons_hidden:', err));
-
-    // ---------------------------------------------------------------
-    // Taskbar
-    // In fullpage mode the desktop only hosts a single app, so there's
-    // nothing for the taskbar to do; skip building it entirely.
-    // ---------------------------------------------------------------
-    if ( !window.is_fullpage_mode ) {
-        UITaskbar();
-    }
-
-    // Update desktop dimensions after taskbar is initialized with position
-    window.update_desktop_dimensions_for_taskbar();
 
     const el_desktop = document.querySelector('.desktop');
 
@@ -1581,119 +1565,7 @@ async function UIDesktop (options) {
     }
 }
 
-$(document).on('contextmenu taphold', '.taskbar', function (event) {
-    // dismiss taphold on regular devices
-    if ( event.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-    {
-        return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    // Get current taskbar position
-    const currentPosition = window.taskbar_position || 'bottom';
-
-    // Create base menu items
-    let menuItems = [];
-
-    // Only show position submenu on desktop devices
-    if ( !isMobile.phone && !isMobile.tablet ) {
-        menuItems.push({
-            html: i18n('desktop_position'),
-            items: [
-                {
-                    html: i18n('desktop_position_left'),
-                    checked: currentPosition === 'left',
-                    onClick: function () {
-                        window.update_taskbar_position('left');
-                    },
-                },
-                {
-                    html: i18n('desktop_position_bottom'),
-                    checked: currentPosition === 'bottom',
-                    onClick: function () {
-                        window.update_taskbar_position('bottom');
-                    },
-                },
-                {
-                    html: i18n('desktop_position_right'),
-                    checked: currentPosition === 'right',
-                    onClick: function () {
-                        window.update_taskbar_position('right');
-                    },
-                },
-            ],
-        });
-        menuItems.push('-'); // divider
-    }
-
-    // Add the "Show open windows" option for all devices
-    menuItems.push({
-        html: i18n('desktop_show_open_windows'),
-        onClick: function () {
-            $('.window').showWindow();
-        },
-    });
-
-    // Add the "Show the desktop" option for all devices
-    menuItems.push({
-        html: i18n('desktop_show_desktop'),
-        onClick: function () {
-            $('.window').hideWindow();
-        },
-    });
-
-    UIContextMenu({
-        parent_element: $('.taskbar'),
-        items: menuItems,
-    });
-    return false;
-});
-
-window.update_taskbar = function () {
-    let items = [];
-    $('.taskbar-item-sortable[data-keep-in-taskbar="true"]').each(function (index) {
-        items.push({
-            name: $(this).attr('data-app'),
-            type: 'app',
-        });
-    });
-
-    // update taskbar in the server-side
-    $.ajax({
-        url: `${window.api_origin }/update-taskbar-items`,
-        type: 'POST',
-        data: JSON.stringify({
-            items: items,
-        }),
-        async: true,
-        contentType: 'application/json',
-        headers: {
-            'Authorization': `Bearer ${ window.auth_token}`,
-        },
-    });
-};
-
-window.remove_taskbar_item = function (item) {
-    $(item).find('*').fadeOut(100, function () {
-
-    });
-
-    $(item).animate({ width: 0 }, 200, function () {
-        $(item).remove();
-
-        // Adjust taskbar item sizes after removing an item
-        if ( window.adjust_taskbar_item_sizes ) {
-            setTimeout(() => {
-                window.adjust_taskbar_item_sizes();
-            }, 10);
-        }
-    });
-};
-
 window.enter_fullpage_mode = (el_window) => {
-    $('.taskbar').hide();
     $(el_window).find('.window-head').hide();
     $('body').addClass('fullpage-mode');
     $(el_window).css({
@@ -1707,23 +1579,12 @@ window.enter_fullpage_mode = (el_window) => {
 
 window.exit_fullpage_mode = (el_window) => {
     $('body').removeClass('fullpage-mode');
-    window.taskbar_height = window.default_taskbar_height;
-    // In fullpage mode the taskbar is never built, so create it on exit; otherwise just restore it.
-    if ( $('.taskbar').length === 0 ) {
-        UITaskbar();
-    } else {
-        $('.taskbar').css('height', window.taskbar_height);
-        $('.taskbar').show();
-    }
     refresh_item_container($('.desktop.item-container'), { fadeInItems: true });
     $(el_window).removeAttr('data-is_fullpage');
     if ( el_window ) {
         window.reset_window_size_and_position(el_window);
         $(el_window).find('.window-head').show();
     }
-
-    // reset dektop height to take into account the taskbar height
-    $('.desktop').css('height', `calc(100vh - ${window.taskbar_height + window.toolbar_height}px)`);
 };
 
 window.reset_window_size_and_position = (el_window) => {

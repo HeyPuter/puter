@@ -38,7 +38,6 @@ const ta = {
         change_password: 'கடவுச்சொல்லை மாற்றவும்',
         change_username: 'பயனர் பெயரை மாற்றவும்',
         close: 'மூடு',
-        close_all_windows: 'அனைத்து விண்டோஸ் மூடு',
         close_all_windows_and_log_out: 'விண்டோஸை மூடிவிட்டு வெளியேறவும்',
         change_always_open_with:
       'இந்த வகையான கோப்பை எப்போதும் திறக்க விரும்புகிறீர்களா?',
@@ -136,7 +135,6 @@ const ta = {
         general: 'பொது',
         get_a_copy_of_on_puter: 'Puter.com இல் \'%%\' நகலைப் பெறுங்கள்!',
         get_copy_link: 'நகல் இணைப்பைப் பெறவும்',
-        hide_all_windows: 'அனைத்து விண்டோஸையும் மறைக்கவும்',
         home: 'வீடு',
         html_document: 'HTML ஆவணம்',
         hue: 'சாயல்',
@@ -146,7 +144,6 @@ const ta = {
         items_in_trash_cannot_be_renamed:
       'இந்த உருப்படி குப்பையில் இருப்பதால் மறுபெயரிட முடியாது. இந்த உருப்படியை மறுபெயரிட, முதலில் அதை குப்பையிலிருந்து வெளியே இழுக்கவும்.',
         jpeg_image: 'JPEG படம்',
-        keep_in_taskbar: 'பணிப்பட்டியில் வைக்கவும்',
         language: 'மொழி',
         license: 'உரிமம்',
         lightness: 'லேசான தன்மை',
@@ -220,7 +217,6 @@ const ta = {
         refer_friends_social_media_c2a:
       'Puter.com இல் 1 GB இலவச சேமிப்பிடத்தைப் பெறுங்கள்!',
         refresh: 'புதுப்பிப்பு',
-        remove_from_taskbar: 'பணிப்பட்டியில் இருந்து அகற்று',
         rename: 'மறுபெயரிடவும்',
         replace: 'மாற்றவும்',
         replace_all: 'அனைத்தையும் மாற்றவும்',
@@ -251,7 +247,6 @@ const ta = {
         share: 'பகிர்',
         share_to: 'பகிரவும்',
         shortcut_to: 'குறுக்குவழி',
-        show_all_windows: 'அனைத்து விண்டோஸையும் காட்டு',
         show_hidden: 'மறைக்கப்பட்டதைக் காட்டு',
         sign_in_with_puter: 'புட்டர் மூலம் உள்நுழையவும்',
         sign_up: 'பதிவு செய்யவும்',
@@ -413,8 +408,6 @@ const ta = {
         create_shortcut_s: 'குறுக்குவழிகள் உருவாக்கு',
         minimize: 'சுருக்கு',
         reload_app: 'பயன்பாட்டை மீளேற்று',
-        new_window: 'புதிய சாளரம்',
-        open_trash: 'குப்பைத்தொட்டியைத் திற',
         publish_as_serverless_worker: 'வொர்க்கராக வெளியிடு',
         'toolbar.enter_fullscreen': 'முழுத்திரைக்கு செல்',
         'toolbar.github': 'GitHub',
@@ -447,14 +440,8 @@ const ta = {
         window_title_publish_worker: 'வொர்க்கரை வெளியிடு',
         window_title_authenticating: 'அடையாளம் சரிபார்க்கப்படுகிறது...',
         window_title_refer_friend: 'நண்பரை அறிமுகப்படுத்து!',
-        desktop_show_desktop: 'டெஸ்க்டாப் காண்பி',
-        desktop_show_open_windows: 'திறந்த சாளரங்களை காண்பி',
         desktop_exit_full_screen: 'முழுத்திரையிலிருந்து வெளியேறு',
         desktop_enter_full_screen: 'முழுத்திரைக்கு செல்',
-        desktop_position: 'இடம்',
-        desktop_position_left: 'இடப்பு',
-        desktop_position_bottom: 'கீழ்',
-        desktop_position_right: 'வலப்பு',
         item_shared_with_you:
       'ஒரு பயனர் இந்த உருப்படியை உங்களுடன் பகிர்ந்துள்ளார்.',
         item_shared_by_you:

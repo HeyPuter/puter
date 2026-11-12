@@ -38,7 +38,6 @@ const ru = {
         change_password: 'Изменить пароль',
         change_username: 'Изменить имя пользователя',
         close: 'Закрыть',
-        close_all_windows: 'Закрыть все окна',
         close_all_windows_and_log_out: 'Закрыть все окна и выйти',
         change_always_open_with:
       'Хотите всегда открывать файлы этого типа с помощью',
@@ -136,7 +135,6 @@ const ru = {
         general: 'Общее',
         get_a_copy_of_on_puter: 'Получите копию \'%%\' на Puter.com!',
         get_copy_link: 'Получить ссылку для копирования',
-        hide_all_windows: 'Скрыть все окна',
         home: 'Домой',
         html_document: 'HTML документ',
         hue: 'Оттенок',
@@ -145,7 +143,6 @@ const ru = {
         item: 'элемент',
         items_in_trash_cannot_be_renamed: 'Этот элемент нельзя переименовать, потому что он находится в Корзине. Чтобы переименовать этот элемент, сначала перенесите его из Корзины.',
         jpeg_image: 'JPEG изображение',
-        keep_in_taskbar: 'Сохранить на Панели Задач',
         language: 'Язык',
         license: 'Лицензия',
         lightness: 'Легкость', //нужен контекст
@@ -218,7 +215,6 @@ const ru = {
       'Получите 1 ГБ за каждого друга, который создаст и подтвердит учетную запись на Puter. Ваш друг тоже получит 1 ГБ!',
         refer_friends_social_media_c2a: 'Получите 1 ГБ бесплатного хранилища на Puter.com!',
         refresh: 'Обновить',
-        remove_from_taskbar: 'Удалить из панели задач',
         rename: 'Переименовать',
         replace: 'Заменить',
         replace_all: 'Заменить все',
@@ -251,7 +247,6 @@ const ru = {
         share: 'Поделиться',
         share_to: 'Поделиться',
         shortcut_to: 'Ярлык для',
-        show_all_windows: 'Показать Все Окна',
         show_hidden: 'Показать скрытые',
         sign_in_with_puter: 'Войти с Puter',
         sign_up: 'Зарегистрироваться',
@@ -396,8 +391,6 @@ const ru = {
         'create_shortcut_s': 'Создать ярлыки', // In English: "Create Shortcuts"
         'minimize': 'Свернуть', // In English: "Minimize"
         'reload_app': 'Перезагрузить приложение', // In English: "Reload App"
-        'new_window': 'Новое окно', // In English: "New Window"
-        'open_trash': 'Открыть корзину', // In English: "Open Trash"
         'publish_as_serverless_worker': 'опубликовать как воркера', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Перейти в полноэкранный режим', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -429,14 +422,8 @@ const ru = {
         'window_title_publish_worker': 'Опубликовать воркер', // In English: "Publish Worker"
         'window_title_authenticating': 'Идёт проверка подлинности...', // In English: "Authenticating..."
         'window_title_refer_friend': 'Пригласить друга!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'Показать рабочий стол', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Показать открытые окна', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Выйти из полноэкранного режима', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Перейти в полноэкранный режим', // In English: "Enter Full Screen"
-        'desktop_position': 'Положение', // In English: "Position"
-        'desktop_position_left': 'Слева', // In English: "Left"
-        'desktop_position_bottom': 'Внизу', // In English: "Bottom"
-        'desktop_position_right': 'Справа', // In English: "Right"
         'item_shared_with_you': 'Пользователь поделился с вами этим элементом.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Вы поделились этим элементом как минимум с одним другим пользователем.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Ярлык', // In English: "Shortcut"

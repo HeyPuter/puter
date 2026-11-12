@@ -45,7 +45,6 @@ const es = {
         change_password: 'Cambiar Contraseña',
         change_username: 'Cambiar Nombre de Usuario',
         close: 'Cerrar',
-        close_all_windows: 'Cerrar todas las ventanas',
         close_all_windows_and_log_out: 'Cerrar ventanas y cerrar sesión',
         change_always_open_with: '¿Quieres abrir siempre este tipo de archivos con',
         confirm: 'Confirmar',
@@ -141,7 +140,6 @@ const es = {
         general: 'General',
         get_a_copy_of_on_puter: '¡Consigue una copia de \'%%\' en Puter.com!',
         get_copy_link: 'Copiar el enlace',
-        hide_all_windows: 'Ocultar todas las ventanas',
         home: 'Inicio',
         html_document: 'Documento HTML',
         hue: 'Hue',
@@ -150,7 +148,6 @@ const es = {
         item: 'elemento',
         items_in_trash_cannot_be_renamed: 'Este elemento no se puede renombrar porque está en la papelera. Para cambiar el nombre de este archivo, primero extráelo fuera de la misma.',
         jpeg_image: 'Imagen JPEG',
-        keep_in_taskbar: 'Mantener en la barra de tareas',
         language: 'Lenguage',
         license: 'Licencia',
         lightness: 'Claridad',
@@ -223,7 +220,6 @@ const es = {
       'Consigue 1 GB por cada amigo que cree y confirme una cuenta en Puter ¡Tu amigo recibirá 1GB también!',
         refer_friends_social_media_c2a: '¡Consigue 1 GB de almacenamiento gratuito en Puter.com!',
         refresh: 'Refrescar',
-        remove_from_taskbar: 'Eliminar de la barra de tareas',
         rename: 'Renombrar',
         replace: 'Remplazar',
         replace_all: 'Replace All',
@@ -253,7 +249,6 @@ const es = {
         share: 'Compartir',
         share_to: 'Compartir a',
         shortcut_to: 'Acceso directo a',
-        show_all_windows: 'Mostrar todas las ventanas',
         show_hidden: 'Mostrar ocultos',
         sign_in_with_puter: 'Inicia sesión con Puter',
         sign_up: 'Registrarse',
@@ -410,8 +405,6 @@ const es = {
         'create_shortcut_s': 'Crear atajos', // In English: "Create Shortcuts"
         'minimize': 'Minimizar', // In English: "Minimize"
         'reload_app': 'Recargar la Aplicación', // In English: "Reload App"
-        'new_window': 'Nueva Ventana', // In English: "New Window"
-        'open_trash': 'Abrir Papelera', // In English: "Open Trash"
         'publish_as_serverless_worker': 'Publicar como un Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Abrir pantalla completa', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -443,14 +436,8 @@ const es = {
         'window_title_publish_worker': 'Publicar Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticando...', // In English: "Authenticating..."
         'window_title_refer_friend': '¡Invitar a un amigo!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'Mostrar Escritorio', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Mostrar Ventanas Abiertas', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Salir de Pantalla Completa', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Abrir Pantalla Completa', // In English: "Enter Full Screen"
-        'desktop_position': 'Posición', // In English: "Position"
-        'desktop_position_left': 'Izquierda', // In English: "Left"
-        'desktop_position_bottom': 'Parte inferior', // In English: "Bottom"
-        'desktop_position_right': 'Derecha', // In English: "Right"
         'item_shared_with_you': 'Un usuario compartió este elemento contigo.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Has compartido este elemento con otro usuario', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Atajo', // In English: "Shortcut"
