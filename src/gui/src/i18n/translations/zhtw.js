@@ -378,7 +378,6 @@ const zhtw = {
         'tar': "Tar 壓縮", // In English: "Tar"
         'download_as_tar': "下載為 Tar", // In English: "Download as Tar"
         'tarring': "正在建立 Tar 壓縮檔 %strong%", // In English: "Tarring %strong%"
-        'error_user_or_path_not_found': "找不到使用者或路徑。", // In English: "User or path not found."
     },
 };
 

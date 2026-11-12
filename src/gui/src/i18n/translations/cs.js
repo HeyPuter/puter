@@ -514,7 +514,6 @@ const cs = {
         "approve": "Schválit",
         "perm_dialog_footnote": "Toto můžete kdykoli změnit v Nastavení.",
         "auth_token": "Ověřovací token",
-        "error_user_or_path_not_found": "Uživatel nebo cesta nenalezena.",
         "token_copied": "Token zkopírován",
         "perm_dialog_wants_to": "chce povolení",
         "token_label": "Označení",
