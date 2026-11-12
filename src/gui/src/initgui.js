@@ -104,7 +104,6 @@ import { PictureInPictureService } from './services/PictureInPictureService.js';
 import { IPCService } from './services/IPCService.js';
 import { LocaleService } from './services/LocaleService.js';
 import { ProcessService } from './services/ProcessService.js';
-import { ThemeService } from './services/ThemeService.js';
 // Curried: takes `{ window }` and returns the path mapper. Import under a
 // factory name so a bare `privacy_aware_path(path)` call in this module can't
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
@@ -1179,7 +1178,6 @@ const launch_services = async function (options) {
     register('app-push', new AppPushService());
     register('debug', new DebugService());
     register('broadcast', new BroadcastService());
-    register('theme', new ThemeService());
     register('process', new ProcessService());
     register('locale', new LocaleService());
     register('anti-csrf', new AntiCSRFService());

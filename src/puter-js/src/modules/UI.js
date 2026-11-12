@@ -115,7 +115,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  */
 
 /**
- * Theme data delivered with the `themeChanged` event.
+ * Theme data of the `themeChanged` event, which is deprecated and never sent.
  *
  * @typedef {Object} ThemeData
  * @property {{
@@ -3598,7 +3598,7 @@ export class UIModule extends EventListener {
      * replayed to the handler immediately with its most recent value.
      *
      * - `localeChanged` — on startup and when the user's locale changes.
-     * - `themeChanged` — on startup and when the desktop theme changes.
+     * - `themeChanged` — deprecated and never sent.
      * - `connection` — when another app asks to connect to this one.
      *
      * @param {string} eventName
