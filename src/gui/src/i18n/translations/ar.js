@@ -31,7 +31,6 @@ const ar = {
         allow: 'السماح',
         ascending: 'تصاعدي',
         associated_websites: 'المواقع المرتبطة',
-        auto_arrange: 'ترتيب تلقائي',
         cancel: 'إلغاء',
         change_email: 'تغيير البريد الإلكتروني',
         change_language: 'تغيير اللغة',
@@ -92,7 +91,6 @@ const ar = {
         desktop: 'سطح المكتب',
         desktop_background_fit: 'ملائمة',
         developers: 'المطورين',
-        dir_published_as_website: ':%strong% تم نشره إلى',
         disable_2fa: 'تعطيل المصادقة الثنائية',
         disable_2fa_confirm: 'هل أنت متأكد أنك تريد تعطيل المصادقة الثنائية؟',
         disable_2fa_instructions: '.أدخل كلمة المرور لتعطيل المصادقة الثنائية',
@@ -100,7 +98,6 @@ const ar = {
         dont_allow: 'عدم السماح',
         download: 'تنزيل',
         download_file: 'تنزيل الملف',
-        downloading: 'جارٍ التنزيل',
         email: 'البريد الإلكتروني',
         email_change_confirmation_sent:
       '.تم إرسال بريد تأكيد إلى عنوان بريدك الإلكتروني الجديد. يرجى التحقق من صندوق الوارد واتباع التعليمات لإكمال العملية',
@@ -189,7 +186,6 @@ const ar = {
         paste_into_folder: 'لصق في المجلد',
         path: 'المسار',
         personalization: 'تخصيص',
-        pick_name_for_website: 'اختر اسمًا لموقعك الإلكتروني:',
         pictures: 'الصور',
         plural_suffix: 's', //this is not necessary for Arabic
         powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} مدعوم بواسطة ',

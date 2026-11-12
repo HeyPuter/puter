@@ -2819,10 +2819,6 @@ window.extractSubdomain = function (url) {
     return subdomain;
 };
 
-window.extractProtocol = function (url) {
-    var protocol = url.split('://')[0];
-    return protocol;
-};
 window.sleep = function (ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 };
@@ -3420,57 +3416,6 @@ window.undo_delete = async (items) => {
     }
 };
 
-window.store_auto_arrange_preference = (preference) => {
-    // localStorage still carries it for this device either way.
-    puter.kv.set('user_preferences.auto_arrange_desktop', preference)
-        .catch(err => console.warn('Could not save auto_arrange_desktop:', err));
-    localStorage.setItem('auto_arrange', preference);
-};
-
-window.get_auto_arrange_data = async () => {
-    // Best-effort, like every other preference read: falling back to the
-    // default keeps the desktop arranging itself rather than not appearing.
-    const preferenceValue = await puter.kv.get('user_preferences.auto_arrange_desktop').catch(() => null);
-    window.is_auto_arrange_enabled = preferenceValue === null ? true : preferenceValue;
-    const positions = await puter.kv.get('desktop_item_positions').catch(() => null);
-    window.desktop_item_positions = (!positions || typeof positions !== 'object' || Array.isArray(positions)) ? {} : positions;
-};
-
-window.clear_desktop_item_positions = async (el_desktop) => {
-    $(el_desktop).find('.item').each(function () {
-        const el_item = $(this)[0];
-        $(el_item).css('position', '');
-        $(el_item).css('left', '');
-        $(el_item).css('top', '');
-    });
-    if ( window.reset_item_positions ) {
-        window.delete_desktop_item_positions();
-    }
-};
-
-window.set_desktop_item_positions = async (el_desktop) => {
-    $(el_desktop).find('.item').each(async function () {
-        const position = window.desktop_item_positions[$(this).attr('data-uid')];
-        const el_item = $(this)[0];
-        if ( position ) {
-            $(el_item).css('position', 'absolute');
-            $(el_item).css('left', `${position.left }px`);
-            $(el_item).css('top', `${position.top }px`);
-        }
-    });
-};
-
-window.save_desktop_item_positions = () => {
-    puter.kv.set('desktop_item_positions', window.desktop_item_positions)
-        .catch(err => console.warn('Could not save desktop_item_positions:', err));
-};
-
-window.delete_desktop_item_positions = () => {
-    window.desktop_item_positions = {};
-    puter.kv.del('desktop_item_positions')
-        .catch(err => console.warn('Could not clear desktop_item_positions:', err));
-};
-
 // Finds the `.window` element for the given app instance ID
 window.window_for_app_instance = (instance_id) => {
     return $(`.window[data-element_uuid="${instance_id}"]`).get(0);
@@ -3526,22 +3471,6 @@ window.set_menu_item_prop = (items, item_id, prop, val) => {
     }
 };
 
-window.countSubstr = (str, substring) => {
-    if ( substring.length === 0 ) {
-        return 0;
-    }
-
-    let count = 0;
-    let pos = str.indexOf(substring);
-
-    while ( pos !== -1 ) {
-        count++;
-        pos = str.indexOf(substring, pos + 1);
-    }
-
-    return count;
-};
-
 // Updates the signed-in user's profile; `username` is kept for callers that
 // still pass it.
 window.update_profile = function (username, key_vals) {
@@ -3556,42 +3485,9 @@ window.update_profile = function (username, key_vals) {
     });
 };
 
-window.blob2str = (blob) => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsText(blob);
-    });
-};
-
 // Another user's picture is only available while they are on a paid plan.
 window.get_profile_picture = async function (username) {
     return (await puter.auth.getProfilePicture(username)) ?? undefined;
-};
-
-window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {
-    if ( num === 0 ) return '0';
-
-    mulUnits = mulUnits ?? ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'];
-    divUnits = divUnits ?? ['m', 'µ', 'n', 'p', 'f', 'a', 'z', 'y'];
-
-    const abs = Math.abs(num);
-    let exp = Math.floor(Math.log10(abs) / 3);
-    let symbol = '';
-
-    symbol = exp >= 0
-        ? mulUnits[exp]
-        : divUnits[-exp - 1] ;
-
-    if ( ! symbol ) {
-        symbol = `e${exp * 3}`;
-    }
-
-    const scaled = num / Math.pow(10, exp * 3);
-    const rounded = Number.parseFloat(scaled.toPrecision(precision));
-
-    return `${rounded}${symbol}`;
 };
 
 /**

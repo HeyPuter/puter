@@ -28,29 +28,12 @@ describe('parse_url_paths', () => {
         expect(parse_url_paths('')).toEqual([]);
     });
 
-    it('drops a leading desktop segment so the rest reads as a root route', () => {
+    it('keeps a leading desktop segment, so /desktop/app/<name> is not an app landing', () => {
+        expect(parse_url_paths('/desktop')).toEqual(['desktop']);
         expect(parse_url_paths('/desktop/app/editor')).toEqual([
-            'app',
-            'editor',
-        ]);
-        expect(parse_url_paths('/DeskTop/app/editor')).toEqual([
-            'app',
-            'editor',
-        ]);
-        expect(parse_url_paths('/desktop')).toEqual([]);
-        expect(parse_url_paths('/desktop/')).toEqual([]);
-    });
-
-    it('only drops the prefix, not a later or lookalike segment', () => {
-        expect(parse_url_paths('/app/desktop')).toEqual(['app', 'desktop']);
-        expect(parse_url_paths('/desktops/app/editor')).toEqual([
-            'desktops',
-            'app',
-            'editor',
-        ]);
-        expect(parse_url_paths('/desktop/desktop/app')).toEqual([
             'desktop',
             'app',
+            'editor',
         ]);
     });
 });

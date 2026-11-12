@@ -49,9 +49,7 @@ const nn = {
         deploy_as_app: 'Distribuer som app',
         descending: 'Synkande',
         desktop_background_fit: 'Tilpass',
-        dir_published_as_website: '%strong% er publisert på:',
         download: 'Last ned',
-        downloading: 'Lastar ned',
         email: 'E-post',
         email_or_username: 'E-post eller brukarnamn',
         empty_trash: 'Tøm papirkorg',
@@ -97,7 +95,6 @@ const nn = {
         passwords_do_not_match: '`Nytt passord` og `Stadfest nytt passord` stemmer ikkje overeins.',
         paste: 'Lim inn',
         paste_into_folder: 'Lim inn i mappe',
-        pick_name_for_website: 'Vel eit namn for nettstaden din:',
         powered_by_puter_js: 'Dreve av {{link=docs}}Puter.js{{/link}}',
         preparing: 'Førebur…',
         preparing_for_upload: 'Førebur opplasting…',
@@ -149,7 +146,6 @@ const nn = {
         account_password: 'Stadfest kontopassord', // In English: "Verify Account Password"
         allow: 'Tillat', // In English: "Allow"
         associated_websites: 'Tilknytte nettstader', // In English: "Associated Websites"
-        auto_arrange: 'Auto-ordne', // In English: "Auto Arrange"
         change: 'Endre', // In English: "Change"
         change_always_open_with: 'Vil du alltid opne denne filtypen med', // In English: "Do you want to always open this type of file with"
         change_email: 'Endre e-post', // In English: "Change Email"

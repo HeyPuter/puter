@@ -49,7 +49,6 @@ const zhtw = {
         app_group_ungroup: '解除群組',
         ascending: '升序',
         associated_websites: '關聯的網站',
-        auto_arrange: '自動排列',
         cancel: '取消',
         change_email: '更改電子郵件',
         change_language: '更改語言',
@@ -103,7 +102,6 @@ const zhtw = {
         desktop: '桌面',
         desktop_background_fit: '適應',
         developers: '開發者',
-        dir_published_as_website: '%strong% 已發布到：',
         disable_2fa: '停用雙重驗證',
         disable_2fa_confirm: '您確定要停用雙重驗證嗎？',
         disable_2fa_instructions: '輸入您的密碼以停用雙重驗證。',
@@ -111,7 +109,6 @@ const zhtw = {
         dont_allow: '不允許',
         download: '下載',
         download_file: '下載檔案',
-        downloading: '正在下載',
         email: '電子郵件',
         email_change_confirmation_sent: '確認電子郵件已發送到您的新電子郵件地址。請查看您的收件匣並按照指示完成此過程。',
         email_invalid: '電子郵件無效。',
@@ -191,7 +188,6 @@ const zhtw = {
         paste_into_folder: '貼上到資料夾',
         path: '路徑',
         personalization: '個人化',
-        pick_name_for_website: '為您的網站選擇一個名稱：',
         pictures: '圖片',
         plural_suffix: '個',
         powered_by_puter_js: '由 {{link=docs}}Puter.js{{/link}} 提供支援',
@@ -421,20 +417,15 @@ const zhtw = {
         'window_title_pictures': "圖片", // In English: "Pictures"
         'window_title_puter': "Puter", // In English: "Puter"
         'window_folder_empty': "此資料夾是空的", // In English: "This folder is empty"
-		'confirm_download_file_to_desktop': "您確定要將 %% 下載到您的桌面嗎？", // In English: "Are you sure you want to download %% to your Desktop?"
-        'downloading_file': "正在下載 %%", // In English: "Downloading %%"
-        'error_download_failed': "下載檔案失敗", // In English: "Failed to download file"
         'Resources': "資源", // In English: "Resources"
         'Storage': "儲存空間", // In English: "Storage"
         'untar': "解壓縮 Tar", // In English: "Untar"
         'untarring': "正在解壓縮 %strong%", // In English: "Untarring %strong%"
         'uploading': "正在上傳", // In English: "Uploading"
-        'uploading_file': "正在上傳 %%", // In English: "Uploading %%"
         'tar': "Tar 壓縮", // In English: "Tar"
         'download_as_tar': "下載為 Tar", // In English: "Download as Tar"
         'tarring': "正在建立 Tar 壓縮檔 %strong%", // In English: "Tarring %strong%"
         'error_user_or_path_not_found': "找不到使用者或路徑。", // In English: "User or path not found."
-        'error_invalid_username': "無效的使用者名稱。", // In English: "Invalid username."
     },
 };
 

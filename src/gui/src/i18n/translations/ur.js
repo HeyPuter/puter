@@ -29,7 +29,6 @@ const ur = {
         add_another_account: 'دوسرا اکاؤنٹ شامل کریں',
         all_fields_required: 'تمام شعبوں کی ضرورت ہے',
         ascending: 'بڑھتی ہوئی',
-        auto_arrange: 'خودکار ترتیب',
         cancel: 'منسوخ کریں',
         change_email: 'ای میل تبدیل کریں',
         change_language: 'زبان تبدیل کریں',
@@ -88,7 +87,6 @@ const ur = {
         desktop: 'ڈیسک ٹاپ',
         desktop_background_fit: 'ڈیسک ٹاپ کا پس منظر مناسب ہو',
         developers: 'ڈویلپرز',
-        dir_published_as_website: 'ڈائریکٹری کو ویب سائٹ کے طور پر شائع کیا گیا',
         disable_2fa: '2FA کو غیر فعال کریں۔',
         disable_2fa_confirm: 'کیا آپ واقعی 2FA کو غیر فعال کرنا چاہتے ہیں؟',
         disable_2fa_instructions:
@@ -96,7 +94,6 @@ const ur = {
         documents: 'دستاویزات',
         download: 'ڈاؤن لوڈ کریں ',
         download_file: 'فائل ڈاؤن لوڈ کریں',
-        downloading: 'ڈاؤن لوڈ ہو رہا ہے ',
         email: 'ای میل',
         email_change_confirmation_sent:
       'ایک تصدیقی ای میل آپ کے نئے ای میل پتے پر بھیج دیا گیا ہے۔ براہ کرم اپنا ان باکس چیک کریں اور عمل کو مکمل کرنے کے لیے ہدایات پر عمل کریں۔',
@@ -176,7 +173,6 @@ const ur = {
         paste: 'چسپاں کریں',
         paste_into_folder: 'فولڈر میں چسپاں کریں',
         personalization: 'متشکل',
-        pick_name_for_website: 'ویب سائٹ کے لئے نام منتخب کریں ',
         pictures: 'تصویریں',
         plural_suffix: 'س',
         powered_by_puter_js:

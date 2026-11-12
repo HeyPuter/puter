@@ -31,7 +31,6 @@ const fa = {
         allow: 'اجازه دسترسی',
         ascending: 'صعودی',
         associated_websites: 'وب سایت های مرتبط',
-        auto_arrange: 'ترتیب خودکار',
         cancel: 'لغو',
         change: 'تغییر',
         change_always_open_with: 'آیا می‌خواهید همیشه این نوع فایل را با ... باز کنید؟',
@@ -94,7 +93,6 @@ const fa = {
         desktop: 'دسکتاپ',
         desktop_background_fit: 'متناسب',
         developers: 'تولیدکنندگان نرم افزار',
-        dir_published_as_website: '%strong% منتشر شده به:',
         disable_2fa: 'غیر فعال کردن احراز هویت دو مرحله ای',
         disable_2fa_confirm:
       'آیا مطمئن هستید که می‌خواهید احراز هویت دو مرحله ای را غیرفعال کنید؟',
@@ -104,7 +102,6 @@ const fa = {
         dont_allow: 'عدم اجازه',
         download: 'دانلود',
         download_file: 'دانلود فایل',
-        downloading: 'دانلود',
         email: 'ایمیل',
         email_change_confirmation_sent:
       'یک ایمیل تاییدیه به آدرس ایمیل جدید شما ارسال شده است. لطفاً صندوق ایمیلهای دریافتی خود را بررسی کرده و دستورالعمل‌ها را برای تکمیل فرایند دنبال کنید.',
@@ -193,7 +190,6 @@ const fa = {
         paste_into_folder: 'چسباندن در پوشه',
         path: 'مسیر',
         personalization: 'شخصی سازی',
-        pick_name_for_website: 'یک نام برای وبسایت خود انتخاب کنید:',
         pictures: 'تصاویر',
         plural_suffix: 'ها',
         powered_by_puter_js: 'پشتیبانی شده توسط {{link=docs}}Puter.js{{/link}}',

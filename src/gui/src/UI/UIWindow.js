@@ -28,7 +28,6 @@ import { atPath } from '../helpers/pathElements.js';
 import { resolve_typed_path } from '../helpers/expandHomePath.js';
 import UIWindowAppFeedback from './UIWindowAppFeedback.js';
 import launch_app from '../helpers/launchApp.js';
-import publish_as_website from '../helpers/publishAsWebsite.js';
 
 import item_icon from '../helpers/itemIcon.js';
 import { parent_path_for, shared_crumbs_for } from '../helpers/sharePaths.js';
@@ -2544,20 +2543,6 @@ async function UIWindow (options) {
                     // -------------------------------------------
                     menu_items.push('-');
                     // -------------------------------------------
-                    // Publish As Website
-                    // -------------------------------------------
-                    menu_items.push({
-                        html: i18n('publish_as_website'),
-                        disabled: !options.is_dir,
-                        onClick: async function () {
-                            await publish_as_website({
-                                uid: $(el_window).attr('data-uid'),
-                                name: $(el_window).attr('data-name'),
-                                path: $(el_window).attr('data-path'),
-                            });
-                        },
-                    });
-                    // -------------------------------------------
                     // Deploy as App
                     // -------------------------------------------
                     menu_items.push({
@@ -3707,9 +3692,7 @@ $.fn.close = async function (options) {
                 document.activeElement.blur();
                 $('input').blur();
             }
-            // focus back to desktop
-            $('.desktop').find('.item-blurred').removeClass('item-blurred');
-            window.active_item_container = $('.desktop.item-container').get(0);
+            window.active_item_container = null;
         }
     });
 
@@ -3990,12 +3973,6 @@ $.fn.showWindow = async function (options) {
 };
 
 window.toggle_empty_folder_message = function (el_item_container) {
-    // if the item container is the desktop, don't show/hide the empty message
-    if ( $(el_item_container).hasClass('desktop') )
-    {
-        return;
-    }
-
     // if the item container is empty, show the empty message
     if ( $(el_item_container).has('.item').length === 0 ) {
         $(el_item_container).find('.explorer-empty-message').show();
@@ -4096,8 +4073,8 @@ $.fn.focusWindow = function (event) {
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
         // Update the tab title to the focused window. The URL itself is
-        // deliberately NOT touched here: on the desktop it stays /desktop
-        // (apps don't rewrite it), and in dashboard mode the open app owns
+        // deliberately NOT touched here: on the desktop apps don't rewrite
+        // it, and in dashboard mode the open app owns
         // it through real history entries (push_dashboard_app_url).
         if ( ! window.is_dashboard_mode ) {
             const update_window_url = $(this).attr('data-update_window_url');
@@ -4107,7 +4084,6 @@ $.fn.focusWindow = function (event) {
         }
     } else {
         $('.window').find('.item-selected').addClass('item-blurred');
-        $('.desktop').find('.item-blurred').removeClass('item-blurred');
     }
 
     return this;

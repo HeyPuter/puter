@@ -122,6 +122,7 @@ import {
     runsUserAppTokenExchange,
 } from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
+import { bootsDashboard } from './helpers/bootsDashboard.js';
 
 /**
  * A share email names the account it went to. When another account is open,
@@ -136,6 +137,7 @@ const follow_share_recipient = async (action) => {
         params: window.url_query_params,
         action,
         embedded: window.embedded_in_popup || window.is_embedded,
+        desktop: !window.is_dashboard_mode,
         current_user: window.user,
         logged_in_users: window.logged_in_users,
     });
@@ -273,15 +275,7 @@ const postAuthActions = async (action) => {
     // Load desktop, only if we're not embedded in a popup and not on the dashboard page
     // -------------------------------------------------------------------------------------
     if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
-        if ( window.is_fullpage_mode ) {
-            // In fullpage mode, skip loading desktop items and background
-            UIDesktop({});
-        } else {
-            await window.get_auto_arrange_data();
-            puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
-                UIDesktop({ desktop_fsentry: desktop_fsentry });
-            });
-        }
+        UIDesktop();
     }
     // -------------------------------------------------------------------------------------
     // Dashboard mode
@@ -1260,17 +1254,13 @@ if (jQuery) {
 
 // are we in dashboard mode?
 // The dashboard is the default interface at the root path; `/dashboard` is kept as an
-// alias, and `/desktop` loads the desktop instead. Direct app landings (`/app/<name>`)
+// alias. Direct app landings (`/app/<name>`)
 // open in the dashboard too: the app comes up maximized in-page with the dashboard
 // route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
-// To land the same app on the desktop instead, prefix the path:
-// `/desktop/app/<name>` doesn't match the dashboard paths below, so it falls
-// through to the desktop.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
-// (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
-// fullpage mode (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
+// (`?embedded_in_popup=`) and iframe embeds. A share link (`?shared=`,
 // from an email) lands in the dashboard: Files, on Shared, with the items it names
-// picked out; `/desktop?shared=` opens the item on the desktop instead. App metadata
+// picked out; the desktop ignores it. App metadata
 // like fullpage_on_landing does NOT opt a landing out of the dashboard; it only
 // affects boots that still go through the desktop flow.
 {
@@ -1289,16 +1279,11 @@ if (jQuery) {
     };
     // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
     const in_iframe = window.location !== window.parent.location;
-    const needs_desktop_at_root =
-        window.embedded_in_popup ||
-        in_iframe ||
-        search_params.has('puter.fullpage') ||
-        search_params.has('app') ||
-        search_params.has('download');
-    const is_dashboard_alias =
-        pathname === '/dashboard' || pathname === '/dashboard/';
-    const is_app_landing = /^\/app\/[^/]+\/?$/.test(pathname);
-    if (is_dashboard_alias || ((pathname === '/' || is_app_landing) && !needs_desktop_at_root)) {
+    if (bootsDashboard({
+        pathname,
+        inIframe: in_iframe,
+        embeddedInPopup: !!window.embedded_in_popup,
+    })) {
         window.is_dashboard_mode = true;
         window.dashboard_initial_route = parseDashboardRoute();
         // A share link outranks the hash: Files, on Shared, with what it names
@@ -1534,10 +1519,6 @@ window.initgui = async function (options) {
     const oidcChallenge = takeOidcLoginChallenge();
     const url = new URL(window.location).href;
     window.url = url;
-    // Route segments with a leading `/desktop` dropped, so the route checks
-    // downstream (app landings, actions) never have to know about the prefix:
-    // `/desktop/app/<name>` opens the app on the desktop the same way
-    // `/app/<name>` opens it in the dashboard.
     const url_paths = parse_url_paths(window.location.pathname);
     window.url_paths = url_paths;
 
@@ -1683,10 +1664,12 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Determine if we are in full-page mode
-    // i.e. https://puter.com/app/<app_name>/?puter.fullpage=true
+    // Determine if we are in full-page mode. The dashboard always shows apps full
+    // page; a desktop boot (embeds, popups) can ask with ?puter.fullpage=true.
     //--------------------------------------------------------------------------------------
-    if (
+    if (window.is_dashboard_mode) {
+        window.is_fullpage_mode = true;
+    } else if (
         window.url_query_params.has('puter.fullpage') &&
         (window.url_query_params.get('puter.fullpage') === 'false' ||
             window.url_query_params.get('puter.fullpage') === '0')
@@ -1698,8 +1681,6 @@ window.initgui = async function (options) {
             window.url_query_params.get('puter.fullpage') === '1')
     ) {
         // Puter is in fullpage mode.
-        window.is_fullpage_mode = true;
-    } else if (window.is_dashboard_mode) {
         window.is_fullpage_mode = true;
     }
 
@@ -2315,8 +2296,8 @@ window.initgui = async function (options) {
                 sessionStorage.removeItem('puter.authme_redirect_attempted');
             } catch (e) { /* sessionStorage unavailable */ }
         }
-        // remove the token from URL, keeping the current path (e.g. `/` or
-        // `/desktop`) and hash (dashboard tab links like /#usage).
+        // remove the token from URL, keeping the current path and hash
+        // (dashboard tab links like /#usage).
         //
         // `replaceState`, not `pushState`: pushing leaves the token-bearing URL
         // as the previous history entry, so Back returns to a URL containing a
@@ -2456,9 +2437,7 @@ window.initgui = async function (options) {
         $('.desktop').remove();
         // disable native browser exit confirmation
         window.onbeforeunload = null;
-        // go back to the interface the user was in: dashboard users to the root
-        // dashboard, desktop users to /desktop
-        window.location.replace(window.is_dashboard_mode ? '/' : '/desktop');
+        window.location.replace('/');
     });
 
     $(document).ajaxError(async function (event, jqxhr) {
@@ -2635,12 +2614,12 @@ window.initgui = async function (options) {
             window.update_sites_cache();
         }
     }
-    // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
-    // real account even on a first visit — never a temp user. So does a share
-    // link: a share only ever reaches a real account, so a temporary one could
-    // never see what it points at.
+    // App landing pages (`/app/<name>`) require a real account even on a first
+    // visit — never a temp user. So does a share link on the dashboard: a share
+    // only ever reaches a real account, so a temporary one could never see what
+    // it points at.
     const is_app_landing_page = window.url_paths[0] === 'app' && !!window.url_paths[1];
-    const is_share_link = window.url_query_params.has('shared');
+    const is_share_link = !!window.is_dashboard_mode && window.url_query_params.has('shared');
     const needsSignIn =
         !window.is_auth() &&
         (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link);

@@ -19,23 +19,16 @@
 
 import path from '../lib/path.js';
 
-import UIContextMenu from './UIContextMenu.js';
 import UIItem from './UIItem.js';
 import UIAlert from './UIAlert.js';
 import UIWindow from './UIWindow.js';
-import UIWindowSaveAccount from './UIWindowSaveAccount.js';
-import UIAuthLogin from './Auth/UIAuthLogin.js';
 
-import UIWindowProgress from './UIWindowProgress.js';
-import new_context_menu_item from '../helpers/newContextMenuItem.js';
-import refresh_item_container from '../helpers/refreshItemContainer.js';
 import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers/pathElements.js';
 import truncate_filename from '../helpers/truncateFilename.js';
 import UINotification from './UINotification.js';
 import launch_app from '../helpers/launchApp.js';
 import { urlFileLaunchOptions } from '../helpers/confirmUrlFileAccess.js';
 import item_icon from '../helpers/itemIcon.js';
-import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
 import {
     answerNotificationReceipts,
@@ -62,7 +55,7 @@ import apply_item_added_to_containers from '../helpers/applyItemAddedToContainer
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import { resolve_default_app } from '../helpers/defaultApp.js';
 
-async function UIDesktop (options) {
+async function UIDesktop () {
     // start a transaction if we're not in embedded or fullpage mode
     let transaction;
     if ( !window.is_embedded && !window.is_fullpage_mode ) {
@@ -72,58 +65,6 @@ async function UIDesktop (options) {
 
     let h = '';
 
-    // Set up the desktop channel for communication between different tabs in the same browser
-    window.channel = new BroadcastChannel('puter-desktop-channel');
-    channel.onmessage = function (e) {
-    };
-
-    // Initialize desktop icons visibility preference - move this earlier in the initialization
-    // Add this near the very beginning of the UIDesktop function
-    window.desktop_icons_hidden = false; // Set default value immediately
-
-    // Give Camera and Recorder write permissions to Desktop
-    puter.kv.get('has_set_default_app_user_permissions').then(async (user_permissions) => {
-        if ( ! user_permissions ) {
-            // Camera
-            try {
-                await fetch(`${window.api_origin }/auth/grant-user-app`, {
-                    'headers': {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${ window.auth_token}`,
-                    },
-                    'body': JSON.stringify({
-                        app_uid: 'app-5584fbf7-ed69-41fc-99cd-85da21b1ef51',
-                        permission: `fs:${html_encode(window.desktop_path)}:write`,
-                    }),
-                    'method': 'POST',
-                });
-            } catch ( err ) {
-                console.error(err);
-            }
-
-            // Recorder
-            try {
-                await fetch(`${window.api_origin }/auth/grant-user-app`, {
-                    'headers': {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${ window.auth_token}`,
-                    },
-                    'body': JSON.stringify({
-                        app_uid: 'app-7bdca1a4-6373-4c98-ad97-03ff2d608ca1',
-                        permission: `fs:${html_encode(window.desktop_path)}:write`,
-                    }),
-                    'method': 'POST',
-                });
-            } catch ( err ) {
-                console.error(err);
-            }
-
-            // Set flag to true
-            await puter.kv.set('has_set_default_app_user_permissions', true);
-        }
-    // Awaited above so a failed write reaches this: it leaves the flag unset
-    // and the whole thing is retried next boot, which is what we want.
-    }).catch(err => console.warn('Could not apply default app permissions:', err));
     // connect socket.
     window.socket = io(`${window.gui_origin }/`, {
         auth: {
@@ -713,16 +654,8 @@ async function UIDesktop (options) {
 
     h += '<div class="window-container"></div>';
 
-    // Desktop
-    // If desktop is not in fullpage/embedded mode, we hide it until files and directories are loaded and then fade in the UI
-    // This gives a calm and smooth experience for the user
-    h += `<div class="desktop item-container disable-user-select"
-                data-uid="${options.desktop_fsentry?.uid ?? ''}"
-                data-sort_by="${!options.desktop_fsentry?.sort_by ? 'name' : options.desktop_fsentry.sort_by}"
-                data-sort_order="${!options.desktop_fsentry?.sort_order ? 'asc' : options.desktop_fsentry.sort_order}"
-                data-path="${html_encode(window.desktop_path)}"
-            >`;
-    h += '</div>';
+    // The surface windows open on. It holds no items.
+    h += '<div class="desktop disable-user-select"></div>';
 
     // Get window sidebar width
     puter.kv.get('window_sidebar_width').catch(() => null).then(async (val) => {
@@ -758,409 +691,22 @@ async function UIDesktop (options) {
     // Append to <body>
     $('body').append(h);
 
-    // Initialize the preference early
-    puter.kv.get('desktop_icons_hidden').then(async (val) => {
-        window.desktop_icons_hidden = (val === 'true' || val === true);
-
-        // Apply the setting immediately if needed
-        if ( window.desktop_icons_hidden ) {
-            hideDesktopIcons();
-        }
-    }).catch(err => console.warn('Could not load desktop_icons_hidden:', err));
-
     const el_desktop = document.querySelector('.desktop');
 
     window.active_element = el_desktop;
-    window.active_item_container = el_desktop;
 
-    // --------------------------------------------------------
-    // Dragster
-    // Allow dragging of local files onto desktop.
-    // --------------------------------------------------------
-    $(el_desktop).dragster({
-        enter: function (dragsterEvent, event) {
-            $('.context-menu').remove();
-        },
-        leave: function (dragsterEvent, event) {
-        },
-        drop: async function (dragsterEvent, event) {
-            const e = event.originalEvent;
-            // no drop on item
-            if ( $(event.target).hasClass('item') || $(event.target).parent('.item').length > 0 )
-            {
-                return false;
-            }
-            // recursively create directories and upload files
-            if ( e.dataTransfer?.items?.length > 0 ) {
-                window.upload_items(e.dataTransfer.items, window.desktop_path);
-            }
-
-            e.stopPropagation();
-            e.preventDefault();
-            return false;
-        },
+    // The desktop has no menu of its own, and the browser's doesn't belong here.
+    $(el_desktop).on('contextmenu', function (event) {
+        if ( event.target === el_desktop ) event.preventDefault();
     });
 
-    // --------------------------------------------------------
-    // Droppable
-    // --------------------------------------------------------
-    $(el_desktop).droppable({
-        accept: '.item',
-        tolerance: 'intersect',
-        drop: function (event, ui) {
-            // Check if item was actually dropped on desktop and not a window
-            if ( window.mouseover_window !== undefined )
-            {
-                return;
-            }
-
-            // Can't drop anything but UIItems on desktop
-            if ( ! $(ui.draggable).hasClass('item') )
-            {
-                return;
-            }
-
-            // Don't move an item to its current directory
-            if ( path.dirname($(ui.draggable).attr('data-path')) === window.desktop_path && !event.ctrlKey )
-            {
-                return;
-            }
-
-            // If ctrl is pressed and source is Trashed, cancel whole operation
-            if ( event.ctrlKey && path.dirname($(ui.draggable).attr('data-path')) === window.trash_path )
-            {
-                return;
-            }
-
-            // Unselect previously selected items
-            $(el_desktop).children('.item-selected').removeClass('item-selected');
-
-            const items_to_move = [];
-            // first item
-            items_to_move.push(ui.draggable);
-
-            // all subsequent items
-            const cloned_items = document.getElementsByClassName('item-selected-clone');
-            for ( let i = 0; i < cloned_items.length; i++ ) {
-                const source_item = document.getElementById(`item-${ $(cloned_items[i]).attr('data-id')}`);
-                if ( source_item !== null )
-                {
-                    items_to_move.push(source_item);
-                }
-            }
-
-            // if ctrl key is down, copy items
-            if ( event.ctrlKey ) {
-                // unless source is Trash
-                if ( path.dirname($(ui.draggable).attr('data-path')) === window.trash_path )
-                {
-                    return;
-                }
-
-                window.copy_items(items_to_move, window.desktop_path);
-            }
-            // otherwise, move items
-            else {
-                window.move_items(items_to_move, window.desktop_path);
-            }
-        },
-    });
-
-    //--------------------------------------------------
-    // ContextMenu
-    //--------------------------------------------------
-    $(el_desktop).bind('contextmenu taphold', function (event) {
-        // dismiss taphold on regular devices
-        if ( event.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-        {
-            return;
-        }
-
-        const $target = $(event.target);
-
-        // elements that should retain native ctxmenu
-        if ( $target.is('input') || $target.is('textarea') )
-        {
-            return true;
-        }
-
-        // custom ctxmenu for all other elements
-        if ( event.target === el_desktop ) {
-            event.preventDefault();
-            UIContextMenu({
-                position: event.type === 'taphold' ? undefined : { left: event.pageX, top: event.pageY },
-                items: [
-                    // -------------------------------------------
-                    // Sort by
-                    // -------------------------------------------
-                    {
-                        html: i18n('sort_by'),
-                        items: [
-                            {
-                                html: i18n('auto_arrange'),
-                                icon: window.is_auto_arrange_enabled ? '✓' : '',
-                                onClick: async function () {
-                                    window.is_auto_arrange_enabled = !window.is_auto_arrange_enabled;
-                                    window.store_auto_arrange_preference(window.is_auto_arrange_enabled);
-                                    if ( window.is_auto_arrange_enabled ) {
-                                        window.sort_items(el_desktop, $(el_desktop).attr('data-sort_by'), $(el_desktop).attr('data-sort_order'));
-                                        window.set_sort_by(options.desktop_fsentry.uid, $(el_desktop).attr('data-sort_by'), $(el_desktop).attr('data-sort_order'));
-                                        window.clear_desktop_item_positions(el_desktop);
-                                    } else {
-                                        window.set_desktop_item_positions(el_desktop);
-                                    }
-                                },
-                            },
-                            // -------------------------------------------
-                            // -
-                            // -------------------------------------------
-                            '-',
-                            {
-                                html: i18n('name'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_by') === 'name' ? '✓' : '',
-                                onClick: async function () {
-                                    window.sort_items(el_desktop, 'name', $(el_desktop).attr('data-sort_order'));
-                                    window.set_sort_by(options.desktop_fsentry.uid, 'name', $(el_desktop).attr('data-sort_order'));
-                                },
-                            },
-                            {
-                                html: i18n('date_modified'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_by') === 'modified' ? '✓' : '',
-                                onClick: async function () {
-                                    window.sort_items(el_desktop, 'modified', $(el_desktop).attr('data-sort_order'));
-                                    window.set_sort_by(options.desktop_fsentry.uid, 'modified', $(el_desktop).attr('data-sort_order'));
-                                },
-                            },
-                            {
-                                html: i18n('type'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_by') === 'type' ? '✓' : '',
-                                onClick: async function () {
-                                    window.sort_items(el_desktop, 'type', $(el_desktop).attr('data-sort_order'));
-                                    window.set_sort_by(options.desktop_fsentry.uid, 'type', $(el_desktop).attr('data-sort_order'));
-                                },
-                            },
-                            {
-                                html: i18n('size'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_by') === 'size' ? '✓' : '',
-                                onClick: async function () {
-                                    window.sort_items(el_desktop, 'size', $(el_desktop).attr('data-sort_order'));
-                                    window.set_sort_by(options.desktop_fsentry.uid, 'size', $(el_desktop).attr('data-sort_order'));
-                                },
-                            },
-                            // -------------------------------------------
-                            // -
-                            // -------------------------------------------
-                            '-',
-                            {
-                                html: i18n('ascending'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_order') === 'asc' ? '✓' : '',
-                                onClick: async function () {
-                                    const sort_by = $(el_desktop).attr('data-sort_by');
-                                    window.sort_items(el_desktop, sort_by, 'asc');
-                                    window.set_sort_by(options.desktop_fsentry.uid, sort_by, 'asc');
-                                },
-                            },
-                            {
-                                html: i18n('descending'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_order') === 'desc' ? '✓' : '',
-                                onClick: async function () {
-                                    const sort_by = $(el_desktop).attr('data-sort_by');
-                                    window.sort_items(el_desktop, sort_by, 'desc');
-                                    window.set_sort_by(options.desktop_fsentry.uid, sort_by, 'desc');
-                                },
-                            },
-                        ],
-                    },
-                    // -------------------------------------------
-                    // Refresh
-                    // -------------------------------------------
-                    {
-                        html: i18n('refresh'),
-                        onClick: function () {
-                            refresh_item_container(el_desktop, { consistency: 'strong' });
-                        },
-                    },
-                    // -------------------------------------------
-                    // Show/Hide hidden files
-                    // -------------------------------------------
-                    {
-                        html: i18n('show_hidden'),
-                        icon: window.user_preferences.show_hidden_files ? '✓' : '',
-                        onClick: function () {
-                            window.mutate_user_preferences({
-                                show_hidden_files: !window.user_preferences.show_hidden_files,
-                            });
-                            window.show_or_hide_files(document.querySelectorAll('.item-container'));
-                        },
-                    },
-                    // -------------------------------------------
-                    // Hide Desktop Icons
-                    // -------------------------------------------
-                    {
-                        html: window.desktop_icons_hidden ? i18n('Show desktop icons') : i18n('Hide desktop icons'),
-                        onClick: function () {
-                            toggleDesktopIcons();
-                        },
-                    },
-                    // -------------------------------------------
-                    // -
-                    // -------------------------------------------
-                    '-',
-                    // -------------------------------------------
-                    // New File
-                    // -------------------------------------------
-                    new_context_menu_item(window.desktop_path, el_desktop),
-                    // -------------------------------------------
-                    // -
-                    // -------------------------------------------
-                    '-',
-                    // -------------------------------------------
-                    // Paste
-                    // -------------------------------------------
-                    {
-                        html: i18n('paste'),
-                        disabled: window.clipboard.length > 0 ? false : true,
-                        onClick: function () {
-                            if ( window.clipboard_op === 'copy' )
-                            {
-                                window.copy_clipboard_items(window.desktop_path, el_desktop);
-                            }
-                            else if ( window.clipboard_op === 'move' )
-                            {
-                                window.move_clipboard_items(el_desktop);
-                            }
-                        },
-                    },
-                    // -------------------------------------------
-                    // Undo
-                    // -------------------------------------------
-                    {
-                        html: i18n('undo'),
-                        disabled: window.actions_history.length > 0 ? false : true,
-                        onClick: function () {
-                            window.undo_last_action();
-                        },
-                    },
-                    // -------------------------------------------
-                    // Upload Here
-                    // -------------------------------------------
-                    {
-                        html: i18n('upload_here'),
-                        onClick: function () {
-                            window.init_upload_using_dialog(el_desktop);
-                        },
-                    },
-                ],
-            });
-        }
-    });
-
-    //-------------------------------------------
-    // Desktop Files/Folders
-    // we don't need to get the desktop items if we're in embedded or fullpage mode
-    // because the items aren't visible anyway and we don't need to waste bandwidth/server resources
-    //-------------------------------------------
     if ( !window.is_embedded && !window.is_fullpage_mode ) {
-        refresh_item_container(el_desktop, {
-            fadeInItems: true,
-            onComplete: () => {
-                // End transaction when desktop is fully ready for user interaction
-                transaction.end();
-            },
-        });
+        transaction.end();
 
-        // perform readdirs for caching purposes
-
-        // home directory
+        // warm the home directory listing for the first Explorer window
         puter.fs.readdir({ path: window.home_path, consistency: 'strong' });
     }
 
-    // -------------------------------------------
-    // Selectable
-    // Only for desktop
-    // -------------------------------------------
-    if ( !isMobile.phone && !isMobile.tablet ) {
-        let selected_ctrl_items = [];
-        const selection = new SelectionArea({
-            selectionContainerClass: '.selection-area-container',
-            container: '.desktop',
-            selectables: ['.desktop.item-container > .item'],
-            startareas: ['.desktop'],
-            boundaries: ['.desktop'],
-            behaviour: {
-                overlap: 'drop',
-                intersect: 'touch',
-                startThreshold: 10,
-                scrolling: {
-                    speedDivider: 10,
-                    manualSpeed: 750,
-                    startScrollMargins: { x: 0, y: 0 },
-                },
-            },
-            features: {
-                touch: true,
-                range: true,
-                singleTap: {
-                    allow: true,
-                    intersect: 'native',
-                },
-            },
-        });
-
-        selection.on('beforestart', ({ event }) => {
-            selected_ctrl_items = [];
-            // Returning false prevents a selection
-            return $(event.target).hasClass('item-container');
-        })
-            .on('beforedrag', evt => {
-            })
-            .on('start', ({ store, event }) => {
-                if ( !event.ctrlKey && !event.metaKey ) {
-                    for ( const el of store.stored ) {
-                        el.classList.remove('item-selected');
-                    }
-
-                    selection.clearSelection();
-                }
-
-                // mark desktop as selectable active
-                $('.desktop').addClass('desktop-selectable-active');
-            })
-            .on('move', ({ store: { changed: { added, removed } }, event }) => {
-                window.desktop_selectable_is_active = true;
-
-                for ( const el of added ) {
-                    // if ctrl or meta key is pressed and the item is already selected, then unselect it
-                    if ( (event.ctrlKey || event.metaKey) && $(el).hasClass('item-selected') ) {
-                        el.classList.remove('item-selected');
-                        selected_ctrl_items.push(el);
-                    }
-                    // otherwise select it
-                    else {
-                        el.classList.add('item-selected');
-                    }
-                }
-
-                for ( const el of removed ) {
-                    el.classList.remove('item-selected');
-                    // in case this item was selected by ctrl+click before, then reselect it again
-                    if ( selected_ctrl_items.includes(el) )
-                    {
-                        $(el).not('.item-disabled').addClass('item-selected');
-                    }
-                }
-            })
-            .on('stop', evt => {
-                window.desktop_selectable_is_active = false;
-                $('.desktop').removeClass('desktop-selectable-active');
-            });
-    }
     // notification container
     $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
 
@@ -1200,41 +746,10 @@ async function UIDesktop (options) {
             }
         }
     }
-    //--------------------------------------------------------------------------------------
-    // /settings redirects to /dashboard
-    //--------------------------------------------------------------------------------------
-    else if ( window.url_paths[0]?.toLocaleLowerCase() === 'settings' ) {
-        window.open('/dashboard/#home', '_blank');
-    }
-    // ---------------------------------------------
-    // Run apps from insta-login URL
-    // ---------------------------------------------
-    if ( window.url_query_params.has('app') ) {
-        let url_app_name = window.url_query_params.get('app');
-        if ( url_app_name === 'explorer' ) {
-            let predefined_path = window.home_path;
-            if ( window.url_query_params.has('path') )
-            {
-                predefined_path = window.url_query_params.get('path');
-            }
-            // launch explorer
-            UIWindow({
-                path: predefined_path,
-                title: path.basename(predefined_path),
-                icon: await item_icon({ is_dir: true, path: predefined_path }),
-                // todo
-                // uid: $(el_item).attr('data-uid'),
-                is_dir: true,
-                // todo
-                // sort_by: $(el_item).attr('data-sort_by'),
-                app: 'explorer',
-            });
-        }
-    }
     // ---------------------------------------------
     // load from direct app URLs: /app/app-name
     // ---------------------------------------------
-    else if ( window.app_launched_from_url ) {
+    if ( window.app_launched_from_url ) {
         if ( ! window.url_query_params.has('c') ) {
             let posargs = undefined;
             if ( window.app_query_params && window.app_query_params.posargs ) {
@@ -1270,10 +785,10 @@ async function UIDesktop (options) {
             return;
         }
 
-        // disable pointer-events for all app iframes, this is to make sure selectable works
         $('.window-app-iframe').css('pointer-events', 'none');
         $('.window').find('.item-selected').addClass('item-blurred');
-        $('.desktop').find('.item-blurred').removeClass('item-blurred');
+        // Keyboard shortcuts act on the active container, and a click here leaves every window's.
+        window.active_item_container = null;
     });
 
     $(el_desktop).on('click', function (e) {
@@ -1282,43 +797,6 @@ async function UIDesktop (options) {
         // hide all global menubars
         $('.window-menubar-global').hide();
     });
-
-    //--------------------------------------------------------------------------------------
-    // Trying to view a user's public folder?
-    // i.e. https://puter.com/@<username>
-    //--------------------------------------------------------------------------------------
-    const url_paths = window.location.pathname.split('/').filter(element => element);
-    if ( window.url_paths[0]?.startsWith('@') ) {
-        const username = window.url_paths[0].substring(1);
-        let item_path = `/${ username }/Public`;
-        if ( window.url_paths.length > 1 ) {
-            item_path += `/${ window.url_paths.slice(1).join('/')}`;
-        }
-
-        // GUARD: avoid invalid user directories
-        {
-            if ( ! username.match(/^[a-z0-9_]+$/i) ) {
-                UIAlert({
-                    message: i18n('error_invalid_username'),
-                });
-                return;
-            }
-        }
-
-        let stat;
-        try {
-            stat = await puter.fs.stat({ path: item_path, consistency: 'eventual' });
-        } catch ( e ) {
-            window.history.replaceState(null, document.title, '/desktop');
-            UIAlert({
-                message: i18n('error_user_or_path_not_found'),
-                type: 'error',
-            });
-            return;
-        }
-
-        await open_path_target(item_path, stat);
-    }
 
     /**
      * Open a path as double-clicking would: the associated app for a file, an
@@ -1374,7 +852,6 @@ async function UIDesktop (options) {
                     file_path: item_path,
                     app_obj: suggested_apps[0],
                     window_title: path.basename(item_path),
-                    maximized: options.maximized,
                     file_signature: open_item_meta.signature,
                     custom_path: window.location.pathname,
                 });
@@ -1412,157 +889,6 @@ async function UIDesktop (options) {
         await open_path_target(stat.path ?? shared_path, stat);
         return true;
     }
-
-    /**
-     * Act on a share link. A share to a person only ever reaches a real
-     * account, so for a temporary session the item is tried first — an item
-     * open to anyone with the link resolves for it — and only a miss asks
-     * for a sign-in, rather than burning the link on a "not found" as
-     * somebody who can't see it. The link stays in the address bar across
-     * the prompt because login reloads on success, which brings it back for
-     * the account that can actually open it.
-     */
-    async function handle_shared_link (shared_path) {
-        if ( window.user?.is_temp ) {
-            const stat = await resolve_shared_item(puter.fs, shared_path);
-            if ( stat ) {
-                clear_shared_param();
-                await open_path_target(stat.path ?? shared_path, stat);
-                return;
-            }
-            await UIAuthLogin({
-                reload_on_success: true,
-                page: true,
-            });
-            // Dismissed without signing in: drop the link rather than loop.
-            if ( window.user?.is_temp ) clear_shared_param();
-            return;
-        }
-        clear_shared_param();
-        await open_shared_item(shared_path);
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Opening an item someone shared, on the desktop
-    // i.e. https://puter.com/desktop?shared=%2F<owner>%2F<uuid>%2F<name>
-    // (the same link at the root lands in the dashboard's Shared view instead)
-    //--------------------------------------------------------------------------------------
-    if ( window.url_query_params.has(SHARED_PATH_PARAM) ) {
-        await handle_shared_link(window.url_query_params.get(SHARED_PATH_PARAM));
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Direct download link
-    // i.e. https://puter.com/?download=<file_url> or https://puter.com/desktop?download=<file_url>
-    //--------------------------------------------------------------------------------------
-    const is_bare_desktop_path = window.url_paths.length === 0
-        || (window.url_paths.length === 1 && window.url_paths[0]?.toLocaleLowerCase() === 'desktop');
-    if ( is_bare_desktop_path && window.url_query_params.has('download') ) {
-        const url = window.url_query_params.get('download');
-        let file_name = url.split('/').pop().split('?')[0];
-
-        let response = await UIAlert({
-            message: i18n('confirm_download_file_to_desktop', file_name),
-            type: 'confirm',
-            buttons: [
-                { label: i18n('alert_yes'), value: true, type: 'primary' },
-                { label: i18n('alert_no'), value: false, type: 'secondary' },
-            ],
-        });
-
-        if ( ! response )
-        {
-            return;
-        }
-
-        let cancelled = false;
-        let upload_xhr = null;
-        const abort_controller = new AbortController();
-
-        // create progressbar dialog
-        let progwin = await UIWindowProgress({
-            title: i18n('downloading'),
-            icon: window.icons['app-icon-uploader.svg'],
-            operation_id: window.uuidv4(),
-            show_progress: true,
-            on_cancel: () => {
-                cancelled = true;
-                abort_controller.abort();
-                if ( upload_xhr ) {
-                    upload_xhr.abort();
-                }
-            },
-        });
-        progwin?.set_status(i18n('downloading_file', file_name));
-
-        (async () => {
-            try {
-                // download the file
-                const response = await puter.net.fetch(url, {
-                    signal: abort_controller.signal,
-                });
-
-                const total = Number(response.headers.get('content-length'));
-                const reader = response.body.getReader();
-
-                const chunks = [];
-                let received = 0;
-
-                while ( true ) {
-                    const { done, value } = await reader.read();
-                    if ( done || cancelled ) break;
-
-                    if ( value ) {
-                        // store the chunk
-                        chunks.push(value);
-                        received += value.length;
-                        // calculate progress
-                        const progress = Number.isFinite(total) && total > 0
-                            ? received / total
-                            : 0;
-                        // update progressbar
-                        progwin?.set_progress(Math.floor(progress * 100));
-                    }
-                }
-
-                if ( cancelled ) {
-                    progwin?.close();
-                    return;
-                }
-
-                // combine chunks into a blob
-                let blob = new Blob(chunks, {
-                    type: response.headers.get('content-type') ?? 'application/octet-stream',
-                });
-
-                // reset progressbar
-                progwin?.set_progress(0);
-                progwin?.set_status(i18n('uploading_file', file_name));
-
-                // upload to user's desktop
-                await puter.fs.write(`~/Desktop/${file_name}`, blob, {
-                    dedupeName: true,
-                    progress: (_, percent) => {
-                        // update progressbar
-                        progwin?.set_progress(percent);
-                    },
-                    init: (_, xhr) => {
-                        upload_xhr = xhr;
-                    },
-                });
-            } catch (e) {
-                // alert the user if there's a genuine error
-                if ( !cancelled && e.name !== 'AbortError' ) {
-                    await UIAlert({
-                        message: `${i18n('error_download_failed') }: ${ e.message}`,
-                        type: 'error',
-                    });
-                }
-            }
-            // close progress window
-            progwin?.close();
-        })();
-    }
 }
 
 window.enter_fullpage_mode = (el_window) => {
@@ -1579,7 +905,6 @@ window.enter_fullpage_mode = (el_window) => {
 
 window.exit_fullpage_mode = (el_window) => {
     $('body').removeClass('fullpage-mode');
-    refresh_item_container($('.desktop.item-container'), { fadeInItems: true });
     $(el_window).removeAttr('data-is_fullpage');
     if ( el_window ) {
         window.reset_window_size_and_position(el_window);
@@ -1595,30 +920,6 @@ window.reset_window_size_and_position = (el_window) => {
         top: 'calc(50% - 190px)',
         left: 'calc(50% - 340px)',
     });
-};
-
-// Modify the hide/show functions to use CSS rules that will apply to all icons, including future ones
-window.hideDesktopIcons = function () {
-    $('.desktop.item-container').addClass('desktop-icons-hidden');
-};
-
-window.showDesktopIcons = function () {
-    $('.desktop.item-container').removeClass('desktop-icons-hidden');
-};
-
-// Add this function to the global scope
-window.toggleDesktopIcons = function () {
-    window.desktop_icons_hidden = !window.desktop_icons_hidden;
-
-    if ( window.desktop_icons_hidden ) {
-        hideDesktopIcons();
-    } else {
-        showDesktopIcons();
-    }
-
-    // Save preference
-    puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString())
-        .catch(err => console.warn('Could not save desktop_icons_hidden:', err));
 };
 
 export default UIDesktop;

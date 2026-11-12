@@ -4,16 +4,10 @@ import { driverCallEnvelope } from '../../../lib/networkUtils.js';
 // a single batched driver call fetching all of them, so the desktop doesn't
 // issue a dozen round-trips while it initializes.
 const GUI_CACHE_KEYS = [
-    'has_set_default_app_user_permissions',
     'window_sidebar_width',
     'sidebar_items',
-    'menubar_style',
-    'user_preferences.auto_arrange_desktop',
     'user_preferences.show_hidden_files',
     'user_preferences.language',
-    'user_preferences.clock_visible',
-    'desktop_item_positions',
-    'desktop_icons_hidden',
 ];
 
 // How long the resolved batch keeps serving reads before the cache disables
