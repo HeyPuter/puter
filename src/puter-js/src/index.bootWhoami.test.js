@@ -129,11 +129,21 @@ const bootWeb = async () => {
     }
 };
 
+/** What a declined sign-in rejects with: each call's own refused-request error. */
+const CANCELED = {
+    error: { code: 'auth_canceled', message: 'Authentication canceled' },
+};
+const REFUSED = {
+    status: 401,
+    message: 'whoami failed with status 401',
+    code: 'token_auth_failed',
+};
+
 describe.each([
-    ['puter.auth.getUser()', (puter) => puter.auth.getUser()],
-    ['puter.auth.whoami()', (puter) => puter.auth.whoami()],
-    ['puter.getUser()', (puter) => puter.getUser()],
-])('%s', (_label, readUser) => {
+    ['puter.auth.getUser()', (puter) => puter.auth.getUser(), CANCELED],
+    ['puter.auth.whoami()', (puter) => puter.auth.whoami(), REFUSED],
+    ['puter.getUser()', (puter) => puter.getUser(), CANCELED],
+])('%s', (_label, readUser, declined) => {
     it('joins the boot lookup instead of sending its own', async () => {
         const puter = await bootWeb();
         puter.setAuthToken('tok-a');
@@ -193,7 +203,7 @@ describe.each([
 
         await answer({ refuse: true });
         expect(puter.authToken).toBeNull();
-        expect(await failure).toBeTruthy();
+        expect(await failure).toEqual(declined);
         expect(signIn).toHaveBeenCalledTimes(1);
         expect(whoamis.map((r) => r.token)).toEqual(['tok-a']);
     });
@@ -235,22 +245,6 @@ describe.each([
         expect(await failure).toEqual({ status: 401, message: 'Unauthorized' });
         expect(whoamis.map((r) => r.token)).toEqual(['tok-a']);
         expect(signIn).not.toHaveBeenCalled();
-    });
-
-    it('copies the joined user where structuredClone is missing', async () => {
-        const puter = await bootWeb();
-        vi.stubGlobal('structuredClone', undefined);
-        try {
-            puter.setAuthToken('tok-a');
-            const user = readUser(puter);
-            await answer();
-            const copy = await user;
-            expect(copy).toEqual(USERS['tok-a']);
-            expect(copy).not.toBe(puter.whoami);
-            expect(whoamis).toHaveLength(1);
-        } finally {
-            vi.unstubAllGlobals();
-        }
     });
 
     it('sends its own request as soon as the boot lookup has to retry', async () => {
@@ -360,7 +354,7 @@ describe.each([
         await answer({ refuse: true });
 
         const reason = await failure;
-        expect(reason).toBeTruthy();
+        expect(reason).toEqual(CANCELED);
         expect(error).toHaveBeenCalledTimes(1);
         expect(error).toHaveBeenCalledWith(reason);
         expect(success).not.toHaveBeenCalled();

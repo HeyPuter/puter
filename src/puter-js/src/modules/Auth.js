@@ -580,8 +580,12 @@ export class AuthModule extends PuterModule {
      * @internal Joins the boot `/whoami` in flight for the live token at this
      * origin: a promise of the caller's own copy of its user, or of null when
      * the caller should send its own request. Null when there is none to join.
+     *
+     * @param {(reauth: { error: unknown }, body: Record<string, any>) => unknown} [refusalError]
+     * What to reject with when the user declines the sign-in a refused lookup
+     * asks for. Defaults to the sign-in's own error.
      */
-    joinBootLookup_() {
+    joinBootLookup_(refusalError = (reauth) => reauth.error) {
         const { puter } = this;
         const inFlight = puter.whoamiInFlight_;
         if (
@@ -599,7 +603,9 @@ export class AuthModule extends PuterModule {
                 const reauth = await resolveReauth(inFlight.refusal, {
                     sentToken: inFlight.token,
                 });
-                if (reauth?.action === 'reject') throw reauth.error;
+                if (reauth?.action === 'reject') {
+                    throw refusalError(reauth, inFlight.refusal);
+                }
             }
             if (!puter.authToken) throw { status: 401, message: 'Unauthorized' };
             return null;
@@ -740,7 +746,18 @@ export class AuthModule extends PuterModule {
             };
         }
 
-        const joined = await this.joinBootLookup_();
+        // Not always 'Unauthorized': a 502 with an HTML body is not a 401.
+        const refused = (status, body) => ({
+            status,
+            message: body?.message ?? body?.error
+                ?? `whoami failed with status ${status}`,
+            ...(body?.code ? { code: body.code } : {}),
+        });
+
+        // A declined sign-in rejects as this call's own refused request would.
+        const joined = await this.joinBootLookup_(
+            (_reauth, body) => refused(401, body),
+        );
         if (joined) return joined;
 
         const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
@@ -749,14 +766,13 @@ export class AuthModule extends PuterModule {
         });
         // Unchecked, an expired token resolves to an error body typed as a user.
         if (!resp.ok) {
-            const body = await resp.json().catch(() => ({}));
-            // Not always 'Unauthorized': a 502 with an HTML body is not a 401.
-            throw {
-                status: resp.status,
-                message: body?.message ?? body?.error
-                    ?? `whoami failed with status ${resp.status}`,
-                ...(body?.code ? { code: body.code } : {}),
-            };
+            let body = {};
+            try {
+                body = await resp.json();
+            } catch {
+                // No JSON body; the status alone describes the failure.
+            }
+            throw refused(resp.status, body);
         }
         return await resp.json();
     }
