@@ -204,10 +204,6 @@ interface Region {
     forward: EventForwardService;
     events: EventsService;
     socket: {
-        occupied: (
-            room: string,
-            options: { timeoutMs: number },
-        ) => Promise<boolean>;
         send: ReturnType<typeof vi.fn>;
     };
     /** Every addressed POST this region made, whether or not it arrived. */
@@ -375,7 +371,6 @@ const makeRegion = (
     const socket = {
         has: (spec: { room?: string | number; socket?: string }) =>
             region.rooms.has(String(spec.room ?? spec.socket ?? '')),
-        occupied: async (room: string) => region.rooms.has(room),
         send: vi.fn(async (_spec: unknown, _key: string, data: unknown) => {
             region.sent.push(data as DeliveryEnvelope);
         }),
@@ -1881,36 +1876,20 @@ describe('receiving queued deliveries that only a handler connection takes', () 
     });
     const handlerRoom = (subId: string) =>
         handlerSocketRoom(appSocketRoom(userId, APP_UID), subId);
-    /** A cluster probe that answers only once its timeout runs out. */
-    const unanswered = (east: Region, held: Set<string>) =>
-        vi
-            .spyOn(east.socket, 'occupied')
-            .mockImplementation(
-                (room: string, { timeoutMs }: { timeoutMs: number }) =>
-                    new Promise((resolve) =>
-                        setTimeout(
-                            () => resolve(held.has(room)),
-                            Math.max(0, timeoutMs),
-                        ),
-                    ),
-            );
+    /** A connection on another node of east that runs the handler. */
+    const handledElsewhere = (east: Region, subId: string, socketId = 'tab-1') =>
+        east.presence.addHandlerSocket(userId, socketId, [
+            { appUid: APP_UID, subId },
+        ]);
 
-    it('waits on about one probe timeout per batch, not one per delivery', async () => {
+    it("sends what this region's record names a handler connection for, and declines the rest", async () => {
         const east = makeRegion('east', ['west']);
         const nack = vi
             .spyOn(east.forward, 'relayNack')
             .mockImplementation(() => {});
-        unanswered(east, new Set([handlerRoom('h-0'), handlerRoom('h-2')]));
-        const sentAt = new Map<string, number>();
-        east.socket.send.mockImplementation(
-            async (_spec: unknown, _key: string, data: unknown) => {
-                const envelope = data as DeliveryEnvelope;
-                sentAt.set(envelope.subId, Date.now());
-                east.sent.push(envelope);
-            },
-        );
+        await handledElsewhere(east, 'h-0');
+        east.rooms.add(handlerRoom('h-2'));
 
-        const startedAt = Date.now();
         await east.forward.receive(
             {
                 from: 'west',
@@ -1925,24 +1904,25 @@ describe('receiving queued deliveries that only a handler connection takes', () 
             'west',
         );
 
-        expect(Date.now() - startedAt).toBeLessThan(500 + 300);
-        expect(sentAt.get('plain')! - startedAt).toBeLessThan(500 + 300);
         // Still sent in the batch's order, and each empty room declined.
         expect(east.sent.map((envelope) => envelope.subId)).toEqual([
             'h-0',
             'h-2',
             'plain',
         ]);
+        expect(east.socket.send.mock.calls[0][0]).toEqual({
+            room: handlerRoom('h-0'),
+        });
         expect(nack.mock.calls.map((call) => call[2])).toEqual(['h-1', 'h-3']);
         expect(nack.mock.calls.every((call) => call[4] === 'no_handler')).toBe(
             true,
         );
     });
 
-    it('probes a room once however many of its deliveries the batch carries', async () => {
+    it('looks a room up once however many of its deliveries the batch carries', async () => {
         const east = makeRegion('east', ['west']);
-        east.rooms.add(handlerRoom('same'));
-        const probe = vi.spyOn(east.socket, 'occupied');
+        await handledElsewhere(east, 'same');
+        const lookup = vi.spyOn(east.presence, 'holdsHandler');
 
         await east.forward.receive(
             {
@@ -1952,36 +1932,39 @@ describe('receiving queued deliveries that only a handler connection takes', () 
             'west',
         );
 
-        expect(probe).toHaveBeenCalledTimes(1);
+        expect(lookup).toHaveBeenCalledTimes(1);
         expect(east.sent).toHaveLength(3);
     });
 
-    it('declines what a full batch could not probe in time, and sends none of it', async () => {
+    it('declines what it could not look up', async () => {
         const east = makeRegion('east', ['west']);
         const nack = vi
             .spyOn(east.forward, 'relayNack')
             .mockImplementation(() => {});
-        unanswered(east, new Set());
-        const items = Array.from({ length: 40 }, (_, i) => queued(`h-${i}`));
+        await handledElsewhere(east, 'h-0');
+        vi.spyOn(east.presence, 'holdsHandler').mockRejectedValue(
+            new Error('redis down'),
+        );
 
-        const startedAt = Date.now();
-        await east.forward.receive({ from: 'west', items }, 'west');
+        await east.forward.receive(
+            { from: 'west', items: [queued('h-0')] },
+            'west',
+        );
 
-        expect(Date.now() - startedAt).toBeLessThan(500 + 300);
         expect(east.sent).toEqual([]);
-        expect(nack).toHaveBeenCalledTimes(40);
+        expect(nack).toHaveBeenCalledTimes(1);
     });
 
-    it('never probes for a batch without such a delivery', async () => {
+    it('never looks anything up for a batch without such a delivery', async () => {
         const east = makeRegion('east', ['west']);
-        const probe = vi.spyOn(east.socket, 'occupied');
+        const lookup = vi.spyOn(east.presence, 'holdsHandler');
 
         await east.forward.receive(
             { from: 'west', items: [plain('a'), plain('b')] },
             'west',
         );
 
-        expect(probe).not.toHaveBeenCalled();
+        expect(lookup).not.toHaveBeenCalled();
         expect(east.sent).toHaveLength(2);
     });
 });

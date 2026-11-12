@@ -613,8 +613,8 @@ export class EventForwardService extends PuterService {
             to: this.region,
         });
 
-        // Handler rooms are probed up front and together, so a slow cluster
-        // costs the batch one probe timeout rather than one per delivery.
+        // Handler rooms are looked up up front, once each however many of the
+        // batch's deliveries name one.
         let heldRooms: Map<string, boolean> | undefined;
         try {
             heldRooms = await this.services.events.heldHandlerRooms(

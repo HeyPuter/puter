@@ -97,6 +97,10 @@ import type {
     PendingShed,
 } from '../../stores/events/PendingDeliveryStore.js';
 import {
+    HANDLER_RENEW_MS,
+    type HandledSubscription,
+} from '../../stores/events/PresenceStore.js';
+import {
     isScheduleRow,
     runsInWorker,
     type HandlerScopeKind,
@@ -1172,11 +1176,13 @@ export const handlerSocketRoom = (room: string, subId: string): string =>
 const handlerTarget = (row: DispatchSubscription): string =>
     handlerSocketRoom(String(deliveryTarget(row).room), row.subId);
 
-/** How long a region-wide look for a handler connection may take. */
-const HANDLER_PROBE_TIMEOUT_MS = 500;
-
-/** Handler rooms one forwarded batch probes at once. */
+/** Handler rooms one forwarded batch looks up at once. */
 const HANDLER_PROBE_CONCURRENCY = 16;
+
+/** One subscription a connection runs the handler for. */
+interface HandledRoom extends HandledSubscription {
+    room: string;
+}
 
 /** The handler room a forwarded delivery must reach, if it is limited to one. */
 const forwardedHandlerRoom = (item: ForwardDelivery): string | null =>
@@ -1841,29 +1847,7 @@ export class EventsService extends PuterService {
             });
         }) as (...args: never[]) => void);
 
-        // One announce at a time per connection, so a slower earlier one can't
-        // rejoin a room a later one left.
-        const handling = new Map<string, string>();
-        let announcing: Promise<void> = Promise.resolve();
-        socket.on(EVENTS_HANDLE_VERB, ((
-            payload: HandleRequest,
-            ack: unknown,
-        ) => {
-            const previous = announcing;
-            const turn = (async () => {
-                try {
-                    await previous;
-                } catch {
-                    // Answered on its own turn.
-                }
-                await this.#announceHandlers(actor, socket, handling, payload);
-            })();
-            announcing = turn;
-            void this.#answer(ack, async () => {
-                await turn;
-                return {};
-            });
-        }) as (...args: never[]) => void);
+        const releaseHandlers = this.#trackHandlers(actor, userId, socket);
 
         // Presence is per (user, app) and per region, so it is the connection
         // rather than the subscription that moves it — a client that has not
@@ -1875,6 +1859,7 @@ export class EventsService extends PuterService {
             });
 
         socket.once('disconnect', (() => {
+            releaseHandlers();
             void this.reapSocket(userId, socket.id);
             void this.services.eventForward
                 .noteDisconnect(actor, socket.id)
@@ -1885,32 +1870,153 @@ export class EventsService extends PuterService {
     }
 
     /**
+     * Install `events.handle` on one connection and keep the region's record of
+     * the handlers it runs renewed. Announces, renewals and the release on
+     * disconnect take turns, so a slower earlier one can't undo a later one.
+     * Returns the release.
+     */
+    #trackHandlers(
+        actor: Actor,
+        userId: number,
+        socket: EventSocket,
+    ): () => void {
+        const handling = new Map<string, HandledRoom>();
+        let turns: Promise<void> = Promise.resolve();
+        const takeTurn = (run: () => Promise<void>): Promise<void> => {
+            const previous = turns;
+            const turn = (async () => {
+                try {
+                    await previous;
+                } catch {
+                    // Answered on its own turn.
+                }
+                await run();
+            })();
+            turns = turn;
+            return turn;
+        };
+
+        let renewTimer: ReturnType<typeof setInterval> | null = null;
+        const stopRenewing = () => {
+            if (renewTimer) clearInterval(renewTimer);
+            renewTimer = null;
+        };
+        const renew = async () => {
+            if (!socket.connected || handling.size === 0) return;
+            try {
+                await this.stores.presence.addHandlerSocket(userId, socket.id, [
+                    ...handling.values(),
+                ]);
+            } catch (err) {
+                console.warn('[events] handler renewal failed', err);
+            }
+        };
+
+        socket.on(EVENTS_HANDLE_VERB, ((
+            payload: HandleRequest,
+            ack: unknown,
+        ) => {
+            const turn = takeTurn(async () => {
+                try {
+                    await this.#announceHandlers(
+                        actor,
+                        socket,
+                        handling,
+                        payload,
+                    );
+                } finally {
+                    if (handling.size === 0 || !socket.connected)
+                        stopRenewing();
+                    else if (!renewTimer) {
+                        renewTimer = setInterval(
+                            () => void takeTurn(renew),
+                            HANDLER_RENEW_MS,
+                        );
+                        renewTimer.unref?.();
+                    }
+                }
+            });
+            void this.#answer(ack, async () => {
+                await turn;
+                return {};
+            });
+        }) as (...args: never[]) => void);
+
+        return () => {
+            stopRenewing();
+            void takeTurn(async () => {
+                stopRenewing();
+                const released = [...handling.values()];
+                handling.clear();
+                await this.#forgetHandlers(userId, socket.id, released);
+            });
+        };
+    }
+
+    /** Take a connection out of the region's record for these subscriptions. */
+    async #forgetHandlers(
+        userId: number,
+        socketId: string,
+        handled: readonly HandledRoom[],
+    ): Promise<void> {
+        try {
+            await this.stores.presence.removeHandlerSocket(
+                userId,
+                socketId,
+                handled,
+            );
+        } catch (err) {
+            // Lapses on its own once nothing renews it.
+            console.warn('[events] handler release failed', err);
+        }
+    }
+
+    /**
+     * Whether a connection in this region runs the subscription's handler: one
+     * on this node, or one the region's record holds. A failed read is a no.
+     */
+    async #handlerHeld(
+        userId: number,
+        appUid: string | null,
+        subId: string,
+        room: string,
+    ): Promise<boolean> {
+        if (this.services.socket.has({ room })) return true;
+        try {
+            return await this.stores.presence.holdsHandler(
+                userId,
+                presenceApp(appUid),
+                subId,
+            );
+        } catch (err) {
+            console.warn('[events] handler lookup failed', err);
+            return false;
+        }
+    }
+
+    /**
      * Whether each handler room the forwarded deliveries name has a connection
-     * in this region, for `deliverForwarded`. All of them share one probe
-     * timeout: a room not reached in time counts as empty.
+     * in this region, for `deliverForwarded`, each room looked up once.
      */
     async heldHandlerRooms(
         items: readonly ForwardDelivery[],
     ): Promise<Map<string, boolean>> {
         const held = new Map<string, boolean>();
         if (!this.enabled) return held;
-        const rooms = new Set<string>();
+        const rooms = new Map<string, ForwardDelivery>();
         for (const item of items) {
             const room = forwardedHandlerRoom(item);
-            if (room) rooms.add(room);
+            if (room && !rooms.has(room)) rooms.set(room, item);
         }
         if (rooms.size === 0) return held;
         const list = [...rooms];
-        const deadline = Date.now() + HANDLER_PROBE_TIMEOUT_MS;
         const outcomes = await runWithConcurrencyLimitSettled(
             list,
             HANDLER_PROBE_CONCURRENCY,
-            (room) =>
-                this.services.socket.occupied(room, {
-                    timeoutMs: deadline - Date.now(),
-                }),
+            ([room, item]) =>
+                this.#handlerHeld(item.userId, item.appUid, item.subId, room),
         );
-        list.forEach((room, i) => {
+        list.forEach(([room], i) => {
             const outcome = outcomes[i];
             held.set(
                 room,
@@ -1935,9 +2041,12 @@ export class EventsService extends PuterService {
         if (room && item.ackId) {
             const held =
                 heldRooms?.get(room) ??
-                (await this.services.socket.occupied(room, {
-                    timeoutMs: HANDLER_PROBE_TIMEOUT_MS,
-                }));
+                (await this.#handlerHeld(
+                    item.userId,
+                    item.appUid,
+                    item.subId,
+                    room,
+                ));
             // Nobody here runs its handler: hand it straight back, so the
             // worker takes it without waiting out the lease.
             if (!held) {
@@ -2628,7 +2737,7 @@ export class EventsService extends PuterService {
     async #announceHandlers(
         actor: Actor,
         socket: EventSocket,
-        handling: Map<string, string>,
+        handling: Map<string, HandledRoom>,
         request: HandleRequest,
     ): Promise<void> {
         if (!this.enabled) throw disabled();
@@ -2648,11 +2757,16 @@ export class EventsService extends PuterService {
 
         await spendUserWindow(EVENTS_ACK_LIMIT, holderUserId);
 
-        for (const [subId, room] of handling) {
+        const dropped: HandledRoom[] = [];
+        for (const [subId, handled] of handling) {
             if (wanted.has(subId)) continue;
             handling.delete(subId);
-            await socket.leave(room);
+            dropped.push(handled);
         }
+        // Out of the record before the room: a record naming a connection
+        // that left sends events to nobody until their lease lapses.
+        await this.#forgetHandlers(holderUserId, socket.id, dropped);
+        for (const { room } of dropped) await socket.leave(room);
 
         const added = [...wanted].filter((subId) => !handling.has(subId));
         const rows = await runWithConcurrencyLimitSettled(
@@ -2660,6 +2774,7 @@ export class EventsService extends PuterService {
             HANDLER_ANNOUNCE_CONCURRENCY,
             (subId) => this.stores.durableSubscription.getBySubId(subId),
         );
+        const joined: HandledRoom[] = [];
         for (const outcome of rows) {
             if (outcome.status !== 'fulfilled') continue;
             const row = outcome.value;
@@ -2674,9 +2789,26 @@ export class EventsService extends PuterService {
             if (!socket.rooms.has(String(deliveryTarget(row).room))) continue;
             // Joined after a disconnect, the id would stay in the room.
             if (!socket.connected) return;
-            const room = handlerTarget(row);
-            handling.set(row.subId, room);
-            await socket.join(room);
+            const handled: HandledRoom = {
+                room: handlerTarget(row),
+                appUid: presenceApp(row.appUid),
+                subId: row.subId,
+            };
+            handling.set(row.subId, handled);
+            await socket.join(handled.room);
+            joined.push(handled);
+        }
+        // Recorded only once in the room. A failed write is retried by the
+        // next renewal; until then this connection is not offered the row.
+        if (joined.length === 0) return;
+        try {
+            await this.stores.presence.addHandlerSocket(
+                holderUserId,
+                socket.id,
+                joined,
+            );
+        } catch (err) {
+            console.warn('[events] handler record failed', err);
         }
     }
 
@@ -6429,20 +6561,18 @@ export class EventsService extends PuterService {
             : appTarget;
         // Region-wide: `has` only sees this node's sockets, and the room send
         // below reaches a sibling node's just the same.
-        const appHeld =
-            this.services.socket.has(appTarget) ||
-            (await this.services.eventForward.heldInRegion(
-                row.holderUserId,
-                row.appUid,
-            ));
-        // A handler connection is always in the app's room too, so the cluster
-        // probe only runs once some connection of the app is open here.
-        const heldHere =
-            appHeld &&
-            (!hasWorkerFallback ||
-                (await this.services.socket.occupied(String(target.room), {
-                    timeoutMs: HANDLER_PROBE_TIMEOUT_MS,
-                })));
+        const heldHere = hasWorkerFallback
+            ? await this.#handlerHeld(
+                  row.holderUserId,
+                  row.appUid,
+                  row.subId,
+                  String(target.room),
+              )
+            : this.services.socket.has(appTarget) ||
+              (await this.services.eventForward.heldInRegion(
+                  row.holderUserId,
+                  row.appUid,
+              ));
 
         // A row with no worker to fall back to has nothing left to try once
         // its socket budget is spent. Without this, a socket that disappeared

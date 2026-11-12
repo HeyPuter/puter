@@ -31,6 +31,11 @@ import {
 import type { Actor } from '../../core/actor.js';
 import { EventSubscriptionStore } from '../../stores/events/EventSubscriptionStore.js';
 import { PendingDeliveryStore } from '../../stores/events/PendingDeliveryStore.js';
+import {
+    HANDLER_LIVE_MS,
+    HANDLER_RENEW_MS,
+    PresenceStore,
+} from '../../stores/events/PresenceStore.js';
 import type { DurableSubscription } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
@@ -71,12 +76,16 @@ let sent: DeliveryEnvelope[];
 let sentTo: SocketSpecifier[];
 /** Connections modelled one by one, for the tests that need several. */
 let tabs: FakeTab[];
-/** The region-wide handler-room probe, which costs a request to every node. */
-const probed = vi.fn(async (room: string) =>
+/**
+ * A cluster-wide room count, which costs a request to every node. Answers
+ * truly, so a test can only fail on it by asking.
+ */
+const askedEveryNode = vi.fn(async (room: string) =>
     tabs.length === 0
         ? socketConnected
         : tabs.some((tab) => tab.rooms.has(room)),
 );
+let presence: PresenceStore;
 let delivered: DeliveryEnvelope[];
 let invoked: WorkerInvocation[];
 let rows: Map<string, DurableSubscription>;
@@ -220,7 +229,7 @@ beforeEach(async () => {
     sent = [];
     sentTo = [];
     tabs = [];
-    probed.mockClear();
+    askedEveryNode.mockClear();
     delivered = [];
     invoked = [];
     rows = new Map();
@@ -244,6 +253,7 @@ beforeEach(async () => {
         { redis } as never,
         {} as never,
     );
+    presence = new PresenceStore({} as IConfig, { redis } as never, {} as never);
 
     entries.set(`uid:${anchorUid()}`, entry({ uid: anchorUid(), isDir: true }));
 
@@ -257,6 +267,7 @@ beforeEach(async () => {
         {
             eventSubscription: subscriptions,
             pendingDelivery: pending,
+            presence,
             durableSubscription: {
                 warmRegion: async () => false,
                 getBySubId: async (subId: string) => {
@@ -330,13 +341,17 @@ beforeEach(async () => {
                         if (tab.rooms.has(String(spec.room)))
                             tab.receive(data as DeliveryEnvelope);
                 }),
+                // With no tabs modelled, a connection here is one that runs
+                // the handler. Only this node's tabs count.
                 has: (spec: SocketSpecifier) =>
                     tabs.length === 0
                         ? socketConnected
-                        : tabs.some((tab) => tab.rooms.has(String(spec.room))),
-                // With no tabs modelled, a connection here is one that runs
-                // the handler.
-                occupied: probed,
+                        : tabs.some(
+                              (tab) =>
+                                  !tab.elsewhere &&
+                                  tab.rooms.has(String(spec.room)),
+                          ),
+                occupied: askedEveryNode,
             },
             acl: {
                 check: async () => true,
@@ -1334,10 +1349,13 @@ class FakeTab {
     readonly answers: Promise<unknown>[] = [];
     connected = true;
     readonly handlers = new Set<string>();
+    readonly #onDisconnect: Array<() => void> = [];
 
     constructor(
         readonly id: string,
         readonly actor: Actor,
+        /** On another node in the region: `has` can't see it, a room send can. */
+        readonly elsewhere = false,
     ) {
         this.rooms.add(id);
         this.rooms.add(`u${actor.user!.id}:a${actor.effectiveApp!.uid}`);
@@ -1350,7 +1368,10 @@ class FakeTab {
         );
     }
 
-    once(): void {}
+    once(event: string, listener: (...args: never[]) => void): void {
+        if (event === 'disconnect')
+            this.#onDisconnect.push(listener as unknown as () => void);
+    }
 
     join(room: string): void {
         if (this.connected) this.rooms.add(room);
@@ -1361,6 +1382,12 @@ class FakeTab {
     }
 
     disconnect(): void {
+        this.vanish();
+        for (const listener of this.#onDisconnect) listener();
+    }
+
+    /** Gone with the node it was on: nothing on the server hears it go. */
+    vanish(): void {
         this.connected = false;
         this.rooms.clear();
     }
@@ -1405,8 +1432,8 @@ const appActorFor = (): Actor =>
         effectiveApp: { uid: `app-${seq}` },
     }) as unknown as Actor;
 
-const openTab = (id: string): FakeTab => {
-    const tab = new FakeTab(`${id}-${seq}`, appActorFor());
+const openTab = (id: string, elsewhere = false): FakeTab => {
+    const tab = new FakeTab(`${id}-${seq}`, appActorFor(), elsewhere);
     service.attachSocket(tab, tab.actor);
     tabs.push(tab);
     return tab;
@@ -1442,21 +1469,23 @@ describe('a queued delivery with several connections of the app open', () => {
 
         await dispatch();
 
-        expect(probed).not.toHaveBeenCalled();
+        expect(askedEveryNode).not.toHaveBeenCalled();
         expect(sent).toEqual([]);
         expect(invoked).toHaveLength(1);
         await expect(pending.depth(row.subId)).resolves.toBe(0);
     });
 
-    it('goes straight to the worker when no open tab has the handler', async () => {
+    it('goes straight to the worker when no open tab has the handler, asking no other node', async () => {
         workerOutcome = 'settled';
         const row = await register();
         const tab = openTab('a');
+        const sibling = openTab('b', true);
 
         await dispatch();
 
-        expect(probed).toHaveBeenCalledTimes(1);
+        expect(askedEveryNode).not.toHaveBeenCalled();
         expect(tab.received).toEqual([]);
+        expect(sibling.received).toEqual([]);
         expect(invoked).toHaveLength(1);
         await expect(pending.depth(row.subId)).resolves.toBe(0);
         expect(metered).toHaveLength(1);
@@ -1543,5 +1572,156 @@ describe('a queued delivery with several connections of the app open', () => {
         expect(sentTo).toEqual([{ room: `u${userId}:aapp-${seq}` }]);
         expect(tab.received).toHaveLength(1);
         expect(row.subId).toBe(tab.received[0].subId);
+    });
+});
+
+describe("the region's record of handler connections", () => {
+    /** Connections the region's record names for the row, live or not. */
+    const recorded = async (subId: string): Promise<string[]> => {
+        const [key] = (await redis.keys('*ev:phs:*')).filter((one: string) =>
+            one.endsWith(`:${subId}`),
+        );
+        return key ? redis.zrange(key, 0, -1) : [];
+    };
+
+    it('offers it to a handler connection on another node in the region, asking no other node', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const sibling = openTab('a', true);
+        await sibling.handle(row.subId);
+
+        await dispatch();
+
+        expect(askedEveryNode).not.toHaveBeenCalled();
+        expect(sibling.received).toHaveLength(1);
+        await sibling.ack(sibling.received[0]);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        expect(invoked).toEqual([]);
+        expect(metered).toHaveLength(1);
+    });
+
+    it('runs it in the worker once when the record names a connection whose node died', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const sibling = openTab('a', true);
+        await sibling.handle(row.subId);
+        sibling.vanish();
+
+        await dispatch();
+
+        // Sent to a room nobody is in; the lease is what hands it on.
+        expect(sent).toHaveLength(1);
+        expect(sibling.received).toEqual([]);
+        expect(invoked).toEqual([]);
+        jump(EVENTS_SOCKET_LEASE_MS + 1);
+        await service.sweepPending();
+
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        expect(metered).toHaveLength(1);
+    });
+
+    it('stops counting a dead node’s connection once its renewals stop', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const sibling = openTab('a', true);
+        await sibling.handle(row.subId);
+        sibling.vanish();
+
+        jump(HANDLER_LIVE_MS + 1);
+        await dispatch();
+
+        expect(sent).toEqual([]);
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+
+    it('keeps counting a live connection past that window while it renews', async () => {
+        vi.useFakeTimers({
+            toFake: ['Date', 'setInterval', 'clearInterval'],
+        });
+        workerOutcome = 'settled';
+        const row = await register();
+        const sibling = openTab('a', true);
+        await sibling.handle(row.subId);
+
+        await vi.advanceTimersByTimeAsync(HANDLER_LIVE_MS + HANDLER_RENEW_MS);
+        await dispatch();
+
+        expect(sibling.received).toHaveLength(1);
+        expect(invoked).toEqual([]);
+    });
+
+    it('drops a connection from the record when it disconnects', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const sibling = openTab('a', true);
+        await sibling.handle(row.subId);
+        await expect(recorded(row.subId)).resolves.toEqual([sibling.id]);
+
+        sibling.disconnect();
+        await handedOver();
+
+        await expect(recorded(row.subId)).resolves.toEqual([]);
+        await dispatch();
+        expect(sent).toEqual([]);
+        expect(invoked).toHaveLength(1);
+    });
+
+    it('drops a connection from the record when it stops running the handler', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const sibling = openTab('a', true);
+        await sibling.handle(row.subId);
+        sibling.handlers.clear();
+        await sibling.verb(EVENTS_HANDLE_VERB, { subIds: [] });
+
+        await expect(recorded(row.subId)).resolves.toEqual([]);
+        await dispatch();
+        expect(sent).toEqual([]);
+        expect(invoked).toHaveLength(1);
+    });
+
+    it('treats a connection that never announced, as on a node without the record, as having no handler', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const sibling = openTab('a', true);
+
+        await dispatch();
+
+        expect(sibling.received).toEqual([]);
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+
+    it('records nothing for a row the connection does not hold', async () => {
+        const row = await register();
+        const stranger = new FakeTab(`x-${seq}`, {
+            user: { id: userId + 1, uuid: 'other', username: 'other' },
+            effectiveApp: { uid: `app-${seq}` },
+        } as unknown as Actor);
+        service.attachSocket(stranger, stranger.actor);
+        await stranger.handle(row.subId, 'made-up');
+
+        const written = (await redis.keys('*ev:phs:*')).filter((key: string) =>
+            key.includes(`:app-${seq}:`),
+        );
+        expect(written).toEqual([]);
+    });
+
+    it('goes to the worker when the record cannot be read', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        const sibling = openTab('a', true);
+        await sibling.handle(row.subId);
+        vi.spyOn(presence, 'holdsHandler').mockRejectedValueOnce(
+            new Error('redis down'),
+        );
+
+        await dispatch();
+
+        expect(sibling.received).toEqual([]);
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
     });
 });
