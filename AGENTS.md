@@ -9,6 +9,7 @@ Use these as the source of truth before exploring further:
 - [README.md](README.md) — project overview and quickstart.
 - [doc/architecture.md](doc/architecture.md) — backend layered stack (controllers → drivers → services → stores → clients), `PuterServer` wiring, `Context` (ALS), actors, and extensions.
 - [doc/contributing-apis.md](doc/contributing-apis.md) — adding and maintaining public APIs end to end (backend surface → puter.js → types → docs → tests). Follow it for any API work.
+- [doc/ai-drivers.md](doc/ai-drivers.md) — where AI driver code lives (interfaces, providers, protocols, shared), the import rules between those folders, and how to add a provider or an AI interface.
 - [doc/pagination.md](doc/pagination.md) — the one pagination convention for list APIs (limit/cursor/offset/includeTotal, envelope shape, cursor semantics).
 - [doc/alarms.md](doc/alarms.md) — raising alarms and picking a severity (what pages, what only gets recorded), plus the config that routes them.
 - [doc/self-hosting.md](doc/self-hosting.md) — running Puter outside hosted infra.
@@ -96,6 +97,10 @@ Layer rules:
 - **A table's store owns every query against it.** Services, controllers, and extensions don't run raw SQL/redis against a table that has a store; add the store method so cache invalidation stays with the write.
 - **Drivers and controllers stay thin.** Domain rules a second entry point needs (signup, app CRUD, worker deploy, AI routing/billing) live in a service, not in the first driver or controller that needed them.
 - **Prefer explicit arguments over [`Context`](src/backend/core/context.ts) (ALS).** Use it only for request-scoped values that would otherwise thread through many layers; today that's mostly `actor` and `req`.
+
+### AI drivers
+
+AI drivers live in [src/backend/drivers/ai/](src/backend/drivers/ai/): `interfaces/` holds the Puter-facing drivers, `providers/<vendor>/<interface>/` holds vendor code, `protocols/` holds wire protocols several vendors speak, and `shared/` holds helpers more than one interface uses. Follow [doc/ai-drivers.md](doc/ai-drivers.md) when adding or moving AI code.
 
 ### Extensions
 
