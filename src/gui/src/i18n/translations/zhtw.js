@@ -100,7 +100,6 @@ const zhtw = {
         deploy_as_app: '部署為應用程式',
         descending: '降序',
         desktop: '桌面',
-        desktop_background_fit: '適應',
         developers: '開發者',
         disable_2fa: '停用雙重驗證',
         disable_2fa_confirm: '您確定要停用雙重驗證嗎？',
@@ -139,7 +138,6 @@ const zhtw = {
         html_document: 'HTML 文件',
         hue: '色相',
         incorrect_password: '密碼不正確',
-        invite_link: '邀請連結',
         item: '項目',
         items_in_trash_cannot_be_renamed: '此項目無法重新命名，因為它在垃圾桶中。要重新命名此項目，請先將其從垃圾桶中拖出。',
         jpeg_image: 'JPEG 圖片',
@@ -187,7 +185,6 @@ const zhtw = {
         paste: '貼上',
         paste_into_folder: '貼上到資料夾',
         path: '路徑',
-        personalization: '個人化',
         pictures: '圖片',
         plural_suffix: '個',
         powered_by_puter_js: '由 {{link=docs}}Puter.js{{/link}} 提供支援',
@@ -205,7 +202,6 @@ const zhtw = {
         reading_file: '正在讀取 %strong%',
         recover_password: '恢復密碼',
         refer_friends_c2a: '每邀請一位朋友在 Puter 上建立並確認帳戶，您就可獲得 1 GB 空間。您的朋友也會獲得 1 GB！',
-        refer_friends_social_media_c2a: '在 Puter.com 上獲得 1 GB 免費儲存空間！',
         refresh: '重新整理',
         rename: '重新命名',
         replace: '取代',
@@ -271,7 +267,6 @@ const zhtw = {
         videos: '影片',
         visibility: '可見性',
         yes: '是',
-        you_have_been_referred_to_puter_by_a_friend: '您已被朋友推薦到 Puter！',
         zip: '壓縮',
         zipping_file: '正在壓縮 %strong%',
 
@@ -364,16 +359,10 @@ const zhtw = {
         'billing.expanded': '擴展', // Expanded
         'billing.accelerated': '加速', // Accelerated
         'billing.enjoy_msg': '享受 %% 的雲端儲存空間及其他福利。', // Enjoy %% of Cloud Storage plus other benefits.
-        'choose_publishing_option': "選擇您想要發布網站的方式：", // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': "在桌面建立捷徑", // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': "在桌面建立多個捷徑", // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': "建立多個捷徑", // In English: "Create Shortcuts"
         'minimize': "最小化", // In English: "Minimize"
         'reload_app': "重新載入應用程式", // In English: "Reload App"
         'publish_as_serverless_worker': "發布為 Worker", // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': "進入全螢幕", // In English: "Enter Full Screen"
-        'toolbar.github': "GitHub", // In English: "GitHub"
-        'toolbar.refer': "推薦", // In English: "Refer"
         'used_of': "{{used}} / {{available}} 已使用", // In English: "{{used}} used of {{available}}"
         'worker': "Worker", // In English: "Worker"
         'billing.offering.basic': "基本", // In English: "Basic"
@@ -400,9 +389,6 @@ const zhtw = {
         'window_title_publish_website': "發布網站", // In English: "Publish Website"
         'window_title_publish_worker': "發布 Worker", // In English: "Publish Worker"
         'window_title_authenticating': "正在驗證…", // In English: "Authenticating..."
-        'window_title_refer_friend': "推薦好友！", // In English: "Refer a friend!"
-        'desktop_exit_full_screen': "退出全螢幕", // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': "進入全螢幕", // In English: "Enter Full Screen"
         'item_shared_with_you': "有使用者與您分享了此項目。", // In English: "A user has shared this item with you."
         'item_shared_by_you': "您已將此項目分享給其他使用者。", // In English: "You have shared this item with at least one other user."
         'item_shortcut': "捷徑", // In English: "Shortcut"

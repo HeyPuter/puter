@@ -82,7 +82,6 @@ const hu = {
         deploy_as_app: 'Alkalmazásként telepít',
         descending: 'Csökkenő',
         desktop: 'Asztal',
-        desktop_background_fit: 'Illesztés',
         developers: 'Fejlesztők',
         disable_2fa: '2FA letiltása',
         disable_2fa_confirm: 'Biztosan letiltod a 2FA-t?',
@@ -121,7 +120,6 @@ const hu = {
         html_document: 'HTML dokumentum',
         hue: 'Színárnyalat',
         incorrect_password: 'Helytelen jelszó',
-        invite_link: 'Meghívó link',
         item: 'elem',
         items_in_trash_cannot_be_renamed: 'Ez az elem nem nevezhető át, mert a kukában van. A név megváltoztatásához először húzd ki a Kukából.',
         jpeg_image: 'JPEG kép',
@@ -169,7 +167,6 @@ const hu = {
         paste: 'Beillesztés',
         paste_into_folder: 'Beillesztés a mappába',
         path: 'Útvonal',
-        personalization: 'Személyre szabás',
         pictures: 'Képek',
         plural_suffix: 'k',
         powered_by_puter_js: 'A Puter.js hajtja',
@@ -187,7 +184,6 @@ const hu = {
         reading_file: 'Fájl olvasása: %strong%',
         recover_password: 'Jelszó visszaállítása',
         refer_friends_c2a: 'Kapj 1 GB-ot minden barátodért, aki létrehoz és megerősít egy fiókot a Puteren. A barátod is kap 1 GB-ot!',
-        refer_friends_social_media_c2a: 'Kapj 1 GB ingyenes tárhelyet a Puter.com-on!',
         refresh: 'Frissítés',
         rename: 'Átnevezés',
         replace: 'Csere',
@@ -253,7 +249,6 @@ const hu = {
         videos: 'Videók',
         visibility: 'Láthatóság',
         yes: 'Igen',
-        you_have_been_referred_to_puter_by_a_friend: 'Egy barátod ajánlott téged a Puterhez!',
         zip: 'Zip',
         zipping_file: 'Tömörítés: %strong%',
 
@@ -341,16 +336,10 @@ const hu = {
         'billing.expanded': 'Bővített', // In English: "Expanded"
         'billing.accelerated': 'Gyorsított', // In English: "Accelerated"
         'billing.enjoy_msg': 'Élvezd a %% Felhőtárhelyet és további előnyöket.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-        'choose_publishing_option': 'Válassza ki, hogyan szeretné közzétenni a webhelyét', // English: "Choose how you want to publish your website"
-        'create_desktop_shortcut': 'Parancsikon létrehozása (Asztal)', // English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'Parancsikonok létrehozása (Asztal)', // English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'Parancsikonok létrehozása', // English: "Create Shortcuts"
         'minimize': 'Minimalizálás', // English: "Minimize"
         'reload_app': 'Alkalmazás újratöltése', // English: "Reload App"
         'publish_as_serverless_worker': 'Munkás közzététele', // English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Teljes képernyő', // English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // English: "GitHub"
-        'toolbar.refer': 'Ajánlás', // English: "Refer"
         'used_of': '{{used}} használt a {{available}}-ból', // English: "{{used}} used of {{available}}"
         'worker': 'Munkás', // English: "Worker"
         'billing.offering.basic': 'Alap', // English: "Basic"
@@ -377,9 +366,6 @@ const hu = {
         'window_title_publish_website': 'Webhely közzététele', // English: "Publish Website"
         'window_title_publish_worker': 'Munkás közzététele', // English: "Publish Worker"
         'window_title_authenticating': 'Hitelesítés...', // English: "Authenticating..."
-        'window_title_refer_friend': 'Barát ajánlása!', // English: "Refer a friend!"
-        'desktop_exit_full_screen': 'Kilépés teljes képernyőből', // English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'Teljes képernyő', // English: "Enter Full Screen"
         'item_shared_with_you': 'Egy felhasználó megosztotta Önnel ezt az elemet.', // English: "A user has shared this item with you."
         'item_shared_by_you': 'Legalább egy másik felhasználóval megosztotta ezt az elemet.', // English: "You have shared this item with at least one other user."
         'item_shortcut': 'Parancsikon', // English: "Shortcut"

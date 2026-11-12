@@ -82,7 +82,6 @@ const br = {
         deploy_as_app: 'Implantar como aplicativo',
         descending: 'Descendente',
         desktop: 'Área de Trabalho',
-        desktop_background_fit: 'Ajustar',
         developers: 'Desenvolvedores',
         disable_2fa: 'Desativar 2FA',
         disable_2fa_confirm: 'Tem certeza de que deseja desativar 2FA?',
@@ -121,7 +120,6 @@ const br = {
         html_document: 'Documento HTML',
         hue: 'Matiz',
         incorrect_password: 'Senha incorreta',
-        invite_link: 'Link de Convite',
         item: 'item',
         items_in_trash_cannot_be_renamed: 'Este item não pode ser renomeado porque está na lixeira. Para renomear este item, primeiro arraste-o para fora da Lixeira.',
         jpeg_image: 'Imagem JPEG',
@@ -169,7 +167,6 @@ const br = {
         'paste': 'Colar',
         'paste_into_folder': 'Colar na Pasta',
         'path': 'Caminho',
-        'personalization': 'Personalização',
         'pictures': 'Imagens',
         'plural_suffix': 's',
         'powered_by_puter_js': 'Desenvolvido por {{link=docs}}Puter.js{{/link}}',
@@ -187,7 +184,6 @@ const br = {
         'reading_file': 'Lendo %strong%',
         'recover_password': 'Recuperar Senha',
         'refer_friends_c2a': 'Ganhe 1 GB para cada amigo que criar e confirmar uma conta no Puter. Seu amigo também ganhará 1 GB!',
-        'refer_friends_social_media_c2a': 'Ganhe 1 GB de armazenamento gratuito no Puter.com!',
         'refresh': 'Atualizar',
         'rename': 'Renomear',
         'replace': 'Substituir',
@@ -254,7 +250,6 @@ const br = {
         'videos': 'Vídeos',
         'visibility': 'Visibilidade',
         'yes': 'Sim',
-        'you_have_been_referred_to_puter_by_a_friend': 'Você foi indicado ao Puter por um amigo!',
         'zip': 'Compactar',
         'zipping_file': 'Compactando %strong%',
 
@@ -349,16 +344,10 @@ const br = {
         'billing.accelerated': 'Aprimorado', // In English: "Accelerated"
         'billing.enjoy_msg': 'Aproveite %% de Armazenamento em Nuvem, além de outros benefícios.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-        'choose_publishing_option': 'Escolha como você gostaria de publicar seu site', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'Criar atalho (Área de Trabalho)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'Criar atalhos (Área de Trabalho)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'Criar atalhos', // In English: "Create Shortcuts"
         'minimize': 'Minimizar', // In English: "Minimize"
         'reload_app': 'Recarregar App', // In English: "Reload App"
         'publish_as_serverless_worker': 'Publicar como Worker', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Entrar em Tela Cheia', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'Indicar', // In English: "Refer"
         'used_of': '{{used}} utilizado de {{available}} disponível', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Básico', // In English: "Basic"
@@ -385,9 +374,6 @@ const br = {
         'window_title_publish_website': 'Publicar site', // In English: "Publish Website"
         'window_title_publish_worker': 'Publicar Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticando...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'Indicar um amigo!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'Sair de Tela Cheia', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'Entrar em Tela Cheia', // In English: "Enter Full Screen"
         'item_shared_with_you': 'Um usuário compartilhou este item com você.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Você compartilhou este item com pelo menos um usuário.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Atalho', // In English: "Shortcut"

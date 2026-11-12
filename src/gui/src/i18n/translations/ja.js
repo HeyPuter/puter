@@ -82,7 +82,6 @@ const ja = {
         deploy_as_app: 'アプリとしてデプロイ',
         descending: '降順',
         desktop: 'デスクトップ',
-        desktop_background_fit: '画面背景をフィット',
         developers: '開発者',
         disable_2fa: '2FAを無効にする',
         disable_2fa_confirm: '2FAを無効にしてよろしいですか？',
@@ -121,7 +120,6 @@ const ja = {
         html_document: 'HTML文書',
         hue: '色合い',
         incorrect_password: 'パスワードが間違っています',
-        invite_link: '招待リンク',
         item: 'アイテム',
         items_in_trash_cannot_be_renamed: 'このアイテムはゴミ箱にあるため、名前を変更できません。このアイテムの名前を変更するには、まずゴミ箱からドラッグしてください。',
         jpeg_image: 'JPEG画像',
@@ -169,7 +167,6 @@ const ja = {
         paste: '貼り付け',
         paste_into_folder: 'フォルダーに貼り付け',
         path: 'パス',
-        personalization: 'パーソナライズ',
         pictures: '写真',
         plural_suffix: '',
         powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} によって提供されています',
@@ -187,7 +184,6 @@ const ja = {
         reading_file: '読み込み中 %strong%',
         recover_password: 'パスワードを回復',
         refer_friends_c2a: '友達がPuterでアカウントを作成して確認すると、1GBを獲得できます。友達も1GBを獲得できます！',
-        refer_friends_social_media_c2a: 'Puter.comで1GBの無料ストレージを手に入れよう！',
         refresh: '更新',
         rename: '名前を変更',
         replace: '置換',
@@ -253,7 +249,6 @@ const ja = {
         videos: '動画',
         visibility: '見え方',
         yes: 'はい',
-        you_have_been_referred_to_puter_by_a_friend: '友達からPuterに紹介されました！',
         zip: '圧縮',
         zipping_file: '圧縮中 %strong%',
 
@@ -354,16 +349,10 @@ const ja = {
         // =============================================================
         // Missing translations
         // =============================================================
-        'choose_publishing_option': 'Webサイトの公開方法を選択してください:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'ショートカットを作成（デスクトップ）', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'ショートカットを作成（デスクトップ）', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'ショートカットを作成', // In English: "Create Shortcuts"
         'minimize': '最小化', // In English: "Minimize"
         'reload_app': 'アプリを再読み込み', // In English: "Reload App"
         'publish_as_serverless_worker': 'ワーカーとして公開', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': '全画面表示にする', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': '参照する', // In English: "Refer"
         'used_of': '{{available}} のうち {{used}} を使用', // In English: "{{used}} used of {{available}}"
         'worker': 'ワーカー', // In English: "Worker"
         'billing.offering.basic': 'ベーシック', // In English: "Basic"
@@ -390,9 +379,6 @@ const ja = {
         'window_title_publish_website': 'ウェブサイトを公開', // In English: "Publish Website"
         'window_title_publish_worker': 'ワーカーを公開', // In English: "Publish Worker"
         'window_title_authenticating': '認証中...', // In English: "Authenticating..."
-        'window_title_refer_friend': '友達を紹介しよう!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': '全画面表示を終了', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': '全画面表示にする', // In English: "Enter Full Screen"
         'item_shared_with_you': 'ユーザーがこのアイテムをあなたと共有しました。', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'このアイテムは少なくとも1人以上のユーザーと共有されています。', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'ショートカット', // In English: "Shortcut"

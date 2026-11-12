@@ -82,7 +82,6 @@ const da = {
         deploy_as_app: 'Implementer som app',
         descending: 'Faldende',
         desktop: 'Skrivebord',
-        desktop_background_fit: 'Tilpas',
         developers: 'Udviklere',
         disable_2fa: 'Deaktiver 2FA',
         disable_2fa_confirm: 'Er du sikker på, at du vil deaktivere 2FA?',
@@ -121,7 +120,6 @@ const da = {
         html_document: 'HTML-dokument',
         hue: 'Farvetone',
         incorrect_password: 'Forkert adgangskode',
-        invite_link: 'Inviter link',
         item: 'element',
         items_in_trash_cannot_be_renamed: 'Dette element kan ikke omdøbes, fordi det er i papirkurven. For at omdøbe dette element, skal du først trække det ud af papirkurven.',
         jpeg_image: 'JPEG-billede',
@@ -169,7 +167,6 @@ const da = {
         paste: 'Sæt ind',
         paste_into_folder: 'Sæt ind i mappe',
         path: 'Sti',
-        personalization: 'Personalisering',
         pictures: 'Billeder',
         plural_suffix: 's',
         powered_by_puter_js: 'Udviklet af {{link=docs}}Puter.js{{/link}}',
@@ -187,7 +184,6 @@ const da = {
         reading_file: 'Læser %strong%',
         recover_password: 'Gendan adgangskode',
         refer_friends_c2a: 'Få 1 GB for hver ven, der opretter og bekræfter en konto på Puter. Din ven vil også få 1 GB!',
-        refer_friends_social_media_c2a: 'Få 1 GB gratis lagerplads på Puter.com!',
         refresh: 'Opdater',
         rename: 'Omdøb',
         replace: 'Erstat',
@@ -253,7 +249,6 @@ const da = {
         videos: 'Videoer',
         visibility: 'Synlighed',
         yes: 'Ja',
-        you_have_been_referred_to_puter_by_a_friend: 'Du er blevet henvist til Puter af en ven!',
         zip: 'Zip',
         zipping_file: 'Zipper %strong%',
 
@@ -349,16 +344,10 @@ const da = {
         // =============================================================
         // Missing translations
         // =============================================================
-        'choose_publishing_option': undefined, // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': undefined, // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': undefined, // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': undefined, // In English: "Create Shortcuts"
         'minimize': undefined, // In English: "Minimize"
         'reload_app': undefined, // In English: "Reload App"
         'publish_as_serverless_worker': undefined, // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': undefined, // In English: "Enter Full Screen"
-        'toolbar.github': undefined, // In English: "GitHub"
-        'toolbar.refer': undefined, // In English: "Refer"
         'used_of': undefined, // In English: "{{used}} used of {{available}}"
         'worker': undefined, // In English: "Worker"
         'People with access': undefined, // In English: "People with access"
@@ -436,9 +425,6 @@ const da = {
         'window_title_publish_website': undefined, // In English: "Publish Website"
         'window_title_publish_worker': undefined, // In English: "Publish Worker"
         'window_title_authenticating': undefined, // In English: "Authenticating..."
-        'window_title_refer_friend': undefined, // In English: "Refer a friend!"
-        'desktop_exit_full_screen': undefined, // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': undefined, // In English: "Enter Full Screen"
         'item_shared_with_you': undefined, // In English: "A user has shared this item with you."
         'item_shared_by_you': undefined, // In English: "You have shared this item with at least one other user."
         'item_shortcut': undefined, // In English: "Shortcut"

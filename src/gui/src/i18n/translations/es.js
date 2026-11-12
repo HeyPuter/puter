@@ -98,7 +98,6 @@ const es = {
         deploy_as_app: 'Desplegar como una aplicación',
         descending: 'Descendiente',
         desktop: 'Escritorio',
-        desktop_background_fit: 'Ajustar',
         developers: 'Desarrolladores',
         disable_2fa: 'Deshabilitar 2FA',
         disable_2fa_confirm: '¿Estás seguro que quieres deshabilitar 2FA?',
@@ -141,7 +140,6 @@ const es = {
         html_document: 'Documento HTML',
         hue: 'Hue',
         incorrect_password: 'Contraseña incorrecta',
-        invite_link: 'Enlace de invitación',
         item: 'elemento',
         items_in_trash_cannot_be_renamed: 'Este elemento no se puede renombrar porque está en la papelera. Para cambiar el nombre de este archivo, primero extráelo fuera de la misma.',
         jpeg_image: 'Imagen JPEG',
@@ -195,7 +193,6 @@ const es = {
         paste: 'Pegar',
         paste_into_folder: 'Pegar en la Carpeta',
         path: 'Ruta',
-        personalization: 'Personalización',
         pictures: 'Imagenes',
         plural_suffix: 's',
         powered_by_puter_js: 'Creado por {{link=docs}}Puter.js{{/link}}',
@@ -214,7 +211,6 @@ const es = {
         recover_password: 'Recuperar Contraseña',
         refer_friends_c2a:
       'Consigue 1 GB por cada amigo que cree y confirme una cuenta en Puter ¡Tu amigo recibirá 1GB también!',
-        refer_friends_social_media_c2a: '¡Consigue 1 GB de almacenamiento gratuito en Puter.com!',
         refresh: 'Refrescar',
         rename: 'Renombrar',
         replace: 'Remplazar',
@@ -284,8 +280,6 @@ const es = {
         videos: 'Videos',
         visibility: 'Visibilidad',
         yes: 'Si',
-        you_have_been_referred_to_puter_by_a_friend:
-      '¡Has sido invitado a Puter por un amigo!',
         zip: 'Zip',
         zipping_file: 'Compriminendo %strong%',
 
@@ -395,16 +389,10 @@ const es = {
         'billing.enjoy_msg':
       'Disfruta %% de almacenamiento en la nube junto con otros beneficios.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-        'choose_publishing_option': 'Elige cómo quieres publicar tu sitio web:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'Crear un atajo (Escritorio)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'Crear atajos (Escritorio)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'Crear atajos', // In English: "Create Shortcuts"
         'minimize': 'Minimizar', // In English: "Minimize"
         'reload_app': 'Recargar la Aplicación', // In English: "Reload App"
         'publish_as_serverless_worker': 'Publicar como un Worker', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Abrir pantalla completa', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'Invitar', // In English: "Refer"
         'used_of': '{{used}} en uso. {{available}} disponible', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Básico', // In English: "Basic"
@@ -431,9 +419,6 @@ const es = {
         'window_title_publish_website': 'Publicar sitio web', // In English: "Publish Website"
         'window_title_publish_worker': 'Publicar Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticando...', // In English: "Authenticating..."
-        'window_title_refer_friend': '¡Invitar a un amigo!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'Salir de Pantalla Completa', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'Abrir Pantalla Completa', // In English: "Enter Full Screen"
         'item_shared_with_you': 'Un usuario compartió este elemento contigo.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Has compartido este elemento con otro usuario', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Atajo', // In English: "Shortcut"

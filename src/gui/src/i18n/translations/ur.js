@@ -85,7 +85,6 @@ const ur = {
         deploy_as_app: 'ایپ کے طور پر منتشر کریں',
         descending: 'گرتی ہوئی',
         desktop: 'ڈیسک ٹاپ',
-        desktop_background_fit: 'ڈیسک ٹاپ کا پس منظر مناسب ہو',
         developers: 'ڈویلپرز',
         disable_2fa: '2FA کو غیر فعال کریں۔',
         disable_2fa_confirm: 'کیا آپ واقعی 2FA کو غیر فعال کرنا چاہتے ہیں؟',
@@ -124,7 +123,6 @@ const ur = {
         html_document: 'ایچ ٹی ایم ایل دستاویز',
         hue: 'رنگت',
         incorrect_password: 'غلط پاس ورڈ',
-        invite_link: 'دعوتی لنک',
         item: 'آئٹم',
         items_in_trash_cannot_be_renamed:
       'کچرے میں موجود اشیاء کا نام تبدیل نہیں کیا جا سکتا',
@@ -172,7 +170,6 @@ const ur = {
         passwords_do_not_match: 'پاس ورڈ میچ نہیں ہوتی',
         paste: 'چسپاں کریں',
         paste_into_folder: 'فولڈر میں چسپاں کریں',
-        personalization: 'متشکل',
         pictures: 'تصویریں',
         plural_suffix: 'س',
         powered_by_puter_js:
@@ -192,8 +189,6 @@ const ur = {
         recover_password: 'پاس ورڈ بازیاب کریں ',
         refer_friends_c2a:
       '! ہر دوست کے اکاؤنٹ بنانے اور اکاؤنٹ کی تصدیق کرنے پر 1 گیگابائٹ حاصل کریں۔ آپ کا دوست بھی 1 گیگابائٹ حاصل کرے گا ',
-        refer_friends_social_media_c2a:
-      'پیوٹر ڈاٹ کام پر مفت 1 گیگابائٹ ذخیرہ حاصل کریں!',
         refresh: 'تازہ کریں ',
         rename: 'دوبارہ نام دیں',
         replace: 'بدل دیں۔',
@@ -257,8 +252,6 @@ const ur = {
         videos: 'ویڈیوز',
         visibility: 'مرئیت',
         yes: 'جی ہاں',
-        you_have_been_referred_to_puter_by_a_friend:
-      'آپ کو ایک دوست نے پیوٹر کی جانب رجوع کیا ہے!',
         zip: 'زپ فائل',
         zipping_file: 'زپ %strong%',
 
@@ -375,16 +368,10 @@ const ur = {
         'billing.expanded': 'وسیع', // In English: "Expanded"
         'billing.accelerated': 'تیز رفتار', // In English: "Accelerated"
         'billing.enjoy_msg': 'کلاؤڈ اسٹوریج کے %% حصے کے ساتھ دیگر فوائد کا لطف اٹھائیں۔', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-        'choose_publishing_option': 'اپنی ویب سائٹ شائع کرنے کا طریقہ منتخب کریں:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'شارٹ کٹ بنائیں (ڈیسک ٹاپ)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'شارٹ کٹس بنائیں (ڈیسک ٹاپ)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'شارٹ کٹس بنائیں', // In English: "Create Shortcuts"
         'minimize': 'چھوٹا کریں', // In English: "Minimize"
         'reload_app': 'ایپ دوبارہ لوڈ کریں', // In English: "Reload App"
         'publish_as_serverless_worker': 'ورکر کے طور پر شائع کریں', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'فل اسکرین پر جائیں', // In English: "Enter Full Screen"
-        'toolbar.github': 'گیٹ ہب', // In English: "GitHub"
-        'toolbar.refer': 'ریفر کریں', // In English: "Refer"
         'used_of': '{{used}} استعمال شدہ از {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'ورکر', // In English: "Worker"
         'billing.offering.basic': 'بنیادی', // In English: "Basic"
@@ -411,9 +398,6 @@ const ur = {
         'window_title_publish_website': 'ویب سائٹ شائع کریں', // In English: "Publish Website"
         'window_title_publish_worker': 'ورکر شائع کریں', // In English: "Publish Worker"
         'window_title_authenticating': 'تصدیق جاری ہے...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'کسی دوست کو ریفر کریں!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'فل اسکرین سے باہر نکلیں', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'فل اسکرین پر جائیں', // In English: "Enter Full Screen"
         'item_shared_with_you': 'کسی صارف نے یہ آئٹم آپ کے ساتھ شیئر کیا ہے۔', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'آپ نے یہ آئٹم کم از کم ایک دوسرے صارف کے ساتھ شیئر کیا ہے۔', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'شارٹ کٹ', // In English: "Shortcut"

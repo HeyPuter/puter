@@ -91,7 +91,6 @@ const ru = {
         deploy_as_app: 'Развернуть как приложение',
         descending: 'По убыванию',
         desktop: 'Рабочий стол',
-        desktop_background_fit: 'Вместить',
         developers: 'Разработчики',
         disable_2fa: 'Отключить двойную аутентификацию',
         disable_2fa_confirm:
@@ -136,7 +135,6 @@ const ru = {
         html_document: 'HTML документ',
         hue: 'Оттенок',
         incorrect_password: 'Неверный пароль',
-        invite_link: 'Ссылка для приглашения',
         item: 'элемент',
         items_in_trash_cannot_be_renamed: 'Этот элемент нельзя переименовать, потому что он находится в Корзине. Чтобы переименовать этот элемент, сначала перенесите его из Корзины.',
         jpeg_image: 'JPEG изображение',
@@ -190,7 +188,6 @@ const ru = {
         paste: 'Вставить',
         paste_into_folder: 'Вставить в папку',
         path: 'Путь',
-        personalization: 'Персонализация',
         pictures: 'Изображения',
         plural_suffix: 's', //does not exist in Russian language
         powered_by_puter_js: 'Создано на {{link=docs}}Puter.js{{/link}}',
@@ -209,7 +206,6 @@ const ru = {
         recover_password: 'Восстановить Пароль',
         refer_friends_c2a:
       'Получите 1 ГБ за каждого друга, который создаст и подтвердит учетную запись на Puter. Ваш друг тоже получит 1 ГБ!',
-        refer_friends_social_media_c2a: 'Получите 1 ГБ бесплатного хранилища на Puter.com!',
         refresh: 'Обновить',
         rename: 'Переименовать',
         replace: 'Заменить',
@@ -282,8 +278,6 @@ const ru = {
         videos: 'Видео',
         visibility: 'Видимость',
         yes: 'Да',
-        you_have_been_referred_to_puter_by_a_friend:
-      'Вы были приглашены в Puter другом!',
         zip: 'Добавить в архив',
         zipping_file: 'Добавление в архив %strong%',
 
@@ -381,16 +375,10 @@ const ru = {
         'billing.expanded': 'Расширенный', // In English: "Expanded"
         'billing.accelerated': 'Ускоренный', // In English: "Accelerated"
         'billing.enjoy_msg': 'Пользуйтесь %% Облачным Хранилищем и остальными выгодами', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-        'choose_publishing_option': 'Выберите способ публикации вашего веб-сайта:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'Создать ярлык (на рабочем столе)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'Создать ярлыки (на рабочем столе)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'Создать ярлыки', // In English: "Create Shortcuts"
         'minimize': 'Свернуть', // In English: "Minimize"
         'reload_app': 'Перезагрузить приложение', // In English: "Reload App"
         'publish_as_serverless_worker': 'опубликовать как воркера', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Перейти в полноэкранный режим', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'Рекомендовать', // In English: "Refer"
         'used_of': 'Использовано', // In English: "{{used}} used of {{available}}"
         'worker': 'Воркер', // In English: "Worker"
         'billing.offering.basic': 'Базовый', // In English: "Basic"
@@ -417,9 +405,6 @@ const ru = {
         'window_title_publish_website': 'Опубликовать веб-сайт', // In English: "Publish Website"
         'window_title_publish_worker': 'Опубликовать воркер', // In English: "Publish Worker"
         'window_title_authenticating': 'Идёт проверка подлинности...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'Пригласить друга!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'Выйти из полноэкранного режима', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'Перейти в полноэкранный режим', // In English: "Enter Full Screen"
         'item_shared_with_you': 'Пользователь поделился с вами этим элементом.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Вы поделились этим элементом как минимум с одним другим пользователем.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Ярлык', // In English: "Shortcut"

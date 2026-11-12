@@ -88,7 +88,6 @@ const he = {
         deploy_as_app: 'לפרוס כאפליקציה',
         descending: 'בסדר יורד',
         desktop: 'שולחן העבודה ',
-        desktop_background_fit: 'התאים',
         developers: 'מפתחים',
         disable_2fa: 'השבתת אימות דו-שלבי',
         disable_2fa_confirm: 'האם אתם בטוחים שברצונכם להשבית אימות דו-שלבי?',
@@ -131,7 +130,6 @@ const he = {
         html_document: 'מסמך HTML',
         hue: 'דרגת צבע',
         incorrect_password: 'סיסמה שגויה',
-        invite_link: 'קישור הזמנה',
         item: 'פריט',
         items_in_trash_cannot_be_renamed: 'לא ניתן לשנות את שם הפריט הזה כי הוא נמצא באשפה. כדי לשנות את שם הפריט הזה, תחילה גרור אותו מחוץ לאשפה.',
         jpeg_image: 'JPEG תמונת',
@@ -182,7 +180,6 @@ const he = {
         paste: 'הדבק',
         paste_into_folder: 'הדבק בתיקיה',
         path: 'מסלול',
-        personalization: 'התאמה אישית',
         pictures: 'תמונות',
         plural_suffix: 's',
         powered_by_puter_js: 'מונע ע"י {{link=docs}}Puter.js{{/link}}',
@@ -201,7 +198,6 @@ const he = {
         recover_password: 'שחזור סיסמה',
         refer_friends_c2a:
       'קבל 1 גיגה בייט עבור כל חבר שיוצר ומאשר חשבון ב  Puter. גם החבר שלך יקבל 1 גיגה בייט!',
-        refer_friends_social_media_c2a: 'קבל שטח אחסון של 1 גיגה בייט בחינם Puter.com!',
         refresh: 'רענן',
         rename: 'שנה שם',
         replace: 'החלף',
@@ -268,7 +264,6 @@ const he = {
         videos: 'סרטונים',
         visibility: 'נראות',
         yes: 'כן',
-        you_have_been_referred_to_puter_by_a_friend: 'הופנית אל Puter על ידי חבר!',
         zip: 'מכווץ',
         zipping_file: 'מכווץ קובץ %strong%',
 
@@ -363,16 +358,10 @@ const he = {
         'billing.expanded': 'מורחב', // In English: "Expanded"
         'billing.accelerated': 'מואץ', // In English: "Accelerated"
         'billing.enjoy_msg': 'תהנו מ  %% של אחסון ענן בנוסף להטבות נוספות', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-        'choose_publishing_option': 'בחר כיצד לפרסם את האתר שלך', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'צור קיצור דרך (שולחן עבודה)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'צור קיצורי דרך (שולחן עבודה)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'צור קיצורי דרך', // In English: "Create Shortcuts"
         'minimize': 'מזער', // In English: "Minimize"
         'reload_app': 'טען מחדש', // In English: "Reload App"
         'publish_as_serverless_worker': 'פרסם כעובד', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'מסך מלא', // In English: "Enter Full Screen"
-        'toolbar.github': 'גיטהאב', // In English: "GitHub"
-        'toolbar.refer': 'הפנה', // In English: "Refer"
         'used_of': '{{available}} משומש מתוך {{used}}', // In English: "{{used}} used of {{available}}"
         'worker': 'עובד', // In English: "Worker"
         'billing.offering.basic': 'בסיסי', // In English: "Basic"
@@ -399,9 +388,6 @@ const he = {
         'window_title_publish_website': 'פרסם אתר', // In English: "Publish Website"
         'window_title_publish_worker': 'פרסם עובד', // In English: "Publish Worker"
         'window_title_authenticating': 'מאמת', // In English: "Authenticating..."
-        'window_title_refer_friend': '!הפנה חבר', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'בטל מסך מלא', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'הפעל מסך מלא', // In English: "Enter Full Screen"
         'item_shared_with_you': 'משתמש שיתף עמך פריט זה', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'שיתפת פריט זה עם לפחות משתמש אחד נוסף', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'קיצור דרך', // In English: "Shortcut"

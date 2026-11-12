@@ -89,7 +89,6 @@ const hy = {
         deploy_as_app: 'Տեղադրել որպես հավելված',
         descending: 'Նվազող',
         desktop: 'Աշխատասեղան',
-        desktop_background_fit: 'Հարմարեցնել',
         developers: 'Ծրագրավորողներ',
         disable_2fa: 'Անջատել 2FA',
         disable_2fa_confirm: 'Վստա՞հ եք, որ ցանկանում եք անջատել 2FA-ն:',
@@ -134,7 +133,6 @@ const hy = {
         html_document: 'HTML փաստաթուղթ',
         hue: 'Երանգ',
         incorrect_password: 'Սխալ գաղտնաբառ',
-        invite_link: 'Հրավերի հղում',
         item: 'տարր',
         items_in_trash_cannot_be_renamed:
       'Այս տարրը չի կարող վերանվանվել, քանի որ այն աղբարկղում է: Այս տարրը վերանվանելու համար նախ տեղափոխեք այն աղբարկղից:',
@@ -188,7 +186,6 @@ const hy = {
         paste: 'Տեղադրել',
         paste_into_folder: 'Տեղադրել պանակում',
         path: 'Ուղի',
-        personalization: 'Անհատականացում',
         pictures: 'Նկարներ',
         plural_suffix: 'ներ',
         powered_by_puter_js: 'Աջակցվում է {{link=docs}}Puter.js{{/link}}-ի կողմից',
@@ -208,7 +205,6 @@ const hy = {
         recover_password: 'Վերականգնել գաղտնաբառը',
         refer_friends_c2a:
       'Ստացեք 1 ԳԲ յուրաքանչյուր ընկերոջ համար, ով ստեղծում և հաստատում է հաշիվ Փութերում: Ձեր ընկերը նույնպես կստանա 1 ԳԲ!',
-        refer_friends_social_media_c2a: 'Ստացեք 1 ԳԲ անվճար պահեստ Puter.com-ում!',
         refresh: 'Թարմացնել',
         rename: 'Վերանվանել',
         replace: 'Փոխարինել',
@@ -280,8 +276,6 @@ const hy = {
         videos: 'Տեսանյութեր',
         visibility: 'Տեսանելիություն',
         yes: 'Այո',
-        you_have_been_referred_to_puter_by_a_friend:
-      'Դուք ուղղորդվել եք Փութեր ձեր ընկերոջ կողմից!',
         zip: 'Ավելացնել արխիվում',
         zipping_file: 'Ավելացվում է արխիվում %strong%-ը',
 
@@ -390,16 +384,10 @@ const hy = {
         'billing.accelerated': 'Արագացված',
         'billing.enjoy_msg':
       'Վայելեք %% ամպային պահեստավորում և այլ առավելություններ',
-        choose_publishing_option: 'Ընտրեք ձեր կայքը հրապարակելու եղանակը։',
-        create_desktop_shortcut: 'Ստեղծել դյուրանցում (Աշխատասեղան)',
-        create_desktop_shortcut_s: 'Ստեղծել դյուրանցումներ (Աշխատասեղան)',
         create_shortcut_s: 'Ստեղծել դյուրանցումներ',
         minimize: 'Փոքրացնել',
         reload_app: 'Վերաբեռնել հավելվածը',
         publish_as_serverless_worker: 'Հրապարակել որպես Worker',
-        'toolbar.enter_fullscreen': 'Լիաէկրան ռեժիմ',
-        'toolbar.github': 'GitHub',
-        'toolbar.refer': 'Հրավիրել',
         used_of: '{{used}} օգտագործված է {{available}}-ից',
         worker: 'Worker',
         'billing.offering.basic': 'Հիմնական',
@@ -428,9 +416,6 @@ const hy = {
         window_title_publish_website: 'Հրապարակել կայք',
         window_title_publish_worker: 'Հրապարակել Worker',
         window_title_authenticating: 'Նույնականացում…',
-        window_title_refer_friend: 'Հրավիրել ընկերոջը',
-        desktop_exit_full_screen: 'Ելք լիաէկրան ռեժիմից',
-        desktop_enter_full_screen: 'Լիաէկրան ռեժիմ',
         item_shared_with_you: 'Օգտատերը կիսվել է այս տարրով ձեզ հետ.',
         item_shared_by_you:
       'Դուք կիսվել եք այս տարրով առնվազն մեկ այլ օգտատիրոջ հետ.',

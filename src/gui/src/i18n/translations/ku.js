@@ -89,7 +89,6 @@ const ku = {
         deploy_as_app: 'دابەشکردن وەک ئەپ',
         descending: 'نزەندەی',
         desktop: 'سەروروومیزی',
-        desktop_background_fit: 'ڕێکخستن',
         developers: 'پەرەپێدانەران',
         disable_2fa: 'ناچالاککردنی 2FA',
         disable_2fa_confirm: 'دڵنیایت کە ئەتەوێت 2FA ناچالاک بکەیت؟',
@@ -132,7 +131,6 @@ const ku = {
         html_document: 'بەڵگەی HTML',
         hue: 'هیو',
         incorrect_password: 'وشەی تێپەڕ هەڵەیە',
-        invite_link: 'بەستەری بانگکردن',
         item: 'بابەت',
         items_in_trash_cannot_be_renamed: 'ئەم بابەتە ناتوانرێت ناونوسێت چونکە لە کوڵەدا هەیە. بۆ ناونوسین، سەبارەکەی لە کوڵەکە دەر بکە.',
         jpeg_image: 'وێنەی JPEG',
@@ -185,7 +183,6 @@ const ku = {
         paste: 'دانان',
         paste_into_folder: 'دانان لە فۆڵدەرەکە',
         path: 'ڕێکەوت',
-        personalization: 'بەشداربوون',
         pictures: 'وێنەکان',
         plural_suffix: 'کان',
         powered_by_puter_js: 'پێشکەشکراوە لە {{link=docs}}پوتەر.js{{/link}}',
@@ -204,7 +201,6 @@ const ku = {
         recover_password: 'ڕێکخستنەوەی وشەی تێپەڕ',
         refer_friends_c2a:
       '1 گیگابایت بۆ هەر هاوڕێک دەست بەرکە، پەیوەندیدانی هەژمارێک بۆ پوتەر دروست بکە و پشتڕاست بکە. هاوڕێتیش 1 گیگابایت وەرگرتن دەبێت!',
-        refer_friends_social_media_c2a: '1 گیگابایت پارێزگاکانی پوتەر.com بۆ هەر هاوڕێک بکە!',
         refresh: 'بوژانەوە',
         rename: 'ناونانەوە',
         replace: 'لە نوێکردنەوە',
@@ -272,8 +268,6 @@ const ku = {
         videos: 'ڤیدیۆکان',
         visibility: 'پیشاندانی',
         yes: 'بەڵێ',
-        you_have_been_referred_to_puter_by_a_friend:
-      'هاوڕێکت پەیوەندیداری پوتەر کردووە!',
         zip: 'زیپ',
         zipping_file: 'زیپ کردنەوەی %strong%',
 
@@ -370,16 +364,10 @@ const ku = {
         'billing.expanded': 'بڵاوکراوەتەوە',
         'billing.accelerated': 'بە خێرایی',
         'billing.enjoy_msg': '%% لە هەڵگرتنی هەور و سوودی تر وەربگرە',
-        'choose_publishing_option': 'هەڵبژێرە چۆن دەتەوێت وێب‌سایتەکەت بڵاوبکەیتەوە:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'دروستکردنی کورتەڕەو (سەڕەکی دێسک‌تۆپ)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'دروستکردنی کورتەڕەوەکان (سەڕەکی دێسک‌تۆپ)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'دروستکردنی کورتەڕەوەکان', // In English: "Create Shortcuts"
         'minimize': 'بچووککردنەوە', // In English: "Minimize"
         'reload_app': 'ئەپلیکەیشن دووبارە بار بکە', // In English: "Reload App"
         'publish_as_serverless_worker': 'بڵاوکردنەوە وەک کارمەند', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'بە تەواوی شاشە بچۆرە', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'بانگهێشت بکە', // In English: "Refer"
         'used_of': '{{used}} بەکارهاتوو لە {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'کارمەند', // In English: "Worker"
         'billing.offering.basic': 'بنەڕەتی', // In English: "Basic"
@@ -406,9 +394,6 @@ const ku = {
         'window_title_publish_website': 'بڵاوکردنەوەی وێب‌سایت', // In English: "Publish Website"
         'window_title_publish_worker': 'بڵاوکردنەوەی کارمەند', // In English: "Publish Worker"
         'window_title_authenticating': 'پەسندکردنەوە', // In English: "Authenticating..."
-        'window_title_refer_friend': 'هاوڕێک بانگهێشت بکە!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'دەرچوون لە شاشەی پڕە', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'چوونە شاشەی پڕە', // In English: "Enter Full Screen"
         'item_shared_with_you': 'بەکارهێنەرێک ئەم شتەیە لەگەڵ تۆ هاوبەش کردووە.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'تۆ ئەم شتە بە هەندێک بەکارهێنەرێکی تر هاوبەش کردووە.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'کورتەڕەو', // In English: "Shortcut"

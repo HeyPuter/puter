@@ -90,7 +90,6 @@ const it = {
         deploy_as_app: 'Distribuisci come Applicazione',
         descending: 'Discendente',
         desktop: 'Scrivania',
-        desktop_background_fit: 'Adatta',
         developers: 'Sviluppatori',
         disable_2fa: 'Disabilita 2FA',
         disable_2fa_confirm: 'Sei sicuro di voler disabilitare la 2FA?',
@@ -134,7 +133,6 @@ const it = {
         html_document: 'Documento HTML',
         hue: 'Tonalità',
         incorrect_password: 'Password errata',
-        invite_link: 'Link d’invito',
         item: 'elemento',
         items_in_trash_cannot_be_renamed: 'Impossibile rinominare un elemento nel Cestino. Per rinominarlo, è necessario ripristinarlo.',
         jpeg_image: 'Immagine JPEG',
@@ -187,7 +185,6 @@ const it = {
         paste: 'Incolla',
         paste_into_folder: 'Incolla nella cartella',
         path: 'Percorso',
-        personalization: 'Personalizzazione',
         pictures: 'Immagini',
         plural_suffix: 'i',
         powered_by_puter_js: 'Realizzato con {{link=docs}}Puter.js{{/link}}',
@@ -206,7 +203,6 @@ const it = {
         recover_password: 'Ripristina la Password',
         refer_friends_c2a:
       'Ottieni 1 GB di spazio di archiviazione per ogni amico che crea un account e conferma l’email su Puter. Anche il tuo amico riceverà dello spazio extra!',
-        refer_friends_social_media_c2a: 'Ottieni 1GB di spazio di spazio di archiviazione gratuito su Puter.com!',
         refresh: 'Ricarica',
         rename: 'Rinomina',
         replace: 'Sostituisci',
@@ -278,8 +274,6 @@ const it = {
         videos: 'Video',
         visibility: 'Visibilità',
         yes: 'Sì',
-        you_have_been_referred_to_puter_by_a_friend:
-      'Sei stato invitato su Puter da un amico!',
         zip: 'File compresso',
         zipping_file: 'Compressione di %strong%',
 
@@ -383,16 +377,10 @@ const it = {
         'billing.accelerated': 'Accelerato', // In English: "Accelerated"
         'billing.enjoy_msg': 'Goditi %% di spazio di archiviazione cloud e altri vantaggi.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-        'choose_publishing_option': 'Scegli come vuoi pubblicare il tuo sito web:',
-        'create_desktop_shortcut': 'Crea un collegamento sul desktop',
-        'create_desktop_shortcut_s': 'Crea collegamenti sul desktop',
         'create_shortcut_s': 'Crea scorciatoie',
         'minimize': 'Riduci',
         'reload_app': 'Ricarica app',
         'publish_as_serverless_worker': 'Pubblica come funzione serverless', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Visualizza a schermo intero',
-        'toolbar.github': 'GitHub',
-        'toolbar.refer': 'Invita',
         'used_of': '{{used}} utilizzati su {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Base', // In English: "Basic"
@@ -419,9 +407,6 @@ const it = {
         'window_title_publish_website': 'Pubblica sito web',
         'window_title_publish_worker': 'Pubblica worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticazione in corso...',
-        'window_title_refer_friend': 'Invita un amico!',
-        'desktop_exit_full_screen': 'Esci da schermo intero',
-        'desktop_enter_full_screen': 'Visualizza a schermo intero',
         'item_shared_with_you': 'Un utente ha condiviso questo elemento con te.',
         'item_shared_by_you': 'Hai condiviso questo elemento con almeno un altro utente',
         'item_shortcut': 'Scorciatoia',

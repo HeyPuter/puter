@@ -89,7 +89,6 @@ const ar = {
         deploy_as_app: 'نشر كتطبيق',
         descending: 'تنازلي',
         desktop: 'سطح المكتب',
-        desktop_background_fit: 'ملائمة',
         developers: 'المطورين',
         disable_2fa: 'تعطيل المصادقة الثنائية',
         disable_2fa_confirm: 'هل أنت متأكد أنك تريد تعطيل المصادقة الثنائية؟',
@@ -132,7 +131,6 @@ const ar = {
         html_document: 'HTML مستند',
         hue: 'درجة اللون',
         incorrect_password: 'كلمة مرور غير صحيحة',
-        invite_link: 'رابط الدعوة',
         item: 'عنصر',
         items_in_trash_cannot_be_renamed:
       '.لا يمكن إعادة تسمية هذا العنصر لأنه في سلة المهملات. لإعادة تسمية هذا العنصر، اسحبه أولاً خارج سلة المهملات',
@@ -185,7 +183,6 @@ const ar = {
         paste: 'لصق',
         paste_into_folder: 'لصق في المجلد',
         path: 'المسار',
-        personalization: 'تخصيص',
         pictures: 'الصور',
         plural_suffix: 's', //this is not necessary for Arabic
         powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} مدعوم بواسطة ',
@@ -205,8 +202,6 @@ const ar = {
         recover_password: 'استعادة كلمة المرور',
         refer_friends_c2a:
       '!سيحصل صديقك على 1 جيجابايت أيضًا .Puter احصل على 1 جيجابايت عن كل صديق ينشئ حسابًا ويؤكده على',
-        refer_friends_social_media_c2a:
-      'Puter.com! احصل على 1 جيجابايت من التخزين المجاني على',
         refresh: 'تحديث',
         rename: 'إعادة تسمية',
         replace: 'استبدال',
@@ -273,8 +268,6 @@ const ar = {
         videos: 'مقاطع الفيديو',
         visibility: 'الرؤية',
         yes: 'نعم',
-        you_have_been_referred_to_puter_by_a_friend:
-      '!بواسطة صديق Puter تم إحالتك إلى',
         zip: 'ضغط',
         zipping_file: '%strong% جارٍ ضغط',
 
@@ -374,17 +367,10 @@ const ar = {
         'billing.enjoy_msg':
       '.بالإضافة إلى مزايا أخرى Cloud Storage  استمتع بـ %% من', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-        choose_publishing_option:
-      'اختر الطريقة التي تريد نشر موقع الويب الخاص بك بها', // In English: "Choose how you want to publish your website:"
-        create_desktop_shortcut: 'إنشاء اختصار (سطح المكتب)', // In English: "Create Shortcut (Desktop)"
-        create_desktop_shortcut_s: 'إنشاء اختصارات (سطح المكتب)', // In English: "Create Shortcuts (Desktop)"
         create_shortcut_s: 'إنشاء اختصارات', // In English: "Create Shortcuts"
         minimize: 'تصغير', // In English: "Minimize"
         reload_app: 'إعادة تحميل التطبيق', // In English: "Reload App"
         publish_as_serverless_worker: 'النشر كعامل', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'وضع ملء الشاشة', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'إحالة', // In English: "Refer"
         used_of: '{{available}}محاولات مستخدمة من {{used}}', // In English: "{{used}} used of {{available}}"
         worker: 'العامل', // In English: "Worker"
         'billing.offering.basic': 'أساسي', // In English: "Basic"
@@ -412,9 +398,6 @@ const ar = {
         window_title_publish_website: 'نشر الموقع',
         window_title_publish_worker: 'نشر العامل',
         window_title_authenticating: '…جارٍ التحقق',
-        window_title_refer_friend: '!أوصِ صديقًا',
-        desktop_exit_full_screen: 'الخروج من وضع ملء الشاشة',
-        desktop_enter_full_screen: 'وضع ملء الشاشة',
         item_shared_with_you: '.قام مستخدم بمشاركة هذا العنصر معك',
         item_shared_by_you: '.لقد قمت بمشاركة هذا العنصر مع مستخدم آخر على الأقل',
         item_shortcut: 'اختصار',

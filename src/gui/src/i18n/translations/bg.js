@@ -67,7 +67,6 @@ const bg = {
         confirm_session_revoke:
       'Сигурни ли сте, че искате да прекратите тази сесия?',
         confirm_your_email_address: 'Потвърдете имейл адреса си',
-        choose_publishing_option: 'Изберете как искате да публикувате уебсайта си:',
         contact_us: 'Свържете се с нас',
         contact_us_verification_required:
       'Трябва да имате потвърден имейл адрес, за да използвате това.',
@@ -78,8 +77,6 @@ const bg = {
         copying_file: 'Копиране на %%',
         create_account: 'Създай акаунт',
         create_free_account: 'Създай безплатен акаунт',
-        create_desktop_shortcut: 'Създай пряк път (Работен плот)',
-        create_desktop_shortcut_s: 'Създай преки пътища (Работен плот)',
         create_shortcut: 'Създай пряк път',
         create_shortcut_s: 'Създай преки пътища',
         credits: 'Благодарности',
@@ -95,7 +92,6 @@ const bg = {
         deploy_as_app: 'Разгърни като приложение',
         descending: 'Низходящ',
         desktop: 'Работен плот',
-        desktop_background_fit: 'Побери',
         developers: 'Разработчици',
         disable_2fa: 'Изключи 2FA',
         disable_2fa_confirm: 'Сигурни ли сте, че искате да изключите 2FA?',
@@ -139,7 +135,6 @@ const bg = {
         html_document: 'HTML документ',
         hue: 'Нюанс',
         incorrect_password: 'Грешна парола',
-        invite_link: 'Линк за покана',
         item: 'елемент',
         items_in_trash_cannot_be_renamed:
       'Този елемент не може да бъде преименуван, защото е в Кошчето. За да го преименувате, първо го извадете от Кошчето.',
@@ -194,7 +189,6 @@ const bg = {
         paste: 'Постави',
         paste_into_folder: 'Постави в папката',
         path: 'Път',
-        personalization: 'Персонализация',
         pictures: 'Снимки',
         plural_suffix: 'и',
         powered_by_puter_js: 'Работи с {{link=docs}}Puter.js{{/link}}',
@@ -216,8 +210,6 @@ const bg = {
         recover_password: 'Възстанови паролата',
         refer_friends_c2a:
       'Получете 1 GB за всеки приятел, който създаде и потвърди акаунт в Puter. Вашият приятел също ще получи 1 GB!',
-        refer_friends_social_media_c2a:
-      'Получете 1 GB безплатно пространство в Puter.com!',
         refresh: 'Опресни',
         rename: 'Преименувай',
         replace: 'Замени',
@@ -263,9 +255,6 @@ const bg = {
       'Отнема малко повече време от обикновено. Моля, изчакайте...',
         terms: 'Условия',
         text_document: 'Текстов документ',
-        'toolbar.enter_fullscreen': 'Вход в режим на цял екран',
-        'toolbar.github': 'GitHub',
-        'toolbar.refer': 'Препоръчай',
         tos_fineprint:
       "С натискане на 'Създай безплатен акаунт' вие се съгласявате с {{link=terms}}Условията за ползване{{/link}} и {{link=privacy}}Политиката за поверителност{{/link}} на Puter.",
         transparency: 'Прозрачност',
@@ -295,8 +284,6 @@ const bg = {
         videos: 'Видеоклипове',
         visibility: 'Видимост',
         yes: 'Да',
-        you_have_been_referred_to_puter_by_a_friend:
-      'Били сте препоръчани в Puter от приятел!',
         zip: 'ZIP архивиране',
         tar: 'TAR архивиране',
         download_as_tar: 'Изтегли като TAR',
@@ -439,11 +426,8 @@ const bg = {
         window_title_publish_website: 'Публикуване на уебсайт',
         window_title_publish_worker: 'Публикуване на Worker',
         window_title_authenticating: 'Удостоверяване…',
-        window_title_refer_friend: 'Препоръчайте приятел!',
 
         // Desktop UI
-        desktop_exit_full_screen: 'Изход от режим на цял екран',
-        desktop_enter_full_screen: 'Вход в режим на цял екран',
 
         // Item UI
         item_shared_with_you: 'Потребител е споделил този елемент с вас.',

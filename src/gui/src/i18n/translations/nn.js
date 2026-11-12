@@ -48,7 +48,6 @@ const nn = {
         delete_permanently: 'Slett permanent',
         deploy_as_app: 'Distribuer som app',
         descending: 'Synkande',
-        desktop_background_fit: 'Tilpass',
         download: 'Last ned',
         email: 'E-post',
         email_or_username: 'E-post eller brukarnamn',
@@ -66,7 +65,6 @@ const nn = {
         get_a_copy_of_on_puter: "Få ein kopi av '%%' på Puter.com!",
         get_copy_link: 'Få kopilenkje',
         html_document: 'HTML-dokument',
-        invite_link: 'Invitasjonslenkje',
         items_in_trash_cannot_be_renamed:
       'Dette elementet kan ikkje omdøypast fordi det er i papirkorga. For å omdøype dette elementet, dra det først ut av papirkorga.',
         jpeg_image: 'JPEG-bilete',
@@ -104,7 +102,6 @@ const nn = {
         recover_password: 'Gjenopprett passord',
         refer_friends_c2a:
       'Få 1 GB for kvar ven som opprettar og stadfestar ein konto på Puter. Vennen din får òg 1 GB.',
-        refer_friends_social_media_c2a: 'Få 1 GB gratis lagringsplass på Puter.com!',
         refresh: 'Oppdater',
         rename: 'Gje nytt namn',
         resend_confirmation_code: 'Send stadfestingskoden på nytt',
@@ -137,7 +134,6 @@ const nn = {
         username: 'Brukarnamn',
         username_changed: 'Brukarnamn oppdatert.',
         versions: 'Versjonar',
-        you_have_been_referred_to_puter_by_a_friend: 'Du har blitt referert til Puter av ein ven!',
         zip: 'Zip',
 
         // Updated translations for previously missing keys
@@ -227,7 +223,6 @@ const nn = {
         password_strength_error:
       'Passordet må vere minst 8 teikn langt og innehalde minst éin stor bokstav, éin liten bokstav, éin tal og éin spesialteikn.',
         path: 'Sti',
-        personalization: 'Personleggjering',
         pictures: 'Bilete',
         plural_suffix: 'ar',
         print: 'Skriv ut',
@@ -364,16 +359,10 @@ const nn = {
         'billing.accelerated': 'Akselerert', // In English: "Accelerated"
         'billing.enjoy_msg': 'Nyt %% skylagring pluss andre fordelar.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-        choose_publishing_option: 'Vel korleis du vil publisere nettsida di:', // "Original English: Choose how you want to publish your website:"
-        create_desktop_shortcut: 'Lag snarveg (Skrivebord)', // "Original English: Create Shortcut (Desktop)"
-        create_desktop_shortcut_s: 'Lag snarvegar (Skrivebord)', // "Original English: Create Shortcuts (Desktop)"
         create_shortcut_s: 'Lag snarvegar', // "Original English: Create Shortcuts"
         minimize: 'Minimer', // "Original English: Minimize"
         reload_app: 'Last inn app på nytt', // "Original English: Reload App"
         publish_as_serverless_worker: 'Publiser som Worker', // "Original English: Publish as Worker - 'Worker' kept as technical term"
-        'toolbar.enter_fullscreen': 'Gå til fullskjerm', // "Original English: Enter Full Screen"
-        'toolbar.github': 'GitHub', // "Original English: GitHub - Brand name kept unchanged"
-        'toolbar.refer': 'Verv', // "Original English: Refer - 'Verv' is more natural than 'Referer'"
         used_of: '{{used}} brukt av {{available}}', // "Original English: {{used}} used of {{available}} - Variables preserved in original format"
         worker: 'Worker', // "Original English: Worker - Technical term kept"
         'billing.offering.basic': 'Grunnleggjande', // "Original English: Basic"
@@ -400,9 +389,6 @@ const nn = {
         window_title_publish_website: 'Publiser nettside', // "Original English: Publish Website"
         window_title_publish_worker: 'Publiser Worker', // "Original English: Publish Worker"
         window_title_authenticating: 'Autentiserer...', // "Original English: Authenticating..."
-        window_title_refer_friend: 'Verv ein ven!', // "Original English: Refer a friend!"
-        desktop_exit_full_screen: 'Avslutt fullskjerm', // "Original English: Exit Full Screen"
-        desktop_enter_full_screen: 'Gå til fullskjerm', // "Original English: Enter Full Screen"
         item_shared_with_you: 'Ein brukar har delt denne tingen med deg.', // "Original English: A user has shared this item with you."
         item_shared_by_you: 'Du har delt denne tingen med minst ein annan brukar.', // "Original English: You have shared this item with at least one other user."
         item_shortcut: 'Snarveg', // "Original English: Shortcut"

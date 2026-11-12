@@ -51,7 +51,6 @@ const emoji = {
         delete_permanently: '🗑️🔚',
         deploy_as_app: '🚀📱',
         descending: '🔽',
-        desktop_background_fit: '🖥️🖼️',
         download: '⬇️',
         download_file: '⬇️📄',
         email: '📧',
@@ -68,7 +67,6 @@ const emoji = {
         get_a_copy_of_on_puter: '📩🔄📂',
         get_copy_link: '🔗🔄',
         html_document: '📄🌐',
-        invite_link: '🔗📩',
         item: '📂',
         items_in_trash_cannot_be_renamed: '🗑️🆓❌',
         jpeg_image: '🖼️',
@@ -109,7 +107,6 @@ const emoji = {
         plural_suffix: '🅰️',
         recover_password: '📧🔑🔄', // Flow correction
         refer_friends_c2a: '👤📞📧👤',
-        refer_friends_social_media_c2a: '📲👤🆓',
         refresh: '🔄🔄',
         rename: '🔄📛',
         replace: '🔄🔄',
@@ -148,7 +145,6 @@ const emoji = {
         username_changed: '👤✅',
         versions: '🔄📃',
         yes: '✅',
-        you_have_been_referred_to_puter_by_a_friend: '👤👫🔁🆓',
         zip: '📂🔒',
     },
 };

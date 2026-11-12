@@ -92,7 +92,6 @@ const ta = {
         deploy_as_app: 'பயன்பாடாக வரிசைப்படுத்து',
         descending: 'இறங்குதல்',
         desktop: 'டெஸ்க்டாப்',
-        desktop_background_fit: 'பொருத்தம்',
         developers: 'டெவலப்பர்கள்',
         disable_2fa: '2FA ஐ முடக்கு',
         disable_2fa_confirm: '2FA ஐ நிச்சயமாக முடக்க விரும்புகிறீர்களா?',
@@ -136,7 +135,6 @@ const ta = {
         html_document: 'HTML ஆவணம்',
         hue: 'சாயல்',
         incorrect_password: 'தவறான கடவுச்சொல்',
-        invite_link: 'அழைப்பு இணைப்பு',
         item: 'பொருள்',
         items_in_trash_cannot_be_renamed:
       'இந்த உருப்படி குப்பையில் இருப்பதால் மறுபெயரிட முடியாது. இந்த உருப்படியை மறுபெயரிட, முதலில் அதை குப்பையிலிருந்து வெளியே இழுக்கவும்.',
@@ -190,7 +188,6 @@ const ta = {
         paste: 'ஒட்டவும்',
         paste_into_folder: 'கோப்புறையில் ஒட்டவும்',
         path: 'பாதை',
-        personalization: 'தனிப்பயனாக்கம்',
         pictures: 'படங்கள்',
         plural_suffix: 'கள்',
         powered_by_puter_js: 'மூலம் இயக்கப்படுகிறது {{link=docs}}Puter.js{{/link}}',
@@ -210,8 +207,6 @@ const ta = {
         recover_password: 'கடவுச்சொல்லை மீட்டெடுக்கவும்',
         refer_friends_c2a:
       'புட்டர் இல் கணக்கை உருவாக்கி உறுதிப்படுத்தும் ஒவ்வொரு நண்பருக்கும் 1 GB கிடைக்கும். உங்கள் நண்பருக்கும் 1 ஜிபி கிடைக்கும்!',
-        refer_friends_social_media_c2a:
-      'Puter.com இல் 1 GB இலவச சேமிப்பிடத்தைப் பெறுங்கள்!',
         refresh: 'புதுப்பிப்பு',
         rename: 'மறுபெயரிடவும்',
         replace: 'மாற்றவும்',
@@ -283,8 +278,6 @@ const ta = {
         videos: 'வீடியோக்கள்',
         visibility: 'தெரிவுநிலை',
         yes: 'ஆம்',
-        you_have_been_referred_to_puter_by_a_friend:
-      'நீங்கள் ஒரு நண்பரால் புட்டருக்கு பரிந்துரைக்கப்பட்டீர்கள்!',
         zip: 'ஜிப்',
         zipping_file: 'ஜிப்பிங் %strong%',
 
@@ -397,17 +390,10 @@ const ta = {
         // =============================================================
         // Completed missing translations
         // =============================================================
-        choose_publishing_option:
-      'உங்கள் வலைத்தளத்தை எப்படி வெளியிட வேண்டும் என்பதைத் தேர்வுசெய்க:',
-        create_desktop_shortcut: 'குறுக்குவழி உருவாக்கு (டெஸ்க்டாப்)',
-        create_desktop_shortcut_s: 'குறுக்குவழிகள் உருவாக்கு (டெஸ்க்டாப்)',
         create_shortcut_s: 'குறுக்குவழிகள் உருவாக்கு',
         minimize: 'சுருக்கு',
         reload_app: 'பயன்பாட்டை மீளேற்று',
         publish_as_serverless_worker: 'வொர்க்கராக வெளியிடு',
-        'toolbar.enter_fullscreen': 'முழுத்திரைக்கு செல்',
-        'toolbar.github': 'GitHub',
-        'toolbar.refer': 'அறிமுகப்படுத்து',
         used_of: '{{available}} இல் {{used}} பயன்படுத்தப்பட்டது',
         worker: 'வொர்க்கர்',
         'billing.offering.basic': 'அடிப்படை',
@@ -435,9 +421,6 @@ const ta = {
         window_title_publish_website: 'வலைத்தளத்தை வெளியிடு',
         window_title_publish_worker: 'வொர்க்கரை வெளியிடு',
         window_title_authenticating: 'அடையாளம் சரிபார்க்கப்படுகிறது...',
-        window_title_refer_friend: 'நண்பரை அறிமுகப்படுத்து!',
-        desktop_exit_full_screen: 'முழுத்திரையிலிருந்து வெளியேறு',
-        desktop_enter_full_screen: 'முழுத்திரைக்கு செல்',
         item_shared_with_you:
       'ஒரு பயனர் இந்த உருப்படியை உங்களுடன் பகிர்ந்துள்ளார்.',
         item_shared_by_you:

@@ -81,7 +81,6 @@ const hi = {
         deploy_as_app: 'ऐप के रूप में तैनात करें',
         descending: 'अवरोही',
         desktop: 'डेस्कटॉप',
-        desktop_background_fit: 'उपयुक्त',
         developers: 'डेवलपर्स',
         disable_2fa: '2एफए गायब करें',
         disable_2fa_confirm: 'क्या आप वाकई 2एफए को गायब करना चाहते हैं?',
@@ -120,7 +119,6 @@ const hi = {
         html_document: 'एचटीएमएल दस्तावेज़',
         hue: 'रंग',
         incorrect_password: 'गलत पासवर्ड',
-        invite_link: 'लिंक आमंत्रित करें',
         item: 'वस्तु',
         items_in_trash_cannot_be_renamed: 'इस वस्तु का नाम नहीं बदला जा सकता क्योंकि यह कूड़ेदान में है। इस वस्तु का नाम बदलने के लिए, पहले इसे ट्रैश से बाहर खींचें।',
         jpeg_image: 'जेपीईजी छवि',
@@ -168,7 +166,6 @@ const hi = {
         paste: 'पेस्ट करें',
         paste_into_folder: 'फ़ोल्डर में पेस्ट करें',
         path: 'पथ',
-        personalization: 'वैयक्तिकरण',
         pictures: 'चित्रों',
         plural_suffix: 'एस',
         powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} द्वारा संचालित',
@@ -186,7 +183,6 @@ const hi = {
         reading_file: 'पढ़ना  %strong%',
         recover_password: 'पासवर्ड वापस लाये',
         refer_friends_c2a: 'पुटर पर खाता बनाने और पुष्टि करने वाले प्रत्येक मित्र के लिए 1 जीबी प्राप्त करें। आपके दोस्त को भी मिलेगा 1 जीबी!',
-        refer_friends_social_media_c2a: 'Purer.com पर 1 जीबी निःशुल्क स्टोरेज प्राप्त करें!',
         refresh: 'ताजा करना ',
         rename: 'नाम बदलें',
         replace: 'प्रतिस्थापित करें',
@@ -252,7 +248,6 @@ const hi = {
         videos: 'वीडियो',
         visibility: 'दृश्यता',
         yes: 'हाँ',
-        you_have_been_referred_to_puter_by_a_friend: 'आपको एक मित्र ने पुटर के बारे में बताया है!',
         zip: 'ज़िप',
         zipping_file: 'ज़िपिंग  %strong%',
 
@@ -340,16 +335,10 @@ const hi = {
         'billing.accelerated': 'त्वरित ', // In English: "Accelerated"
         'billing.enjoy_msg': '%% क्लाउड स्टोरेज का आनंद लें और अन्य लाभ प्राप्त करें।', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-        'choose_publishing_option': 'अपनी वेबसाइट को कैसे प्रकाशित करना चाहते हैं, चुनें:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'शॉर्टकट बनाएँ (डेस्कटॉप)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'शॉर्टकट्स बनाएँ (डेस्कटॉप)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'शॉर्टकट्स बनाएँ', // In English: "Create Shortcuts"
         'minimize': 'मिनिमाइज़ करें', // In English: "Minimize"
         'reload_app': 'ऐप पुनः लोड करें', // In English: "Reload App"
         'publish_as_serverless_worker': 'वर्कर के रूप में प्रकाशित करें', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'पूर्ण स्क्रीन में जाएँ', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'रेफ़र', // In English: "Refer"
         'used_of': '{{available}} में से {{used}} उपयोग', // In English: "{{used}} used of {{available}}"
         'worker': 'वर्कर', // In English: "Worker"
         'billing.offering.basic': 'मूल', // In English: "Basic"
@@ -376,9 +365,6 @@ const hi = {
         'window_title_publish_website': 'वेबसाइट प्रकाशित करें', // In English: "Publish Website"
         'window_title_publish_worker': 'वर्कर प्रकाशित करें', // In English: "Publish Worker"
         'window_title_authenticating': 'प्रमाणित किया जा रहा है...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'मित्र को रेफ़र करें!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'पूर्ण स्क्रीन से बाहर निकलें', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'पूर्ण स्क्रीन में जाएँ', // In English: "Enter Full Screen"
         'item_shared_with_you': 'एक उपयोगकर्ता ने यह वस्तु आपके साथ साझा की है।', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'आपने यह वस्तु कम से कम एक अन्य उपयोगकर्ता के साथ साझा की है।', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'शॉर्टकट', // In English: "Shortcut"

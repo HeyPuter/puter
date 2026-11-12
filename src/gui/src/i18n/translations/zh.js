@@ -82,7 +82,6 @@ const zh = {
         deploy_as_app: '部署为应用',
         descending: '降序',
         desktop: '桌面',
-        desktop_background_fit: '适合',
         developers: '开发人员',
         disable_2fa: '关闭二次认证',
         disable_2fa_confirm: '您确定要关闭二次认证?',
@@ -121,7 +120,6 @@ const zh = {
         html_document: 'HTML 文档',
         hue: '色调',
         incorrect_password: '密码不正确',
-        invite_link: '邀请链接',
         item: '项目',
         items_in_trash_cannot_be_renamed: '此项目无法重命名，因为它在回收站中。要重命名此项目，请先将其拖出回收站。',
         jpeg_image: 'JPEG 图像',
@@ -169,7 +167,6 @@ const zh = {
         paste: '粘贴',
         paste_into_folder: '粘贴到文件夹',
         path: '路径',
-        personalization: '个性化',
         pictures: '图片',
         plural_suffix: '',
         powered_by_puter_js: '由 {{link=docs}}Puter.js{{/link}} 提供支持',
@@ -187,7 +184,6 @@ const zh = {
         reading_file: '正在读取 %strong%',
         recover_password: '找回密码',
         refer_friends_c2a: '每个创建并确认 Puter 帐户的朋友都会为您获得 1 GB。您的朋友也将获得 1 GB！',
-        refer_friends_social_media_c2a: '在 Puter.com 上获取 1 GB 的免费存储空间！',
         refresh: '刷新',
         rename: '重命名',
         replace: '替换',
@@ -253,7 +249,6 @@ const zh = {
         videos: '视频',
         visibility: '可见性',
         yes: '确定',
-        you_have_been_referred_to_puter_by_a_friend: '您已经被朋友推荐到 Puter！',
         zip: '压缩',
         zipping_file: '正在压缩 %strong%',
 
@@ -349,16 +344,10 @@ const zh = {
         'billing.accelerated': '加快', // In English: "Accelerated"
         'billing.enjoy_msg': '请享受%%云存储服务及其他优惠。', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-        'choose_publishing_option': '请选择您希望如何发布您的网站：', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': '创建桌面快捷方式', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': '创建桌面快捷方式', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': '创建快捷方式', // In English: "Create Shortcuts"
         'minimize': '最小化', // In English: "Minimize"
         'reload_app': '重新加载应用', // In English: "Reload App"
         'publish_as_serverless_worker': '发布为 Worker', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': '进入全屏', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': '推荐', // In English: "Refer"
         'used_of': '已用 {{used}} / 共 {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': '基础', // In English: "Basic"
@@ -385,9 +374,6 @@ const zh = {
         'window_title_publish_website': '发布网站', // In English: "Publish Website"
         'window_title_publish_worker': '发布 Worker', // In English: "Publish Worker"
         'window_title_authenticating': '正在验证…', // In English: "Authenticating..."
-        'window_title_refer_friend': '推荐朋友！', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': '退出全屏', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': '进入全屏', // In English: "Enter Full Screen"
         'item_shared_with_you': '一位用户已与您共享此项目。', // In English: "A user has shared this item with you."
         'item_shared_by_you': '您已将此项目共享给至少一位用户。', // In English: "You have shared this item with at least one other user."
         'item_shortcut': '快捷方式', // In English: "Shortcut"

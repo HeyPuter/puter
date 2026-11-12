@@ -89,7 +89,6 @@ const id = {
         deploy_as_app: 'Pasang sebagai aplikasi',
         descending: 'Menurun',
         desktop: 'Desktop',
-        desktop_background_fit: 'Cocokkan',
         developers: 'Pengembang',
         disable_2fa: 'Nonaktifkan 2FA',
         disable_2fa_confirm: 'Apakah Anda yakin ingin menonaktifkan 2FA?',
@@ -132,7 +131,6 @@ const id = {
         html_document: 'Dokumen HTML',
         hue: 'Hue',
         incorrect_password: 'Kata sandi salah',
-        invite_link: 'Tautan Undangan',
         item: 'barang',
         items_in_trash_cannot_be_renamed: 'Barang ini tidak dapat diganti namanya karena berada di sampah. Untuk mengganti nama barang ini, pindahkan dahulu dari Sampah.',
         jpeg_image: 'Gambar JPEG',
@@ -184,7 +182,6 @@ const id = {
         paste: 'Tempel',
         paste_into_folder: 'Tempel ke dalam Folder',
         path: 'Lokasi',
-        personalization: 'Personalisasi',
         pictures: 'Gambar',
         plural_suffix: 's',
         powered_by_puter_js: 'Ditenagai oleh {{link=docs}}Puter.js{{/link}}',
@@ -203,7 +200,6 @@ const id = {
         recover_password: 'Pulihkan Kata Sandi',
         refer_friends_c2a:
       'Dapatkan 1 GB untuk setiap teman yang membuat dan mengonfirmasi akun di Puter. Teman Anda juga akan mendapatkan 1 GB!',
-        refer_friends_social_media_c2a: 'Dapatkan 1 GB penyimpanan gratis di Puter.com!',
         refresh: 'Muat Ulang',
         rename: 'Ganti Nama',
         replace: 'Ganti',
@@ -271,8 +267,6 @@ const id = {
         videos: 'Video',
         visibility: 'Visibilitas',
         yes: 'Ya',
-        you_have_been_referred_to_puter_by_a_friend:
-      'Anda telah dirujuk ke Puter oleh seorang teman!',
         zip: 'Zip',
         zipping_file: 'Mengekstrak %strong%',
 
@@ -373,16 +367,10 @@ const id = {
         // =============================================================
         // Missing translations
         // =============================================================
-        'choose_publishing_option': 'Pilih cara untuk memublikasikan situs web Anda:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'Buat Pintasan (Desktop)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'Buat Pintasan (Desktop)', // In English: "Create Shortcuts (Desktop)". TL note, there are no plural form of noun in Indonesia. Yes, we can use repetition, but in this case it's more effective this way
         'create_shortcut_s': 'Buat Pintasan', // In English: "Create Shortcuts"
         'minimize': 'Kecilkan', // In English: "Minimize"
         'reload_app': 'Muat Ulang Aplikasi', // In English: "Reload App"
         'publish_as_serverless_worker': 'Publikasikan sebagai Worker', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
-        'toolbar.github': 'Github', // In English: "GitHub"
-        'toolbar.refer': 'Rujuk', // In English: "Refer"
         'used_of': 'terpakai {{used}} dari {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker".
         'billing.offering.basic': 'Basic', // In English: "Basic"
@@ -409,9 +397,6 @@ const id = {
         'window_title_publish_website': 'Publikasikan Situs Web', // In English: "Publish Website"
         'window_title_publish_worker': 'Publikasikan Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Proses Autentikasi...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'Ajak Teman!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'Keluar dari Layar Penuh', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'Masuk ke Layar Penuh', // In English: "Enter Full Screen"
         'item_shared_with_you': 'Pengguna lain berbagi barang ini dengan Anda', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Anda telah membagikan barang ini dengan setidaknya satu pengguna lain', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Pintasan', // In English: "Shortcut"

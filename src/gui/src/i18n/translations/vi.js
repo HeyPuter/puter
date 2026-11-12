@@ -82,7 +82,6 @@ const vi = {
         deploy_as_app: 'Triển khai như ứng dụng',
         descending: 'Giảm dần',
         desktop: 'Màn hình chính',
-        desktop_background_fit: 'Vừa khít',
         developers: 'Nhà phát triển',
         disable_2fa: 'Tắt 2FA',
         disable_2fa_confirm: 'Bạn có chắc chắn muốn tắt 2FA không?',
@@ -121,7 +120,6 @@ const vi = {
         html_document: 'Tài liệu HTML',
         hue: 'Màu sắc',
         incorrect_password: 'Mật khẩu không chính xác',
-        invite_link: 'Liên kết mời',
         item: 'mục',
         items_in_trash_cannot_be_renamed: 'Mục này không thể đổi tên vì nó đang ở trong thùng rác. Để đổi tên mục này, trước tiên hãy kéo nó ra khỏi Thùng rác.',
         jpeg_image: 'Hình ảnh JPEG',
@@ -169,7 +167,6 @@ const vi = {
         paste: 'Dán',
         paste_into_folder: 'Dán vào thư mục',
         path: 'Đường dẫn',
-        personalization: 'Cá nhân hóa',
         pictures: 'Hình ảnh',
         plural_suffix: '',
         powered_by_puter_js: 'Được hỗ trợ bởi {{link=docs}}Puter.js{{/link}}',
@@ -187,7 +184,6 @@ const vi = {
         reading_file: 'Đang đọc %strong%',
         recover_password: 'Khôi phục mật khẩu',
         refer_friends_c2a: 'Nhận 1 GB cho mỗi người bạn tạo và xác nhận tài khoản trên Puter. Bạn của bạn cũng sẽ nhận được 1 GB!',
-        refer_friends_social_media_c2a: 'Nhận 1 GB dung lượng lưu trữ miễn phí trên Puter.com!',
         refresh: 'Làm mới',
         rename: 'Đổi tên',
         replace: 'Thay thế',
@@ -253,7 +249,6 @@ const vi = {
         videos: 'Video',
         visibility: 'Hiển thị',
         yes: 'Có',
-        you_have_been_referred_to_puter_by_a_friend: 'Bạn đã được giới thiệu đến Puter bởi một người bạn!',
         zip: 'Nén',
         zipping_file: 'Đang nén %strong%',
 
@@ -348,16 +343,10 @@ const vi = {
         'billing.expanded': 'Mở rộng', // In English: "Expanded"
         'billing.accelerated': 'Tăng tốc', // In English: "Accelerated"
         'billing.enjoy_msg': 'Tận hưởng %% Lưu trữ đám mây và các tiện ích khác.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-        'choose_publishing_option': 'Chọn cách xuất bản trang web của bạn:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'Tạo lối tắt (Desktop)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'Tạo các lối tắt (Desktop)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'Tạo các lối tắt', // In English: "Create Shortcuts"
         'minimize': 'Thu nhỏ', // In English: "Minimize"
         'reload_app': 'Tải lại ứng dụng', // In English: "Reload App"
         'publish_as_serverless_worker': 'Xuất bản dưới dạng Worker', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Vào chế độ toàn màn hình', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'Giới thiệu', // In English: "Refer"
         'used_of': '{{used}} đã dùng trong tổng {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Gói cơ bản', // In English: "Basic"
@@ -384,9 +373,6 @@ const vi = {
         'window_title_publish_website': 'Xuất bản Trang web', // In English: "Publish Website"
         'window_title_publish_worker': 'Xuất bản Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Đang xác thực...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'Giới thiệu bạn bè!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'Thoát chế độ toàn màn hình', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'Vào chế độ toàn màn hình', // In English: "Enter Full Screen"
         'item_shared_with_you': 'Một người dùng đã chia sẻ mục này với bạn.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Bạn đã chia sẻ mục này với ít nhất một người dùng khác.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Lối tắt', // In English: "Shortcut"

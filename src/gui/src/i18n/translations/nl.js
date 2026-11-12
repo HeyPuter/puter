@@ -82,7 +82,6 @@ const nl = {
         deploy_as_app: 'Uitrollen als app',
         descending: 'Aflopend',
         desktop: 'Bureaublad',
-        desktop_background_fit: 'Aanpassen',
         developers: 'Ontwikkelaars',
         disable_2fa: '2FA Uitschakelen',
         disable_2fa_confirm: 'Weet u zeker dat u 2FA wilt uitschakelen?',
@@ -121,7 +120,6 @@ const nl = {
         html_document: 'HTML-document',
         hue: 'Tint',
         incorrect_password: 'Onjuist wachtwoord',
-        invite_link: 'Uitnodigingslink',
         item: 'item',
         items_in_trash_cannot_be_renamed: 'Dit item kan niet worden hernoemd omdat het in de prullenbak zit. Om dit item te hernoemen, sleept u het eerst uit de prullenbak.',
         jpeg_image: 'JPEG-afbeelding',
@@ -170,7 +168,6 @@ const nl = {
         paste: 'Plakken',
         paste_into_folder: 'Plakken in Map',
         path: 'Pad',
-        personalization: 'Personalisatie',
         pictures: 'Afbeeldingen',
         plural_suffix: 'en',
         powered_by_puter_js: 'Aangedreven door {{link=docs}}Puter.js{{/link}}',
@@ -188,7 +185,6 @@ const nl = {
         reading_file: 'Lezen %strong%',
         recover_password: 'Wachtwoord herstellen',
         refer_friends_c2a: 'Krijg 1 GB voor elke vriend die een account aanmaakt en bevestigt op Puter. Je vriend krijgt ook 1 GB!',
-        refer_friends_social_media_c2a: 'Krijg 1 GB gratis opslagruimte op Puter.com!',
         refresh: 'Vernieuwen',
         rename: 'Hernoemen',
         replace: 'Vervangen',
@@ -254,7 +250,6 @@ const nl = {
         videos: 'Video\'s',
         visibility: 'Zichtbaarheid',
         yes: 'Ja',
-        you_have_been_referred_to_puter_by_a_friend: 'Je bent door een vriend doorverwezen naar Puter!',
         zip: 'Zip',
         zipping_file: 'Bestand inpakken %strong%',
 
@@ -352,16 +347,10 @@ const nl = {
         // =============================================================
         // Missing translations
         // =============================================================
-        'choose_publishing_option': 'Kies hoe u uw website wilt publiceren:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'Snelkoppeling maken (Bureaublad)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'Snelkoppelingen maken (Bureaublad)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'Snelkoppelingen maken', // In English: "Create Shortcuts"
         'minimize': 'Minimaliseren', // In English: "Minimize"
         'reload_app': 'App herladen', // In English: "Reload App"
         'publish_as_serverless_worker': 'Publiceer als Worker', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Naar volledig scherm', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'Vriend uitnodigen', // In English: "Refer"
         'used_of': '{{used}} van {{available}} gebruikt', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker" (No direct Dutch equivalent, commonly used in tech context)
         'billing.offering.basic': 'Basis', // In English: "Basic"
@@ -388,9 +377,6 @@ const nl = {
         'window_title_publish_website': 'Website publiceren', // In English: "Publish Website"
         'window_title_publish_worker': 'Worker publiceren', // In English: "Publish Worker"
         'window_title_authenticating': 'Authenticatie bezig...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'Verwijs een vriend!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'Volledig scherm verlaten', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'Naar volledig scherm', // In English: "Enter Full Screen"
 
         'item_shared_with_you': 'Een gebruiker heeft dit item met u gedeeld.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'U heeft dit item met ten minste één andere gebruiker gedeeld.', // In English: "You have shared this item with at least one other user."

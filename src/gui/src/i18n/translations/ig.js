@@ -90,7 +90,6 @@ const ig = {
         deploy_as_app: 'Bugharịa dị ka ngwa',
         descending: 'agbadata',
         desktop: 'desktọpụ',
-        desktop_background_fit: 'dabara',
         developers: 'Ndị mme ya',
         disable_2fa: 'Gbanyụọ 2FA',
         disable_2fa_confirm: "Ị ji n'aka na ịchọrọ gbanyụọ 2FA?",
@@ -133,7 +132,6 @@ const ig = {
         html_document: 'akwụkwọ HTML',
         hue: 'Hue',
         incorrect_password: 'paswọọdụ ezighi ezi',
-        invite_link: 'Njikọ ịkpọ òkù',
         item: 'ihe',
         items_in_trash_cannot_be_renamed: 'Enweghị ike ịnyegharị ihe a aha n\'ihi na ọ nọ na ahịhịa. Iji nyegharịa ihe a aha, buru ụzọ dọrọ ya na ahịhịa.',
         jpeg_image: 'Foto JPEG',
@@ -186,7 +184,6 @@ const ig = {
         paste: 'tinye',
         paste_into_folder: "Tinye n'ime nchekwa",
         path: 'ụzọ',
-        personalization: 'Nhazi onwe',
         pictures: 'Foto',
         plural_suffix: 's',
         powered_by_puter_js: 'Kwadoro site na {{link=docs}}Puter.js{{/link}}',
@@ -205,7 +202,6 @@ const ig = {
         recover_password: 'Weghachite paswọọdụ',
         refer_friends_c2a:
       'Nweta 1 GB maka enyi ọ bụla mepụtara ma kwado akaụntụ na Puter. Enyi gị ga-enwetakwa 1 GB!',
-        refer_friends_social_media_c2a: 'Nweta 1 GB nke nchekwa efu na Puter.com!',
         refresh: 'Weghachite ume',
         rename: 'Nyegharịa aha',
         replace: 'Dochie',
@@ -273,7 +269,6 @@ const ig = {
         videos: 'Vidiyo',
         visibility: 'Nhụta',
         yes: 'Ee',
-        you_have_been_referred_to_puter_by_a_friend: 'Otu enyi zigara gị na Puter!',
         zip: 'Zip',
         zipping_file: 'Zipping %strong%',
 
@@ -375,16 +370,10 @@ const ig = {
         'billing.expanded': 'Gbasaa', // In English: "Expanded"
         'billing.accelerated': 'Ọsọ ọsọ', // In English: "Accelerated"
         'billing.enjoy_msg': 'Nwee obi ụtọ na Nchekwa igwe ojii gbakwunyere uru ndị ọzọ', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-        'choose_publishing_option': 'Họrọ otu ịchọrọ ibipụta weebụsaịtị gị:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'Mepụta Ụzọ mkpirisi (Desktọpụ)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'Mepụta Ụzọ mkpirisi (Desktọpụ)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'Mepụta ụzọ mkpirisi', // In English: "Create Shortcuts"
         'minimize': 'Wedata', // In English: "Minimize"
         'reload_app': 'Bugharịa ngwa', // In English: "Reload App"
         'publish_as_serverless_worker': 'Bipụta dị ka onye ọrụ', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Tinye ihuenyo zuru oke', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'Tụtụ aka', // In English: "Refer"
         'used_of': '{{used}} ejiri {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Onye ọrụ', // In English: "Worker"
         'billing.offering.basic': 'Isi', // In English: "Basic"
@@ -411,9 +400,6 @@ const ig = {
         'window_title_publish_website': 'Bipụta Weebụsaịtị', // In English: "Publish Website"
         'window_title_publish_worker': 'Bipụta Onye Ọrụ', // In English: "Publish Worker"
         'window_title_authenticating': 'Na-achọpụta...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'Tụgharịa enyi!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'Wepụ ihuenyo zuru oke', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'Tinye ihuenyo zuru oke', // In English: "Enter Full Screen"
         'item_shared_with_you': 'Onye ọrụ ekenyela gị ihe a.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Ị kekọrịtala ihe a na opekata mpe otu onye ọrụ ọzọ', // In English: " with at least one other user."
         'item_shortcut': 'Ụzọ mkpirisi', // In English: "Shortcut"

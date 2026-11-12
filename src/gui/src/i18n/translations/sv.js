@@ -82,7 +82,6 @@ const sv = {
         deploy_as_app: 'Distribuera som app',
         descending: 'Fallande',
         desktop: 'Skrivbord',
-        desktop_background_fit: 'Anpassa',
         developers: 'Utvecklare',
         disable_2fa: 'Stäng av 2FA',
         disable_2fa_confirm: 'Är det säkert att du vill stänga av 2FA?',
@@ -121,7 +120,6 @@ const sv = {
         html_document: 'HTML-dokument',
         hue: 'Färgton',
         incorrect_password: 'Felaktigt lösenord',
-        invite_link: 'Länk för inbjudan',
         item: 'Objekt',
         items_in_trash_cannot_be_renamed: 'Det här objektet kan inte byta namn eftersom det är i papperskorgen. För att byta namn på detta objekt, dra det först ur papperskorgen.',
         jpeg_image: 'JPEG-bild',
@@ -169,7 +167,6 @@ const sv = {
         paste: 'Klistra in',
         paste_into_folder: 'Klistra in i mapp',
         path: 'Filväg',
-        personalization: 'Personalisering',
         pictures: 'Bilder',
         plural_suffix: '', // neutrum has "", utrum has "or", "ar", "er"
         powered_by_puter_js: 'Drivs av {{link=docs}}Puter.js{{/link}}',
@@ -187,7 +184,6 @@ const sv = {
         reading_file: 'Läser in %strong%',
         recover_password: 'Återställ lösenord',
         refer_friends_c2a: 'Få 1 GB för varje vän som skapar och bekräftar ett konto på Puter. Din vän får också 1 GB.',
-        refer_friends_social_media_c2a: 'Få 1 GB gratis lagringsutrymme på Puter.com!',
         refresh: 'Uppdatera',
         rename: 'Byt namn',
         replace: 'Ersätt',
@@ -253,7 +249,6 @@ const sv = {
         videos: 'Videor',
         visibility: 'Synlighet',
         yes: 'Ja',
-        you_have_been_referred_to_puter_by_a_friend: 'Du har blivit hänvisad till Puter av en vän!',
         zip: 'Zippa',
         zipping_file: 'Komprimerar %strong%',
 
@@ -350,17 +345,11 @@ const sv = {
         'billing.expanded': 'Utökad', // In English: "Expanded"
         'billing.accelerated': 'Accelererad', // In English: "Accelerated"
         'billing.enjoy_msg': 'Njut av %% av Cloud Storage plus andra förmåner.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
-        'choose_publishing_option': 'Välj hur du vill publicera din webbplats:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'Skapa genväg (skrivbord)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'Skapa genvägar (skrivbord)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'Skapa genvägar', // In English: "Create Shortcuts"
         'minimize': 'Minimera', // In English: "Minimize"
         'reload_app': 'Ladda om app', // In English: "Reload App"
         'plural_suffix': 'ar', // In English: "s"
         'publish_as_serverless_worker': 'Publicera som Worker', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Aktivera helskärm', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'Rekommendera', // In English: "Refer"
         'used_of': '{{used}} använt av {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Bas', // In English: "Basic"
@@ -387,9 +376,6 @@ const sv = {
         'window_title_publish_website': 'Publicera webbplats', // In English: "Publish Website"
         'window_title_publish_worker': 'Publicera Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autentiserar...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'Rekommendera en vän!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'Avsluta helskärm', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'Aktivera helskärm', // In English: "Enter Full Screen"
         'item_shared_with_you': 'En användare har delat detta objekt med dig.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Du har delat detta objekt med minst en annan användare.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Genväg', // In English: "Shortcut"
