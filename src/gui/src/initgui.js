@@ -20,7 +20,6 @@
 import UIDashboard from './UI/Dashboard/UIDashboard.js';
 import TabApps from './UI/Dashboard/TabApps.js';
 import UIAlert from './UI/UIAlert.js';
-import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
@@ -1161,8 +1160,6 @@ const launch_services = async function (options) {
         services_m_[name] = instance;
     };
 
-    globalThis.def(UIComponentWindow, 'ui.UIComponentWindow');
-
     // === Hooks for Service Scripts from Backend ===
     const service_script_deferred = { services: [], on_ready: [] };
     const service_script_api = {
@@ -1172,7 +1169,6 @@ const launch_services = async function (options) {
         // so this hack makes that possible.
         def: globalThis.def,
         use: globalThis.use,
-        // use: name => ({ UIWindow, UIComponentWindow })[name],
     };
     globalThis.service_script_api_promise.resolve(service_script_api);
 

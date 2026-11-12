@@ -63,7 +63,6 @@ vi.mock('./UI/UIDesktop.js', () => ({ default: vi.fn(async () => null) }));
 vi.mock('./UI/UIAlert.js', () => ({ default: vi.fn(async () => undefined) }));
 vi.mock('./UI/UIItem.js', () => ({ default: vi.fn() }));
 vi.mock('./UI/UIWindow.js', () => ({ default: vi.fn(async () => null) }));
-vi.mock('./UI/UIComponentWindow.js', () => ({ default: class {} }));
 vi.mock('./UI/UIWindowProgress.js', () => ({ default: vi.fn() }));
 vi.mock('./UI/UIWindowSaveAccount.js', () => ({ default: vi.fn() }));
 vi.mock('./UI/Auth/UIAuthLogin.js', () => ({ default: vi.fn(async () => false) }));
