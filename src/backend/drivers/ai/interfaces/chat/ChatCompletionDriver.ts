@@ -107,8 +107,8 @@ import {
     isToolChoice,
     toolChoiceFromWire,
 } from '../../protocols/openaiCompatible/openaiParams.js';
+import { catalogPrice } from '../../shared/catalogPrice.js';
 import {
-    catalogPrice,
     costKeys,
     costsForRequest,
     isFreeModel,

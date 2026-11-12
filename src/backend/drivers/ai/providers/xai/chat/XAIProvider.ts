@@ -19,7 +19,7 @@
 
 import { OpenAI } from 'openai';
 import { ChatCompletionCreateParams } from 'openai/resources/index.js';
-import { catalogPrice } from '../../../interfaces/chat/utils/pricing.js';
+import { catalogPrice } from '../../../shared/catalogPrice.js';
 import { servedServiceSpeed } from '../../../interfaces/chat/utils/serviceSpeed.js';
 import { Context } from '../../../../../core/context.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';

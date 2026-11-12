@@ -21,7 +21,7 @@ import type {
     ModelCost,
     ModelPricingOverride,
 } from '../../../interfaces/chat/types.js';
-import { catalogPrice } from '../../../interfaces/chat/utils/pricing.js';
+import { catalogPrice } from '../../../shared/catalogPrice.js';
 
 const PRICE_KEYS = new Set([
     'prompt',

@@ -31,7 +31,7 @@ import {
     modelSupportsVision,
 } from '../../../interfaces/chat/utils/mediaParts.js';
 import * as OpenAIUtil from '../../../protocols/openaiCompatible/OpenAIUtil.js';
-import { catalogPrice } from '../../../interfaces/chat/utils/pricing.js';
+import { catalogPrice } from '../../../shared/catalogPrice.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
     type ChatProviderConfig,

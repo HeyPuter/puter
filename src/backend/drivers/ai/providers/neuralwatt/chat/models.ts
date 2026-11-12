@@ -18,7 +18,7 @@
  */
 
 import type { IChatModel } from '../../../interfaces/chat/types.js';
-import { catalogPrice } from '../../../interfaces/chat/utils/pricing.js';
+import { catalogPrice } from '../../../shared/catalogPrice.js';
 
 export const NEURALWATT_ID_PREFIX = 'neuralwatt:';
 export const NEURALWATT_DEFAULT_MODEL = 'neuralwatt:deepseek-v4-flash';

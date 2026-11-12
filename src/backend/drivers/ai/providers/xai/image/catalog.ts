@@ -18,7 +18,7 @@
  */
 
 import axios from 'axios';
-import { catalogPrice } from '../../../interfaces/chat/utils/pricing.js';
+import { catalogPrice } from '../../../shared/catalogPrice.js';
 import { XAI_IMAGE_GENERATION_MODELS, type XaiImageModel } from './models.js';
 
 /** `pricing[].price_per_image` is documented in 1/100,000,000ths of a USD cent. */

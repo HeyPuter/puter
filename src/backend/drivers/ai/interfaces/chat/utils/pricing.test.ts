@@ -21,7 +21,6 @@ import { describe, expect, it } from 'vitest';
 import type { IChatModel } from '../types.js';
 import {
     buildCostsOverride,
-    catalogPrice,
     costsForRequest,
     isFreeModel,
     isOutputCostKey,
@@ -478,12 +477,6 @@ it('does not advertise a partially priced or conditionally paid model as free', 
 
 it('preserves free classification for legacy hyphenated token keys', () => {
     expect(isFreeModel(model({ 'input-tokens': 0, 'output-tokens': 0 }))).toBe(true);
-});
-
-it('leaves overflowing catalog unit conversions unknown', () => {
-    expect(catalogPrice(1e308, 100)).toBeUndefined();
-    expect(catalogPrice(0, 100)).toBe(0);
-    expect(catalogPrice('0.0000000014', 100_000_000)).toBeCloseTo(0.14);
 });
 
 describe('costsForRequest prompt-size overrides', () => {

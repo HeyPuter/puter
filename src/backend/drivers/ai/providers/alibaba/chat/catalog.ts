@@ -19,7 +19,7 @@
 
 import axios from 'axios';
 import type { IChatModel } from '../../../interfaces/chat/types.js';
-import { catalogPrice } from '../../../interfaces/chat/utils/pricing.js';
+import { catalogPrice } from '../../../shared/catalogPrice.js';
 import { ALIBABA_MODELS } from './models.js';
 
 export interface AlibabaApiModel {

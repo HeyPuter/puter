@@ -23,29 +23,7 @@ import type {
     ModelPricingOverride,
     UsageDetails,
 } from '../types.js';
-
-/**
- * Absent, negative and placeholder prices remain unpriced, including empty
- * strings.
- */
-export const catalogPrice = (
-    value: unknown,
-    multiplier = 1,
-): number | undefined => {
-    if (typeof value !== 'number' && typeof value !== 'string')
-        return undefined;
-    if (
-        typeof value === 'string' &&
-        !/^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim())
-    )
-        return undefined;
-    const price = Number(value);
-    if (!Number.isFinite(price) || price < 0) return undefined;
-    const converted = price * multiplier;
-    return Number.isFinite(converted) && !(price > 0 && converted === 0)
-        ? converted
-        : undefined;
-};
+import { catalogPrice } from '../../../shared/catalogPrice.js';
 
 const CENTS_PER_USD = 100;
 const MTOK = 1_000_000;

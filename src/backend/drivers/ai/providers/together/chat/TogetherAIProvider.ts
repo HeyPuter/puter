@@ -21,7 +21,7 @@ import { Together } from 'together-ai';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import type { IChatModel } from '../../../interfaces/chat/types.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
-import { catalogPrice } from '../../../interfaces/chat/utils/pricing.js';
+import { catalogPrice } from '../../../shared/catalogPrice.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {
     type ChatProviderConfig,

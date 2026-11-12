@@ -30,7 +30,7 @@ import type {
 import { BoundedTtlMap } from '../../../../../util/boundedTtlMap.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
 import { servedServiceSpeed } from '../../../interfaces/chat/utils/serviceSpeed.js';
-import { catalogPrice } from '../../../interfaces/chat/utils/pricing.js';
+import { catalogPrice } from '../../../shared/catalogPrice.js';
 import { mapOpenRouterPricing } from './pricing.js';
 import { sdkClientOptions } from '../../../interfaces/chat/utils/sdkClient.js';
 import {

@@ -42,7 +42,8 @@ import {
     type MeterChatUsageOptions,
 } from '../../interfaces/chat/utils/meterChatUsage.js';
 import { servedServiceSpeed } from '../../interfaces/chat/utils/serviceSpeed.js';
-import { catalogPrice, costKeys } from '../../interfaces/chat/utils/pricing.js';
+import { costKeys } from '../../interfaces/chat/utils/pricing.js';
+import { catalogPrice } from '../../shared/catalogPrice.js';
 import { normalizeModelKey } from '../../interfaces/chat/utils/modelRouting.js';
 import * as OpenAIUtil from './OpenAIUtil.js';
 import { openAICompatParams, type OpenAIDialect } from './openaiParams.js';

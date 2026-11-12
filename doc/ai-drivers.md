@@ -61,11 +61,10 @@ A provider whose vendor has its own API, such as `ClaudeProvider` or `ElevenLabs
 
 ### Not split out yet
 
-Three places still break these rules:
+Two places still break these rules:
 
 - `OCRDriver` calls AWS Textract and Mistral itself. Only the Textract price list lives in `providers/awsTextract/ocr/`.
 - `VoiceChangerDriver` calls ElevenLabs itself and reads the output formats from the ElevenLabs text-to-speech provider.
-- The Cloudflare and xAI image catalogs import `catalogPrice` from the chat interface's `utils/pricing.ts`.
 
 ## Where a file goes
 
