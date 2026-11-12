@@ -1802,9 +1802,12 @@ describe('ACLService filesystem descriptors and refusals', () => {
         });
     });
 
-    it('answers an entry with no path as absent', async () => {
+    it.each([
+        ['no', null],
+        ['an empty', ''],
+    ])('answers an entry with %s path as absent', async (_label, path) => {
         const { service } = withChains();
-        const pathless = null as unknown as string;
+        const pathless = path as unknown as string;
 
         await expect(
             service.check(

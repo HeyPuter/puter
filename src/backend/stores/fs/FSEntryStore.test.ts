@@ -787,24 +787,38 @@ describe('FSEntryStore legacy NULL-path healing', () => {
     const lagReplicaFor = async (uuid: string) => {
         const db = server.clients.db;
         const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        const primary = vi
+            .spyOn(db, 'pread')
+            .mockImplementation(async (sql: string, params?: unknown[]) =>
+                originalRead.call(db, sql, params),
+            );
         const [stale] = (await originalRead.call(
             db,
             `SELECT * FROM fsentries WHERE uuid = ?`,
             [uuid],
         )) as Array<Record<string, unknown>>;
-        return vi
+        const replica = vi
             .spyOn(db, 'read')
             .mockImplementation(async (sql: string, params?: unknown[]) => {
                 const rows = (await originalRead.call(db, sql, params)) as
                     unknown[] | undefined;
                 if (!Array.isArray(rows)) return rows;
-                return rows.map((row) =>
-                    (row as { uuid?: string }).uuid === uuid &&
-                    'path' in (row as object)
-                        ? { ...(row as object), path: stale.path }
-                        : row,
-                );
+                return rows.map((row) => {
+                    const r = row as Record<string, unknown>;
+                    if (r.uuid !== uuid) return row;
+                    const lagged = { ...r };
+                    for (const key of Object.keys(r)) {
+                        if (key in stale) lagged[key] = stale[key];
+                    }
+                    return lagged;
+                });
             });
+        return {
+            mockRestore: () => {
+                replica.mockRestore();
+                primary.mockRestore();
+            },
+        };
     };
 
     it.each([
@@ -814,18 +828,22 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         'gives an entry healed by %s its written path while the replica lags',
         async (_route, lookup) => {
             const user = await makeUser();
-            const folder = await createFile(
-                user,
+            await createFile(user, `${user.home}/Documents/lagged/keep.txt`);
+            const folder = (await store.getEntryByPath(
                 `${user.home}/Documents/lagged`,
-                { isDir: true },
-            );
+            ))!;
             await blankPath(folder.uuid);
 
             const spy = await lagReplicaFor(folder.uuid);
+            await server.clients.db.write(
+                'UPDATE fsentries SET layout = ? WHERE uuid = ?',
+                ['list', folder.uuid],
+            );
             try {
                 await expect(lookup(folder)).resolves.toMatchObject({
                     uuid: folder.uuid,
                     path: folder.path,
+                    layout: 'list',
                 });
             } finally {
                 spy.mockRestore();
@@ -833,6 +851,68 @@ describe('FSEntryStore legacy NULL-path healing', () => {
             await expect(pathOf(folder.uuid)).resolves.toBe(folder.path);
         },
     );
+
+    it('keeps a path written by a move that lands before the heal', async () => {
+        const user = await makeUser();
+        const file = await createFile(
+            user,
+            `${user.home}/Documents/before.txt`,
+        );
+        await blankPath(file.uuid);
+
+        const spy = await lagReplicaFor(file.uuid);
+        const moved = `${user.home}/Documents/after.txt`;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ?, name = ? WHERE uuid = ?',
+            [moved, 'after.txt', file.uuid],
+        );
+        try {
+            await expect(
+                store.getEntryByUuid(file.uuid),
+            ).resolves.toMatchObject({ path: moved });
+        } finally {
+            spy.mockRestore();
+        }
+        await expect(pathOf(file.uuid)).resolves.toBe(moved);
+    });
+
+    it('heals a path in which each row is the parent of the next', async () => {
+        const user = await makeUser();
+        await createFile(user, `${user.home}/Notes/a.txt`);
+        const file = await createFile(user, `${user.home}/notes/x.txt`);
+        await blankPath(file.uuid);
+
+        // Names match case-insensitively here, as under MySQL's collation.
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        const spy = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql: string, params?: unknown[]) =>
+                originalRead.call(
+                    db,
+                    sql.includes('segments(depth, name)')
+                        ? sql.replaceAll(
+                              'f.name = s.name',
+                              'f.name = s.name COLLATE NOCASE',
+                          )
+                        : sql,
+                    params,
+                ),
+            );
+        try {
+            await expect(
+                store.getEntryByPath(`${user.home}/Notes/x.txt`),
+            ).resolves.toMatchObject({
+                uuid: file.uuid,
+                path: `${user.home}/notes/x.txt`,
+            });
+        } finally {
+            spy.mockRestore();
+        }
+        await expect(pathOf(file.uuid)).resolves.toBe(
+            `${user.home}/notes/x.txt`,
+        );
+    });
 
     it('leaves an entry alone when its ancestor chain is broken', async () => {
         const user = await makeUser();
@@ -850,6 +930,11 @@ describe('FSEntryStore legacy NULL-path healing', () => {
             uuid: orphan.uuid,
             path: null,
         });
+        await expect(
+            server.clients.redis.get(`prodfsv2:fsentry:uuid:${orphan.uuid}`),
+        ).resolves.toBeNull();
+
+        await store.updateEntryThumbnailByUuid(orphan.uuid, 'thumb');
         await expect(
             server.clients.redis.get(`prodfsv2:fsentry:uuid:${orphan.uuid}`),
         ).resolves.toBeNull();
