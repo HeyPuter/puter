@@ -1831,7 +1831,6 @@ async function UIWindow (options) {
             // document mousedown -> focusWindow path, which fires before any
             // drag starts.
             scroll: false,
-            containment: '.window-container',
         });
     }
 
@@ -2478,7 +2477,15 @@ async function UIWindow (options) {
     if ( options.is_fullpage ) {
         $(el_window).hide();
         setTimeout(function () {
-            window.enter_fullpage_mode(el_window);
+            $(el_window).find('.window-head').hide();
+            $('body').addClass('fullpage-mode');
+            $(el_window).css({
+                width: '100%',
+                height: '100%',
+                top: 0,
+                left: 0,
+                'border-radius': 0,
+            });
             $(el_window).show();
         }, 50);
     }
@@ -3292,9 +3299,8 @@ $.fn.close = async function (options) {
             let window_uuid = $(this).attr('data-element_uuid');
             // remove all instances of win_id from window.window_stack
             window.window_stack = window.window_stack.filter(id => id !== win_id);
-            // if a fullpage window is closed, show the desktop
             if ( $(this).attr('data-is_fullpage') === '1' ) {
-                window.exit_fullpage_mode();
+                $('body').removeClass('fullpage-mode');
             }
 
             // FileDialog closed

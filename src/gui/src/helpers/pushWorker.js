@@ -87,15 +87,3 @@ export const startPushWorker = async ({
         console.warn('Could not update the service worker:', err);
     }
 };
-
-/** Closes a browser banner that the desktop's worker showed for this uid. */
-export const closeLocalBanner = async (uid, nav = globalThis.navigator) => {
-    try {
-        const registration = await nav?.serviceWorker?.getRegistration?.('/');
-        for ( const notification of await registration?.getNotifications?.() ?? [] ) {
-            if ( notification.data?.uid === uid ) notification.close();
-        }
-    } catch ( err ) {
-        console.warn('Could not close a browser notification:', err);
-    }
-};

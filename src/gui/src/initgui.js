@@ -20,7 +20,6 @@
 import UIDashboard from './UI/Dashboard/UIDashboard.js';
 import TabApps from './UI/Dashboard/TabApps.js';
 import UIAlert from './UI/UIAlert.js';
-import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
@@ -269,15 +268,9 @@ const postAuthActions = async (action) => {
     }
 
     // -------------------------------------------------------------------------------------
-    // Load desktop, only if we're not embedded in a popup and not on the dashboard page
-    // -------------------------------------------------------------------------------------
-    if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
-        UIDesktop();
-    }
-    // -------------------------------------------------------------------------------------
     // Dashboard mode
     // -------------------------------------------------------------------------------------
-    else if ( window.is_dashboard_mode ) {
+    if ( window.is_dashboard_mode ) {
         // Paint in the language this browser last loaded, so the dashboard
         // doesn't wait on the saved preferences; a different saved language
         // reloads into it.
@@ -2377,8 +2370,6 @@ window.initgui = async function (options) {
         $('.window').close();
         // close all ctxmenus
         $('.context-menu').remove();
-        // remove desktop
-        $('.desktop').remove();
         // disable native browser exit confirmation
         window.onbeforeunload = null;
         window.location.replace('/');
