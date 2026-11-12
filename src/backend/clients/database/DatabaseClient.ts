@@ -172,11 +172,7 @@ export class AbstractDatabaseClient extends PuterClient {
         return result.value;
     }
 
-    /**
-     * Runs `reads` together on the replica and, only when every one comes back
-     * empty or fails, all of them together on the primary. Without a replica
-     * this is one `read()` each. Rows come back in the order of `reads`.
-     */
+    /** Reads the primary only when every replica read is empty or fails. */
     @Span('db.tryHardReadAll', (reads: unknown[]) => ({
         'db.batch_size': reads.length,
     }))

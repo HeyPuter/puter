@@ -666,8 +666,7 @@ export class SessionStore extends PuterStore {
             otherwise: 'legacy_token_uid',
         });
         const now = nowSeconds();
-        // Sent together, and to the primary only when both miss on the
-        // replica, so a token minted moments ago is found while it catches up.
+        // A token minted moments ago is found while the replica catches up.
         const [own, legacy] = await this.clients.db.tryHardReadAll(
             ['access_token_uid', legacyColumn].map((column) => ({
                 query: `SELECT * FROM \`sessions\` WHERE \`kind\` = 'access_token' AND \`${column}\` = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) ORDER BY \`id\` DESC LIMIT 1`,
