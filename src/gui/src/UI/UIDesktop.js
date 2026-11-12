@@ -1133,34 +1133,9 @@ async function UIDesktop (options) {
         window.open('/dashboard/#home', '_blank');
     }
     // ---------------------------------------------
-    // Run apps from insta-login URL
-    // ---------------------------------------------
-    if ( window.url_query_params.has('app') ) {
-        let url_app_name = window.url_query_params.get('app');
-        if ( url_app_name === 'explorer' ) {
-            let predefined_path = window.home_path;
-            if ( window.url_query_params.has('path') )
-            {
-                predefined_path = window.url_query_params.get('path');
-            }
-            // launch explorer
-            UIWindow({
-                path: predefined_path,
-                title: path.basename(predefined_path),
-                icon: await item_icon({ is_dir: true, path: predefined_path }),
-                // todo
-                // uid: $(el_item).attr('data-uid'),
-                is_dir: true,
-                // todo
-                // sort_by: $(el_item).attr('data-sort_by'),
-                app: 'explorer',
-            });
-        }
-    }
-    // ---------------------------------------------
     // load from direct app URLs: /app/app-name
     // ---------------------------------------------
-    else if ( window.app_launched_from_url ) {
+    if ( window.app_launched_from_url ) {
         if ( ! window.url_query_params.has('c') ) {
             let posargs = undefined;
             if ( window.app_query_params && window.app_query_params.posargs ) {

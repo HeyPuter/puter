@@ -1265,8 +1265,7 @@ if (jQuery) {
 // open in the dashboard too: the app comes up maximized in-page with the dashboard
 // route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
-// (`?embedded_in_popup=`), app deep links (`?app=`), fullpage mode
-// (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
+// (`?embedded_in_popup=`), fullpage mode (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
 // from an email) lands in the dashboard: Files, on Shared, with the items it names
 // picked out; the desktop ignores it. App metadata
 // like fullpage_on_landing does NOT opt a landing out of the dashboard; it only

@@ -39,7 +39,6 @@ describe('bootsDashboard', () => {
     });
 
     it('boots the desktop for flows only the desktop handles', () => {
-        expect(boots('/?app=editor')).toBe(false);
         expect(boots('/?puter.fullpage=true')).toBe(false);
         expect(boots('/', { inIframe: true })).toBe(false);
         expect(boots('/', { embeddedInPopup: true })).toBe(false);
@@ -49,8 +48,10 @@ describe('bootsDashboard', () => {
         expect(boots('/dashboard', { inIframe: true })).toBe(true);
     });
 
-    it('boots the dashboard for a share link or a download link', () => {
+    it('boots the dashboard for share, download and ?app= links', () => {
         expect(boots('/?shared=%2Fann%2Fuid%2Fnotes.txt')).toBe(true);
         expect(boots('/?download=https%3A%2F%2Fexample.com%2Ffile.zip')).toBe(true);
+        expect(boots('/?app=explorer&path=%2Falice%2FDocuments')).toBe(true);
+        expect(boots('/app/editor?app=explorer')).toBe(true);
     });
 });

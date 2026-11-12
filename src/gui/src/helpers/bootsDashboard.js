@@ -35,7 +35,6 @@ export function bootsDashboard ({ pathname, searchParams, inIframe, embeddedInPo
     if ( pathname !== '/' && !isAppLanding ) return false;
     const needsDesktop = embeddedInPopup
         || inIframe
-        || searchParams.has('puter.fullpage')
-        || searchParams.has('app');
+        || searchParams.has('puter.fullpage');
     return !needsDesktop;
 }
