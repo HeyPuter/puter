@@ -218,6 +218,19 @@ describe('TTSDriver.synthesize authentication', () => {
             driver.synthesize({ text: 'hi' } as never),
         ).rejects.toMatchObject({ statusCode: 401 });
     });
+
+    it('answers 400 for an option value that cannot be text', async () => {
+        await expect(
+            driver.synthesize({
+                text: 'hi',
+                language: { toString: null },
+            } as never),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: '`language` is not a usable value',
+        });
+    });
 });
 
 // ── Provider routing ────────────────────────────────────────────────

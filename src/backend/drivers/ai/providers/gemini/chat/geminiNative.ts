@@ -233,6 +233,13 @@ const toGenerateContentRequest = (
     signal: AbortSignal | undefined,
 ) => {
     const { contents, systemInstruction } = toGeminiContents(params.messages);
+    if (!contents.length) {
+        throw new HttpError(
+            400,
+            '`messages` must include a user or assistant message',
+            { legacyCode: 'bad_request' },
+        );
+    }
     // Only caller-defined functions; Google's built-in tools aren't offered.
     const functions = (params.tools ?? []).flatMap((tool) =>
         tool.type === 'function' && tool.function ? [tool.function] : [],

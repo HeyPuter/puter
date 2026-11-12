@@ -449,3 +449,106 @@ describe('extract_text', () => {
         ).toThrow(expect.objectContaining({ statusCode: 400 }));
     });
 });
+
+describe('normalize_single_message block validation', () => {
+    it.each([
+        [
+            'an assistant tool call',
+            {
+                role: 'assistant',
+                tool_calls: [
+                    { id: { toString: null }, function: { name: 'f', arguments: '{}' } },
+                ],
+            },
+        ],
+        [
+            'a tool_use block',
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: { toString: null },
+                        name: 'f',
+                        input: {},
+                    },
+                ],
+            },
+        ],
+        [
+            'a tool message',
+            { role: 'tool', tool_call_id: [{ toString: null }], content: 'ok' },
+        ],
+        [
+            'a tool_result block',
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'tool_result',
+                        tool_use_id: { toString: null },
+                        content: 'ok',
+                    },
+                ],
+            },
+        ],
+    ])('rejects a tool call id that cannot be text on %s', (_label, message) => {
+        expect(() => normalize_single_message(message)).toThrow(
+            expect.objectContaining({
+                statusCode: 400,
+                message: 'a tool call id must be a string',
+            }),
+        );
+    });
+
+    it('keeps a numeric tool call id as the caller sent it', () => {
+        const message = normalize_single_message({
+            role: 'assistant',
+            content: [{ type: 'tool_use', id: 7, name: 'f', input: {} }],
+        });
+        expect(message.content[0].id).toBe(7);
+    });
+
+    it('keeps a tool call that has no id', () => {
+        const message = normalize_single_message({
+            role: 'assistant',
+            tool_calls: [{ function: { name: 'f', arguments: '{}' } }],
+        });
+        expect(message.content).toEqual([
+            { type: 'tool_use', id: undefined, name: 'f', input: '{}' },
+        ]);
+    });
+
+    it('rejects a content item whose type cannot be text', () => {
+        expect(() =>
+            normalize_single_message({
+                role: 'user',
+                content: [{ type: { toString: null }, text: 'hi' }],
+            }),
+        ).toThrow(
+            expect.objectContaining({
+                statusCode: 400,
+                message: 'each message content item type must be a string',
+            }),
+        );
+    });
+
+    it('sends an object tool result as its JSON', () => {
+        const message = normalize_single_message({
+            role: 'user',
+            content: [
+                { type: 'tool_result', tool_use_id: 't1', content: { temp: 21 } },
+            ],
+        });
+        expect(message.content[0].content).toBe('{"temp":21}');
+    });
+
+    it('keeps a tool result made of content blocks', () => {
+        const blocks = [{ type: 'text', text: 'Sunny' }];
+        const message = normalize_single_message({
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: 't1', content: blocks }],
+        });
+        expect(message.content[0].content).toEqual(blocks);
+    });
+});

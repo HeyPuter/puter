@@ -216,6 +216,24 @@ describe('estimatePromptTokens', () => {
     });
 });
 
+describe('estimatePromptTokens compaction blocks', () => {
+    const withCompaction = (encrypted_content: unknown) => [
+        { role: 'assistant', content: [{ type: 'compaction', encrypted_content }] },
+    ];
+
+    it('counts the encrypted content as text', () => {
+        expect(estimatePromptTokens(withCompaction('a'.repeat(400)))).toBe(
+            estimateTextTokens('a'.repeat(400)),
+        );
+    });
+
+    it('counts content that is not a string by its JSON', () => {
+        expect(
+            estimatePromptTokens(withCompaction({ toString: null, blob: 'abcdefgh' })),
+        ).toBe(estimateTextTokens('{"toString":null,"blob":"abcdefgh"}'));
+    });
+});
+
 describe('estimateToolTokens', () => {
     it('is zero for no tools', () => {
         expect(estimateToolTokens(undefined)).toBe(0);

@@ -190,6 +190,36 @@ describe('VoiceChangerDriver.convert argument validation', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('answers 400 for an option value that cannot be text', async () => {
+        await expect(
+            driver.convert({
+                audio: dataUrl(Buffer.from('audio'), 'audio/mpeg'),
+                enable_logging: { toString: null },
+            } as never),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: '`enable_logging` is not a usable value',
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects an output format that is not text before calling ElevenLabs', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.convert({
+                    audio: dataUrl(Buffer.from('audio'), 'audio/mpeg'),
+                    output_format: -1,
+                } as never),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
     it.each([
         ['an unpriced', 'eleven_multilingual_sts_v1'],
         ['a malformed', 'eleven_english_sts_v2&x=1'],

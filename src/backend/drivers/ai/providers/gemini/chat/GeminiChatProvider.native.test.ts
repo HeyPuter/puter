@@ -527,6 +527,20 @@ describe('gemini-4-argon text completion', () => {
     });
 });
 
+describe('gemini-4-argon request without a turn', () => {
+    it.each([
+        ['no messages', []],
+        ['only a system message', [{ role: 'system', content: 'Be brief.' }]],
+    ])('rejects %s with 400 before calling Gemini', async (_label, messages) => {
+        await expect(complete({ messages } as never)).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: '`messages` must include a user or assistant message',
+        });
+        expect(generateContent).not.toHaveBeenCalled();
+    });
+});
+
 describe('gemini-4-argon unsupported content', () => {
     const AUDIO = {
         type: 'input_audio',

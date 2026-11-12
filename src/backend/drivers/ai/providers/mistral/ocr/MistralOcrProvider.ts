@@ -19,6 +19,7 @@
 
 import { Mistral } from '@mistralai/mistralai';
 import type { Actor } from '../../../../../core/actor.js';
+import { HttpError } from '../../../../../core/http/HttpError.js';
 import type {
     LoadedFile,
     ResolvedFileInput,
@@ -32,6 +33,7 @@ import {
 } from '../../../interfaces/ocr/common.js';
 import { OCR_COSTS } from '../../../interfaces/ocr/costs.js';
 import type { OcrModel } from '../../../interfaces/ocr/models.js';
+import { isMistralInputError } from '../inputError.js';
 import type {
     IOcrProvider,
     OcrBlock,
@@ -176,6 +178,13 @@ export class MistralOcrProvider implements IOcrProvider {
             const response = await this.#client.ocr.process(payload);
             this.#recordUsage(response, model, actor, annotations);
             return this.#normalizeResponse(response, model);
+        } catch (e) {
+            if (isMistralInputError(e)) {
+                throw new HttpError(400, 'invalid request for Mistral OCR', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            throw e;
         } finally {
             await hold.release();
         }

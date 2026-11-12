@@ -26,6 +26,7 @@ import {
     withAiCostFactor,
 } from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
+import { assertScalarOptions } from '../../shared/scalarOptions.js';
 import {
     resolveOutputPath,
     saveGeneratedMediaToFS,
@@ -80,6 +81,28 @@ const tierForPixels = (
     if (shortSide <= 1080) return '1080p';
     return '4k';
 };
+
+// Options the providers read as text, a number or a flag.
+const SCALAR_OPTIONS = [
+    'prompt',
+    'model',
+    'provider',
+    'seconds',
+    'duration',
+    'size',
+    'resolution',
+    'width',
+    'height',
+    'fps',
+    'steps',
+    'guidance_scale',
+    'seed',
+    'output_format',
+    'output_quality',
+    'negative_prompt',
+    'last_frame',
+    'puter_output_path',
+];
 
 /**
  * Driver implementing the `puter-video-generation` interface.
@@ -164,6 +187,7 @@ export class VideoGenerationDriver extends PuterDriver {
     }
 
     async generate(args: IGenerateVideoParams) {
+        assertScalarOptions(args, SCALAR_OPTIONS);
         const actor = Context.get('actor') as Actor | undefined;
         if (!actor)
             throw new HttpError(401, 'Authentication required', {
@@ -179,7 +203,7 @@ export class VideoGenerationDriver extends PuterDriver {
             ? await resolveOutputPath(this.services, actor, puterOutputPath)
             : undefined;
 
-        if (request.model) {
+        if (typeof request.model === 'string') {
             request.model = request.model.trim().toLowerCase();
         }
 
@@ -595,7 +619,10 @@ export class VideoGenerationDriver extends PuterDriver {
     }
 
     #resolveModel(modelId: string, provider?: string): IVideoModel | null {
-        const models = this.#modelIdMap[modelId?.trim().toLowerCase()];
+        const models =
+            typeof modelId === 'string'
+                ? this.#modelIdMap[modelId.trim().toLowerCase()]
+                : undefined;
         if (!models || models.length === 0) return null;
         if (!provider) return models[0];
 

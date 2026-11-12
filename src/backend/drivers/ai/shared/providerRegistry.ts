@@ -76,7 +76,7 @@ export class ProviderRegistry<P> {
             if (!named) {
                 throw new HttpError(
                     400,
-                    `${this.catalog.label} provider not found: ${String(requested)}. Available: ${this.catalog.ids.join(', ')}`,
+                    `${this.catalog.label} provider not found: ${typeof requested === 'string' ? requested : JSON.stringify(requested)}. Available: ${this.catalog.ids.join(', ')}`,
                     { legacyCode: 'bad_request' },
                 );
             }

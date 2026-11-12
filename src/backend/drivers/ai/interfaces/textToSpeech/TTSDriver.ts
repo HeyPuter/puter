@@ -27,6 +27,7 @@ import {
     withAiCostFactor,
 } from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
+import { assertScalarOptions } from '../../shared/scalarOptions.js';
 import { usesGoogleGeminiEndpoint } from '../../providers/gemini/geminiRest.js';
 import { ProviderRegistry } from '../../shared/providerRegistry.js';
 import { readProviderKey } from '../../../../util/aiProviderKey.js';
@@ -44,6 +45,20 @@ import type {
     ITTSProvider,
     ITTSVoice,
 } from './types.js';
+
+// Options the providers read as text, a number or a flag.
+const SCALAR_OPTIONS = [
+    'text',
+    'voice',
+    'model',
+    'response_format',
+    'output_format',
+    'instructions',
+    'ssml',
+    'language',
+    'engine',
+    'provider',
+];
 
 /**
  * Driver implementing the `puter-tts` interface.
@@ -133,6 +148,7 @@ export class TTSDriver extends PuterDriver {
     async synthesize(
         args: ISynthesizeArgs,
     ): Promise<DriverStreamResult | { url: string; content_type: string }> {
+        assertScalarOptions(args, SCALAR_OPTIONS);
         const actor = Context.get('actor');
         if (!actor)
             throw new HttpError(401, 'Authentication required', {

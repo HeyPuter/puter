@@ -107,6 +107,7 @@ import {
     isToolChoice,
     toolChoiceFromWire,
 } from '../../protocols/openaiCompatible/openaiParams.js';
+import { assertScalarOptions } from '../../shared/scalarOptions.js';
 import { catalogPrice } from '../../shared/catalogPrice.js';
 import {
     costKeys,
@@ -180,6 +181,9 @@ export const COUNT_TOKENS = Symbol('aiChat.countTokens');
  * reopens the overspend window it exists to close.
  */
 const HOLD_RENEW_INTERVAL_MS = 5 * 60 * 1000;
+
+// Options that reach error messages and request headers as text.
+const SCALAR_OPTIONS = ['model', 'provider', 'service_tier'];
 
 /**
  * A moderation refusal is a completion that was produced and charged, then
@@ -693,6 +697,7 @@ export class ChatCompletionDriver extends PuterDriver {
                 { legacyCode: 'invalid_service_speed' },
             );
         }
+        assertScalarOptions(args, SCALAR_OPTIONS);
         const abortSignal = Context.get('abortSignal');
         abortSignal?.throwIfAborted();
         const actor = Context.get('actor');
@@ -747,6 +752,9 @@ export class ChatCompletionDriver extends PuterDriver {
         args.messages = normalizeMediaParts(normalize_messages(args.messages));
         if (args.tools) {
             normalize_tools_object(args.tools);
+        } else {
+            // `tools: enabled && list` leaves `false` here; it means no tools.
+            delete args.tools;
         }
         // A raw `/drivers/call` caller still sends the OpenAI wire form
         // ('auto'/'none'/'required', {type:'function', function:{name}}) —
@@ -1493,6 +1501,7 @@ export class ChatCompletionDriver extends PuterDriver {
     async [COUNT_TOKENS](
         args: ICompleteArguments,
     ): Promise<{ input_tokens: number }> {
+        assertScalarOptions(args, SCALAR_OPTIONS);
         let intendedProvider = args.provider || '';
         if (!args.model && !intendedProvider) {
             intendedProvider = 'azure-openai';
@@ -1518,6 +1527,9 @@ export class ChatCompletionDriver extends PuterDriver {
         args.messages = normalizeMediaParts(normalize_messages(args.messages));
         if (args.tools) {
             normalize_tools_object(args.tools);
+        } else {
+            // `tools: enabled && list` leaves `false` here; it means no tools.
+            delete args.tools;
         }
 
         const provider = this.#providers[model.provider!];
@@ -1851,20 +1863,20 @@ export class ChatCompletionDriver extends PuterDriver {
 
         const cost = usageCost(usage, model, usageCosts, pricingTime);
         const { inputKey, outputKey } = costKeys(model);
+        // The vendor reports usage, and pricing skips a count that is not a
+        // number; so does this.
+        const count = (value: unknown) =>
+            typeof value === 'number' && Number.isFinite(value) ? value : 0;
         const inputTokens = cost
-            ? Number(
-                  usage[inputKey] ??
-                      usage.prompt_tokens ??
-                      usage.input_tokens ??
-                      0,
+            ? count(
+                  usage[inputKey] ?? usage.prompt_tokens ?? usage.input_tokens,
               )
             : 0;
         const outputTokens = cost
-            ? Number(
+            ? count(
                   usage[outputKey] ??
                       usage.completion_tokens ??
-                      usage.output_tokens ??
-                      0,
+                      usage.output_tokens,
               )
             : 0;
         const inputMicroCents = cost?.inputMicroCents ?? 0;

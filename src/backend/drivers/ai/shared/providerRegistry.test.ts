@@ -52,6 +52,17 @@ describe('ProviderRegistry.resolve', () => {
         );
     });
 
+    it('rejects a name that cannot be turned into text with the same 400', () => {
+        expect(() => registry('alpha').resolve({ toString: null })).toThrow(
+            expect.objectContaining({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+                message:
+                    'Test provider not found: {"toString":null}. Available: alpha, beta, gamma',
+            }),
+        );
+    });
+
     it('falls back to the first hint that names a provider, then the default', () => {
         const r = registry('alpha', 'beta');
         expect(r.resolve(undefined, 'not-a-provider', 'beta')).toBe('beta');

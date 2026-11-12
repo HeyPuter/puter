@@ -18,6 +18,7 @@
  */
 
 import { HttpError } from '@heyputer/backend/src/core/http';
+import { convertsToText } from '../../../shared/scalarOptions.js';
 
 /**
  * Normalizes a single message into a standardized format with role and content
@@ -151,6 +152,39 @@ export const normalize_single_message = (message, params = {}) => {
             !message.content[i].type
         ) {
             message.content[i].type = 'text';
+        }
+    }
+
+    // Providers write a block's type and a tool call's id into text, which
+    // throws on a value that can't be converted.
+    for (const block of message.content) {
+        if (!convertsToText(block.type)) {
+            throw new HttpError(
+                400,
+                'each message content item type must be a string',
+                { legacyCode: 'bad_request' },
+            );
+        }
+        const callId =
+            block.type === 'tool_use'
+                ? block.id
+                : block.type === 'tool_result'
+                  ? block.tool_use_id
+                  : undefined;
+        if (!convertsToText(callId)) {
+            throw new HttpError(400, 'a tool call id must be a string', {
+                legacyCode: 'bad_request',
+            });
+        }
+        // A tool's result is text or content blocks; any other object is sent
+        // as its JSON, like the content of a `tool` message above.
+        if (
+            block.type === 'tool_result' &&
+            block.content &&
+            typeof block.content === 'object' &&
+            !Array.isArray(block.content)
+        ) {
+            block.content = JSON.stringify(block.content);
         }
     }
 

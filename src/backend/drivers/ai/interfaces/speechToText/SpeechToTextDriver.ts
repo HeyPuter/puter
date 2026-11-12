@@ -25,6 +25,7 @@ import {
     withAiCostFactor,
 } from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
+import { assertScalarOptions } from '../../shared/scalarOptions.js';
 import { ProviderRegistry } from '../../shared/providerRegistry.js';
 import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import {
@@ -40,6 +41,20 @@ import type {
     ISpeechToTextProvider,
     ITranscribeArgs,
 } from './types.js';
+
+// Options the providers read as text, a number or a flag.
+const SCALAR_OPTIONS = [
+    'provider',
+    'model',
+    'response_format',
+    'language',
+    'prompt',
+    'temperature',
+    'format',
+    'channels',
+    'audio_format',
+    'sample_rate',
+];
 
 /**
  * Driver implementing the `puter-speech2txt` interface.
@@ -112,10 +127,12 @@ export class SpeechToTextDriver extends PuterDriver {
     }
 
     async transcribe(args: ITranscribeArgs) {
+        assertScalarOptions(args, SCALAR_OPTIONS);
         return this.#provider(args).transcribe(this.#providerArgs(args));
     }
 
     async translate(args: ITranscribeArgs) {
+        assertScalarOptions(args, SCALAR_OPTIONS);
         return this.#provider(args).translate(this.#providerArgs(args));
     }
 

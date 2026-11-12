@@ -1019,8 +1019,10 @@ export const handle_completion_output = async (
     if (finally_fn) await finally_fn();
 
     // Some OpenAI-compatible upstreams answer 200 with an error body and no
-    // choices. That's the upstream failing, not a crash of ours.
-    if (!completion?.choices?.length) {
+    // choices, or a choice without a message. That's the upstream failing,
+    // not a crash of ours.
+    const message = completion?.choices?.[0]?.message;
+    if (!message || typeof message !== 'object') {
         const upstreamMessage = completion?.error?.message;
         throw new HttpError(
             400,

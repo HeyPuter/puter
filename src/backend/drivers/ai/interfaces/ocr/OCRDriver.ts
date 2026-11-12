@@ -27,6 +27,7 @@ import {
     withAiCostFactor,
 } from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
+import { assertScalarOptions } from '../../shared/scalarOptions.js';
 import { resolveFileInput } from '../../../util/fileInput.js';
 import {
     type ProviderCatalog,
@@ -69,6 +70,16 @@ const NOT_CONFIGURED: Record<OcrProviderId, string> = {
     'aws-textract': 'AWS credentials not configured',
     mistral: 'Mistral OCR not configured',
 };
+
+// Options the providers read as text, a number or a flag.
+const SCALAR_OPTIONS = [
+    'provider',
+    'model',
+    'documentAnnotationPrompt',
+    'tableFormat',
+    'imageLimit',
+    'imageMinSize',
+];
 
 /**
  * Driver implementing `puter-ocr`, document OCR, with two providers:
@@ -155,6 +166,7 @@ export class OCRDriver extends PuterDriver {
     }
 
     async recognize(args: RecognizeArgs) {
+        assertScalarOptions(args, SCALAR_OPTIONS);
         if (args.test_mode) return sampleResponse();
 
         const model = this.#resolveModel(args);

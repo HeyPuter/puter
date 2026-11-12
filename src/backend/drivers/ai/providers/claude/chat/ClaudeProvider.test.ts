@@ -387,6 +387,25 @@ describe('ClaudeProvider.complete request shape', () => {
         expect(messagesCreateMock).not.toHaveBeenCalled();
     });
 
+    it.each(['context-management-2025-06-27', { 0: 'x' }, [42, null]])(
+        'drops `anthropicBetas` %j, which is not a list of names',
+        async (anthropicBetas) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'claude-haiku-4-5-20251001',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    anthropicBetas,
+                } as never),
+            );
+
+            const [args] = messagesCreateMock.mock.calls[0]!;
+            expect(args.betas).toBeUndefined();
+        },
+    );
+
     it('never forwards mcp_servers — sdkParams is an explicit field list', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);

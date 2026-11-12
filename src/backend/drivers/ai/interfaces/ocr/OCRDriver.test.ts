@@ -49,6 +49,7 @@ import {
 } from '@aws-sdk/client-textract';
 import { v4 as uuidv4 } from 'uuid';
 
+import { SDKValidationError } from '@mistralai/mistralai/models/errors/sdkvalidationerror.js';
 import type { Actor } from '../../../../core/actor.js';
 import { runWithContext } from '../../../../core/context.js';
 import { PuterServer } from '../../../../server.js';
@@ -298,6 +299,19 @@ describe('OCRDriver.recognize argument validation', () => {
                 source: dataUrl(Buffer.from('x'), 'image/png'),
             }),
         ).rejects.toMatchObject({ statusCode: 401 });
+    });
+
+    it('answers 400 for an option value that cannot be text', async () => {
+        await expect(
+            driver.recognize({
+                source: dataUrl(Buffer.from('x'), 'image/png'),
+                imageLimit: { toString: null },
+            } as never),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: '`imageLimit` is not a usable value',
+        });
     });
 
     it('throws 400 when neither source nor file is provided', async () => {
@@ -984,6 +998,27 @@ describe('OCRDriver.recognize (mistral)', () => {
 
         expect(result.document_annotation).toBe('{"total": "42"}');
         expect(result.text).toBe('Total: 42');
+    });
+
+    it('answers 400 when the Mistral SDK refuses the options before sending', async () => {
+        const { actor } = await makeUser();
+        mistralOcrProcessMock.mockRejectedValueOnce(
+            new SDKValidationError('Input validation failed', new Error(), {}),
+        );
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: dataUrl(Buffer.from('x'), 'application/pdf'),
+                    provider: 'mistral',
+                    pages: true,
+                } as never),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+        });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
     it('meters per-page Mistral OCR usage from costs.ts', async () => {

@@ -177,7 +177,11 @@ export class ImageGenerationDriver extends PuterDriver {
         // settled here — once — before any provider runs.
         assertImagePrompt(args.prompt);
         assertInputImagesShape(args, 'image generation');
-        for (const option of ['quality', 'resolution'] as const) {
+        for (const option of [
+            'quality',
+            'resolution',
+            'input_image_mime_type',
+        ] as const) {
             if (args[option] != null && typeof args[option] !== 'string') {
                 throw new HttpError(400, `${option} must be a string`, {
                     legacyCode: 'bad_request',

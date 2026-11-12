@@ -21,6 +21,28 @@ import { describe, expect, it } from 'vitest';
 import { responseSamplingParams } from './responseSampling.js';
 
 describe('responseSamplingParams', () => {
+    it.each(['reasoning.encrypted_content', { 0: 'x' }, 1])(
+        'rejects `include` %j, which is not an array',
+        (include) => {
+            for (const effort of [undefined, 'low']) {
+                expect(() =>
+                    responseSamplingParams({}, { include } as never, effort),
+                ).toThrow(
+                    expect.objectContaining({
+                        statusCode: 400,
+                        message: '`include` must be an array',
+                    }),
+                );
+            }
+        },
+    );
+
+    it('accepts a null `include`', () => {
+        expect(
+            responseSamplingParams({}, { include: null } as never, 'low'),
+        ).toEqual({});
+    });
+
     it('preserves supported options and does not mutate include', () => {
         const params = {
             temperature: 0,

@@ -21,8 +21,6 @@ import { HTTPClient } from '@mistralai/mistralai/lib/http.js';
 import { servedServiceSpeed } from '../../../interfaces/chat/utils/serviceSpeed.js';
 import { Mistral } from '@mistralai/mistralai';
 import { ChatCompletionResponse } from '@mistralai/mistralai/models/components/chatcompletionresponse.js';
-import { MistralError } from '@mistralai/mistralai/models/errors/mistralerror.js';
-import { SDKValidationError } from '@mistralai/mistralai/models/errors/sdkvalidationerror.js';
 import type { UsageInfo } from '@mistralai/mistralai/models/components/usageinfo.js';
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
@@ -38,6 +36,7 @@ import {
     unsupportedMediaTextPart,
 } from '../../../interfaces/chat/utils/mediaParts.js';
 import * as OpenAIUtil from '../../../protocols/openaiCompatible/OpenAIUtil.js';
+import { isMistralInputError } from '../inputError.js';
 import { MISTRAL_MODELS } from './models.js';
 import { shouldPresentAsOpenAI } from '../../../interfaces/chat/utils/normalizeToOpenAI.js';
 import { withSdkTimeout } from '../../../interfaces/chat/utils/sdkClient.js';
@@ -280,14 +279,8 @@ export class MistralAIProvider implements IChatProvider {
                 },
             );
         } catch (e) {
-            // The SDK validates input client-side and throws without a status,
-            // which the driver would count as a route failure. Its `instanceof`
-            // also matches ResponseValidationError (an unparseable upstream
-            // response), which is a MistralError and not the caller's fault.
-            if (
-                e instanceof SDKValidationError &&
-                !(e instanceof MistralError)
-            ) {
+            // Without a status the driver would count this as a route failure.
+            if (isMistralInputError(e)) {
                 throw new HttpError(400, 'invalid request for Mistral models', {
                     legacyCode: 'bad_request',
                 });

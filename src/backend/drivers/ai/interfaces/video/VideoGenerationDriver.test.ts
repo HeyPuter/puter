@@ -412,6 +412,48 @@ describe('VideoGenerationDriver.generate provider routing', () => {
         },
     );
 
+    it.each([5, true, { toString: null }, ['wan']])(
+        'rejects the model %j, which is not a name',
+        async (model) => {
+            await expect(
+                withDriverName('ai-video', () =>
+                    driver.generate({ prompt: 'hi', model } as never),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('answers 400 for an option value that cannot be text', async () => {
+        await expect(
+            withActor(() =>
+                driver.generate({
+                    prompt: 'hi',
+                    seed: { toString: null },
+                } as never),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: '`seed` is not a usable value',
+        });
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the model default for a size that is an object', async () => {
+        completeTogetherJob();
+        await withActor(() =>
+            driver.generate({
+                prompt: 'hi',
+                size: { width: 1280, height: 720 },
+            } as never),
+        );
+        expect(togetherVideosCreateMock).toHaveBeenCalledTimes(1);
+    });
+
     it.each(['__proto__', 'constructor'])(
         'uses the default for an unknown provider named %s',
         async (provider) => {

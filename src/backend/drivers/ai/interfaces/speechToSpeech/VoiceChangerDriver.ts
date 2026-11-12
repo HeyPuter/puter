@@ -28,6 +28,7 @@ import {
     withAiCostFactor,
 } from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
+import { assertScalarOptions } from '../../shared/scalarOptions.js';
 import {
     type ProviderCatalog,
     ProviderRegistry,
@@ -47,6 +48,21 @@ const VOICE_CHANGER_CATALOG: ProviderCatalog = {
     defaultId: 'elevenlabs',
     aliases: { elevenlabs: 'elevenlabs' },
 };
+
+// Options the providers read as text, a number or a flag.
+const SCALAR_OPTIONS = [
+    'provider',
+    'voice',
+    'voice_id',
+    'voiceId',
+    'model',
+    'model_id',
+    'seed',
+    'output_format',
+    'file_format',
+    'optimize_streaming_latency',
+    'enable_logging',
+];
 
 export class VoiceChangerDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2speech';
@@ -110,6 +126,7 @@ export class VoiceChangerDriver extends PuterDriver {
     async convert(
         args: ConvertArgs,
     ): Promise<DriverStreamResult | { url: string; content_type: string }> {
+        assertScalarOptions(args, SCALAR_OPTIONS);
         // Only one provider exists today, but naming a different one should
         // fail loudly rather than quietly convert with this one.
         const providerName = this.#providers.resolve(args.provider);

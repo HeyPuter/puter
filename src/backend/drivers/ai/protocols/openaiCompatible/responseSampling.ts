@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { HttpError } from '../../../../core/http/HttpError.js';
 import type {
     IChatModel,
     ICompleteArguments,
@@ -37,6 +38,11 @@ export const responseSamplingParams = (
         (model.responsesSampling === undefined ||
             (model.responsesSampling === 'reasoningDisabled' &&
                 reasoningEffort === 'none'));
+    if (params.include != null && !Array.isArray(params.include)) {
+        throw new HttpError(400, '`include` must be an array', {
+            legacyCode: 'bad_request',
+        });
+    }
     const include = supportsSampling
         ? params.include
         : params.include?.filter(

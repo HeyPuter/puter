@@ -269,6 +269,23 @@ describe('SpeechToTextDriver.transcribe test_mode', () => {
 // ── Argument validation ─────────────────────────────────────────────
 
 describe('SpeechToTextDriver argument validation', () => {
+    it.each(['transcribe', 'translate'] as const)(
+        'answers 400 from %s for an option value that cannot be text',
+        async (method) => {
+            await expect(
+                driver[method]({
+                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    language: { toString: null },
+                } as never),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+                message: '`language` is not a usable value',
+            });
+            expect(transcriptionsCreateMock).not.toHaveBeenCalled();
+        },
+    );
+
     it('rejects streaming with 400 — not yet supported', async () => {
         const { actor } = await makeUser();
         await expect(

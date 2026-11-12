@@ -2396,3 +2396,97 @@ describe('ChatCompletionDriver service speed', () => {
         },
     );
 });
+
+describe('ChatCompletionDriver.complete option shapes', () => {
+    const hi = [{ role: 'user', content: 'hi' }];
+
+    it.each(['model', 'provider', 'service_tier'])(
+        'rejects a value that cannot be text as `%s`',
+        async (name) => {
+            const args = { model: 'fake', messages: hi, [name]: { toString: null } };
+            await expect(
+                withTestActor(() => driver.complete(args as never)),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+                message: `\`${name}\` is not a usable value`,
+            });
+            await expect(
+                withTestActor(() => driver[COUNT_TOKENS](args as never)),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        },
+    );
+
+    it('routes by the model when `provider` is an object, as it did before', async () => {
+        const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+        await withTestActor(() =>
+            driver.complete({
+                model: 'fake',
+                messages: hi,
+                provider: { order: ['Anthropic'] },
+            } as never),
+        );
+        expect(completeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([false, 0, '', null])(
+        'treats `tools: %j` as no tools when counting tokens',
+        async (tools) => {
+            const countTokens = vi.fn(async (_args: object) => 1);
+            const fake = FakeChatProvider.prototype as {
+                countTokens?: typeof countTokens;
+            };
+            fake.countTokens = countTokens;
+            try {
+                await withTestActor(() =>
+                    driver[COUNT_TOKENS]({
+                        model: 'fake',
+                        messages: hi,
+                        tools,
+                    } as never),
+                );
+            } finally {
+                delete fake.countTokens;
+            }
+            expect(countTokens.mock.calls[0]![0]).not.toHaveProperty('tools');
+        },
+    );
+
+    it.each([false, 0, '', null])(
+        'treats `tools: %j` as no tools',
+        async (tools) => {
+            const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+            await withTestActor(() =>
+                driver.complete({ model: 'fake', messages: hi, tools } as never),
+            );
+            expect(completeSpy.mock.calls[0]![0]).not.toHaveProperty('tools');
+        },
+    );
+
+    it('reports zero tokens in the cost event for a usage count that is not a number', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'priced',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 1000, output_tokens: 2000 },
+                max_tokens: 8192,
+            },
+        ]);
+        const d = await makeDriver();
+        const costEvents = captureEvent('ai.prompt.cost-calculated');
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+            usage: { input_tokens: 10, output_tokens: { toString: null } },
+            finish_reason: 'stop',
+        } as never);
+
+        await withTestActor(() => d.complete({ model: 'priced', messages: hi }));
+
+        expect(costEvents[0]![1]).toMatchObject({
+            input_tokens: 10,
+            output_tokens: 0,
+            total_ucents: 10 * 1000,
+        });
+    });
+});

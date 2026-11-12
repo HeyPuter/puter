@@ -154,7 +154,12 @@ const partTokens = (part: unknown, budget: WordScanBudget): number => {
         );
     }
     if (p.type === 'compaction') {
-        return estimateTextTokens(String(p.encrypted_content ?? ''), budget);
+        return estimateTextTokens(
+            typeof p.encrypted_content === 'string'
+                ? p.encrypted_content
+                : JSON.stringify(p.encrypted_content ?? ''),
+            budget,
+        );
     }
 
     return UNMEASURED_ATTACHMENT_TOKENS;

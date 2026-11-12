@@ -629,9 +629,13 @@ export class ClaudeProvider implements IChatProvider {
         const fast =
             args.speed === 'fast' &&
             modelUsed.serviceSpeedRates?.fast !== undefined;
+        // The Anthropic route passes the header's names; anything else is dropped.
+        const headerBetas = Array.isArray(args.anthropicBetas)
+            ? args.anthropicBetas.filter((beta) => typeof beta === 'string')
+            : undefined;
         const safeguardsPolicy = applySafeguardsPolicy(
             args.safeguards,
-            args.anthropicBetas,
+            headerBetas,
         );
 
         // -- metadata -----------------------------------------------------
@@ -717,7 +721,7 @@ export class ClaudeProvider implements IChatProvider {
         };
         const betas = combineBetas(
             deriveBetas(features),
-            allowlistedFromHeader(args.anthropicBetas, features),
+            allowlistedFromHeader(headerBetas, features),
             safeguardsPolicy ? [safeguardsPolicy.beta] : [],
         );
         const usesBeta = betas.length > 0;

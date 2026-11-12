@@ -1671,6 +1671,10 @@ describe('handle_completion_output non-stream', () => {
         ['missing', {}],
         ['null', { choices: null }],
         ['empty', { choices: [] }],
+        ['not objects', { choices: ['stop'] }],
+        ['null entries', { choices: [null] }],
+        ['without a message', { choices: [{ index: 0, finish_reason: 'stop' }] }],
+        ['with a message that is not an object', { choices: [{ message: 'pong' }] }],
     ])(
         'throws bad_response when choices are %s',
         async (_label, completion) => {

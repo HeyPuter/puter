@@ -482,6 +482,20 @@ describe('ImageGenerationDriver.generate provider routing', () => {
         },
     );
 
+    it('rejects an input image type that is not a string before any provider runs', async () => {
+        await expect(withActor(() =>
+            driver.generate({
+                model: 'gpt-image-2',
+                prompt: 'make it blue',
+                input_image: 'data:image/png;base64,aGVsbG8=',
+                input_image_mime_type: 5,
+            } as never),
+        )).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'input_image_mime_type must be a string',
+        });
+    });
+
     it('rejects an excluded model regardless of caller casing', async () => {
         await expect(withActor(() =>
             driver.generate({

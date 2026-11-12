@@ -78,6 +78,13 @@ export class ElevenLabsSpeechToSpeechProvider {
             });
         }
 
+        // The format picks how the converted audio is timed for billing.
+        if (args.output_format && typeof args.output_format !== 'string') {
+            throw new HttpError(400, '`output_format` must be a string', {
+                legacyCode: 'bad_request',
+            });
+        }
+
         const modelId = args.model_id || args.model || this.#defaultModelId;
         const voiceId =
             args.voice_id || args.voiceId || args.voice || this.#defaultVoiceId;
