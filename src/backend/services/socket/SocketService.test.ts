@@ -1557,31 +1557,37 @@ describe('SocketService.askWithAck through the cluster adapter', () => {
         const BROADCAST_CLIENT_COUNT = 11;
 
         /**
-         * The other node: no acking socket, and `others` sockets outside the
-         * ack room, or silent.
+         * The other nodes, one per argument: no acking socket, and that many
+         * sockets outside the ack room, or silent. Replies arrive as the
+         * adapter receives them from another node.
          */
-        const peer = (others: number | null) => {
-            countSpy.mockResolvedValue(2);
+        const peer = (...nodes: (number | null)[]) => {
+            countSpy.mockResolvedValue(nodes.length + 1);
             vi.mocked(adapter.doPublish).mockImplementation(async (raw) => {
                 const message = raw as Published;
                 const { requestId } = message.data ?? {};
                 if (!requestId) return '';
                 setTimeout(() => {
-                    if (message.type === BROADCAST) {
-                        adapter.onResponse({
-                            type: BROADCAST_CLIENT_COUNT,
-                            data: { requestId, clientCount: 0 },
-                        });
-                    } else if (
-                        message.type === SERVER_SIDE_EMIT &&
-                        message.data.packet?.[0] === COUNT_OTHERS_EVENT &&
-                        others !== null
-                    ) {
-                        adapter.onResponse({
-                            type: SERVER_SIDE_EMIT_RESPONSE,
-                            data: { requestId, packet: others },
-                        });
-                    }
+                    nodes.forEach((others, i) => {
+                        const reply = (type: number, data: object) =>
+                            adapter.onMessage({
+                                uid: `peer-node-${i}`,
+                                nsp: '/',
+                                type,
+                                data: { requestId, ...data },
+                            });
+                        if (message.type === BROADCAST) {
+                            reply(BROADCAST_CLIENT_COUNT, { clientCount: 0 });
+                        } else if (
+                            message.type === SERVER_SIDE_EMIT &&
+                            message.data.packet?.[0] === COUNT_OTHERS_EVENT &&
+                            others !== null
+                        ) {
+                            reply(SERVER_SIDE_EMIT_RESPONSE, {
+                                packet: others,
+                            });
+                        }
+                    });
                 }, 0);
                 return '';
             });
@@ -1650,6 +1656,68 @@ describe('SocketService.askWithAck through the cluster adapter', () => {
                 await expect(
                     socketService.occupied('u1:aapp:sub:x', { timeoutMs: 300 }),
                 ).resolves.toBe(occupied);
+            },
+        );
+
+        it('finds a room occupied as soon as one node holds a socket, while another never answers', async () => {
+            peer(null, 1);
+
+            const started = Date.now();
+            await expect(
+                socketService.occupied('u1:aapp:sub:x', { timeoutMs: 2_000 }),
+            ).resolves.toBe(true);
+            expect(Date.now() - started).toBeLessThan(1_000);
+        });
+
+        it.each([
+            [[0, null], 300],
+            [[null, null], 300],
+        ])(
+            'finds a room empty once no node that answered holds a socket (%j)',
+            async (nodes, timeoutMs) => {
+                peer(...nodes);
+
+                const started = Date.now();
+                await expect(
+                    socketService.occupied('u1:aapp:sub:x', { timeoutMs }),
+                ).resolves.toBe(false);
+                expect(Date.now() - started).toBeGreaterThanOrEqual(
+                    timeoutMs - 20,
+                );
+            },
+        );
+
+        it('finds a room empty without waiting once every node said none', async () => {
+            peer(0, 0);
+
+            const started = Date.now();
+            await expect(
+                socketService.occupied('u1:aapp:sub:x', { timeoutMs: 2_000 }),
+            ).resolves.toBe(false);
+            expect(Date.now() - started).toBeLessThan(1_000);
+        });
+
+        it.each([
+            [[0, 0], false],
+            [[0, null], true],
+            [[null, 1], true],
+        ])(
+            'still reads other sockets as absent only once every node said none (%j)',
+            async (nodes, others) => {
+                const tab = await connect(['demo.ack']);
+                tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                    ack('seen'),
+                );
+                peer(...nodes);
+
+                const asked = await socketService.askWithAck(
+                    { room: userId },
+                    'demo.ack',
+                    {},
+                    { timeoutMs: 300 },
+                );
+
+                expect(asked).toMatchObject({ responses: ['seen'], others });
             },
         );
 

@@ -18,6 +18,7 @@
  */
 
 import { createAdapter } from '@socket.io/redis-streams-adapter';
+import { randomBytes } from 'node:crypto';
 import type { Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import type { Actor } from '../../core/actor.js';
@@ -266,6 +267,21 @@ interface CountingAdapter {
     serverCount(): Promise<number>;
 }
 
+// socket.io-adapter's cluster message types.
+const SERVER_SIDE_EMIT = 9;
+const SERVER_SIDE_EMIT_RESPONSE = 10;
+
+interface ClusterReply {
+    type: number;
+    data?: { requestId?: unknown; packet?: unknown };
+}
+
+/** The cluster adapter members a count ask is sent and answered through. */
+interface AskingAdapter extends CountingAdapter {
+    publish(message: { type: number; data: unknown }): void;
+    onResponse(response: ClusterReply): void;
+}
+
 /** A failed count reports the last good one; socket.io never catches it. */
 export const steadyServerCount = (
     adapter: CountingAdapter,
@@ -334,6 +350,8 @@ export class SocketService extends PuterService {
     #lastCountProbe = -Infinity;
     #lastCountWarn = -Infinity;
     #countFailures = 0;
+    /** Count asks in flight, by request id; each hears one node's answer. */
+    #countAsks = new Map<string, (count: unknown) => void>();
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -375,6 +393,7 @@ export class SocketService extends PuterService {
         steadyServerCount(this.#io.of('/').adapter, (err) =>
             this.#noteServerCount(err),
         );
+        this.#hearCountAnswers();
         this.#io
             .of('/')
             .on(
@@ -517,10 +536,10 @@ export class SocketService extends PuterService {
     }
 
     /**
-     * Whether any socket in the cluster is in `room`. A node that does not
-     * answer in time counts as holding none, and so does every other node until
-     * the adapter has counted servers once. With no time left, only this node
-     * is looked at.
+     * Whether any socket in the cluster is in `room`. The first node that holds
+     * one settles it; a node that does not answer in time counts as holding
+     * none, and so does every other node until the adapter has counted servers
+     * once. With no time left, only this node is looked at.
      */
     async occupied(
         room: string,
@@ -537,39 +556,66 @@ export class SocketService extends PuterService {
     }
 
     /**
-     * A node that does not answer in time holds one unless `onFailure` says
-     * not.
+     * True on the first node that holds one, false once every node said none.
+     * Otherwise, when time runs out, `onTimeout`.
      */
     async #othersInCluster(
         rooms: string[],
         except: string[],
         timeoutMs: number,
-        onFailure = true,
+        onTimeout = true,
     ): Promise<boolean> {
         if (this.#othersHere(rooms, except) > 0) return true;
-        let timer: ReturnType<typeof setTimeout> | undefined;
+        const adapter = this.#io!.of('/').adapter as unknown as AskingAdapter;
+        const requestId = randomBytes(8).toString('hex');
+        let expected = Infinity;
+        let answered = 0;
+        let settle!: (held: boolean) => void;
+        const held = new Promise<boolean>((resolve) => {
+            const timer = setTimeout(() => settle(onTimeout), timeoutMs);
+            settle = (value) => {
+                clearTimeout(timer);
+                this.#countAsks.delete(requestId);
+                resolve(value);
+            };
+        });
+        this.#countAsks.set(requestId, (count) => {
+            if (typeof count === 'number' && count > 0) settle(true);
+            else if (++answered >= expected) settle(false);
+        });
         try {
-            const counts: unknown[] = await Promise.race([
-                this.#io!.of('/').serverSideEmitWithAck(
-                    COUNT_OTHERS_EVENT,
-                    rooms,
-                    except,
-                ),
-                new Promise<never>((_, reject) => {
-                    timer = setTimeout(
-                        () => reject(new Error('count timed out')),
-                        timeoutMs,
-                    );
-                }),
-            ]);
-            return counts.some(
-                (count) => typeof count === 'number' && count > 0,
-            );
+            expected = (await adapter.serverCount()) - 1;
         } catch {
-            return onFailure;
-        } finally {
-            clearTimeout(timer);
+            settle(onTimeout);
         }
+        if (!this.#countAsks.has(requestId)) return held;
+        if (expected <= 0) {
+            settle(false);
+            return held;
+        }
+        // What `serverSideEmitWithAck` sends, so every node answers it alike.
+        adapter.publish({
+            type: SERVER_SIDE_EMIT,
+            data: { requestId, packet: [COUNT_OTHERS_EVENT, rooms, except] },
+        });
+        return held;
+    }
+
+    /**
+     * Hands count answers to their ask one at a time; the adapter would only
+     * pass them on once all nodes answered.
+     */
+    #hearCountAnswers(): void {
+        const adapter = this.#io!.of('/').adapter as unknown as AskingAdapter;
+        const onResponse = adapter.onResponse.bind(adapter);
+        adapter.onResponse = (response) => {
+            const hear =
+                response.type === SERVER_SIDE_EMIT_RESPONSE
+                    ? this.#countAsks.get(String(response.data?.requestId))
+                    : undefined;
+            if (hear) hear(response.data?.packet);
+            else onResponse(response);
+        };
     }
 
     /** How long after a failed server count the next one is tried. */
