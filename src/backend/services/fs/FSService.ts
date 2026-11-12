@@ -918,16 +918,19 @@ export class FSService extends PuterService {
             if (existingEntry && !normalizedInput.overwrite) {
                 // v1 wire contract: clients (the GUI's save dialogs among
                 // them) key on `item_with_same_name_exists` + `entry_name`
-                // to offer an overwrite prompt.
+                // to offer an overwrite prompt, naming the entry they show.
                 throw new HttpError(
                     409,
                     'A file already exists at this path and overwrite was not requested',
                     {
                         legacyCode: 'item_with_same_name_exists',
                         fields: {
-                            entry_name: pathPosix.basename(
+                            entry_name: holdsFoldedName(
+                                existingEntry,
                                 normalizedInput.path,
-                            ),
+                            )
+                                ? existingEntry.name
+                                : pathPosix.basename(normalizedInput.path),
                         },
                     },
                 );
@@ -5372,10 +5375,15 @@ export class FSService extends PuterService {
         // v1 wire contract: clients (the GUI's move/paste flows among them)
         // key on `item_with_same_name_exists` + `entry_name` to offer a
         // replace/skip prompt.
-        throw new HttpError(409, `An entry named \`${name}\` already exists`, {
-            legacyCode: 'item_with_same_name_exists',
-            fields: { entry_name: name },
-        });
+        const shownName = folded ? occupant.name : name;
+        throw new HttpError(
+            409,
+            `An entry named \`${shownName}\` already exists`,
+            {
+                legacyCode: 'item_with_same_name_exists',
+                fields: { entry_name: shownName },
+            },
+        );
     }
 
     /**
@@ -5485,12 +5493,15 @@ export class FSService extends PuterService {
                 });
             } else {
                 // v1 wire contract, as in move() above.
+                const shownName = holdsFoldedName(collision, targetPath)
+                    ? collision.name
+                    : name;
                 throw new HttpError(
                     409,
-                    `An entry named \`${name}\` already exists`,
+                    `An entry named \`${shownName}\` already exists`,
                     {
                         legacyCode: 'item_with_same_name_exists',
-                        fields: { entry_name: name },
+                        fields: { entry_name: shownName },
                     },
                 );
             }

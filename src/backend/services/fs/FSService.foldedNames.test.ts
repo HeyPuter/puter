@@ -298,6 +298,7 @@ describe.each(engines.filter((engine) => !engine.skip))(
             );
             expect(error.statusCode).toBe(409);
             expect(error.legacyCode).toBe('item_with_same_name_exists');
+            expect(error.fields?.entry_name).toBe('😀.txt');
             expect(await readBack((await at(`${dir}/😀.txt`))!)).toBe(
                 'grinning',
             );
@@ -535,6 +536,18 @@ describe.each(engines.filter((engine) => !engine.skip))(
                 ),
             );
             expect(prompt.legacyCode).toBe('item_with_same_name_exists');
+            expect(prompt.fields?.entry_name).toBe('😀.txt');
+
+            const copyPrompt = await caught(() =>
+                runWithContext({ actor }, () =>
+                    fs.copy(userId, {
+                        source: moving,
+                        destinationParent: destination,
+                    }),
+                ),
+            );
+            expect(copyPrompt.legacyCode).toBe('item_with_same_name_exists');
+            expect(copyPrompt.fields?.entry_name).toBe('😀.txt');
 
             expect(await names(dest)).toEqual(['😀.txt']);
             const kept = (await at(`${dest}/😀.txt`))!;
