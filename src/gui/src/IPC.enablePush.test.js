@@ -170,6 +170,76 @@ describe('push held only from a website`s own Web Push', () => {
     });
 });
 
+describe('requestPermission for push beside other access', () => {
+    const BACKGROUND = 'events:background';
+    /** What the app holds; `/push/apps` lists it as allowed for Puter`s devices unless `apps` says otherwise. */
+    const holding = (held, apps = [{ uid: 'app-1', name: 'team-chat', puterDevices: true }]) => {
+        globalThis.fetch = vi.fn(async (url, init) => ({
+            ok: true,
+            json: async () => (url.endsWith('/push/apps')
+                ? { apps }
+                : { permissions: Object.fromEntries(JSON.parse(init.body).permissions.map((p) => [p, held.includes(p)])) }),
+        }));
+    };
+    const request = async () => {
+        post('requestPermission', { options: { permissions: ['notifications:push', BACKGROUND] } });
+        await settle();
+    };
+
+    it('asks only for what is missing when push is held for Puter`s devices', async () => {
+        holding(['notifications:push']);
+        permissionDialog.mockResolvedValue(true);
+        await request();
+
+        expect(permissionDialog).toHaveBeenCalledTimes(1);
+        expect(permissionDialog).toHaveBeenCalledWith(expect.objectContaining({
+            permissions: [BACKGROUND],
+            permission: BACKGROUND,
+            app_uid: 'app-1',
+        }));
+        expect(posted).toHaveBeenCalledWith(
+            { msg: 'permissionGranted', granted: true, original_msg_id: 'cb-1' },
+            '*',
+        );
+    });
+
+    it('asks for both when push is held only from the app`s website', async () => {
+        holding(['notifications:push'], [{ uid: 'app-1', name: 'team-chat', puterDevices: false }]);
+        permissionDialog.mockResolvedValue(false);
+        await request();
+
+        expect(permissionDialog).toHaveBeenCalledWith(expect.objectContaining({
+            permissions: ['notifications:push', BACKGROUND],
+            permission: undefined,
+        }));
+        expect(posted).toHaveBeenCalledWith(
+            { msg: 'permissionGranted', granted: false, original_msg_id: 'cb-1' },
+            '*',
+        );
+    });
+
+    it('asks for both when only the other access is held', async () => {
+        holding([BACKGROUND]);
+        permissionDialog.mockResolvedValue(true);
+        await request();
+
+        expect(permissionDialog).toHaveBeenCalledWith(expect.objectContaining({
+            permissions: ['notifications:push', BACKGROUND],
+        }));
+    });
+
+    it('answers without a dialog when everything is held', async () => {
+        holding(['notifications:push', BACKGROUND]);
+        await request();
+
+        expect(permissionDialog).not.toHaveBeenCalled();
+        expect(posted).toHaveBeenCalledWith(
+            { msg: 'permissionGranted', granted: true, original_msg_id: 'cb-1' },
+            '*',
+        );
+    });
+});
+
 describe('push held while the app list can`t be read', () => {
     /** The app holds the permission and `/push/apps` fails as `list` does. */
     const listFails = (list) => {

@@ -19,7 +19,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cachedPushApps, forgetPushApps, PUSH_APPS_TTL_MS, revokePushApp, webPushEndpointState } from './notificationApi.js';
-import { appHoldsForPuter, pushGrantOf } from './pushApps.js';
+import { appHoldsForPuter, pushGrantOf, withoutHeldPush } from './pushApps.js';
 
 const PUSH = 'notifications:push';
 const listed = (...apps) => async () => apps;
@@ -32,6 +32,17 @@ describe('appHoldsForPuter', () => {
         // An older server lists no `puterDevices`, and a long list may leave the app out.
         await expect(appHoldsForPuter([PUSH], 'app-1', { holds, listApps: listed({ uid: 'app-1' }) })).resolves.toBe(true);
         await expect(appHoldsForPuter([PUSH], 'app-1', { holds, listApps: listed() })).resolves.toBe(true);
+    });
+
+    it('never counts push without an app uid to match, whatever the list answers', async () => {
+        const holds = async () => true;
+        const down = async () => {
+            throw new TypeError('Failed to fetch');
+        };
+        await expect(appHoldsForPuter([PUSH], undefined, { holds, listApps: listed({ uid: 'app-1', puterDevices: true }) })).resolves.toBe(false);
+        await expect(appHoldsForPuter([PUSH], undefined, { holds, listApps: listed({ name: 'no-uid' }) })).resolves.toBe(false);
+        await expect(appHoldsForPuter([PUSH], '', { holds, listApps: down })).resolves.toBe(false);
+        await expect(appHoldsForPuter(['events:background'], undefined, { holds })).resolves.toBe(true);
     });
 
     it('lists nothing when the grant is missing or push isn`t asked about', async () => {
@@ -54,6 +65,31 @@ describe('appHoldsForPuter', () => {
         await expect(appHoldsForPuter([PUSH], 'app-1', { holds: async () => true, listApps })).resolves.toBe(true);
         await expect(appHoldsForPuter([PUSH], 'app-1', { holds: async () => false, listApps })).resolves.toBe(false);
         warn.mockRestore();
+    });
+});
+
+describe('withoutHeldPush', () => {
+    const BACKGROUND = 'events:background';
+    /** Holds push and nothing else. */
+    const holds = async (permissions) => permissions.every((permission) => permission === PUSH);
+
+    it('drops a push grant held for Puter`s devices and keeps the rest', async () => {
+        const listApps = listed({ uid: 'app-1', puterDevices: true });
+        await expect(withoutHeldPush([PUSH, BACKGROUND], 'app-1', { holds, listApps })).resolves.toEqual([BACKGROUND]);
+        await expect(withoutHeldPush([PUSH], 'app-1', { holds, listApps })).resolves.toEqual([]);
+    });
+
+    it('keeps push that is missing, held only from a website, or asked for no app', async () => {
+        const website = listed({ uid: 'app-1', puterDevices: false });
+        await expect(withoutHeldPush([PUSH, BACKGROUND], 'app-1', { holds: async () => false, listApps: listed() })).resolves.toEqual([PUSH, BACKGROUND]);
+        await expect(withoutHeldPush([PUSH, BACKGROUND], 'app-1', { holds, listApps: website })).resolves.toEqual([PUSH, BACKGROUND]);
+        await expect(withoutHeldPush([PUSH, BACKGROUND], undefined, { holds, listApps: listed() })).resolves.toEqual([PUSH, BACKGROUND]);
+    });
+
+    it('asks nothing when push isn`t among them', async () => {
+        const holdsSpy = vi.fn(holds);
+        await expect(withoutHeldPush([BACKGROUND], 'app-1', { holds: holdsSpy, listApps: listed() })).resolves.toEqual([BACKGROUND]);
+        expect(holdsSpy).not.toHaveBeenCalled();
     });
 });
 

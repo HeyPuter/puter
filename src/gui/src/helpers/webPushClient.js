@@ -228,7 +228,7 @@ export const webPushClient = ({
             const reading = generation;
             // Devices match by session, so the endpoint tells whether it is this subscription.
             const [device, state] = await check(user, subscription.endpoint);
-            // The check reads a replica, which can trail what `enable()` just registered.
+            // The server's answer can trail what `enable()` just registered in this page.
             const trailing = state === 'unknown' && kept && lastOn?.enabled === true;
             const registered = !! device && (state === 'active' || state === null || state === 'busy' || trailing);
             if ( registered && state === 'active' && user === userUid() ) rememberEndpoint(subscription.endpoint);

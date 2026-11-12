@@ -41,7 +41,8 @@ import UINotification from './UI/UINotification.js';
 
 import { renewGodmodeToken } from './helpers/godmodeTokens.js';
 import { askPushPermission } from './helpers/askPushPermission.js';
-import { appHoldsForPuter } from './helpers/pushApps.js';
+import { appHoldsPermissions } from './helpers/holdsPermissions.js';
+import { appHoldsForPuter, withoutHeldPush } from './helpers/pushApps.js';
 import { PUSH_PERMISSION } from './helpers/pushClient.js';
 import { ipc_target_window } from './helpers/ipcTargetWindow.js';
 import { addItemWatcher } from './helpers/watchItems.js';
@@ -1376,8 +1377,11 @@ const ipc_listener = async (event, handled) => {
         }
 
         // The SDK leaves push to the desktop, which tells a website's own grant apart.
-        if ( requested_permissions.includes(PUSH_PERMISSION)
-            && await appHoldsForPuter(requested_permissions, app_uuid) )
+        // A push grant held for Puter isn't asked again beside what's missing.
+        const asked_permissions = await withoutHeldPush(requested_permissions, app_uuid);
+        if ( asked_permissions.length < requested_permissions.length
+            && ( asked_permissions.length === 0
+                || await appHoldsPermissions(asked_permissions, app_uuid) ) )
         {
             respond(true);
             return;
@@ -1388,9 +1392,9 @@ const ipc_listener = async (event, handled) => {
             // the single-scope path working for callers (and dialog versions)
             // that only know the scalar. A multi-scope request with no list
             // support is refused rather than partially granted.
-            permissions: requested_permissions,
-            permission: requested_permissions.length === 1
-                ? requested_permissions[0]
+            permissions: asked_permissions,
+            permission: asked_permissions.length === 1
+                ? asked_permissions[0]
                 : undefined,
             app_uid: app_uuid,
             app_name: app_name,
