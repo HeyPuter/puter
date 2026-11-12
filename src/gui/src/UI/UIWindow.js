@@ -3374,9 +3374,6 @@ $.fn.close = async function (options) {
             // remove backdrop
             $(this).closest('.window-backdrop').remove();
 
-            // remove global menubars
-            $(`.window-menubar-global[data-window-id="${win_id}"]`).remove();
-
             // remove DOM element
             if ( options?.shrink_to_target ) {
                 // get target location
@@ -3760,11 +3757,6 @@ $.fn.focusWindow = function (event) {
                 $(this).css('z-index', window_zindex_base(this) + (++window.last_window_zindex));
             });
         }
-
-        // hide other global menubars
-        $('.window-menubar-global').not(`.window-menubar-global[data-window-id="${win_id}"]`).hide();
-        // show this window's global menubar
-        $(`.window-menubar-global[data-window-id="${win_id}"]`).show();
 
         // if a menubar or any of its items are clicked, don't focus the iframe. This is important to preserve the focus on the menubar
         // and to enable keyboard navigation through the menubar items

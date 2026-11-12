@@ -788,11 +788,9 @@ async function UIDesktop () {
         window.active_item_container = null;
     });
 
-    $(el_desktop).on('click', function (e) {
+    $(el_desktop).on('click', function () {
         // blur all windows
         $('.window-active').removeClass('window-active');
-        // hide all global menubars
-        $('.window-menubar-global').hide();
     });
 
     /**
