@@ -475,6 +475,7 @@ describe.each(engines.filter((engine) => !engine.skip))(
                 ),
             );
             expect(renamed.statusCode).toBe(409);
+            expect(renamed.message).toContain('`😀.txt`');
             expect(await names(dir)).toEqual(['other.txt', '😀.txt']);
         });
 
@@ -576,6 +577,29 @@ describe.each(engines.filter((engine) => !engine.skip))(
                 '😁 (1).txt',
                 '😁 (2).txt',
             ]);
+        });
+
+        it('copies an item onto a folded spelling of its own name as onto itself', async () => {
+            const dir = await freshDir();
+            const source = await write(`${dir}/😀.txt`, 'grinning');
+            const destinationParent = (await at(dir))!;
+            const copy = (extra: Record<string, unknown>) =>
+                runWithContext({ actor }, () =>
+                    fs.copy(userId, {
+                        source,
+                        destinationParent,
+                        newName: '😁.txt',
+                        ...extra,
+                    }),
+                );
+
+            const overItself = await caught(() => copy({ overwrite: true }));
+            expect(overItself.statusCode).toBe(400);
+            const prompt = await caught(() => copy({}));
+            expect(prompt.legacyCode).toBe('item_with_same_name_exists');
+            expect(prompt.fields?.entry_name).toBe('😀.txt');
+            expect((await copy({ dedupeName: true })).name).toBe('😁 (1).txt');
+            expect(await names(dir)).toEqual(['😀.txt', '😁 (1).txt']);
         });
 
         it('still replaces a case-only occupant on an overwriting move', async () => {

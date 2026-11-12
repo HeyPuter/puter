@@ -4322,7 +4322,11 @@ export class FSService extends PuterService {
             new HttpError(409, `An entry named \`${name}\` already exists`, {
                 legacyCode: 'conflict',
             });
-        if (collision && collision.uuid !== entry.uuid) throw taken(newName);
+        if (collision && collision.uuid !== entry.uuid) {
+            throw taken(
+                holdsFoldedName(collision, newPath) ? collision.name : newName,
+            );
+        }
 
         let updated: FSEntry;
         try {
