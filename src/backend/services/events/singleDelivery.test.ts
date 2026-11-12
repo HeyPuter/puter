@@ -121,6 +121,8 @@ let candidateRegionImpl: (
 ) => Promise<string | null> = async () => null;
 /** The regions already tried that each `candidateRegion` call carried. */
 let candidateRegionCalls: string[][] = [];
+/** Each delivery forwarded to another region, and where. */
+let handOffs: Array<{ region: string; delivery: { ackId?: string } }> = [];
 
 const entry = (over: Partial<FSEntry> = {}): FSEntry =>
     ({
@@ -226,6 +228,7 @@ beforeEach(async () => {
     workerRetryAfterMs = undefined;
     candidateRegionImpl = async () => null;
     candidateRegionCalls = [];
+    handOffs = [];
     sent = [];
     sentTo = [];
     tabs = [];
@@ -326,7 +329,9 @@ beforeEach(async () => {
                 },
                 heldInRegion: async () => false,
                 fanOut: async () => undefined,
-                handOff: () => undefined,
+                handOff: (region: string, delivery: { ackId?: string }) => {
+                    handOffs.push({ region, delivery });
+                },
                 relayAck: () => undefined,
                 relayNack: () => undefined,
                 announceWatch: () => undefined,
@@ -1723,5 +1728,129 @@ describe("the region's record of handler connections", () => {
         expect(sibling.received).toEqual([]);
         expect(invoked).toHaveLength(1);
         await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+});
+
+describe('a queued delivery declined for want of a handler', () => {
+    /** Regions with the app open, nearest first, as presence names them. */
+    const openIn = (...regions: string[]) => {
+        candidateRegionImpl = async (_holder, _app, tried) =>
+            regions.find((region) => !tried.includes(region)) ?? null;
+    };
+    const declineFrom = (
+        row: DurableSubscription,
+        entryId: string,
+        region: string,
+    ) =>
+        service.declineRelayed(userId, row.subId, entryId, 'no_handler', region);
+
+    it('goes to the next region with the app open, and to the worker only once none is left', async () => {
+        workerOutcome = 'settled';
+        socketConnected = false;
+        openIn('east', 'south');
+        const row = await register();
+
+        await dispatch();
+        expect(handOffs.map((one) => one.region)).toEqual(['east']);
+        const entryId = String(handOffs[0].delivery.ackId);
+
+        await declineFrom(row, entryId, 'east');
+        expect(handOffs.map((one) => one.region)).toEqual(['east', 'south']);
+        expect(handOffs[1].delivery).toMatchObject({ toHandlers: true });
+        expect(invoked).toEqual([]);
+
+        await declineFrom(row, entryId, 'south');
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        expect(metered).toHaveLength(1);
+    });
+
+    it('settles once when the next region’s client takes it', async () => {
+        workerOutcome = 'settled';
+        socketConnected = false;
+        openIn('east', 'south');
+        const row = await register();
+        await dispatch();
+        const entryId = String(handOffs[0].delivery.ackId);
+
+        await declineFrom(row, entryId, 'east');
+        await service.settleRelayedAck(userId, row.subId, entryId);
+
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        expect(invoked).toEqual([]);
+        expect(metered).toHaveLength(1);
+        // A late decline from either region settles nothing more.
+        await declineFrom(row, entryId, 'east');
+        await declineFrom(row, entryId, 'south');
+        expect(invoked).toEqual([]);
+    });
+
+    it('ignores a second decline from a region it already moved on from', async () => {
+        workerOutcome = 'settled';
+        socketConnected = false;
+        openIn('east', 'south');
+        const row = await register();
+        await dispatch();
+        const entryId = String(handOffs[0].delivery.ackId);
+
+        await declineFrom(row, entryId, 'east');
+        // East's other client, declining what east already gave back.
+        await declineFrom(row, entryId, 'east');
+        await service.declineDelivery(actorFor(), {
+            subId: row.subId,
+            id: entryId,
+            reason: 'no_handler',
+        });
+
+        expect(handOffs.map((one) => one.region)).toEqual(['east', 'south']);
+        expect(invoked).toEqual([]);
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
+    });
+
+    it('goes to the worker once when the next region never answers', async () => {
+        workerOutcome = 'settled';
+        socketConnected = false;
+        openIn('east', 'south');
+        const row = await register();
+        await dispatch();
+        await declineFrom(row, String(handOffs[0].delivery.ackId), 'east');
+
+        jump(EVENTS_SOCKET_LEASE_MS + 1);
+        await service.sweepPending();
+
+        expect(handOffs).toHaveLength(2);
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+
+    it('goes to another region after a tab here declined it', async () => {
+        workerOutcome = 'settled';
+        openIn('east');
+        const row = await register();
+        const tab = openTab('a');
+        await tab.handle(row.subId);
+        // Dropped its handler without telling the server yet.
+        tab.handlers.clear();
+
+        await dispatch();
+        await Promise.all(tab.answers);
+        await handedOver();
+
+        expect(tab.received).toHaveLength(1);
+        expect(handOffs.map((one) => one.region)).toEqual(['east']);
+        expect(invoked).toEqual([]);
+    });
+
+    it('still lets a row with no worker lapse rather than move on', async () => {
+        socketConnected = false;
+        openIn('east', 'south');
+        const row = await register({ handlerName: null });
+        await dispatch();
+
+        await declineFrom(row, String(handOffs[0].delivery.ackId), 'east');
+
+        expect(handOffs).toHaveLength(1);
+        expect(invoked).toEqual([]);
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
     });
 });

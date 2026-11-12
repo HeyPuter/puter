@@ -2100,17 +2100,18 @@ export class EventsService extends PuterService {
         if (row.suspendedAt === null) await this.#drain(row);
     }
 
-    /** Apply a decline whose client gave it in another region. */
+    /** Apply a decline whose client, or `fromRegion` itself, gave it there. */
     async declineRelayed(
         holderUserId: number,
         subId: string,
         entryId: string,
         reason: DeclineReason,
+        fromRegion: string,
     ): Promise<void> {
         if (!this.enabled || !subId || !entryId) return;
         const row = await this.stores.durableSubscription.getBySubId(subId);
         if (!row || row.holderUserId !== holderUserId) return;
-        await this.#declined(row, entryId, reason);
+        await this.#declined(row, entryId, reason, fromRegion);
     }
 
     async #answer<T extends object>(
@@ -2726,7 +2727,7 @@ export class EventsService extends PuterService {
             );
             return;
         }
-        await this.#declined(row, entryId, reason);
+        await this.#declined(row, entryId, reason, null);
     }
 
     /**
@@ -2851,18 +2852,22 @@ export class EventsService extends PuterService {
     /**
      * Take a declined delivery off the client's lease. A failed client run
      * counts like a failed worker run: retried after the backoff, or dropped. A
-     * client with no handler costs nothing and the worker runs it now; a row
-     * with no worker has nothing to hand it to, so its lease is left to lapse.
+     * client with no handler costs nothing: the next region with the app open
+     * that hasn't had it gets it, and once none is left the worker runs it now.
+     * A row with no worker has nothing to hand it to, so its lease is left to
+     * lapse. `fromRegion` is where the decline came from, `null` for here.
      */
     async #declined(
         row: DurableSubscription,
         entryId: string,
         reason: DeclineReason,
+        fromRegion: string | null,
     ): Promise<void> {
         if (reason === 'no_handler' && !runsInWorker(row)) return;
         const claimed = await this.stores.pendingDelivery.takeFromSocket(
             row.subId,
             entryId,
+            fromRegion,
         );
         if (!claimed) return;
 
@@ -2879,8 +2884,17 @@ export class EventsService extends PuterService {
         // later drain asks again.
         const serving = await this.#stillOwed(row);
         if (!serving) return;
-        if (await this.#runInWorker(serving, claimedAsServed(serving, claimed)))
-            await this.#drain(row);
+        const served = claimedAsServed(serving, claimed);
+        const region = await this.services.eventForward.candidateRegion(
+            serving.holderUserId,
+            serving.appUid,
+            served.triedRegions,
+        );
+        if (region) {
+            await this.#handToRegion(serving, served, region, true);
+            return;
+        }
+        if (await this.#runInWorker(serving, served)) await this.#drain(row);
     }
 
     // -- Handlers ----------------------------------------------------
@@ -6603,17 +6617,15 @@ export class EventsService extends PuterService {
                   )
                 : null;
 
-        if (here || region) {
+        if (region) {
+            await this.#handToRegion(row, claimed, region);
+            return false;
+        }
+        if (here) {
             await this.stores.pendingDelivery.leaseToSocket(
                 row.subId,
                 claimed.entryId,
             );
-            if (region)
-                await this.stores.pendingDelivery.recordRemoteAttempt(
-                    row.subId,
-                    claimed.entryId,
-                    region,
-                );
             const envelope: DeliveryEnvelope = {
                 subId: row.subId,
                 event: claimed.event,
@@ -6621,29 +6633,13 @@ export class EventsService extends PuterService {
                 ackId: claimed.entryId,
             };
             const bill = await this.#firstAttempt(row.subId, claimed);
-            if (region) {
-                this.services.eventForward.handOff(region, {
-                    holderUserId: row.holderUserId,
-                    appUid: row.appUid,
-                    subId: row.subId,
-                    event: claimed.event,
-                    ackRequired: true,
-                    ackId: claimed.entryId,
-                    ...(hasWorkerFallback ? { toHandlers: true as const } : {}),
-                });
-                this.#delivered(envelope, meter, bill);
-            } else {
-                await this.#send({
-                    target,
-                    envelope,
-                    meter,
-                    bill,
-                });
-            }
-            singleAttempt.add(1, {
-                target: region ? 'remote-socket' : 'local-socket',
-                result: 'sent',
+            await this.#send({
+                target,
+                envelope,
+                meter,
+                bill,
             });
+            singleAttempt.add(1, { target: 'local-socket', result: 'sent' });
             return false;
         }
 
@@ -6654,6 +6650,44 @@ export class EventsService extends PuterService {
         }
 
         return this.#runInWorker(row, claimed);
+    }
+
+    /**
+     * Forward one claimed delivery to a region's connections under a socket
+     * lease, `reoffer` after another region declined it.
+     */
+    async #handToRegion(
+        row: DispatchSubscription,
+        claimed: ClaimedDelivery,
+        region: string,
+        reoffer = false,
+    ): Promise<void> {
+        await this.stores.pendingDelivery.leaseToSocket(
+            row.subId,
+            claimed.entryId,
+            { region, reoffer },
+        );
+        const bill = await this.#firstAttempt(row.subId, claimed);
+        this.services.eventForward.handOff(region, {
+            holderUserId: row.holderUserId,
+            appUid: row.appUid,
+            subId: row.subId,
+            event: claimed.event,
+            ackRequired: true,
+            ackId: claimed.entryId,
+            ...(runsInWorker(row) ? { toHandlers: true as const } : {}),
+        });
+        this.#delivered(
+            {
+                subId: row.subId,
+                event: claimed.event,
+                ackRequired: true,
+                ackId: claimed.entryId,
+            },
+            meterFor(row),
+            bill,
+        );
+        singleAttempt.add(1, { target: 'remote-socket', result: 'sent' });
     }
 
     /**

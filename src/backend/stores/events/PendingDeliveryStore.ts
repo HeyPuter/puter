@@ -246,6 +246,11 @@ interface StoredEntry {
     handlerDepth?: number;
     /** When the socket lease it was last handed out under expires. */
     socketLeaseUntil?: number;
+    /**
+     * The same, for an attempt made after a decline. Kept apart so a server
+     * that never makes one can't take it back on a decline.
+     */
+    reofferLeaseUntil?: number;
 }
 
 const parseEntry = (raw: string | null): StoredEntry | null => {
@@ -412,50 +417,73 @@ export class PendingDeliveryStore extends PuterStore {
      * Hand a claimed delivery to a connected client: count the attempt and
      * shorten its lease to the socket lease. The expiry is stamped on the
      * entry, which is how a decline later proves the lease is still the
-     * client's.
+     * client's. A remote attempt names its `region` in the same write, by name
+     * rather than by count: the row the next candidate is picked from can
+     * change between attempts. `reoffer` marks one made after a decline.
      */
-    async leaseToSocket(subId: string, entryId: string): Promise<void> {
+    async leaseToSocket(
+        subId: string,
+        entryId: string,
+        options: { region?: string; reoffer?: boolean } = {},
+    ): Promise<void> {
         const entry = parseEntry(
             await this.clients.redis.hget(entriesKey(subId), entryId),
         );
         if (!entry) return;
 
-        const socketLeaseUntil = Date.now() + EVENTS_SOCKET_LEASE_MS;
+        const leaseUntil = Date.now() + EVENTS_SOCKET_LEASE_MS;
+        const { reofferLeaseUntil: _previous, ...kept } = entry;
         await this.clients.redis.hset(
             entriesKey(subId),
             entryId,
             JSON.stringify({
-                ...entry,
+                ...kept,
                 socketAttempts: entry.socketAttempts + 1,
-                socketLeaseUntil,
+                ...(options.region
+                    ? {
+                          triedRegions: [
+                              ...(entry.triedRegions ?? []),
+                              options.region,
+                          ],
+                      }
+                    : {}),
+                ...(options.reoffer
+                    ? { reofferLeaseUntil: leaseUntil }
+                    : { socketLeaseUntil: leaseUntil }),
             }),
         );
         await this.#scripts().pendingRelease(
             leaseKey(subId),
             entryId,
             '',
-            String(socketLeaseUntil),
+            String(leaseUntil),
         );
     }
 
     /**
      * Take back a delivery a client declined, under a worker lease. Null when
      * the client's lease is no longer the one in place: settled, lapsed and
-     * claimed again, or already declined.
+     * claimed again, or already declined. Also null when the decline comes from
+     * anywhere but the region its current attempt went to (`null` for this
+     * one), so one left over from an earlier attempt can't take a later
+     * attempt's lease.
      */
     async takeFromSocket(
         subId: string,
         entryId: string,
+        fromRegion: string | null,
     ): Promise<ClaimedDelivery | null> {
         const entry = parseEntry(
             await this.clients.redis.hget(entriesKey(subId), entryId),
         );
-        if (!entry?.socketLeaseUntil) return null;
+        const leaseUntil = entry?.reofferLeaseUntil ?? entry?.socketLeaseUntil;
+        if (!entry || !leaseUntil) return null;
+        if ((entry.triedRegions?.at(-1) ?? null) !== fromRegion) return null;
 
         const moved = await this.#scripts().pendingRelease(
             leaseKey(subId),
             entryId,
-            String(entry.socketLeaseUntil),
+            String(leaseUntil),
             String(Date.now() + this.#leaseTtlMs()),
         );
         if (Number(moved) !== 1) return null;
@@ -466,30 +494,6 @@ export class PendingDeliveryStore extends PuterStore {
             triedRegions: entry.triedRegions ?? [],
             handlerDepth: entry.handlerDepth ?? 0,
         };
-    }
-
-    /**
-     * Record one remote region tried. Separate from `socketAttempts`, which a
-     * local attempt also spends, and by name rather than by count: the row the
-     * next candidate is picked from can change between attempts.
-     */
-    async recordRemoteAttempt(
-        subId: string,
-        entryId: string,
-        region: string,
-    ): Promise<string[]> {
-        const entry = parseEntry(
-            await this.clients.redis.hget(entriesKey(subId), entryId),
-        );
-        if (!entry) return [];
-
-        const triedRegions = [...(entry.triedRegions ?? []), region];
-        await this.clients.redis.hset(
-            entriesKey(subId),
-            entryId,
-            JSON.stringify({ ...entry, triedRegions }),
-        );
-        return triedRegions;
     }
 
     /**

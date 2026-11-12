@@ -1551,6 +1551,91 @@ describe('a delivery owed to exactly one consumer', () => {
         );
     });
 
+    it('reaches the region whose client runs the handler after a nearer one without it declines', async () => {
+        const west = makeRegion('west', ['east', 'south']);
+        const east = makeRegion('east', ['west', 'south']);
+        const south = makeRegion('south', ['west', 'east']);
+        const room = appSocketRoom(userId, APP_UID);
+        south.rooms.add(room);
+        await south.forward.noteConnect(actorFor(APP_UID), 'tab-s');
+        await quiet(5);
+        east.rooms.add(room);
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-e');
+        workerOutcome = 'settled';
+        const row = await register(west, {
+            appUid: APP_UID,
+            delivery: 'single',
+            handlerName: 'onWrite',
+        });
+        // South's handler connection is on another of its nodes.
+        await south.presence.addHandlerSocket(userId, 'tab-s', [
+            { appUid: APP_UID, subId: row.subId },
+        ]);
+
+        await dispatch(west);
+        await arrived(south);
+
+        expect(deliveriesIn(west).map((item) => item.subId)).toEqual([
+            row.subId,
+            row.subId,
+        ]);
+        expect(west.posts.map((post) => post.peerId)).toEqual([
+            'east',
+            'south',
+        ]);
+        expect(east.sent).toEqual([]);
+        expect(south.socket.send.mock.calls[0][0]).toEqual({
+            room: handlerSocketRoom(room, row.subId),
+        });
+
+        const envelope = south.sent[0];
+        await south.events.ackDelivery(actorFor(APP_UID), {
+            subId: row.subId,
+            id: envelope.ackId,
+            origin: envelope.origin,
+        });
+        await vi.waitFor(
+            async () => expect(await west.pending.depth(row.subId)).toBe(0),
+            { timeout: 3_000, interval: 20 },
+        );
+        expect(west.invoked).toEqual([]);
+        expect(south.sent).toHaveLength(1);
+        expect(west.metered).toHaveLength(1);
+    });
+
+    it('runs the worker once after every region with the app open declines', async () => {
+        const west = makeRegion('west', ['east', 'south']);
+        const east = makeRegion('east', ['west', 'south']);
+        const south = makeRegion('south', ['west', 'east']);
+        const room = appSocketRoom(userId, APP_UID);
+        for (const region of [east, south]) {
+            region.rooms.add(room);
+            await region.forward.noteConnect(actorFor(APP_UID), 'tab-1');
+        }
+        workerOutcome = 'settled';
+        const row = await register(west, {
+            appUid: APP_UID,
+            delivery: 'single',
+            handlerName: 'onWrite',
+        });
+
+        await dispatch(west);
+
+        await vi.waitFor(() => expect(west.invoked).toHaveLength(1), {
+            timeout: 3_000,
+            interval: 20,
+        });
+        expect(deliveriesIn(west)).toHaveLength(2);
+        expect(east.sent).toEqual([]);
+        expect(south.sent).toEqual([]);
+        await vi.waitFor(
+            async () => expect(await west.pending.depth(row.subId)).toBe(0),
+            { timeout: 3_000, interval: 20 },
+        );
+        await quiet(100);
+        expect(west.invoked).toHaveLength(1);
+    });
+
     it('never settles a lease in the region the client happened to reach', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
