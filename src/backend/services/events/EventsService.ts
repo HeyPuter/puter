@@ -1175,6 +1175,18 @@ const handlerTarget = (row: DispatchSubscription): string =>
 /** How long a region-wide look for a handler connection may take. */
 const HANDLER_PROBE_TIMEOUT_MS = 500;
 
+/** Handler rooms one forwarded batch probes at once. */
+const HANDLER_PROBE_CONCURRENCY = 16;
+
+/** The handler room a forwarded delivery must reach, if it is limited to one. */
+const forwardedHandlerRoom = (item: ForwardDelivery): string | null =>
+    item.ackRequired && item.toHandlers && item.ackId
+        ? handlerSocketRoom(
+              String(forwardTarget(item.userId, item.appUid).room),
+              item.subId,
+          )
+        : null;
+
 /** Rows one `events.handle` reads at once. */
 const HANDLER_ANNOUNCE_CONCURRENCY = 8;
 
@@ -1873,18 +1885,59 @@ export class EventsService extends PuterService {
     }
 
     /**
+     * Whether each handler room the forwarded deliveries name has a connection
+     * in this region, for `deliverForwarded`. All of them share one probe
+     * timeout: a room not reached in time counts as empty.
+     */
+    async heldHandlerRooms(
+        items: readonly ForwardDelivery[],
+    ): Promise<Map<string, boolean>> {
+        const held = new Map<string, boolean>();
+        if (!this.enabled) return held;
+        const rooms = new Set<string>();
+        for (const item of items) {
+            const room = forwardedHandlerRoom(item);
+            if (room) rooms.add(room);
+        }
+        if (rooms.size === 0) return held;
+        const list = [...rooms];
+        const deadline = Date.now() + HANDLER_PROBE_TIMEOUT_MS;
+        const outcomes = await runWithConcurrencyLimitSettled(
+            list,
+            HANDLER_PROBE_CONCURRENCY,
+            (room) =>
+                this.services.socket.occupied(room, {
+                    timeoutMs: deadline - Date.now(),
+                }),
+        );
+        list.forEach((room, i) => {
+            const outcome = outcomes[i];
+            held.set(
+                room,
+                outcome?.status === 'fulfilled' && outcome.value === true,
+            );
+        });
+        return held;
+    }
+
+    /**
      * Put down one delivery another region handed us. Nothing is metered or
      * re-checked: the region that emitted it did both, and this one holds no
      * state about it at all.
      */
-    async deliverForwarded(item: ForwardDelivery): Promise<void> {
+    async deliverForwarded(
+        item: ForwardDelivery,
+        heldRooms?: ReadonlyMap<string, boolean>,
+    ): Promise<void> {
         if (!this.enabled) return;
         let target = forwardTarget(item.userId, item.appUid);
-        if (item.ackRequired && item.toHandlers && item.ackId) {
-            const room = handlerSocketRoom(String(target.room), item.subId);
-            const held = await this.services.socket.occupied(room, {
-                timeoutMs: HANDLER_PROBE_TIMEOUT_MS,
-            });
+        const room = forwardedHandlerRoom(item);
+        if (room && item.ackId) {
+            const held =
+                heldRooms?.get(room) ??
+                (await this.services.socket.occupied(room, {
+                    timeoutMs: HANDLER_PROBE_TIMEOUT_MS,
+                }));
             // Nobody here runs its handler: hand it straight back, so the
             // worker takes it without waiting out the lease.
             if (!held) {

@@ -613,10 +613,22 @@ export class EventForwardService extends PuterService {
             to: this.region,
         });
 
+        // Handler rooms are probed up front and together, so a slow cluster
+        // costs the batch one probe timeout rather than one per delivery.
+        let heldRooms: Map<string, boolean> | undefined;
+        try {
+            heldRooms = await this.services.events.heldHandlerRooms(
+                items.filter(
+                    (item): item is ForwardDelivery => item.kind === 'delivery',
+                ),
+            );
+        } catch (err) {
+            console.warn('[events] handler room probe failed', err);
+        }
         for (const item of items) {
             if (item.kind !== 'delivery') continue;
             try {
-                await this.services.events.deliverForwarded(item);
+                await this.services.events.deliverForwarded(item, heldRooms);
             } catch (err) {
                 console.warn('[events] forwarded delivery failed', err);
             }

@@ -1661,6 +1661,18 @@ describe('SocketService.askWithAck through the cluster adapter', () => {
                 socketService.occupied(String(userId), { timeoutMs: 300 }),
             ).resolves.toBe(true);
         });
+
+        it('asks no other node once no time is left, but still looks here', async () => {
+            await connect();
+            peer(1);
+
+            await expect(
+                socketService.occupied('u1:aapp:sub:x', { timeoutMs: 0 }),
+            ).resolves.toBe(false);
+            await expect(
+                socketService.occupied(String(userId), { timeoutMs: 0 }),
+            ).resolves.toBe(true);
+        });
     });
 
     describe('asked by another node', () => {

@@ -203,6 +203,13 @@ interface Region {
     subscriptions: EventSubscriptionStore;
     forward: EventForwardService;
     events: EventsService;
+    socket: {
+        occupied: (
+            room: string,
+            options: { timeoutMs: number },
+        ) => Promise<boolean>;
+        send: ReturnType<typeof vi.fn>;
+    };
     /** Every addressed POST this region made, whether or not it arrived. */
     posts: Array<{ peerId: string; batch: ForwardBatch }>;
     /** Rooms this region terminates a socket for. */
@@ -373,6 +380,7 @@ const makeRegion = (
             region.sent.push(data as DeliveryEnvelope);
         }),
     };
+    region.socket = socket;
 
     const broadcast = {
         get regionId() {
@@ -1840,6 +1848,141 @@ describe('receiving a batch', () => {
         // in flight, proving they ran concurrently rather than queued
         // behind it.
         expect(settled.at(-1)).toBe('slow');
+    });
+});
+
+describe('receiving queued deliveries that only a handler connection takes', () => {
+    const queued = (subId: string): ForwardDelivery => ({
+        kind: 'delivery',
+        userId,
+        appUid: APP_UID,
+        subId,
+        event: {
+            id: `e-${subId}`,
+            subject: 'fs:/u7/Documents',
+            op: 'write',
+            uid: 'node-1',
+            path: '/u7/Documents/notes.txt',
+            self: true,
+            seq: 0,
+            ts: 1,
+        },
+        ackRequired: true,
+        ackId: `entry-${subId}`,
+        origin: 'west',
+        toHandlers: true,
+    });
+    const plain = (subId: string): ForwardDelivery => ({
+        kind: 'delivery',
+        userId,
+        appUid: APP_UID,
+        subId,
+        event: queued(subId).event,
+    });
+    const handlerRoom = (subId: string) =>
+        handlerSocketRoom(appSocketRoom(userId, APP_UID), subId);
+    /** A cluster probe that answers only once its timeout runs out. */
+    const unanswered = (east: Region, held: Set<string>) =>
+        vi
+            .spyOn(east.socket, 'occupied')
+            .mockImplementation(
+                (room: string, { timeoutMs }: { timeoutMs: number }) =>
+                    new Promise((resolve) =>
+                        setTimeout(
+                            () => resolve(held.has(room)),
+                            Math.max(0, timeoutMs),
+                        ),
+                    ),
+            );
+
+    it('waits on about one probe timeout per batch, not one per delivery', async () => {
+        const east = makeRegion('east', ['west']);
+        const nack = vi
+            .spyOn(east.forward, 'relayNack')
+            .mockImplementation(() => {});
+        unanswered(east, new Set([handlerRoom('h-0'), handlerRoom('h-2')]));
+        const sentAt = new Map<string, number>();
+        east.socket.send.mockImplementation(
+            async (_spec: unknown, _key: string, data: unknown) => {
+                const envelope = data as DeliveryEnvelope;
+                sentAt.set(envelope.subId, Date.now());
+                east.sent.push(envelope);
+            },
+        );
+
+        const startedAt = Date.now();
+        await east.forward.receive(
+            {
+                from: 'west',
+                items: [
+                    queued('h-0'),
+                    queued('h-1'),
+                    queued('h-2'),
+                    queued('h-3'),
+                    plain('plain'),
+                ],
+            },
+            'west',
+        );
+
+        expect(Date.now() - startedAt).toBeLessThan(500 + 300);
+        expect(sentAt.get('plain')! - startedAt).toBeLessThan(500 + 300);
+        // Still sent in the batch's order, and each empty room declined.
+        expect(east.sent.map((envelope) => envelope.subId)).toEqual([
+            'h-0',
+            'h-2',
+            'plain',
+        ]);
+        expect(nack.mock.calls.map((call) => call[2])).toEqual(['h-1', 'h-3']);
+        expect(nack.mock.calls.every((call) => call[4] === 'no_handler')).toBe(
+            true,
+        );
+    });
+
+    it('probes a room once however many of its deliveries the batch carries', async () => {
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(handlerRoom('same'));
+        const probe = vi.spyOn(east.socket, 'occupied');
+
+        await east.forward.receive(
+            {
+                from: 'west',
+                items: [queued('same'), queued('same'), queued('same')],
+            },
+            'west',
+        );
+
+        expect(probe).toHaveBeenCalledTimes(1);
+        expect(east.sent).toHaveLength(3);
+    });
+
+    it('declines what a full batch could not probe in time, and sends none of it', async () => {
+        const east = makeRegion('east', ['west']);
+        const nack = vi
+            .spyOn(east.forward, 'relayNack')
+            .mockImplementation(() => {});
+        unanswered(east, new Set());
+        const items = Array.from({ length: 40 }, (_, i) => queued(`h-${i}`));
+
+        const startedAt = Date.now();
+        await east.forward.receive({ from: 'west', items }, 'west');
+
+        expect(Date.now() - startedAt).toBeLessThan(500 + 300);
+        expect(east.sent).toEqual([]);
+        expect(nack).toHaveBeenCalledTimes(40);
+    });
+
+    it('never probes for a batch without such a delivery', async () => {
+        const east = makeRegion('east', ['west']);
+        const probe = vi.spyOn(east.socket, 'occupied');
+
+        await east.forward.receive(
+            { from: 'west', items: [plain('a'), plain('b')] },
+            'west',
+        );
+
+        expect(probe).not.toHaveBeenCalled();
+        expect(east.sent).toHaveLength(2);
     });
 });
 

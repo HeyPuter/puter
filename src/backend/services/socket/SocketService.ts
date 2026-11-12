@@ -519,7 +519,8 @@ export class SocketService extends PuterService {
     /**
      * Whether any socket in the cluster is in `room`. A node that does not
      * answer in time counts as holding none, and so does every other node until
-     * the adapter has counted servers once.
+     * the adapter has counted servers once. With no time left, only this node
+     * is looked at.
      */
     async occupied(
         room: string,
@@ -527,6 +528,7 @@ export class SocketService extends PuterService {
     ): Promise<boolean> {
         if (!this.#io) return false;
         if (this.#othersHere([room], []) > 0) return true;
+        if (timeoutMs <= 0) return false;
         if (!this.#serverCountWorks) {
             this.#probeServerCount();
             return false;
