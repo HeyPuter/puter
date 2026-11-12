@@ -380,12 +380,49 @@
  * @typedef {Object} UnshareOptionsOwn
  * @property {string} [path] Item to stop sharing.
  * @property {string} [uid] Item to stop sharing, by UID.
- * @property {ShareRecipient} [recipient] Who to withdraw access from. Pass
- * yourself to leave a share someone else granted you.
+ * @property {string[]} [paths] Several items to stop sharing in one call.
+ * @property {ShareRecipient | ShareRecipient[]} [recipient] Who to withdraw
+ * access from. Pass yourself to leave a share someone else granted you.
+ * @property {ShareRecipient | ShareRecipient[]} [recipients] Alias for
+ * `recipient`.
  */
 
 /**
- * @typedef {UnshareOptionsOwn & RequestCallbacks<{ revoked: number }>} UnshareOptions
+ * One recipient/item pair an unshare call was refused for.
+ *
+ * @typedef {Object} UnshareFailure
+ * @property {string} recipient The recipient as the call named it: a
+ * username, an email, a team's uid or handle, or `'anyone'`.
+ * @property {string} [path] The item's absolute path, when the call named
+ * it by path. A relative path comes back resolved against the app's root
+ * directory, and a leading `~` as the user's home directory.
+ * @property {string} [uid] The item's UID as the call passed it, when the
+ * call named it by UID.
+ * @property {string} message Why the pair was refused.
+ * @property {string} code The refusal's code; `unshare_failed` when the
+ * server named none.
+ */
+
+/**
+ * @typedef {Object} UnshareResult
+ * @property {number} revoked How many grants were removed.
+ * @property {UnshareFailure[]} failed The pairs that were refused; empty when
+ * none were.
+ */
+
+/**
+ * The rejection value of `unshare()` when every pair was refused. A request
+ * that failed as a whole rejects with its own error, which has no `failed`.
+ *
+ * @typedef {Object} UnshareError
+ * @property {string} message Why the first refused pair that names a code
+ * other than `user_does_not_exist` or `subject_does_not_exist` was refused.
+ * @property {string} code That pair's code.
+ * @property {UnshareFailure[]} failed Every refused pair.
+ */
+
+/**
+ * @typedef {UnshareOptionsOwn & RequestCallbacks<UnshareResult>} UnshareOptions
  */
 
 /**
