@@ -29,7 +29,7 @@ import {
     sniffImageMime,
     sniffVideoMime,
 } from '../../../../../util/mediaSniff.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import { loadFileInput } from '../../../../util/fileInput.js';
 import {
     geminiUpstreamFailure,

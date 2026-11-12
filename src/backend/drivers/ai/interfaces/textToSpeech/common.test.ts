@@ -31,7 +31,7 @@ import { makeActor } from '../../../../core/actor.js';
 import type { DriverStreamResult } from '../../../meta.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withAiCostFactor } from '../../shared/aiCostFactor.js';
+import { withAiCostFactor } from '../../../../util/aiCostFactor.js';
 import {
     assertMaxChars,
     characterCostReport,

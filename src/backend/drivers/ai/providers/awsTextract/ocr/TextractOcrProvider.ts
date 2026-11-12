@@ -38,7 +38,7 @@ import type {
     OcrBlock,
     RecognizeArgs,
 } from '../../../interfaces/ocr/types.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import { textractRates } from './textractPricing.js';
 
 const DEFAULT_TEXTRACT_REGION = 'us-west-2';

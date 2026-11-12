@@ -50,7 +50,7 @@ import {
     sentIdentifierFields,
     withTestActor,
 } from '../../../../integrationTestUtil.js';
-import { withAiCostFactor } from '../../../shared/aiCostFactor.js';
+import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
 import { OpenAiImageProvider } from './OpenAiImageProvider.js';
 

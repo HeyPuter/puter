@@ -24,7 +24,7 @@ import { PuterDriver } from '../../../types.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
-} from '../../shared/aiCostFactor.js';
+} from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
 import {
     resolveOutputPath,
@@ -37,7 +37,7 @@ import {
     readPuterImageInputs,
 } from '../../shared/mediaInput.js';
 import { ModelCatalog } from '../../shared/modelCatalog.js';
-import { readProviderKey } from '../../shared/providerRegistry.js';
+import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import { BytePlusVideoProvider } from '../../providers/byteplus/video/BytePlusVideoProvider.js';
 import { GeminiVideoProvider } from '../../providers/gemini/video/GeminiVideoProvider.js';
 import { KlingVideoProvider } from '../../providers/kling/video/KlingVideoProvider.js';

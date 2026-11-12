@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { OPENAI_GPT_TRANSCRIBE_UCENTS_PER_SECOND } from '../../../../../util/aiPrices.js';
+
 // Microcents per second of audio, per OpenAI transcription model.
 export const SPEECH_TO_TEXT_COSTS: Record<string, number> = {
-    'openai:gpt-transcribe:second': 7500,
+    'openai:gpt-transcribe:second': OPENAI_GPT_TRANSCRIBE_UCENTS_PER_SECOND,
 };

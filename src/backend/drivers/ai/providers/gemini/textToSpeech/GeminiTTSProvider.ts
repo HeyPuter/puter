@@ -24,7 +24,7 @@ import { Context } from '../../../../../core/context.js';
 import {
     type AiMeteringService,
     withAiCreditHold,
-} from '../../../shared/aiCostFactor.js';
+} from '../../../../../util/aiCostFactor.js';
 import type { UsageInput } from '../../../../../services/metering/types.js';
 import type { DriverStreamResult } from '../../../../meta.js';
 import {

@@ -35,7 +35,7 @@ import {
     factoredTotal,
     requestAiCosts,
     withAiCostFactor,
-} from '../../shared/aiCostFactor.js';
+} from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
 import {
     isCreditExhaustion as isUpstreamCreditExhaustion,

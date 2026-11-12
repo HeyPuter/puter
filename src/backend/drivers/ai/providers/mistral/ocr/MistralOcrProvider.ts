@@ -37,7 +37,7 @@ import type {
     OcrBlock,
     RecognizeArgs,
 } from '../../../interfaces/ocr/types.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 
 interface MistralOcrResponse {
     model?: string;

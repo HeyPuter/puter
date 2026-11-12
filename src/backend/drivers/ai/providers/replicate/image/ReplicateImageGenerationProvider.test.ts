@@ -47,7 +47,7 @@ import { Context, runWithContext } from '../../../../../core/context.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { withTestActor } from '../../../../integrationTestUtil.js';
-import { withAiCostFactor } from '../../../shared/aiCostFactor.js';
+import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { ReplicateImageGenerationProvider } from './ReplicateImageGenerationProvider.js';
 import { REPLICATE_IMAGE_GENERATION_MODELS } from './models.js';
 

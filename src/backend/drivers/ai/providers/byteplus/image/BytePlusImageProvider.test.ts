@@ -44,7 +44,7 @@ import type { MeteringService } from '../../../../../services/metering/MeteringS
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { withTestActor } from '../../../../integrationTestUtil.js';
-import { withAiCostFactor } from '../../../shared/aiCostFactor.js';
+import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { BYTEPLUS_IMAGE_GENERATION_MODELS } from './models.js';
 import { BytePlusImageProvider } from './BytePlusImageProvider.js';
 

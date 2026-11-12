@@ -28,7 +28,7 @@ import {
 import {
     type AiMeteringService,
     aiModelKey,
-} from '../../shared/aiCostFactor.js';
+} from '../../../../util/aiCostFactor.js';
 import { VIDEO_HOLD_TTL_MS } from '../../shared/polling.js';
 
 export interface ICapSecondsParams {

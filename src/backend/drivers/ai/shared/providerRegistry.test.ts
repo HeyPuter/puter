@@ -18,11 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-    type ProviderCatalog,
-    ProviderRegistry,
-    readProviderKey,
-} from './providerRegistry.js';
+import { type ProviderCatalog, ProviderRegistry } from './providerRegistry.js';
 
 const CATALOG: ProviderCatalog = {
     label: 'Test',
@@ -95,21 +91,5 @@ describe('ProviderRegistry.collect', () => {
         expect(ProviderRegistry.isAll(' ALL ')).toBe(true);
         expect(ProviderRegistry.isAll('alpha')).toBe(false);
         expect(ProviderRegistry.isAll(undefined)).toBe(false);
-    });
-});
-
-describe('readProviderKey', () => {
-    it('reads apiKey, secret_key, api_key and key, in that order', () => {
-        expect(readProviderKey({ apiKey: 'a', secret_key: 'b' })).toBe('a');
-        expect(readProviderKey({ secret_key: 'b', api_key: 'c' })).toBe('b');
-        expect(readProviderKey({ api_key: 'c', key: 'd' })).toBe('c');
-        expect(readProviderKey({ key: 'd' })).toBe('d');
-    });
-
-    it('takes the first block that has a key, skipping empty values', () => {
-        expect(
-            readProviderKey(undefined, { apiKey: '' }, { secret_key: 'b' }),
-        ).toBe('b');
-        expect(readProviderKey({ apiKey: 7 }, undefined)).toBeUndefined();
     });
 });

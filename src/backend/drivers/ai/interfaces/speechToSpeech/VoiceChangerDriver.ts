@@ -26,13 +26,13 @@ import { PuterDriver } from '../../../types.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
-} from '../../shared/aiCostFactor.js';
+} from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
 import {
     type ProviderCatalog,
     ProviderRegistry,
-    readProviderKey,
 } from '../../shared/providerRegistry.js';
+import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import { SAMPLE_AUDIO_URL } from '../../shared/testMode.js';
 import type { ConvertArgs } from './types.js';
 

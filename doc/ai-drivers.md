@@ -18,9 +18,17 @@ src/backend/drivers/ai/
 | `providers/<vendor>/<interface>/` | One vendor's implementation of one interface: the adapter, its model catalog and prices, its fixtures, and its tests. | [providers/gemini/video/](../src/backend/drivers/ai/providers/gemini/video/) |
 | `providers/<vendor>/` | Helpers that several of that vendor's interfaces use. | [providers/gemini/geminiRest.ts](../src/backend/drivers/ai/providers/gemini/geminiRest.ts) |
 | `protocols/openaiCompatible/` | The OpenAI wire protocol: the base provider class, message and usage conversion, and parameter mapping for Chat Completions and Responses. | [protocols/openaiCompatible/OpenAICompatProvider.ts](../src/backend/drivers/ai/protocols/openaiCompatible/OpenAICompatProvider.ts) |
-| `shared/` | Helpers that more than one interface uses: limits, the cost factor, the provider registry, the remote catalog cache, job polling, and media input. | [shared/aiLimits.ts](../src/backend/drivers/ai/shared/aiLimits.ts) |
+| `shared/` | Helpers that more than one interface uses: limits, the provider registry, the remote catalog cache, job polling, streamed charging, and media input. | [shared/aiLimits.ts](../src/backend/drivers/ai/shared/aiLimits.ts) |
 
 Helpers that non-AI code also uses stay in [src/backend/drivers/util/](../src/backend/drivers/util/): file input, data URIs, upstream error mapping, and stream piping.
+
+AI code that a service also needs lives in [src/backend/util/](../src/backend/util/), because a service can't import from the driver layer. The realtime relay in `services/realtime/` bills through the same cost factor as the drivers, so these three files are there:
+
+| File | Holds |
+| --- | --- |
+| [aiCostFactor.ts](../src/backend/util/aiCostFactor.ts) | `withAiCostFactor`, the metering view every AI driver and the realtime relay record usage through, and `withAiCreditHold`. |
+| [aiProviderKey.ts](../src/backend/util/aiProviderKey.ts) | `readProviderKey`, which reads an API key from `config.providers` blocks. |
+| [aiPrices.ts](../src/backend/util/aiPrices.ts) | Vendor prices that a driver and a service both bill. |
 
 ### Interfaces
 
@@ -54,6 +62,7 @@ A provider whose vendor has its own API, such as `ClaudeProvider` or `ElevenLabs
 ## Import rules
 
 - `shared/` imports nothing from `interfaces/`, `providers/`, or `protocols/`.
+- Nothing in `services/`, `stores/`, or `clients/` imports from `drivers/ai/`. Code that a service and a driver both need goes in `src/backend/util/`.
 - `providers/` and `protocols/` import an interface's `types.ts` and helpers. They never import a driver class. Their tests can, to drive a provider through the real driver.
 - A driver imports its providers to register them.
 - An interface doesn't import another interface. When a second interface needs a helper, move the helper to `shared/`, or to `providers/<vendor>/` when it belongs to one vendor.
@@ -69,7 +78,8 @@ A provider whose vendor has its own API, such as `ClaudeProvider` or `ElevenLabs
 | A vendor's auth, REST plumbing, or constants that two of its interfaces use | `providers/<vendor>/` |
 | Behavior of a wire protocol that several vendors speak | `protocols/<protocol>/` |
 | A helper that two or more interfaces use and that belongs to no vendor | `shared/` |
-| A helper that non-AI drivers, controllers, or services also use | `src/backend/drivers/util/` or `src/backend/util/` |
+| A helper that non-AI drivers or controllers also use | `src/backend/drivers/util/` |
+| AI code that a service also uses | `src/backend/util/`, in a file named `ai<Something>.ts` |
 
 Keep a helper next to its only consumer. Move it up when a second consumer appears, not before.
 
@@ -109,5 +119,5 @@ Vendors share one constants-only folder only when at least six of them differ in
 1. Create `interfaces/<interface>/` with the driver class and a `types.ts` for the contracts providers implement.
 2. Register the driver in [src/backend/drivers/index.ts](../src/backend/drivers/index.ts).
 3. Use `AI_RATE_LIMIT` and `AI_CONCURRENT` from `shared/aiLimits.ts`, and publish any new limit in [rate-limits-and-quotas.md](../src/docs/src/rate-limits-and-quotas.md).
-4. Meter through `withAiCostFactor` from `shared/aiCostFactor.ts`, and route between providers with `ProviderRegistry` from `shared/providerRegistry.ts`.
+4. Meter through `withAiCostFactor` from `src/backend/util/aiCostFactor.ts`, and route between providers with `ProviderRegistry` from `shared/providerRegistry.ts`.
 5. Follow [contributing-apis.md](contributing-apis.md) for the puter.js method, types, docs, and tests.

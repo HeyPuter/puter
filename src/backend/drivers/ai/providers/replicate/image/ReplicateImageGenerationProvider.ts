@@ -36,7 +36,7 @@ import {
     type CreditHold,
     NO_CREDIT_HOLD,
 } from '../../../../../services/metering/types.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import { secureFetch } from '../../../../../util/secureHttp.js';
 import type {
     IGenerateParams,

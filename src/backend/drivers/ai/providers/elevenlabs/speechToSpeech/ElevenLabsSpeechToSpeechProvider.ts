@@ -26,10 +26,8 @@ import {
     upstreamFetch,
 } from '../../../../util/upstreamErrors.js';
 import type { ConvertArgs } from '../../../interfaces/speechToSpeech/types.js';
-import {
-    type AiMeteringService,
-    withStreamedAiCharge,
-} from '../../../shared/aiCostFactor.js';
+import { type AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import { withStreamedAiCharge } from '../../../shared/streamedAiCharge.js';
 import { DEFAULT_OUTPUT_FORMAT } from '../outputFormats.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 import { measuredOutput, outputBytesPerSecond } from './measuredOutput.js';

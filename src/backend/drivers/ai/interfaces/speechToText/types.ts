@@ -19,7 +19,7 @@
 
 /** Types for the `puter-speech2txt` driver interface. */
 
-import type { AiMeteringService } from '../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../util/aiCostFactor.js';
 import type { loadFileInput } from '../../../util/fileInput.js';
 
 /** The layers a provider needs to read its audio input and meter usage. */

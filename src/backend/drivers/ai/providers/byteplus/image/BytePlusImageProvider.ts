@@ -25,7 +25,7 @@ import type { ImageSize } from '../../../interfaces/image/types.js';
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
     IImageModel,

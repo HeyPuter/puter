@@ -41,7 +41,7 @@ import {
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { withAiCostFactor } from '../../../shared/aiCostFactor.js';
+import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import {
     readStreamResult,
     withTestActor,

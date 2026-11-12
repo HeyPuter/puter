@@ -49,7 +49,7 @@ import {
     sentIdentifierFields,
     withTestActor,
 } from '../../../../integrationTestUtil.js';
-import { withAiCostFactor } from '../../../shared/aiCostFactor.js';
+import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { CATALOG_TTL_MS } from '../../../shared/cachedRemoteCatalog.js';
 import liveCatalog from './fixtures/image-generation-models.json';
 import { XAI_IMAGE_GENERATION_MODELS } from './models.js';

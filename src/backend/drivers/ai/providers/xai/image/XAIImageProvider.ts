@@ -22,7 +22,7 @@ import { imageDataUri } from '../../../interfaces/image/imageOutput.js';
 import { OpenAI } from 'openai';
 import { formatAspectRatio } from '../../../interfaces/image/imageDimensions.js';
 import { Context } from '../../../../../core/context.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
     IImageProvider,

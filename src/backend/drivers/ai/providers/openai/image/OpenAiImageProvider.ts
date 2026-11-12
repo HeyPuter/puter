@@ -42,7 +42,7 @@ import { estimateTextTokens } from '../../../shared/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import { upstreamUserIdentifier } from '../../../shared/upstreamIdentifier.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 
 interface OpenAIImageUsage {
     inputTokens: number;

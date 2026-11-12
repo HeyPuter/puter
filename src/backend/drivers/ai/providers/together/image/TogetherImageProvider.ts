@@ -25,7 +25,7 @@ import {
 import { imageDataUri } from '../../../interfaces/image/imageOutput.js';
 import { Together } from 'together-ai';
 import { Context } from '../../../../../core/context.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
     IImageProvider,

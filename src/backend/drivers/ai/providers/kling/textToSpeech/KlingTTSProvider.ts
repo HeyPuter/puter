@@ -20,10 +20,8 @@
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
 import type { DriverStreamResult } from '../../../../meta.js';
-import {
-    type AiMeteringService,
-    withStreamedAiCharge,
-} from '../../../shared/aiCostFactor.js';
+import { type AiMeteringService } from '../../../../../util/aiCostFactor.js';
+import { withStreamedAiCharge } from '../../../shared/streamedAiCharge.js';
 import { klingRequest } from '../kling.js';
 import { SAMPLE_AUDIO_URL } from '../../../shared/testMode.js';
 import {

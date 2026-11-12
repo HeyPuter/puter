@@ -21,7 +21,7 @@ import { closestAspectRatio } from '../../../interfaces/image/imageDimensions.js
 import { assertImagePrompt } from '../../../interfaces/image/imageValidation.js';
 import { GenerateContentResponse, GoogleGenAI } from '@google/genai';
 import { Context } from '../../../../../core/context.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import {
     GEMINI_DEFAULT_RATIO,
     GEMINI_ESTIMATED_IMAGE_TOKENS,

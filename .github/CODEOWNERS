@@ -19,6 +19,9 @@
 
 /src/backend/controllers/puterai/ @404oops @ProgrammerIn-wonderland @Salazareo
 /src/backend/drivers/ai/ @404oops @ProgrammerIn-wonderland @Salazareo
+/src/backend/util/aiCostFactor* @404oops @ProgrammerIn-wonderland @Salazareo
+/src/backend/util/aiPrices* @404oops @ProgrammerIn-wonderland @Salazareo
+/src/backend/util/aiProviderKey* @404oops @ProgrammerIn-wonderland @Salazareo
 
 # Backend: AI, hosting, workers, networking, and WebDAV
 

@@ -24,7 +24,7 @@ import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import { Context } from '../../../../../core/context.js';
 import { cachedRemoteCatalog } from '../../../shared/cachedRemoteCatalog.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
     IImageModel,

@@ -23,12 +23,10 @@ import { PuterDriver } from '../../../types.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
-} from '../../shared/aiCostFactor.js';
+} from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
-import {
-    ProviderRegistry,
-    readProviderKey,
-} from '../../shared/providerRegistry.js';
+import { ProviderRegistry } from '../../shared/providerRegistry.js';
+import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import {
     SPEECH_TO_TEXT_CATALOG,
     SPEECH_TO_TEXT_DRIVER_ALIASES,

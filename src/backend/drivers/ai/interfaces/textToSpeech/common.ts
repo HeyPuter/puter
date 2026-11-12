@@ -19,10 +19,8 @@
 
 import type { Actor } from '../../../../core/actor.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
-import {
-    type AiMeteringService,
-    withStreamedAiCharge,
-} from '../../shared/aiCostFactor.js';
+import { type AiMeteringService } from '../../../../util/aiCostFactor.js';
+import { withStreamedAiCharge } from '../../shared/streamedAiCharge.js';
 import type { DriverStreamResult } from '../../../meta.js';
 
 /**

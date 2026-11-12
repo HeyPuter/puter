@@ -23,7 +23,7 @@ import { insufficientCreditsError } from '../../../../services/metering/enforcem
 import type { CreditHold } from '../../../../services/metering/types.js';
 import { mimeFromName } from '../../../../util/fileSigning.js';
 import type { LoadedFile, ResolvedFileInput } from '../../../util/fileInput.js';
-import type { AiMeteringService } from '../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../util/aiCostFactor.js';
 import {
     OCR_MAX_INPUT_BYTES,
     OCR_MAX_PAGES,

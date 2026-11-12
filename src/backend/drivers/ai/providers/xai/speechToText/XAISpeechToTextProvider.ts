@@ -19,7 +19,7 @@
 
 import { HttpError } from '../../../../../core/http/HttpError.js';
 import type { Actor } from '../../../../../core/actor.js';
-import { withAiCreditHold } from '../../../shared/aiCostFactor.js';
+import { withAiCreditHold } from '../../../../../util/aiCostFactor.js';
 import { loadFileInput } from '../../../../util/fileInput.js';
 import { upstreamFetch } from '../../../../util/upstreamErrors.js';
 import type {

@@ -119,20 +119,3 @@ export class ProviderRegistry<P> {
         return lists.flat();
     }
 }
-
-/**
- * The API key from the first config block that has one. Every AI driver reads
- * the same fields, so a key works whichever driver a provider is used through.
- */
-export function readProviderKey(
-    ...cfgs: Array<Record<string, unknown> | undefined>
-): string | undefined {
-    for (const cfg of cfgs) {
-        if (!cfg) continue;
-        for (const field of ['apiKey', 'secret_key', 'api_key', 'key']) {
-            const value = cfg[field];
-            if (typeof value === 'string' && value) return value;
-        }
-    }
-    return undefined;
-}

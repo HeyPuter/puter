@@ -28,7 +28,7 @@ import {
 import { HttpError } from '../../../../../core/http/HttpError.js';
 import { Context } from '../../../../../core/context.js';
 import type { AwsCredentials } from '../../../../../util/awsCredentials.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../../meta.js';
 import { SAMPLE_AUDIO_URL } from '../../../shared/testMode.js';
 import type {

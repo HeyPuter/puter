@@ -20,7 +20,7 @@
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import { klingImageInput, klingRequest } from '../kling.js';
 import {
     CONTENT_FILTER_PATTERN,

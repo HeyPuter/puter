@@ -48,7 +48,7 @@ import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../../util/userProvisioning.js';
 import { withTestActor } from '../../../../integrationTestUtil.js';
-import { withAiCostFactor } from '../../../shared/aiCostFactor.js';
+import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { VIDEO_POLL_WINDOW_MS } from '../../../shared/polling.js';
 import { TogetherVideoProvider } from './TogetherVideoProvider.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from './models.js';

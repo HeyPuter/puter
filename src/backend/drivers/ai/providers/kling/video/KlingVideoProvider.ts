@@ -20,7 +20,7 @@
 import type { Actor } from '../../../../../core/actor.js';
 import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import { isHttpUrl } from '../../../shared/imageInput.js';
 import { klingImageInput, klingRequest } from '../kling.js';
 import {

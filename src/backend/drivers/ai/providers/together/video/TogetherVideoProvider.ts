@@ -24,7 +24,7 @@ import { HttpError } from '../../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import type { CreditHold } from '../../../../../services/metering/types.js';
 import { sniffVideoMime } from '../../../../../util/mediaSniff.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import { dataUriBytes, parseDataUri } from '../../../../util/dataUri.js';
 import { isHttpUrl } from '../../../shared/imageInput.js';
 import {

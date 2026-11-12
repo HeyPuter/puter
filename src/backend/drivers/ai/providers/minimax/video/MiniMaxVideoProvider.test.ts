@@ -42,7 +42,7 @@ import type { MeteringService } from '../../../../../services/metering/MeteringS
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { withTestActor } from '../../../../integrationTestUtil.js';
-import { withAiCostFactor } from '../../../shared/aiCostFactor.js';
+import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import type { IGenerateVideoParams } from '../../../interfaces/video/types.js';
 import { VIDEO_POLL_WINDOW_MS } from '../../../shared/polling.js';
 import { MiniMaxVideoProvider } from './MiniMaxVideoProvider.js';

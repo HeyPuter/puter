@@ -22,7 +22,7 @@ import { Context } from '../../../../../core/context.js';
 import { HttpError } from '../../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../../services/metering/enforcement.js';
 import type { CreditHold } from '../../../../../services/metering/types.js';
-import type { AiMeteringService } from '../../../shared/aiCostFactor.js';
+import type { AiMeteringService } from '../../../../../util/aiCostFactor.js';
 import { readBoundedBody } from '../../../../util/fileInput.js';
 import { toUrlOrDataUri } from '../../../shared/imageInput.js';
 import {

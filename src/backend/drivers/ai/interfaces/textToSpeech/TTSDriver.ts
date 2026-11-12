@@ -25,13 +25,11 @@ import { PuterDriver } from '../../../types.js';
 import {
     type AiMeteringService,
     withAiCostFactor,
-} from '../../shared/aiCostFactor.js';
+} from '../../../../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../shared/aiLimits.js';
 import { usesGoogleGeminiEndpoint } from '../../providers/gemini/geminiRest.js';
-import {
-    ProviderRegistry,
-    readProviderKey,
-} from '../../shared/providerRegistry.js';
+import { ProviderRegistry } from '../../shared/providerRegistry.js';
+import { readProviderKey } from '../../../../util/aiProviderKey.js';
 import { TTS_CATALOG, TTS_DRIVER_ALIASES } from './providerAliases.js';
 import { AWSPollyTTSProvider } from '../../providers/awsPolly/textToSpeech/AWSPollyTTSProvider.js';
 import { ElevenLabsTTSProvider } from '../../providers/elevenlabs/textToSpeech/ElevenLabsTTSProvider.js';

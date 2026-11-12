@@ -44,7 +44,7 @@ import {
 import { Context } from '../../../../../core/context.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import type { UsageInput } from '../../../../../services/metering/types.js';
-import { withAiCostFactor } from '../../../shared/aiCostFactor.js';
+import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { callerError, withTestActor } from '../../../../integrationTestUtil.js';
