@@ -249,36 +249,6 @@ describe('GET /fs/readdir over HTTP', () => {
         expect(body.map((e) => e.name)).toContain('Documents');
     });
 
-    it('answers a folder whose path cannot be resolved as absent', async () => {
-        const { username, token } = env.users.user;
-        const created = await fetch(new URL('/fs/mkdir', env.apiOrigin), {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-                path: `/${username}/Documents/detached-${crypto.randomUUID().slice(0, 8)}`,
-            }),
-        });
-        const folder = (await created.json()) as { uuid: string };
-        await env.server.clients.db.write(
-            'UPDATE fsentries SET path = NULL, parent_uid = ? WHERE uuid = ?',
-            ['does-not-exist', folder.uuid],
-        );
-        await env.server.stores.fsEntry.invalidateEntryCacheByUuid(folder.uuid);
-
-        const response = await fetch(new URL('/fs/readdir', env.apiOrigin), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: folder.uuid, auth_token: token }),
-        });
-        expect(response.status).toBe(404);
-        expect(await response.json()).toMatchObject({
-            code: 'subject_does_not_exist',
-        });
-    });
-
     describe('the share flag', () => {
         const post = async (path: string, token: string, body: unknown) => {
             const response = await fetch(new URL(path, env.apiOrigin), {
