@@ -46,6 +46,8 @@ A `Promise` that will resolve to the [`FSItem`](/Objects/fsitem) object of the c
 
 If the source file or directory does not exist, the promise will be rejected with an error.
 
+If the destination already holds an item whose name differs from the new name only by accents or emoji, such as `😀.txt` for `😁.txt`, that item is never replaced. With `overwrite: true` the promise rejects with a `conflict` error, and otherwise with `item_with_same_name_exists`. To copy the item under a new name instead, set `dedupeName: true`.
+
 ## Examples
 
 ### Copy a file
