@@ -813,5 +813,68 @@ describe.each(engines.filter((engine) => !engine.skip))(
                 expect(found?.uuid).toBe(entry.uuid);
             }
         });
+
+        describe('over WebDAV', () => {
+            const dav = async (
+                method: 'mkcol' | 'copy' | 'move',
+                path: string,
+                headers: Record<string, string> = {},
+            ): Promise<number> => {
+                const controller = server.controllers.webdav as unknown as Record<
+                    string,
+                    (req: unknown, res: unknown) => Promise<void>
+                >;
+                let status = 200;
+                const res = {
+                    headersSent: false,
+                    once: () => res,
+                    emit: () => true,
+                    status: (code: number) => {
+                        status = code;
+                        return res;
+                    },
+                    set: () => res,
+                    setHeader: () => res,
+                    send: () => res,
+                    end: () => res,
+                    json: () => res,
+                };
+                const req = {
+                    method: method.toUpperCase(),
+                    path,
+                    headers: { host: 'dav.test', ...headers },
+                    query: {},
+                    body: {},
+                    socket: {},
+                    actor,
+                };
+                await runWithContext({ actor }, () =>
+                    controller[method]!.call(server.controllers.webdav, req, res),
+                );
+                return status;
+            };
+
+            it('answers MKCOL on a folded name with 405, as for an existing one', async () => {
+                const dir = await freshDir();
+                await fs.mkdir(userId, { path: `${dir}/📁 Work` });
+                expect(await dav('mkcol', `${dir}/📂 Work`)).toBe(405);
+                expect(await names(dir)).toEqual(['📁 Work']);
+            });
+
+            it('answers COPY and MOVE onto a folded name with Overwrite: F with 412', async () => {
+                const dir = await freshDir();
+                await write(`${dir}/😀.txt`, 'grinning');
+                await write(`${dir}/source.txt`, 'source');
+                for (const method of ['copy', 'move'] as const) {
+                    expect(
+                        await dav(method, `${dir}/source.txt`, {
+                            destination: encodeURI(`${dir}/😁.txt`),
+                            overwrite: 'F',
+                        }),
+                    ).toBe(412);
+                }
+                expect(await names(dir)).toEqual(['source.txt', '😀.txt']);
+            });
+        });
     },
 );
