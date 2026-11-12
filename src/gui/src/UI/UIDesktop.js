@@ -1651,42 +1651,6 @@ $(document).on('contextmenu taphold', '.taskbar', function (event) {
     return false;
 });
 
-window.set_desktop_background = function (options) {
-    if ( options.fit ) {
-        let fit = options.fit;
-        if ( fit === 'cover' || fit === 'contain' ) {
-            $('body').css('background-size', fit);
-            $('body').css('background-repeat', 'no-repeat');
-            $('body').css('background-position', 'center center');
-        }
-        else if ( fit === 'center' ) {
-            $('body').css('background-size', 'auto');
-            $('body').css('background-repeat', 'no-repeat');
-            $('body').css('background-position', 'center center');
-        }
-
-        else if ( fit === 'repeat' ) {
-            $('body').css('background-size', 'auto');
-            $('body').css('background-repeat', 'repeat');
-        }
-        window.desktop_bg_fit = fit;
-    }
-
-    if ( options.url ) {
-        $('body').css('background-image', `url(${options.url})`);
-        window.desktop_bg_url = options.url;
-        window.desktop_bg_color = undefined;
-    }
-    else if ( options.color ) {
-        $('body').css({
-            'background-image': 'none',
-            'background-color': options.color,
-        });
-        window.desktop_bg_color = options.color;
-        window.desktop_bg_url = undefined;
-    }
-};
-
 window.update_taskbar = function () {
     let items = [];
     $('.taskbar-item-sortable[data-keep-in-taskbar="true"]').each(function (index) {
@@ -1760,9 +1724,6 @@ window.exit_fullpage_mode = (el_window) => {
 
     // reset dektop height to take into account the taskbar height
     $('.desktop').css('height', `calc(100vh - ${window.taskbar_height + window.toolbar_height}px)`);
-
-    // refresh desktop background
-    window.refresh_desktop_background();
 };
 
 window.reset_window_size_and_position = (el_window) => {

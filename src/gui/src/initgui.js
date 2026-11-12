@@ -2036,18 +2036,6 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Desktop background (early)
-    // Set before action=login/signup so the signed-in dialog has the desktop behind it.
-    // Skipped for the full-page form, which it would only flash behind before covering.
-    // -------------------------------------------------------------------------------------
-    const authActionIsPage =
-        action === 'password-recovery' ||
-        (!window.is_auth() && (action === 'login' || action === 'signup'));
-    if (!window.is_fullpage_mode && !window.embedded_in_popup && !authActionIsPage) {
-        window.refresh_desktop_background();
-    }
-
-    //--------------------------------------------------------------------------------------
     // Action: Password recovery
     //--------------------------------------------------------------------------------------
     if (action === 'set-new-password') {
@@ -2631,15 +2619,6 @@ window.initgui = async function (options) {
         (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link);
 
     // -------------------------------------------------------------------------------------
-    // Desktop Background
-    // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background
-    // because it's not visible anyway and it's a waste of bandwidth. Same behind the sign-in page.
-    // -------------------------------------------------------------------------------------
-    const showsSignInPage = needsSignIn && window.logged_in_users.length === 0;
-    if (!window.is_fullpage_mode && !window.embedded_in_popup && !showsSignInPage) {
-        window.refresh_desktop_background();
-    }
-    // -------------------------------------------------------------------------------------
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
     // No session after all: the anonymous markup the shell sent is the correct
@@ -2692,12 +2671,6 @@ window.initgui = async function (options) {
         const needs_action = action === 'authme' || action === 'copyauth';
         const reload_on_success = needs_action;
         if (window.logged_in_users.length > 0) {
-            // dashboard mode skips the wallpaper (fullpage), but the account
-            // picker is a dialog, not a page — restore the wallpaper so it
-            // isn't on a blank page
-            if (window.is_dashboard_mode) {
-                window.refresh_desktop_background();
-            }
             await UIAuthAccountPicker({
                 redirect_url: needs_action ? window.location.href : undefined,
             });

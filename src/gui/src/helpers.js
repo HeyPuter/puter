@@ -2189,37 +2189,6 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
     }
 };
 
-/**
- * Refreshes the desktop background based on the user's settings.
- * If the user has set a custom desktop background URL or color, it will use that.
- * If not, it defaults to a specific wallpaper image.
- *
- * @global
- * @function
- * @fires set_desktop_background - Calls this global function to set the desktop background.
- *
- * @example
- * // This will refresh the desktop background according to the user's preference or defaults.
- * window.refresh_desktop_background();
- */
-window.refresh_desktop_background = function () {
-    if ( window.user && (window.user.desktop_bg_url !== null || window.user.desktop_bg_color !== null) ) {
-        window.set_desktop_background({
-            url: window.user.desktop_bg_url,
-            fit: window.user.desktop_bg_fit,
-            color: window.user.desktop_bg_color,
-        });
-    }
-    // default background
-    else {
-        let wallpaper = (window.gui_env === 'prod') ? 'https://puter-assets.b-cdn.net/wallpaper.webp' : '/src/images/wallpaper.webp';
-        window.set_desktop_background({
-            url: wallpaper,
-            fit: 'cover',
-        });
-    }
-};
-
 window.determine_website_url = function (fsentry_path) {
     // The address an item has under a site serving a folder above it. The
     // site's folder and address come with its root_dir.

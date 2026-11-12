@@ -170,9 +170,6 @@ export async function buildUserDetails(
                   cardFallbackDepsFrom(clients),
               )
             : false,
-        desktop_bg_url: user.desktop_bg_url,
-        desktop_bg_color: user.desktop_bg_color,
-        desktop_bg_fit: user.desktop_bg_fit,
         is_temp: user.password === null && user.email === null,
         is_user_token: true,
         // Null until the account asks for a code; never minted here.

@@ -261,6 +261,26 @@ describe('whoami extension — handleWhoami', () => {
         expect(body).toHaveProperty('taskbar_items');
     });
 
+    it('leaves out a desktop background saved on the account', async () => {
+        const user = await seedUser();
+        await server.stores.user.update(user.id as number, {
+            desktop_bg_url: 'https://cdn.test/wallpaper.png',
+            desktop_bg_color: '#000000',
+            desktop_bg_fit: 'cover',
+        });
+        const { res, captured } = makeRes();
+
+        await runWithContext(
+            { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+            () => handleWhoami(makeReq(), res),
+        );
+
+        const body = captured.body as Record<string, unknown>;
+        expect(body).not.toHaveProperty('desktop_bg_url');
+        expect(body).not.toHaveProperty('desktop_bg_color');
+        expect(body).not.toHaveProperty('desktop_bg_fit');
+    });
+
     it('reports the SMS-to-card fallback only once a send has opened it', async () => {
         const user = await server.stores.user.create({
             username: `wuser_${Math.random().toString(36).slice(2, 8)}`,
@@ -322,7 +342,7 @@ describe('whoami extension — handleWhoami', () => {
         expect(flags.payment_bypass).toBeUndefined();
     });
 
-    it('strips desktop_bg_*, created_ts and human_readable_age fields for app actors', async () => {
+    it('strips created_ts and human_readable_age fields for app actors', async () => {
         const user = await seedUser();
         const { res, captured } = makeRes();
 
@@ -340,9 +360,6 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.app_name).toBe('app-test-actor');
         // is_user_token is stripped for app actors.
         expect(body.is_user_token).toBeUndefined();
-        expect(body.desktop_bg_url).toBeUndefined();
-        expect(body.desktop_bg_color).toBeUndefined();
-        expect(body.desktop_bg_fit).toBeUndefined();
         expect(body.human_readable_age).toBeUndefined();
         // Account age, in either form, is not exposed to apps.
         expect(body.created_ts).toBeUndefined();

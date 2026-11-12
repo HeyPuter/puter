@@ -26,7 +26,6 @@ import truncate_filename from '../helpers/truncateFilename.js';
 import launch_app from '../helpers/launchApp.js';
 import open_item from '../helpers/openItem.js';
 import publish_as_website from '../helpers/publishAsWebsite.js';
-import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/pathOwner.js';
 import { can_rename, can_restructure, invalidate_shared_roots } from '../helpers/sharedAccess.js';
@@ -1306,48 +1305,6 @@ async function UIItem (options) {
                         else
                         {
                             window.trigger_download([$(el_item).attr('data-path')]);
-                        }
-                    },
-                });
-            }
-            // -------------------------------------------
-            // Set as Wallpaper
-            // -------------------------------------------
-            const mime_type = mime.getType($(el_item).attr('data-name')) ??
-                'application/octet-stream';
-            if ( !is_trashed && !is_trash && !options.is_dir && mime_type.startsWith('image/') ) {
-                menu_items.push({
-                    html: i18n('set_as_background'),
-                    onClick: async function () {
-                        const read_url = await puter.fs.sign(undefined, { uid: $(el_item).attr('data-uid'), action: 'read' });
-                        window.set_desktop_background({
-                            url: read_url.items.read_url,
-                            fit: window.desktop_bg_fit,
-                        });
-                        try {
-                            $.ajax({
-                                url: `${window.api_origin }/set-desktop-bg`,
-                                type: 'POST',
-                                data: JSON.stringify({
-                                    url: window.desktop_bg_url,
-                                    color: window.desktop_bg_color,
-                                    fit: window.desktop_bg_fit,
-                                }),
-                                async: true,
-                                contentType: 'application/json',
-                                headers: {
-                                    'Authorization': `Bearer ${window.auth_token}`,
-                                },
-                                statusCode: {
-                                    401: function (xhr) {
-                        window.handle401(xhr);
-                    },
-                                },
-                            });
-                            $(el_window).close();
-                            resolve(true);
-                        } catch ( err ) {
-                            // Ignore
                         }
                     },
                 });

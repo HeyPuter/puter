@@ -601,7 +601,6 @@ const cs = {
         "window_title_puter": "Puter",
         "item_associated_websites_plural": "Přidružené webové stránky",
         "window_click_to_go_forward": "Kliknutím přejdete vpřed.",
-        "set_as_background": "Nastavit jako pozadí plochy",
         "perm_folder_pictures": "vaší složce Obrázky",
         "perm_folder_documents": "vaší složce Dokumenty",
         "perm_folder_videos": "vaší složce Videa",

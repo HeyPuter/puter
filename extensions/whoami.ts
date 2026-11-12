@@ -81,9 +81,6 @@ export const handleWhoami = async (
             delete details.email;
             delete details.unconfirmed_email;
         }
-        delete details.desktop_bg_url;
-        delete details.desktop_bg_color;
-        delete details.desktop_bg_fit;
         delete details.human_readable_age;
         delete details.created_ts;
         delete details.is_user_token;
@@ -121,8 +118,7 @@ export const handleWhoami = async (
     }
 
     const subscription = details.subscription as
-        | { offering?: Record<string, unknown> }
-        | undefined;
+        { offering?: Record<string, unknown> } | undefined;
     if (subscription?.offering) {
         delete subscription.offering.group;
         delete subscription.offering.benefits;
