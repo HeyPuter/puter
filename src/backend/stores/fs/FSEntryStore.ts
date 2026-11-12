@@ -803,9 +803,14 @@ export class FSEntryStore extends PuterStore {
                 return entries;
             },
         );
+        // A row returned under another spelling than any asked for: what it
+        // stands for may exist only on the primary so far.
+        const requested = new Set(normalizedPaths);
+        let otherSpelling = false;
         for (const chunkEntries of chunkResults) {
             for (const entry of chunkEntries) {
                 entriesByPath.set(entry.path, entry);
+                if (!requested.has(entry.path)) otherSpelling = true;
             }
         }
 
@@ -825,7 +830,7 @@ export class FSEntryStore extends PuterStore {
                 path,
                 entry: await this.#resolveEntryByPathLineage(path, {
                     foldedNames: options.foldedNames,
-                    primary: useTryHardRead,
+                    primary: useTryHardRead && otherSpelling,
                 }),
             }),
         );

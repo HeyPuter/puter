@@ -787,6 +787,29 @@ describe.each(engines.filter((engine) => !engine.skip))(
             });
         });
 
+        it('walks the parent chain on a replica when a hard read finds no other spelling of the path', async () => {
+            const dir = await freshDir();
+            const db = server.clients.db as unknown as {
+                pread: (sql: string, params?: unknown[]) => unknown;
+            };
+            const original = db.pread;
+            let primaryWalks = 0;
+            db.pread = (sql, params) => {
+                if (sql.includes('WITH RECURSIVE')) primaryWalks++;
+                return original.call(db, sql, params);
+            };
+            try {
+                const missing = await server.stores.fsEntry.getEntryByPath(
+                    `${dir}/not-there.txt`,
+                    { useTryHardRead: true, skipCache: true },
+                );
+                expect(missing).toBeNull();
+            } finally {
+                db.pread = original;
+            }
+            expect(primaryWalks).toBe(0);
+        });
+
         it('reads either of two names only the path collation folds together without writing', async () => {
             const dir = await freshDir();
             const hiragana = await write(`${dir}/あ.txt`, 'hiragana');
