@@ -21,47 +21,6 @@ const update_mouse_position = function (x, y) {
     window.mouseX = x;
     window.mouseY = y;
 
-    // mouse in top-left corner of screen
-    if ( (window.mouseX < 150 && window.mouseY < 20) || (window.mouseX < 20 && window.mouseY < 150) )
-    {
-        window.current_active_snap_zone = 'nw';
-    }
-    // mouse in left edge of screen
-    else if ( window.mouseX < 20 && window.mouseY >= 150 && window.mouseY < window.desktop_height - 150 )
-    {
-        window.current_active_snap_zone = 'w';
-    }
-    // mouse in bottom-left corner of screen
-    else if ( window.mouseX < 20 && window.mouseY > window.desktop_height - 150 )
-    {
-        window.current_active_snap_zone = 'sw';
-    }
-    // mouse in right edge of screen
-    else if ( window.mouseX > window.desktop_width - 20 && window.mouseY >= 150 && window.mouseY < window.desktop_height - 150 )
-    {
-        window.current_active_snap_zone = 'e';
-    }
-    // mouse in top-right corner of screen
-    else if ( (window.mouseX > window.desktop_width - 150 && window.mouseY < 20) || (window.mouseX > window.desktop_width - 20 && window.mouseY < 150) )
-    {
-        window.current_active_snap_zone = 'ne';
-    }
-    // mouse in bottom-right corner of screen
-    else if ( window.mouseX > window.desktop_width - 20 && window.mouseY >= window.desktop_height - 150 )
-    {
-        window.current_active_snap_zone = 'se';
-    }
-    // mouse in top edge of screen
-    else if ( window.mouseY < 20 && window.mouseX >= 150 && window.mouseX < window.desktop_width - 150 )
-    {
-        window.current_active_snap_zone = 'n';
-    }
-    // not in any snap zone
-    else
-    {
-        window.current_active_snap_zone = undefined;
-    }
-
     // mouseover_window
     var windows = document.getElementsByClassName('window');
     let active_win;

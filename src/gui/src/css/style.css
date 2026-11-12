@@ -2600,25 +2600,6 @@ label {
     background-color: #2b62f1;
 }
 
-/******************************************************/
-/* Window Snapping */
-/******************************************************/
-.window-snap-placeholder {
-    display: none;
-    transition: all 0.2s;
-    position: absolute;
-    box-sizing: border-box;
-    padding: 10px;
-    backdrop-filter: blur(5px);
-}
-
-.window-snap-placeholder-inner {
-    border-radius: 4px;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(245, 245, 245, 0.7);
-}
-
 /*****************************************************
  * Popover
  *****************************************************/
@@ -3018,10 +2999,6 @@ fieldset[name=number-code] {
                 var(--window-sidebar-lightness),
                 var(--window-sidebar-alpha));
         backdrop-filter: blur(10px);
-    }
-
-    .window-snap-placeholder {
-        backdrop-filter: blur(5px);
     }
 
     .context-menu {

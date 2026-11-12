@@ -188,10 +188,6 @@ window.active_element = null;
 // The number of recent apps to show in the launch menu
 window.launch_recent_apps_count = 10;
 
-// indicated if the mouse is in one of the window snap zones or not
-// if yes, which one?
-window.current_active_snap_zone = undefined;
-
 //
 window.is_fullpage_mode = false;
 
