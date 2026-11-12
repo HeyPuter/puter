@@ -35,7 +35,6 @@ import { has_shared_roots } from '../helpers/sharedAccess.js';
 import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/windowVisibility.js';
 
 const el_body = document.getElementsByTagName('body')[0];
-const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
 // Above any z-index an ordinary desktop window reaches in practice.
 const DESKTOP_BACKDROP_MIN_ZINDEX = 99999;
 
@@ -177,9 +176,9 @@ async function UIWindow (options) {
 
     if ( isMobile.phone && !options.center && !options.dominant ) {
         options.left = 0;
-        options.top = `${window.toolbar_height }px`;
+        options.top = 0;
         options.width = '100%';
-        options.height = `calc(100% - ${ window.toolbar_height }px)`;
+        options.height = '100%';
     } else {
         options.width += 'px';
         options.height += 'px';
@@ -1670,12 +1669,6 @@ async function UIWindow (options) {
         });
     }
 
-    $(el_window_head).mousedown(function () {
-        if ( window_is_snapped ) {
-            $(el_window).draggable( 'option', 'cursorAt', { left: width_before_snap / 2 });
-        }
-    });
-
     // --------------------------------------------------------
     // Click On The `Scale` Button
     // (the little rectangle in the window head)
@@ -1771,147 +1764,10 @@ async function UIWindow (options) {
     // --------------------------------------------------------
     // Draggable
     // --------------------------------------------------------
-    let width_before_snap = 0;
-    let height_before_snap = 0;
-    let window_is_snapped = false;
-    let snap_placeholder_active = false;
-    let snap_trigger_timeout;
-    let last_snap_zone;
-
     if ( options.is_draggable ) {
-        let window_snap_placeholder = $(`<div class="window-snap-placeholder animate__animated animate__zoomIn animate__faster">
-                <div class="window-snap-placeholder-inner"></div>
-             </div>`);
-
-        const showSnapPlaceholder = (zone) => {
-            if ( window_is_snapped || !zone ) {
-                return false;
-            }
-
-            const snapDims = getSnapDimensions();
-            let css = null;
-
-            if ( zone === 'w' ) {
-                css = {
-                    'display': 'block',
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height,
-                    'top': snapDims.start_y,
-                    'left': snapDims.start_x,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'nw' ) {
-                css = {
-                    'display': 'block',
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height / 2,
-                    'top': snapDims.start_y,
-                    'left': snapDims.start_x,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'ne' ) {
-                css = {
-                    'display': 'block',
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height / 2,
-                    'top': snapDims.start_y,
-                    'left': snapDims.start_x + snapDims.available_width / 2,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'e' ) {
-                css = {
-                    'display': 'block',
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height,
-                    'top': snapDims.start_y,
-                    'left': snapDims.start_x + snapDims.available_width / 2,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'n' ) {
-                css = {
-                    'display': 'block',
-                    'width': snapDims.available_width,
-                    'height': snapDims.available_height,
-                    'top': snapDims.start_y,
-                    'left': snapDims.start_x,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'sw' ) {
-                css = {
-                    'display': 'block',
-                    'top': snapDims.start_y + snapDims.available_height / 2,
-                    'left': snapDims.start_x,
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height / 2,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            } else if ( zone === 'se' ) {
-                css = {
-                    'display': 'block',
-                    'top': snapDims.start_y + snapDims.available_height / 2,
-                    'left': snapDims.start_x + snapDims.available_width / 2,
-                    'width': snapDims.available_width / 2,
-                    'height': snapDims.available_height / 2,
-                    'z-index': window.last_window_zindex - 1,
-                };
-            }
-
-            if ( ! css ) {
-                return false;
-            }
-
-            window_snap_placeholder.css(css);
-
-            if ( ! snap_placeholder_active ) {
-                snap_placeholder_active = true;
-                $(el_body).append(window_snap_placeholder);
-            }
-
-            width_before_snap = $(el_window).width();
-            height_before_snap = $(el_window).height();
-            return true;
-        };
-
-        const hideSnapPlaceholder = () => {
-            if ( snap_placeholder_active ) {
-                snap_placeholder_active = false;
-                window_snap_placeholder.fadeOut(80);
-            }
-        };
-
         $(el_window).draggable({
             start: function (e, ui) {
                 window.a_window_is_being_dragged = true;
-                last_snap_zone = undefined;
-                if ( snap_trigger_timeout ) {
-                    clearTimeout(snap_trigger_timeout);
-                    snap_trigger_timeout = undefined;
-                }
-                hideSnapPlaceholder();
-                // if window is snapped, unsnap it and reset its position to where it was before snapping
-                if ( options.is_resizable && window_is_snapped ) {
-                    window_is_snapped = false;
-                    $(el_window).css({
-                        'width': width_before_snap,
-                        'height': `${height_before_snap }px`,
-                    });
-
-                    // if at any point the window's width is "too small", hide the sidebar
-                    if ( $(el_window).width() < window.window_width_threshold_for_sidebar ) {
-                        if ( width_before_snap >= window.window_width_threshold_for_sidebar && !sidebar_hidden ) {
-                            $(el_window_sidebar).hide();
-                        }
-                        sidebar_hidden = true;
-                    }
-                    // if at any point the window's width is "big enough", show the sidebar
-                    else if ( $(el_window).width() >= window.window_width_threshold_for_sidebar ) {
-                        if ( sidebar_hidden ) {
-                            $(el_window_sidebar).show();
-                        }
-                        sidebar_hidden = false;
-                    }
-                }
-
                 $(el_window).addClass('window-dragging');
 
                 // rm window from original_window_position
@@ -1929,50 +1785,9 @@ async function UIWindow (options) {
                     // maximize icon
                     $(el_window_head_scale_btn).find('img').attr('src', window.icons['scale.svg']);
                 }
-                // --------------------------------------------------------
-                // Snap to screen edges
-                // --------------------------------------------------------
-                if ( options.is_resizable ) {
-                    const activeZone = window.current_active_snap_zone;
-
-                    if ( activeZone !== last_snap_zone ) {
-                        if ( snap_trigger_timeout ) {
-                            clearTimeout(snap_trigger_timeout);
-                            snap_trigger_timeout = undefined;
-                        }
-
-                        hideSnapPlaceholder();
-                        last_snap_zone = activeZone;
-
-                        if ( activeZone ) {
-                            const scheduledZone = activeZone;
-                            snap_trigger_timeout = setTimeout(function () {
-                                snap_trigger_timeout = undefined;
-                                if ( ! $(el_window).hasClass('window-dragging') ) {
-                                    return;
-                                }
-                                if ( window.current_active_snap_zone !== scheduledZone ) {
-                                    return;
-                                }
-                                showSnapPlaceholder(scheduledZone);
-                            }, SNAP_PLACEHOLDER_DELAY_MS);
-                        }
-                    }
-
-                    if ( ! activeZone ) {
-                        hideSnapPlaceholder();
-                    }
-                }
             },
             stop: function () {
                 window.a_window_is_being_dragged = false;
-                if ( snap_trigger_timeout ) {
-                    clearTimeout(snap_trigger_timeout);
-                    snap_trigger_timeout = undefined;
-                }
-                last_snap_zone = undefined;
-                let window_will_snap = false;
-                $(el_window).draggable( 'option', 'cursorAt', false);
 
                 $(el_window).removeClass('window-dragging');
                 $(el_window).attr({
@@ -1983,114 +1798,24 @@ async function UIWindow (options) {
                 $(el_window_app_iframe).css('pointer-events', 'all');
                 $('.window').css('pointer-events', 'initial');
 
-                if ( options.is_resizable && snap_placeholder_active && !window_is_snapped ) {
-                    window_will_snap = true;
-                    $(window_snap_placeholder).css('padding', 0);
-
-                    setTimeout(function () {
-                        const snapDims = getSnapDimensions();
-
-                        // snap to w
-                        if ( window.current_active_snap_zone === 'w' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height - 6,
-                            });
-                        }
-                        // snap to nw
-                        else if ( window.current_active_snap_zone === 'nw' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                            });
-                        }
-                        // snap to ne
-                        else if ( window.current_active_snap_zone === 'ne' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x + snapDims.available_width / 2,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                            });
-                        }
-                        // snap to sw
-                        else if ( window.current_active_snap_zone === 'sw' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y + snapDims.available_height / 2,
-                                'left': snapDims.start_x,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                            });
-                        }
-                        // snap to se
-                        else if ( window.current_active_snap_zone === 'se' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y + snapDims.available_height / 2,
-                                'left': snapDims.start_x + snapDims.available_width / 2,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height / 2,
-                            });
-                        }
-                        // snap to e
-                        else if ( window.current_active_snap_zone === 'e' ) {
-                            $(el_window).css({
-                                'top': snapDims.start_y,
-                                'left': snapDims.start_x + snapDims.available_width / 2,
-                                'width': snapDims.available_width / 2,
-                                'height': snapDims.available_height - 6,
-                            });
-                        }
-                        // snap to n
-                        else if ( window.current_active_snap_zone === 'n' ) {
-                            window.scale_window(el_window);
-                        }
-                        // snap placeholder is no longer active
-                        snap_placeholder_active = false;
-                        // hide snap placeholder
-                        window_snap_placeholder.css('display', 'none');
-                        window_snap_placeholder.css('padding', '10px');
-                        // mark window as snapped
-                        window_is_snapped = true;
-
-                        // if at any point the window's width is "too small", hide the sidebar
-                        if ( $(el_window).width() < window.window_width_threshold_for_sidebar ) {
-                            if ( width_before_snap >= window.window_width_threshold_for_sidebar && !sidebar_hidden ) {
-                                $(el_window_sidebar).hide();
-                            }
-                            sidebar_hidden = true;
-                        }
-                        // if at any point the window's width is "big enough", show the sidebar
-                        else if ( $(el_window).width() >= window.window_width_threshold_for_sidebar ) {
-                            if ( sidebar_hidden ) {
-                                $(el_window_sidebar).show();
-                            }
-                            sidebar_hidden = false;
-                        }
-                    }, 100);
-                }
-
                 // if window is dropped outside the available area, move it back in
                 // the '- 30' is to account for the window head
                 const maxTop = window.innerHeight - 30;
-                if ( $(el_window).position().top > maxTop && !window_will_snap ) {
+                if ( $(el_window).position().top > maxTop ) {
                     $(el_window).animate({
                         top: maxTop - 30,
                     }, 100);
                 }
                 // if window is dropped too far to the right, move it left
                 const maxLeft = window.innerWidth - 50;
-                if ( $(el_window).position().left > maxLeft && !window_will_snap ) {
+                if ( $(el_window).position().left > maxLeft ) {
                     $(el_window).animate({
                         left: maxLeft,
                     }, 100);
                 }
                 // if window is dropped too far to the left, move it right
                 const minLeft = -$(el_window).width() + 150;
-                if ( $(el_window).position().left < minLeft && !window_will_snap ) {
+                if ( $(el_window).position().left < minLeft ) {
                     $(el_window).animate({
                         left: minLeft,
                     }, 100);
@@ -2145,10 +1870,10 @@ async function UIWindow (options) {
                 }
 
                 // when resizing the top of the window, make sure the window head is not hidden behind the toolbar
-                if ( $(el_window).position().top < window.toolbar_height ) {
-                    var difference = window.toolbar_height - $(el_window).position().top;
+                if ( $(el_window).position().top < 0 ) {
+                    var difference = -$(el_window).position().top;
                     $(el_window).css({
-                        'top': window.toolbar_height,
+                        'top': 0,
                         'height': ui.size.height - difference, // Reduce the height by the difference
                     });
                     // don't resize
@@ -2215,10 +1940,9 @@ async function UIWindow (options) {
             return;
         }
 
-        const snap_dims = getSnapDimensions();
         const head_height = options.has_head ? $(el_window_head).outerHeight() : 0;
-        const max_body_width = snap_dims.available_width;
-        const max_body_height = Math.max(0, snap_dims.available_height - head_height);
+        const max_body_width = window.innerWidth;
+        const max_body_height = Math.max(0, window.innerHeight - head_height);
 
         if ( max_body_width <= 0 || max_body_height <= 0 ) {
             return;
@@ -2237,8 +1961,8 @@ async function UIWindow (options) {
 
         const window_width = Math.max(1, Math.floor(body_width));
         const window_height = Math.max(1, Math.floor(body_height + head_height));
-        const left = snap_dims.start_x + Math.max(0, (snap_dims.available_width - window_width) / 2);
-        const top = snap_dims.start_y + Math.max(0, (snap_dims.available_height - window_height) / 2);
+        const left = Math.max(0, (window.innerWidth - window_width) / 2);
+        const top = Math.max(0, (window.innerHeight - window_height) / 2);
 
         $(el_window).css({
             width: `${window_width}px`,
@@ -2267,7 +1991,6 @@ async function UIWindow (options) {
             'data-is_maximized': '0',
         });
         $(el_window_head_scale_btn).find('img').attr('src', window.icons['scale.svg']);
-        window_is_snapped = false;
     };
     // --------------------------------------------------------
     // Head Context Menu
@@ -2577,7 +2300,7 @@ async function UIWindow (options) {
                             left = left > (window.innerWidth - window_width) ? (window.innerWidth - window_width) : left;
 
                             let top = window.mouseY;
-                            top = top > (window.innerHeight - (window_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.toolbar_height)) : top;
+                            top = top > (window.innerHeight - window_height) ? (window.innerHeight - window_height) : top;
 
                             UIWindowItemProperties(
                                 options.title,
@@ -2879,10 +2602,10 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
 
     // top
     else if ( $(this).hasClass('ui-resizable-n') ) {
-        let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
+        let height = $(el_window).height() + $(el_window).position().top;
         $(el_window).css({
             height: height,
-            top: window.toolbar_height,
+            top: 0,
         });
     }
     // right
@@ -2922,21 +2645,21 @@ $(document).on('dblclick', '.window .ui-resizable-handle', function (e) {
     // top right
     else if ( $(this).hasClass('ui-resizable-ne') ) {
         let width = window.innerWidth - $(el_window).position().left;
-        let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
+        let height = $(el_window).height() + $(el_window).position().top;
         $(el_window).css({
             width: width,
             height: height,
-            top: window.toolbar_height,
+            top: 0,
         });
     }
     // top left
     else if ( $(this).hasClass('ui-resizable-nw') ) {
         let width = $(el_window).width() + $(el_window).position().left;
-        let height = $(el_window).height() + $(el_window).position().top - window.toolbar_height;
+        let height = $(el_window).height() + $(el_window).position().top;
         $(el_window).css({
             width: width,
             height: height,
-            top: window.toolbar_height,
+            top: 0,
             left: 0,
         });
     }
@@ -3651,9 +3374,6 @@ $.fn.close = async function (options) {
             // remove backdrop
             $(this).closest('.window-backdrop').remove();
 
-            // remove global menubars
-            $(`.window-menubar-global[data-window-id="${win_id}"]`).remove();
-
             // remove DOM element
             if ( options?.shrink_to_target ) {
                 // get target location
@@ -4037,11 +3757,6 @@ $.fn.focusWindow = function (event) {
                 $(this).css('z-index', window_zindex_base(this) + (++window.last_window_zindex));
             });
         }
-
-        // hide other global menubars
-        $('.window-menubar-global').not(`.window-menubar-global[data-window-id="${win_id}"]`).hide();
-        // show this window's global menubar
-        $(`.window-menubar-global[data-window-id="${win_id}"]`).show();
 
         // if a menubar or any of its items are clicked, don't focus the iframe. This is important to preserve the focus on the menubar
         // and to enable keyboard navigation through the menubar items
@@ -5367,29 +5082,20 @@ async function saveSidebarOrder (order) {
 window.update_maximized_window = function (el_window) {
     if ( window.is_fullpage_mode ) {
         $(el_window).css({
-            'top': `${window.toolbar_height }px`,
+            'top': 0,
             'left': '0',
             'width': '100%',
-            'height': `calc(100% - ${window.toolbar_height}px)`,
+            'height': '100%',
         });
         return;
     }
 
     $(el_window).css({
-        'top': `${window.toolbar_height }px`,
+        'top': 0,
         'left': '0',
         'width': '100%',
-        'height': `${window.innerHeight - window.toolbar_height - 6 }px`,
+        'height': `${window.innerHeight - 6 }px`,
     });
 };
-
-function getSnapDimensions () {
-    return {
-        available_width: window.innerWidth,
-        available_height: window.innerHeight - window.toolbar_height,
-        start_x: 0,
-        start_y: window.toolbar_height,
-    };
-}
 
 export default UIWindow;

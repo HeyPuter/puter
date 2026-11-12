@@ -555,17 +555,18 @@ describe('createAuthProbe — actor attachment + failure tracking', () => {
         expect(req.tokenAuthFailed).toBe(true);
     });
 
-    it('never rejects — sets tokenAuthFailed even when AuthService throws', async () => {
+    it('never rejects — records the error, not tokenAuthFailed, when AuthService throws', async () => {
         const stub = makeStubAuth();
         stub.setNext('throw');
         const probe = createAuthProbe({ authService: stub.service });
         const { req, next } = await runProbe(
             probe,
-            makeReq({ headers: { authorization: 'Bearer bad-tok' } }),
+            makeReq({ headers: { authorization: 'Bearer some-tok' } }),
         );
         // Critical invariant: the probe NEVER rejects, no matter what.
         expect(next).toHaveBeenCalledWith();
-        expect(req.tokenAuthFailed).toBe(true);
+        expect(req.tokenAuthFailed).toBeUndefined();
+        expect(req.tokenAuthError).toBeInstanceOf(Error);
         expect(req.actor).toBeUndefined();
     });
 
@@ -879,5 +880,28 @@ describe('createAuthProbe (integration) — real session token → real actor', 
         );
         expect(req.actor).toBeUndefined();
         expect(req.tokenAuthFailed).toBe(true);
+    });
+
+    it('records a failed user lookup on a valid token without marking it invalid', async () => {
+        const user = await makeUser();
+        const { token } = await authService.createSessionToken(user);
+        const lookupError = Object.assign(new Error('db down'), {
+            code: 'dbBatchFailed',
+        });
+        const spy = vi
+            .spyOn(server.stores.user, 'getByUuid')
+            .mockRejectedValueOnce(lookupError);
+        try {
+            const probe = createAuthProbe({ authService });
+            const { req } = await runProbe(
+                probe,
+                makeReq({ headers: { authorization: `Bearer ${token}` } }),
+            );
+            expect(req.actor).toBeUndefined();
+            expect(req.tokenAuthFailed).toBeUndefined();
+            expect(req.tokenAuthError).toBe(lookupError);
+        } finally {
+            spy.mockRestore();
+        }
     });
 });

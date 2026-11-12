@@ -110,7 +110,6 @@ if ( window.user_preferences === null ) {
 }
 
 window.window_stack = [];
-window.toolbar_height = 0;
 window.upload_progress_hide_delay = 500;
 window.active_uploads = {};
 window.copy_progress_hide_delay = 1000;
@@ -155,7 +154,7 @@ if ( window.location !== window.parent.location ) {
 }
 
 // calculate desktop height and width
-window.desktop_height = window.innerHeight - window.toolbar_height;
+window.desktop_height = window.innerHeight;
 window.desktop_width = window.innerWidth;
 
 // {id: {left: 0, top: 0}}
@@ -169,7 +168,7 @@ $(window).on( 'resize', function () {
     if ( window.a_window_is_resizing ) return;
     if ( window.a_window_sidebar_is_resizing ) return;
 
-    const new_desktop_height = window.innerHeight - window.toolbar_height;
+    const new_desktop_height = window.innerHeight;
     const new_desktop_width = window.innerWidth;
 
     window.desktop_height = new_desktop_height;
@@ -188,10 +187,6 @@ window.active_element = null;
 
 // The number of recent apps to show in the launch menu
 window.launch_recent_apps_count = 10;
-
-// indicated if the mouse is in one of the window snap zones or not
-// if yes, which one?
-window.current_active_snap_zone = undefined;
 
 //
 window.is_fullpage_mode = false;

@@ -40,17 +40,10 @@ const da = {
         close_all_windows_and_log_out: 'Luk vinduer og log ud',
         change_always_open_with: 'Vil du altid åbne denne filtype med',
         confirm: 'Bekræft',
-        confirm_2fa_setup: 'Jeg har tilføjet koden til min autentifikator-app',
-        confirm_2fa_recovery: 'Jeg har gemt mine gendannelseskoder på et sikkert sted',
         confirm_account_for_free_referral_storage_c2a: 'Opret en konto og bekræft din e-mailadresse for at modtage 1 GB gratis lagerplads. Din ven vil også få 1 GB gratis lagerplads.',
         confirm_code_generic_incorrect: 'Forkert kode.',
         confirm_code_generic_too_many_requests: 'For mange anmodninger. Vent et par minutter.',
-        confirm_code_generic_submit: 'Indsend kode',
-        confirm_code_generic_try_again: 'Prøv igen',
-        confirm_code_generic_title: 'Indtast bekræftelseskode',
         confirm_code_2fa_instruction: 'Indtast den 6-cifrede kode fra din autentifikator-app.',
-        confirm_code_2fa_submit_btn: 'Indsend',
-        confirm_code_2fa_title: 'Indtast 2FA-kode',
         confirm_delete_multiple_items: 'Er du sikker på, at du vil slette disse elementer permanent?',
         confirm_delete_single_item: 'Vil du slette dette element permanent?',
         confirm_open_apps_log_out: 'Du har åbne apps. Er du sikker på, at du vil logge ud?',
@@ -60,7 +53,6 @@ const da = {
         confirm_session_revoke: 'Er du sikker på, at du vil tilbagekalde denne session?',
         confirm_your_email_address: 'Bekræft din e-mailadresse',
         contact_us: 'Kontakt os',
-        contact_us_verification_required: 'Du skal have en verificeret e-mailadresse for at bruge dette.',
         continue: 'Fortsæt',
         copy: 'Kopier',
         copy_link: 'Kopier link',
@@ -82,10 +74,8 @@ const da = {
         deploy_as_app: 'Implementer som app',
         descending: 'Faldende',
         desktop: 'Skrivebord',
-        desktop_background_fit: 'Tilpas',
         developers: 'Udviklere',
         disable_2fa: 'Deaktiver 2FA',
-        disable_2fa_confirm: 'Er du sikker på, at du vil deaktivere 2FA?',
         disable_2fa_instructions: 'Indtast din adgangskode for at deaktivere 2FA.',
         documents: 'Dokumenter',
         dont_allow: 'Tillad ikke',
@@ -115,13 +105,10 @@ const da = {
         forgot_pass_c2a: 'Glemt adgangskode?',
         from: 'Fra',
         general: 'Generelt',
-        get_a_copy_of_on_puter: 'Få en kopi af \'%%\' på Puter.com!',
-        get_copy_link: 'Få kopi-link',
         home: 'Hjem',
         html_document: 'HTML-dokument',
         hue: 'Farvetone',
         incorrect_password: 'Forkert adgangskode',
-        invite_link: 'Inviter link',
         item: 'element',
         items_in_trash_cannot_be_renamed: 'Dette element kan ikke omdøbes, fordi det er i papirkurven. For at omdøbe dette element, skal du først trække det ud af papirkurven.',
         jpeg_image: 'JPEG-billede',
@@ -132,7 +119,6 @@ const da = {
         loading: 'Indlæser',
         log_in: 'Log ind',
         log_out: 'Log ud',
-        looks_good: 'Ser godt ud!',
         manage_sessions: 'Administrer sessioner',
         modified: 'Ændret',
         move: 'Flyt',
@@ -157,7 +143,6 @@ const da = {
         open_with: 'Åbn med',
         original_name: 'Originalt navn',
         original_path: 'Original sti',
-        oss_code_and_content: 'Open Source Software og indhold',
         password: 'Adgangskode',
         password_changed: 'Adgangskode ændret.',
         password_recovery_rate_limit: 'Du har nået vores rate-limit; vent venligst et par minutter. For at undgå dette i fremtiden, undgå at genindlæse siden for mange gange.',
@@ -169,25 +154,19 @@ const da = {
         paste: 'Sæt ind',
         paste_into_folder: 'Sæt ind i mappe',
         path: 'Sti',
-        personalization: 'Personalisering',
         pictures: 'Billeder',
         plural_suffix: 's',
-        powered_by_puter_js: 'Udviklet af {{link=docs}}Puter.js{{/link}}',
         preparing: 'Forbereder...',
-        preparing_for_upload: 'Forbereder til upload...',
         print: 'Udskriv',
         privacy: 'Privatliv',
         proceed_to_login: 'Fortsæt til login',
-        proceed_with_account_deletion: 'Fortsæt med sletning af konto',
         properties: 'Egenskaber',
         public: 'Offentlig',
         publish: 'Offentliggør',
         publish_as_website: 'Offentliggør som websted',
-        puter_description: 'Puter er en privatlivsorienteret personlig sky til at opbevare alle dine filer, apps og spil på ét sikkert sted, tilgængeligt fra hvor som helst, når som helst.',
         reading_file: 'Læser %strong%',
         recover_password: 'Gendan adgangskode',
         refer_friends_c2a: 'Få 1 GB for hver ven, der opretter og bekræfter en konto på Puter. Din ven vil også få 1 GB!',
-        refer_friends_social_media_c2a: 'Få 1 GB gratis lagerplads på Puter.com!',
         refresh: 'Opdater',
         rename: 'Omdøb',
         replace: 'Erstat',
@@ -197,11 +176,9 @@ const da = {
         save: 'Gem',
         saturation: 'Mætning',
         save_account: 'Gem konto',
-        save_account_to_get_copy_link: 'Opret venligst en konto for at fortsætte.',
         save_account_to_publish: 'Opret venligst en konto for at fortsætte.',
         save_session: 'Gem session',
         save_session_c2a: 'Opret en konto for at gemme din nuværende session og undgå at miste dit ændringer.',
-        scan_qr_2fa: 'Scan QR-koden med din autentifikator-app',
         search: 'Søg',
         seconds: 'sekunder',
         security: 'Sikkerhed',
@@ -219,13 +196,11 @@ const da = {
         show_hidden: 'Vis skjulte',
         sign_in_with_puter: 'Log ind med Puter',
         sign_up: 'Tilmeld dig',
-        signing_in: 'Logger ind…',
         size: 'Størrelse',
         skip: 'Spring over',
         something_went_wrong: 'Noget gik galt.',
         sort_by: 'Sorter efter',
         status: 'Status',
-        storage_usage: 'Lagerforbrug',
         storage_puter_used: 'brugt af Puter',
         taking_longer_than_usual: 'Tager lidt længere tid end normalt. Vent venligst...',
         terms: 'Vilkår',
@@ -253,29 +228,23 @@ const da = {
         videos: 'Videoer',
         visibility: 'Synlighed',
         yes: 'Ja',
-        you_have_been_referred_to_puter_by_a_friend: 'Du er blevet henvist til Puter af en ven!',
         zip: 'Zip',
         zipping_file: 'Zipper %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Åbn din autentifikator-app',
         setup2fa_1_instructions: `
             Du kan bruge enhver autentifikator-app, der understøtter Time-based One-Time Password (TOTP) protokollen.
             Der er mange at vælge imellem, men hvis du er usikker
             <a target="_blank" href="https://authy.com/download">Authy</a>
             er et solidt valg til Android og iOS.
         `,
-        setup2fa_2_step_heading: 'Scan QR-koden',
         setup2fa_3_step_heading: 'Indtast den 6-cifrede kode',
-        setup2fa_4_step_heading: 'Kopier dine gendannelseskoder',
         setup2fa_4_instructions: `
             Disse gendannelseskoder er den eneste måde at få adgang til din konto, hvis du mister din telefon eller ikke kan bruge din autentifikator-app.
             Sørg for at opbevare dem på et sikkert sted.
         `,
-        setup2fa_5_step_heading: 'Bekræft 2FA-opsætning',
         setup2fa_5_confirmation_1: 'Jeg har gemt mine gendannelseskoder på et sikkert sted',
         setup2fa_5_confirmation_2: 'Jeg er klar til at aktivere 2FA',
-        setup2fa_5_button: 'Aktivér 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Indtast 2FA-kode',
@@ -283,7 +252,6 @@ const da = {
         login2fa_recovery_title: 'Indtast en gendannelseskode',
         login2fa_recovery_instructions: 'Indtast en af dine gendannelseskoder for at få adgang til din konto.',
         login2fa_use_recovery_code: 'Brug en gendannelseskode',
-        login2fa_recovery_back: 'Tilbage',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'Skift',
@@ -349,16 +317,10 @@ const da = {
         // =============================================================
         // Missing translations
         // =============================================================
-        'choose_publishing_option': undefined, // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': undefined, // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': undefined, // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': undefined, // In English: "Create Shortcuts"
         'minimize': undefined, // In English: "Minimize"
         'reload_app': undefined, // In English: "Reload App"
         'publish_as_serverless_worker': undefined, // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': undefined, // In English: "Enter Full Screen"
-        'toolbar.github': undefined, // In English: "GitHub"
-        'toolbar.refer': undefined, // In English: "Refer"
         'used_of': undefined, // In English: "{{used}} used of {{available}}"
         'worker': undefined, // In English: "Worker"
         'People with access': undefined, // In English: "People with access"
@@ -413,7 +375,6 @@ const da = {
         'billing.expanded': undefined, // In English: "Expanded"
         'billing.accelerated': undefined, // In English: "Accelerated"
         'billing.enjoy_msg': undefined, // In English: "Enjoy %% of Cloud Storage plus other benefits."
-        'too_many_attempts': undefined, // In English: "Too many attempts. Please try again later."
         'server_timeout': undefined, // In English: "The server took too long to respond. Please try again."
         'signup_error': undefined, // In English: "An error occurred during signup. Please try again."
         'alert_error_title': undefined, // In English: "Error!"
@@ -431,15 +392,10 @@ const da = {
         'window_title_open': undefined, // In English: "Open"
         'window_title_change_password': undefined, // In English: "Change Password"
         'window_title_select_font': undefined, // In English: "Select font…"
-        'window_title_session_list': undefined, // In English: "Session List!"
         'window_title_set_new_password': undefined, // In English: "Set New Password"
         'window_title_publish_website': undefined, // In English: "Publish Website"
         'window_title_publish_worker': undefined, // In English: "Publish Worker"
         'window_title_authenticating': undefined, // In English: "Authenticating..."
-        'window_title_refer_friend': undefined, // In English: "Refer a friend!"
-        'desktop_exit_full_screen': undefined, // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': undefined, // In English: "Enter Full Screen"
-        'item_shared_with_you': undefined, // In English: "A user has shared this item with you."
         'item_shared_by_you': undefined, // In English: "You have shared this item with at least one other user."
         'item_shortcut': undefined, // In English: "Shortcut"
         'item_associated_websites': undefined, // In English: "Associated website"
@@ -448,9 +404,6 @@ const da = {
         'window_click_to_go_back': undefined, // In English: "Click to go back."
         'window_click_to_go_forward': undefined, // In English: "Click to go forward."
         'window_click_to_go_up': undefined, // In English: "Click to go one directory up."
-        'window_title_public': undefined, // In English: "Public"
-        'window_title_videos': undefined, // In English: "Videos"
-        'window_title_pictures': undefined, // In English: "Pictures"
         'window_title_puter': undefined, // In English: "Puter"
         'window_folder_empty': undefined, // In English: "This folder is empty"
 

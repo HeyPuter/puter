@@ -482,21 +482,22 @@ describe('HomepageController app landing rate limit', () => {
 // ── /show/* ─────────────────────────────────────────────────────────
 
 describe('HomepageController GET /show/*splat', () => {
-    it('emits a launch_app explorer call with the post-/show path', async () => {
+    it('redirects to the path in the dashboard Files tab, keeping the query', async () => {
         const { res, captured } = makeRes();
         await callRoute(
             'get',
             '/show/*splat',
-            makeReq({ path: '/show/alice/Documents' }),
+            makeReq({
+                path: '/show/alice/My%20Documents',
+                originalUrl: '/show/alice/My%20Documents?ref=abc',
+            }),
             res,
         );
-        // The launch payload is JSON-serialized into the rendered HTML.
-        // We assert the rendered shell included the explorer launch hint
-        // pointing at the expected (slashed) path.
-        const html = String(captured.body);
-        expect(html).toContain('launch_app');
-        expect(html).toContain('explorer');
-        expect(html).toContain('/alice/Documents');
+        expect(captured.statusCode).toBe(302);
+        expect(captured.location).toBe(
+            '/dashboard?ref=abc#files/alice/My%20Documents',
+        );
+        expect(captured.body).toBeUndefined();
     });
 });
 

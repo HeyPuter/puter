@@ -20,7 +20,6 @@
 import UIDashboard from './UI/Dashboard/UIDashboard.js';
 import TabApps from './UI/Dashboard/TabApps.js';
 import UIAlert from './UI/UIAlert.js';
-import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
@@ -103,10 +102,8 @@ import { DebugService } from './services/DebugService.js';
 import { ExecService } from './services/ExecService.js';
 import { PictureInPictureService } from './services/PictureInPictureService.js';
 import { IPCService } from './services/IPCService.js';
-import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import { LocaleService } from './services/LocaleService.js';
 import { ProcessService } from './services/ProcessService.js';
-import { ThemeService } from './services/ThemeService.js';
 // Curried: takes `{ window }` and returns the path mapper. Import under a
 // factory name so a bare `privacy_aware_path(path)` call in this module can't
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
@@ -1162,8 +1159,6 @@ const launch_services = async function (options) {
         services_m_[name] = instance;
     };
 
-    globalThis.def(UIComponentWindow, 'ui.UIComponentWindow');
-
     // === Hooks for Service Scripts from Backend ===
     const service_script_deferred = { services: [], on_ready: [] };
     const service_script_api = {
@@ -1173,7 +1168,6 @@ const launch_services = async function (options) {
         // so this hack makes that possible.
         def: globalThis.def,
         use: globalThis.use,
-        // use: name => ({ UIWindow, UIComponentWindow })[name],
     };
     globalThis.service_script_api_promise.resolve(service_script_api);
 
@@ -1184,11 +1178,9 @@ const launch_services = async function (options) {
     register('app-push', new AppPushService());
     register('debug', new DebugService());
     register('broadcast', new BroadcastService());
-    register('theme', new ThemeService());
     register('process', new ProcessService());
     register('locale', new LocaleService());
     register('anti-csrf', new AntiCSRFService());
-    register('__launch-on-init', new LaunchOnInitService());
 
     // === Service-Script Services ===
     for (const [name, script] of service_script_deferred.services) {
@@ -3201,7 +3193,7 @@ $(window).on('resize', function () {
 
     const ratio = window.desktop_width / window.innerWidth;
 
-    window.desktop_height = window.innerHeight - window.toolbar_height;
+    window.desktop_height = window.innerHeight;
     window.desktop_width = window.innerWidth;
 
     // Re-center the login window

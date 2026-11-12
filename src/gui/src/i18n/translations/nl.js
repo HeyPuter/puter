@@ -40,17 +40,10 @@ const nl = {
         close_all_windows_and_log_out: 'Vensters sluiten en afmelden',
         change_always_open_with: 'Wilt u dit bestandstype altijd openen met',
         confirm: 'Bevestig',
-        confirm_2fa_setup: 'Ik heb de code toegevoegd aan mijn authenticatie-app',
-        confirm_2fa_recovery: 'Ik heb mijn herstelcodes op een veilige plaats opgeslagen',
         confirm_account_for_free_referral_storage_c2a: 'Maak een account aan en bevestig uw e-mailadres om 1 GB gratis opslag te ontvangen. Uw vriend krijgt ook 1 GB gratis opslag.',
         confirm_code_generic_incorrect: 'Onjuiste code.',
         confirm_code_generic_too_many_requests: 'Te veel aanvragen. Wacht een paar minuten.',
-        confirm_code_generic_submit: 'Code invoeren',
-        confirm_code_generic_try_again: 'Probeer opnieuw',
-        confirm_code_generic_title: 'Bevestigingscode Invoeren',
         confirm_code_2fa_instruction: 'Voer de 6-cijferige code in van uw authenticatie-app.',
-        confirm_code_2fa_submit_btn: 'Verzenden',
-        confirm_code_2fa_title: 'Voer 2FA Code In',
         confirm_delete_multiple_items: 'Weet u zeker dat u deze items permanent wilt verwijderen?',
         confirm_delete_single_item: 'Wilt u dit item permanent verwijderen?',
         confirm_open_apps_log_out: 'U heeft geopende apps. Weet u zeker dat u wilt uitloggen?',
@@ -60,7 +53,6 @@ const nl = {
         confirm_session_revoke: 'Weet u zeker dat u deze sessie wilt intrekken?',
         confirm_your_email_address: 'Bevestig Uw E-mailadres',
         contact_us: 'Neem Contact Op',
-        contact_us_verification_required: 'U moet een geverifieerd e-mailadres hebben om dit te gebruiken.',
         continue: 'Doorgaan',
         copy: 'Kopiëren',
         copy_link: 'Link Kopiëren',
@@ -82,10 +74,8 @@ const nl = {
         deploy_as_app: 'Uitrollen als app',
         descending: 'Aflopend',
         desktop: 'Bureaublad',
-        desktop_background_fit: 'Aanpassen',
         developers: 'Ontwikkelaars',
         disable_2fa: '2FA Uitschakelen',
-        disable_2fa_confirm: 'Weet u zeker dat u 2FA wilt uitschakelen?',
         disable_2fa_instructions: 'Voer uw wachtwoord in om 2FA uit te schakelen.',
         documents: 'Documenten',
         dont_allow: 'Niet Toestaan',
@@ -115,13 +105,10 @@ const nl = {
         forgot_pass_c2a: 'Wachtwoord vergeten?',
         from: 'Van',
         general: 'Algemeen',
-        get_a_copy_of_on_puter: 'Krijg een kopie van \'%%\' op Puter.com!',
-        get_copy_link: 'Krijg Kopieerlink',
         home: 'Home',
         html_document: 'HTML-document',
         hue: 'Tint',
         incorrect_password: 'Onjuist wachtwoord',
-        invite_link: 'Uitnodigingslink',
         item: 'item',
         items_in_trash_cannot_be_renamed: 'Dit item kan niet worden hernoemd omdat het in de prullenbak zit. Om dit item te hernoemen, sleept u het eerst uit de prullenbak.',
         jpeg_image: 'JPEG-afbeelding',
@@ -132,7 +119,6 @@ const nl = {
         loading: 'Laden',
         log_in: 'Inloggen',
         log_out: 'Uitloggen',
-        looks_good: 'Ziet er goed uit!',
         manage_sessions: 'Sessies Beheren',
         mobile_device: 'Mobiel apparaat',
         modified: 'Gewijzigd',
@@ -158,7 +144,6 @@ const nl = {
         open_with: 'Openen met',
         original_name: 'Originele Naam',
         original_path: 'Origineel Pad',
-        oss_code_and_content: 'Open Source Software Code en Inhoud',
         password: 'Wachtwoord',
         password_changed: 'Wachtwoord gewijzigd',
         password_recovery_rate_limit: 'U heeft te veel verzoeken ingediend. Wacht een paar minuten voordat u het opnieuw probeert.',
@@ -170,25 +155,19 @@ const nl = {
         paste: 'Plakken',
         paste_into_folder: 'Plakken in Map',
         path: 'Pad',
-        personalization: 'Personalisatie',
         pictures: 'Afbeeldingen',
         plural_suffix: 'en',
-        powered_by_puter_js: 'Aangedreven door {{link=docs}}Puter.js{{/link}}',
         preparing: 'Voorbereiden...',
-        preparing_for_upload: 'Voorbereiden voor upload...',
         print: 'Afdrukken',
         privacy: 'Privacy',
         proceed_to_login: 'Doorgaan naar inloggen',
-        proceed_with_account_deletion: 'Doorgaan met accountverwijdering',
         properties: 'Eigenschappen',
         public: 'Openbaar',
         publish: 'Publiceren',
         publish_as_website: 'Publiceer als website',
-        puter_description: 'Puter is een privacy-first persoonlijke cloud om al je bestanden, apps en games op één veilige plek te bewaren, overal en altijd toegankelijk.',
         reading_file: 'Lezen %strong%',
         recover_password: 'Wachtwoord herstellen',
         refer_friends_c2a: 'Krijg 1 GB voor elke vriend die een account aanmaakt en bevestigt op Puter. Je vriend krijgt ook 1 GB!',
-        refer_friends_social_media_c2a: 'Krijg 1 GB gratis opslagruimte op Puter.com!',
         refresh: 'Vernieuwen',
         rename: 'Hernoemen',
         replace: 'Vervangen',
@@ -198,11 +177,9 @@ const nl = {
         save: 'Opslaan',
         saturation: 'Verzadiging',
         save_account: 'Account opslaan',
-        save_account_to_get_copy_link: 'Maak een account aan om verder te gaan.',
         save_account_to_publish: 'Maak een account aan om verder te gaan.',
         save_session: 'Sessie opslaan',
         save_session_c2a: 'Maak een account aan om je huidige sessie op te slaan en verlies van werk te voorkomen.',
-        scan_qr_2fa: 'Scan de QR-code met je authenticator-app',
         search: 'Zoeken',
         seconds: 'seconden',
         security: 'Beveiliging',
@@ -220,13 +197,11 @@ const nl = {
         show_hidden: 'Toon verborgen',
         sign_in_with_puter: 'Inloggen met Puter',
         sign_up: 'Aanmelden',
-        signing_in: 'Inloggen…',
         size: 'Grootte',
         skip: 'Overslaan',
         something_went_wrong: 'Er is iets misgegaan.',
         sort_by: 'Sorteren op',
         status: 'Status',
-        storage_usage: 'Opslaggebruik',
         storage_puter_used: 'gebruikt door Puter',
         taking_longer_than_usual: 'Het duurt langer dan normaal. Even geduld alstublieft...',
         terms: 'Voorwaarden',
@@ -254,29 +229,23 @@ const nl = {
         videos: 'Video\'s',
         visibility: 'Zichtbaarheid',
         yes: 'Ja',
-        you_have_been_referred_to_puter_by_a_friend: 'Je bent door een vriend doorverwezen naar Puter!',
         zip: 'Zip',
         zipping_file: 'Bestand inpakken %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Open je authenticator-app',
         setup2fa_1_instructions: `
             Je kunt elke authenticator-app gebruiken die het Time-based One-Time Password (TOTP) protocol ondersteunt.
             Er zijn veel opties om uit te kiezen, maar als je twijfelt,
             <a target="_blank" href="https://authy.com/download">Authy</a>
             is een goede keuze voor Android en iOS.
         `,
-        setup2fa_2_step_heading: 'Scan de QR-code',
         setup2fa_3_step_heading: 'Voer de 6-cijferige code in',
-        setup2fa_4_step_heading: 'Kopieer je herstelcodes',
         setup2fa_4_instructions: `
             Deze herstelcodes zijn de enige manier om toegang te krijgen tot je account als je je telefoon kwijtraakt of je authenticator-app niet kunt gebruiken.
             Zorg ervoor dat je ze op een veilige plaats bewaart.
         `,
-        setup2fa_5_step_heading: 'Bevestig 2FA-instelling',
         setup2fa_5_confirmation_1: 'Ik heb mijn herstelcodes op een veilige plaats opgeslagen',
         setup2fa_5_confirmation_2: 'Ik ben klaar om 2FA in te schakelen',
-        setup2fa_5_button: '2FA inschakelen',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Voer 2FA-code in',
@@ -284,7 +253,6 @@ const nl = {
         login2fa_recovery_title: 'Voer een herstelcode in',
         login2fa_recovery_instructions: 'Voer een van je herstelcodes in om toegang te krijgen tot je account.',
         login2fa_use_recovery_code: 'Gebruik een herstelcode',
-        login2fa_recovery_back: 'Terug',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'Wijzig',
@@ -352,20 +320,13 @@ const nl = {
         // =============================================================
         // Missing translations
         // =============================================================
-        'choose_publishing_option': 'Kies hoe u uw website wilt publiceren:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'Snelkoppeling maken (Bureaublad)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'Snelkoppelingen maken (Bureaublad)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'Snelkoppelingen maken', // In English: "Create Shortcuts"
         'minimize': 'Minimaliseren', // In English: "Minimize"
         'reload_app': 'App herladen', // In English: "Reload App"
         'publish_as_serverless_worker': 'Publiceer als Worker', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'Naar volledig scherm', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'Vriend uitnodigen', // In English: "Refer"
         'used_of': '{{used}} van {{available}} gebruikt', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker" (No direct Dutch equivalent, commonly used in tech context)
         'billing.offering.basic': 'Basis', // In English: "Basic"
-        'too_many_attempts': 'Te veel pogingen. Probeer het later opnieuw.', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'De server reageerde te langzaam. Probeer het opnieuw.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Er is een fout opgetreden bij het aanmelden. Probeer het opnieuw.', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'Fout!', // In English: "Error!"
@@ -383,16 +344,11 @@ const nl = {
         'window_title_open': 'Openen', // In English: "Open"
         'window_title_change_password': 'Wachtwoord wijzigen', // In English: "Change Password"
         'window_title_select_font': 'Lettertype selecteren…', // In English: "Select font…"
-        'window_title_session_list': 'Sessielijst!', // In English: "Session List!"
         'window_title_set_new_password': 'Nieuw wachtwoord instellen', // In English: "Set New Password"
         'window_title_publish_website': 'Website publiceren', // In English: "Publish Website"
         'window_title_publish_worker': 'Worker publiceren', // In English: "Publish Worker"
         'window_title_authenticating': 'Authenticatie bezig...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'Verwijs een vriend!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'Volledig scherm verlaten', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'Naar volledig scherm', // In English: "Enter Full Screen"
 
-        'item_shared_with_you': 'Een gebruiker heeft dit item met u gedeeld.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'U heeft dit item met ten minste één andere gebruiker gedeeld.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Snelkoppeling', // In English: "Shortcut"
         'item_associated_websites': 'Geassocieerde website', // In English: "Associated website"
@@ -401,9 +357,6 @@ const nl = {
         'window_click_to_go_back': 'Klik om terug te gaan.', // In English: "Click to go back."
         'window_click_to_go_forward': 'Klik om vooruit te gaan.', // In English: "Click to go forward."
         'window_click_to_go_up': 'Klik om naar de bovenliggende map te gaan.', // In English: "Click to go one directory up."
-        'window_title_public': 'Openbaar', // In English: "Public"
-        'window_title_videos': "Video's", // In English: "Videos"
-        'window_title_pictures': 'Afbeeldingen', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Deze map is leeg', // In English: "This folder is empty"
     },

@@ -40,17 +40,10 @@ const ja = {
         close_all_windows_and_log_out: 'ウィンドウを閉じてログアウト',
         change_always_open_with: 'この種類のファイルを常にこのアプリで開きますか？',
         confirm: '確認',
-        confirm_2fa_setup: '認証アプリにコードを追加しました',
-        confirm_2fa_recovery: 'リカバリーコードを安全な場所に保存しました',
         confirm_account_for_free_referral_storage_c2a: 'アカウントを作成してメールアドレスを確認すると、1GBの無料ストレージを獲得できます。友人も1GBの無料ストレージを獲得します。',
         confirm_code_generic_incorrect: 'コードが間違っています。',
         confirm_code_generic_too_many_requests: 'リクエストが多すぎます。数分待ってください。',
-        confirm_code_generic_submit: 'コードを送信',
-        confirm_code_generic_try_again: 'もう一度試す',
-        confirm_code_generic_title: '確認コードを入力',
         confirm_code_2fa_instruction: '認証アプリから6桁のコードを入力してください。',
-        confirm_code_2fa_submit_btn: '送信',
-        confirm_code_2fa_title: '2FAコードを入力',
         confirm_delete_multiple_items: 'これらの項目を完全に削除してよろしいですか？',
         confirm_delete_single_item: 'この項目を完全に削除してよろしいですか？',
         confirm_open_apps_log_out: 'アプリが開いています。ログアウトしてもよろしいですか？',
@@ -60,7 +53,6 @@ const ja = {
         confirm_session_revoke: 'このセッションを取り消してもよろしいですか？',
         confirm_your_email_address: 'メールアドレスを確認',
         contact_us: 'お問い合わせ',
-        contact_us_verification_required: 'この機能を使用するには、確認済みのメールアドレスが必要です。',
         continue: '続行',
         copy: 'コピー',
         copy_link: 'リンクをコピー',
@@ -82,10 +74,8 @@ const ja = {
         deploy_as_app: 'アプリとしてデプロイ',
         descending: '降順',
         desktop: 'デスクトップ',
-        desktop_background_fit: '画面背景をフィット',
         developers: '開発者',
         disable_2fa: '2FAを無効にする',
-        disable_2fa_confirm: '2FAを無効にしてよろしいですか？',
         disable_2fa_instructions: 'パスワードを入力して2FAを無効にします。',
         documents: 'ドキュメント',
         dont_allow: '許可しない',
@@ -115,13 +105,10 @@ const ja = {
         forgot_pass_c2a: 'パスワードを忘れましたか？',
         from: '送信者',
         general: '一般',
-        get_a_copy_of_on_puter: 'Puter.comで \'%%\' のコピーを取得！',
-        get_copy_link: 'コピーリンクを取得',
         home: 'ホーム',
         html_document: 'HTML文書',
         hue: '色合い',
         incorrect_password: 'パスワードが間違っています',
-        invite_link: '招待リンク',
         item: 'アイテム',
         items_in_trash_cannot_be_renamed: 'このアイテムはゴミ箱にあるため、名前を変更できません。このアイテムの名前を変更するには、まずゴミ箱からドラッグしてください。',
         jpeg_image: 'JPEG画像',
@@ -132,7 +119,6 @@ const ja = {
         loading: '読み込み中',
         log_in: 'ログイン',
         log_out: 'ログアウト',
-        looks_good: 'ナイス！',
         manage_sessions: 'セッションを管理',
         modified: '変更日時',
         move: '移動',
@@ -157,7 +143,6 @@ const ja = {
         open_with: 'アプリケーションで開く',
         original_name: '元の名前',
         original_path: '元のパス',
-        oss_code_and_content: 'オープンソースソフトウェアとコンテンツ',
         password: 'パスワード',
         password_changed: 'パスワードが変更されました。',
         password_recovery_rate_limit: 'レート制限に達しました。数分待ってください。将来これを防ぐために、ページを何度もリロードしないでください。',
@@ -169,25 +154,19 @@ const ja = {
         paste: '貼り付け',
         paste_into_folder: 'フォルダーに貼り付け',
         path: 'パス',
-        personalization: 'パーソナライズ',
         pictures: '写真',
         plural_suffix: '',
-        powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} によって提供されています',
         preparing: '準備中...',
-        preparing_for_upload: 'アップロードの準備中...',
         print: '印刷',
         privacy: 'プライバシー',
         proceed_to_login: 'ログインに進む',
-        proceed_with_account_deletion: 'アカウントの削除を続行',
         properties: 'プロパティ',
         public: '公開',
         publish: '公開',
         publish_as_website: 'ウェブサイトとして公開',
-        puter_description: 'Puterは、すべてのファイル、アプリ、およびゲームを一か所に安全に保管し、いつでもどこからでもアクセスできるプライバシー重視の個人用クラウドです。',
         reading_file: '読み込み中 %strong%',
         recover_password: 'パスワードを回復',
         refer_friends_c2a: '友達がPuterでアカウントを作成して確認すると、1GBを獲得できます。友達も1GBを獲得できます！',
-        refer_friends_social_media_c2a: 'Puter.comで1GBの無料ストレージを手に入れよう！',
         refresh: '更新',
         rename: '名前を変更',
         replace: '置換',
@@ -197,11 +176,9 @@ const ja = {
         save: '保存',
         saturation: '彩度',
         save_account: 'アカウントを保存',
-        save_account_to_get_copy_link: '続行するにはアカウントを作成してください。',
         save_account_to_publish: '続行するにはアカウントを作成してください。',
         save_session: 'セッションを保存',
         save_session_c2a: '現在のセッションを保存して、作業を失わないようにするにはアカウントを作成してください。',
-        scan_qr_2fa: '認証アプリでQRコードをスキャンしてください',
         search: '検索',
         seconds: '秒',
         security: 'セキュリティ',
@@ -219,13 +196,11 @@ const ja = {
         show_hidden: '隠しファイルを表示',
         sign_in_with_puter: 'Puterでサインイン',
         sign_up: 'サインアップ',
-        signing_in: 'サインイン中…',
         size: 'サイズ',
         skip: 'スキップ',
         something_went_wrong: '問題が発生しました。',
         sort_by: '並べ替え',
         status: 'ステータス',
-        storage_usage: 'ストレージ使用量',
         storage_puter_used: 'Puterで使用中',
         taking_longer_than_usual: 'いつもより少し時間がかかっています。お待ちください...',
         terms: '利用規約',
@@ -253,29 +228,23 @@ const ja = {
         videos: '動画',
         visibility: '見え方',
         yes: 'はい',
-        you_have_been_referred_to_puter_by_a_friend: '友達からPuterに紹介されました！',
         zip: '圧縮',
         zipping_file: '圧縮中 %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: '認証アプリを開く',
         setup2fa_1_instructions: `
             Time-based One-Time Password (TOTP) プロトコルをサポートする任意の認証アプリを使用できます。
             多くの選択肢がありますが、迷った場合は
             <a target="_blank" href="https://authy.com/download">Authy</a>
             がAndroidとiOSのおすすめの選択肢です。
         `,
-        setup2fa_2_step_heading: 'QRコードをスキャンする',
         setup2fa_3_step_heading: '6桁のコードを入力',
-        setup2fa_4_step_heading: '回復コードをコピーする',
         setup2fa_4_instructions: `
             これらの回復コードは、電話を紛失したり認証アプリを使用できない場合にアカウントにアクセスする唯一の方法です。
             安全な場所に保管してください。
         `,
-        setup2fa_5_step_heading: '2FA設定を確認',
         setup2fa_5_confirmation_1: '回復コードを安全な場所に保存しました',
         setup2fa_5_confirmation_2: '2FAを有効にする準備ができました',
-        setup2fa_5_button: '2FAを有効にする',
 
         // === 2FA Login ===
         login2fa_otp_title: '2FAコードを入力',
@@ -283,7 +252,6 @@ const ja = {
         login2fa_recovery_title: '回復コードを入力',
         login2fa_recovery_instructions: 'アカウントにアクセスするために、回復コードの1つを入力してください。',
         login2fa_use_recovery_code: '回復コードを使用',
-        login2fa_recovery_back: '戻る',
 
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
@@ -354,20 +322,13 @@ const ja = {
         // =============================================================
         // Missing translations
         // =============================================================
-        'choose_publishing_option': 'Webサイトの公開方法を選択してください:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'ショートカットを作成（デスクトップ）', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'ショートカットを作成（デスクトップ）', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'ショートカットを作成', // In English: "Create Shortcuts"
         'minimize': '最小化', // In English: "Minimize"
         'reload_app': 'アプリを再読み込み', // In English: "Reload App"
         'publish_as_serverless_worker': 'ワーカーとして公開', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': '全画面表示にする', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': '参照する', // In English: "Refer"
         'used_of': '{{available}} のうち {{used}} を使用', // In English: "{{used}} used of {{available}}"
         'worker': 'ワーカー', // In English: "Worker"
         'billing.offering.basic': 'ベーシック', // In English: "Basic"
-        'too_many_attempts': '試行回数の上限に達しました。時間をおいてからもう一度お試しください。', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'サーバーからの応答がありません。もう一度お試しください。', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'サインアップ中にエラーが発生しました。もう一度お試しください。', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'エラー!', // In English: "Error!"
@@ -385,15 +346,10 @@ const ja = {
         'window_title_open': '開く', // In English: "Open"
         'window_title_change_password': 'パスワードを変更', // In English: "Change Password"
         'window_title_select_font': 'フォントを選択...', // In English: "Select font…"
-        'window_title_session_list': 'セッション一覧!', // In English: "Session List!"
         'window_title_set_new_password': '新しいパスワードを設定', // In English: "Set New Password"
         'window_title_publish_website': 'ウェブサイトを公開', // In English: "Publish Website"
         'window_title_publish_worker': 'ワーカーを公開', // In English: "Publish Worker"
         'window_title_authenticating': '認証中...', // In English: "Authenticating..."
-        'window_title_refer_friend': '友達を紹介しよう!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': '全画面表示を終了', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': '全画面表示にする', // In English: "Enter Full Screen"
-        'item_shared_with_you': 'ユーザーがこのアイテムをあなたと共有しました。', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'このアイテムは少なくとも1人以上のユーザーと共有されています。', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'ショートカット', // In English: "Shortcut"
         'item_associated_websites': '関連ウェブサイト', // In English: "Associated website"
@@ -402,9 +358,6 @@ const ja = {
         'window_click_to_go_back': 'クリックして戻る。', // In English: "Click to go back."
         'window_click_to_go_forward': 'クリックして進む。', // In English: "Click to go forward."
         'window_click_to_go_up': 'クリックして一つ上のフォルダーに移動。', // In English: "Click to go one directory up."
-        'window_title_public': 'パブリック', // In English: "Public"
-        'window_title_videos': '動画', // In English: "Videos"
-        'window_title_pictures': '写真', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'このフォルダーは空です', // In English: "This folder is empty"
     },

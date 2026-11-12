@@ -40,22 +40,13 @@ const ta = {
         close_all_windows_and_log_out: 'விண்டோஸை மூடிவிட்டு வெளியேறவும்',
         change_always_open_with:
       'இந்த வகையான கோப்பை எப்போதும் திறக்க விரும்புகிறீர்களா?',
-        confirm_2fa_setup:
-      'எனது அங்கீகரிப்பு பயன்பாட்டில் குறியீட்டைச் சேர்த்துள்ளேன்',
-        confirm_2fa_recovery:
-      'எனது மீட்புக் குறியீடுகளை பாதுகாப்பான இடத்தில் சேமித்துள்ளேன்',
         confirm_account_for_free_referral_storage_c2a:
       '1 ஜிபி இலவச சேமிப்பிடத்தைப் பெற, கணக்கை உருவாக்கி உங்கள் மின்னஞ்சல் முகவரியை உறுதிப்படுத்தவும். உங்கள் நண்பருக்கு 1 ஜிபி இலவச சேமிப்பகமும் கிடைக்கும்.',
         confirm_code_generic_incorrect: 'தவறான குறியீடு.',
         confirm_code_generic_too_many_requests:
       'பல கோரிக்கைகள். தயவுசெய்து சில நிமிடங்கள் காத்திருக்கவும்.',
-        confirm_code_generic_submit: 'குறியீட்டை சமர்ப்பிக்கவும்',
-        confirm_code_generic_try_again: 'மீண்டும் முயற்சி செய்யவும்',
-        confirm_code_generic_title: 'உறுதிப்படுத்தல் குறியீட்டை உள்ளிடவும்',
         confirm_code_2fa_instruction:
       'உங்கள் அங்கீகரிப்பு பயன்பாட்டிலிருந்து 6 இலக்கக் குறியீட்டை உள்ளிடவும்.',
-        confirm_code_2fa_submit_btn: 'சமர்ப்பிக்கவும்',
-        confirm_code_2fa_title: '2FA குறியீட்டை உள்ளிடவும்',
         confirm_delete_multiple_items:
       'இந்த உருப்படிகளை நிரந்தரமாக நீக்க விரும்புகிறீர்களா?',
         confirm_delete_single_item:
@@ -69,8 +60,6 @@ const ta = {
         confirm_session_revoke: 'இந்த அமர்வை நிச்சயமாக திரும்பப் பெற விரும்புகிறீர்களா?',
         confirm_your_email_address: 'உங்கள் மின்னஞ்சல் முகவரியை உறுதிப்படுத்தவும்',
         contact_us: 'எங்களை தொடர்பு கொள்ள',
-        contact_us_verification_required:
-      'இதைப் பயன்படுத்த, சரிபார்க்கப்பட்ட மின்னஞ்சல் முகவரி உங்களிடம் இருக்க வேண்டும்.',
         continue: 'தொடரவும்',
         copy: 'நகலெடுக்கவும்',
         copy_link: 'இணைப்பை நகலெடுக்கவும்',
@@ -92,10 +81,8 @@ const ta = {
         deploy_as_app: 'பயன்பாடாக வரிசைப்படுத்து',
         descending: 'இறங்குதல்',
         desktop: 'டெஸ்க்டாப்',
-        desktop_background_fit: 'பொருத்தம்',
         developers: 'டெவலப்பர்கள்',
         disable_2fa: '2FA ஐ முடக்கு',
-        disable_2fa_confirm: '2FA ஐ நிச்சயமாக முடக்க விரும்புகிறீர்களா?',
         disable_2fa_instructions: '2FA ஐ முடக்க உங்கள் கடவுச்சொல்லை உள்ளிடவும்.',
         documents: 'ஆவணங்கள்',
         dont_allow: 'அனுமதிக்காதே',
@@ -130,13 +117,10 @@ const ta = {
         forgot_pass_c2a: 'கடவுச்சொல்லை மறந்துவிட்டீர்களா?',
         from: 'இருந்து',
         general: 'பொது',
-        get_a_copy_of_on_puter: 'Puter.com இல் \'%%\' நகலைப் பெறுங்கள்!',
-        get_copy_link: 'நகல் இணைப்பைப் பெறவும்',
         home: 'வீடு',
         html_document: 'HTML ஆவணம்',
         hue: 'சாயல்',
         incorrect_password: 'தவறான கடவுச்சொல்',
-        invite_link: 'அழைப்பு இணைப்பு',
         item: 'பொருள்',
         items_in_trash_cannot_be_renamed:
       'இந்த உருப்படி குப்பையில் இருப்பதால் மறுபெயரிட முடியாது. இந்த உருப்படியை மறுபெயரிட, முதலில் அதை குப்பையிலிருந்து வெளியே இழுக்கவும்.',
@@ -148,7 +132,6 @@ const ta = {
         loading: 'ஏற்றுகிறது',
         log_in: 'உள்நுழைய',
         log_out: 'வெளியேறு',
-        looks_good: 'நன்றாக இருக்கிறது!',
         manage_sessions: 'அமர்வுகளை நிர்வகிக்கவும்',
         modified: 'மாற்றியமைக்கப்பட்டது',
         move: 'நகர்வு',
@@ -173,7 +156,6 @@ const ta = {
         open_with: 'உடன் திற',
         original_name: 'அசல் பெயர்',
         original_path: 'அசல் பாதை',
-        oss_code_and_content: 'திறந்த மூல மென்பொருள் மற்றும் உள்ளடக்கம்',
         password: 'கடவுச்சொல்',
         password_changed: 'கடவுச்சொல் மாற்றப்பட்டது.',
         password_recovery_rate_limit:
@@ -190,28 +172,20 @@ const ta = {
         paste: 'ஒட்டவும்',
         paste_into_folder: 'கோப்புறையில் ஒட்டவும்',
         path: 'பாதை',
-        personalization: 'தனிப்பயனாக்கம்',
         pictures: 'படங்கள்',
         plural_suffix: 'கள்',
-        powered_by_puter_js: 'மூலம் இயக்கப்படுகிறது {{link=docs}}Puter.js{{/link}}',
         preparing: 'தயாராகிறது...',
-        preparing_for_upload: 'பதிவேற்றம் செய்ய தயாராகிறது...',
         print: 'அச்சிடுக',
         privacy: 'தனியுரிமை',
         proceed_to_login: 'உள்நுழைய தொடரவும்',
-        proceed_with_account_deletion: 'கணக்கு நீக்குதலைத் தொடரவும்',
         properties: 'பண்புகள்',
         public: 'பொது',
         publish: 'வெளியிடு',
         publish_as_website: 'இணையதளமாக வெளியிடவும்',
-        puter_description:
-      'உங்கள் கோப்புகள், பயன்பாடுகள் மற்றும் கேம்கள் அனைத்தையும் ஒரே பாதுகாப்பான இடத்தில் வைத்திருக்க, எந்த நேரத்திலும் எங்கிருந்தும் அணுகக்கூடிய தனியுரிமை-முதல் தனிப்பட்ட கிளவுட் புட்டர் ஆகும்.',
         reading_file: 'படித்தல் %strong%',
         recover_password: 'கடவுச்சொல்லை மீட்டெடுக்கவும்',
         refer_friends_c2a:
       'புட்டர் இல் கணக்கை உருவாக்கி உறுதிப்படுத்தும் ஒவ்வொரு நண்பருக்கும் 1 GB கிடைக்கும். உங்கள் நண்பருக்கும் 1 ஜிபி கிடைக்கும்!',
-        refer_friends_social_media_c2a:
-      'Puter.com இல் 1 GB இலவச சேமிப்பிடத்தைப் பெறுங்கள்!',
         refresh: 'புதுப்பிப்பு',
         rename: 'மறுபெயரிடவும்',
         replace: 'மாற்றவும்',
@@ -221,13 +195,10 @@ const ta = {
         save: 'சேமிக்கவும்',
         saturation: 'செறிவூட்டல்',
         save_account: 'கணக்கைச் சேமிக்கவும்',
-        save_account_to_get_copy_link: 'தொடர ஒரு கணக்கை உருவாக்கவும்.',
         save_account_to_publish: 'தொடர ஒரு கணக்கை உருவாக்கவும்.',
         save_session: 'அமர்வை சேமிக்கவும்',
         save_session_c2a:
       'உங்கள் தற்போதைய அமர்வைச் சேமிக்க ஒரு கணக்கை உருவாக்கவும் மற்றும் உங்கள் வேலையை இழப்பதைத் தவிர்க்கவும்.',
-        scan_qr_2fa:
-      'உங்கள் அங்கீகரிப்பு பயன்பாட்டின் மூலம் QR குறியீட்டை ஸ்கேன் செய்யவும்',
         search: 'தேடு',
         seconds: 'வினாடிகள்',
         security: 'பாதுகாப்பு',
@@ -246,13 +217,11 @@ const ta = {
         show_hidden: 'மறைக்கப்பட்டதைக் காட்டு',
         sign_in_with_puter: 'புட்டர் மூலம் உள்நுழையவும்',
         sign_up: 'பதிவு செய்யவும்',
-        signing_in: 'உள்நுழைகிறேன்…',
         size: 'அளவு',
         skip: 'தவிர்க்கவும்',
         something_went_wrong: 'ஏதோ தவறு நடந்துவிட்டது.',
         sort_by: 'வரிசைப்படுத்து',
         status: 'நிலை',
-        storage_usage: 'சேமிப்பக பயன்பாடு',
         storage_puter_used: 'புட்டரால் பயன்படுத்தப்பட்டது',
         taking_longer_than_usual:
       'வழக்கத்தை விட சிறிது நேரம் எடுக்கும். தயவுசெய்து காத்திருங்கள்...',
@@ -283,31 +252,24 @@ const ta = {
         videos: 'வீடியோக்கள்',
         visibility: 'தெரிவுநிலை',
         yes: 'ஆம்',
-        you_have_been_referred_to_puter_by_a_friend:
-      'நீங்கள் ஒரு நண்பரால் புட்டருக்கு பரிந்துரைக்கப்பட்டீர்கள்!',
         zip: 'ஜிப்',
         zipping_file: 'ஜிப்பிங் %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'உங்கள் அங்கீகரிப்பு பயன்பாட்டைத் திறக்கவும்',
         setup2fa_1_instructions: `
             Time-based One-Time Password (TOTP) நெறிமுறையை ஆதரிக்கும் எந்த அங்கீகார பயன்பாட்டையும் நீங்கள் பயன்படுத்தலாம்.
  தேர்வு செய்ய பல உள்ளன, ஆனால் நீங்கள் உறுதியாக தெரியவில்லை என்றால்
  <a target="_blank" href="https://authy.com/download">Authy</a>
  ஆண்ட்ராய்டு மற்றும் iOSக்கு ஒரு திடமான தேர்வாகும்.
         `,
-        setup2fa_2_step_heading: 'QR குறியீட்டை ஸ்கேன் செய்யவும்',
         setup2fa_3_step_heading: '6 இலக்கக் குறியீட்டை உள்ளிடவும்',
-        setup2fa_4_step_heading: 'உங்கள் மீட்பு குறியீடுகளை நகலெடுக்கவும்',
         setup2fa_4_instructions: `
             உங்கள் ஃபோனை இழந்தாலோ அல்லது அங்கீகரிப்பு பயன்பாட்டைப் பயன்படுத்த முடியாமலோ உங்கள் கணக்கை அணுக இந்த மீட்புக் குறியீடுகள் மட்டுமே ஒரே வழி.
 அவற்றை பாதுகாப்பான இடத்தில் சேமித்து வைப்பதை உறுதி செய்யவும்.
         `,
-        setup2fa_5_step_heading: '2FA அமைப்பை உறுதிப்படுத்தவும்',
         setup2fa_5_confirmation_1:
       'எனது மீட்புக் குறியீடுகளை பாதுகாப்பான இடத்தில் சேமித்துள்ளேன்',
         setup2fa_5_confirmation_2: '2FA ஐ இயக்க நான் தயாராக இருக்கிறேன்',
-        setup2fa_5_button: '2FA ஐ இயக்கவும்',
 
         // === 2FA Login ===
         login2fa_otp_title: '2FA குறியீட்டை உள்ளிடவும்',
@@ -317,7 +279,6 @@ const ta = {
         login2fa_recovery_instructions:
       'உங்கள் கணக்கை அணுக, உங்கள் மீட்புக் குறியீடுகளில் ஒன்றை உள்ளிடவும்.',
         login2fa_use_recovery_code: 'மீட்புக் குறியீட்டைப் பயன்படுத்தவும்',
-        login2fa_recovery_back: 'மீண்டும்',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'மாற்றம்',
@@ -397,21 +358,13 @@ const ta = {
         // =============================================================
         // Completed missing translations
         // =============================================================
-        choose_publishing_option:
-      'உங்கள் வலைத்தளத்தை எப்படி வெளியிட வேண்டும் என்பதைத் தேர்வுசெய்க:',
-        create_desktop_shortcut: 'குறுக்குவழி உருவாக்கு (டெஸ்க்டாப்)',
-        create_desktop_shortcut_s: 'குறுக்குவழிகள் உருவாக்கு (டெஸ்க்டாப்)',
         create_shortcut_s: 'குறுக்குவழிகள் உருவாக்கு',
         minimize: 'சுருக்கு',
         reload_app: 'பயன்பாட்டை மீளேற்று',
         publish_as_serverless_worker: 'வொர்க்கராக வெளியிடு',
-        'toolbar.enter_fullscreen': 'முழுத்திரைக்கு செல்',
-        'toolbar.github': 'GitHub',
-        'toolbar.refer': 'அறிமுகப்படுத்து',
         used_of: '{{available}} இல் {{used}} பயன்படுத்தப்பட்டது',
         worker: 'வொர்க்கர்',
         'billing.offering.basic': 'அடிப்படை',
-        too_many_attempts: 'அதிக முயற்சிகள். தயவுசெய்து பிறகு முயற்சிக்கவும்.',
         server_timeout:
       'சர்வர் பதில் அளிக்க தாமதமாகிறது. மீண்டும் முயற்சிக்கவும்.',
         signup_error: 'பதிவின் போது பிழை ஏற்பட்டது. மீண்டும் முயற்சிக்கவும்.',
@@ -430,16 +383,10 @@ const ta = {
         window_title_open: 'திற',
         window_title_change_password: 'கடவுச்சொல்லை மாற்று',
         window_title_select_font: 'எழுத்துருவை தேர்வுசெய்…',
-        window_title_session_list: 'அமர்வுப் பட்டியல்!',
         window_title_set_new_password: 'புதிய கடவுச்சொல்லை அமை',
         window_title_publish_website: 'வலைத்தளத்தை வெளியிடு',
         window_title_publish_worker: 'வொர்க்கரை வெளியிடு',
         window_title_authenticating: 'அடையாளம் சரிபார்க்கப்படுகிறது...',
-        window_title_refer_friend: 'நண்பரை அறிமுகப்படுத்து!',
-        desktop_exit_full_screen: 'முழுத்திரையிலிருந்து வெளியேறு',
-        desktop_enter_full_screen: 'முழுத்திரைக்கு செல்',
-        item_shared_with_you:
-      'ஒரு பயனர் இந்த உருப்படியை உங்களுடன் பகிர்ந்துள்ளார்.',
         item_shared_by_you:
       'இந்த உருப்படியை நீங்கள் குறைந்தது ஒருவருடன் பகிர்ந்துள்ளீர்கள்.',
         item_shortcut: 'குறுக்குவழி',
@@ -449,9 +396,6 @@ const ta = {
         window_click_to_go_back: 'முந்தையதிற்குச் செல்ல கிளிக் செய்யவும்.',
         window_click_to_go_forward: 'அடுத்ததிற்குச் செல்ல கிளிக் செய்யவும்.',
         window_click_to_go_up: 'ஒரு அடைவுக்கு மேலே செல்ல கிளிக் செய்யவும்.',
-        window_title_public: 'பொது',
-        window_title_videos: 'வீடியோக்கள்',
-        window_title_pictures: 'படங்கள்',
         window_title_puter: 'Puter',
         window_folder_empty: 'இந்த கோப்புறை காலியாக உள்ளது',
     },

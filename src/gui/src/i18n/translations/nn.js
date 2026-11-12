@@ -48,7 +48,6 @@ const nn = {
         delete_permanently: 'Slett permanent',
         deploy_as_app: 'Distribuer som app',
         descending: 'Synkande',
-        desktop_background_fit: 'Tilpass',
         download: 'Last ned',
         email: 'E-post',
         email_or_username: 'E-post eller brukarnamn',
@@ -63,10 +62,7 @@ const nn = {
         forgot_pass_c2a: 'Gløymt passord?',
         from: 'Frå',
         general: 'Generelt',
-        get_a_copy_of_on_puter: "Få ein kopi av '%%' på Puter.com!",
-        get_copy_link: 'Få kopilenkje',
         html_document: 'HTML-dokument',
-        invite_link: 'Invitasjonslenkje',
         items_in_trash_cannot_be_renamed:
       'Dette elementet kan ikkje omdøypast fordi det er i papirkorga. For å omdøype dette elementet, dra det først ut av papirkorga.',
         jpeg_image: 'JPEG-bilete',
@@ -95,21 +91,17 @@ const nn = {
         passwords_do_not_match: '`Nytt passord` og `Stadfest nytt passord` stemmer ikkje overeins.',
         paste: 'Lim inn',
         paste_into_folder: 'Lim inn i mappe',
-        powered_by_puter_js: 'Dreve av {{link=docs}}Puter.js{{/link}}',
         preparing: 'Førebur…',
-        preparing_for_upload: 'Førebur opplasting…',
         properties: 'Eigenskapar',
         publish: 'Publiser',
         publish_as_website: 'Publiser som nettstad',
         recover_password: 'Gjenopprett passord',
         refer_friends_c2a:
       'Få 1 GB for kvar ven som opprettar og stadfestar ein konto på Puter. Vennen din får òg 1 GB.',
-        refer_friends_social_media_c2a: 'Få 1 GB gratis lagringsplass på Puter.com!',
         refresh: 'Oppdater',
         rename: 'Gje nytt namn',
         resend_confirmation_code: 'Send stadfestingskoden på nytt',
         restore: 'Gjenopprett',
-        save_account_to_get_copy_link: 'Vennligst opprett ein konto for å halde fram.',
         save_account_to_publish: 'Vennligst opprett ein konto for å halde fram.',
         save_session_c2a: 'Opprett ein konto for å lagre gjeldande økt og unngå å miste arbeidet ditt.',
         select: 'Vel',
@@ -121,7 +113,6 @@ const nn = {
         show_hidden: 'Vis skjulte',
         sign_in_with_puter: 'Logg inn med Puter',
         sign_up: 'Registrer deg',
-        signing_in: 'Logger inn…',
         size: 'Storleik',
         sort_by: 'Sorter etter',
         taking_longer_than_usual: 'Dette tar litt lengre tid enn vanleg. Vennligst vent...',
@@ -137,7 +128,6 @@ const nn = {
         username: 'Brukarnamn',
         username_changed: 'Brukarnamn oppdatert.',
         versions: 'Versjonar',
-        you_have_been_referred_to_puter_by_a_friend: 'Du har blitt referert til Puter av ein ven!',
         zip: 'Zip',
 
         // Updated translations for previously missing keys
@@ -152,16 +142,9 @@ const nn = {
         close: 'Lukk', // In English: "Close"
         close_all_windows_and_log_out: 'Lukk vindauge og logg ut', // In English: "Close Windows and Log Out"
         confirm: 'Stadfest', // In English: "Confirm"
-        confirm_2fa_setup: 'Eg har lagt til koden i autentikatorappen min', // In English: "I have added the code to my authenticator app"
-        confirm_2fa_recovery: 'Eg har lagra gjenopprettingskodane mine på ein trygg stad', // In English: "I have saved my recovery codes in a secure location"
         confirm_code_generic_incorrect: 'Feil kode.', // In English: "Incorrect Code."
         confirm_code_generic_too_many_requests: 'For mange førespurnader. Vennligst vent nokre minutt.', // In English: "Too many requests. Please wait a few minutes."
-        confirm_code_generic_submit: 'Send inn kode', // In English: "Submit Code"
-        confirm_code_generic_try_again: 'Prøv igjen', // In English: "Try Again"
-        confirm_code_generic_title: 'Skriv inn stadfestingskode', // In English: "Enter Confirmation Code"
         confirm_code_2fa_instruction: 'Skriv inn den 6-sifra koden frå autentikatorappen din.', // In English: "Enter the 6-digit code from your authenticator app."
-        confirm_code_2fa_submit_btn: 'Send inn', // In English: "Submit"
-        confirm_code_2fa_title: 'Skriv inn 2FA-kode', // In English: "Enter 2FA Code"
         confirm_delete_multiple_items: 'Er du sikker på at du vil slette desse elementa permanent?', // In English: "Are you sure you want to permanently delete these items?"
         confirm_delete_single_item: 'Vil du slette dette elementet permanent?', // In English: "Do you want to permanently delete this item?"
         confirm_open_apps_log_out: 'Du har opne appar. Er du sikker på at du vil logge ut?', // In English: "You have open apps. Are you sure you want to log out?"
@@ -170,7 +153,6 @@ const nn = {
         confirm_delete_user_title: 'Slette konto?', // In English: "Delete Account?"
         confirm_session_revoke: 'Er du sikker på at du vil trekkje tilbake denne økta?', // In English: "Are you sure you want to revoke this session?"
         confirm_your_email_address: 'Stadfest e-postadressa di', // In English: "Confirm Your Email Address"
-        contact_us_verification_required: 'Du må ha ein stadfesta e-postadresse for å bruke dette.', // In English: "You must have a verified email address to use this."
         copying_file: 'Kopierer %%', // In English: "Copying %%"
         credits: 'Bidragsytarar', // In English: "Credits"
         close_all: 'Lukk alle', // In English: "Close All"
@@ -180,7 +162,6 @@ const nn = {
         desktop: 'Skrivebord', // In English: "Desktop"
         developers: 'Utviklarar', // In English: "Developers"
         disable_2fa: 'Deaktiver 2FA', // In English: "Disable 2FA"
-        disable_2fa_confirm: 'Er du sikker på at du vil deaktivere 2FA?', // In English: "Are you sure you want to disable 2FA?"
         disable_2fa_instructions: 'Skriv inn passordet ditt for å deaktivere 2FA.', // In English: "Enter your password to disable 2FA."
         documents: 'Dokument', // In English: "Documents"
         dont_allow: 'Ikkje tillat', // In English: "Don't Allow"
@@ -210,14 +191,12 @@ const nn = {
         lightness: 'Lys',
         link_copied: 'Lenkja kopiert',
         loading: 'Lastar',
-        looks_good: 'Ser bra ut!',
         manage_sessions: 'Handter økter',
         modified: 'Endra',
         new_email: 'Ny e-post',
         no: 'Nei',
         original_name: 'Originalt namn',
         original_path: 'Original sti',
-        oss_code_and_content: 'Programvare med open kjeldekode og innhald',
         password_recovery_rate_limit:
       'Du har nådd grensa vår for frekvens; vennligst vent nokre minutt. For å unngå dette i framtida, ikkje last inn sida på nytt for mange gonger.',
         password_recovery_token_invalid:
@@ -227,16 +206,12 @@ const nn = {
         password_strength_error:
       'Passordet må vere minst 8 teikn langt og innehalde minst éin stor bokstav, éin liten bokstav, éin tal og éin spesialteikn.',
         path: 'Sti',
-        personalization: 'Personleggjering',
         pictures: 'Bilete',
         plural_suffix: 'ar',
         print: 'Skriv ut',
         privacy: 'Personvern',
         proceed_to_login: 'Fortsett til innlogging',
-        proceed_with_account_deletion: 'Fortsett med sletting av konto',
         public: 'Offentleg',
-        puter_description:
-      'Puter er ein personleg skyteknologi med fokus på personvern, der du kan lagre alle filene, appane og spela dine på ein sikker stad, tilgjengeleg frå overalt til ei kvar tid.',
         reading: 'Leser %strong%',
         writing: 'Skriv %strong%',
         replace: 'Erstatt',
@@ -245,7 +220,6 @@ const nn = {
         saturation: 'Metting',
         save_account: 'Lagre konto',
         save_session: 'Lagre økt',
-        scan_qr_2fa: 'Skann QR-koden med autentikatorappen din',
         search: 'Søk',
         seconds: 'sekund',
         security: 'Tryggleik',
@@ -257,7 +231,6 @@ const nn = {
         skip: 'Hopp over',
         something_went_wrong: 'Noko gjekk galt.',
         status: 'Status',
-        storage_usage: 'Lagringsbruk',
         storage_puter_used: 'brukt av Puter',
         terms: 'Vilkår',
         transparency: 'Gjennomsikt',
@@ -276,31 +249,25 @@ const nn = {
         yes: 'Ja',
         sequencing: 'Sekvenserar %strong%',
         zipping: 'Zippar %strong%',
-        setup2fa_1_step_heading: 'Opne autentikatorappen din',
         setup2fa_1_instructions: `
                 Du kan bruke ein autentikatorapp som støttar Time-based One-Time Password (TOTP)-protokollen.
                 Det finst mange å velje mellom, men om du er usikker,
                 er <a target="_blank" href="https://authy.com/download">Authy</a>
                 eit godt valg for Android og iOS.
                 `,
-        setup2fa_2_step_heading: 'Skann QR-koden',
         setup2fa_3_step_heading: 'Skriv inn den 6-sifra koden',
-        setup2fa_4_step_heading: 'Kopier gjenopprettingskodane dine',
         setup2fa_4_instructions: `
                 Desse gjenopprettingskodane er den einaste måten å få tilgang til kontoen din om du mistar telefonen eller ikkje kan bruke autentikatorappen.
                 Pass på å lagre dei på ein trygg stad.
                 `,
-        setup2fa_5_step_heading: 'Stadfest 2FA-oppsett',
         setup2fa_5_confirmation_1: 'Eg har lagra gjenopprettingskodane mine på ein trygg stad',
         setup2fa_5_confirmation_2: 'Eg er klar til å aktivere 2FA',
-        setup2fa_5_button: 'Aktiver 2FA',
         login2fa_otp_title: 'Skriv inn 2FA-kode',
         login2fa_otp_instructions: 'Skriv inn den 6-sifra koden frå autentikatorappen din.',
         login2fa_recovery_title: 'Skriv inn ein gjenopprettingskode',
         login2fa_recovery_instructions:
       'Skriv inn ein av gjenopprettingskodane dine for å få tilgang til kontoen din.',
         login2fa_use_recovery_code: 'Bruk ein gjenopprettingskode',
-        login2fa_recovery_back: 'Tilbake',
         login2fa_recovery_placeholder: 'XXXXXXXX',
         Editor: 'Redigerar',
         Viewer: 'Visar',
@@ -364,20 +331,13 @@ const nn = {
         'billing.accelerated': 'Akselerert', // In English: "Accelerated"
         'billing.enjoy_msg': 'Nyt %% skylagring pluss andre fordelar.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-        choose_publishing_option: 'Vel korleis du vil publisere nettsida di:', // "Original English: Choose how you want to publish your website:"
-        create_desktop_shortcut: 'Lag snarveg (Skrivebord)', // "Original English: Create Shortcut (Desktop)"
-        create_desktop_shortcut_s: 'Lag snarvegar (Skrivebord)', // "Original English: Create Shortcuts (Desktop)"
         create_shortcut_s: 'Lag snarvegar', // "Original English: Create Shortcuts"
         minimize: 'Minimer', // "Original English: Minimize"
         reload_app: 'Last inn app på nytt', // "Original English: Reload App"
         publish_as_serverless_worker: 'Publiser som Worker', // "Original English: Publish as Worker - 'Worker' kept as technical term"
-        'toolbar.enter_fullscreen': 'Gå til fullskjerm', // "Original English: Enter Full Screen"
-        'toolbar.github': 'GitHub', // "Original English: GitHub - Brand name kept unchanged"
-        'toolbar.refer': 'Verv', // "Original English: Refer - 'Verv' is more natural than 'Referer'"
         used_of: '{{used}} brukt av {{available}}', // "Original English: {{used}} used of {{available}} - Variables preserved in original format"
         worker: 'Worker', // "Original English: Worker - Technical term kept"
         'billing.offering.basic': 'Grunnleggjande', // "Original English: Basic"
-        too_many_attempts: 'For mange forsøk. Prøv igjen seinare.', // "Original English: Too many attempts. Please try again later."
         server_timeout: 'Tenaren brukte for lang tid på å svare. Prøv igjen.', // "Original English: The server took too long to respond. Please try again."
         signup_error: 'Det oppstod ein feil under registrering. Prøv igjen.', // "Original English: An error occurred during signup. Please try again."
         alert_error_title: 'Feil!', // "Original English: Error!"
@@ -395,15 +355,10 @@ const nn = {
         window_title_open: 'Opne', // "Original English: Open"
         window_title_change_password: 'Endre passord', // "Original English: Change Password"
         window_title_select_font: 'Vel skrifttype…', // "Original English: Select font… - Ellipsis preserved"
-        window_title_session_list: 'Øktliste!', // "Original English: Session List!"
         window_title_set_new_password: 'Vel nytt passord', // "Original English: Set New Password"
         window_title_publish_website: 'Publiser nettside', // "Original English: Publish Website"
         window_title_publish_worker: 'Publiser Worker', // "Original English: Publish Worker"
         window_title_authenticating: 'Autentiserer...', // "Original English: Authenticating..."
-        window_title_refer_friend: 'Verv ein ven!', // "Original English: Refer a friend!"
-        desktop_exit_full_screen: 'Avslutt fullskjerm', // "Original English: Exit Full Screen"
-        desktop_enter_full_screen: 'Gå til fullskjerm', // "Original English: Enter Full Screen"
-        item_shared_with_you: 'Ein brukar har delt denne tingen med deg.', // "Original English: A user has shared this item with you."
         item_shared_by_you: 'Du har delt denne tingen med minst ein annan brukar.', // "Original English: You have shared this item with at least one other user."
         item_shortcut: 'Snarveg', // "Original English: Shortcut"
         item_associated_websites: 'Tilknytt nettside', // "Original English: Associated website"
@@ -412,9 +367,6 @@ const nn = {
         window_click_to_go_back: 'Klikk for å gå tilbake.', // "Original English: Click to go back."
         window_click_to_go_forward: 'Klikk for å gå framover.', // "Original English: Click to go forward."
         window_click_to_go_up: 'Klikk for å gå eitt nivå opp.', // "Original English: Click to go one directory up."
-        window_title_public: 'Offentleg', // "Original English: Public"
-        window_title_videos: 'Videoar', // "Original English: Videos"
-        window_title_pictures: 'Bilete', // "Original English: Pictures"
         window_title_puter: 'Puter', // "Original English: Puter - Brand name kept unchanged"
         window_folder_empty: 'Denne mappa er tom', // "Original English: This folder is empty"
     },

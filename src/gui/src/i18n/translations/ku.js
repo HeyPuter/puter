@@ -40,20 +40,12 @@ const ku = {
         close_all_windows_and_log_out: 'داخستن و چوونە دەرەوە',
         change_always_open_with: 'ئەتەوێت هەمیشە ئەم جۆرە فایلە بکرێتەوە بە',
         confirm: 'پشتڕاستکردنەوە',
-        confirm_2fa_setup: 'کۆدەکە زیادم کردووە بۆ وەرگرەری پشتڕاستکراوەکان',
-        confirm_2fa_recovery:
-      'کۆدەکانی ڕێکخستنەوە پشتڕاست کردووە بۆ مەبەستێکی تایبەتی',
         confirm_account_for_free_referral_storage_c2a:
       'هەژمارێک دروست بکە و پەیوەندیدانی ئیمەیلەکەت پشتڕاست بکە بۆ وەرگرتنی 1 گیگابایت بەرەوپێشەوە. هاوڕێتیش 1 گیگابایت بەرەوپێشەوە دەبێت.',
         confirm_code_generic_incorrect: 'کۆدی هەڵە.',
         confirm_code_generic_too_many_requests:
       'داواکاریی زۆر. تکایە چەند خولەکێک چاوەڕوانبە.',
-        confirm_code_generic_submit: 'ناردنی کۆد',
-        confirm_code_generic_try_again: 'دووبارە هەوڵبەرە',
-        confirm_code_generic_title: 'کۆدی پشتڕاستکردنەوە بنووسە',
         confirm_code_2fa_instruction: 'کۆدی 6 ژمارەیە بنووسە لە ئەپەکەت.',
-        confirm_code_2fa_submit_btn: 'ناردن',
-        confirm_code_2fa_title: 'کۆدی 2FA بنووسە',
         confirm_delete_multiple_items:
       'دڵنیایت کە ئەتەوێت ئەم بابەتانە هەمی نابود بکەیتەوە؟',
         confirm_delete_single_item: 'ئەتەوێت ئەم بابەتە نابود بکەیتەوە؟',
@@ -66,8 +58,6 @@ const ku = {
         confirm_session_revoke: 'دڵنیایت کە ئەتەوێت ئەم دانیشتنە ڕەت بکەیتەوە؟',
         confirm_your_email_address: 'پشتڕاستکردنەوەی ناونیشانی ئیمەیلەکەت',
         contact_us: 'پەیوەندی پێوە بکە',
-        contact_us_verification_required:
-      'پێویستە ناونیشانی ئیمەیلەکەت پشتڕاست بکرێت بۆ بەکارهێنان.',
         continue: 'بەردەوامبوون',
         copy: 'کۆپی',
         copy_link: 'کۆپی کردنەوەی بەستەر',
@@ -89,10 +79,8 @@ const ku = {
         deploy_as_app: 'دابەشکردن وەک ئەپ',
         descending: 'نزەندەی',
         desktop: 'سەروروومیزی',
-        desktop_background_fit: 'ڕێکخستن',
         developers: 'پەرەپێدانەران',
         disable_2fa: 'ناچالاککردنی 2FA',
-        disable_2fa_confirm: 'دڵنیایت کە ئەتەوێت 2FA ناچالاک بکەیت؟',
         disable_2fa_instructions: 'وشەی تێپەڕی نووسە بۆ ناچالاککردنی 2FA.',
         documents: 'بەڵگەکان',
         dont_allow: 'ڕێگەندان',
@@ -126,13 +114,10 @@ const ku = {
         forgot_pass_c2a: 'وشەی تێپەڕت لەبیرچووە؟',
         from: 'لە',
         general: 'گشتی',
-        get_a_copy_of_on_puter: 'کۆپیێک وەرگرتنەوەی \'%%\' لە پوتەر.com!',
-        get_copy_link: 'کۆپی بەستەر وەرگرتن',
         home: 'ماڵەوە',
         html_document: 'بەڵگەی HTML',
         hue: 'هیو',
         incorrect_password: 'وشەی تێپەڕ هەڵەیە',
-        invite_link: 'بەستەری بانگکردن',
         item: 'بابەت',
         items_in_trash_cannot_be_renamed: 'ئەم بابەتە ناتوانرێت ناونوسێت چونکە لە کوڵەدا هەیە. بۆ ناونوسین، سەبارەکەی لە کوڵەکە دەر بکە.',
         jpeg_image: 'وێنەی JPEG',
@@ -143,7 +128,6 @@ const ku = {
         loading: 'بارکردنەوە',
         log_in: 'چوونەژوورەوە',
         log_out: 'چوونە دەرەوە',
-        looks_good: 'پەیوەندیدارە!',
         manage_sessions: 'بەڕێوەبردنی دانیشتنەکان',
         modified: 'گۆڕاو',
         move: 'جوڵاندن',
@@ -168,7 +152,6 @@ const ku = {
         open_with: 'کردنەوە بە',
         original_name: 'ناوی ڕەسەن',
         original_path: 'ڕێکەوتی ڕەسەن',
-        oss_code_and_content: 'کۆدی سەرچاوەیەکی کراو و ناوەڕۆک',
         password: 'وشەی تێپەڕ',
         password_changed: 'وشەی تێپەڕ گۆڕدرا.',
         password_recovery_rate_limit:
@@ -185,26 +168,20 @@ const ku = {
         paste: 'دانان',
         paste_into_folder: 'دانان لە فۆڵدەرەکە',
         path: 'ڕێکەوت',
-        personalization: 'بەشداربوون',
         pictures: 'وێنەکان',
         plural_suffix: 'کان',
-        powered_by_puter_js: 'پێشکەشکراوە لە {{link=docs}}پوتەر.js{{/link}}',
         preparing: 'ئامادەکردن...',
-        preparing_for_upload: 'ئامادەکردن بۆ بارکردن...',
         print: 'چاپکردن',
         privacy: 'تایبەتمەندی',
         proceed_to_login: 'بەردەوام بوون بۆ چوونەژوورەوە',
-        proceed_with_account_deletion: 'بەردەوام بوون بە سڕینەوەی هەژمار',
         properties: 'تایبەتمەندیەکان',
         public: 'گشتی',
         publish: 'بڵاوکردنەوە',
         publish_as_website: 'بڵاوکردنەوە وەک وێبسایت',
-        puter_description: 'پوتەر پێشکەشکراوە بۆ پاراستنی تایبەتیە کەسایەتی، جێگایەکی ئازاد بۆ گەیاندنی هەموو فایلەکان، ئەپەکان، و یارییەکان لە هەر شوێنێک بێ هەموو کاتێک.',
         reading_file: 'خوێندنی %strong%',
         recover_password: 'ڕێکخستنەوەی وشەی تێپەڕ',
         refer_friends_c2a:
       '1 گیگابایت بۆ هەر هاوڕێک دەست بەرکە، پەیوەندیدانی هەژمارێک بۆ پوتەر دروست بکە و پشتڕاست بکە. هاوڕێتیش 1 گیگابایت وەرگرتن دەبێت!',
-        refer_friends_social_media_c2a: '1 گیگابایت پارێزگاکانی پوتەر.com بۆ هەر هاوڕێک بکە!',
         refresh: 'بوژانەوە',
         rename: 'ناونانەوە',
         replace: 'لە نوێکردنەوە',
@@ -214,12 +191,10 @@ const ku = {
         save: 'پاشەکەوت',
         saturation: 'سەرەخۆشی',
         save_account: 'پاشەکەوتکردنی هەژمار',
-        save_account_to_get_copy_link: 'تکایە هەژمارێک دروست بکە بۆ بەردەوامبوون.',
         save_account_to_publish: 'تکایە هەژمارێک دروست بکە بۆ بەردەوامبوون.',
         save_session: 'پاشەکەوتکردنی دانیشتن',
         save_session_c2a:
       'هەژمارێک دروست بکە بۆ پاشەکەوتکردنی دانیشتنەکەت و جلە نبەرینەوەی کاریەکانت.',
-        scan_qr_2fa: 'کۆدی QR پشکنین بە ئەپەکەت',
         search: 'گەڕان',
         seconds: 'چرکە',
         security: 'پاراستن',
@@ -237,13 +212,11 @@ const ku = {
         show_hidden: 'پیشاندانی شاردراوەکان',
         sign_in_with_puter: 'چوونەژوورەوە بە پوتەر',
         sign_up: 'خۆتۆمارکردن',
-        signing_in: 'چوونەژوورەوە...',
         size: 'قەبارە',
         skip: 'هەڵگرتن',
         something_went_wrong: 'هەڵەیەکی رووی دا.',
         sort_by: 'ڕیزکردن بە',
         status: 'دۆخ',
-        storage_usage: 'بەکاربردنی پارێزگا',
         storage_puter_used: 'بەکاربردنی لەلایەن پوتەر',
         taking_longer_than_usual: 'کەمێک زیاتر کەوتە، تکایە چاوەڕوانبە...',
         terms: 'مەرجەکان',
@@ -272,13 +245,10 @@ const ku = {
         videos: 'ڤیدیۆکان',
         visibility: 'پیشاندانی',
         yes: 'بەڵێ',
-        you_have_been_referred_to_puter_by_a_friend:
-      'هاوڕێکت پەیوەندیداری پوتەر کردووە!',
         zip: 'زیپ',
         zipping_file: 'زیپ کردنەوەی %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'کردنەوەی ئەپەکەت',
         setup2fa_1_instructions: `
               دەتوانیت هەر ئەپێکی پشتڕاستکردنی دووجۆرا بەکاربهێنیت کە پشتگیری
               Time-based One-Time Password (TOTP) protocol بیکات. هەندێکە زۆرن بۆ 
@@ -286,18 +256,14 @@ const ku = {
               <a target="_blank" href="https://authy.com/download">Authy</a>
               هەڵبژاردنێکی باشە بۆ ئەندرۆید و iOS.
           `,
-        setup2fa_2_step_heading: 'پشکنینی کۆدی QR',
         setup2fa_3_step_heading: 'ناردنی کۆدی 6 ژمارە',
-        setup2fa_4_step_heading: 'کۆدی پشتڕاستکردنی نوێ پشکنین',
         setup2fa_4_instructions: `
               ئەم کۆدانە تەنها ڕێگا بۆ گەیشتنەوە بە هەژمارەکەت گەر تۆ موبایلەکەت 
               لەبیرچووی یاخود ناتوانی ئەپەکەت بەکاربەریت.
               دڵنیابە کەیان لە شوێنێکی پاراستنەوەیەکان بنووسیت.
           `,
-        setup2fa_5_step_heading: 'پشتڕاستکردنی ڕێکخستنەوەی 2FA',
         setup2fa_5_confirmation_1: 'کۆدای پشتڕاستکردنەوەی مەبەستەکانم بنووسنەوە',
         setup2fa_5_confirmation_2: 'ئامادەم بۆ چالاککردنی 2FA',
-        setup2fa_5_button: 'چالاککردنی 2FA',
 
         // === 2FA Login ===
         login2fa_otp_title: 'ناردنی کۆدی 2FA',
@@ -306,7 +272,6 @@ const ku = {
         login2fa_recovery_instructions:
       'یەکێک لە کۆدانە پشتڕاستکردنەوە بنووسە بۆ گەیشتنەوە بە هەژمارەکەت.',
         login2fa_use_recovery_code: 'بەکارهێنانی کۆدی پشتڕاستکردنەوە',
-        login2fa_recovery_back: 'گەڕانەوە',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'بیگۆڕە', // In English: "Change"
@@ -370,20 +335,13 @@ const ku = {
         'billing.expanded': 'بڵاوکراوەتەوە',
         'billing.accelerated': 'بە خێرایی',
         'billing.enjoy_msg': '%% لە هەڵگرتنی هەور و سوودی تر وەربگرە',
-        'choose_publishing_option': 'هەڵبژێرە چۆن دەتەوێت وێب‌سایتەکەت بڵاوبکەیتەوە:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'دروستکردنی کورتەڕەو (سەڕەکی دێسک‌تۆپ)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'دروستکردنی کورتەڕەوەکان (سەڕەکی دێسک‌تۆپ)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'دروستکردنی کورتەڕەوەکان', // In English: "Create Shortcuts"
         'minimize': 'بچووککردنەوە', // In English: "Minimize"
         'reload_app': 'ئەپلیکەیشن دووبارە بار بکە', // In English: "Reload App"
         'publish_as_serverless_worker': 'بڵاوکردنەوە وەک کارمەند', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'بە تەواوی شاشە بچۆرە', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'بانگهێشت بکە', // In English: "Refer"
         'used_of': '{{used}} بەکارهاتوو لە {{available}}', // In English: "{{used}} used of {{available}}"
         'worker': 'کارمەند', // In English: "Worker"
         'billing.offering.basic': 'بنەڕەتی', // In English: "Basic"
-        'too_many_attempts': 'هەوڵی زۆر دراوە. تکایە دواتر دووبارە هەوڵ بدە.', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'سێرڤەرەکە زۆر ماوەیەکی درێژ وەڵامی نەدا. تکایە دووبارە هەوڵ بدە.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'هەڵەیەک ڕووی دا لە کاتی تۆماربووندا. تکایە دووبارە هەوڵبدە.', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'هەڵە', // In English: "Error!"
@@ -401,15 +359,10 @@ const ku = {
         'window_title_open': 'کردنەوە', // In English: "Open"
         'window_title_change_password': 'گۆڕینی وشەی نهێنی', // In English: "Change Password"
         'window_title_select_font': 'فۆنت هەڵبژێرە', // In English: "Select font…"
-        'window_title_session_list': 'لیستی دانیشتنەکان!', // In English: "Session List!"
         'window_title_set_new_password': 'وشەی نهێنی نوێ دابنێ', // In English: "Set New Password"
         'window_title_publish_website': 'بڵاوکردنەوەی وێب‌سایت', // In English: "Publish Website"
         'window_title_publish_worker': 'بڵاوکردنەوەی کارمەند', // In English: "Publish Worker"
         'window_title_authenticating': 'پەسندکردنەوە', // In English: "Authenticating..."
-        'window_title_refer_friend': 'هاوڕێک بانگهێشت بکە!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'دەرچوون لە شاشەی پڕە', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'چوونە شاشەی پڕە', // In English: "Enter Full Screen"
-        'item_shared_with_you': 'بەکارهێنەرێک ئەم شتەیە لەگەڵ تۆ هاوبەش کردووە.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'تۆ ئەم شتە بە هەندێک بەکارهێنەرێکی تر هاوبەش کردووە.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'کورتەڕەو', // In English: "Shortcut"
         'item_associated_websites': 'وێب‌سایتێکی پەیوەست', // In English: "Associated website"
@@ -418,9 +371,6 @@ const ku = {
         'window_click_to_go_back': 'کرتە بکە بۆ چوونە دواوە', // In English: "Click to go back."
         'window_click_to_go_forward': 'کرتە بکە بۆ چوونە پێشەوە', // In English: "Click to go forward."
         'window_click_to_go_up': 'کرتە بکە بۆ چوونە بوخچەیەکی سەرەوە', // In English: "Click to go one directory up."
-        'window_title_public': 'گشتی', // In English: "Public"
-        'window_title_videos': 'ڤیدیۆ', // In English: "Videos"
-        'window_title_pictures': 'وێنە', // In English: "Pictures"
         'window_title_puter': 'پوتێر', // In English: "Puter"
         'window_folder_empty': 'ئەم بوخچەیە بەتاڵە', // In English: "This folder is empty"
     },

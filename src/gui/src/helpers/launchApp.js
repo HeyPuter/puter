@@ -622,14 +622,14 @@ const runLaunch = async (options) => {
             window_height = parseFloat(app_info.metadata.window_size.height);
         } if ( options.maximized )
         {
-            window_height = `calc(100% - ${window.toolbar_height + 1}px)`;
+            window_height = 'calc(100% - 1px)';
         }
 
         // top
         let top;
         if ( app_info.metadata?.window_position?.top !== undefined && app_info.metadata?.window_position?.top !== '' )
         {
-            top = parseFloat(app_info.metadata.window_position.top) + window.toolbar_height + 1;
+            top = parseFloat(app_info.metadata.window_position.top) + 1;
         }
         if ( options.maximized )
         {

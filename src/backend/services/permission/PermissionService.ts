@@ -1155,9 +1155,13 @@ export class PermissionService extends PuterService {
     }
 
     /** Batched: one event for the whole group, not one per member. */
-    async #bumpGroupCacheGeneration(groupId: number): Promise<void> {
+    async #bumpGroupCacheGeneration(
+        groupId: number,
+        memberUuids?: string[],
+    ): Promise<void> {
         const uuids =
-            await this.stores.permission.listGroupMemberUuids(groupId);
+            memberUuids ??
+            (await this.stores.permission.listGroupMemberUuids(groupId));
         if (uuids.length === 0) return;
         await this.stores.permission.bumpCacheGenerations(
             uuids.map((uuid) => `user:${uuid}`),
@@ -1238,11 +1242,12 @@ export class PermissionService extends PuterService {
 
         await this.#assertCanManage(actor, permission);
 
-        const revoked = await this.stores.permission.deleteUserGroupPerm(
-            groupId,
-            issuerId,
-            permission,
-        );
+        const { removed: revoked, members } =
+            await this.stores.permission.deleteUserGroupPerm(
+                groupId,
+                issuerId,
+                permission,
+            );
 
         this.#audit(
             this.stores.permission.auditUserGroupPerm({
@@ -1257,15 +1262,18 @@ export class PermissionService extends PuterService {
         );
 
         // Bumped even when nothing matched: a cached allow must not survive.
-        await this.#bumpGroupCacheGeneration(groupId);
+        await this.#bumpGroupCacheGeneration(
+            groupId,
+            members
+                .map((member) => member.uuid)
+                .filter((uuid): uuid is string => Boolean(uuid)),
+        );
 
         // Nothing but the membership names the holders, so without this their
         // watches outlive the revoke.
         if (revoked) {
-            for (const memberId of await this.stores.permission.listGroupMemberIds(
-                groupId,
-            )) {
-                this.#announceRevoked(memberId, null, permission);
+            for (const member of members) {
+                this.#announceRevoked(member.id, null, permission);
             }
         }
         return revoked;
