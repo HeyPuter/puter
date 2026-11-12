@@ -1211,43 +1211,6 @@ async function UIDesktop (options) {
         $('.window-menubar-global').hide();
     });
 
-    //--------------------------------------------------------------------------------------
-    // Trying to view a user's public folder?
-    // i.e. https://puter.com/@<username>
-    //--------------------------------------------------------------------------------------
-    const url_paths = window.location.pathname.split('/').filter(element => element);
-    if ( window.url_paths[0]?.startsWith('@') ) {
-        const username = window.url_paths[0].substring(1);
-        let item_path = `/${ username }/Public`;
-        if ( window.url_paths.length > 1 ) {
-            item_path += `/${ window.url_paths.slice(1).join('/')}`;
-        }
-
-        // GUARD: avoid invalid user directories
-        {
-            if ( ! username.match(/^[a-z0-9_]+$/i) ) {
-                UIAlert({
-                    message: i18n('error_invalid_username'),
-                });
-                return;
-            }
-        }
-
-        let stat;
-        try {
-            stat = await puter.fs.stat({ path: item_path, consistency: 'eventual' });
-        } catch ( e ) {
-            window.history.replaceState(null, document.title, '/desktop');
-            UIAlert({
-                message: i18n('error_user_or_path_not_found'),
-                type: 'error',
-            });
-            return;
-        }
-
-        await open_path_target(item_path, stat);
-    }
-
     /**
      * Open a path as double-clicking would: the associated app for a file, an
      * explorer window for a directory.

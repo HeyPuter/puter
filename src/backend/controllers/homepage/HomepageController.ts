@@ -274,7 +274,8 @@ export class HomepageController extends PuterController {
 
         router.get('/action/*splat', {}, (req, res) => sendShell(req, res));
 
-        router.get('/@:username', {}, (req, res) => sendShell(req, res));
+        // Old links to a user's public folder land on the dashboard.
+        router.get('/@:username', {}, (_req, res) => res.redirect('/'));
 
         // -- /app/:name - app metadata baked into the shell ----------
         // `/desktop/app/:name` is the same landing booted on the desktop

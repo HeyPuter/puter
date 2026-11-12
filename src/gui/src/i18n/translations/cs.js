@@ -604,7 +604,6 @@ const cs = {
         "error_user_or_path_not_found": "Uživatel nebo cesta nenalezena.",
         "token_copied": "Token zkopírován",
         "copy_auth_token": "Kopírovat ověřovací token",
-        "error_invalid_username": "Neplatné uživatelské jméno.",
         "perm_dialog_wants_to": "chce povolení",
         "token_label": "Označení",
         "token_label_required": "Zadejte štítek pro tento token.",

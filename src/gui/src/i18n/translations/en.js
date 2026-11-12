@@ -1047,7 +1047,6 @@ const en = {
         'enable_push_footnote': 'You can turn them off anytime in Settings.',
 
         'error_user_or_path_not_found': 'User or path not found.',
-        'error_invalid_username': 'Invalid username.',
 
         // Auth token
         auth_token: 'Auth Token',

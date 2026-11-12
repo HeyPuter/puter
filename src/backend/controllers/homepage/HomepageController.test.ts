@@ -79,6 +79,7 @@ interface CapturedResponse {
     statusCode: number;
     body: unknown;
     contentType?: string;
+    location?: string;
 }
 
 const makeReq = (init: {
@@ -129,6 +130,11 @@ const makeRes = () => {
         }),
         type: vi.fn((value: string) => {
             captured.contentType = value;
+            return res;
+        }),
+        redirect: vi.fn((location: string) => {
+            captured.statusCode = 302;
+            captured.location = location;
             return res;
         }),
     };
@@ -214,7 +220,7 @@ describe('HomepageController shell routes', () => {
         expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
     });
 
-    it('serves the shell on /settings, /dashboard, /desktop, /action, /@:username', async () => {
+    it('serves the shell on /settings, /dashboard, /desktop, /action', async () => {
         for (const path of [
             '/settings',
             '/settings/*splat',
@@ -223,13 +229,25 @@ describe('HomepageController shell routes', () => {
             '/desktop',
             '/desktop/',
             '/action/*splat',
-            '/@:username',
         ]) {
             const { res, captured } = makeRes();
             await callRoute('get', path, makeReq({ path }), res);
             expect(typeof captured.body).toBe('string');
             expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
         }
+    });
+
+    it('redirects /@:username to the dashboard', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/@:username',
+            makeReq({ path: '/@alice', params: { username: 'alice' } }),
+            res,
+        );
+        expect(captured.statusCode).toBe(302);
+        expect(captured.location).toBe('/');
+        expect(captured.body).toBeUndefined();
     });
 });
 

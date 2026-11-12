@@ -454,7 +454,6 @@ const fr = {
         'perm_subdomains_write': 'gérer vos sous-domaines',
 
         'error_user_or_path_not_found': 'Utilisateur ou chemin introuvable.',
-        'error_invalid_username': 'Nom d\'utilisateur invalide.',
 
         // Auth token
         auth_token: 'Jeton d\'authentification',
