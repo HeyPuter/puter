@@ -1175,10 +1175,12 @@ export class SocketService extends PuterService {
         );
 
         this.clients.event.on(
-            'auth.access-token.revoked',
+            'outer.auth.access-token.revoked',
             (_key: string, data: unknown) => {
-                const { token_uid } = data as { token_uid: string };
-                this.#evictAccessTokenSockets(token_uid).catch(
+                const tokenUid = (data as { token_uid?: unknown } | null)
+                    ?.token_uid;
+                if (typeof tokenUid !== 'string') return;
+                this.#evictAccessTokenSockets(tokenUid).catch(
                     (err: unknown) => {
                         console.error('[socket] token eviction failed', err);
                     },

@@ -3099,7 +3099,7 @@ describe('AuthService (integration)', () => {
             const emit = vi.spyOn(server.clients.event, 'emit');
             const announced = () =>
                 emit.mock.calls.filter(
-                    (c) => c[0] === 'auth.access-token.revoked',
+                    (c) => c[0] === 'outer.auth.access-token.revoked',
                 ).length;
 
             const scoped = await authService.createAccessToken(actor, [
@@ -3115,6 +3115,35 @@ describe('AuthService (integration)', () => {
             expect(announced()).toBe(1);
 
             emit.mockRestore();
+        });
+
+        it('announces a desktop app token it replaces past its max age', async () => {
+            const user = await makeUser();
+            const { session } = await authService.createSessionToken(user);
+            const actor = makeActor({
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+                session: { uid: String(session.uuid), kind: 'web' },
+            });
+            const app = { uid: `app-${uuidv4()}`, title: 'Retire probe' };
+            const { token } = await authService.getGodmodeAppToken(actor, app);
+            const { token_uid } = server.services.token.verify<{
+                token_uid: string;
+            }>('auth', token);
+
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            const later = Date.now() + 8 * 24 * 60 * 60 * 1000;
+            vi.spyOn(Date, 'now').mockReturnValue(later);
+            try {
+                await authService.getGodmodeAppToken(actor, app);
+                expect(emit).toHaveBeenCalledWith(
+                    'outer.auth.access-token.revoked',
+                    { token_uid },
+                    {},
+                );
+            } finally {
+                vi.mocked(Date.now).mockRestore();
+                emit.mockRestore();
+            }
         });
 
         it('revokeAccessToken rejects with 404 when the token belongs to another user', async () => {

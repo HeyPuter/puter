@@ -2354,6 +2354,35 @@ describe('OpenAIRealtimeRelayService relay', () => {
         b.ws.close();
     });
 
+    it('evicts an access token revoked on another node', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row! });
+        const token = await server.services.auth.createAccessToken(actor, [
+            [FULL_API_ACCESS],
+        ]);
+        const { token_uid } = server.services.token.verify<{
+            token_uid: string;
+        }>('auth', token);
+        const c = open(`${relayUrl}?auth_token=${token}`);
+        await c.waitFor('session.created');
+
+        // As a peer cluster delivers it, after a malformed payload it ignores.
+        server.clients.event.emit(
+            'outer.auth.access-token.revoked',
+            { token_uid: 42 } as never,
+            { from_outside: true },
+        );
+        server.clients.event.emit(
+            'outer.auth.access-token.revoked',
+            { token_uid },
+            { from_outside: true },
+        );
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        await c.closed;
+    });
+
     it('closes with a retryable error after a sustained verification outage', async () => {
         const c = open(`${relayUrl}?auth_token=${user.token}`);
         await c.waitFor('session.created');
