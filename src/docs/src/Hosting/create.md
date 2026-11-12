@@ -44,6 +44,17 @@ A `Promise` that will resolve to a [`Subdomain`](/Objects/subdomain/) object whe
 
 If a subdomain with the given name already exists, the promise will be rejected with an error. If the path does not exist, the promise will be rejected with an error.
 
+## Cached and uncached URLs
+
+Each site you create is available at two URLs. In most cases, you want `<subdomain>.puter.site`. It's served through a CDN and cached, so it loads fast.
+
+If you need your files exactly as they are right now, without caching, use `<subdomain>.puter.host`. It isn't served through a CDN or cached, so it can be slower, but it always returns the latest version of your files.
+
+```
+<subdomain>.puter.site   // cached, use this in most cases
+<subdomain>.puter.host   // uncached, returns the latest files
+```
+
 ## Examples
 
 ### Create a simple website displaying "Hello world!"
