@@ -1198,7 +1198,7 @@ export class FSEntryStore extends PuterStore {
         // `convert_path_to_fsentry` lineage walk: split the path into
         // segments, anchor at `parent_uid IS NULL` matching the first
         // segment, then walk down via `parent_uid` chains. Backfills the
-        // `path` column on every resolved row so subsequent calls take
+        // `path` column only where it is empty, so subsequent calls take
         // the fast `WHERE path = ?` branch above.
         if (options.lineage === false) return null;
         return this.#resolveEntryByPathLineage(normalizedPath);
@@ -1257,26 +1257,26 @@ export class FSEntryStore extends PuterStore {
 
         // The lowest-id target, then its own parents: each row is the parent of the next.
         const rowAt = new Map(rows.map((r) => [`${r.depth}:${r.uuid}`, r]));
-        const byDepth = new Map<number, { id: number; uuid: string }>();
-        const storedNames: string[] = [];
         const target = rows.find((r) => Number(r.depth) === segments.length);
         if (!target) return null;
+        const walkedNames: string[] = [];
         let row: typeof target | undefined = target;
-        for (let depth = segments.length; depth >= 1; depth--) {
-            if (!row) return null;
-            byDepth.set(depth, { id: Number(row.id), uuid: row.uuid });
-            storedNames[depth - 1] = row.name;
+        for (let depth = segments.length; row; depth--) {
+            walkedNames.unshift(row.name);
             row = rowAt.get(`${depth - 1}:${row.parent_uid}`);
         }
+        const walkedPath = `/${walkedNames.join('/')}`;
 
         // The stored names, not the caller's spelling: a collation can match
         // a segment to a name spelled differently, and this runs before any
         // access check.
-        await this.#backfillLineagePaths(byDepth, storedNames);
+        const lineage = await this.#primaryLineageOf(target.uuid);
+        if (lineage?.path !== walkedPath) return null;
+        await this.#backfillLineagePaths(lineage.byDepth, lineage.segments);
 
         const entry = await this.getEntryByUuidFromPrimary(target.uuid);
         // A row that has since moved is not the entry at this path.
-        if (entry?.path !== `/${storedNames.join('/')}`) return null;
+        if (entry?.path !== walkedPath) return null;
         await this.#writeEntryToCache(entry);
         return entry;
     }
@@ -1286,22 +1286,24 @@ export class FSEntryStore extends PuterStore {
         segments: string[],
     ): Promise<void> {
         const depths = segments.map((_, i) => i + 1);
-        await runWithConcurrencyLimit(
+        const filled = await runWithConcurrencyLimit(
             depths,
             DEFAULT_DB_CHUNK_CONCURRENCY,
             async (depth) => {
                 const row = byDepth.get(depth);
-                if (!row) return;
+                if (!row) return null;
                 const expected = '/' + segments.slice(0, depth).join('/');
                 const result = await this.clients.db.write(
                     `UPDATE fsentries SET path = ?
                      WHERE id = ? AND path IS NULL`,
                     [expected, row.id],
                 );
-                if (this.#affectedRows(result) === 0) return;
-                await this.invalidateEntryCacheByUuid(row.uuid);
+                if (this.#affectedRows(result) === 0) return null;
+                return { id: row.id, uuid: row.uuid, path: expected };
             },
         );
+        const changed = filled.filter((row) => row !== null);
+        if (changed.length > 0) await this.#invalidateEntriesCache(changed);
     }
 
     /**
@@ -1326,6 +1328,18 @@ export class FSEntryStore extends PuterStore {
     async #healEntryPathByLineageUp(
         targetUuid: string,
     ): Promise<FSEntry | null> {
+        const lineage = await this.#primaryLineageOf(targetUuid);
+        if (!lineage) return null;
+        await this.#backfillLineagePaths(lineage.byDepth, lineage.segments);
+        return this.getEntryByUuidFromPrimary(targetUuid);
+    }
+
+    /** The primary's chain from the home row to `uuid`; null if broken. */
+    async #primaryLineageOf(uuid: string): Promise<{
+        path: string;
+        segments: string[];
+        byDepth: Map<number, { id: number; uuid: string }>;
+    } | null> {
         const sql = `
             WITH RECURSIVE
               ancestors(id, uuid, parent_uid, name, depth) AS (
@@ -1343,7 +1357,7 @@ export class FSEntryStore extends PuterStore {
             FROM ancestors
             ORDER BY depth ASC
         `;
-        const rows = (await this.clients.db.read(sql, [targetUuid])) as Array<{
+        const rows = (await this.clients.db.pread(sql, [uuid])) as Array<{
             id: number | string;
             uuid: string;
             parent_uid: string | null;
@@ -1371,10 +1385,7 @@ export class FSEntryStore extends PuterStore {
                 uuid: ordered[i].uuid,
             });
         }
-
-        await this.#backfillLineagePaths(byDepth, segments);
-        // The primary, as the replica can lag behind the backfill.
-        return this.getEntryByUuidFromPrimary(targetUuid);
+        return { path: `/${segments.join('/')}`, segments, byDepth };
     }
 
     /**

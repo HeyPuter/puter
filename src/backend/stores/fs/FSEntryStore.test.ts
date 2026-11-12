@@ -877,18 +877,88 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         ).resolves.toBeNull();
     });
 
-    it('invalidates only the rows a heal fills', async () => {
+    it('invalidates only the rows a heal fills, under the path it wrote', async () => {
         const user = await makeUser();
         const file = await createFile(user, `${user.home}/Documents/fill.txt`);
         await blankPath(file.uuid);
 
-        const spy = vi.spyOn(store, 'invalidateEntryCacheByUuid');
+        const lag = await lagReplicaFor(file.uuid);
+        const publish = vi.spyOn(
+            store as unknown as {
+                publishCacheKeys: (p: { keys: string[] }) => Promise<void>;
+            },
+            'publishCacheKeys',
+        );
         try {
             await store.getEntryByPath(file.path);
-            expect(spy.mock.calls).toEqual([[file.uuid]]);
+            expect(
+                publish.mock.calls.flatMap(([params]) => params.keys),
+            ).toEqual(entryCacheKeys(file));
         } finally {
-            spy.mockRestore();
+            publish.mockRestore();
+            lag.mockRestore();
         }
+    });
+
+    describe('when an ancestor is renamed while the heal runs', () => {
+        const setup = async () => {
+            const user = await makeUser();
+            const file = await createFile(
+                user,
+                `${user.home}/Documents/old/x.txt`,
+            );
+            const folder = (await store.getEntryByPath(
+                `${user.home}/Documents/old`,
+            ))!;
+            await blankPath(file.uuid);
+            const rename = () =>
+                server.clients.db.write(
+                    'UPDATE fsentries SET name = ?, path = ? WHERE uuid = ?',
+                    ['new', `${user.home}/Documents/new`, folder.uuid],
+                );
+            return { user, file, folder, rename };
+        };
+
+        it('misses the old path and writes nothing', async () => {
+            const { user, file, rename } = await setup();
+            const db = server.clients.db;
+            const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+            const spy = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql: string, params?: unknown[]) => {
+                    const rows = await originalRead.call(db, sql, params);
+                    if (sql.includes('segments(depth, name)')) {
+                        await rename();
+                    }
+                    return rows;
+                });
+            try {
+                await expect(
+                    store.getEntryByPath(`${user.home}/Documents/old/x.txt`),
+                ).resolves.toBeNull();
+            } finally {
+                spy.mockRestore();
+            }
+            await expect(pathOf(file.uuid)).resolves.toBeNull();
+        });
+
+        it('gives a row healed by uuid its current path', async () => {
+            const { user, file, folder, rename } = await setup();
+            const lag = await lagReplicaFor(folder.uuid);
+            await rename();
+            try {
+                await expect(
+                    store.getEntryByUuid(file.uuid),
+                ).resolves.toMatchObject({
+                    path: `${user.home}/Documents/new/x.txt`,
+                });
+            } finally {
+                lag.mockRestore();
+            }
+            await expect(pathOf(file.uuid)).resolves.toBe(
+                `${user.home}/Documents/new/x.txt`,
+            );
+        });
     });
 
     it('keeps a path written by a move that lands before the heal', async () => {
