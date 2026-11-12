@@ -672,18 +672,27 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         return created;
     };
 
-    // Same runs as grant_access. Resolves with the items that were refused,
-    // each with its error; a run refused whole doesn't stop the ones after it.
-    // Rejects with the first error when every item was refused.
+    // Same runs as grant_access. Resolves with the refused items, each with
+    // its error, and rejects with the first when every item was refused. A
+    // run that fails otherwise (rate limit, network) ends it there, rejecting
+    // with that error and the count withdrawn before it as `withdrawn`.
     const revoke_access = async (recipient, paths) => {
         const failed = [];
+        let attempted = 0;
         for ( const run of chunk(paths, MAX_ITEMS_PER_REQUEST) ) {
             try {
                 const result = await puter.fs.unshare({ paths: run, recipient });
                 failed.push(...(result?.failed ?? []));
             } catch (err) {
-                failed.push(...run.map(() => err));
+                // Only a rejection for refused pairs lists them.
+                if ( ! Array.isArray(err?.failed) ) {
+                    const withdrawn = attempted - failed.length;
+                    if ( withdrawn && err && typeof err === 'object' ) err.withdrawn = withdrawn;
+                    throw err;
+                }
+                failed.push(...err.failed);
             }
+            attempted += run.length;
         }
         if ( failed.length >= paths.length ) throw failed[0];
         return failed;
@@ -719,6 +728,10 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             // has one; a refusal is otherwise reported like any other.
             if ( is_plan_gate_error(err) ) {
                 if ( ! open_upgrade_flow() ) outcome_error = i18n('share_link_requires_plan');
+            } else if ( err?.withdrawn ) {
+                // Runs that landed before the failure closed the link all the same.
+                link_state = { access: 'mixed', mode: null };
+                outcome_error = `${i18n('share_link_off_partial', { count: err.withdrawn, total })}. ${error_html(err)}`;
             } else {
                 outcome_error = error_html(err);
             }

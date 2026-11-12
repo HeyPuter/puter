@@ -13,7 +13,7 @@ const cannedXHR = (answer) => class {
         (this._listeners[type] ??= []).push(fn);
     }
     send (request) {
-        const body = typeof answer === 'function' ? answer(JSON.parse(request)) : answer;
+        const body = typeof answer === 'function' ? answer(JSON.parse(request), this) : answer;
         queueMicrotask(() => {
             this.responseText = JSON.stringify(body);
             for ( const fn of this._listeners.load ?? [] ) fn.call(this, { target: this });
@@ -22,8 +22,9 @@ const cannedXHR = (answer) => class {
 };
 
 /**
- * @param {Record<string, unknown> | ((request: { items: { path?: string }[] }) => Record<string, unknown>)} answer
- * what /share/revoke answers with, or how it answers one request
+ * @param {Record<string, unknown> | ((request: { items: { path?: string }[] }, xhr: { status: number }) => Record<string, unknown>)} answer
+ * what /share/revoke answers with, or how it answers one request; setting
+ * `xhr.status` answers with an HTTP error
  * @returns {(...args: unknown[]) => Promise<unknown>}
  */
 export const unshareAnswering = (answer) => {

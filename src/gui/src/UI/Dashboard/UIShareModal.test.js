@@ -162,6 +162,47 @@ describe('UIShareModal general access', () => {
         expect($('.share-modal-link-access')[0].value).toBe('mixed');
     });
 
+    it('stops at a run the server turned away whole, and counts only what was closed before it', async () => {
+        const requests = [];
+        // Runs of 50: the second is rate limited, so the third is never sent.
+        puter.fs.unshare = unshareAnswering((request, xhr) => {
+            requests.push(request.items.length);
+            if ( requests.length === 2 ) {
+                xhr.status = 429;
+                return { message: 'Too many requests', code: 'too_many_requests' };
+            }
+            return refusing(request, () => false);
+        });
+        UIShareModal({ items: items(120) });
+        await settle();
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect(requests).toEqual([50, 50]);
+        expect($('.share-modal-status').hasClass('share-modal-status-error')).toBe(true);
+        expect($('.share-modal-status').text()).toBe(
+            'Only people with access can open 50 of 120 items now. Too many requests',
+        );
+        expect($('.share-modal-link-access')[0].value).toBe('mixed');
+    });
+
+    it('reports a failed request as it is, with no item counted as refused', async () => {
+        const requests = [];
+        puter.fs.unshare = unshareAnswering((request, xhr) => {
+            requests.push(request.items.length);
+            xhr.status = 429;
+            return { message: 'Too many requests', code: 'too_many_requests' };
+        });
+        UIShareModal({ items: items(120) });
+        await settle();
+
+        $('.share-modal-link-access').val('restricted').trigger('change');
+        await settle();
+        expect(requests).toEqual([50]);
+        expect($('.share-modal-status').text()).toBe('Too many requests');
+        expect($('.share-modal-link-access')[0].value).toBe('unchecked');
+    });
+
     it('shows a listed selection as the listings say', async () => {
         UIShareModal({ items: items(2) });
         await settle();
