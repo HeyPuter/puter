@@ -122,9 +122,6 @@ html, body {
 }
 
 body {
-    background: no-repeat center center fixed;
-    background-position: center;
-    background-size: cover;
     background-color: #ffffff;
     overflow: hidden;
 }
@@ -909,6 +906,18 @@ span.header-sort-icon img {
     font-weight: 500;
     font-size: 13px;
     margin-left: 3px;
+}
+
+/* The desktop is a plain page color, so its labels need text that reads on it. */
+.desktop .item .item-name {
+    color: rgb(73, 73, 73);
+    text-shadow: none;
+}
+
+@media (prefers-color-scheme: dark) {
+    .desktop .item .item-name {
+        color: #e6e6e6;
+    }
 }
 
 .device-phone .item-container-list .item .item-name {

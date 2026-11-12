@@ -130,102 +130,11 @@ const callRoute = async (
     });
 };
 
-// ── /set-desktop-bg ─────────────────────────────────────────────────
-
-describe('DesktopController POST /set-desktop-bg', () => {
-    it('persists url/color/fit on the user row', async () => {
-        const { actor, userId } = await makeUser();
-        const { res, captured } = makeRes();
-        await callRoute(
-            'post',
-            '/set-desktop-bg',
-            makeReq({
-                body: {
-                    url: 'https://cdn.test/wallpaper.png',
-                    color: '#000000',
-                    fit: 'cover',
-                },
-                actor,
-            }),
-            res,
-        );
-        expect(captured.body).toEqual({});
-
-        const refreshed = await server.stores.user.getById(userId);
-        expect(refreshed?.desktop_bg_url).toBe(
-            'https://cdn.test/wallpaper.png',
-        );
-        expect(refreshed?.desktop_bg_color).toBe('#000000');
-        expect(refreshed?.desktop_bg_fit).toBe('cover');
-    });
-
-    it('persists only the supplied fields (partial update)', async () => {
-        const { actor, userId } = await makeUser();
-        const { res } = makeRes();
-        await callRoute(
-            'post',
-            '/set-desktop-bg',
-            makeReq({ body: { color: '#ffffff' }, actor }),
-            res,
-        );
-        const refreshed = await server.stores.user.getById(userId);
-        expect(refreshed?.desktop_bg_color).toBe('#ffffff');
-        // Untouched fields remain at their column default.
-        expect(refreshed?.desktop_bg_url).toBeFalsy();
-        expect(refreshed?.desktop_bg_fit).toBeFalsy();
-    });
-
-    it('passes through `null` to clear a field', async () => {
-        const { actor, userId } = await makeUser();
-        // First populate, then clear.
-        const populate = makeRes();
-        await callRoute(
-            'post',
-            '/set-desktop-bg',
-            makeReq({
-                body: { url: 'https://cdn.test/x.png' },
-                actor,
-            }),
-            populate.res,
-        );
-        const before = await server.stores.user.getById(userId);
-        expect(before?.desktop_bg_url).toBe('https://cdn.test/x.png');
-
-        const clear = makeRes();
-        await callRoute(
-            'post',
-            '/set-desktop-bg',
-            makeReq({ body: { url: null }, actor }),
-            clear.res,
-        );
-        const after = await server.stores.user.getById(userId);
-        expect(after?.desktop_bg_url).toBeNull();
-    });
-
-    it('throws 400 when url is not a string or null', async () => {
-        const { actor } = await makeUser();
-        const { res } = makeRes();
-        await expect(
-            callRoute(
-                'post',
-                '/set-desktop-bg',
-                makeReq({ body: { url: 123 }, actor }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('throws 400 when no fields are provided', async () => {
-        const { actor } = await makeUser();
-        const { res } = makeRes();
-        await expect(
-            callRoute(
-                'post',
-                '/set-desktop-bg',
-                makeReq({ body: {}, actor }),
-                res,
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+describe('DesktopController routes', () => {
+    it('has no desktop background route', () => {
+        expect(
+            router.routes.some((r) => r.path === '/set-desktop-bg'),
+        ).toBe(false);
     });
 });
 

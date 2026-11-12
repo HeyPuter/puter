@@ -1017,11 +1017,6 @@ const en = {
         'window_title_puter': 'Puter',
         'window_folder_empty': 'This folder is empty',
 
-        // Website Management
-
-
-        'set_as_background': 'Set as Desktop Background',
-
         // Permission Descriptions
         'perm_fs_see': 'see that {{name}} exists in {{path}}',
         'perm_fs_dir_see': 'see that the folder {{name}} in {{path}} exists, and whether anything exists in it or its subfolders',

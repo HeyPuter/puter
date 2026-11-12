@@ -446,7 +446,6 @@ const zhtw = {
         'tar': "Tar 壓縮", // In English: "Tar"
         'download_as_tar': "下載為 Tar", // In English: "Download as Tar"
         'tarring': "正在建立 Tar 壓縮檔 %strong%", // In English: "Tarring %strong%"
-        'set_as_background': "設為桌面背景", // In English: "Set as Desktop Background"
         'error_user_or_path_not_found': "找不到使用者或路徑。", // In English: "User or path not found."
         'error_invalid_username': "無效的使用者名稱。", // In English: "Invalid username."
     },

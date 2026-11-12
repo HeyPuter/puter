@@ -463,10 +463,6 @@ const fr = {
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Ce dossier est vide',
 
-        // Website Management
-
-        'set_as_background': 'Définir comme arrière-plan',
-
         // Permission Descriptions
         'perm_email_read': 'voir votre adresse e-mail',
         'perm_folder_desktop': 'votre dossier Bureau',

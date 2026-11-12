@@ -480,9 +480,6 @@ const bg = {
         window_title_pictures: 'Снимки',
         window_title_puter: 'Puter',
         window_folder_empty: 'Тази папка е празна',
-
-        // Website Management
-        set_as_background: 'Задай като фон на работния плот',
     },
 };
 
