@@ -301,6 +301,7 @@ const en = {
         folder_open_failed: 'This folder couldn\'t be opened.',
         path_not_found: 'Couldn\'t find "%%". Check the path and try again.',
         reserved_name_not_allowed: 'The name "{{name}}" is not allowed, because it is a reserved name. Please choose another name.',
+        save_file_not_returned: 'The file was saved, but it couldn\'t be passed back to the app or website that asked for it.',
         upload_some_failed: 'Some uploads failed:',
         upload_to_trash_not_allowed: 'Uploading to trash is not allowed!',
         url_save_failed: 'Couldn\'t download this file. The site it comes from may not allow Puter to download it.',

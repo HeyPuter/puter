@@ -325,6 +325,29 @@ describe('showSaveFilePicker in an app', () => {
         expect(uiAlert).not.toHaveBeenCalled();
     });
 
+    it('retries signing the written file once and answers fileSaved', async () => {
+        puter.fs.sign.mockRejectedValueOnce(new Error('Sign failed'));
+        await openPicker({ content: 'hello' });
+        await save();
+
+        expect(puter.fs.sign).toHaveBeenLastCalledWith('app-1', { uid: 'file-1', action: 'write' });
+        expect(written).toEqual([{ target: '/u/Desktop/r.txt', text: 'hello' }]);
+        expect(uiAlert).not.toHaveBeenCalled();
+        expect(replies()).toEqual(['fileSaved']);
+    });
+
+    it('says the file was saved and answers fileSaveCancelled when it cannot be signed', async () => {
+        puter.fs.sign.mockRejectedValueOnce(new Error('Sign failed')).mockRejectedValueOnce(new Error('Sign failed'));
+        await openPicker({ content: 'hello' });
+        await save();
+
+        expect(written).toEqual([{ target: '/u/Desktop/r.txt', text: 'hello' }]);
+        expect(uiAlert).toHaveBeenCalledTimes(1);
+        expect(uiAlert).toHaveBeenCalledWith(expect.objectContaining({ message: 'save_file_not_returned' }));
+        expect(saveErrors).toEqual([]);
+        expect(replies()).toEqual(['fileSaveCancelled']);
+    });
+
     it('refuses an http url when the desktop is served over https', async () => {
         vi.stubGlobal('location', { protocol: 'https:' });
         try {

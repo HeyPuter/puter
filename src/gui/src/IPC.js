@@ -19,6 +19,7 @@
 
 import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
 import fetchUrlAsFile from './helpers/fetchUrlAsFile.js';
+import createSavePickerAnswer, { signSavedFile } from './helpers/savePickerAnswer.js';
 import item_icon from './helpers/itemIcon.js';
 import { atPath } from './helpers/pathElements.js';
 import socialLink from './helpers/socialLink.js';
@@ -1673,39 +1674,47 @@ const ipc_listener = async (event, handled) => {
         $el_parent_disable_mask.css('z-index', parseInt($el_parent_window.css('z-index')) + 1);
         $(target_iframe).blur();
 
-        // The app hears exactly one answer: fileSaved, or fileSaveCancelled
-        // when the dialog goes away without saving.
-        let answered = false;
-        let closed = false;
-        let saving = false;
-        // Set from the start of a write until the app hears its outcome;
-        // closing the dialog meanwhile doesn't answer for it.
-        let writing = false;
-        const urlDownload = new AbortController();
+        const answer = createSavePickerAnswer({
+            // Gone if the app's own window closed first.
+            cancelled: () => target_iframe.contentWindow?.postMessage({
+                msg: 'fileSaveCancelled',
+                original_msg_id: msg_id,
+            }, '*'),
+        });
 
         const tell_caller_and_update_views = async ({
             target_path,
             el_filedialog_window,
             res,
         }) => {
-            let file_signature = await puter.fs.sign(app_uuid, { uid: res.uid, action: 'write' });
-            file_signature = file_signature.items;
+            let file_signature;
+            try {
+                file_signature = (await signSavedFile(app_uuid, res.uid)).items;
+            } catch ( err ) {
+                console.error(err);
+                await UIAlert({
+                    message: i18n('save_file_not_returned'),
+                    parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+                });
+                answer.cancel();
+            }
 
-            answered = true;
-            target_iframe.contentWindow?.postMessage({
-                msg: 'fileSaved',
-                original_msg_id: msg_id,
-                filename: res.name,
-                saved_file: {
-                    name: file_signature.fsentry_name,
-                    readURL: file_signature.read_url,
-                    writeURL: file_signature.write_url,
-                    metadataURL: file_signature.metadata_url,
-                    type: file_signature.type,
-                    uid: file_signature.uid,
-                    path: privacy_aware_path(res.path),
-                },
-            }, '*');
+            if ( file_signature && answer.saved() ) {
+                target_iframe.contentWindow?.postMessage({
+                    msg: 'fileSaved',
+                    original_msg_id: msg_id,
+                    filename: res.name,
+                    saved_file: {
+                        name: file_signature.fsentry_name,
+                        readURL: file_signature.read_url,
+                        writeURL: file_signature.write_url,
+                        metadataURL: file_signature.metadata_url,
+                        type: file_signature.type,
+                        uid: file_signature.uid,
+                        path: privacy_aware_path(res.path),
+                    },
+                }, '*');
+            }
 
             $(target_iframe).get(0).focus({ preventScroll: true });
             // Update matching items on open windows
@@ -1735,35 +1744,11 @@ const ipc_listener = async (event, handled) => {
             window.show_save_account_notice_if_needed();
         };
 
-        const tell_caller_its_cancelled = async () => {
-            if ( answered ) return;
-            answered = true;
-            // Gone if the app's own window closed first.
-            target_iframe.contentWindow?.postMessage({
-                msg: 'fileSaveCancelled',
-                original_msg_id: msg_id,
-            }, '*');
-        };
-
-        // Runs a write unless the app was already told the save is cancelled.
-        // A write that fails after the dialog closed ends the call quietly.
-        const runWrite = async (write) => {
-            if ( answered ) return;
-            writing = true;
-            try {
-                return await write();
-            } catch ( err ) {
-                writing = false;
-                if ( ! closed ) throw err;
-                tell_caller_its_cancelled();
-            }
-        };
-
         const write_file_tell_caller_and_update_views = async ({
             target_path, el_filedialog_window,
             file_to_upload, overwrite,
         }) => {
-            const res = await runWrite(() => puter.fs.write(
+            const res = await answer.write(() => puter.fs.write(
                 target_path,
                 file_to_upload,
                 {
@@ -1780,11 +1765,11 @@ const ipc_listener = async (event, handled) => {
             let file_to_upload;
             try {
                 file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path), {
-                    signal: urlDownload.signal,
+                    signal: answer.signal,
                 });
             } catch ( err ) {
                 // Closing the dialog stops the download and has answered already.
-                if ( answered ) return;
+                if ( answer.answered ) return;
                 await UIAlert({
                     message: i18n(err.code ?? 'url_save_failed'),
                     parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
@@ -1870,7 +1855,7 @@ const ipc_listener = async (event, handled) => {
             let node;
             const written = await window.handle_same_name_exists({
                 action: async ({ overwrite }) => {
-                    node = await runWrite(async () => {
+                    node = await answer.write(async () => {
                         if ( overwrite ) {
                             await puter.fs.delete(target_path);
                         }
@@ -1894,7 +1879,7 @@ const ipc_listener = async (event, handled) => {
                 await tell_caller_and_update_views({ res: node, el_filedialog_window, target_path });
                 if ( written ) return true;
             } else {
-                await tell_caller_its_cancelled();
+                answer.cancel();
                 return true;
             }
 
@@ -1915,16 +1900,10 @@ const ipc_listener = async (event, handled) => {
             iframe_msg_uid: msg_id,
             center: true,
             initiating_app_uuid: app_uuid,
-            onDialogCancel: () => tell_caller_its_cancelled(),
-            on_close: () => {
-                closed = true;
-                urlDownload.abort();
-                if ( ! writing ) tell_caller_its_cancelled();
-            },
+            onDialogCancel: () => answer.cancel(),
+            on_close: () => answer.close(),
             onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
-                // Enter in the filename field can fire this again mid-save.
-                if ( saving ) return;
-                saving = true;
+                if ( ! answer.startSave() ) return;
                 $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                 let busy_init_ts = Date.now();
 
@@ -1947,17 +1926,17 @@ const ipc_listener = async (event, handled) => {
                     }
                 } catch ( err ) {
                     console.error(err);
-                    if ( ! answered ) {
+                    if ( ! answer.answered ) {
                         await UIAlert({
                             message: err?.message ?? i18n('error_unknown_cause'),
                             parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
                         });
                     }
                 } finally {
-                    saving = false;
+                    answer.endSave();
                 }
                 // A save that ends without fileSaved closes the dialog as cancelled.
-                tell_caller_its_cancelled();
+                answer.cancel();
 
                 let busy_duration = (Date.now() - busy_init_ts);
                 if ( busy_duration >= window.busy_indicator_hide_delay ) {
