@@ -28,9 +28,9 @@ interface SlotHandle {
 }
 
 /**
- * A driver call's concurrency slot, held until the response is done and the
- * call's work has settled, including work a driver carries on after the caller
- * hung up or was answered.
+ * A request's concurrency slot, held until the response is done and the work
+ * registered with `keep` has settled, including work that carries on after the
+ * caller hung up or was answered.
  */
 export class CallSlot {
     #handle?: SlotHandle;

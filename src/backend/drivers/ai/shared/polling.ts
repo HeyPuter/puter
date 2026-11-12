@@ -184,7 +184,7 @@ export const pollUntilSettled = async <T>(opts: PollOptions<T>): Promise<T> => {
         }
         if (Date.now() - start > windowMs) {
             const late = followLateJob(opts, job, opts.hold.take());
-            Context.get('keepDriverSlot')?.(late);
+            Context.get('keepConcurrencySlot')?.(late);
             throw pollTimeoutError(
                 opts.provider,
                 opts.providerLabel,

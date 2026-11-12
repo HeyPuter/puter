@@ -1308,8 +1308,17 @@ export class ChatCompletionDriver extends PuterDriver {
             }, HOLD_RENEW_INTERVAL_MS);
             renewHold.unref?.();
 
-            // Fire-and-forget — the stream writes happen async while the
-            // response is being piped to the client.
+            // The upstream runs on after a caller hangs up, so the request
+            // keeps its concurrency slot until the upstream is done, not until
+            // the cleanup after it.
+            let upstreamDone!: () => void;
+            const upstreamRunning = new Promise<void>((resolve) => {
+                upstreamDone = resolve;
+            });
+            Context.get('keepConcurrencySlot')?.(upstreamRunning);
+
+            // The stream writes happen async while the response is piped to
+            // the client.
             (async () => {
                 try {
                     await init({ chatStream });
@@ -1334,6 +1343,7 @@ export class ChatCompletionDriver extends PuterDriver {
                     }
                     passthrough.end();
                 } finally {
+                    upstreamDone();
                     clearInterval(renewHold);
                     clearTimeout(detachedLimit);
                     abortSignal?.removeEventListener('abort', detachStream);

@@ -1304,13 +1304,18 @@ export class PuterAIController extends PuterController {
         return driver;
     }
 
-    /** A completion that stops, and stops billing, when the caller hangs up. */
+    /**
+     * A completion whose caller may hang up. It runs on to its usage report
+     * either way, so it holds the route's concurrency slot until it settles.
+     */
     #complete(
         res: Response,
         args: ICompleteArguments,
     ): Promise<IChatCompleteResult> {
         Context.set('abortSignal', abortOnDisconnect(res));
-        return this.#driver().complete(args);
+        const completion = this.#driver().complete(args);
+        Context.get('keepConcurrencySlot')?.(completion);
+        return completion;
     }
 }
 

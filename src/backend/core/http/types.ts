@@ -28,12 +28,7 @@ import type { Actor } from '../actor';
  * it instead of accepting any token that authenticates.
  */
 export type TokenSource =
-    | 'body'
-    | 'header'
-    | 'x-api-key'
-    | 'cookie'
-    | 'query'
-    | 'handshake';
+    'body' | 'header' | 'x-api-key' | 'cookie' | 'query' | 'handshake';
 
 /** Express router methods plus the WebDAV verbs some endpoints use. */
 export type RouteMethod =
@@ -263,10 +258,10 @@ export interface RouteOptions {
     rateLimit?: RouteRateLimit | RouteRateLimit[];
 
     /**
-     * Cap simultaneous in-flight requests per key; slots are released on
-     * response finish or close. `bySubscription` overrides `limit` per
-     * `SubscriptionPolicy.id` when metering is wired in. `key`, `scope`,
-     * `backend` as in `rateLimit`.
+     * Cap simultaneous in-flight requests per key; a slot is released once the
+     * response is done and any work the handler kept it for has settled.
+     * `bySubscription` overrides `limit` per `SubscriptionPolicy.id` when
+     * metering is wired in. `key`, `scope`, `backend` as in `rateLimit`.
      */
     concurrent?: {
         limit: number;
@@ -368,8 +363,7 @@ type AuthImplyingOptions =
     | { requireCardVerified: true }
     | {
           requireAnyVerified:
-              | readonly VerificationFactor[]
-              | VerificationFactor[];
+              readonly VerificationFactor[] | VerificationFactor[];
       }
     | { requireSubscription: true | readonly string[] | string[] }
     | { requireReputation: string };
