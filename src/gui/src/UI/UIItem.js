@@ -414,7 +414,8 @@ async function UIItem (options) {
             // the desktop itself, not a window showing the Desktop folder
             if ( $(el_item).closest('.item-container').hasClass('desktop') &&
                 !window.is_auto_arrange_enabled && $(el_item).attr('data-path') !== window.trash_path && !ui.helper.data('dropped') &&
-                window.mouseover_window === undefined && ui.position.top <= window.desktop_height - 15 ) {
+                // .desktop clips its overflow, so the whole item has to fit above the bottom edge
+                window.mouseover_window === undefined && ui.position.top + $(el_item).outerHeight(true) <= window.desktop_height ) {
 
                 el_item.style.position = 'absolute';
                 el_item.style.left = `${ui.position.left }px`;

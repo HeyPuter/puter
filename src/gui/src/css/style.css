@@ -2714,8 +2714,8 @@ label {
 }
 
 .device-phone .popover {
-    height: calc(100vh - 65px);
-    height: calc(100dvh - 65px);
+    height: 100vh;
+    height: 100dvh;
     top: 0 !important;
     left: 0 !important;
     width: 100%;
