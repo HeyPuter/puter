@@ -29,26 +29,17 @@ const da = {
         add_another_account: 'Tilføj en anden konto',
         all_fields_required: 'Alle felter er påkrævede.',
         allow: 'Tillad',
-        apply: 'Anvend',
         ascending: 'Stigende',
         associated_websites: 'Tilknyttede websteder',
         auto_arrange: 'Auto Arrangere',
-        background: 'Baggrund',
-        browse: 'Gennemse',
         cancel: 'Annuller',
-        center: 'Center',
-        change_desktop_background: 'Ændre skrivebordsbaggrund…',
         change_email: 'Ændre e-mail',
         change_language: 'Ændre sprog',
         change_password: 'Ændre adgangskode',
-        change_ui_colors: 'Ændre UI-farver',
         change_username: 'Ændre brugernavn',
         close: 'Luk',
-        close_all_windows: 'Luk alle vinduer',
-        close_all_windows_confirm: 'Er du sikker på, at du vil lukke alle vinduer?',
         close_all_windows_and_log_out: 'Luk vinduer og log ud',
         change_always_open_with: 'Vil du altid åbne denne filtype med',
-        color: 'Farve',
         confirm: 'Bekræft',
         confirm_2fa_setup: 'Jeg har tilføjet koden til min autentifikator-app',
         confirm_2fa_recovery: 'Jeg har gemt mine gendannelseskoder på et sikkert sted',
@@ -71,13 +62,11 @@ const da = {
         confirm_your_email_address: 'Bekræft din e-mailadresse',
         contact_us: 'Kontakt os',
         contact_us_verification_required: 'Du skal have en verificeret e-mailadresse for at bruge dette.',
-        contain: 'Indeholde',
         continue: 'Fortsæt',
         copy: 'Kopier',
         copy_link: 'Kopier link',
         copying: 'Kopierer',
         copying_file: 'Kopierer %%',
-        cover: 'Omslag',
         create_account: 'Opret konto',
         create_free_account: 'Opret gratis konto',
         create_shortcut: 'Opret genvej',
@@ -87,7 +76,6 @@ const da = {
         close_all: 'Luk alle',
         created: 'Oprettet',
         date_modified: 'Dato ændret',
-        default: 'Standard',
         delete: 'Slet',
         delete_account: 'Slet konto',
         delete_permanently: 'Slet permanent',
@@ -101,7 +89,6 @@ const da = {
         disable_2fa: 'Deaktiver 2FA',
         disable_2fa_confirm: 'Er du sikker på, at du vil deaktivere 2FA?',
         disable_2fa_instructions: 'Indtast din adgangskode for at deaktivere 2FA.',
-        disassociate_dir: 'Fjern tilknytning til mappe',
         documents: 'Dokumenter',
         dont_allow: 'Tillad ikke',
         download: 'Download',
@@ -117,7 +104,6 @@ const da = {
         emptying_trash: 'Tømmer papirkurv…',
         enable_2fa: 'Aktivér 2FA',
         end_hard: 'Afslut hårdt',
-        end_process_force_confirm: 'Er du sikker på, at du vil afslutte denne proces med tvang?',
         end_soft: 'Afslut blødt',
         enlarged_qr_code: 'Forstørret QR-kode',
         enter_password_to_confirm_delete_user: 'Indtast din adgangskode for at bekræfte sletning af konto',
@@ -128,39 +114,32 @@ const da = {
         feedback: 'Feedback',
         feedback_c2a: 'Brug venligst formularen nedenfor til at sende os din feedback, kommentarer og fejlrapporter.',
         feedback_sent_confirmation: 'Tak fordi du kontaktede os. Hvis du har en e-mail knyttet til din konto, vil du høre fra os så hurtigt som muligt.',
-        fit: 'Pas',
         folder: 'Mappe',
-        force_quit: 'Tving afslut',
         forgot_pass_c2a: 'Glemt adgangskode?',
         from: 'Fra',
         general: 'Generelt',
         get_a_copy_of_on_puter: 'Få en kopi af \'%%\' på Puter.com!',
         get_copy_link: 'Få kopi-link',
-        hide_all_windows: 'Skjul alle vinduer',
         home: 'Hjem',
         html_document: 'HTML-dokument',
         hue: 'Farvetone',
-        image: 'Billede',
         incorrect_password: 'Forkert adgangskode',
         invite_link: 'Inviter link',
         item: 'element',
         items_in_trash_cannot_be_renamed: 'Dette element kan ikke omdøbes, fordi det er i papirkurven. For at omdøbe dette element, skal du først trække det ud af papirkurven.',
         jpeg_image: 'JPEG-billede',
-        keep_in_taskbar: 'Behold i proceslinjen',
         language: 'Sprog',
         license: 'Licens',
         lightness: 'Lysstyrke',
         link_copied: 'Link kopieret',
         loading: 'Indlæser',
         log_in: 'Log ind',
-        log_into_another_account_anyway: 'Log ind på en anden konto alligevel',
         log_out: 'Log ud',
         looks_good: 'Ser godt ud!',
         manage_sessions: 'Administrer sessioner',
         modified: 'Ændret',
         move: 'Flyt',
         moving_file: 'Flytter %%',
-        my_websites: 'Mine websteder',
         name: 'Navn',
         name_cannot_be_empty: 'Navn kan ikke være tomt.',
         name_cannot_contain_double_period: "Navn kan ikke være '..' tegn.",
@@ -174,8 +153,6 @@ const da = {
         new_password: 'Ny adgangskode',
         new_username: 'Nyt brugernavn',
         no: 'Nej',
-        no_dir_associated_with_site: 'Ingen mappe tilknyttet denne adresse.',
-        no_websites_published: 'Du har ikke offentliggjort nogen websteder endnu. Højreklik på en mappe for at komme i gang.',
         ok: 'OK',
         open: 'Åbn',
         open_in_new_tab: 'Åbn i ny fane',
@@ -197,7 +174,6 @@ const da = {
         path: 'Sti',
         personalization: 'Personalisering',
         pick_name_for_website: 'Vælg et navn til dit websted:',
-        picture: 'Billede',
         pictures: 'Billeder',
         plural_suffix: 's',
         powered_by_puter_js: 'Udviklet af {{link=docs}}Puter.js{{/link}}',
@@ -207,32 +183,20 @@ const da = {
         privacy: 'Privatliv',
         proceed_to_login: 'Fortsæt til login',
         proceed_with_account_deletion: 'Fortsæt med sletning af konto',
-        process_status_initializing: 'Initialiserer',
-        process_status_running: 'Kører',
-        process_type_app: 'App',
-        process_type_init: 'Init',
-        process_type_ui: 'UI',
         properties: 'Egenskaber',
         public: 'Offentlig',
         publish: 'Offentliggør',
         publish_as_website: 'Offentliggør som websted',
         puter_description: 'Puter er en privatlivsorienteret personlig sky til at opbevare alle dine filer, apps og spil på ét sikkert sted, tilgængeligt fra hvor som helst, når som helst.',
         reading_file: 'Læser %strong%',
-        recent: 'Seneste',
-        recommended: 'Anbefalet',
         recover_password: 'Gendan adgangskode',
         refer_friends_c2a: 'Få 1 GB for hver ven, der opretter og bekræfter en konto på Puter. Din ven vil også få 1 GB!',
         refer_friends_social_media_c2a: 'Få 1 GB gratis lagerplads på Puter.com!',
         refresh: 'Opdater',
-        release_address_confirmation: 'Er du sikker på, at du vil frigive denne adresse?',
-        remove_from_taskbar: 'Fjern fra proceslinje',
         rename: 'Omdøb',
-        repeat: 'Gentag',
         replace: 'Erstat',
         replace_all: 'Erstat alle',
         resend_confirmation_code: 'Send bekræftelseskode igen',
-        reset_colors: 'Nulstil farver',
-        restart_puter_confirm: 'Er du sikker på, at du vil genstarte Puter?',
         restore: 'Gendan',
         save: 'Gem',
         saturation: 'Mætning',
@@ -241,15 +205,12 @@ const da = {
         save_account_to_publish: 'Opret venligst en konto for at fortsætte.',
         save_session: 'Gem session',
         save_session_c2a: 'Opret en konto for at gemme din nuværende session og undgå at miste dit ændringer.',
-        scan_qr_c2a: 'Scan koden nedenfor\nfor at logge ind på denne session fra andre enheder',
         scan_qr_2fa: 'Scan QR-koden med din autentifikator-app',
-        scan_qr_generic: 'Scan denne QR-kode med din telefon eller en anden enhed',
         search: 'Søg',
         seconds: 'sekunder',
         security: 'Sikkerhed',
         select: 'Vælg',
         selected: 'valgt',
-        select_color: 'Vælg farve…',
         sessions: 'Sessioner',
         send: 'Send',
         send_password_recovery_email: 'Send e-mail til gendannelse af adgangskode',
@@ -258,9 +219,7 @@ const da = {
         set_new_password: 'Indstil ny adgangskode',
         share: 'Del',
         share_to: 'Del til',
-        share_with: 'Del med:',
         shortcut_to: 'Genvej til',
-        show_all_windows: 'Vis alle vinduer',
         show_hidden: 'Vis skjulte',
         sign_in_with_puter: 'Log ind med Puter',
         sign_up: 'Tilmeld dig',
@@ -269,15 +228,10 @@ const da = {
         skip: 'Spring over',
         something_went_wrong: 'Noget gik galt.',
         sort_by: 'Sorter efter',
-        start: 'Start',
         status: 'Status',
         storage_usage: 'Lagerforbrug',
         storage_puter_used: 'brugt af Puter',
         taking_longer_than_usual: 'Tager lidt længere tid end normalt. Vent venligst...',
-        task_manager: 'Opgavehåndtering',
-        taskmgr_header_name: 'Navn',
-        taskmgr_header_status: 'Status',
-        taskmgr_header_type: 'Type',
         terms: 'Vilkår',
         text_document: 'Tekstdokument',
         tos_fineprint: 'Ved at klikke på \'Opret gratis konto\' accepterer du Puters {{link=terms}}Brugsvilkår{{/link}} og {{link=privacy}}Privatlivspolitik{{/link}}.',
@@ -288,7 +242,6 @@ const da = {
         two_factor_enabled: '2FA aktiveret',
         type: 'Type',
         type_confirm_to_delete_account: "Skriv 'bekræft' for at slette din konto.",
-        ui_colors: 'UI-farver',
         ui_manage_sessions: 'Sessionshåndtering',
         ui_revoke: 'Tilbagekald',
         undo: 'Fortryd',
@@ -304,7 +257,6 @@ const da = {
         videos: 'Videoer',
         visibility: 'Synlighed',
         yes: 'Ja',
-        yes_release_it: 'Ja, frigiv det',
         you_have_been_referred_to_puter_by_a_friend: 'Du er blevet henvist til Puter af en ven!',
         zip: 'Zip',
         zipping_file: 'Zipper %strong%',
@@ -407,16 +359,10 @@ const da = {
         'create_shortcut_s': undefined, // In English: "Create Shortcuts"
         'minimize': undefined, // In English: "Minimize"
         'reload_app': undefined, // In English: "Reload App"
-        'new_window': undefined, // In English: "New Window"
-        'open_trash': undefined, // In English: "Open Trash"
-        'pick_name_for_worker': undefined, // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': undefined, // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': undefined, // In English: "Enter Full Screen"
         'toolbar.github': undefined, // In English: "GitHub"
         'toolbar.refer': undefined, // In English: "Refer"
-        'toolbar.save_account': undefined, // In English: "Save Account"
-        'toolbar.search': undefined, // In English: "Search"
-        'toolbar.qrcode': undefined, // In English: "QR Code"
         'used_of': undefined, // In English: "{{used}} used of {{available}}"
         'worker': undefined, // In English: "Worker"
         'People with access': undefined, // In English: "People with access"
@@ -474,14 +420,6 @@ const da = {
         'too_many_attempts': undefined, // In English: "Too many attempts. Please try again later."
         'server_timeout': undefined, // In English: "The server took too long to respond. Please try again."
         'signup_error': undefined, // In English: "An error occurred during signup. Please try again."
-        'welcome_title': undefined, // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': undefined, // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': undefined, // In English: "Get Started"
-        'welcome_terms': undefined, // In English: "Terms"
-        'welcome_privacy': undefined, // In English: "Privacy"
-        'welcome_developers': undefined, // In English: "Developers"
-        'welcome_open_source': undefined, // In English: "Open Source"
-        'welcome_instant_login_title': undefined, // In English: "Instant Login!"
         'alert_error_title': undefined, // In English: "Error!"
         'alert_warning_title': undefined, // In English: "Warning!"
         'alert_info_title': undefined, // In English: "Info"
@@ -499,19 +437,12 @@ const da = {
         'window_title_select_font': undefined, // In English: "Select font…"
         'window_title_session_list': undefined, // In English: "Session List!"
         'window_title_set_new_password': undefined, // In English: "Set New Password"
-        'window_title_instant_login': undefined, // In English: "Instant Login!"
         'window_title_publish_website': undefined, // In English: "Publish Website"
         'window_title_publish_worker': undefined, // In English: "Publish Worker"
         'window_title_authenticating': undefined, // In English: "Authenticating..."
         'window_title_refer_friend': undefined, // In English: "Refer a friend!"
-        'desktop_show_desktop': undefined, // In English: "Show Desktop"
-        'desktop_show_open_windows': undefined, // In English: "Show Open Windows"
         'desktop_exit_full_screen': undefined, // In English: "Exit Full Screen"
         'desktop_enter_full_screen': undefined, // In English: "Enter Full Screen"
-        'desktop_position': undefined, // In English: "Position"
-        'desktop_position_left': undefined, // In English: "Left"
-        'desktop_position_bottom': undefined, // In English: "Bottom"
-        'desktop_position_right': undefined, // In English: "Right"
         'item_shared_with_you': undefined, // In English: "A user has shared this item with you."
         'item_shared_by_you': undefined, // In English: "You have shared this item with at least one other user."
         'item_shortcut': undefined, // In English: "Shortcut"
@@ -526,8 +457,6 @@ const da = {
         'window_title_pictures': undefined, // In English: "Pictures"
         'window_title_puter': undefined, // In English: "Puter"
         'window_folder_empty': undefined, // In English: "This folder is empty"
-        'manage_your_subdomains': undefined, // In English: "Manage Your Subdomains"
-        'open_containing_folder': undefined, // In English: "Open Containing Folder"
 
     },
 };

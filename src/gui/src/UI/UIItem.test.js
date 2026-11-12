@@ -27,8 +27,6 @@ vi.mock('./UIPopover.js', () => ({ default: vi.fn() }));
 vi.mock('./UIWindowEmailConfirmationRequired.js', () => ({ default: vi.fn() }));
 vi.mock('./UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('./UIAlert.js', () => ({ default: vi.fn() }));
-vi.mock('./UIWindowPublishWorker.js', () => ({ default: vi.fn() }));
-vi.mock('./UIWindowShare.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/launchApp.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/openItem.js', () => ({ default: vi.fn() }));
 vi.mock('../helpers/publishAsWebsite.js', () => ({ default: vi.fn() }));
@@ -137,5 +135,93 @@ describe('UIItem Remove from Shared', () => {
         expect($('.item')).toHaveLength(1);
         expect(refresh_item_container).toHaveBeenCalledTimes(1);
         expect(refresh_item_container.mock.calls[0][0][0]).toBe($('.item-container')[0]);
+    });
+});
+
+describe('UIItem Share', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on an item the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/Photos',
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('share_ellipsis');
+    });
+});
+
+describe('UIItem Publish as Worker', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = '/alice/Trash';
+    });
+
+    it('is not offered, even on a .js file the user owns', async () => {
+        const labels = await menuLabels({
+            path: '/alice/worker.js',
+            name: 'worker.js',
+            is_dir: false,
+            owner: 'alice',
+            shared_with_me: false,
+            share_mode: undefined,
+            shared_by: undefined,
+        });
+        expect(labels).not.toContain('publish_as_serverless_worker');
+    });
+});
+
+describe('UIItem dropped on the desktop', () => {
+    let stop;
+
+    beforeEach(async () => {
+        document.body.innerHTML = '<div class="item-container desktop"></div>';
+        Object.assign(window, {
+            user: { username: 'alice' },
+            trash_path: '/alice/Trash',
+            desktop_height: 800,
+            is_auto_arrange_enabled: false,
+            mouseover_window: undefined,
+            desktop_item_positions: {},
+            save_desktop_item_positions: vi.fn(),
+        });
+        const draggable = jQuery.fn.draggable;
+        jQuery.fn.draggable = function (options) {
+            if ( typeof options === 'object' ) stop = options.stop;
+            return this;
+        };
+        try {
+            await UIItem({
+                appendTo: $('.item-container'),
+                uid: 'u-2',
+                path: '/alice/Desktop/Notes',
+                name: 'Notes',
+                is_dir: true,
+                icon: { image: '', type: 'icon' },
+            });
+        } finally {
+            jQuery.fn.draggable = draggable;
+        }
+        // jsdom has no stylesheet, so give the item the size style.css does.
+        $('.item').css({ height: '70px', margin: '15px 5px 30px 5px' });
+    });
+
+    const dropAt = (top) => stop({}, { position: { top, left: 300 }, helper: $('<div>') });
+
+    it('moves there when the whole item fits on screen', () => {
+        dropAt(685);
+        expect($('.item')[0].style.top).toBe('685px');
+        expect(window.save_desktop_item_positions).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays put when the item would hang off the bottom edge', () => {
+        dropAt(735);
+        expect($('.item')[0].style.top).toBe('');
+        expect(window.save_desktop_item_positions).not.toHaveBeenCalled();
     });
 });

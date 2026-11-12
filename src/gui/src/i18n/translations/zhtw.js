@@ -38,7 +38,6 @@ const zhtw = {
         add_app_request_placeholder: '我希望 Puter 提供的應用程式是……',
         add_app_request_sent: '謝謝，您的需求已送達我們的團隊。如果您的帳戶設有電子郵件，我們可能會透過該信箱與您聯絡。',
         add_another_account: '新增其他帳戶',
-        add_to_desktop: '新增至桌面',
         all_fields_required: '所有欄位都是必填的。',
         allow: '允許',
         app_group_default_name: '資料夾',
@@ -48,26 +47,17 @@ const zhtw = {
         app_group_rename: '重新命名',
         app_group_tile_aria: '%%，內含 %% 個應用程式的資料夾',
         app_group_ungroup: '解除群組',
-        apply: '套用',
         ascending: '升序',
         associated_websites: '關聯的網站',
         auto_arrange: '自動排列',
-        background: '背景',
-        browse: '瀏覽',
         cancel: '取消',
-        center: '置中',
-        change_desktop_background: '更改桌面背景…',
         change_email: '更改電子郵件',
         change_language: '更改語言',
         change_password: '更改密碼',
-        change_ui_colors: '更改使用者介面顏色',
         change_username: '更改使用者名稱',
         close: '關閉',
-        close_all_windows: '關閉所有視窗',
-        close_all_windows_confirm: '您確定要關閉所有視窗嗎？',
         close_all_windows_and_log_out: '關閉視窗並登出',
         change_always_open_with: '您是否要始終使用以下程式開啟此類型的檔案',
-        color: '顏色',
         confirm: '確認',
         confirm_2fa_setup: '我已將驗證碼新增到我的驗證器應用程式中',
         confirm_2fa_recovery: '我已將我的恢復碼儲存在安全的位置',
@@ -90,13 +80,11 @@ const zhtw = {
         confirm_your_email_address: '確認您的電子郵件地址',
         contact_us: '聯絡我們',
         contact_us_verification_required: '您必須有一個已驗證的電子郵件地址才能使用此功能。',
-        contain: '包含',
         continue: '繼續',
         copy: '複製',
         copy_link: '複製連結',
         copying: '正在複製',
         copying_file: '正在複製 %%',
-        cover: '覆蓋',
         create_account: '建立帳戶',
         create_free_account: '建立免費帳戶',
         create_shortcut: '建立捷徑',
@@ -106,7 +94,6 @@ const zhtw = {
         close_all: '全部關閉',
         created: '已建立',
         date_modified: '修改日期',
-        default: '預設',
         delete: '刪除',
         delete_account: '刪除帳戶',
         delete_permanently: '永久刪除',
@@ -120,7 +107,6 @@ const zhtw = {
         disable_2fa: '停用雙重驗證',
         disable_2fa_confirm: '您確定要停用雙重驗證嗎？',
         disable_2fa_instructions: '輸入您的密碼以停用雙重驗證。',
-        disassociate_dir: '解除關聯目錄',
         documents: '文件',
         dont_allow: '不允許',
         download: '下載',
@@ -136,7 +122,6 @@ const zhtw = {
         emptying_trash: '正在清空垃圾桶…',
         enable_2fa: '啟用雙重驗證',
         end_hard: '強制結束',
-        end_process_force_confirm: '您確定要強制結束此程序嗎？',
         end_soft: '正常結束',
         enlarged_qr_code: '放大的 QR 碼',
         enter_password_to_confirm_delete_user: '輸入您的密碼以確認刪除帳戶',
@@ -147,39 +132,32 @@ const zhtw = {
         feedback: '意見回饋',
         feedback_c2a: '請使用以下表單向我們發送您的意見、評論和錯誤報告。',
         feedback_sent_confirmation: '感謝您聯絡我們。如果您的帳戶有關聯的電子郵件，我們將盡快回覆您。',
-        fit: '適應',
         folder: '資料夾',
-        force_quit: '強制退出',
         forgot_pass_c2a: '忘記密碼？',
         from: '來自',
         general: '一般',
         get_a_copy_of_on_puter: '在 Puter.com 上獲取 \'%%\' 的副本！',
         get_copy_link: '獲取副本連結',
-        hide_all_windows: '隱藏所有視窗',
         home: '首頁',
         html_document: 'HTML 文件',
         hue: '色相',
-        image: '圖片',
         incorrect_password: '密碼不正確',
         invite_link: '邀請連結',
         item: '項目',
         items_in_trash_cannot_be_renamed: '此項目無法重新命名，因為它在垃圾桶中。要重新命名此項目，請先將其從垃圾桶中拖出。',
         jpeg_image: 'JPEG 圖片',
-        keep_in_taskbar: '保留在工作列',
         language: '語言',
         license: '授權',
         lightness: '亮度',
         link_copied: '連結已複製',
         loading: '載入中',
         log_in: '登入',
-        log_into_another_account_anyway: '仍然登入另一個帳戶',
         log_out: '登出',
         looks_good: '看起來不錯！',
         manage_sessions: '管理工作階段',
         modified: '已修改',
         move: '移動',
         moving_file: '正在移動 %%',
-        my_websites: '我的網站',
         name: '名稱',
         name_cannot_be_empty: '名稱不能為空。',
         name_cannot_contain_double_period: "名稱不能是 '..' 字符。",
@@ -193,8 +171,6 @@ const zhtw = {
         new_password: '新密碼',
         new_username: '新使用者名稱',
         no: '否',
-        no_dir_associated_with_site: '沒有與此地址關聯的目錄。',
-        no_websites_published: '您還沒有發布任何網站。右鍵點擊資料夾以開始。',
         ok: '確定',
         open: '開啟',
         open_in_new_tab: '在新分頁中開啟',
@@ -216,7 +192,6 @@ const zhtw = {
         path: '路徑',
         personalization: '個人化',
         pick_name_for_website: '為您的網站選擇一個名稱：',
-        picture: '圖片',
         pictures: '圖片',
         plural_suffix: '個',
         powered_by_puter_js: '由 {{link=docs}}Puter.js{{/link}} 提供支援',
@@ -226,32 +201,20 @@ const zhtw = {
         privacy: '隱私權',
         proceed_to_login: '繼續登入',
         proceed_with_account_deletion: '繼續刪除帳戶',
-        process_status_initializing: '初始化中',
-        process_status_running: '運行中',
-        process_type_app: '應用程式',
-        process_type_init: '初始化',
-        process_type_ui: '使用者介面',
         properties: '屬性',
         public: '公開',
         publish: '發布',
         publish_as_website: '發布為網站',
         puter_description: 'Puter 是一個以隱私為先的個人雲端，可將您所有的檔案、應用程式和遊戲保存在一個安全的地方，隨時隨地都能存取。',
         reading_file: '正在讀取 %strong%',
-        recent: '最近',
-        recommended: '推薦',
         recover_password: '恢復密碼',
         refer_friends_c2a: '每邀請一位朋友在 Puter 上建立並確認帳戶，您就可獲得 1 GB 空間。您的朋友也會獲得 1 GB！',
         refer_friends_social_media_c2a: '在 Puter.com 上獲得 1 GB 免費儲存空間！',
         refresh: '重新整理',
-        release_address_confirmation: '您確定要釋放此地址嗎？',
-        remove_from_taskbar: '從工作列移除',
         rename: '重新命名',
-        repeat: '重複',
         replace: '取代',
         replace_all: '全部取代',
         resend_confirmation_code: '重新發送確認碼',
-        reset_colors: '重設顏色',
-        restart_puter_confirm: '您確定要重新啟動 Puter 嗎？',
         restore: '還原',
         save: '儲存',
         saturation: '飽和度',
@@ -260,15 +223,12 @@ const zhtw = {
         save_account_to_publish: '請建立帳戶以繼續。',
         save_session: '儲存工作階段',
         save_session_c2a: '建立帳戶以儲存您目前的工作階段並避免失去您的工作。',
-        scan_qr_c2a: '掃描下方的代碼\n以從其他裝置登入此工作階段',
         scan_qr_2fa: '使用您的驗證器應用程式掃描 QR 碼',
-        scan_qr_generic: '使用您的手機或其他裝置掃描此 QR 碼',
         search: '搜尋',
         seconds: '秒',
         security: '安全性',
         select: '選擇',
         selected: '已選擇',
-        select_color: '選擇顏色…',
         sessions: '工作階段',
         send: '發送',
         send_password_recovery_email: '發送密碼恢復電子郵件',
@@ -277,9 +237,7 @@ const zhtw = {
         set_new_password: '設定新密碼',
         share: '分享',
         share_to: '分享到',
-        share_with: '分享給：',
         shortcut_to: '捷徑到',
-        show_all_windows: '顯示所有視窗',
         show_hidden: '顯示隱藏項目',
         sign_in_with_puter: '使用 Puter 登入',
         sign_up: '註冊',
@@ -288,15 +246,10 @@ const zhtw = {
         skip: '跳過',
         something_went_wrong: '發生了一些錯誤。',
         sort_by: '排序依據',
-        start: '開始',
         status: '狀態',
         storage_usage: '儲存空間使用量',
         storage_puter_used: '由 Puter 使用',
         taking_longer_than_usual: '正在花費比平常更長的時間。請稍候...',
-        task_manager: '工作管理員',
-        taskmgr_header_name: '名稱',
-        taskmgr_header_status: '狀態',
-        taskmgr_header_type: '類型',
         terms: '條款',
         text_document: '文字文件',
         tos_fineprint: '點擊「建立免費帳戶」即表示您同意 Puter 的{{link=terms}}服務條款{{/link}}和{{link=privacy}}隱私政策{{/link}}',
@@ -307,7 +260,6 @@ const zhtw = {
         two_factor_enabled: '雙重驗證已啟用',
         type: '類型',
         type_confirm_to_delete_account: '輸入「confirm」以刪除您的帳戶。',
-        ui_colors: '使用者介面顏色',
         ui_manage_sessions: '工作階段管理器',
         ui_revoke: '撤銷',
         undo: '復原',
@@ -323,7 +275,6 @@ const zhtw = {
         videos: '影片',
         visibility: '可見性',
         yes: '是',
-        yes_release_it: '是的，釋放它',
         you_have_been_referred_to_puter_by_a_friend: '您已被朋友推薦到 Puter！',
         zip: '壓縮',
         zipping_file: '正在壓縮 %strong%',
@@ -423,30 +374,16 @@ const zhtw = {
         'create_shortcut_s': "建立多個捷徑", // In English: "Create Shortcuts"
         'minimize': "最小化", // In English: "Minimize"
         'reload_app': "重新載入應用程式", // In English: "Reload App"
-        'new_window': "新視窗", // In English: "New Window"
-        'open_trash': "開啟垃圾桶", // In English: "Open Trash"
-        'pick_name_for_worker': "請為您的 Worker 取一個名稱：", // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': "發布為 Worker", // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': "進入全螢幕", // In English: "Enter Full Screen"
         'toolbar.github': "GitHub", // In English: "GitHub"
         'toolbar.refer': "推薦", // In English: "Refer"
-        'toolbar.save_account': "儲存帳戶", // In English: "Save Account"
-        'toolbar.search': "搜尋", // In English: "Search"
-        'toolbar.qrcode': "QR 碼", // In English: "QR Code"
         'used_of': "{{used}} / {{available}} 已使用", // In English: "{{used}} used of {{available}}"
         'worker': "Worker", // In English: "Worker"
         'billing.offering.basic': "基本", // In English: "Basic"
         'too_many_attempts': "嘗試次數過多。請稍後再試。", // In English: "Too many attempts. Please try again later."
         'server_timeout': "伺服器回應時間過長。請再試一次。", // In English: "The server took too long to respond. Please try again."
         'signup_error': "註冊時發生錯誤。請再試一次。", // In English: "An error occurred during signup. Please try again."
-        'welcome_title': "歡迎使用您的個人網際網路電腦", // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': "在這裡儲存檔案、玩遊戲、尋找各種優秀應用程式，還有更多功能！隨時隨地，一站式完成。", // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': "開始使用", // In English: "Get Started"
-        'welcome_terms': "服務條款", // In English: "Terms"
-        'welcome_privacy': "隱私政策", // In English: "Privacy"
-        'welcome_developers': "開發者", // In English: "Developers"
-        'welcome_open_source': "開源", // In English: "Open Source"
-        'welcome_instant_login_title': "快速登入！", // In English: "Instant Login!"
         'alert_error_title': "錯誤！", // In English: "Error!"
         'alert_warning_title': "警告！", // In English: "Warning!"
         'alert_info_title': "資訊", // In English: "Info"
@@ -464,19 +401,12 @@ const zhtw = {
         'window_title_select_font': "選擇字型…", // In English: "Select font…"
         'window_title_session_list': "工作階段列表", // In English: "Session List!"
         'window_title_set_new_password': "設定新密碼", // In English: "Set New Password"
-        'window_title_instant_login': "快速登入！", // In English: "Instant Login!"
         'window_title_publish_website': "發布網站", // In English: "Publish Website"
         'window_title_publish_worker': "發布 Worker", // In English: "Publish Worker"
         'window_title_authenticating': "正在驗證…", // In English: "Authenticating..."
         'window_title_refer_friend': "推薦好友！", // In English: "Refer a friend!"
-        'desktop_show_desktop': "顯示桌面", // In English: "Show Desktop"
-        'desktop_show_open_windows': "顯示開啟的視窗", // In English: "Show Open Windows"
         'desktop_exit_full_screen': "退出全螢幕", // In English: "Exit Full Screen"
         'desktop_enter_full_screen': "進入全螢幕", // In English: "Enter Full Screen"
-        'desktop_position': "位置", // In English: "Position"
-        'desktop_position_left': "左側", // In English: "Left"
-        'desktop_position_bottom': "底部", // In English: "Bottom"
-        'desktop_position_right': "右側", // In English: "Right"
         'item_shared_with_you': "有使用者與您分享了此項目。", // In English: "A user has shared this item with you."
         'item_shared_by_you': "您已將此項目分享給其他使用者。", // In English: "You have shared this item with at least one other user."
         'item_shortcut': "捷徑", // In English: "Shortcut"
@@ -491,8 +421,6 @@ const zhtw = {
         'window_title_pictures': "圖片", // In English: "Pictures"
         'window_title_puter': "Puter", // In English: "Puter"
         'window_folder_empty': "此資料夾是空的", // In English: "This folder is empty"
-        'manage_your_subdomains': "管理您的子網域", // In English: "Manage Your Subdomains"
-        'open_containing_folder': "開啟所在的資料夾", // In English: "Open containing folder"
 		'confirm_download_file_to_desktop': "您確定要將 %% 下載到您的桌面嗎？", // In English: "Are you sure you want to download %% to your Desktop?"
         'downloading_file': "正在下載 %%", // In English: "Downloading %%"
         'error_download_failed': "下載檔案失敗", // In English: "Failed to download file"
@@ -505,7 +433,6 @@ const zhtw = {
         'tar': "Tar 壓縮", // In English: "Tar"
         'download_as_tar': "下載為 Tar", // In English: "Download as Tar"
         'tarring': "正在建立 Tar 壓縮檔 %strong%", // In English: "Tarring %strong%"
-        'set_as_background': "設為桌面背景", // In English: "Set as Desktop Background"
         'error_user_or_path_not_found': "找不到使用者或路徑。", // In English: "User or path not found."
         'error_invalid_username': "無效的使用者名稱。", // In English: "Invalid username."
     },

@@ -29,26 +29,17 @@ const br = {
         add_another_account: 'Adicionar Outra Conta',
         all_fields_required: 'Todos os campos são obrigatórios.',
         allow: 'Permitir',
-        apply: 'Aplicar',
         ascending: 'Ascendente',
         associated_websites: 'Sites Associados',
         auto_arrange: 'Organizar Automaticamente',
-        background: 'Plano de Fundo',
-        browse: 'Navegar',
         cancel: 'Cancelar',
-        center: 'Centralizar',
-        change_desktop_background: 'Mudar plano de fundo da Área de Trabalho…',
         change_email: 'Mudar Email',
         change_language: 'Mudar Idioma',
         change_password: 'Mudar Senha',
-        change_ui_colors: 'Mudar Cores da Interface',
         change_username: 'Mudar Nome de Usuário',
         close: 'Fechar',
-        close_all_windows: 'Fechar Todas as Janelas',
-        close_all_windows_confirm: 'Tem certeza de que deseja fechar todas as janelas?',
         close_all_windows_and_log_out: 'Fechar Janelas e Sair',
         change_always_open_with: 'Deseja sempre abrir este tipo de arquivo com',
-        color: 'Cor',
         confirm: 'Confirmar',
         confirm_2fa_setup: 'Adicionei o código ao meu aplicativo autenticador',
         confirm_2fa_recovery: 'Salvei meus códigos de recuperação em um local seguro',
@@ -71,13 +62,11 @@ const br = {
         confirm_your_email_address: 'Confirme Seu Endereço de Email',
         contact_us: 'Fale Conosco',
         contact_us_verification_required: 'Você deve ter um endereço de e-mail verificado para usar isto.',
-        contain: 'Conter',
         continue: 'Continuar',
         copy: 'Copiar',
         copy_link: 'Copiar Link',
         copying: 'Copiando',
         copying_file: 'Copiando %%',
-        cover: 'Cobrir',
         create_account: 'Criar Conta',
         create_free_account: 'Criar Conta Gratuita',
         create_shortcut: 'Criar Atalho',
@@ -87,7 +76,6 @@ const br = {
         close_all: 'Fechar Tudo',
         created: 'Criado',
         date_modified: 'Data de modificação',
-        default: 'Padrão',
         delete: 'Excluir',
         delete_account: 'Excluir Conta',
         delete_permanently: 'Excluir Permanentemente',
@@ -101,7 +89,6 @@ const br = {
         disable_2fa: 'Desativar 2FA',
         disable_2fa_confirm: 'Tem certeza de que deseja desativar 2FA?',
         disable_2fa_instructions: 'Digite sua senha para desativar 2FA.',
-        disassociate_dir: 'Desassociar Diretório',
         documents: 'Documentos',
         dont_allow: 'Não Permitir',
         download: 'Baixar',
@@ -117,7 +104,6 @@ const br = {
         emptying_trash: 'Esvaziando Lixeira…',
         enable_2fa: 'Ativar 2FA',
         end_hard: 'Finalizar Forçadamente',
-        end_process_force_confirm: 'Tem certeza de que deseja finalizar forçadamente este processo?',
         end_soft: 'Finalizar Suavemente',
         enlarged_qr_code: 'Código QR Ampliado',
         enter_password_to_confirm_delete_user: 'Digite sua senha para confirmar a exclusão da conta',
@@ -128,39 +114,32 @@ const br = {
         feedback: 'Feedback',
         feedback_c2a: 'Por favor, use o formulário abaixo para nos enviar seu feedback, comentários e relatórios de bugs.',
         feedback_sent_confirmation: 'Obrigado por nos contatar. Se você tiver um e-mail associado à sua conta, você receberá uma resposta nossa o mais rápido possível.',
-        fit: 'Ajustar',
         folder: 'Pasta',
-        force_quit: 'Forçar Encerrar',
         forgot_pass_c2a: 'Esqueceu a senha?',
         from: 'De',
         general: 'Geral',
         get_a_copy_of_on_puter: 'Obtenha uma cópia de \'%%\' em Puter.com!',
         get_copy_link: 'Obter Link de Cópia',
-        hide_all_windows: 'Ocultar Todas as Janelas',
         home: 'Início',
         html_document: 'Documento HTML',
         hue: 'Matiz',
-        image: 'Imagem',
         incorrect_password: 'Senha incorreta',
         invite_link: 'Link de Convite',
         item: 'item',
         items_in_trash_cannot_be_renamed: 'Este item não pode ser renomeado porque está na lixeira. Para renomear este item, primeiro arraste-o para fora da Lixeira.',
         jpeg_image: 'Imagem JPEG',
-        keep_in_taskbar: 'Manter na Barra de Tarefas',
         language: 'Idioma',
         license: 'Licença',
         lightness: 'Luminosidade',
         link_copied: 'Link copiado',
         loading: 'Carregando',
         log_in: 'Entrar',
-        log_into_another_account_anyway: 'Entrar em outra conta de qualquer maneira',
         log_out: 'Sair',
         looks_good: 'Parece bom!',
         manage_sessions: 'Gerenciar Sessões',
         modified: 'Modificado',
         move: 'Mover',
         moving_file: 'Movendo %%',
-        my_websites: 'Meus Sites',
         name: 'Nome',
         name_cannot_be_empty: 'O nome não pode estar vazio.',
         name_cannot_contain_double_period: 'O nome não pode ser o caractere \'..\'.',
@@ -174,8 +153,6 @@ const br = {
         new_password: 'Nova Senha',
         new_username: 'Novo Nome de Usuário',
         'no': 'Não',
-        'no_dir_associated_with_site': 'Nenhum diretório associado a este endereço.',
-        'no_websites_published': 'Você ainda não publicou nenhum site.',
         'ok': 'OK',
         'open': 'Abrir',
         'open_in_new_tab': 'Abrir em Nova Aba',
@@ -197,7 +174,6 @@ const br = {
         'path': 'Caminho',
         'personalization': 'Personalização',
         'pick_name_for_website': 'Escolha um nome para o seu site:',
-        'picture': 'Imagem',
         'pictures': 'Imagens',
         'plural_suffix': 's',
         'powered_by_puter_js': 'Desenvolvido por {{link=docs}}Puter.js{{/link}}',
@@ -207,32 +183,20 @@ const br = {
         'privacy': 'Privacidade',
         'proceed_to_login': 'Prossiga para o login',
         'proceed_with_account_deletion': 'Prosseguir com a Exclusão da Conta',
-        'process_status_initializing': 'Inicializando',
-        'process_status_running': 'Executando',
-        'process_type_app': 'App',
-        'process_type_init': 'Início',
-        'process_type_ui': 'UI',
         'properties': 'Propriedades',
         'public': 'Público',
         'publish': 'Publicar',
         'publish_as_website': 'Publicar como site',
         'puter_description': 'Puter é uma nuvem pessoal que prioriza a privacidade para manter todos os seus arquivos, aplicativos e jogos em um lugar seguro, acessível de qualquer lugar a qualquer momento.',
         'reading_file': 'Lendo %strong%',
-        'recent': 'Recente',
-        'recommended': 'Recomendado',
         'recover_password': 'Recuperar Senha',
         'refer_friends_c2a': 'Ganhe 1 GB para cada amigo que criar e confirmar uma conta no Puter. Seu amigo também ganhará 1 GB!',
         'refer_friends_social_media_c2a': 'Ganhe 1 GB de armazenamento gratuito no Puter.com!',
         'refresh': 'Atualizar',
-        'release_address_confirmation': 'Tem certeza de que deseja liberar este endereço?',
-        'remove_from_taskbar': 'Remover da Barra de Tarefas',
         'rename': 'Renomear',
-        'repeat': 'Repetir',
         'replace': 'Substituir',
         'replace_all': 'Substituir Todos',
         'resend_confirmation_code': 'Reenviar Código de Confirmação',
-        'reset_colors': 'Redefinir Cores',
-        'restart_puter_confirm': 'Tem certeza de que deseja reiniciar o Puter?',
         'restore': 'Restaurar',
         'save': 'Salvar',
         'saturation': 'Saturação',
@@ -241,15 +205,12 @@ const br = {
         'save_account_to_publish': 'Por favor, crie uma conta para prosseguir.',
         'save_session': 'Salvar sessão',
         'save_session_c2a': 'Crie uma conta para salvar sua sessão atual e evitar perder seu trabalho.',
-        'scan_qr_c2a': 'Escaneie o código abaixo para fazer login nesta sessão a partir de outros dispositivos',
         'scan_qr_2fa': 'Escaneie o código QR com seu aplicativo autenticador',
-        'scan_qr_generic': 'Escaneie este código QR usando seu telefone ou outro dispositivo',
         'search': 'Buscar',
         'seconds': 'segundos',
         'security': 'Segurança',
         'select': 'Selecionar',
         'selected': 'selecionado',
-        'select_color': 'Selecionar cor…',
         'sessions': 'Sessões',
         'send': 'Enviar',
         'send_password_recovery_email': 'Enviar E-mail de Recuperação de Senha',
@@ -260,7 +221,6 @@ const br = {
         'share_to': 'Compartilhar para',
         'share_with': 'Compartilhar com:',
         'shortcut_to': 'Atalho para',
-        'show_all_windows': 'Mostrar Todas as Janelas',
         'show_hidden': 'Mostrar ocultos',
         'sign_in_with_puter': 'Entrar com Puter',
         'sign_up': 'Cadastrar-se',
@@ -269,15 +229,10 @@ const br = {
         'skip': 'Pular',
         'something_went_wrong': 'Algo deu errado.',
         'sort_by': 'Ordenar por',
-        'start': 'Iniciar',
         'status': 'Status',
         'storage_usage': 'Uso de Armazenamento',
         'storage_puter_used': 'usado pelo Puter',
         'taking_longer_than_usual': 'Levando um pouco mais de tempo do que o normal. Por favor, aguarde...',
-        'task_manager': 'Gerenciador de Tarefas',
-        'taskmgr_header_name': 'Nome',
-        'taskmgr_header_status': 'Status',
-        'taskmgr_header_type': 'Tipo',
         'terms': 'Termos',
         'text_document': 'Documento de texto',
         'tos_fineprint': 'Ao clicar em \'Criar Conta Gratuita\' você concorda com os {{link=terms}}Termos de Serviço{{/link}} e a {{link=privacy}}Política de Privacidade{{/link}} do Puter.',
@@ -288,7 +243,6 @@ const br = {
         'two_factor_enabled': '2FA Ativada',
         'type': 'Tipo',
         'type_confirm_to_delete_account': 'Digite \'confirmar\' para excluir sua conta.',
-        'ui_colors': 'Cores da Interface',
         'ui_manage_sessions': 'Gerenciador de Sessões',
         'ui_revoke': 'Revogar',
         'undo': 'Desfazer',
@@ -304,7 +258,6 @@ const br = {
         'videos': 'Vídeos',
         'visibility': 'Visibilidade',
         'yes': 'Sim',
-        'yes_release_it': 'Sim, Liberar',
         'you_have_been_referred_to_puter_by_a_friend': 'Você foi indicado ao Puter por um amigo!',
         'zip': 'Compactar',
         'zipping_file': 'Compactando %strong%',
@@ -406,30 +359,16 @@ const br = {
         'create_shortcut_s': 'Criar atalhos', // In English: "Create Shortcuts"
         'minimize': 'Minimizar', // In English: "Minimize"
         'reload_app': 'Recarregar App', // In English: "Reload App"
-        'new_window': 'Nova Janela', // In English: "New Window"
-        'open_trash': 'Abrir Lixeira', // In English: "Open Trash"
-        'pick_name_for_worker': 'Escolha um nome para seu worker', // In English: "Pick a name for your worker:"
         'publish_as_serverless_worker': 'Publicar como Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Entrar em Tela Cheia', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
         'toolbar.refer': 'Indicar', // In English: "Refer"
-        'toolbar.save_account': 'Salvar Conta', // In English: "Save Account"
-        'toolbar.search': 'Pesquisar', // In English: "Search"
-        'toolbar.qrcode': 'Código QR', // In English: "QR Code"
         'used_of': '{{used}} utilizado de {{available}} disponível', // In English: "{{used}} used of {{available}}"
         'worker': 'Worker', // In English: "Worker"
         'billing.offering.basic': 'Básico', // In English: "Basic"
         'too_many_attempts': 'Muitas tentativas. Por favor, tente novamente mais tarde.', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'O servidor demorou muito para responder. Por favor, tente novamente mais tarde.', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'Ocorreu um erro durante o registro. Por favor, tente novamente mais tarde.', // In English: "An error occurred during signup. Please try again."
-        'welcome_title': 'Bem-vindo(a) ao seu Computador Pessoal de Internet', // In English: "Welcome to your Personal Internet Computer"
-        'welcome_description': 'Armazenar arquivos, jogar jogos, encontrar apps incríveis, e muito mais! Tudo em um só lugar, acessível de qualquer lugar a qualquer momento.', // In English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': 'Começar', // In English: "Get Started"
-        'welcome_terms': 'Termos', // In English: "Terms"
-        'welcome_privacy': 'Privacidade', // In English: "Privacy"
-        'welcome_developers': 'Desenvolvedores', // In English: "Developers"
-        'welcome_open_source': 'Código aberto', // In English: "Open Source"
-        'welcome_instant_login_title': 'Login Instantâneo!', // In English: "Instant Login!"
         'alert_error_title': 'Erro!', // In English: "Error!"
         'alert_warning_title': 'Aviso!', // In English: "Warning!"
         'alert_info_title': 'Informação', // In English: "Info"
@@ -447,19 +386,12 @@ const br = {
         'window_title_select_font': 'Selecionar', // In English: "Select font…"
         'window_title_session_list': 'Lista de Sessões!', // In English: "Session List!"
         'window_title_set_new_password': 'Definir Nova Senha', // In English: "Set New Password"
-        'window_title_instant_login': 'Inicio de Sessão Instantâneo', // In English: "Instant Login!"
         'window_title_publish_website': 'Publicar site', // In English: "Publish Website"
         'window_title_publish_worker': 'Publicar Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Autenticando...', // In English: "Authenticating..."
         'window_title_refer_friend': 'Indicar um amigo!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'Mostrar Área de Trabalho', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Mostrar Janelas Abertas', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Sair de Tela Cheia', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Entrar em Tela Cheia', // In English: "Enter Full Screen"
-        'desktop_position': 'Posição', // In English: "Position"
-        'desktop_position_left': 'Esquerda', // In English: "Left"
-        'desktop_position_bottom': 'Fundo', // In English: "Bottom"
-        'desktop_position_right': 'Direita', // In English: "Right"
         'item_shared_with_you': 'Um usuário compartilhou este item com você.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Você compartilhou este item com pelo menos um usuário.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Atalho', // In English: "Shortcut"
@@ -474,8 +406,6 @@ const br = {
         'window_title_pictures': 'Imagens', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'Esta pasta está vazia', // In English: "This folder is empty"
-        'manage_your_subdomains': 'Gerenciar seus subdomínios', // In English: "Manage Your Subdomains"
-        'open_containing_folder': 'Abrir local do arquivo', // In English: "Open Containing Folder"
 
     },
 };

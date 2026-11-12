@@ -47,7 +47,9 @@ import UIAuthRecoverPassword from './UI/Auth/UIAuthRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import { isAttestedOrigin } from './helpers/attestedOrigin.js';
 import { embedHostUser } from './helpers/embedHostUser.js';
+import { overlayGone } from './helpers/overlayGone.js';
 import {
+    canShowCustomDomainFrame,
     canShowEmailConfirmationFrame,
     canShowTopUpFrame,
     canShowUpgradeFrame,
@@ -1089,7 +1091,8 @@ const postAuthActions = async (action) => {
 
     // -------------------------------------------------------------------------------------
     // Action: attach-custom-domain — puter.hosting.attach() on a website. Hosts the custom
-    // domain dialog for `subdomain` and posts the chosen domain back to the opener.
+    // domain dialog for `subdomain` and posts the chosen domain back to the opener, or to
+    // the first-party page framing it.
     // -------------------------------------------------------------------------------------
     if ( action === 'attach-custom-domain' ) {
         const msg_id = window.url_query_params.get('msg_id');
@@ -1112,11 +1115,16 @@ const postAuthActions = async (action) => {
             if ( ! subdomain ) {
                 throw new Error('no subdomain');
             }
-            domain = await UIWindowAttachCustomDomain({
+            // A frame covers its page, which shows around the floating dialog.
+            const dialog = UIWindowAttachCustomDomain({
                 subdomain,
                 requester: target_origin,
-                fullpage: window.embedded_in_popup === true,
+                fullpage: window.embedded_in_popup === true && !window.embedded_in_frame,
             });
+            if ( window.embedded_in_frame ) window.tell_popup_frame('ready');
+            domain = await dialog;
+            // The answer removes the frame, so the dialog's exit plays first.
+            if ( window.embedded_in_frame ) await overlayGone(document, '.custom-domain-overlay');
         } catch (e) {
             console.error('attach-custom-domain action failed', e);
         }
@@ -1689,9 +1697,6 @@ window.initgui = async function (options) {
         (window.url_query_params.get('puter.fullpage') === 'true' ||
             window.url_query_params.get('puter.fullpage') === '1')
     ) {
-        // In fullpage mode, we want to hide the taskbar for better UX
-        window.taskbar_height = 0;
-
         // Puter is in fullpage mode.
         window.is_fullpage_mode = true;
     } else if (window.is_dashboard_mode) {
@@ -1878,7 +1883,7 @@ window.initgui = async function (options) {
             let session_user = null;
             if (host_user && window.is_auth()) {
                 try {
-                    session = await puter.os.user({ query: 'icon_size=64' });
+                    session = await puter.os.user();
                     session_user = String(session?.uuid ?? '').toLowerCase();
                 } catch (e) {
                     session_user = null;
@@ -1889,7 +1894,8 @@ window.initgui = async function (options) {
                 session_user !== host_user ||
                 (action === 'upgrade' && !canShowUpgradeFrame(window, session)) ||
                 (action === 'top-up' && !canShowTopUpFrame(window, session)) ||
-                (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session))
+                (action === 'request-email-confirmation' && !canShowEmailConfirmationFrame(session)) ||
+                (action === 'attach-custom-domain' && !canShowCustomDomainFrame(session))
             ) {
                 window.tell_popup_frame('unavailable');
                 return;
@@ -1957,9 +1963,7 @@ window.initgui = async function (options) {
             // Ensure current user is in logged_in_users (e.g. after OIDC redirect we have token but no user in list)
             let currentUserUuid = window.user?.uuid ?? null;
             try {
-                const whoami_popup = await puter.os.user({
-                    query: 'icon_size=64',
-                });
+                const whoami_popup = await puter.os.user();
                 currentUserUuid = whoami_popup?.uuid ?? currentUserUuid;
                 await window.update_auth_data(
                     whoami_popup.token || window.auth_token,
@@ -2046,24 +2050,11 @@ window.initgui = async function (options) {
             });
             if (app_info?.metadata?.fullpage_on_landing) {
                 window.is_fullpage_mode = true;
-                window.taskbar_height = 0;
                 window.app_launched_from_url = app_info;
             }
         } catch (e) {
             // App metadata fetch failed; will retry later in UIDesktop
         }
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Desktop background (early)
-    // Set before action=login/signup so the signed-in dialog has the desktop behind it.
-    // Skipped for the full-page form, which it would only flash behind before covering.
-    // -------------------------------------------------------------------------------------
-    const authActionIsPage =
-        action === 'password-recovery' ||
-        (!window.is_auth() && (action === 'login' || action === 'signup'));
-    if (!window.is_fullpage_mode && !window.embedded_in_popup && !authActionIsPage) {
-        window.refresh_desktop_background();
     }
 
     //--------------------------------------------------------------------------------------
@@ -2188,7 +2179,7 @@ window.initgui = async function (options) {
         puter.setAuthToken(query_param_auth_token);
 
         try {
-            whoami = await puter.os.user({ query: 'icon_size=64' });
+            whoami = await puter.os.user();
         } catch (e) {
             if (e.status === 401) {
                 window.logout();
@@ -2463,8 +2454,6 @@ window.initgui = async function (options) {
         $('.context-menu').remove();
         // remove desktop
         $('.desktop').remove();
-        // remove taskbar
-        $('.taskbar').remove();
         // disable native browser exit confirmation
         window.onbeforeunload = null;
         // go back to the interface the user was in: dashboard users to the root
@@ -2517,7 +2506,7 @@ window.initgui = async function (options) {
         // try to get user data using /whoami, only if that data is missing
         if (!whoami) {
             try {
-                whoami = await puter.os.user({ query: 'icon_size=64' });
+                whoami = await puter.os.user();
             } catch (e) {
                 if (e.status === 401) {
                     bad_session_logout();
@@ -2657,15 +2646,6 @@ window.initgui = async function (options) {
         (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link);
 
     // -------------------------------------------------------------------------------------
-    // Desktop Background
-    // If we're in fullpage/emebedded/Auth Popup mode, we don't want to load the custom background
-    // because it's not visible anyway and it's a waste of bandwidth. Same behind the sign-in page.
-    // -------------------------------------------------------------------------------------
-    const showsSignInPage = needsSignIn && window.logged_in_users.length === 0;
-    if (!window.is_fullpage_mode && !window.embedded_in_popup && !showsSignInPage) {
-        window.refresh_desktop_background();
-    }
-    // -------------------------------------------------------------------------------------
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
     // No session after all: the anonymous markup the shell sent is the correct
@@ -2718,12 +2698,6 @@ window.initgui = async function (options) {
         const needs_action = action === 'authme' || action === 'copyauth';
         const reload_on_success = needs_action;
         if (window.logged_in_users.length > 0) {
-            // dashboard mode skips the wallpaper (fullpage), but the account
-            // picker is a dialog, not a page — restore the wallpaper so it
-            // isn't on a blank page
-            if (window.is_dashboard_mode) {
-                window.refresh_desktop_background();
-            }
             await UIAuthAccountPicker({
                 redirect_url: needs_action ? window.location.href : undefined,
             });
@@ -3064,7 +3038,6 @@ window.initgui = async function (options) {
                 });
                 if (app_info?.metadata?.fullpage_on_landing) {
                     window.is_fullpage_mode = true;
-                    window.taskbar_height = 0;
                     window.app_launched_from_url = app_info;
                 }
             } catch (e) {
@@ -3113,10 +3086,6 @@ window.initgui = async function (options) {
 
         // click on anything will close all popovers, but there are some exceptions
         if (
-            !$(e.target).hasClass('start-app') &&
-            !$(e.target).hasClass('launch-search') &&
-            !$(e.target).hasClass('launch-search-clear') &&
-            $(e.target).closest('.start-app').length === 0 &&
             !isMobile.phone &&
             !isMobile.tablet &&
             !$(e.target).hasClass('popover') &&
@@ -3126,9 +3095,6 @@ window.initgui = async function (options) {
                 $('.popover').remove();
             });
         }
-
-        // Close all tooltips
-        $('.ui-tooltip').remove();
 
         // rename items whose names were being edited
         if (!$(e.target).hasClass('item-name-editor')) {
@@ -3164,21 +3130,6 @@ window.initgui = async function (options) {
     // Window Activation
     //--------------------------------------------------------
     $(document).on('mousedown', function (e) {
-        // if taskbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('taskbar') ||
-            $(e.target).closest('.taskbar').length > 0
-        ) {
-            return;
-        }
-        // if toolbar or any parts of it is clicked, drop the event
-        if (
-            $(e.target).hasClass('toolbar') ||
-            $(e.target).closest('.toolbar').length > 0
-        ) {
-            return;
-        }
-
         // if close or minimize button clicked, drop the event
         if (
             document
@@ -3262,16 +3213,6 @@ $(document).on('click', '.generic-close-window-button', function (e) {
     $(this).closest('.window').close();
 });
 
-$(document).on('click', function (e) {
-    if (
-        !$(e.target).hasClass('window-search') &&
-        $(e.target).closest('.window-search').length === 0 &&
-        !$(e.target).is('.toolbar-btn.search-btn')
-    ) {
-        $('.window-search').close();
-    }
-});
-
 // Re-calculate desktop height and width on window resize and re-position the login and signup windows
 $(window).on('resize', function () {
     // If host env is popup, don't continue because the popup window has its own resize requirements.
@@ -3281,8 +3222,7 @@ $(window).on('resize', function () {
 
     const ratio = window.desktop_width / window.innerWidth;
 
-    window.desktop_height =
-        window.innerHeight - window.toolbar_height - window.taskbar_height;
+    window.desktop_height = window.innerHeight - window.toolbar_height;
     window.desktop_width = window.innerWidth;
 
     // Re-center the login window

@@ -29,7 +29,6 @@ const fi = {
         add_another_account: 'Lisää toinen tili',
         all_fields_required: 'Kaikki kentät on täytettävä.',
         allow: 'Salli',
-        apply: 'Käytä', // TODO: Ambiguous meaning
         // To apply(a principle) => "Sovella" or
         // Apply for(a job) "Hae" or
         // Apply as(an engineer) => "Hakeudu" or
@@ -39,23 +38,15 @@ const fi = {
         ascending: 'Nouseva',
         associated_websites: 'Tähän liittyvät verkkosivustot',
         auto_arrange: 'Järjestä automaattisesti',
-        background: 'Tausta',
-        browse: 'Selaa',
         cancel: 'Peruuta',
-        center: 'Keskitä',
-        change_desktop_background: 'Vaihda työpöydän taustakuvaa…',
         change_email: 'Vaihda sähköpostiosoite',
         change_language: 'Vaihda kieli',
         change_password: 'Vaihda salasana',
-        change_ui_colors: 'Vaihda käyttöliittymän värejä',
         change_username: 'Vaihda käyttäjänimi',
         close: 'Sulje',
-        close_all_windows: 'Sulje kaikki ikkunat',
-        close_all_windows_confirm: 'Haluatko varmasti sulkea kaikki ikkunat?',
         close_all_windows_and_log_out: 'Sulje ikkunat ja kirjaudu ulos',
         change_always_open_with:
       'Haluatko aina avata tämän tyyppisen tiedoston sovelluksella',
-        color: 'Väri',
         confirm: 'Vahvista',
         confirm_2fa_setup: 'Olen lisännyt koodin todennussovellukseeni',
         confirm_2fa_recovery:
@@ -86,7 +77,6 @@ const fi = {
         contact_us: 'Ota yhteyttä',
         contact_us_verification_required:
       'Sinulla on oltava vahvistettu sähköpostiosoite, jotta voit käyttää tätä.',
-        contain: 'Sisällytä', // TODO: Ambiguous meaning
         // "inside(a house)" => "Sisällä" - probably more appropriate
         // "contain within" => "Sisältää"
 
@@ -99,7 +89,6 @@ const fi = {
         copy_link: 'Kopioi linkki',
         copying: 'Kopioidaan',
         copying_file: 'Kopioidaan %%',
-        cover: 'Kansi', // TODO: Lexical categories
         // Noun (shelter) => 'Suoja' or
         // Noun (lid) => 'Kansi' or
         // Intransitive Verb (To occlude something) => 'Peitä' or
@@ -114,7 +103,6 @@ const fi = {
         close_all: 'Sulje kaikki',
         created: 'Luotu',
         date_modified: 'Muokkauspäivämäärä',
-        default: 'Oletus',
         delete: 'Poista',
         delete_account: 'Poista tilisi',
         delete_permanently: 'Poista pysyvästi',
@@ -130,7 +118,6 @@ const fi = {
       'Haluatko varmasti poistaa kaksivaiheisen tunnistautumisen käytöstä?',
         disable_2fa_instructions:
       'Syötä salasanasi poistaaksesi kaksivaihesen tunnistautumisen käytöstä.',
-        disassociate_dir: 'Irrota hakemisto',
         documents: 'Dokumentit',
         dont_allow: 'Älä salli',
         download: 'Lataa',
@@ -147,8 +134,6 @@ const fi = {
         emptying_trash: 'Tyhjennetään roskakoria...',
         enable_2fa: 'Ota käyttöön kaksivaiheinen tunnistautuminen',
         end_hard: 'Pakotettu lopetus',
-        end_process_force_confirm:
-      'Haluatko varmasti pakottaa prosessin lopetuksen?',
         end_soft: 'Pehmeä lopetus',
         enlarged_qr_code: 'Suurennettu QR-koodi',
         enter_password_to_confirm_delete_user:
@@ -162,9 +147,7 @@ const fi = {
       'Käytä alla olevaa lomaketta lähettääksesi meille palautetta, kommentteja ja vikailmoituksia.',
         feedback_sent_confirmation:
       'Kiitos yhteydenotostasi. Jos tiliisi on liitetty sähköpostiosoite, saat meiltä vastauksen mahdollisimman pian.',
-        fit: 'Sovita',
         folder: 'Kansio',
-        force_quit: 'Pakota lopetus',
         forgot_pass_c2a: 'Unohditko salasanasi?',
 
         from: 'Henkilöltä', // TODO: Context dependent, examples
@@ -183,32 +166,26 @@ const fi = {
         // 'get a copy of a link' => 'Ota Kopio Linkkiin' or
         // 'get a link to the copy' => 'Ota Linkki Kopioon' - More probable, just want to be sure
 
-        hide_all_windows: 'Piilota kaikki ikkunat',
         home: 'Koti',
         html_document: 'HTML-dokumentti',
         hue: 'Sävy',
-        image: 'Kuva',
         incorrect_password: 'Väärä salasana',
         invite_link: 'Kutsulinkki',
         item: 'kohde',
         items_in_trash_cannot_be_renamed: 'Tätä kohdetta ei voi nimetä uudelleen, koska se on roskakorissa. Jos haluat nimetä kohteen uudelleen, palauta se ensin roskakorista.',
         jpeg_image: 'JPEG-kuva',
-        keep_in_taskbar: 'Pidä tehtäväpalkissa',
         language: 'Kieli',
         license: 'Lisenssi',
         lightness: 'Valoisuus',
         link_copied: 'Linkki kopioitu',
         loading: 'Ladataan',
         log_in: 'Kirjaudu Sisään',
-        log_into_another_account_anyway:
-      'Kirjaudu joka tapauksessa toiselle tilille',
         log_out: 'Kirjaudu ulos',
         looks_good: 'Näyttää hyvältä!',
         manage_sessions: 'Hallitse istuntoja',
         modified: 'Muokattu',
         move: 'Siirrä',
         moving_file: 'Siirretään %%',
-        my_websites: 'Sivustoni',
         name: 'Nimi',
         name_cannot_be_empty: 'Nimi ei voi olla tyhjä.',
 
@@ -229,10 +206,6 @@ const fi = {
         new_password: 'Uusi salasana',
         new_username: 'Uusi käyttäjänimi',
         no: 'Ei',
-        no_dir_associated_with_site:
-      'Tähän osoitteeseen ei ole liitetty hakemistoa.',
-        no_websites_published:
-      'Et ole vielä julkaissut yhtään verkkosivustoa. Napsauta kansiota hiiren kakkospainikkeella aloittaaksesi.',
         ok: 'OK',
         open: 'Avaa',
         open_in_new_tab: 'Avaa uudessa välilehdessä',
@@ -263,7 +236,6 @@ const fi = {
         path: 'Polku',
         personalization: 'Personointi',
         pick_name_for_website: 'Valitse nimi verkkosivustollesi:',
-        picture: 'Kuva',
         pictures: 'Kuvat',
         plural_suffix: 't',
         powered_by_puter_js: 'Palvelun tarjoaa {{link=docs}}Puter.js{{/link}}',
@@ -273,37 +245,25 @@ const fi = {
         privacy: 'Yksityisyys',
         proceed_to_login: 'Jatka sisäänkirjautumiseen',
         proceed_with_account_deletion: 'Jatka tilin poistamista',
-        process_status_initializing: 'Alustetaan',
-        process_status_running: 'Käynnissä',
-        process_type_app: 'Sovellus',
-        process_type_init: 'Alustava',
-        process_type_ui: 'Käyttöliittymä',
         properties: 'Ominaisuudet',
         public: 'Julkinen',
         publish: 'Julkaise',
         publish_as_website: 'Julkaise verkkosivustona',
         puter_description: 'Puter on yksityisyyttä korostava henkilökohtainen pilvipalvelu, jossa voit säilyttää kaikki tiedostosi, sovelluksesi ja pelisi yhdessä turvallisessa paikassa, ja jotka ovat saatavilla mistä tahansa milloin tahansa.',
         reading_file: 'Luetaan %strong%',
-        recent: 'Viimeisimmät',
-        recommended: 'Suositellut',
         recover_password: 'Palauta salasanasi',
         refer_friends_c2a:
       'Saat 1 Gt ilmaista tallennustilaa jokaisesta ystävästä, joka luo ja vahvistaa tilin Puterissa. Myös ystäväsi saa 1 Gt:n ilmaista tallennustilaa!',
         refer_friends_social_media_c2a: 'Hanki 1 Gt ilmaista tallennustilaa Puter.comista!',
         refresh: 'Päivitä',
 
-        release_address_confirmation: 'Haluatko varmasti julkaista tämän osoitteen?', // TODO: Slight ambiguity between the meaning of "release"
         // "get rid of" => "Oletko varma, että haluat luovuttaa tämän osoitteen?" or
         // "publish" => "Oletko varma, että haluat julkaista tämän osoitteen?"
 
-        remove_from_taskbar: 'Poista tehtäväpalkista',
         rename: 'Nimeä uudelleen',
-        repeat: 'Toista',
         replace: 'Replace',
         replace_all: 'Korvaa kaikki',
         resend_confirmation_code: 'Lähetä vahvistuskoodi Uudelleen',
-        reset_colors: 'Palauta värit',
-        restart_puter_confirm: 'Haluatko varmasti käynnistää Puterin uudelleen?',
         restore: 'Palauta',
         save: 'Tallenna',
         saturation: 'Kylläisyys',
@@ -313,17 +273,12 @@ const fi = {
         save_session: 'Tallenna istunto',
         save_session_c2a:
       'Luo tili tallentaaksesi nykyisen istuntosi ja välttääksesi työsi menettämisen.',
-        scan_qr_c2a:
-      'Skannaa alla oleva koodi kirjautuaksesi tähän istuntoon muilla laitteilla.',
         scan_qr_2fa: 'Skannaa QR-koodi todennussovelluksellasi',
-        scan_qr_generic:
-      'Skannaa tämä QR-koodi puhelimellasi tai toisella laitteella.',
         search: 'Etsi',
         seconds: 'sekuntia',
         security: 'Turvallisuus',
         select: 'Valitse',
         selected: 'valitut',
-        select_color: 'Valitse väri…',
         sessions: 'Istunnot',
         send: 'Lähetä',
         send_password_recovery_email: 'Lähetä salasanan palautussähköposti',
@@ -336,9 +291,7 @@ const fi = {
         // The base form of "Share" is "Jaa". So maybe "Jaa..." is appropriate?
         // If "share to" is followed by the name of a user, it will not make any sense, as the name can be suffixed by for example "Jaa %%lle".
 
-        share_with: 'Jaa:',
         shortcut_to: 'Pikakuvake',
-        show_all_windows: 'Näytä kaikki ikkunat',
         show_hidden: 'Näytä piilotetut',
         sign_in_with_puter: 'Kirjaudu sisään Puterilla',
         sign_up: 'Rekisteröidy',
@@ -347,16 +300,11 @@ const fi = {
         skip: 'Ohita',
         something_went_wrong: 'Jokin meni pieleen.',
         sort_by: 'Lajittele',
-        start: 'Käynnistä',
         status: 'Tila',
         storage_usage: 'Tallennustilan käyttö',
         storage_puter_used: 'Puterin käyttämä',
         taking_longer_than_usual:
       'Kestää hieman tavallista kauemmin. Ole hyvä ja odota...',
-        task_manager: 'Tehtävienhallinta',
-        taskmgr_header_name: 'Nimi',
-        taskmgr_header_status: 'Tila',
-        taskmgr_header_type: 'Tyyppi',
         terms: 'Ehdot',
         text_document: 'Tekstiasiakirja',
         tos_fineprint: 'Klikkaamalla \'Luo ilmainen tili\' hyväksyt Puterin {{link=terms}}käyttöehdot{{/link}} ja {{link=privacy}}tietosuojakäytännön{{/link}}.',
@@ -375,7 +323,6 @@ const fi = {
         // "Type on the keyboard" => 'Kirjoita'
 
         type_confirm_to_delete_account: "Kirjoita 'vahvista' poistaaksesi tilisi.",
-        ui_colors: 'Käyttöliittymän värit',
         ui_manage_sessions: 'Istunnon hallinta',
         ui_revoke: 'Peruuta',
         undo: 'Kumoa',
@@ -391,7 +338,6 @@ const fi = {
         videos: 'Videot',
         visibility: 'Näkyvyys',
         yes: 'Kyllä',
-        yes_release_it: 'Kyllä, julkaise se',
         you_have_been_referred_to_puter_by_a_friend:
       'Kaverisi on kutsunut sinut Puteriin!',
         zip: 'Zip',
@@ -499,30 +445,16 @@ const fi = {
         'create_shortcut_s': 'Luo pikakuvakkeita',
         'minimize': 'Pienennä',
         'reload_app': 'Lataa sovellus uudelleen',
-        'new_window': 'Uusi ikkuna',
-        'open_trash': 'Avaa roskakori',
-        'pick_name_for_worker': 'Valitse nimi työntekijälle:',
         'publish_as_serverless_worker': 'Julkaise työntekijänä',
         'toolbar.enter_fullscreen': 'Koko näyttöön',
         'toolbar.github': 'GitHub',
         'toolbar.refer': 'Suosittele',
-        'toolbar.save_account': 'Tallenna tili',
-        'toolbar.search': 'Haku',
-        'toolbar.qrcode': 'QR-koodi',
         'used_of': '{{used}} käytetty {{available}}:sta',
         'worker': 'Työntekijä',
         'billing.offering.basic': 'Perus',
         'too_many_attempts': 'Liian monta yritystä. Yritä myöhemmin uudelleen.',
         'server_timeout': 'Palvelimen vastaus kesti liian kauan. Yritä uudelleen.',
         'signup_error': 'Rekisteröitymisen aikana tapahtui virhe. Yritä uudelleen.',
-        'welcome_title': 'Tervetuloa henkilökohtaiseen Internet-tietokoneeseesi',
-        'welcome_description': 'Tallenna tiedostoja, pelaa pelejä, löydä upeita sovelluksia ja paljon muuta! Kaikki yhdessä paikassa, käytettävissä mistä tahansa ja milloin tahansa.',
-        'welcome_get_started': 'Aloita',
-        'welcome_terms': 'Ehdot',
-        'welcome_privacy': 'Tietosuoja',
-        'welcome_developers': 'Kehittäjät',
-        'welcome_open_source': 'Avoin lähdekoodi',
-        'welcome_instant_login_title': 'Välitön kirjautuminen!',
         'alert_error_title': 'Virhe!',
         'alert_warning_title': 'Varoitus!',
         'alert_info_title': 'Info',
@@ -540,19 +472,12 @@ const fi = {
         'window_title_select_font': 'Valitse fontti…',
         'window_title_session_list': 'Istuntolista',
         'window_title_set_new_password': 'Aseta uusi salasana',
-        'window_title_instant_login': 'Välitön kirjautuminen!',
         'window_title_publish_website': 'Julkaise verkkosivusto',
         'window_title_publish_worker': 'Julkaise työntekijä',
         'window_title_authenticating': 'Todennetaan...',
         'window_title_refer_friend': 'Suosittele ystävälle!',
-        'desktop_show_desktop': 'Näytä työpöytä',
-        'desktop_show_open_windows': 'Näytä avoimet ikkunat',
         'desktop_exit_full_screen': 'Poistu koko näytöstä',
         'desktop_enter_full_screen': 'Koko näyttöön',
-        'desktop_position': 'Sijainti',
-        'desktop_position_left': 'Vasen',
-        'desktop_position_bottom': 'Ala',
-        'desktop_position_right': 'Oikea',
         'item_shared_with_you': 'Käyttäjä on jakanut tämän kohteen kanssasi.',
         'item_shared_by_you': 'Olet jakanut tämän kohteen ainakin yhden muun käyttäjän kanssa.',
         'item_shortcut': 'Pikakuvake',
@@ -567,8 +492,6 @@ const fi = {
         'window_title_pictures': 'Kuvat',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Tämä kansio on tyhjä',
-        'manage_your_subdomains': 'Hallitse aliverkkotunnuksiasi',
-        'open_containing_folder': 'Avaa sisältävä kansio',
     },
 };
 

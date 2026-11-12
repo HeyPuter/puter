@@ -2896,7 +2896,7 @@ export class AuthService extends PuterService {
 
     #actorUserFromRow(user: UserRow) {
         // Strip the password hash; pass everything else through so callers
-        // can read metadata, desktop_bg_*, otp_enabled, etc. without
+        // can read metadata, otp_enabled, etc. without
         // re-fetching the user. Mirrors what /whoami exposes off of UserRow.
         const { password: _password, ...rest } = user;
         return {

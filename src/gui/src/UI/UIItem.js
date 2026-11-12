@@ -18,21 +18,17 @@
  */
 
 import UIWindowItemProperties from './UIWindowItemProperties.js';
-import ensureConfirmedEmail from '../helpers/ensureConfirmedEmail.js';
 import UIPopover from './UIPopover.js';
 import UIContextMenu from './UIContextMenu.js';
 import UIAlert from './UIAlert.js';
-import UIWindowPublishWorker from './UIWindowPublishWorker.js';
-import UIWindowShare from './UIWindowShare.js';
 import path from '../lib/path.js';
 import truncate_filename from '../helpers/truncateFilename.js';
 import launch_app from '../helpers/launchApp.js';
 import open_item from '../helpers/openItem.js';
 import publish_as_website from '../helpers/publishAsWebsite.js';
-import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/pathOwner.js';
-import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
+import { can_rename, can_restructure, invalidate_shared_roots } from '../helpers/sharedAccess.js';
 import { is_default_app } from '../helpers/defaultApp.js';
 import openWithAI from '../helpers/openWithAI.js';
 import refresh_item_container from '../helpers/refreshItemContainer.js';
@@ -329,7 +325,6 @@ async function UIItem (options) {
             last_window_dragged_over = null;
 
             window.an_item_is_being_dragged = true;
-            $('.toolbar').css('pointer-events', 'none');
         },
         drag: function (event, ui) {
             // Constrain item within desktop bounds
@@ -419,8 +414,8 @@ async function UIItem (options) {
             // the desktop itself, not a window showing the Desktop folder
             if ( $(el_item).closest('.item-container').hasClass('desktop') &&
                 !window.is_auto_arrange_enabled && $(el_item).attr('data-path') !== window.trash_path && !ui.helper.data('dropped') &&
-                // Item must be dropped on the Desktop and not on the taskbar
-                window.mouseover_window === undefined && ui.position.top <= window.desktop_height - window.taskbar_height - 15 ) {
+                // .desktop clips its overflow, so the whole item has to fit above the bottom edge
+                window.mouseover_window === undefined && ui.position.top + $(el_item).outerHeight(true) <= window.desktop_height ) {
 
                 el_item.style.position = 'absolute';
                 el_item.style.left = `${ui.position.left }px`;
@@ -442,7 +437,6 @@ async function UIItem (options) {
             clearTimeout(longer_hover_timeout);
             last_window_dragged_over = null;
             window.an_item_is_being_dragged = false;
-            $('.toolbar').css('pointer-events', 'auto');
         },
     });
 
@@ -1099,11 +1093,6 @@ async function UIItem (options) {
             // Someone else's, however we got here — including items reached by
             // opening a shared folder, which carry no share markers.
             const is_not_mine = !is_owned_by_me($(el_item).attr('data-path'));
-            // `manage` inherits downwards, so a file inside a folder you manage
-            // counts too — the row itself only carries a mode at a shared root.
-            const can_manage_share =
-                $(el_item).attr('data-share_mode') === 'manage'
-                || (await shared_mode_for($(el_item).attr('data-path'))) === 'manage';
             // Moving and deleting go by the holding folder, not by the item.
             const may_restructure = !is_not_mine
                 || await can_restructure($(el_item).attr('data-path'));
@@ -1269,19 +1258,6 @@ async function UIItem (options) {
                 });
 
             }
-            //-------------------------------------------
-            // Publish as Worker
-            // -------------------------------------------
-            // The backend refuses deploys from a file someone else owns.
-            if ( !is_trashed && !is_trash && !is_not_mine && !options.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
-                menu_items.push({
-                    html: i18n('publish_as_serverless_worker'),
-                    onClick: async function () {
-                        if ( ! await ensureConfirmedEmail(i18n('save_account_to_publish')) ) return;
-                        UIWindowPublishWorker(options.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
-                    },
-                });
-            }
             // -------------------------------------------
             // Deploy As App
             // -------------------------------------------
@@ -1315,20 +1291,6 @@ async function UIItem (options) {
                 });
             }
             // -------------------------------------------
-            // Share
-            // -------------------------------------------
-            if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
-                menu_items.push({
-                    html: i18n('share_ellipsis'),
-                    onClick: async function () {
-                        UIWindowShare({
-                            path: $(el_item).attr('data-path'),
-                            name: $(el_item).attr('data-name'),
-                        });
-                    },
-                });
-            }
-            // -------------------------------------------
             // Download
             // -------------------------------------------
             if ( !is_trash && !is_trashed && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
@@ -1343,48 +1305,6 @@ async function UIItem (options) {
                         else
                         {
                             window.trigger_download([$(el_item).attr('data-path')]);
-                        }
-                    },
-                });
-            }
-            // -------------------------------------------
-            // Set as Wallpaper
-            // -------------------------------------------
-            const mime_type = mime.getType($(el_item).attr('data-name')) ??
-                'application/octet-stream';
-            if ( !is_trashed && !is_trash && !options.is_dir && mime_type.startsWith('image/') ) {
-                menu_items.push({
-                    html: i18n('set_as_background'),
-                    onClick: async function () {
-                        const read_url = await puter.fs.sign(undefined, { uid: $(el_item).attr('data-uid'), action: 'read' });
-                        window.set_desktop_background({
-                            url: read_url.items.read_url,
-                            fit: window.desktop_bg_fit,
-                        });
-                        try {
-                            $.ajax({
-                                url: `${window.api_origin }/set-desktop-bg`,
-                                type: 'POST',
-                                data: JSON.stringify({
-                                    url: window.desktop_bg_url,
-                                    color: window.desktop_bg_color,
-                                    fit: window.desktop_bg_fit,
-                                }),
-                                async: true,
-                                contentType: 'application/json',
-                                headers: {
-                                    'Authorization': `Bearer ${window.auth_token}`,
-                                },
-                                statusCode: {
-                                    401: function (xhr) {
-                        window.handle401(xhr);
-                    },
-                                },
-                            });
-                            $(el_window).close();
-                            resolve(true);
-                        } catch ( err ) {
-                            // Ignore
                         }
                     },
                 });
@@ -1634,7 +1554,7 @@ async function UIItem (options) {
                     left = left > (window.innerWidth - window_width) ? (window.innerWidth - window_width) : left;
 
                     let top = $(el_item).position().top + $(el_item).height();
-                    top = top > (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.taskbar_height + window.toolbar_height)) : top;
+                    top = top > (window.innerHeight - (window_height + window.toolbar_height)) ? (window.innerHeight - (window_height + window.toolbar_height)) : top;
 
                     UIWindowItemProperties(
                         $(el_item).attr('data-name'),

@@ -29,26 +29,17 @@ const hu = {
         add_another_account: 'Másik fiók hozzáadása',
         all_fields_required: 'Minden mező kitöltése kötelező.',
         allow: 'Engedélyez',
-        apply: 'Alkalmaz',
         ascending: 'Növekvő',
         associated_websites: 'Kapcsolódó weboldalak',
         auto_arrange: 'Automatikus elrendezés',
-        background: 'Háttér',
-        browse: 'Böngészés',
         cancel: 'Mégsem',
-        center: 'Középre',
-        change_desktop_background: 'Asztal háttérképének módosítása...',
         change_email: 'Email módosítása',
         change_language: 'Nyelv módosítása',
         change_password: 'Jelszó módosítása',
-        change_ui_colors: 'UI színek módosítása',
         change_username: 'Felhasználónév módosítása',
         close: 'Bezár',
-        close_all_windows: 'Minden ablak bezárása',
-        close_all_windows_confirm: 'Biztosan be akarod zárni az összes ablakot?',
         close_all_windows_and_log_out: 'Ablakok bezárása és kijelentkezés',
         change_always_open_with: 'Mindig ezzel az alkalmazással nyitja meg ezt a fájlt?',
-        color: 'Szín',
         confirm: 'Megerősít',
         confirm_2fa_setup: 'A kódot hozzáadtam a hitelesítő alkalmazásomhoz',
         confirm_2fa_recovery: 'A helyreállítási kódokat biztonságos helyen tároltam',
@@ -71,13 +62,11 @@ const hu = {
         confirm_your_email_address: 'Email címed megerősítése',
         contact_us: 'Kapcsolat',
         contact_us_verification_required: 'A használathoz érvényesített email címmel kell rendelkezned.',
-        contain: 'Tartalmaz',
         continue: 'Folytatás',
         copy: 'Másolás',
         copy_link: 'Link másolása',
         copying: 'Másolás',
         copying_file: 'Másolás: %%',
-        cover: 'Borító',
         create_account: 'Fiók létrehozása',
         create_free_account: 'Ingyenes fiók létrehozása',
         create_shortcut: 'Parancsikon létrehozása',
@@ -87,7 +76,6 @@ const hu = {
         close_all: 'Összes bezárása',
         created: 'Létrehozva',
         date_modified: 'Módosítás dátuma',
-        default: 'Alapértelmezett',
         delete: 'Törlés',
         delete_account: 'Fiók törlése',
         delete_permanently: 'Végleges törlés',
@@ -101,7 +89,6 @@ const hu = {
         disable_2fa: '2FA letiltása',
         disable_2fa_confirm: 'Biztosan letiltod a 2FA-t?',
         disable_2fa_instructions: 'Add meg a jelszavad a 2FA letiltásához.',
-        disassociate_dir: 'Könyvtár leválasztása',
         documents: 'Dokumentumok',
         dont_allow: 'Nem engedélyez',
         download: 'Letöltés',
@@ -117,7 +104,6 @@ const hu = {
         emptying_trash: 'Kuka ürítése...',
         enable_2fa: '2FA engedélyezése',
         end_hard: 'Kemény befejezés',
-        end_process_force_confirm: 'Biztosan kényszerített kilépést hajtasz végre erre a folyamatra?',
         end_soft: 'Lágy befejezés',
         enlarged_qr_code: 'Nagyított QR kód',
         enter_password_to_confirm_delete_user: 'Add meg a jelszavad a fiók törlésének megerősítéséhez',
@@ -128,39 +114,32 @@ const hu = {
         feedback: 'Visszajelzés',
         feedback_c2a: 'Kérlek, használd az alábbi űrlapot, hogy elküldd nekünk visszajelzésedet, észrevételeidet és hibajelentéseidet.',
         feedback_sent_confirmation: 'Köszönjük, hogy kapcsolatba léptél velünk. Ha van email címed a fiókodhoz társítva, hamarosan hallani fogsz rólunk.',
-        fit: 'Illesztés',
         folder: 'Mappa',
-        force_quit: 'Kényszerített kilépés',
         forgot_pass_c2a: 'Elfelejtetted a jelszavad?',
         from: 'Tól',
         general: 'Általános',
         get_a_copy_of_on_puter: "Szerezz egy példányt a(z) '%%' Puter.com-on!",
         get_copy_link: 'Másolási link megszerzése',
-        hide_all_windows: 'Minden ablak elrejtése',
         home: 'Otthon',
         html_document: 'HTML dokumentum',
         hue: 'Színárnyalat',
-        image: 'Kép',
         incorrect_password: 'Helytelen jelszó',
         invite_link: 'Meghívó link',
         item: 'elem',
         items_in_trash_cannot_be_renamed: 'Ez az elem nem nevezhető át, mert a kukában van. A név megváltoztatásához először húzd ki a Kukából.',
         jpeg_image: 'JPEG kép',
-        keep_in_taskbar: 'Tartsa a tálcán',
         language: 'Nyelv',
         license: 'Licenc',
         lightness: 'Világosság',
         link_copied: 'Link másolva',
         loading: 'Betöltés',
         log_in: 'Bejelentkezés',
-        log_into_another_account_anyway: 'Bejelentkezés egy másik fiókba',
         log_out: 'Kijelentkezés',
         looks_good: 'Jól néz ki!',
         manage_sessions: 'Munkamenetek kezelése',
         modified: 'Módosítva',
         move: 'Mozgatás',
         moving_file: 'Mozgatás: %%',
-        my_websites: 'Saját weboldalaim',
         name: 'Név',
         name_cannot_be_empty: 'A név nem lehet üres.',
         name_cannot_contain_double_period: "A név nem tartalmazhatja a '..' karaktert.",
@@ -174,8 +153,6 @@ const hu = {
         new_password: 'Új jelszó',
         new_username: 'Új felhasználónév',
         no: 'Nem',
-        no_dir_associated_with_site: 'Ehhez a címhez nincs társítva könyvtár.',
-        no_websites_published: 'Még nem publikáltál egyetlen weboldalt sem. Kattints jobb gombbal egy mappára a kezdéshez.',
         ok: 'Rendben',
         open: 'Megnyitás',
         open_in_new_tab: 'Megnyitás új lapon',
@@ -197,7 +174,6 @@ const hu = {
         path: 'Útvonal',
         personalization: 'Személyre szabás',
         pick_name_for_website: 'Válassz nevet a weboldaladnak:',
-        picture: 'Kép',
         pictures: 'Képek',
         plural_suffix: 'k',
         powered_by_puter_js: 'A Puter.js hajtja',
@@ -207,32 +183,20 @@ const hu = {
         privacy: 'Adatvédelem',
         proceed_to_login: 'Folytatás a bejelentkezéshez',
         proceed_with_account_deletion: 'Fiók törlésének folytatása',
-        process_status_initializing: 'Inicializálás',
-        process_status_running: 'Fut',
-        process_type_app: 'Alkalmazás',
-        process_type_init: 'Inicializálás',
-        process_type_ui: 'Felhasználói felület',
         properties: 'Tulajdonságok',
         public: 'Nyilvános',
         publish: 'Közzététel',
         publish_as_website: 'Közzététel weboldalként',
         puter_description: 'A Puter egy adatvédelmi elsőként kezelt személyes felhő, amelyben minden fájlodat, alkalmazásodat és játékodat egy biztonságos helyen tárolhatod, bárhonnan, bármikor elérhetően.',
         reading_file: 'Fájl olvasása: %strong%',
-        recent: 'Legutóbbi',
-        recommended: 'Ajánlott',
         recover_password: 'Jelszó visszaállítása',
         refer_friends_c2a: 'Kapj 1 GB-ot minden barátodért, aki létrehoz és megerősít egy fiókot a Puteren. A barátod is kap 1 GB-ot!',
         refer_friends_social_media_c2a: 'Kapj 1 GB ingyenes tárhelyet a Puter.com-on!',
         refresh: 'Frissítés',
-        release_address_confirmation: 'Biztosan felszabadítod ezt a címet?',
-        remove_from_taskbar: 'Eltávolítás a tálcáról',
         rename: 'Átnevezés',
-        repeat: 'Ismétlés',
         replace: 'Csere',
         replace_all: 'Összes cseréje',
         resend_confirmation_code: 'Megerősítő kód újraküldése',
-        reset_colors: 'Színek visszaállítása',
-        restart_puter_confirm: 'Biztosan újraindítod a Putert?',
         restore: 'Visszaállítás',
         save: 'Mentés',
         saturation: 'Telítettség',
@@ -241,15 +205,12 @@ const hu = {
         save_account_to_publish: 'A folytatáshoz kérlek, hozz létre egy fiókot.',
         save_session: 'Munkamenet mentése',
         save_session_c2a: 'Hozz létre egy fiókot, hogy mentsd az aktuális munkamenetedet és elkerüld a munkád elvesztését.',
-        scan_qr_c2a: 'Olvasd be az alábbi kódot, hogy bejelentkezhess ebbe a munkamenetbe más eszközökről',
         scan_qr_2fa: 'Olvasd be a QR-kódot a hitelesítő alkalmazásoddal',
-        scan_qr_generic: 'Olvasd be ezt a QR-kódot a telefonoddal vagy más eszközzel',
         search: 'Keresés',
         seconds: 'másodperc',
         security: 'Biztonság',
         select: 'Kiválasztás',
         selected: 'kiválasztva',
-        select_color: 'Szín kiválasztása...',
         sessions: 'Munkamenetek',
         send: 'Küldés',
         send_password_recovery_email: 'Jelszó visszaállító email küldése',
@@ -258,9 +219,7 @@ const hu = {
         set_new_password: 'Új jelszó beállítása',
         share: 'Megosztás',
         share_to: 'Megosztás ide:',
-        share_with: 'Megosztás valakivel:',
         shortcut_to: 'Parancsikon ide:',
-        show_all_windows: 'Összes ablak megjelenítése',
         show_hidden: 'Rejtett megjelenítése',
         sign_in_with_puter: 'Bejelentkezés Puterrel',
         sign_up: 'Regisztráció',
@@ -269,15 +228,10 @@ const hu = {
         skip: 'Kihagyás',
         something_went_wrong: 'Valami hiba történt.',
         sort_by: 'Rendezés',
-        start: 'Indítás',
         status: 'Állapot',
         storage_usage: 'Tárhely használat',
         storage_puter_used: 'Puter által használt',
         taking_longer_than_usual: 'Kicsit tovább tart, mint általában. Kérlek várj...',
-        task_manager: 'Feladatkezelő',
-        taskmgr_header_name: 'Név',
-        taskmgr_header_status: 'Állapot',
-        taskmgr_header_type: 'Típus',
         terms: 'Feltételek',
         text_document: 'Szöveges dokumentum',
         tos_fineprint: "A 'Ingyenes fiók létrehozása' gombra kattintva elfogadod a Puter {{link=terms}}Szolgáltatási feltételeit{{/link}} és {{link=privacy}}Adatvédelmi irányelveit{{/link}}.",
@@ -288,7 +242,6 @@ const hu = {
         two_factor_enabled: '2FA engedélyezve',
         type: 'Típus',
         type_confirm_to_delete_account: "Írd be, hogy 'megerősít' a fiók törléséhez.",
-        ui_colors: 'UI színek',
         ui_manage_sessions: 'Munkamenetkezelő',
         ui_revoke: 'Visszavonás',
         undo: 'Visszavonás',
@@ -304,7 +257,6 @@ const hu = {
         videos: 'Videók',
         visibility: 'Láthatóság',
         yes: 'Igen',
-        yes_release_it: 'Igen, Engedd El',
         you_have_been_referred_to_puter_by_a_friend: 'Egy barátod ajánlott téged a Puterhez!',
         zip: 'Zip',
         zipping_file: 'Tömörítés: %strong%',
@@ -399,30 +351,16 @@ const hu = {
         'create_shortcut_s': 'Parancsikonok létrehozása', // English: "Create Shortcuts"
         'minimize': 'Minimalizálás', // English: "Minimize"
         'reload_app': 'Alkalmazás újratöltése', // English: "Reload App"
-        'new_window': 'Új ablak', // English: "New Window"
-        'open_trash': 'Szemetes megnyitása', // English: "Open Trash"
-        'pick_name_for_worker': 'Válasszon nevet a munkásnak', // English: "Pick a name for your worker"
         'publish_as_serverless_worker': 'Munkás közzététele', // English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Teljes képernyő', // English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // English: "GitHub"
         'toolbar.refer': 'Ajánlás', // English: "Refer"
-        'toolbar.save_account': 'Fiók mentése', // English: "Save Account"
-        'toolbar.search': 'Keresés', // English: "Search"
-        'toolbar.qrcode': 'QR-kód', // English: "QR Code"
         'used_of': '{{used}} használt a {{available}}-ból', // English: "{{used}} used of {{available}}"
         'worker': 'Munkás', // English: "Worker"
         'billing.offering.basic': 'Alap', // English: "Basic"
         'too_many_attempts': 'Túl sok próbálkozás. Kérjük, próbálja meg később.', // English: "Too many attempts. Please try again later."
         'server_timeout': 'A szerver túl sokáig válaszolt. Kérjük, próbálja meg újra.', // English: "The server took too long to respond. Please try again."
         'signup_error': 'Hiba történt a regisztráció során. Kérjük, próbálja újra.', // English: "An error occurred during signup. Please try again."
-        'welcome_title': 'Üdvözöljük a Személyes Internet Számítógépén', // English: "Welcome to your Personal Internet Computer"
-        'welcome_description': 'Tároljon fájlokat, játsszon játékokat, fedezzen fel nagyszerű alkalmazásokat és még sok mást! Mindez egy helyen, bárhonnan és bármikor elérhető.', // English: "Store files, play games, find awesome apps, and much more! All in one place, accessible from anywhere at any time."
-        'welcome_get_started': 'Kezdés', // English: "Get Started"
-        'welcome_terms': 'Feltételek', // English: "Terms"
-        'welcome_privacy': 'Adatvédelem', // English: "Privacy"
-        'welcome_developers': 'Fejlesztők', // English: "Developers"
-        'welcome_open_source': 'Nyílt forráskód', // English: "Open Source"
-        'welcome_instant_login_title': 'Azonnali bejelentkezés!', // English: "Instant Login!"
         'alert_error_title': 'Hiba!', // English: "Error!"
         'alert_warning_title': 'Figyelmeztetés!', // English: "Warning!"
         'alert_info_title': 'Információ', // English: "Info"
@@ -440,19 +378,12 @@ const hu = {
         'window_title_select_font': 'Betű kiválasztása…', // English: "Select font…"
         'window_title_session_list': 'Munkamenet lista!', // English: "Session List!"
         'window_title_set_new_password': 'Új jelszó beállítása', // English: "Set New Password"
-        'window_title_instant_login': 'Azonnali bejelentkezés!', // English: "Instant Login!"
         'window_title_publish_website': 'Webhely közzététele', // English: "Publish Website"
         'window_title_publish_worker': 'Munkás közzététele', // English: "Publish Worker"
         'window_title_authenticating': 'Hitelesítés...', // English: "Authenticating..."
         'window_title_refer_friend': 'Barát ajánlása!', // English: "Refer a friend!"
-        'desktop_show_desktop': 'Asztal megjelenítése', // English: "Show Desktop"
-        'desktop_show_open_windows': 'Megnyitott ablakok megjelenítése', // English: "Show Open Windows"
         'desktop_exit_full_screen': 'Kilépés teljes képernyőből', // English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Teljes képernyő', // English: "Enter Full Screen"
-        'desktop_position': 'Pozíció', // English: "Position"
-        'desktop_position_left': 'Bal', // English: "Left"
-        'desktop_position_bottom': 'Alul', // English: "Bottom"
-        'desktop_position_right': 'Jobb', // English: "Right"
         'item_shared_with_you': 'Egy felhasználó megosztotta Önnel ezt az elemet.', // English: "A user has shared this item with you."
         'item_shared_by_you': 'Legalább egy másik felhasználóval megosztotta ezt az elemet.', // English: "You have shared this item with at least one other user."
         'item_shortcut': 'Parancsikon', // English: "Shortcut"
@@ -467,8 +398,6 @@ const hu = {
         'window_title_pictures': 'Képek', // English: "Pictures"
         'window_title_puter': 'Puter', // English: "Puter"
         'window_folder_empty': 'Ez a mappa üres', // English: "This folder is empty"
-        'manage_your_subdomains': 'Aldomainjeinek kezelése', // English: "Manage Your Subdomains"
-        'open_containing_folder': 'A tartalmazó mappa megnyitása', // English: "Open Containing Folder"
 
     },
 };

@@ -615,7 +615,7 @@ window.check_fsentry_against_allowed_file_types_string = function (fsentry, allo
 window.refresh_user_data = async (auth_token) => {
     let whoami;
     try {
-        whoami = await puter.os.user({ query: 'icon_size=64' });
+        whoami = await puter.os.user();
     } catch (e) {
         // Ignored
     }
@@ -677,6 +677,7 @@ window.update_auth_data = async (auth_token, user) => {
 
     const to_storable_user = user => {
         const storable_user = { ...user };
+        // Older sessions stored taskbar_items, with app icons, in these copies.
         delete storable_user.taskbar_items;
         return storable_user;
     };
@@ -746,11 +747,6 @@ window.update_auth_data = async (auth_token, user) => {
     window.home_path = `/${ window.user.username}`;
     window.public_path = `/${ window.user.username }/Public`;
     window.shared_path = 'puter://shared';
-
-    if ( window.user !== null && !window.user.is_temp ) {
-        $('.user-options-login-btn, .user-options-create-account-btn').hide();
-        $('.user-options-menu-btn').show();
-    }
 
     // Search and store user templates (non-blocking)
     window.available_templates();
@@ -1731,14 +1727,13 @@ window.trigger_download = (paths) => {
 
 /**
  * Updates every Trash icon in the UI to reflect whether the trash is empty:
- * the taskbar item, desktop items (and shortcuts to Trash), open explorer
- * window head icons, and the Dashboard's Files-tab sidebar.
+ * desktop items (and shortcuts to Trash), open explorer window head icons,
+ * and the Dashboard's Files-tab sidebar.
  *
  * @param {boolean} is_empty - Whether the trash is empty
  */
 window.update_trash_icons = function (is_empty) {
     const icon = is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'];
-    $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', icon);
     $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', icon);
     $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', icon);
     $('.directories [data-folder="Trash"] img').attr('src', icon);
@@ -2032,7 +2027,6 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     if ( $(el_item).attr('data-is_dir') === '1' ) {
                         // Its websites stay registered: the server doesn't
                         // serve a root in Trash, and restoring brings them back.
-                        $(`.mywebsites-dir-path[data-uuid="${$(el_item).attr('data-uid')}"]`).remove();
                         // remove the website badge from all instances of the dir
                         $(`.item[data-uid="${$(el_item).attr('data-uid')}"]`).find('.item-has-website-badge').fadeOut(300);
                     }
@@ -2192,37 +2186,6 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
         setTimeout(() => {
             progwin.close();
         }, window.copy_progress_hide_delay);
-    }
-};
-
-/**
- * Refreshes the desktop background based on the user's settings.
- * If the user has set a custom desktop background URL or color, it will use that.
- * If not, it defaults to a specific wallpaper image.
- *
- * @global
- * @function
- * @fires set_desktop_background - Calls this global function to set the desktop background.
- *
- * @example
- * // This will refresh the desktop background according to the user's preference or defaults.
- * window.refresh_desktop_background();
- */
-window.refresh_desktop_background = function () {
-    if ( window.user && (window.user.desktop_bg_url !== null || window.user.desktop_bg_color !== null) ) {
-        window.set_desktop_background({
-            url: window.user.desktop_bg_url,
-            fit: window.user.desktop_bg_fit,
-            color: window.user.desktop_bg_color,
-        });
-    }
-    // default background
-    else {
-        let wallpaper = (window.gui_env === 'prod') ? 'https://puter-assets.b-cdn.net/wallpaper.webp' : '/src/images/wallpaper.webp';
-        window.set_desktop_background({
-            url: wallpaper,
-            fit: 'cover',
-        });
     }
 };
 
