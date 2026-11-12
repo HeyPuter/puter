@@ -34,7 +34,7 @@ An object containing the following properties:
 | `stream` | `Boolean` | A boolean indicating whether you want to stream the completion. Defaults to `false`. |
 | `max_tokens` | `Number` | The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used. |
 | `temperature` | `Number` | A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the model's own temperature is used. See [Model-specific features](#model-specific-features). |
-| `reasoning_effort` / `reasoning.effort` | `String` | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. OpenAI models, Moonshot's Kimi K3.1 Pro models, Meta's Muse Spark models, `gemini-4-argon`, `gemini-3.1-flash-lite` and `gemini-3-flash-preview` only. See [Model-specific features](#model-specific-features). |
+| `reasoning_effort` / `reasoning.effort` | `String` | Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Lower values give faster responses with less reasoning. OpenAI models, Moonshot's Kimi K3.1 Pro models, Meta's Muse Spark models, `gemini-4-carbon`, `gemini-4-argon`, `gemini-3.1-flash-lite` and `gemini-3-flash-preview` only. See [Model-specific features](#model-specific-features). |
 | `thinking` | `Object \| null` | Extended-thinking control: `{ type: "adaptive" \| "enabled" \| "disabled" \| "between_tools", budgetTokens?, display? }`. Pass `null` to send no thinking configuration at all (the model's own default); leaving it unset falls back to the legacy derivation from `reasoning_effort`. `budgetTokens` only applies to `type: "enabled"`. |
 | `verbosity` / `text.verbosity` | `String` | Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only. |
 | `tools` | `Array` | Function definitions the AI can call. See [Function Calling](#function-calling) for details. |
@@ -465,11 +465,11 @@ Fast service uses Priority inference on supported text and image requests. Other
 
 #### `temperature`
 
-`gemini-4-argon` ignores `temperature`. `gemini-3.1-flash-lite` and `gemini-3-flash-preview` use it.
+Gemini 4 Carbon (`gemini-4-carbon`) and Gemini 4 Argon (`gemini-4-argon`) ignore `temperature`. The `gemini-3.1-flash-lite` and `gemini-3-flash-preview` models use it.
 
 #### `reasoning_effort`
 
-`gemini-4-argon` accepts `low`, `medium` and `high`, and uses `medium` when you leave it unset. `gemini-3.1-flash-lite` and `gemini-3-flash-preview` accept `minimal`, `low`, `medium` and `high`, and use Google's default level when you leave it unset. For these three Gemini models, any other value fails with `400 bad_request`, and messages can contain text and images only.
+Gemini 4 Carbon and Gemini 4 Argon accept `low`, `medium` and `high`, and use `medium` when you leave it unset. The `gemini-3.1-flash-lite` and `gemini-3-flash-preview` models accept `minimal`, `low`, `medium` and `high`, and use Google's default level when you leave it unset. For these four Gemini models, any other value fails with `400 bad_request`, and messages can contain text and images only.
 
 #### Function calling
 

@@ -39,10 +39,10 @@ const VIDEO_TIMEOUT_MS = 5 * 60 * 1000;
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'KlingVideoProvider (integration)',
     () => {
-        it(
-            'generates a video URL from kling-2.5-turbo',
+        it.each(['kling-2.5-turbo', 'kling-4.0', 'kling-4.0-flash'])(
+            'generates a video URL from %s',
             { timeout: VIDEO_TIMEOUT_MS },
-            async () => {
+            async (model) => {
                 const provider = new KlingVideoProvider(
                     { apiKey: optionalEnv(ENV_VAR)! },
                     makeMeteringStub(),
@@ -51,7 +51,7 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
 
                 const url = await withTestActor(() =>
                     provider.generate({
-                        model: 'kling-2.5-turbo',
+                        model,
                         prompt: 'a red ball rolls to the right',
                         resolution: '720p',
                         seconds: 5,

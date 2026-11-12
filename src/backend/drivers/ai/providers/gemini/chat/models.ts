@@ -49,6 +49,13 @@ export const GEMINI_NATIVE_MODELS: ReadonlyMap<string, GeminiNativeOptions> =
                 temperature: false,
             },
         ],
+        [
+            'gemini-4-carbon',
+            {
+                reasoningEfforts: new Set(['low', 'medium', 'high']),
+                temperature: false,
+            },
+        ],
         ['gemini-3.1-flash-lite', FLASH_NATIVE_OPTIONS],
         ['gemini-3-flash-preview', FLASH_NATIVE_OPTIONS],
     ]);
@@ -88,7 +95,7 @@ const FLASH_LIST_PRICING = listPricingFrom(
     FLASH_LAUNCH_COSTS,
 );
 
-const ARGON_LAUNCH_COSTS: ModelCost = {
+const GEMINI_4_LAUNCH_COSTS: ModelCost = {
     tokens: 1_000_000,
     prompt_tokens: 200,
     completion_tokens: 1000,
@@ -143,10 +150,36 @@ export const GEMINI_MODELS: IChatModel[] = [
         input_cost_key: 'prompt_tokens',
         output_cost_key: 'completion_tokens',
         serviceSpeedRates: { fast: 1.8 },
-        costs: ARGON_LAUNCH_COSTS,
+        costs: GEMINI_4_LAUNCH_COSTS,
         pricingOverrides: listPricingFrom(
             '2026-12-01T00:00:00Z',
-            ARGON_LAUNCH_COSTS,
+            GEMINI_4_LAUNCH_COSTS,
+        ),
+    },
+    {
+        puterId: 'google:google/gemini-4-carbon',
+        id: 'gemini-4-carbon',
+        // The native adapter forwards only text and image parts.
+        modalities: {
+            input: ['text', 'image'],
+            output: ['text'],
+        },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-11-10',
+        name: 'Gemini 4 Carbon',
+        aliases: ['google/gemini-4-carbon'],
+        // One window shared by input, thinking and output.
+        context: 1_048_576,
+        max_tokens: 65_536,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        serviceSpeedRates: { fast: 1.8 },
+        costs: GEMINI_4_LAUNCH_COSTS,
+        pricingOverrides: listPricingFrom(
+            '2026-12-01T00:00:00Z',
+            GEMINI_4_LAUNCH_COSTS,
         ),
     },
     {

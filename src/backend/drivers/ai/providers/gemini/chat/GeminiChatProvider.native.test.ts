@@ -114,6 +114,7 @@ const makeProvider = (
 const ARGON = GEMINI_MODELS.find((m) => m.id === 'gemini-4-argon')!;
 const LAUNCH = new Date('2026-10-14T12:00:00Z');
 const NATIVE_IDS = [
+    'gemini-4-carbon',
     'gemini-4-argon',
     'gemini-3.1-flash-lite',
     'gemini-3-flash-preview',
@@ -1615,4 +1616,35 @@ describe('geminiNativeClient deadline', () => {
         expect((err as Error).name).toBe('AbortError');
         expect(isUpstreamTimeoutError(err)).toBe(false);
     });
+});
+
+describe('Gemini 4 Carbon', () => {
+    it.each([
+        ['2026-11-30T23:59:59.999Z', 200, 1000, 10],
+        ['2026-12-01T00:00:00.000Z', 400, 2000, 20],
+    ])(
+        'routes natively and meters thinking at %s',
+        async (date, input, output, cached) => {
+            generateContent.mockResolvedValueOnce(
+                textResponse('OK', { ...LIVE_USAGE, cachedContentTokenCount: 6 }),
+            );
+            await complete(
+                {
+                    model: 'google/gemini-4-carbon',
+                    temperature: 0.5,
+                    reasoning_effort: 'medium',
+                },
+                new Date(date),
+            );
+            expect(requestOf().model).toBe('gemini-4-carbon');
+            expect(requestOf().config).not.toHaveProperty('temperature');
+            expect(openAICreate).not.toHaveBeenCalled();
+            expect(recordSpy.mock.calls[0]![3]).toMatchObject({
+                prompt_tokens: 30 * input,
+                completion_tokens: 5 * output,
+                thinking_tokens: 69 * output,
+                cached_tokens: 6 * cached,
+            });
+        },
+    );
 });

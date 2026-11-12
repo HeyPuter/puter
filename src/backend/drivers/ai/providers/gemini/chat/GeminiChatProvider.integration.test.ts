@@ -113,7 +113,6 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
                 expect(typeof text === 'string' && text.length > 0).toBe(true);
             },
         );
-
     },
 );
 
@@ -377,3 +376,30 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
         );
     },
 );
+
+describe.skipIf(skipUnlessEnv(ENV_VAR))('Gemini 4 Carbon (integration)', () => {
+    it(
+        'generates a native text completion',
+        { timeout: INTEGRATION_TEST_TIMEOUT_MS },
+        async () => {
+            const provider = new GeminiChatProvider(
+                { apiKey: optionalEnv(ENV_VAR)! },
+                makeMeteringStub(),
+            );
+            const result = await withTestActor(() =>
+                provider.complete({
+                    model: 'gemini-4-carbon',
+                    messages: [{ role: 'user', content: 'Reply with OK.' }],
+                    reasoning_effort: 'low',
+                    max_tokens: 32768,
+                } as ICompleteArguments),
+            );
+            const message = result as IChatMessageResult;
+            expect(typeof message.message.content).toBe('string');
+            expect(
+                (message.message.content as string).trim().length,
+            ).toBeGreaterThan(0);
+            expectBilledOutput(message.usage, message.usageDetails);
+        },
+    );
+});

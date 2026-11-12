@@ -288,6 +288,8 @@ Available when using a Kling model (provider `'kling-video-generation'`). Every 
 
 | Model | Alias | Duration (s) | Resolutions | Audio | Last frame | Reference images | `inputVideo` |
 |-------|-------|--------------|-------------|-------|------------|------------------|--------------|
+| `kling-4.0` | | 3 to 30, default 5 | `720p`, `1080p` | Always | Yes | No | No |
+| `kling-4.0-flash` | | 3 to 20, default 5 | `720p` | Always | No | No | No |
 | `kling-3.0-turbo` (default) | `kling-v3-turbo` | 3 to 15, default 5 | `720p`, `1080p` | Always | No | No | No |
 | `kling-3.0` | `kling-v3` | 3 to 15, default 5 | `720p`, `1080p`, `4k` | Optional | Yes | No | No |
 | `kling-3.0-omni` | `kling-v3-omni` | 3 to 15, default 5 | `720p`, `1080p`, `4k` | Optional | Yes | Up to 7 | Yes |
@@ -299,6 +301,8 @@ The first resolution listed is the default. Prices are per second of output:
 
 | Model | 720p | 1080p | 4K |
 |-------|------|-------|----|
+| `kling-4.0` | $0.157 | $0.2355 | |
+| `kling-4.0-flash` | $0.0942 | | |
 | `kling-3.0-turbo` | $0.112 | $0.14 | |
 | `kling-3.0` | $0.084, $0.126 with audio | $0.112, $0.168 with audio | $0.42 |
 | `kling-3.0-omni` | $0.084, $0.112 with audio, $0.126 with `inputVideo` | $0.112, $0.14 with audio, $0.168 with `inputVideo` | $0.42 |
@@ -311,7 +315,7 @@ A clip is shortened to fit the balance, as described in [Cost and clip length](#
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | Video model to use, from the table above (full id or alias) |
-| `prompt` | `String` | Up to 3,072 characters on the Kling 3.0 models, 2,500 on the others and on Kling 3.0 Turbo with `input_reference` |
+| `prompt` | `String` | Up to 26,000 characters on Kling 4.0 and 4.0 Flash, 3,072 on the Kling 3.0 models, 2,500 on the others and on Kling 3.0 Turbo with `input_reference` |
 | `seconds` | `Number` | Clip length, from the table above. Any other value falls back to `5`. Ignored with `inputVideo` |
 | `size` | `String` | Resolution tier: `'720p'`, `'1080p'` or `'4k'` (case-insensitive), or `'WIDTHxHEIGHT'`. The `resolution` option is an alias |
 | `width` | `Number` | Optional. Only the ratio of `width` to `height` is used, to pick the aspect ratio: `16:9`, `9:16` or `1:1`. Any other ratio gives `16:9`. A clip from `input_reference` or `inputVideo` takes the image's or video's shape |

@@ -62,12 +62,44 @@ const seconds = (def: number, min: number, max: number): number[] => [
 ];
 
 // Prices are per second of output from
-// https://kling.ai/document-api/pricing/base/video (1 unit = $0.14). Cost keys
-// are `per-second:<resolution>`, with `:audio` for native audio and
+// https://kling.ai/document-api/pricing/base/video (1 unit = $0.14) and, for
+// Kling 4, https://kling.ai/dev/pricing (1 unit = $0.157). Cost keys are
+// `per-second:<resolution>`, with `:audio` for optional native audio and
 // `:video-input` when a source video is edited.
 // `default-duration-per-video` is a 5-second clip at the default resolution,
 // for cross-provider sorting and display only.
 export const KLING_VIDEO_GENERATION_MODELS: IVideoModel[] = [
+    {
+        id: 'kling-4.0',
+        puterId: 'kling:kling/kling-4.0',
+        aliases: ['kling/kling-4.0'],
+        name: 'Kling 4.0',
+        costs_currency: 'usd-cents',
+        output_cost_key: 'default-duration-per-video',
+        costs: {
+            'per-second:720p': 15.7,
+            'per-second:1080p': 23.55,
+            'default-duration-per-video': 78.5,
+        },
+        durationSeconds: seconds(5, 3, 30),
+        dimensions: ['720p', '1080p'],
+        fps: [24],
+    },
+    {
+        id: 'kling-4.0-flash',
+        puterId: 'kling:kling/kling-4.0-flash',
+        aliases: ['kling/kling-4.0-flash'],
+        name: 'Kling 4.0 Flash',
+        costs_currency: 'usd-cents',
+        output_cost_key: 'default-duration-per-video',
+        costs: {
+            'per-second:720p': 9.42,
+            'default-duration-per-video': 47.1,
+        },
+        durationSeconds: seconds(5, 3, 20),
+        dimensions: ['720p'],
+        fps: [24],
+    },
     {
         id: 'kling-3.0-turbo',
         puterId: 'kling:kling/kling-3.0-turbo',
@@ -186,6 +218,24 @@ export const KLING_VIDEO_GENERATION_MODELS: IVideoModel[] = [
 // https://kling.ai/document-api/api/video and the capability map
 // https://kling.ai/document-api/guides/capability-map/video.
 export const KLING_VIDEO_SPECS: Record<string, KlingVideoSpec> = {
+    'kling-4.0-flash': {
+        textPath: '/text-to-video/kling-4.0-flash',
+        imagePath: '/image-to-video/kling-4.0-flash',
+        audio: 'always',
+        lastFrame: false,
+        maxReferenceImages: 0,
+        maxReferenceImagesWithVideo: 0,
+        maxPromptChars: 26_000,
+    },
+    'kling-4.0': {
+        textPath: '/text-to-video/kling-4.0',
+        imagePath: '/image-to-video/kling-4.0',
+        audio: 'always',
+        lastFrame: true,
+        maxReferenceImages: 0,
+        maxReferenceImagesWithVideo: 0,
+        maxPromptChars: 26_000,
+    },
     'kling-3.0-turbo': {
         textPath: '/text-to-video/kling-3.0-turbo',
         imagePath: '/image-to-video/kling-3.0-turbo',
