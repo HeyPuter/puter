@@ -21,27 +21,33 @@ import { describe, expect, it } from 'vitest';
 import { entryNamesMatch } from './entryNames.js';
 
 describe('entryNamesMatch', () => {
-    it('matches the same name in another case or normalization form', () => {
-        expect(entryNamesMatch('/u/Docs/Notes.txt', '/u/docs/notes.TXT')).toBe(
-            true,
-        );
-        expect(entryNamesMatch('/u/Ünïcode', '/u/ünÏCODE')).toBe(true);
-        const nfc = 'café.txt';
-        expect(entryNamesMatch(nfc, nfc.normalize('NFD'))).toBe(true);
-        expect(entryNamesMatch(nfc.normalize('NFD'), nfc)).toBe(true);
+    const cafe = 'café.txt';
+    it.each([
+        ['/u/Docs/Notes.txt', '/u/docs/notes.TXT'],
+        ['/u/Ünïcode', '/u/ünÏCODE'],
+        [cafe, cafe.normalize('NFD')],
+        [cafe.normalize('NFD'), cafe],
+        ['ΟΔΟΣ.txt', 'οδος.txt'],
+        ['λόγος.txt', 'ΛΌΓΟΣ.TXT'],
+        ['Straße.txt', 'STRASSE.txt'],
+        ['İstanbul.txt', 'istanbul.txt'],
+        ['İstanbul.txt'.normalize('NFD'), 'ISTANBUL.txt'],
+        ['ａ.txt', 'Ａ.txt'],
+    ])('matches %j and %j, the same name in another case or form', (a, b) => {
+        expect(entryNamesMatch(a, b)).toBe(true);
     });
 
-    it('tells apart names a database collation may fold together', () => {
-        for (const [a, b] of [
-            ['😀.txt', '😁.txt'],
-            ['📁 Work', '📂 Work'],
-            ['résumé.pdf', 'resume.pdf'],
-            ['❤️.txt', '❤.txt'],
-            ['あ.txt', 'ア.txt'],
-            ['Ａ.txt', 'A.txt'],
-            ['straße', 'strasse'],
-        ]) {
-            expect(entryNamesMatch(a!, b!)).toBe(false);
-        }
+    it.each([
+        ['😀.txt', '😁.txt'],
+        ['📁 Work', '📂 Work'],
+        ['résumé.pdf', 'resume.pdf'],
+        ['café.txt', 'cafe.txt'],
+        ['i\u0307.txt', 'i.txt'],
+        ['❤️.txt', '❤.txt'],
+        ['あ.txt', 'ア.txt'],
+        ['Ａ.txt', 'A.txt'],
+        ['ｱ.txt', 'ア.txt'],
+    ])('tells %j from %j, names a database collation may fold together', (a, b) => {
+        expect(entryNamesMatch(a, b)).toBe(false);
     });
 });

@@ -17,13 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+// Upper-casing first folds ß/SS and the Greek final sigma. Dotted capital I
+// lower-cases to i + U+0307, so it maps to I first, as the unique key does.
+const foldCase = (value: string): string =>
+    value
+        .normalize('NFC')
+        .replace(/\u0130/g, 'I')
+        .toUpperCase()
+        .toLowerCase();
+
 /**
  * Whether a stored entry name (or path) is the one requested: equal once both
- * are NFC-normalized and lower-cased. The database compares names under its
+ * are NFC-normalized and case-folded. The database compares names under its
  * collation, which on MySQL also folds accents and most emoji together, so a
  * row a lookup returns can be a differently named entry.
  */
 export const entryNamesMatch = (stored: string, requested: string): boolean =>
-    stored === requested ||
-    stored.normalize('NFC').toLowerCase() ===
-        requested.normalize('NFC').toLowerCase();
+    stored === requested || foldCase(stored) === foldCase(requested);

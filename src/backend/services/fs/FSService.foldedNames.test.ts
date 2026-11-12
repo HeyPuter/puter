@@ -45,6 +45,7 @@ const mysqlFold = (value: unknown): unknown =>
               .normalize('NFD')
               .replace(/[\u0300-\u036f]/g, '')
               .replace(/[\u{10000}-\u{10FFFF}]/gu, '\uFFFD')
+              .toUpperCase()
               .toLowerCase()
         : value;
 
@@ -782,6 +783,22 @@ describe.each(engines.filter((engine) => !engine.skip))(
             );
             expect(missing.result).toBeNull();
             expect(missing).toMatchObject({ reads: 2, writes: 0 });
+        });
+
+        it('reads a name in another case under full case mapping as the stored entry', async () => {
+            const dir = await freshDir();
+            for (const [stored, requested] of [
+                ['ΟΔΟΣ.txt', 'οδος.txt'],
+                ['λόγος.txt', 'ΛΌΓΟΣ.TXT'],
+                ['Straße.txt', 'STRASSE.txt'],
+                ['İstanbul.txt', 'istanbul.txt'],
+            ] as const) {
+                const entry = await write(`${dir}/${stored}`, stored);
+                const found = await server.stores.fsEntry.getEntryByPath(
+                    `${dir}/${requested}`,
+                );
+                expect(found?.uuid).toBe(entry.uuid);
+            }
         });
     },
 );
