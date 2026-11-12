@@ -334,6 +334,7 @@ describe('kv.get GUI boot cache', () => {
         expect(lastBody().args.key).not.toContain('desktop_icons_hidden');
         expect(lastBody().args.key).not.toContain('menubar_style');
         expect(lastBody().args.key).not.toContain('user_preferences.clock_visible');
+        expect(lastBody().args.key).not.toContain('has_set_default_app_user_permissions');
     });
 
     it('a failed batch makes get(bootKey) issue a normal call', async () => {

@@ -4,7 +4,6 @@ import { driverCallEnvelope } from '../../../lib/networkUtils.js';
 // a single batched driver call fetching all of them, so the desktop doesn't
 // issue a dozen round-trips while it initializes.
 const GUI_CACHE_KEYS = [
-    'has_set_default_app_user_permissions',
     'window_sidebar_width',
     'sidebar_items',
     'user_preferences.auto_arrange_desktop',

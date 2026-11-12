@@ -71,49 +71,6 @@ async function UIDesktop (options) {
 
     let h = '';
 
-    // Give Camera and Recorder write permissions to Desktop
-    puter.kv.get('has_set_default_app_user_permissions').then(async (user_permissions) => {
-        if ( ! user_permissions ) {
-            // Camera
-            try {
-                await fetch(`${window.api_origin }/auth/grant-user-app`, {
-                    'headers': {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${ window.auth_token}`,
-                    },
-                    'body': JSON.stringify({
-                        app_uid: 'app-5584fbf7-ed69-41fc-99cd-85da21b1ef51',
-                        permission: `fs:${html_encode(window.desktop_path)}:write`,
-                    }),
-                    'method': 'POST',
-                });
-            } catch ( err ) {
-                console.error(err);
-            }
-
-            // Recorder
-            try {
-                await fetch(`${window.api_origin }/auth/grant-user-app`, {
-                    'headers': {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${ window.auth_token}`,
-                    },
-                    'body': JSON.stringify({
-                        app_uid: 'app-7bdca1a4-6373-4c98-ad97-03ff2d608ca1',
-                        permission: `fs:${html_encode(window.desktop_path)}:write`,
-                    }),
-                    'method': 'POST',
-                });
-            } catch ( err ) {
-                console.error(err);
-            }
-
-            // Set flag to true
-            await puter.kv.set('has_set_default_app_user_permissions', true);
-        }
-    // Awaited above so a failed write reaches this: it leaves the flag unset
-    // and the whole thing is retried next boot, which is what we want.
-    }).catch(err => console.warn('Could not apply default app permissions:', err));
     // connect socket.
     window.socket = io(`${window.gui_origin }/`, {
         auth: {
