@@ -222,6 +222,22 @@ describe('HomepageController shell routes', () => {
         expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
     });
 
+    it('leaves guiTokenDigest out for a session cookie that is not a user session', async () => {
+        const { actor } = await makeUser();
+        const appActor = {
+            ...actor,
+            app: { id: 1, uid: 'app-test' },
+            session: { uid: uuidv4() },
+        } as unknown as Actor;
+        const req = Object.assign(makeReq({ path: '/', actor: appActor }), {
+            tokenSource: 'cookie',
+            cookies: { puter_token_v2: 'legacy' },
+        });
+        const { res, captured } = makeRes();
+        await callRoute('get', '/', req, res);
+        expect(String(captured.body)).not.toContain('guiTokenDigest');
+    });
+
     it('serves the shell on /dashboard and /action', async () => {
         for (const path of ['/dashboard', '/dashboard/', '/action/*splat']) {
             const { res, captured } = makeRes();
