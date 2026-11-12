@@ -15,7 +15,8 @@ function installFakeXHR (responses) {
         responseType = '';
         status = 200;
         open (method, url) { this.method = method; this.url = url; }
-        setRequestHeader () {}
+        headers = {};
+        setRequestHeader (name, value) { this.headers[name] = value; }
         addEventListener (type, fn) { (this._listeners[type] ??= []).push(fn); }
         getResponseHeader () { return null; }
         send (body) {
@@ -110,6 +111,17 @@ describe('verification gate on a filesystem request', () => {
         await expect(send()).rejects.toMatchObject({ code: 'phone_verification_required' });
         expect(requests).toHaveLength(2);
         expect(puter.ui.requestVerificationGate).toHaveBeenCalledTimes(1);
+    });
+
+    it('replays with no bearer when the user signed out during the gate', async () => {
+        puter.ui.requestVerificationGate.mockImplementation(async () => {
+            puter.authToken = null;
+            return true;
+        });
+        const requests = installFakeXHR([gate, ok]);
+        await send();
+        expect(requests[0].headers.Authorization).toBe('Bearer tok');
+        expect(requests[1].headers.Authorization).toBeUndefined();
     });
 
     it('does not prompt outside the desktop', async () => {
