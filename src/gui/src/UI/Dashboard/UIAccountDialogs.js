@@ -25,6 +25,7 @@ import check_password_strength from '../../helpers/checkPasswordStrength.js';
 import create_access_token from '../../helpers/createAccessToken.js';
 import postUserProtected from '../../helpers/postUserProtected.js';
 import update_username_in_gui from '../../helpers/updateUsernameInGui.js';
+import changeLanguage from '../../i18n/i18nChangeLanguage.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 import UIDashboardFormDialog, { copyRowHtml } from './UIDashboardFormDialog.js';
 
@@ -115,6 +116,42 @@ export function openEditProfileDialog ({ onSave, ...opts } = {}) {
             }
             onSave?.(profile);
             dialog.close();
+        },
+    });
+}
+
+/**
+ * Changes the language Puter is shown in, then reloads the page in it.
+ *
+ * @param {AccountDialogOptions} [opts]
+ */
+export function openChangeLanguageDialog (opts = {}) {
+    return UIDashboardFormDialog({
+        ...opts,
+        title: t('change_language'),
+        submitLabel: t('save'),
+        fields: [
+            {
+                name: 'language',
+                type: 'select',
+                label: i18n('language'),
+                value: window.locale,
+                options: window.listSupportedLanguages().map((lang) => ({
+                    value: lang.code,
+                    label: html_encode(lang.name),
+                })),
+            },
+        ],
+        async onSubmit (dialog) {
+            const { language } = dialog.values();
+            if ( language === window.locale ) {
+                dialog.close();
+                return;
+            }
+            // On success the page reloads, so the dialog stays in progress.
+            if ( ! await changeLanguage(language) ) {
+                dialog.setStatus(t('language_save_failed'), { field: 'language' });
+            }
         },
     });
 }
