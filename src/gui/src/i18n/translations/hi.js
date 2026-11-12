@@ -39,17 +39,10 @@ const hi = {
         close: 'बंद ',
         close_all_windows_and_log_out: 'विंडोज़ बंद करें और लॉग आउट करें',
         change_always_open_with: 'क्या आप इस प्रकार की फ़ाइल को हमेशा खोलना चाहते हैं?',
-        confirm_2fa_setup: 'मैंने अपने प्रमाणक ऐप में कोड जोड़ दिया है',
-        confirm_2fa_recovery: 'मैंने अपने पुनर्प्राप्ति कोड सुरक्षित स्थान पर सहेजे हैं',
         confirm_account_for_free_referral_storage_c2a: 'एक खाता बनाएं और 1 जीबी निःशुल्क संग्रहण प्राप्त करने के लिए अपने ईमेल पते की पुष्टि करें। आपके दोस्त को भी 1 जीबी मुफ्त स्टोरेज मिलेगा।',
         confirm_code_generic_incorrect: 'गलत कोड़।',
         confirm_code_generic_too_many_requests: 'बहुत सारे अनुरोध. कृपया कुछ मिनट प्रतीक्षा करें.',
-        confirm_code_generic_submit: 'कोड जमा करें',
-        confirm_code_generic_try_again: 'पुनः प्रयास करें',
-        confirm_code_generic_title: 'पुष्टि कोड दर्ज करें',
         confirm_code_2fa_instruction: 'अपने प्रमाणक ऐप से 6 अंकों का कोड दर्ज करें।',
-        confirm_code_2fa_submit_btn: 'जमा करें',
-        confirm_code_2fa_title: '2FA कोड दर्ज करें',
         confirm_delete_multiple_items: 'क्या आप वाकई इन वस्तुओं को स्थायी रूप से हटाना चाहते हैं?',
         confirm_delete_single_item: 'क्या आप वाकई इस वस्तु को स्थायी रूप से हटाना चाहते हैं?',
         confirm_open_apps_log_out: 'आपके पास ऐप्स खुला हैं. क्या आप लॉग आउट करना चाहते हैं?',
@@ -59,7 +52,6 @@ const hi = {
         confirm_session_revoke: 'क्या आप वाकई इस सत्र को रद्द करना चाहते हैं?',
         confirm_your_email_address: 'अपने ईमेल पते की पुष्टि करें',
         contact_us: 'संपर्क करें',
-        contact_us_verification_required: 'इसका उपयोग करने के लिए आपके पास एक सत्यापित ईमेल पता होना चाहिए।',
         continue: 'निरंतर',
         copy: 'प्रतिलिपि',
         copy_link: 'लिंक की प्रतिलिपि करें',
@@ -81,10 +73,8 @@ const hi = {
         deploy_as_app: 'ऐप के रूप में तैनात करें',
         descending: 'अवरोही',
         desktop: 'डेस्कटॉप',
-        desktop_background_fit: 'उपयुक्त',
         developers: 'डेवलपर्स',
         disable_2fa: '2एफए गायब करें',
-        disable_2fa_confirm: 'क्या आप वाकई 2एफए को गायब करना चाहते हैं?',
         disable_2fa_instructions: '2एफए को गायब करने के लिए अपना पासवर्ड दर्ज करें।',
         documents: 'दस्तावेज़',
         dont_allow: 'अनुमति न दें',
@@ -114,13 +104,10 @@ const hi = {
         forgot_pass_c2a: 'पासवर्ड भूल गए?',
         from: 'से',
         general: 'सामान्य',
-        get_a_copy_of_on_puter: "Purer.com पर '%%' की एक कॉपी प्राप्त करें!",
-        get_copy_link: 'कॉपी लिंक प्राप्त करें',
         home: 'घर',
         html_document: 'एचटीएमएल दस्तावेज़',
         hue: 'रंग',
         incorrect_password: 'गलत पासवर्ड',
-        invite_link: 'लिंक आमंत्रित करें',
         item: 'वस्तु',
         items_in_trash_cannot_be_renamed: 'इस वस्तु का नाम नहीं बदला जा सकता क्योंकि यह कूड़ेदान में है। इस वस्तु का नाम बदलने के लिए, पहले इसे ट्रैश से बाहर खींचें।',
         jpeg_image: 'जेपीईजी छवि',
@@ -131,7 +118,6 @@ const hi = {
         loading: 'लोड हो रहा है',
         log_in: 'लॉग इन करें',
         log_out: 'लॉग आउट',
-        looks_good: 'अच्छा लग रहा है!',
         manage_sessions: 'सत्र प्रबंधित करें',
         modified: 'संशोधित',
         move: 'बदले',
@@ -156,7 +142,6 @@ const hi = {
         open_with: 'के साथ खोलें',
         original_name: 'वास्तविक नाम',
         original_path: 'वास्तविक पथ',
-        oss_code_and_content: 'ओपन सोर्स सॉफ्टवेयर और सामग्री',
         password: 'पासवर्ड',
         password_changed: 'पासवर्ड बदला गया।',
         password_recovery_rate_limit: 'आप हमारी दर-सीमा तक पहुंच गए हैं; कृपया कुछ मिनट प्रतीक्षा करें. भविष्य में इसे रोकने के लिए, पृष्ठ को कई बार पुनः लोड करने से बचें।',
@@ -168,25 +153,19 @@ const hi = {
         paste: 'पेस्ट करें',
         paste_into_folder: 'फ़ोल्डर में पेस्ट करें',
         path: 'पथ',
-        personalization: 'वैयक्तिकरण',
         pictures: 'चित्रों',
         plural_suffix: 'एस',
-        powered_by_puter_js: '{{link=docs}}Puter.js{{/link}} द्वारा संचालित',
         preparing: 'तैयार कर रहे हैं...',
-        preparing_for_upload: 'अपलोड करने की तैयारी है...',
         print: 'छाप',
         privacy: 'गोपनीयता',
         proceed_to_login: 'लॉगिन करने के लिए आगे बढ़ें',
-        proceed_with_account_deletion: 'खाता हटाने के साथ आगे बढ़ें',
         properties: 'गुण',
         public: 'लोग',
         publish: 'प्रकाशित',
         publish_as_website: 'वेबसाइट के रूप में प्रकाशित करें',
-        puter_description: 'पुटर एक गोपनीयता-प्रथम व्यक्तिगत क्लाउड है जो आपकी सभी फ़ाइलों, ऐप्स और गेम को एक सुरक्षित स्थान पर रखता है, जिसे किसी भी समय कहीं से भी एक्सेस किया जा सकता है।',
         reading_file: 'पढ़ना  %strong%',
         recover_password: 'पासवर्ड वापस लाये',
         refer_friends_c2a: 'पुटर पर खाता बनाने और पुष्टि करने वाले प्रत्येक मित्र के लिए 1 जीबी प्राप्त करें। आपके दोस्त को भी मिलेगा 1 जीबी!',
-        refer_friends_social_media_c2a: 'Purer.com पर 1 जीबी निःशुल्क स्टोरेज प्राप्त करें!',
         refresh: 'ताजा करना ',
         rename: 'नाम बदलें',
         replace: 'प्रतिस्थापित करें',
@@ -196,11 +175,9 @@ const hi = {
         save: 'सहेजें',
         saturation: 'परिपूर्णता',
         save_account: 'खाता सहेजें',
-        save_account_to_get_copy_link: 'कृपया आगे बढ़ने के लिए एक खाता बनाएँ।',
         save_account_to_publish: 'कृपया आगे बढ़ने के लिए एक खाता बनाएँ।',
         save_session: 'सत्र को बचाए',
         save_session_c2a: 'अपने वर्तमान सत्र को सहेजने और अपना काम खोने से बचने के लिए एक खाता बनाएं।',
-        scan_qr_2fa: 'अपने प्रमाणक ऐप से क्यूआर कोड को स्कैन करें',
         search: 'खोजे',
         seconds: 'सेकंड',
         security: 'सुरक्षा',
@@ -218,13 +195,11 @@ const hi = {
         show_hidden: 'छिपा हुआ दिखाएं',
         sign_in_with_puter: 'पुटर के साथ साइन इन करें',
         sign_up: 'साइन अप करें',
-        signing_in: 'साइन कर रहे हैं…',
         size: 'आकार',
         skip: 'छोडना',
         something_went_wrong: 'कुछ गलत हो गया।',
         sort_by: 'इसके अनुसार क्रमबद्ध करें',
         status: 'स्थिति',
-        storage_usage: 'भंडारण उपयोग',
         storage_puter_used: 'पुटर द्वारा उपयोग किया गया',
         taking_longer_than_usual: 'सामान्य से थोड़ा अधिक समय लग रहा है. कृपया प्रतीक्षा करें...',
         terms: 'Terms',
@@ -252,21 +227,15 @@ const hi = {
         videos: 'वीडियो',
         visibility: 'दृश्यता',
         yes: 'हाँ',
-        you_have_been_referred_to_puter_by_a_friend: 'आपको एक मित्र ने पुटर के बारे में बताया है!',
         zip: 'ज़िप',
         zipping_file: 'ज़िपिंग  %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'अपना प्रमाणक ऐप खोलें',
         setup2fa_1_instructions: "आप किसी भी प्रमाणक ऐप का उपयोग कर सकते हैं जो टाइम-आधारित वन-टाइम पासवर्ड (टीओटीपी) प्रोटोकॉल का समर्थन करता है।चुनने के लिए बहुत कुछ है, लेकिन यदि आप अनिश्चित हैं <a target='_blank' href='https://authy.com/download'>Authy</a>Android और iOS के लिए एक ठोस विकल्प है",
-        setup2fa_2_step_heading: 'क्यूआर कोड को स्कैन करें',
         setup2fa_3_step_heading: '6 अंकीय कोड दर्ज करें',
-        setup2fa_4_step_heading: 'अपने पुनर्प्राप्ति कोड कॉपी करें',
         setup2fa_4_instructions: 'यदि आप अपना फ़ोन खो देते हैं या अपने प्रमाणक ऐप का उपयोग नहीं कर पाते हैं तो ये पुनर्प्राप्ति कोड आपके खाते तक पहुंचने का एकमात्र तरीका हैं।उन्हें सुरक्षित स्थान पर संग्रहित करना सुनिश्चित करें।',
-        setup2fa_5_step_heading: '2एफए सेटअप की पुष्टि करें',
         setup2fa_5_confirmation_1: 'मैंने अपने पुनर्प्राप्ति कोड सुरक्षित स्थान पर सहेजे हैं',
         setup2fa_5_confirmation_2: 'मैं 2एफए सक्षम करने के लिए तैयार हूं',
-        setup2fa_5_button: '2एफए सक्षम करें',
 
         // === 2FA Login ===
         login2fa_otp_title: '2एफए कोड दर्ज करें',
@@ -274,7 +243,6 @@ const hi = {
         login2fa_recovery_title: 'एक पुनर्प्राप्ति कोड दर्ज करें',
         login2fa_recovery_instructions: 'अपने खाते तक पहुंचने के लिए अपना एक पुनर्प्राप्ति कोड दर्ज करें।',
         login2fa_use_recovery_code: 'पुनर्प्राप्ति कोड का उपयोग करें',
-        login2fa_recovery_back: 'पीछे',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         'change': 'बदलें', // In English: "Change"
@@ -340,20 +308,13 @@ const hi = {
         'billing.accelerated': 'त्वरित ', // In English: "Accelerated"
         'billing.enjoy_msg': '%% क्लाउड स्टोरेज का आनंद लें और अन्य लाभ प्राप्त करें।', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-        'choose_publishing_option': 'अपनी वेबसाइट को कैसे प्रकाशित करना चाहते हैं, चुनें:', // In English: "Choose how you want to publish your website:"
-        'create_desktop_shortcut': 'शॉर्टकट बनाएँ (डेस्कटॉप)', // In English: "Create Shortcut (Desktop)"
-        'create_desktop_shortcut_s': 'शॉर्टकट्स बनाएँ (डेस्कटॉप)', // In English: "Create Shortcuts (Desktop)"
         'create_shortcut_s': 'शॉर्टकट्स बनाएँ', // In English: "Create Shortcuts"
         'minimize': 'मिनिमाइज़ करें', // In English: "Minimize"
         'reload_app': 'ऐप पुनः लोड करें', // In English: "Reload App"
         'publish_as_serverless_worker': 'वर्कर के रूप में प्रकाशित करें', // In English: "Publish as Worker"
-        'toolbar.enter_fullscreen': 'पूर्ण स्क्रीन में जाएँ', // In English: "Enter Full Screen"
-        'toolbar.github': 'GitHub', // In English: "GitHub"
-        'toolbar.refer': 'रेफ़र', // In English: "Refer"
         'used_of': '{{available}} में से {{used}} उपयोग', // In English: "{{used}} used of {{available}}"
         'worker': 'वर्कर', // In English: "Worker"
         'billing.offering.basic': 'मूल', // In English: "Basic"
-        'too_many_attempts': 'बहुत अधिक प्रयास। कृपया बाद में पुनः प्रयास करें।', // In English: "Too many attempts. Please try again later."
         'server_timeout': 'सर्वर को उत्तर देने में बहुत समय लगा। कृपया फिर से प्रयास करें।', // In English: "The server took too long to respond. Please try again."
         'signup_error': 'साइन अप करते समय एक त्रुटि हुई। कृपया पुनः प्रयास करें।', // In English: "An error occurred during signup. Please try again."
         'alert_error_title': 'त्रुटि!', // In English: "Error!"
@@ -371,15 +332,10 @@ const hi = {
         'window_title_open': 'खोलें', // In English: "Open"
         'window_title_change_password': 'पासवर्ड बदलें', // In English: "Change Password"
         'window_title_select_font': 'फ़ॉन्ट चुनें…', // In English: "Select font…"
-        'window_title_session_list': 'सत्र सूची!', // In English: "Session List!"
         'window_title_set_new_password': 'नया पासवर्ड सेट करें', // In English: "Set New Password"
         'window_title_publish_website': 'वेबसाइट प्रकाशित करें', // In English: "Publish Website"
         'window_title_publish_worker': 'वर्कर प्रकाशित करें', // In English: "Publish Worker"
         'window_title_authenticating': 'प्रमाणित किया जा रहा है...', // In English: "Authenticating..."
-        'window_title_refer_friend': 'मित्र को रेफ़र करें!', // In English: "Refer a friend!"
-        'desktop_exit_full_screen': 'पूर्ण स्क्रीन से बाहर निकलें', // In English: "Exit Full Screen"
-        'desktop_enter_full_screen': 'पूर्ण स्क्रीन में जाएँ', // In English: "Enter Full Screen"
-        'item_shared_with_you': 'एक उपयोगकर्ता ने यह वस्तु आपके साथ साझा की है।', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'आपने यह वस्तु कम से कम एक अन्य उपयोगकर्ता के साथ साझा की है।', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'शॉर्टकट', // In English: "Shortcut"
         'item_associated_websites': 'संबद्ध वेबसाइट', // In English: "Associated website"
@@ -388,9 +344,6 @@ const hi = {
         'window_click_to_go_back': 'वापस जाने के लिए क्लिक करें।', // In English: "Click to go back."
         'window_click_to_go_forward': 'आगे जाने के लिए क्लिक करें।', // In English: "Click to go forward."
         'window_click_to_go_up': 'एक निर्देशिका ऊपर जाने के लिए क्लिक करें।', // In English: "Click to go one directory up."
-        'window_title_public': 'सार्वजनिक', // In English: "Public"
-        'window_title_videos': 'वीडियो', // In English: "Videos"
-        'window_title_pictures': 'चित्र', // In English: "Pictures"
         'window_title_puter': 'Puter', // In English: "Puter"
         'window_folder_empty': 'यह फ़ोल्डर खाली है', // In English: "This folder is empty"
     },

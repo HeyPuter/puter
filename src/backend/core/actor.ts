@@ -47,6 +47,11 @@ export interface ActorAccessToken {
      * reach while revokes, audits and gate hooks can still name the app.
      */
     godmodeApp?: ActorApp | null;
+    /**
+     * The token's own session row, checked live when it authenticated. Unset
+     * when the token carries no `session_uid` naming its row.
+     */
+    sessionUid?: string;
 }
 
 export interface Actor {

@@ -47,21 +47,13 @@ const fi = {
         change_always_open_with:
       'Haluatko aina avata tämän tyyppisen tiedoston sovelluksella',
         confirm: 'Vahvista',
-        confirm_2fa_setup: 'Olen lisännyt koodin todennussovellukseeni',
-        confirm_2fa_recovery:
-      'Olen tallentanut palautuskoodini turvalliseen paikkaan',
         confirm_account_for_free_referral_storage_c2a:
       'Luo tili ja vahvista sähköpostiosoitteesi saadaksesi 1 Gt ilmaista tallennustilaa. Myös kaverisi saa 1 Gt:n ilmaista tallennustilaa.',
         confirm_code_generic_incorrect: 'Väärä koodi.',
         confirm_code_generic_too_many_requests:
       'Liikaa pyyntöjä. Ole hyvä ja odota muutama minuutti.',
-        confirm_code_generic_submit: 'Lähetä koodi',
-        confirm_code_generic_try_again: 'Yritä uudelleen',
-        confirm_code_generic_title: 'Syötä vahvistuskoodi',
         confirm_code_2fa_instruction:
       'Syötä kuusinumeroinen koodi todennussovelluksestasi.',
-        confirm_code_2fa_submit_btn: 'Lähetä',
-        confirm_code_2fa_title: 'Syötä kaksivaiheisen tunnistautumisen koodi',
         confirm_delete_multiple_items:
       'Haluatko varmasti poistaa nämä kohteet pysyvästi?',
         confirm_delete_single_item: 'Haluatko poistaa tämän kohteen pysyvästi?',
@@ -74,8 +66,6 @@ const fi = {
         confirm_session_revoke: 'Haluatko varmasti peruuttaa tämän istunnon?',
         confirm_your_email_address: 'Vahvista sähköpostiosoitteesi',
         contact_us: 'Ota yhteyttä',
-        contact_us_verification_required:
-      'Sinulla on oltava vahvistettu sähköpostiosoite, jotta voit käyttää tätä.',
         // "inside(a house)" => "Sisällä" - probably more appropriate
         // "contain within" => "Sisältää"
 
@@ -109,11 +99,8 @@ const fi = {
         deploy_as_app: 'Ota käyttöön sovelluksena',
         descending: 'Laskeva',
         desktop: 'Työpöytä',
-        desktop_background_fit: 'Sovita',
         developers: 'Kehittäjät',
         disable_2fa: 'Ota kaksivaiheinen tunnistautuminen pois käytöstä',
-        disable_2fa_confirm:
-      'Haluatko varmasti poistaa kaksivaiheisen tunnistautumisen käytöstä?',
         disable_2fa_instructions:
       'Syötä salasanasi poistaaksesi kaksivaihesen tunnistautumisen käytöstä.',
         documents: 'Dokumentit',
@@ -157,9 +144,7 @@ const fi = {
         // "general (about something)" => "Yleistä" or
         // "military general" => "Kenraali"
 
-        get_a_copy_of_on_puter: 'Hanki \'%%\' -kopio Puter.com-sivustolta!', // TODO: Very difficult ambiguity due to different case suffix for any possible word that you can substitue here. Can stay as is, but it's not exactly correct.
 
-        get_copy_link: 'Hanki kopiolinkki', // TODO: Ambiguous meaning
         // 'get a copy of a link' => 'Ota Kopio Linkkiin' or
         // 'get a link to the copy' => 'Ota Linkki Kopioon' - More probable, just want to be sure
 
@@ -167,7 +152,6 @@ const fi = {
         html_document: 'HTML-dokumentti',
         hue: 'Sävy',
         incorrect_password: 'Väärä salasana',
-        invite_link: 'Kutsulinkki',
         item: 'kohde',
         items_in_trash_cannot_be_renamed: 'Tätä kohdetta ei voi nimetä uudelleen, koska se on roskakorissa. Jos haluat nimetä kohteen uudelleen, palauta se ensin roskakorista.',
         jpeg_image: 'JPEG-kuva',
@@ -178,7 +162,6 @@ const fi = {
         loading: 'Ladataan',
         log_in: 'Kirjaudu Sisään',
         log_out: 'Kirjaudu ulos',
-        looks_good: 'Näyttää hyvältä!',
         manage_sessions: 'Hallitse istuntoja',
         modified: 'Muokattu',
         move: 'Siirrä',
@@ -214,7 +197,6 @@ const fi = {
 
         original_name: 'Alkuperäinen nimi',
         original_path: 'Alkuperäinen polku',
-        oss_code_and_content: 'Avoimen lähdekoodin ohjelmisto ja sisältö',
         password: 'Salasana',
         password_changed: 'Salasana vaihdettu.',
         password_recovery_rate_limit:
@@ -231,26 +213,20 @@ const fi = {
         paste: 'Liitä',
         paste_into_folder: 'Liitä kansioon',
         path: 'Polku',
-        personalization: 'Personointi',
         pictures: 'Kuvat',
         plural_suffix: 't',
-        powered_by_puter_js: 'Palvelun tarjoaa {{link=docs}}Puter.js{{/link}}',
         preparing: 'Valmistellaan...',
-        preparing_for_upload: 'Valmistellaan latausta...',
         print: 'Tulosta',
         privacy: 'Yksityisyys',
         proceed_to_login: 'Jatka sisäänkirjautumiseen',
-        proceed_with_account_deletion: 'Jatka tilin poistamista',
         properties: 'Ominaisuudet',
         public: 'Julkinen',
         publish: 'Julkaise',
         publish_as_website: 'Julkaise verkkosivustona',
-        puter_description: 'Puter on yksityisyyttä korostava henkilökohtainen pilvipalvelu, jossa voit säilyttää kaikki tiedostosi, sovelluksesi ja pelisi yhdessä turvallisessa paikassa, ja jotka ovat saatavilla mistä tahansa milloin tahansa.',
         reading_file: 'Luetaan %strong%',
         recover_password: 'Palauta salasanasi',
         refer_friends_c2a:
       'Saat 1 Gt ilmaista tallennustilaa jokaisesta ystävästä, joka luo ja vahvistaa tilin Puterissa. Myös ystäväsi saa 1 Gt:n ilmaista tallennustilaa!',
-        refer_friends_social_media_c2a: 'Hanki 1 Gt ilmaista tallennustilaa Puter.comista!',
         refresh: 'Päivitä',
 
         // "get rid of" => "Oletko varma, että haluat luovuttaa tämän osoitteen?" or
@@ -264,12 +240,10 @@ const fi = {
         save: 'Tallenna',
         saturation: 'Kylläisyys',
         save_account: 'Tallenna tili',
-        save_account_to_get_copy_link: 'Luo tili jatkaaksesi.',
         save_account_to_publish: 'Luo tili jatkaaksesi.',
         save_session: 'Tallenna istunto',
         save_session_c2a:
       'Luo tili tallentaaksesi nykyisen istuntosi ja välttääksesi työsi menettämisen.',
-        scan_qr_2fa: 'Skannaa QR-koodi todennussovelluksellasi',
         search: 'Etsi',
         seconds: 'sekuntia',
         security: 'Turvallisuus',
@@ -291,13 +265,11 @@ const fi = {
         show_hidden: 'Näytä piilotetut',
         sign_in_with_puter: 'Kirjaudu sisään Puterilla',
         sign_up: 'Rekisteröidy',
-        signing_in: 'Kirjaudutaan sisään…',
         size: 'Koko',
         skip: 'Ohita',
         something_went_wrong: 'Jokin meni pieleen.',
         sort_by: 'Lajittele',
         status: 'Tila',
-        storage_usage: 'Tallennustilan käyttö',
         storage_puter_used: 'Puterin käyttämä',
         taking_longer_than_usual:
       'Kestää hieman tavallista kauemmin. Ole hyvä ja odota...',
@@ -334,32 +306,24 @@ const fi = {
         videos: 'Videot',
         visibility: 'Näkyvyys',
         yes: 'Kyllä',
-        you_have_been_referred_to_puter_by_a_friend:
-      'Kaverisi on kutsunut sinut Puteriin!',
         zip: 'Zip',
         zipping_file: 'Zipataan %strong%',
 
         // === 2FA Setup ===
-        setup2fa_1_step_heading: 'Avaa todennussovelluksesi',
         setup2fa_1_instructions: `
             Voit käyttää mitä tahansa todennussovellusta, joka tukee aikaperusteista kertakirjautumissalasanaa (TOTP-protokollaa). 
             Valittavanasi on monia sovelluksia, mutta jos et ole varma, 
             <a target="_blank" href="https://authy.com/download">Authy</a> on hyvä valinta Androidille ja iOS:lle.
         `,
-        setup2fa_2_step_heading: 'Skannaa QR-koodi',
         setup2fa_3_step_heading: 'Syötä kuusinumeroinen koodi',
-        setup2fa_4_step_heading: 'Kopioi palautuskoodisi',
         setup2fa_4_instructions: `
             Nämä palautuskoodit ovat ainoa tapa päästä tiliisi, jos menetät puhelimesi tai et voi käyttää todennussovellustasi. 
             Varmista, että säilytät ne turvallisessa paikassa.
         `,
-        setup2fa_5_step_heading:
-      'Vahvista kaksivaiheisen tunnistautumisen asetukset',
         setup2fa_5_confirmation_1:
       'Olen tallentanut palautuskoodini turvalliseen paikkaan',
         setup2fa_5_confirmation_2:
       'Olen valmis ottamaan kaksivaiheisen tunnistautumisen käyttöön',
-        setup2fa_5_button: 'Ota kaksivaiheinen tunnistautuminen käyttöön',
 
         // === 2FA Login ===
         login2fa_otp_title: 'Syötä kaksivaiheisen tunnistautumisen koodi',
@@ -369,7 +333,6 @@ const fi = {
         login2fa_recovery_instructions:
       'Syötä yksi palautuskoodeistasi saadaksesi pääsy tilillesi.',
         login2fa_use_recovery_code: 'Käytä palautuskoodi',
-        login2fa_recovery_back: 'Takaisin',
         login2fa_recovery_placeholder: 'XXXXXXXX',
 
         change: 'muutos', // In English: "Change"
@@ -435,20 +398,13 @@ const fi = {
         'billing.accelerated': 'Nopeutettu', // In English: "Accelerated"
         'billing.enjoy_msg': 'Nauti %% pilvitallennustilasta ja muista eduista.', // In English: "Enjoy %% of Cloud Storage plus other benefits."
 
-        'choose_publishing_option': 'Valitse, miten haluat julkaista verkkosivustosi:',
-        'create_desktop_shortcut': 'Luo pikakuvake (Työpöydälle)',
-        'create_desktop_shortcut_s': 'Luo pikakuvakkeita (Työpöydälle)',
         'create_shortcut_s': 'Luo pikakuvakkeita',
         'minimize': 'Pienennä',
         'reload_app': 'Lataa sovellus uudelleen',
         'publish_as_serverless_worker': 'Julkaise työntekijänä',
-        'toolbar.enter_fullscreen': 'Koko näyttöön',
-        'toolbar.github': 'GitHub',
-        'toolbar.refer': 'Suosittele',
         'used_of': '{{used}} käytetty {{available}}:sta',
         'worker': 'Työntekijä',
         'billing.offering.basic': 'Perus',
-        'too_many_attempts': 'Liian monta yritystä. Yritä myöhemmin uudelleen.',
         'server_timeout': 'Palvelimen vastaus kesti liian kauan. Yritä uudelleen.',
         'signup_error': 'Rekisteröitymisen aikana tapahtui virhe. Yritä uudelleen.',
         'alert_error_title': 'Virhe!',
@@ -466,15 +422,10 @@ const fi = {
         'window_title_open': 'Avaa',
         'window_title_change_password': 'Vaihda salasana',
         'window_title_select_font': 'Valitse fontti…',
-        'window_title_session_list': 'Istuntolista',
         'window_title_set_new_password': 'Aseta uusi salasana',
         'window_title_publish_website': 'Julkaise verkkosivusto',
         'window_title_publish_worker': 'Julkaise työntekijä',
         'window_title_authenticating': 'Todennetaan...',
-        'window_title_refer_friend': 'Suosittele ystävälle!',
-        'desktop_exit_full_screen': 'Poistu koko näytöstä',
-        'desktop_enter_full_screen': 'Koko näyttöön',
-        'item_shared_with_you': 'Käyttäjä on jakanut tämän kohteen kanssasi.',
         'item_shared_by_you': 'Olet jakanut tämän kohteen ainakin yhden muun käyttäjän kanssa.',
         'item_shortcut': 'Pikakuvake',
         'item_associated_websites': 'Liittyvä verkkosivusto',
@@ -483,9 +434,6 @@ const fi = {
         'window_click_to_go_back': 'Napsauta palataksesi takaisin.',
         'window_click_to_go_forward': 'Napsauta siirtyäksesi eteenpäin.',
         'window_click_to_go_up': 'Napsauta siirtyäksesi yhtä kansiotasoa ylöspäin.',
-        'window_title_public': 'Julkinen',
-        'window_title_videos': 'Videot',
-        'window_title_pictures': 'Kuvat',
         'window_title_puter': 'Puter',
         'window_folder_empty': 'Tämä kansio on tyhjä',
     },

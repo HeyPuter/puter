@@ -44,10 +44,6 @@ export interface PageMeta {
     app?: { name?: string; [k: string]: unknown } | null;
 }
 
-export interface LaunchOptions {
-    on_initialized?: Array<Record<string, unknown>>;
-}
-
 /**
  * A GUI popup a first-party page frames at `/embed/<action>`. `hostOrigin` is
  * that page, read from the referrer and pinned with frame-ancestors; null when
@@ -322,7 +318,6 @@ export class PuterHomepageService extends PuterService {
     async send(
         ctx: ShellContext,
         meta: PageMeta,
-        launchOptions: LaunchOptions = {},
         popupFrame?: PopupFrame,
     ): Promise<void> {
         const { req, res, actor, guiTokenDigest } = ctx;
@@ -347,7 +342,6 @@ export class PuterHomepageService extends PuterService {
         const html = await this.#renderShell(
             { req, actor: actor ?? null, guiTokenDigest },
             meta,
-            launchOptions,
             popupFrame,
         );
         res.send(html);
@@ -360,7 +354,6 @@ export class PuterHomepageService extends PuterService {
             actor: Actor | null;
         },
         meta: PageMeta,
-        launchOptions: LaunchOptions,
         popupFrame?: PopupFrame,
     ): Promise<string> {
         const { req, actor, guiTokenDigest } = ctx;
@@ -406,7 +399,6 @@ export class PuterHomepageService extends PuterService {
             // instead of the socket wire.
             eventsNotifications: notificationsFoldInEnabled(this.config),
             ...meta,
-            launch_options: launchOptions,
             // After `meta`, so nothing page-specific can name the opener.
             ...(popupFrame ? { embed_host_origin: popupFrame.hostOrigin } : {}),
         };
