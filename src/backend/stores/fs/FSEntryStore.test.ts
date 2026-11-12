@@ -900,6 +900,68 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         }
     });
 
+    it('updates only the rows whose path is empty', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/one.txt`);
+        await blankPath(file.uuid);
+
+        const write = vi.spyOn(server.clients.db, 'write');
+        try {
+            await expect(
+                store.getEntryByUuid(file.uuid),
+            ).resolves.toMatchObject({ path: file.path });
+            expect(
+                write.mock.calls.filter(([sql]) =>
+                    String(sql).includes('UPDATE fsentries SET path'),
+                ),
+            ).toHaveLength(1);
+        } finally {
+            write.mockRestore();
+        }
+    });
+
+    it('stops walking a parent chain that loops back on itself', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/loop.txt`);
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = NULL, parent_uid = uuid WHERE uuid = ?',
+            [file.uuid],
+        );
+        await server.clients.redis.flushall?.();
+
+        // A cap well past the store's own keeps an unbounded walk from hanging the run.
+        const db = server.clients.db;
+        const originalPread = (Object.getPrototypeOf(db) as typeof db).pread;
+        const walked: number[] = [];
+        const spy = vi
+            .spyOn(db, 'pread')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                if (!sql.includes('ancestors(')) {
+                    return originalPread.call(db, sql, params);
+                }
+                const rows = await originalPread.call(
+                    db,
+                    sql.replace(
+                        'ON f.uuid = a.parent_uid',
+                        'ON f.uuid = a.parent_uid AND a.depth < 10000',
+                    ),
+                    params,
+                );
+                walked.push(rows.length);
+                return rows;
+            });
+        try {
+            await expect(
+                store.getEntryByUuid(file.uuid),
+            ).resolves.toMatchObject({ uuid: file.uuid, path: null });
+        } finally {
+            spy.mockRestore();
+        }
+        expect(walked.length).toBeGreaterThan(0);
+        expect(Math.max(...walked)).toBeLessThan(10000);
+        await expect(pathOf(file.uuid)).resolves.toBeNull();
+    });
+
     describe('when an ancestor is renamed while the heal runs', () => {
         const setup = async () => {
             const user = await makeUser();

@@ -142,6 +142,8 @@ const SUBTREE_PATTERNS_MAX = 5000;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 // Two replica batcher flushes' worth of lineage lookups in flight.
 const LINEAGE_LOOKUP_CONCURRENCY = 10;
+// Deepest ancestor walk; a chain that doesn't end by then counts as broken.
+const LINEAGE_MAX_DEPTH = 512;
 // Cache refreshes after a batched update; each is a cache read and write.
 const ENTRY_PATCH_CONCURRENCY = 32;
 // Thumbnail text one batched UPDATE carries; inline data URLs run to
@@ -1306,25 +1308,7 @@ export class FSEntryStore extends PuterStore {
         if (changed.length > 0) await this.#invalidateEntriesCache(changed);
     }
 
-    /**
-     * Upward-walk variant of the lineage resolver. Used by uuid/id lookups
-     * where we already have the row but its `path` column is NULL — same legacy
-     * state the path-based resolver heals from the other direction.
-     *
-     * Walks `parent_uid` chains from the entry up to the home row (`parent_uid
-     * IS NULL`), then reuses `#backfillLineagePaths` to write the correct
-     * `path` on every ancestor + the entry itself. Returns the re-fetched
-     * target entry so the caller doesn't need a second query.
-     *
-     * Returns null if the chain is broken (an intermediate `parent_uid` doesn't
-     * resolve to a row) — those rows are unrecoverable from this direction and
-     * the caller should fall back to whatever degraded behaviour it had
-     * before.
-     *
-     * Same security posture as `#resolveEntryByPathLineage`: this method only
-     * resolves + heals data, it does not authorize access. Callers still gate
-     * via ACL on the returned entry.
-     */
+    /** Fills empty paths on the primary's chain; its row, or null if broken. */
     async #healEntryPathByLineageUp(
         targetUuid: string,
     ): Promise<FSEntry | null> {
@@ -1342,18 +1326,19 @@ export class FSEntryStore extends PuterStore {
     } | null> {
         const sql = `
             WITH RECURSIVE
-              ancestors(id, uuid, parent_uid, name, depth) AS (
-                SELECT id, uuid, parent_uid, name, 0
+              ancestors(id, uuid, parent_uid, name, path, depth) AS (
+                SELECT id, uuid, parent_uid, name, path, 0
                 FROM fsentries
                 WHERE uuid = ?
 
                 UNION ALL
 
-                SELECT f.id, f.uuid, f.parent_uid, f.name, a.depth + 1
+                SELECT f.id, f.uuid, f.parent_uid, f.name, f.path, a.depth + 1
                 FROM fsentries f
                 INNER JOIN ancestors a ON f.uuid = a.parent_uid
+                WHERE a.depth < ${LINEAGE_MAX_DEPTH}
               )
-            SELECT id, uuid, parent_uid, name, depth
+            SELECT id, uuid, parent_uid, name, path, depth
             FROM ancestors
             ORDER BY depth ASC
         `;
@@ -1362,6 +1347,7 @@ export class FSEntryStore extends PuterStore {
             uuid: string;
             parent_uid: string | null;
             name: string;
+            path: string | null;
             depth: number | string;
         }>;
         if (rows.length === 0) return null;
@@ -1380,6 +1366,7 @@ export class FSEntryStore extends PuterStore {
         const segments = ordered.map((r) => r.name);
         const byDepth = new Map<number, { id: number; uuid: string }>();
         for (let i = 0; i < ordered.length; i++) {
+            if (ordered[i].path !== null) continue;
             byDepth.set(i + 1, {
                 id: Number(ordered[i].id),
                 uuid: ordered[i].uuid,
