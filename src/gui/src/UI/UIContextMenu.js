@@ -568,9 +568,9 @@ function UIContextMenu (options) {
 
         // Y position
         // is the menu going to go out of the window from the bottom?
-        if ( (start_y + menu_height) > (window.innerHeight - window.taskbar_height - 10) )
+        if ( (start_y + menu_height) > (window.innerHeight - 10) )
         {
-            y_pos = window.innerHeight - menu_height - window.taskbar_height - 10;
+            y_pos = window.innerHeight - menu_height - 10;
         }
         else
         {
@@ -801,9 +801,6 @@ function UIContextMenu (options) {
             $(options.parent_element).css('overflow', 'scroll');
 
             $(options.parent_element).removeClass('has-open-contextmenu');
-            if ( $(options.parent_element).hasClass('taskbar-item') ) {
-                window.make_taskbar_sortable();
-            }
         }
     });
 

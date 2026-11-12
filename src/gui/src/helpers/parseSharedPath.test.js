@@ -127,6 +127,10 @@ describe('shared_link_account_step', () => {
         expect(step({ action: 'login' })).toBeNull();
     });
 
+    it('leaves the desktop alone, since it does not open share links', () => {
+        expect(step({ desktop: true })).toBeNull();
+    });
+
     it('leaves a temporary session to the share link sign-in', () => {
         const temp = { uuid: CURRENT, is_temp: true };
         expect(step({ current_user: temp, logged_in_users: [temp] }))

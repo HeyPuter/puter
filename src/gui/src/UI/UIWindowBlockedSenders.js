@@ -87,7 +87,6 @@ async function UIWindowBlockedSenders (options) {
         width: 420,
         height: 'auto',
         dominant: true,
-        show_in_taskbar: false,
         onAppend: function (this_window) {
             $(this_window).find('.blocked-username').get(0)?.focus({ preventScroll: true });
         },
