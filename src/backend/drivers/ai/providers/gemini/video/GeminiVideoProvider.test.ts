@@ -48,7 +48,7 @@ import type { MeteringService } from '../../../../../services/metering/MeteringS
 import type { UsageInput } from '../../../../../services/metering/types.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../../util/userProvisioning.js';
-import { callerError } from '../../../../integrationTestUtil.js';
+import { callerError } from '../../../shared/integrationTestUtil.js';
 import { loadFileInput } from '../../../../util/fileInput.js';
 import type { IGenerateVideoParams } from '../../../interfaces/video/types.js';
 import type { VideoGenerationDriver } from '../../../interfaces/video/VideoGenerationDriver.js';

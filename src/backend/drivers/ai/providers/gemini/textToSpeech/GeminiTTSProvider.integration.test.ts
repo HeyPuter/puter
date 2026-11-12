@@ -34,11 +34,10 @@ import type { UsageInput } from '../../../../../services/metering/types.js';
 import {
     INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
-    optionalEnv,
     readStreamResult,
-    skipUnlessEnv,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
+import { optionalEnv, skipUnlessEnv } from '../../../../../testEnv.js';
 import { GeminiTTSProvider } from './GeminiTTSProvider.js';
 
 const ENV_VAR = 'PUTER_TEST_AI_GEMINI_API_KEY';

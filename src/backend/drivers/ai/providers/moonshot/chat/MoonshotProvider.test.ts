@@ -53,7 +53,7 @@ import { setupTestServer } from '../../../../../testUtil.js';
 import {
     readStreamResult,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { MOONSHOT_MODELS } from './models.js';
 import { MoonshotProvider } from './MoonshotProvider.js';

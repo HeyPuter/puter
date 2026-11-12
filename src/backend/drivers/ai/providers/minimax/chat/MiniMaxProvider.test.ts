@@ -33,7 +33,7 @@ import { SYSTEM_ACTOR } from '../../../../../core/actor.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { withTestActor } from '../../../../integrationTestUtil.js';
+import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { MINIMAX_MODELS } from './models.js';
 import { MiniMaxProvider } from './MiniMaxProvider.js';
 import { modelLookupNames } from '../../../interfaces/chat/utils/modelRouting.js';

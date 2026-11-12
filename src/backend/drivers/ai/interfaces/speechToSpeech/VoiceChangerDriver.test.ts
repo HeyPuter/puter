@@ -45,7 +45,7 @@ import type { Actor } from '../../../../core/actor.js';
 import { runWithContext } from '../../../../core/context.js';
 import { PuterServer } from '../../../../server.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { setupTestServer } from '../../../../testUtil.js';
+import { setupTestServer, withAiCostFactorHook } from '../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
 import type { DriverStreamResult } from '../../../meta.js';
 import {
@@ -57,8 +57,7 @@ import type { VoiceChangerDriver } from './VoiceChangerDriver.js';
 import {
     callerError,
     readStreamResult,
-    withAiCostFactorHook,
-} from '../../../integrationTestUtil.js';
+} from '../../shared/integrationTestUtil.js';
 import { VOICE_CHANGER_COSTS } from '../../providers/elevenlabs/speechToSpeech/costs.js';
 
 const { webFetchMock } = vi.hoisted(() => ({ webFetchMock: vi.fn() }));

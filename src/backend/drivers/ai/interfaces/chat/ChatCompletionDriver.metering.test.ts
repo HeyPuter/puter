@@ -42,7 +42,7 @@ import { Context } from '../../../../core/context.js';
 import type { UsageInput } from '../../../../services/metering/types.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import { withTestActor } from '../../shared/integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { clearUnhealthyRoutes, isRouteUnhealthy } from './utils/providerHealth.js';
 import { FakeChatProvider } from '../../providers/fake/chat/FakeChatProvider.js';

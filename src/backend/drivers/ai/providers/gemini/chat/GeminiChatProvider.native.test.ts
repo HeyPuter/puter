@@ -43,7 +43,7 @@ import { setupTestServer } from '../../../../../testUtil.js';
 import {
     readStreamResult,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { ChatCompletionDriver } from '../../../interfaces/chat/ChatCompletionDriver.js';
 import type { ICompleteArguments, UsageDetails } from '../../../interfaces/chat/types.js';
 import { normalize_messages } from '../../../interfaces/chat/utils/Messages.js';

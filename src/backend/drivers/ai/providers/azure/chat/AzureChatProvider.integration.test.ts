@@ -36,10 +36,9 @@ import { describe, expect, it } from 'vitest';
 import {
     INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
-    optionalEnv,
-    skipUnlessEnv,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
+import { optionalEnv, skipUnlessEnv } from '../../../../../testEnv.js';
 import { AzureChatProvider } from './AzureChatProvider.js';
 
 const KEY_ENV = 'PUTER_TEST_AI_AZURE_OPENAI_API_KEY';

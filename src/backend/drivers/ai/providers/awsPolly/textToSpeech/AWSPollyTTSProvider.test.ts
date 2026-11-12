@@ -50,7 +50,7 @@ import { setupTestServer } from '../../../../../testUtil.js';
 import {
     readStreamResult,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { AWSPollyTTSProvider } from './AWSPollyTTSProvider.js';
 import { AWS_POLLY_COSTS } from './costs.js';
 import usEast1PriceList from './fixtures/us-east-1.json';

@@ -52,7 +52,7 @@ import {
     makeActorMatrix,
     sentIdentifierFields,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { OPEN_AI_MODELS } from './models.js';
 import { OpenAiChatProvider } from './OpenAiChatCompletionsProvider.js';

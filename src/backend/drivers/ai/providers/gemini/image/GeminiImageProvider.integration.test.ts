@@ -28,10 +28,9 @@ import { describe, expect, it } from 'vitest';
 import {
     INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
-    optionalEnv,
-    skipUnlessEnv,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
+import { optionalEnv, skipUnlessEnv } from '../../../../../testEnv.js';
 import { GeminiImageProvider } from './GeminiImageProvider.js';
 
 const ENV_VAR = 'PUTER_TEST_AI_GEMINI_API_KEY';

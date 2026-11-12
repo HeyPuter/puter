@@ -49,7 +49,7 @@ import type { MeteringService } from '../../../../../services/metering/MeteringS
 import { setupTestServer } from '../../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../../util/userProvisioning.js';
 import type { SpeechToTextDriver } from '../../../interfaces/speechToText/SpeechToTextDriver.js';
-import { callerError } from '../../../../integrationTestUtil.js';
+import { callerError } from '../../../shared/integrationTestUtil.js';
 
 // Mirror the driver's per-second cost so test expectations stay in lockstep
 // with the real value rather than restating an arbitrary literal.

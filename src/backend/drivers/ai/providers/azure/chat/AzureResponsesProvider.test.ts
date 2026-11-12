@@ -49,7 +49,7 @@ import {
     makeActorMatrix,
     sentIdentifierFields,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { AzureResponsesProvider } from './AzureResponsesProvider.js';
 import { AZURE_MODELS } from './models.js';

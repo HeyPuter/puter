@@ -45,7 +45,7 @@ import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import {
     readStreamResult,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { SAMPLE_AUDIO_URL } from '../../../shared/testMode.js';
 import {
     KLING_TTS_UCENTS_PER_REQUEST,

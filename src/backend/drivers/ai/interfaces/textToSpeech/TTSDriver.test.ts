@@ -43,11 +43,8 @@ import {
 import { runWithContext } from '../../../../core/context.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import { PuterServer } from '../../../../server.js';
-import { setupTestServer } from '../../../../testUtil.js';
-import {
-    readStreamResult,
-    withAiCostFactorHook,
-} from '../../../integrationTestUtil.js';
+import { setupTestServer, withAiCostFactorHook } from '../../../../testUtil.js';
+import { readStreamResult } from '../../shared/integrationTestUtil.js';
 import type { TTSDriver } from './TTSDriver.js';
 import pollyPriceList from '../../providers/awsPolly/textToSpeech/fixtures/us-west-2.json';
 

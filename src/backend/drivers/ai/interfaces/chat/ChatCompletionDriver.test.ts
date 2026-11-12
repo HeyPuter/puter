@@ -48,7 +48,7 @@ import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import { withTestActor } from '../../shared/integrationTestUtil.js';
 import { COUNT_TOKENS, ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { ClaudeProvider } from '../../providers/claude/chat/ClaudeProvider.js';
 import { FakeChatProvider } from '../../providers/fake/chat/FakeChatProvider.js';

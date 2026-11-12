@@ -45,7 +45,7 @@ import { SYSTEM_ACTOR } from '../../../../../core/actor.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { withTestActor } from '../../../../integrationTestUtil.js';
+import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { mapAlibabaCatalogModel, type AlibabaApiModel } from './catalog.js';
 import page1 from './fixtures/page1.test.json';

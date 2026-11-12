@@ -40,10 +40,9 @@ import type { MeteringService } from '../../../../../services/metering/MeteringS
 import {
     INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
-    optionalEnv,
-    skipUnlessEnv,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
+import { optionalEnv, skipUnlessEnv } from '../../../../../testEnv.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { ClaudeProvider } from './ClaudeProvider.js';
 

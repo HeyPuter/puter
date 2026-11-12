@@ -20,7 +20,7 @@
 import { PassThrough } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { Context } from '../../../../../core/context.js';
-import { withTestActor } from '../../../../integrationTestUtil.js';
+import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { FakeChatProvider } from './FakeChatProvider.js';
 

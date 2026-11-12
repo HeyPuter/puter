@@ -47,7 +47,7 @@ import type { MeteringService } from '../../../../../services/metering/MeteringS
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../../util/userProvisioning.js';
-import { withTestActor } from '../../../../integrationTestUtil.js';
+import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { VIDEO_POLL_WINDOW_MS } from '../../../shared/polling.js';
 import { TogetherVideoProvider } from './TogetherVideoProvider.js';

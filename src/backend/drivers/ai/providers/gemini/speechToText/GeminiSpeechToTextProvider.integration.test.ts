@@ -28,11 +28,8 @@ import axios from 'axios';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { UsageInput } from '../../../../../services/metering/types.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../../../../testUtil.js';
-import {
-    INTEGRATION_TEST_TIMEOUT_MS,
-    optionalEnv,
-    skipUnlessEnv,
-} from '../../../../integrationTestUtil.js';
+import { INTEGRATION_TEST_TIMEOUT_MS } from '../../../shared/integrationTestUtil.js';
+import { optionalEnv, skipUnlessEnv } from '../../../../../testEnv.js';
 
 const ENV_VAR = 'PUTER_TEST_AI_GEMINI_API_KEY';
 const MODEL = 'gemini-3.5-transcribe';

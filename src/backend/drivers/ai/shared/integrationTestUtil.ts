@@ -19,40 +19,24 @@
  */
 
 /**
- * Shared utilities for AI provider integration tests.
+ * Shared utilities for AI provider tests.
  *
- * Each test reads its credentials from `PUTER_TEST_AI_*` env vars (loaded by
- * the vitest config's `PUTER_` prefix) and skips itself when the var is missing
- * — tests run only on developer machines and in CI environments that supply the
- * right secrets.
+ * A live test reads its credentials from `PUTER_TEST_AI_*` env vars (loaded by
+ * the vitest config's `PUTER_` prefix) and skips itself when the var is
+ * missing, through `skipUnlessEnv` in `testEnv.ts`. Those tests run only on
+ * developer machines and in CI environments that supply the right secrets.
  *
  * Filename intentionally omits `.test.` so vitest does not treat this helper as
  * a test file.
  */
 
-import type { EventClient } from '../clients/event/EventClient.js';
-import { translateProviderError } from '../controllers/drivers/DriverController.js';
-import type { Actor } from '../core/actor.js';
-import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
-import { runWithContext } from '../core/context.js';
-import { NO_CREDIT_HOLD } from '../services/metering/types.js';
-import type { DriverStreamResult } from './meta.js';
-import type { AiMeteringService } from '../util/aiCostFactor.js';
-
-/**
- * Returns the env var value, or `undefined` if missing/empty. Used as the gate
- * for `describe.skipIf` blocks.
- */
-export const optionalEnv = (name: string): string | undefined => {
-    const v = process.env[name];
-    return v && v.length > 0 ? v : undefined;
-};
-
-/**
- * Returns true when the env var is unset, signaling the test block should be
- * skipped. Pair with `describe.skipIf(skipUnlessEnv(...))`.
- */
-export const skipUnlessEnv = (name: string): boolean => !optionalEnv(name);
+import { translateProviderError } from '../../../controllers/drivers/DriverController.js';
+import type { Actor } from '../../../core/actor.js';
+import { SYSTEM_ACTOR, makeActor } from '../../../core/actor.js';
+import { runWithContext } from '../../../core/context.js';
+import { NO_CREDIT_HOLD } from '../../../services/metering/types.js';
+import type { DriverStreamResult } from '../../meta.js';
+import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 
 /**
  * Per-test timeout for provider integration tests. The default 5s vitest
@@ -60,23 +44,6 @@ export const skipUnlessEnv = (name: string): boolean => !optionalEnv(name);
  * routinely takes 15–30s. Pass this as the third argument to `it(...)`.
  */
 export const INTEGRATION_TEST_TIMEOUT_MS = 90_000;
-
-/** Runs `fn` with every AI driver's cost factor hooked to `factor`. */
-export const withAiCostFactorHook = async <T>(
-    events: EventClient,
-    factor: number,
-    fn: () => Promise<T>,
-): Promise<T> => {
-    const hook = (_key: string, event: { factor: number }) => {
-        event.factor = factor;
-    };
-    events.on('ai.cost.factor.*', hook);
-    try {
-        return await fn();
-    } finally {
-        events.off('ai.cost.factor.*', hook);
-    }
-};
 
 /**
  * Returns a no-op MeteringService stub. Real metering would write to DynamoDB /

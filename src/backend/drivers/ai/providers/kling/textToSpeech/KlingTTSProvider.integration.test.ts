@@ -26,11 +26,10 @@ import { describe, expect, it } from 'vitest';
 import {
     INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
-    optionalEnv,
     readStreamResult,
-    skipUnlessEnv,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
+import { optionalEnv, skipUnlessEnv } from '../../../../../testEnv.js';
 import { KlingTTSProvider } from './KlingTTSProvider.js';
 
 const ENV_VAR = 'PUTER_TEST_AI_KLING_API_KEY';

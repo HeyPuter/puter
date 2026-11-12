@@ -49,7 +49,7 @@ import {
     callerError,
     readStreamResult,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { ElevenLabsTTSProvider } from './ElevenLabsTTSProvider.js';
 import { ELEVENLABS_TTS_COSTS } from './costs.js';
 

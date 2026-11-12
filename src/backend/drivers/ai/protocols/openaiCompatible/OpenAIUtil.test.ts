@@ -20,7 +20,7 @@
 import { Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import { Context } from '../../../../core/context.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import { withTestActor } from '../../shared/integrationTestUtil.js';
 // @ts-expect-error — sibling JS module without an adjacent .d.ts
 import {
     create_chat_stream_handler,

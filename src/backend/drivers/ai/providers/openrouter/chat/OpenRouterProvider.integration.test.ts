@@ -29,10 +29,9 @@ import { describe, expect, it } from 'vitest';
 import {
     INTEGRATION_TEST_TIMEOUT_MS,
     makeMeteringStub,
-    optionalEnv,
-    skipUnlessEnv,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
+import { optionalEnv, skipUnlessEnv } from '../../../../../testEnv.js';
 import { OpenRouterProvider } from './OpenRouterProvider.js';
 
 const ENV_VAR = 'PUTER_TEST_AI_OPENROUTER_API_KEY';

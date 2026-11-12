@@ -49,7 +49,7 @@ import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import { withTestActor } from '../../shared/integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { OPEN_AI_MODELS } from '../../providers/openai/chat/models.js';
 import {

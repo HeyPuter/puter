@@ -27,10 +27,9 @@
 import { describe, expect, it } from 'vitest';
 import {
     makeMeteringStub,
-    optionalEnv,
-    skipUnlessEnv,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
+import { optionalEnv, skipUnlessEnv } from '../../../../../testEnv.js';
 import { KlingVideoProvider } from './KlingVideoProvider.js';
 
 const ENV_VAR = 'PUTER_TEST_AI_KLING_API_KEY';

@@ -47,7 +47,7 @@ import type { MeteringService } from '../../../../../services/metering/MeteringS
 import type { UsageInput } from '../../../../../services/metering/types.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../../util/userProvisioning.js';
-import { callerError } from '../../../../integrationTestUtil.js';
+import { callerError } from '../../../shared/integrationTestUtil.js';
 import type { SpeechToTextDriver } from '../../../interfaces/speechToText/SpeechToTextDriver.js';
 import type { ITranscribeArgs } from '../../../interfaces/speechToText/types.js';
 import {

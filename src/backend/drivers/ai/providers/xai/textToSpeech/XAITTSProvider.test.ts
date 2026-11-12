@@ -48,7 +48,7 @@ import {
     callerError,
     readStreamResult,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { XAITTSProvider } from './XAITTSProvider.js';
 import { XAI_TTS_COSTS } from './costs.js';
 

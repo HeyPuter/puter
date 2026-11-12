@@ -47,7 +47,7 @@ import type { UsageInput } from '../../../../../services/metering/types.js';
 import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { callerError, withTestActor } from '../../../../integrationTestUtil.js';
+import { callerError, withTestActor } from '../../../shared/integrationTestUtil.js';
 import {
     GEMINI_TTS_MAX_RESPONSE_BYTES,
     GeminiTTSProvider,

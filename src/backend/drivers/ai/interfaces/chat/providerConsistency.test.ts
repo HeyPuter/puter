@@ -40,7 +40,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import { withTestActor } from '../../shared/integrationTestUtil.js';
 import type {
     IChatMessageResult,
     IChatModel,

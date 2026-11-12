@@ -27,10 +27,9 @@
 import { describe, expect, it } from 'vitest';
 import {
     makeMeteringStub,
-    optionalEnv,
-    skipUnlessEnv,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
+import { optionalEnv, skipUnlessEnv } from '../../../../../testEnv.js';
 import { MiniMaxVideoProvider } from './MiniMaxVideoProvider.js';
 
 const ENV_VAR = 'PUTER_TEST_AI_MINIMAX_API_KEY';

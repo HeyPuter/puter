@@ -48,7 +48,7 @@ import {
     makeActorMatrix,
     sentIdentifierFields,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { CATALOG_TTL_MS } from '../../../shared/cachedRemoteCatalog.js';
 import liveCatalog from './fixtures/image-generation-models.json';

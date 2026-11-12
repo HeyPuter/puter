@@ -53,7 +53,7 @@ import type { MeteringService } from '../../../../../services/metering/MeteringS
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../../util/userProvisioning.js';
-import { withTestActor } from '../../../../integrationTestUtil.js';
+import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { normalize_messages } from '../../../interfaces/chat/utils/Messages.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { FILES_API_BETA } from './fileUpload.js';

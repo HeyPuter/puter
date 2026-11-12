@@ -20,9 +20,9 @@
 import { describe, expect, it } from 'vitest';
 import {
     makeMeteringStub,
-    optionalEnv,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
+import { optionalEnv } from '../../../../../testEnv.js';
 import type {
     IChatMessageResult,
     IChatProvider,

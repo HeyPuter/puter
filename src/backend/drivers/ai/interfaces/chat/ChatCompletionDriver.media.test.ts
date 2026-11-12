@@ -40,7 +40,7 @@ import {
 
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import { withTestActor } from '../../shared/integrationTestUtil.js';
 import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { FakeChatProvider } from '../../providers/fake/chat/FakeChatProvider.js';
 import type { IChatModel, ICompleteArguments } from './types.js';

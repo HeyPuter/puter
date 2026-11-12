@@ -41,7 +41,7 @@ import { Context } from '../../../../../core/context.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { withTestActor } from '../../../../integrationTestUtil.js';
+import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import type { IGenerateParams } from '../../../interfaces/image/types.js';
 import { KlingImageProvider } from './KlingImageProvider.js';

@@ -46,7 +46,7 @@ import { SYSTEM_ACTOR, makeActor } from '../../../../../core/actor.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { withTestActor } from '../../../../integrationTestUtil.js';
+import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { AIChatStream } from '../../../interfaces/chat/utils/Streaming.js';
 import { ZAI_MODELS } from './models.js';
 import { ZAIProvider } from './ZAIProvider.js';

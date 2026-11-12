@@ -32,7 +32,7 @@
 import { execFileSync } from 'node:child_process';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { runWithContext } from '../core/context.ts';
-import { optionalEnv, skipUnlessEnv } from '../drivers/integrationTestUtil.js';
+import { optionalEnv, skipUnlessEnv } from '../testEnv.js';
 import { PuterServer } from '../server.ts';
 import { setupTestServer } from '../testUtil.ts';
 

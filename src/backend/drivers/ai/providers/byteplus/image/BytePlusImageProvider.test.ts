@@ -43,7 +43,7 @@ import { makeActor } from '../../../../../core/actor.js';
 import type { MeteringService } from '../../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../../server.js';
 import { setupTestServer } from '../../../../../testUtil.js';
-import { withTestActor } from '../../../../integrationTestUtil.js';
+import { withTestActor } from '../../../shared/integrationTestUtil.js';
 import { withAiCostFactor } from '../../../../../util/aiCostFactor.js';
 import { BYTEPLUS_IMAGE_GENERATION_MODELS } from './models.js';
 import { BytePlusImageProvider } from './BytePlusImageProvider.js';

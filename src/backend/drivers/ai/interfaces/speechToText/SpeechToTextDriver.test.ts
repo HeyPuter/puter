@@ -47,9 +47,8 @@ import type { Actor } from '../../../../core/actor.js';
 import { runWithContext } from '../../../../core/context.js';
 import { PuterServer } from '../../../../server.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
-import { setupTestServer } from '../../../../testUtil.js';
+import { setupTestServer, withAiCostFactorHook } from '../../../../testUtil.js';
 import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
-import { withAiCostFactorHook } from '../../../integrationTestUtil.js';
 import type { SpeechToTextDriver } from './SpeechToTextDriver.js';
 import { SPEECH_TO_TEXT_COSTS } from '../../providers/openai/speechToText/costs.js';
 

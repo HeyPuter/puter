@@ -48,7 +48,7 @@ import {
     callerError,
     readStreamResult,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { SpeechifyTTSProvider } from './SpeechifyTTSProvider.js';
 import { SPEECHIFY_TTS_COSTS } from './costs.js';
 

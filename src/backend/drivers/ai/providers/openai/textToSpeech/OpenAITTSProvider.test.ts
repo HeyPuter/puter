@@ -49,7 +49,7 @@ import { setupTestServer } from '../../../../../testUtil.js';
 import {
     readStreamResult,
     withTestActor,
-} from '../../../../integrationTestUtil.js';
+} from '../../../shared/integrationTestUtil.js';
 import { OpenAITTSProvider } from './OpenAITTSProvider.js';
 import { OPENAI_TTS_COSTS } from './costs.js';
 
