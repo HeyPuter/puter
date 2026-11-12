@@ -31,7 +31,6 @@ const ru = {
         allow: 'Разрешить',
         ascending: 'По возрастанию',
         associated_websites: 'Связанные сайты',
-        auto_arrange: 'Автоупорядочивание',
         cancel: 'Отмена',
         change_email: 'Изменить электронную почту',
         change_language: 'Изменить язык',

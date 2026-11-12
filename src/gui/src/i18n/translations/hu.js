@@ -31,7 +31,6 @@ const hu = {
         allow: 'Engedélyez',
         ascending: 'Növekvő',
         associated_websites: 'Kapcsolódó weboldalak',
-        auto_arrange: 'Automatikus elrendezés',
         cancel: 'Mégsem',
         change_email: 'Email módosítása',
         change_language: 'Nyelv módosítása',

@@ -146,7 +146,6 @@ const nn = {
         account_password: 'Stadfest kontopassord', // In English: "Verify Account Password"
         allow: 'Tillat', // In English: "Allow"
         associated_websites: 'Tilknytte nettstader', // In English: "Associated Websites"
-        auto_arrange: 'Auto-ordne', // In English: "Auto Arrange"
         change: 'Endre', // In English: "Change"
         change_always_open_with: 'Vil du alltid opne denne filtypen med', // In English: "Do you want to always open this type of file with"
         change_email: 'Endre e-post', // In English: "Change Email"

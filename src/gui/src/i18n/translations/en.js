@@ -67,7 +67,6 @@ const en = {
         app_launch_no_access_unnamed: "You don't have access to this app.",
         ascending: 'Ascending',
         associated_websites: 'Associated Websites',
-        auto_arrange: 'Auto Arrange',
         back: 'Back',
         bio: 'Bio',
         browser: 'Browser',

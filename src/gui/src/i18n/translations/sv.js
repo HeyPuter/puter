@@ -31,7 +31,6 @@ const sv = {
         allow: 'Tillåt',
         ascending: 'Stigande',
         associated_websites: 'Anknytande webbplatser',
-        auto_arrange: 'Auto Arrange',
         cancel: 'Avbryt',
         change_email: 'Ändra e-postadress',
         change_language: 'Ändra språk',

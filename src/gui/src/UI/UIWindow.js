@@ -3692,9 +3692,7 @@ $.fn.close = async function (options) {
                 document.activeElement.blur();
                 $('input').blur();
             }
-            // focus back to desktop
-            $('.desktop').find('.item-blurred').removeClass('item-blurred');
-            window.active_item_container = $('.desktop.item-container').get(0);
+            window.active_item_container = null;
         }
     });
 
@@ -4092,7 +4090,6 @@ $.fn.focusWindow = function (event) {
         }
     } else {
         $('.window').find('.item-selected').addClass('item-blurred');
-        $('.desktop').find('.item-blurred').removeClass('item-blurred');
     }
 
     return this;

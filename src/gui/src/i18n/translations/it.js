@@ -31,7 +31,6 @@ const it = {
         allow: 'Consenti',
         ascending: 'Ascendente',
         associated_websites: 'Siti associati',
-        auto_arrange: 'Organizzazione automatica',
         cancel: 'Annulla',
         change_email: 'Modifica Email',
         change_language: 'Cambia lingua',

@@ -31,7 +31,6 @@ const de = {
         allow: 'Erlauben',
         ascending: 'Aufsteigend',
         associated_websites: 'Zugeordnete Webseiten',
-        auto_arrange: 'Automatisch anordnen',
         cancel: 'Abbrechen',
         change_email: 'E-Mail ändern',
         change_language: 'Sprache ändern',

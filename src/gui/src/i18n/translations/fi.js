@@ -37,7 +37,6 @@ const fi = {
 
         ascending: 'Nouseva',
         associated_websites: 'Tähän liittyvät verkkosivustot',
-        auto_arrange: 'Järjestä automaattisesti',
         cancel: 'Peruuta',
         change_email: 'Vaihda sähköpostiosoite',
         change_language: 'Vaihda kieli',

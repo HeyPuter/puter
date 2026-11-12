@@ -31,7 +31,6 @@ const da = {
         allow: 'Tillad',
         ascending: 'Stigende',
         associated_websites: 'Tilknyttede websteder',
-        auto_arrange: 'Auto Arrangere',
         cancel: 'Annuller',
         change_email: 'Ændre e-mail',
         change_language: 'Ændre sprog',

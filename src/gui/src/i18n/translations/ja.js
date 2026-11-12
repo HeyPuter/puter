@@ -31,7 +31,6 @@ const ja = {
         allow: '許可',
         ascending: '昇順',
         associated_websites: '関連ウェブサイト',
-        auto_arrange: '自動配置',
         cancel: 'キャンセル',
         change_email: 'メールアドレスを変更',
         change_language: '言語を変更',

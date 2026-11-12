@@ -31,7 +31,6 @@ const fa = {
         allow: 'اجازه دسترسی',
         ascending: 'صعودی',
         associated_websites: 'وب سایت های مرتبط',
-        auto_arrange: 'ترتیب خودکار',
         cancel: 'لغو',
         change: 'تغییر',
         change_always_open_with: 'آیا می‌خواهید همیشه این نوع فایل را با ... باز کنید؟',

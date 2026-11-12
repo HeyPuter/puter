@@ -31,7 +31,6 @@ const ua = {
         allow: 'Дозволити',
         ascending: 'За зростанням',
         associated_websites: 'Асоційовані веб-сайти',
-        auto_arrange: 'Автоупорядкування',
         cancel: 'Відміна',
         change: 'Змінити',
         change_email: 'Змінити Email',

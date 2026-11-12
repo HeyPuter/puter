@@ -29,7 +29,6 @@ const ur = {
         add_another_account: 'دوسرا اکاؤنٹ شامل کریں',
         all_fields_required: 'تمام شعبوں کی ضرورت ہے',
         ascending: 'بڑھتی ہوئی',
-        auto_arrange: 'خودکار ترتیب',
         cancel: 'منسوخ کریں',
         change_email: 'ای میل تبدیل کریں',
         change_language: 'زبان تبدیل کریں',

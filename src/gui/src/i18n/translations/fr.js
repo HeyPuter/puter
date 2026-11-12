@@ -31,7 +31,6 @@ const fr = {
         allow: 'Autoriser',
         ascending: 'Ascendant',
         associated_websites: 'Sites associés',
-        auto_arrange: 'Organisation automatique',
         browser: 'Navigateur',
         browser_version: 'Version du navigateur',
         captcha_required: 'Veuillez compléter la vérification CAPTCHA',

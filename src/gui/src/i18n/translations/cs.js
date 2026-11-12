@@ -62,7 +62,6 @@ const cs = {
         "app_group_remove_from_folder": "Odebrat ze složky",
         "associated_websites": "Přidružené weby",
         "app_feedback_sent": "Zpětná vazba byla odeslána. Děkujeme!",
-        "auto_arrange": "Automaticky uspořádat",
         "browser_version": "Verze prohlížeče",
         "change_language": "Změnit jazyk",
         "captcha_required": "Dokončete prosím ověření CAPTCHA",

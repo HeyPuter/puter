@@ -31,7 +31,6 @@ const bn = {
         allow: 'অনুমতি দিন',
         ascending: 'ঊর্ধ্বক্রমে',
         associated_websites: 'সংযুক্ত ওয়েবসাইটগুলি',
-        auto_arrange: 'অটো বিন্যাস',
         cancel: 'বাতিল করুন',
         change_email: 'ই-মেইল পরিবর্তন করুন',
         change_language: 'ভাষা পরিবর্তন করুন',

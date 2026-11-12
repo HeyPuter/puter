@@ -31,7 +31,6 @@ const ku = {
         allow: 'ڕێگەدان',
         ascending: 'سەرووەی',
         associated_websites: 'وێبسایتەکان پەیوەندیدار',
-        auto_arrange: 'ڕیزکردنی ئۆتۆماتیکی',
         cancel: 'ڕەتکردنەوە',
         change_email: 'گۆڕینی ئیمەیل',
         change_language: 'گۆڕینی زمان',

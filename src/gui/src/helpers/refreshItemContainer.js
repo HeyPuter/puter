@@ -246,7 +246,6 @@ const refresh_item_container = function (el_item_container, options) {
                     if ( item_path !== window.trash_path && item_path !== window.appdata_path ) {
                     // if this is trash, get original name from item metadata
                         fsentry.name = metadata.original_name ?? fsentry.name;
-                        const position = window.desktop_item_positions[fsentry.uid] ?? undefined;
                         UIItem({
                             appendTo: el_item_container,
                             uid: fsentry.uid,
@@ -269,7 +268,6 @@ const refresh_item_container = function (el_item_container, options) {
                             suggested_apps: fsentry.suggested_apps,
                             disabled: is_disabled,
                             visible: visible,
-                            position: position,
                             shared_with_me: fsentry.shared_with_me,
                             share_mode: fsentry.share_mode,
                             shared_by: fsentry.shared_by,

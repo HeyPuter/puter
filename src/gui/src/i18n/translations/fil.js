@@ -31,7 +31,6 @@ const fil = {
         allow: 'Payagan',
         ascending: 'Pataas',
         associated_websites: 'Mga kaugnay na website',
-        auto_arrange: 'Ayusin nang awtomatiko',
         cancel: 'Kanselahin',
         change_email: 'Baguhin ang email',
         change_language: 'Baguhin ang wika',

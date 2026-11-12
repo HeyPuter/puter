@@ -31,7 +31,6 @@ const he = {
         allow: 'להרשות',
         ascending: 'בסדר עולה',
         associated_websites: 'אתרים קשורים',
-        auto_arrange: 'סידור אוטומטי',
         cancel: 'ביטול',
         change_email: 'שינוי כתובת אימייל',
         change_language: 'החלפת שפה',

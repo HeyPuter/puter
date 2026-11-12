@@ -31,7 +31,6 @@ const vi = {
         allow: 'Cho phép',
         ascending: 'Tăng dần',
         associated_websites: 'Các trang web liên kết',
-        auto_arrange: 'Tự động sắp xếp',
         cancel: 'Hủy',
         change_email: 'Thay đổi email',
         change_language: 'Thay đổi ngôn ngữ',

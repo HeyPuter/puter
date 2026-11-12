@@ -274,15 +274,7 @@ const postAuthActions = async (action) => {
     // Load desktop, only if we're not embedded in a popup and not on the dashboard page
     // -------------------------------------------------------------------------------------
     if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
-        if ( window.is_fullpage_mode ) {
-            // In fullpage mode, skip loading desktop items and background
-            UIDesktop({});
-        } else {
-            await window.get_auto_arrange_data();
-            puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
-                UIDesktop({ desktop_fsentry: desktop_fsentry });
-            });
-        }
+        UIDesktop();
     }
     // -------------------------------------------------------------------------------------
     // Dashboard mode

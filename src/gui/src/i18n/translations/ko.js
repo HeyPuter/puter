@@ -31,7 +31,6 @@ const ko = {
         allow: '허용',
         ascending: '오름차순',
         associated_websites: '연결된 웹사이트',
-        auto_arrange: '자동 정렬',
         cancel: '취소',
         change_email: '이메일 변경',
         change_language: '언어 변경',

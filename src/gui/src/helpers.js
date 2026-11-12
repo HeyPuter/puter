@@ -3416,57 +3416,6 @@ window.undo_delete = async (items) => {
     }
 };
 
-window.store_auto_arrange_preference = (preference) => {
-    // localStorage still carries it for this device either way.
-    puter.kv.set('user_preferences.auto_arrange_desktop', preference)
-        .catch(err => console.warn('Could not save auto_arrange_desktop:', err));
-    localStorage.setItem('auto_arrange', preference);
-};
-
-window.get_auto_arrange_data = async () => {
-    // Best-effort, like every other preference read: falling back to the
-    // default keeps the desktop arranging itself rather than not appearing.
-    const preferenceValue = await puter.kv.get('user_preferences.auto_arrange_desktop').catch(() => null);
-    window.is_auto_arrange_enabled = preferenceValue === null ? true : preferenceValue;
-    const positions = await puter.kv.get('desktop_item_positions').catch(() => null);
-    window.desktop_item_positions = (!positions || typeof positions !== 'object' || Array.isArray(positions)) ? {} : positions;
-};
-
-window.clear_desktop_item_positions = async (el_desktop) => {
-    $(el_desktop).find('.item').each(function () {
-        const el_item = $(this)[0];
-        $(el_item).css('position', '');
-        $(el_item).css('left', '');
-        $(el_item).css('top', '');
-    });
-    if ( window.reset_item_positions ) {
-        window.delete_desktop_item_positions();
-    }
-};
-
-window.set_desktop_item_positions = async (el_desktop) => {
-    $(el_desktop).find('.item').each(async function () {
-        const position = window.desktop_item_positions[$(this).attr('data-uid')];
-        const el_item = $(this)[0];
-        if ( position ) {
-            $(el_item).css('position', 'absolute');
-            $(el_item).css('left', `${position.left }px`);
-            $(el_item).css('top', `${position.top }px`);
-        }
-    });
-};
-
-window.save_desktop_item_positions = () => {
-    puter.kv.set('desktop_item_positions', window.desktop_item_positions)
-        .catch(err => console.warn('Could not save desktop_item_positions:', err));
-};
-
-window.delete_desktop_item_positions = () => {
-    window.desktop_item_positions = {};
-    puter.kv.del('desktop_item_positions')
-        .catch(err => console.warn('Could not clear desktop_item_positions:', err));
-};
-
 // Finds the `.window` element for the given app instance ID
 window.window_for_app_instance = (instance_id) => {
     return $(`.window[data-element_uuid="${instance_id}"]`).get(0);

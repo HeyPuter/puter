@@ -31,7 +31,6 @@ const ta = {
         allow: 'அனுமதி',
         ascending: 'ஏறுமுகம்',
         associated_websites: 'தொடர்புடைய இணையதளங்கள்',
-        auto_arrange: 'ஆட்டோ ஏற்பாடு',
         cancel: 'ரத்து செய்',
         change_email: 'மின்னஞ்சலை மாற்றவும்',
         change_language: 'மொழியை மாற்றவும்',

@@ -19,14 +19,10 @@
 
 import path from '../lib/path.js';
 
-import UIContextMenu from './UIContextMenu.js';
 import UIItem from './UIItem.js';
 import UIAlert from './UIAlert.js';
 import UIWindow from './UIWindow.js';
-import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 
-import new_context_menu_item from '../helpers/newContextMenuItem.js';
-import refresh_item_container from '../helpers/refreshItemContainer.js';
 import { atPath, retargetNavHistory, retargetPaths, underPath } from '../helpers/pathElements.js';
 import truncate_filename from '../helpers/truncateFilename.js';
 import UINotification from './UINotification.js';
@@ -59,7 +55,7 @@ import apply_item_added_to_containers from '../helpers/applyItemAddedToContainer
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import { resolve_default_app } from '../helpers/defaultApp.js';
 
-async function UIDesktop (options) {
+async function UIDesktop () {
     // start a transaction if we're not in embedded or fullpage mode
     let transaction;
     if ( !window.is_embedded && !window.is_fullpage_mode ) {
@@ -658,16 +654,8 @@ async function UIDesktop (options) {
 
     h += '<div class="window-container"></div>';
 
-    // Desktop
-    // If desktop is not in fullpage/embedded mode, we hide it until files and directories are loaded and then fade in the UI
-    // This gives a calm and smooth experience for the user
-    h += `<div class="desktop item-container disable-user-select"
-                data-uid="${options.desktop_fsentry?.uid ?? ''}"
-                data-sort_by="${!options.desktop_fsentry?.sort_by ? 'name' : options.desktop_fsentry.sort_by}"
-                data-sort_order="${!options.desktop_fsentry?.sort_order ? 'asc' : options.desktop_fsentry.sort_order}"
-                data-path="${html_encode(window.desktop_path)}"
-            >`;
-    h += '</div>';
+    // The surface windows open on. It holds no items.
+    h += '<div class="desktop disable-user-select"></div>';
 
     // Get window sidebar width
     puter.kv.get('window_sidebar_width').catch(() => null).then(async (val) => {
@@ -706,387 +694,19 @@ async function UIDesktop (options) {
     const el_desktop = document.querySelector('.desktop');
 
     window.active_element = el_desktop;
-    window.active_item_container = el_desktop;
 
-    // --------------------------------------------------------
-    // Dragster
-    // Allow dragging of local files onto desktop.
-    // --------------------------------------------------------
-    $(el_desktop).dragster({
-        enter: function (dragsterEvent, event) {
-            $('.context-menu').remove();
-        },
-        leave: function (dragsterEvent, event) {
-        },
-        drop: async function (dragsterEvent, event) {
-            const e = event.originalEvent;
-            // no drop on item
-            if ( $(event.target).hasClass('item') || $(event.target).parent('.item').length > 0 )
-            {
-                return false;
-            }
-            // recursively create directories and upload files
-            if ( e.dataTransfer?.items?.length > 0 ) {
-                window.upload_items(e.dataTransfer.items, window.desktop_path);
-            }
-
-            e.stopPropagation();
-            e.preventDefault();
-            return false;
-        },
+    // The desktop has no menu of its own, and the browser's doesn't belong here.
+    $(el_desktop).on('contextmenu', function (event) {
+        if ( event.target === el_desktop ) event.preventDefault();
     });
 
-    // --------------------------------------------------------
-    // Droppable
-    // --------------------------------------------------------
-    $(el_desktop).droppable({
-        accept: '.item',
-        tolerance: 'intersect',
-        drop: function (event, ui) {
-            // Check if item was actually dropped on desktop and not a window
-            if ( window.mouseover_window !== undefined )
-            {
-                return;
-            }
-
-            // Can't drop anything but UIItems on desktop
-            if ( ! $(ui.draggable).hasClass('item') )
-            {
-                return;
-            }
-
-            // Don't move an item to its current directory
-            if ( path.dirname($(ui.draggable).attr('data-path')) === window.desktop_path && !event.ctrlKey )
-            {
-                return;
-            }
-
-            // If ctrl is pressed and source is Trashed, cancel whole operation
-            if ( event.ctrlKey && path.dirname($(ui.draggable).attr('data-path')) === window.trash_path )
-            {
-                return;
-            }
-
-            // Unselect previously selected items
-            $(el_desktop).children('.item-selected').removeClass('item-selected');
-
-            const items_to_move = [];
-            // first item
-            items_to_move.push(ui.draggable);
-
-            // all subsequent items
-            const cloned_items = document.getElementsByClassName('item-selected-clone');
-            for ( let i = 0; i < cloned_items.length; i++ ) {
-                const source_item = document.getElementById(`item-${ $(cloned_items[i]).attr('data-id')}`);
-                if ( source_item !== null )
-                {
-                    items_to_move.push(source_item);
-                }
-            }
-
-            // if ctrl key is down, copy items
-            if ( event.ctrlKey ) {
-                // unless source is Trash
-                if ( path.dirname($(ui.draggable).attr('data-path')) === window.trash_path )
-                {
-                    return;
-                }
-
-                window.copy_items(items_to_move, window.desktop_path);
-            }
-            // otherwise, move items
-            else {
-                window.move_items(items_to_move, window.desktop_path);
-            }
-        },
-    });
-
-    //--------------------------------------------------
-    // ContextMenu
-    //--------------------------------------------------
-    $(el_desktop).bind('contextmenu taphold', function (event) {
-        // dismiss taphold on regular devices
-        if ( event.type === 'taphold' && !isMobile.phone && !isMobile.tablet )
-        {
-            return;
-        }
-
-        const $target = $(event.target);
-
-        // elements that should retain native ctxmenu
-        if ( $target.is('input') || $target.is('textarea') )
-        {
-            return true;
-        }
-
-        // custom ctxmenu for all other elements
-        if ( event.target === el_desktop ) {
-            event.preventDefault();
-            UIContextMenu({
-                position: event.type === 'taphold' ? undefined : { left: event.pageX, top: event.pageY },
-                items: [
-                    // -------------------------------------------
-                    // Sort by
-                    // -------------------------------------------
-                    {
-                        html: i18n('sort_by'),
-                        items: [
-                            {
-                                html: i18n('auto_arrange'),
-                                icon: window.is_auto_arrange_enabled ? '✓' : '',
-                                onClick: async function () {
-                                    window.is_auto_arrange_enabled = !window.is_auto_arrange_enabled;
-                                    window.store_auto_arrange_preference(window.is_auto_arrange_enabled);
-                                    if ( window.is_auto_arrange_enabled ) {
-                                        window.sort_items(el_desktop, $(el_desktop).attr('data-sort_by'), $(el_desktop).attr('data-sort_order'));
-                                        window.set_sort_by(options.desktop_fsentry.uid, $(el_desktop).attr('data-sort_by'), $(el_desktop).attr('data-sort_order'));
-                                        window.clear_desktop_item_positions(el_desktop);
-                                    } else {
-                                        window.set_desktop_item_positions(el_desktop);
-                                    }
-                                },
-                            },
-                            // -------------------------------------------
-                            // -
-                            // -------------------------------------------
-                            '-',
-                            {
-                                html: i18n('name'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_by') === 'name' ? '✓' : '',
-                                onClick: async function () {
-                                    window.sort_items(el_desktop, 'name', $(el_desktop).attr('data-sort_order'));
-                                    window.set_sort_by(options.desktop_fsentry.uid, 'name', $(el_desktop).attr('data-sort_order'));
-                                },
-                            },
-                            {
-                                html: i18n('date_modified'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_by') === 'modified' ? '✓' : '',
-                                onClick: async function () {
-                                    window.sort_items(el_desktop, 'modified', $(el_desktop).attr('data-sort_order'));
-                                    window.set_sort_by(options.desktop_fsentry.uid, 'modified', $(el_desktop).attr('data-sort_order'));
-                                },
-                            },
-                            {
-                                html: i18n('type'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_by') === 'type' ? '✓' : '',
-                                onClick: async function () {
-                                    window.sort_items(el_desktop, 'type', $(el_desktop).attr('data-sort_order'));
-                                    window.set_sort_by(options.desktop_fsentry.uid, 'type', $(el_desktop).attr('data-sort_order'));
-                                },
-                            },
-                            {
-                                html: i18n('size'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_by') === 'size' ? '✓' : '',
-                                onClick: async function () {
-                                    window.sort_items(el_desktop, 'size', $(el_desktop).attr('data-sort_order'));
-                                    window.set_sort_by(options.desktop_fsentry.uid, 'size', $(el_desktop).attr('data-sort_order'));
-                                },
-                            },
-                            // -------------------------------------------
-                            // -
-                            // -------------------------------------------
-                            '-',
-                            {
-                                html: i18n('ascending'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_order') === 'asc' ? '✓' : '',
-                                onClick: async function () {
-                                    const sort_by = $(el_desktop).attr('data-sort_by');
-                                    window.sort_items(el_desktop, sort_by, 'asc');
-                                    window.set_sort_by(options.desktop_fsentry.uid, sort_by, 'asc');
-                                },
-                            },
-                            {
-                                html: i18n('descending'),
-                                disabled: !window.is_auto_arrange_enabled,
-                                icon: $(el_desktop).attr('data-sort_order') === 'desc' ? '✓' : '',
-                                onClick: async function () {
-                                    const sort_by = $(el_desktop).attr('data-sort_by');
-                                    window.sort_items(el_desktop, sort_by, 'desc');
-                                    window.set_sort_by(options.desktop_fsentry.uid, sort_by, 'desc');
-                                },
-                            },
-                        ],
-                    },
-                    // -------------------------------------------
-                    // Refresh
-                    // -------------------------------------------
-                    {
-                        html: i18n('refresh'),
-                        onClick: function () {
-                            refresh_item_container(el_desktop, { consistency: 'strong' });
-                        },
-                    },
-                    // -------------------------------------------
-                    // Show/Hide hidden files
-                    // -------------------------------------------
-                    {
-                        html: i18n('show_hidden'),
-                        icon: window.user_preferences.show_hidden_files ? '✓' : '',
-                        onClick: function () {
-                            window.mutate_user_preferences({
-                                show_hidden_files: !window.user_preferences.show_hidden_files,
-                            });
-                            window.show_or_hide_files(document.querySelectorAll('.item-container'));
-                        },
-                    },
-                    // -------------------------------------------
-                    // -
-                    // -------------------------------------------
-                    '-',
-                    // -------------------------------------------
-                    // New File
-                    // -------------------------------------------
-                    new_context_menu_item(window.desktop_path, el_desktop),
-                    // -------------------------------------------
-                    // -
-                    // -------------------------------------------
-                    '-',
-                    // -------------------------------------------
-                    // Paste
-                    // -------------------------------------------
-                    {
-                        html: i18n('paste'),
-                        disabled: window.clipboard.length > 0 ? false : true,
-                        onClick: function () {
-                            if ( window.clipboard_op === 'copy' )
-                            {
-                                window.copy_clipboard_items(window.desktop_path, el_desktop);
-                            }
-                            else if ( window.clipboard_op === 'move' )
-                            {
-                                window.move_clipboard_items(el_desktop);
-                            }
-                        },
-                    },
-                    // -------------------------------------------
-                    // Undo
-                    // -------------------------------------------
-                    {
-                        html: i18n('undo'),
-                        disabled: window.actions_history.length > 0 ? false : true,
-                        onClick: function () {
-                            window.undo_last_action();
-                        },
-                    },
-                    // -------------------------------------------
-                    // Upload Here
-                    // -------------------------------------------
-                    {
-                        html: i18n('upload_here'),
-                        onClick: function () {
-                            window.init_upload_using_dialog(el_desktop);
-                        },
-                    },
-                ],
-            });
-        }
-    });
-
-    //-------------------------------------------
-    // Desktop Files/Folders
-    // we don't need to get the desktop items if we're in embedded or fullpage mode
-    // because the items aren't visible anyway and we don't need to waste bandwidth/server resources
-    //-------------------------------------------
     if ( !window.is_embedded && !window.is_fullpage_mode ) {
-        refresh_item_container(el_desktop, {
-            fadeInItems: true,
-            onComplete: () => {
-                // End transaction when desktop is fully ready for user interaction
-                transaction.end();
-            },
-        });
+        transaction.end();
 
-        // perform readdirs for caching purposes
-
-        // home directory
+        // warm the home directory listing for the first Explorer window
         puter.fs.readdir({ path: window.home_path, consistency: 'strong' });
     }
 
-    // -------------------------------------------
-    // Selectable
-    // Only for desktop
-    // -------------------------------------------
-    if ( !isMobile.phone && !isMobile.tablet ) {
-        let selected_ctrl_items = [];
-        const selection = new SelectionArea({
-            selectionContainerClass: '.selection-area-container',
-            container: '.desktop',
-            selectables: ['.desktop.item-container > .item'],
-            startareas: ['.desktop'],
-            boundaries: ['.desktop'],
-            behaviour: {
-                overlap: 'drop',
-                intersect: 'touch',
-                startThreshold: 10,
-                scrolling: {
-                    speedDivider: 10,
-                    manualSpeed: 750,
-                    startScrollMargins: { x: 0, y: 0 },
-                },
-            },
-            features: {
-                touch: true,
-                range: true,
-                singleTap: {
-                    allow: true,
-                    intersect: 'native',
-                },
-            },
-        });
-
-        selection.on('beforestart', ({ event }) => {
-            selected_ctrl_items = [];
-            // Returning false prevents a selection
-            return $(event.target).hasClass('item-container');
-        })
-            .on('beforedrag', evt => {
-            })
-            .on('start', ({ store, event }) => {
-                if ( !event.ctrlKey && !event.metaKey ) {
-                    for ( const el of store.stored ) {
-                        el.classList.remove('item-selected');
-                    }
-
-                    selection.clearSelection();
-                }
-
-                // mark desktop as selectable active
-                $('.desktop').addClass('desktop-selectable-active');
-            })
-            .on('move', ({ store: { changed: { added, removed } }, event }) => {
-                window.desktop_selectable_is_active = true;
-
-                for ( const el of added ) {
-                    // if ctrl or meta key is pressed and the item is already selected, then unselect it
-                    if ( (event.ctrlKey || event.metaKey) && $(el).hasClass('item-selected') ) {
-                        el.classList.remove('item-selected');
-                        selected_ctrl_items.push(el);
-                    }
-                    // otherwise select it
-                    else {
-                        el.classList.add('item-selected');
-                    }
-                }
-
-                for ( const el of removed ) {
-                    el.classList.remove('item-selected');
-                    // in case this item was selected by ctrl+click before, then reselect it again
-                    if ( selected_ctrl_items.includes(el) )
-                    {
-                        $(el).not('.item-disabled').addClass('item-selected');
-                    }
-                }
-            })
-            .on('stop', evt => {
-                window.desktop_selectable_is_active = false;
-                $('.desktop').removeClass('desktop-selectable-active');
-            });
-    }
     // notification container
     $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
 
@@ -1171,10 +791,10 @@ async function UIDesktop (options) {
             return;
         }
 
-        // disable pointer-events for all app iframes, this is to make sure selectable works
         $('.window-app-iframe').css('pointer-events', 'none');
         $('.window').find('.item-selected').addClass('item-blurred');
-        $('.desktop').find('.item-blurred').removeClass('item-blurred');
+        // Keyboard shortcuts act on the active container, and a click here leaves every window's.
+        window.active_item_container = null;
     });
 
     $(el_desktop).on('click', function (e) {
@@ -1238,7 +858,6 @@ async function UIDesktop (options) {
                     file_path: item_path,
                     app_obj: suggested_apps[0],
                     window_title: path.basename(item_path),
-                    maximized: options.maximized,
                     file_signature: open_item_meta.signature,
                     custom_path: window.location.pathname,
                 });
@@ -1292,7 +911,6 @@ window.enter_fullpage_mode = (el_window) => {
 
 window.exit_fullpage_mode = (el_window) => {
     $('body').removeClass('fullpage-mode');
-    refresh_item_container($('.desktop.item-container'), { fadeInItems: true });
     $(el_window).removeAttr('data-is_fullpage');
     if ( el_window ) {
         window.reset_window_size_and_position(el_window);

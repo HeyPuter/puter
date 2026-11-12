@@ -31,7 +31,6 @@ const ar = {
         allow: 'السماح',
         ascending: 'تصاعدي',
         associated_websites: 'المواقع المرتبطة',
-        auto_arrange: 'ترتيب تلقائي',
         cancel: 'إلغاء',
         change_email: 'تغيير البريد الإلكتروني',
         change_language: 'تغيير اللغة',
