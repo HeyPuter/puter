@@ -216,6 +216,10 @@ const sequentialAuthenticate = async (
             if (!app || !isGodmodeApp(app)) return { invalid: true };
             godmodeApp = { uid: app.uid, id: app.id };
         }
+        const ownRow =
+            session?.kind === 'access_token' &&
+            (session.access_token_uid === d.token_uid ||
+                session.legacy_token_uid === d.token_uid);
         const actor = makeActor({
             user: actorUser(user),
             accessToken: {
@@ -224,6 +228,7 @@ const sequentialAuthenticate = async (
                 authorized: null,
                 fullAccess: !d.app_uid && d.full_access === true,
                 ...(godmodeApp ? { godmodeApp } : {}),
+                ...(ownRow ? { sessionUid: session!.uuid } : {}),
             },
         });
         applyHandlerDepth(actor);

@@ -47,7 +47,6 @@ Object.assign(window, {
     shared_path: '/alice/Shared',
     trash_path: '/alice/Trash',
     user_preferences: {},
-    desktop_item_positions: {},
     check_fsentry_against_allowed_file_types_string: () => true,
     sort_items: () => {},
     update_explorer_footer_item_count: () => {},
