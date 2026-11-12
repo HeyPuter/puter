@@ -257,8 +257,21 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.created_ts).toBeGreaterThan(0);
         // `directories` is only sent to user actors — confirm it’s present.
         expect(body.directories).toBeDefined();
-        // taskbar_items is only sent to user actors.
-        expect(body).toHaveProperty('taskbar_items');
+    });
+
+    it('leaves out taskbar items saved on the account', async () => {
+        const user = await seedUser();
+        await server.stores.user.update(user.id as number, {
+            taskbar_items: JSON.stringify([{ type: 'app', name: 'editor' }]),
+        });
+        const { res, captured } = makeRes();
+
+        await runWithContext(
+            { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+            () => handleWhoami(makeReq(), res),
+        );
+
+        expect(captured.body).not.toHaveProperty('taskbar_items');
     });
 
     it('leaves out a desktop background saved on the account', async () => {
@@ -449,7 +462,7 @@ describe('whoami extension — handleWhoami', () => {
             });
         });
 
-        it('cannot add taskbar_items for an app actor, which core omits', async () => {
+        it('cannot add directories for an app actor, which core omits', async () => {
             const user = await seedUser();
             const body = await whoamiWithListener(
                 makeActor({
@@ -457,11 +470,11 @@ describe('whoami extension — handleWhoami', () => {
                     app: { uid: 'app-test-actor' },
                 }),
                 (_key, event) => {
-                    event.details.taskbar_items = [{ name: 'injected' }];
+                    event.details.directories = { '/injected': 'uuid' };
                 },
             );
 
-            expect(body).not.toHaveProperty('taskbar_items');
+            expect(body).not.toHaveProperty('directories');
         });
     });
 
@@ -542,7 +555,7 @@ describe('whoami extension — handleWhoami', () => {
             expect(body.otp_secret).toBeUndefined();
             expect(body.signup_ip).toBeUndefined();
             // Not just absent as a key — the values must not appear anywhere
-            // in the payload (nested under metadata, taskbar items, …).
+            // in the payload (nested under metadata, …).
             const serialized = JSON.stringify(body);
             expect(serialized).not.toContain('5551234567');
             expect(serialized).not.toContain('fp_ABC123');

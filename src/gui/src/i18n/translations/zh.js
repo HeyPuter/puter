@@ -38,7 +38,6 @@ const zh = {
         change_password: '更改密码',
         change_username: '更改用户名',
         close: '关闭',
-        close_all_windows: '关闭所有窗口',
         close_all_windows_and_log_out: '关闭窗口并退出',
         change_always_open_with: '以后都这样打开此类型的文件？',
         confirm: '确认',
@@ -121,7 +120,6 @@ const zh = {
         general: '常用',
         get_a_copy_of_on_puter: '在 Puter.com 上获取 \'%%\' 的副本！',
         get_copy_link: '获取复制链接',
-        hide_all_windows: '隐藏所有窗口',
         home: '主页',
         html_document: 'HTML 文档',
         hue: '色调',
@@ -130,7 +128,6 @@ const zh = {
         item: '项目',
         items_in_trash_cannot_be_renamed: '此项目无法重命名，因为它在回收站中。要重命名此项目，请先将其拖出回收站。',
         jpeg_image: 'JPEG 图像',
-        keep_in_taskbar: '固定在任务栏',
         language: '语言',
         license: '许可协议',
         lightness: '明亮',
@@ -196,7 +193,6 @@ const zh = {
         refer_friends_c2a: '每个创建并确认 Puter 帐户的朋友都会为您获得 1 GB。您的朋友也将获得 1 GB！',
         refer_friends_social_media_c2a: '在 Puter.com 上获取 1 GB 的免费存储空间！',
         refresh: '刷新',
-        remove_from_taskbar: '从任务栏中删除',
         rename: '重命名',
         replace: '替换',
         replace_all: '全部替换',
@@ -224,7 +220,6 @@ const zh = {
         share: '分享',
         share_to: '分享到',
         shortcut_to: '快捷方式',
-        show_all_windows: '显示所有窗口',
         show_hidden: '显示隐藏',
         sign_in_with_puter: '使用 Puter 登录',
         sign_up: '注册',
@@ -364,8 +359,6 @@ const zh = {
         'create_shortcut_s': '创建快捷方式', // In English: "Create Shortcuts"
         'minimize': '最小化', // In English: "Minimize"
         'reload_app': '重新加载应用', // In English: "Reload App"
-        'new_window': '新窗口', // In English: "New Window"
-        'open_trash': '打开回收站', // In English: "Open Trash"
         'publish_as_serverless_worker': '发布为 Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': '进入全屏', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -397,14 +390,8 @@ const zh = {
         'window_title_publish_worker': '发布 Worker', // In English: "Publish Worker"
         'window_title_authenticating': '正在验证…', // In English: "Authenticating..."
         'window_title_refer_friend': '推荐朋友！', // In English: "Refer a friend!"
-        'desktop_show_desktop': '显示桌面', // In English: "Show Desktop"
-        'desktop_show_open_windows': '显示打开的窗口', // In English: "Show Open Windows"
         'desktop_exit_full_screen': '退出全屏', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': '进入全屏', // In English: "Enter Full Screen"
-        'desktop_position': '位置', // In English: "Position"
-        'desktop_position_left': '左侧', // In English: "Left"
-        'desktop_position_bottom': '底部', // In English: "Bottom"
-        'desktop_position_right': '右侧', // In English: "Right"
         'item_shared_with_you': '一位用户已与您共享此项目。', // In English: "A user has shared this item with you."
         'item_shared_by_you': '您已将此项目共享给至少一位用户。', // In English: "You have shared this item with at least one other user."
         'item_shortcut': '快捷方式', // In English: "Shortcut"

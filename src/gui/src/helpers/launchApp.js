@@ -625,7 +625,7 @@ const runLaunch = async (options) => {
             window_height = parseFloat(app_info.metadata.window_size.height);
         } if ( options.maximized )
         {
-            window_height = `calc(100% - ${window.taskbar_height + window.toolbar_height + 1}px)`;
+            window_height = `calc(100% - ${window.toolbar_height + 1}px)`;
         }
 
         // top
@@ -676,18 +676,6 @@ const runLaunch = async (options) => {
         if ( app_info.metadata?.set_title_to_opened_file !== undefined && typeof app_info.metadata.set_title_to_opened_file === 'boolean' && app_info.metadata.set_title_to_opened_file === true )
         {
             title = options.file_path ? path.basename(options.file_path) : title;
-        }
-
-        // show_in_taskbar
-        // Deliberately keyed on the app's own `background`, not on this launch's:
-        // an app that always runs windowless has nothing to put in the taskbar,
-        // ever. A background *launch* is a normal app that happens to start
-        // hidden, so it keeps asking for an item — UIWindow just holds it back
-        // until the window is first shown (see its taskbar block).
-        let show_in_taskbar = app_info.background ? false : window_options?.show_in_taskbar;
-        if ( window_options?.show_in_taskbar !== undefined )
-        {
-            show_in_taskbar = window_options.show_in_taskbar;
         }
 
         // has_head
@@ -748,7 +736,6 @@ const runLaunch = async (options) => {
             ...window_options,
             is_resizable: window_resizable,
             has_head: has_head,
-            show_in_taskbar: show_in_taskbar,
             update_window_url: update_window_url,
             custom_path: custom_path,
         });

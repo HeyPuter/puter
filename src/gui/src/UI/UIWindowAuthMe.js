@@ -215,7 +215,6 @@ async function UIWindowAuthMe (options = {}) {
             width: 400,
             height: 'auto',
             dominant: true,
-            show_in_taskbar: false,
             window_class: 'window-authme',
             body_css: {
                 width: 'initial',

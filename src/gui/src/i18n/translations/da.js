@@ -38,7 +38,6 @@ const da = {
         change_password: 'Ændre adgangskode',
         change_username: 'Ændre brugernavn',
         close: 'Luk',
-        close_all_windows: 'Luk alle vinduer',
         close_all_windows_and_log_out: 'Luk vinduer og log ud',
         change_always_open_with: 'Vil du altid åbne denne filtype med',
         confirm: 'Bekræft',
@@ -121,7 +120,6 @@ const da = {
         general: 'Generelt',
         get_a_copy_of_on_puter: 'Få en kopi af \'%%\' på Puter.com!',
         get_copy_link: 'Få kopi-link',
-        hide_all_windows: 'Skjul alle vinduer',
         home: 'Hjem',
         html_document: 'HTML-dokument',
         hue: 'Farvetone',
@@ -130,7 +128,6 @@ const da = {
         item: 'element',
         items_in_trash_cannot_be_renamed: 'Dette element kan ikke omdøbes, fordi det er i papirkurven. For at omdøbe dette element, skal du først trække det ud af papirkurven.',
         jpeg_image: 'JPEG-billede',
-        keep_in_taskbar: 'Behold i proceslinjen',
         language: 'Sprog',
         license: 'Licens',
         lightness: 'Lysstyrke',
@@ -196,7 +193,6 @@ const da = {
         refer_friends_c2a: 'Få 1 GB for hver ven, der opretter og bekræfter en konto på Puter. Din ven vil også få 1 GB!',
         refer_friends_social_media_c2a: 'Få 1 GB gratis lagerplads på Puter.com!',
         refresh: 'Opdater',
-        remove_from_taskbar: 'Fjern fra proceslinje',
         rename: 'Omdøb',
         replace: 'Erstat',
         replace_all: 'Erstat alle',
@@ -224,7 +220,6 @@ const da = {
         share: 'Del',
         share_to: 'Del til',
         shortcut_to: 'Genvej til',
-        show_all_windows: 'Vis alle vinduer',
         show_hidden: 'Vis skjulte',
         sign_in_with_puter: 'Log ind med Puter',
         sign_up: 'Tilmeld dig',
@@ -364,8 +359,6 @@ const da = {
         'create_shortcut_s': undefined, // In English: "Create Shortcuts"
         'minimize': undefined, // In English: "Minimize"
         'reload_app': undefined, // In English: "Reload App"
-        'new_window': undefined, // In English: "New Window"
-        'open_trash': undefined, // In English: "Open Trash"
         'publish_as_serverless_worker': undefined, // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': undefined, // In English: "Enter Full Screen"
         'toolbar.github': undefined, // In English: "GitHub"
@@ -448,14 +441,8 @@ const da = {
         'window_title_publish_worker': undefined, // In English: "Publish Worker"
         'window_title_authenticating': undefined, // In English: "Authenticating..."
         'window_title_refer_friend': undefined, // In English: "Refer a friend!"
-        'desktop_show_desktop': undefined, // In English: "Show Desktop"
-        'desktop_show_open_windows': undefined, // In English: "Show Open Windows"
         'desktop_exit_full_screen': undefined, // In English: "Exit Full Screen"
         'desktop_enter_full_screen': undefined, // In English: "Enter Full Screen"
-        'desktop_position': undefined, // In English: "Position"
-        'desktop_position_left': undefined, // In English: "Left"
-        'desktop_position_bottom': undefined, // In English: "Bottom"
-        'desktop_position_right': undefined, // In English: "Right"
         'item_shared_with_you': undefined, // In English: "A user has shared this item with you."
         'item_shared_by_you': undefined, // In English: "You have shared this item with at least one other user."
         'item_shortcut': undefined, // In English: "Shortcut"

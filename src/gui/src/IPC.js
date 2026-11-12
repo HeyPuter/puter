@@ -484,7 +484,6 @@ const ipc_listener = async (event, handled) => {
                 is_resizable: event.data.options.is_resizable,
                 has_head: event.data.options.has_head,
                 center: event.data.options.center,
-                show_in_taskbar: event.data.options.show_in_taskbar,
                 iframe_srcdoc: event.data.options.content,
                 parent_uuid: event.data.appInstanceID,
             });
@@ -1149,9 +1148,9 @@ const ipc_listener = async (event, handled) => {
         if ( event.data.y !== undefined ) {
             event.data.y = parseFloat(event.data.y);
             // we don't want the window to go off the top edge of the screen
-            if ( event.data.y < window.taskbar_height )
+            if ( event.data.y < 0 )
             {
-                event.data.y = window.taskbar_height;
+                event.data.y = 0;
             }
             // we don't want the window to go off the bottom edge of the screen
             if ( event.data.y > window.innerHeight - 100 )
@@ -1217,9 +1216,9 @@ const ipc_listener = async (event, handled) => {
         if ( event.data.y !== undefined ) {
             event.data.y = parseFloat(event.data.y);
             // we don't want the window to go off the top edge of the screen
-            if ( event.data.y < window.taskbar_height )
+            if ( event.data.y < 0 )
             {
-                event.data.y = window.taskbar_height;
+                event.data.y = 0;
             }
             // we don't want the window to go off the bottom edge of the screen
             if ( event.data.y > window.innerHeight - 100 )

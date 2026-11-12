@@ -40,7 +40,6 @@ const bg = {
         change_password: 'Промяна на паролата',
         change_username: 'Промяна на потребителското име',
         close: 'Затвори',
-        close_all_windows: 'Затвори всички прозорци',
         close_all_windows_and_log_out: 'Затвори прозорците и излез',
         confirm: 'Потвърди',
         confirm_2fa_setup: 'Добавих кода към приложението си за удостоверяване',
@@ -139,7 +138,6 @@ const bg = {
         general: 'Общи',
         get_a_copy_of_on_puter: 'Вземете копие на %% в Puter.com!',
         get_copy_link: 'Вземи връзка за копие',
-        hide_all_windows: 'Скрий всички прозорци',
         home: 'Начало',
         html_document: 'HTML документ',
         hue: 'Нюанс',
@@ -149,7 +147,6 @@ const bg = {
         items_in_trash_cannot_be_renamed:
       'Този елемент не може да бъде преименуван, защото е в Кошчето. За да го преименувате, първо го извадете от Кошчето.',
         jpeg_image: 'JPEG изображение',
-        keep_in_taskbar: 'Задръж в лентата на задачите',
         language: 'Език',
         license: 'Лиценз',
         lightness: 'Светлина',
@@ -179,10 +176,8 @@ const bg = {
         no: 'Не',
         ok: 'ОК',
         open: 'Отвори',
-        new_window: 'Нов прозорец',
         open_in_new_tab: 'Отвори в нов раздел',
         open_in_new_window: 'Отвори в нов прозорец',
-        open_trash: 'Отвори Кошчето',
         open_with: 'Отвори с',
         original_name: 'Оригинално име',
         original_path: 'Оригинален път',
@@ -228,7 +223,6 @@ const bg = {
         refer_friends_social_media_c2a:
       'Получете 1 GB безплатно пространство в Puter.com!',
         refresh: 'Опресни',
-        remove_from_taskbar: 'Премахни от лентата на задачите',
         rename: 'Преименувай',
         replace: 'Замени',
         replace_all: 'Замени всички',
@@ -258,7 +252,6 @@ const bg = {
         share: 'Сподели',
         share_to: 'Сподели с',
         shortcut_to: 'Пряк път до',
-        show_all_windows: 'Покажи всички прозорци',
         show_hidden: 'Покажи скритите',
         sign_in_with_puter: 'Влез с Puter',
         sign_up: 'Регистрирай се',
@@ -453,14 +446,8 @@ const bg = {
         window_title_refer_friend: 'Препоръчайте приятел!',
 
         // Desktop UI
-        desktop_show_desktop: 'Покажи работния плот',
-        desktop_show_open_windows: 'Покажи отворените прозорци',
         desktop_exit_full_screen: 'Изход от режим на цял екран',
         desktop_enter_full_screen: 'Вход в режим на цял екран',
-        desktop_position: 'Позиция',
-        desktop_position_left: 'Ляво',
-        desktop_position_bottom: 'Долу',
-        desktop_position_right: 'Дясно',
 
         // Item UI
         item_shared_with_you: 'Потребител е споделил този елемент с вас.',

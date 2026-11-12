@@ -38,7 +38,6 @@ const he = {
         change_password: 'שינוי סיסמה',
         change_username: 'שינוי שם משתמש',
         close: 'סגירה',
-        close_all_windows: 'סגירת כל החלונות',
         close_all_windows_and_log_out: 'סגור את החלונות והתנתק',
         change_always_open_with: 'האם אתה רוצה תמיד לפתוח סוג זה של קובץ עם',
         confirm: 'לאשר',
@@ -131,7 +130,6 @@ const he = {
         general: 'כללי',
         get_a_copy_of_on_puter: 'קבל עותק של \'%%\' ב Puter.com!',
         get_copy_link: 'קבל העתק קישור',
-        hide_all_windows: 'הסתר את כל החלונות',
         home: 'בית',
         html_document: 'מסמך HTML',
         hue: 'דרגת צבע',
@@ -140,7 +138,6 @@ const he = {
         item: 'פריט',
         items_in_trash_cannot_be_renamed: 'לא ניתן לשנות את שם הפריט הזה כי הוא נמצא באשפה. כדי לשנות את שם הפריט הזה, תחילה גרור אותו מחוץ לאשפה.',
         jpeg_image: 'JPEG תמונת',
-        keep_in_taskbar: 'שמירה בשורת המשימות',
         language: 'שפה',
         license: 'רישיון',
         lightness: 'בהירות',
@@ -210,7 +207,6 @@ const he = {
       'קבל 1 גיגה בייט עבור כל חבר שיוצר ומאשר חשבון ב  Puter. גם החבר שלך יקבל 1 גיגה בייט!',
         refer_friends_social_media_c2a: 'קבל שטח אחסון של 1 גיגה בייט בחינם Puter.com!',
         refresh: 'רענן',
-        remove_from_taskbar: 'הסרה משורת המשימות',
         rename: 'שנה שם',
         replace: 'החלף',
         replace_all: 'החלף הכל',
@@ -239,7 +235,6 @@ const he = {
         share: 'שיתוף',
         share_to: 'שתף אל',
         shortcut_to: 'קיצור דרך אל',
-        show_all_windows: 'הצג את כל החלונות',
         show_hidden: 'הצג מוסתר',
         sign_in_with_puter: 'להתחבר עם Puter',
         sign_up: 'הרשמה',
@@ -378,8 +373,6 @@ const he = {
         'create_shortcut_s': 'צור קיצורי דרך', // In English: "Create Shortcuts"
         'minimize': 'מזער', // In English: "Minimize"
         'reload_app': 'טען מחדש', // In English: "Reload App"
-        'new_window': 'חלון חדש', // In English: "New Window"
-        'open_trash': 'פתח אשפה', // In English: "Open Trash"
         'publish_as_serverless_worker': 'פרסם כעובד', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'מסך מלא', // In English: "Enter Full Screen"
         'toolbar.github': 'גיטהאב', // In English: "GitHub"
@@ -411,14 +404,8 @@ const he = {
         'window_title_publish_worker': 'פרסם עובד', // In English: "Publish Worker"
         'window_title_authenticating': 'מאמת', // In English: "Authenticating..."
         'window_title_refer_friend': '!הפנה חבר', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'הראה שולחן עבודה', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'הראה חלונות פתוחים', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'בטל מסך מלא', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'הפעל מסך מלא', // In English: "Enter Full Screen"
-        'desktop_position': 'מיקום', // In English: "Position"
-        'desktop_position_left': 'שמאל', // In English: "Left"
-        'desktop_position_bottom': 'מטה', // In English: "Bottom"
-        'desktop_position_right': 'ימין', // In English: "Right"
         'item_shared_with_you': 'משתמש שיתף עמך פריט זה', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'שיתפת פריט זה עם לפחות משתמש אחד נוסף', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'קיצור דרך', // In English: "Shortcut"

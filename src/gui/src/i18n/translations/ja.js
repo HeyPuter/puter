@@ -38,7 +38,6 @@ const ja = {
         change_password: 'パスワードを変更',
         change_username: 'ユーザー名を変更',
         close: '閉じる',
-        close_all_windows: 'すべてのウィンドウを閉じる',
         close_all_windows_and_log_out: 'ウィンドウを閉じてログアウト',
         change_always_open_with: 'この種類のファイルを常にこのアプリで開きますか？',
         confirm: '確認',
@@ -121,7 +120,6 @@ const ja = {
         general: '一般',
         get_a_copy_of_on_puter: 'Puter.comで \'%%\' のコピーを取得！',
         get_copy_link: 'コピーリンクを取得',
-        hide_all_windows: 'すべてのウィンドウを隠す',
         home: 'ホーム',
         html_document: 'HTML文書',
         hue: '色合い',
@@ -130,7 +128,6 @@ const ja = {
         item: 'アイテム',
         items_in_trash_cannot_be_renamed: 'このアイテムはゴミ箱にあるため、名前を変更できません。このアイテムの名前を変更するには、まずゴミ箱からドラッグしてください。',
         jpeg_image: 'JPEG画像',
-        keep_in_taskbar: 'タスクバーに保持',
         language: '言語',
         license: 'ライセンス',
         lightness: '明るさ',
@@ -196,7 +193,6 @@ const ja = {
         refer_friends_c2a: '友達がPuterでアカウントを作成して確認すると、1GBを獲得できます。友達も1GBを獲得できます！',
         refer_friends_social_media_c2a: 'Puter.comで1GBの無料ストレージを手に入れよう！',
         refresh: '更新',
-        remove_from_taskbar: 'タスクバーから削除',
         rename: '名前を変更',
         replace: '置換',
         replace_all: 'すべて置換',
@@ -224,7 +220,6 @@ const ja = {
         share: '共有',
         share_to: '共有先',
         shortcut_to: 'ショートカット先',
-        show_all_windows: 'すべてのウィンドウを表示',
         show_hidden: '隠しファイルを表示',
         sign_in_with_puter: 'Puterでサインイン',
         sign_up: 'サインアップ',
@@ -369,8 +364,6 @@ const ja = {
         'create_shortcut_s': 'ショートカットを作成', // In English: "Create Shortcuts"
         'minimize': '最小化', // In English: "Minimize"
         'reload_app': 'アプリを再読み込み', // In English: "Reload App"
-        'new_window': '新しいウィンドウ', // In English: "New Window"
-        'open_trash': 'ゴミ箱を開く', // In English: "Open Trash"
         'publish_as_serverless_worker': 'ワーカーとして公開', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': '全画面表示にする', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -402,14 +395,8 @@ const ja = {
         'window_title_publish_worker': 'ワーカーを公開', // In English: "Publish Worker"
         'window_title_authenticating': '認証中...', // In English: "Authenticating..."
         'window_title_refer_friend': '友達を紹介しよう!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'デスクトップを表示', // In English: "Show Desktop"
-        'desktop_show_open_windows': '開いているウィンドウを表示', // In English: "Show Open Windows"
         'desktop_exit_full_screen': '全画面表示を終了', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': '全画面表示にする', // In English: "Enter Full Screen"
-        'desktop_position': '位置', // In English: "Position"
-        'desktop_position_left': '左', // In English: "Left"
-        'desktop_position_bottom': '下', // In English: "Bottom"
-        'desktop_position_right': '右', // In English: "Right"
         'item_shared_with_you': 'ユーザーがこのアイテムをあなたと共有しました。', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'このアイテムは少なくとも1人以上のユーザーと共有されています。', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'ショートカット', // In English: "Shortcut"

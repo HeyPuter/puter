@@ -38,7 +38,6 @@ const nl = {
         change_password: 'Wachtwoord veranderen',
         change_username: 'Gebruikersnaam veranderen',
         close: 'Sluiten',
-        close_all_windows: 'Alle vensters sluiten',
         close_all_windows_and_log_out: 'Vensters sluiten en afmelden',
         change_always_open_with: 'Wilt u dit bestandstype altijd openen met',
         confirm: 'Bevestig',
@@ -121,7 +120,6 @@ const nl = {
         general: 'Algemeen',
         get_a_copy_of_on_puter: 'Krijg een kopie van \'%%\' op Puter.com!',
         get_copy_link: 'Krijg Kopieerlink',
-        hide_all_windows: 'Alle Vensters Verbergen',
         home: 'Home',
         html_document: 'HTML-document',
         hue: 'Tint',
@@ -130,7 +128,6 @@ const nl = {
         item: 'item',
         items_in_trash_cannot_be_renamed: 'Dit item kan niet worden hernoemd omdat het in de prullenbak zit. Om dit item te hernoemen, sleept u het eerst uit de prullenbak.',
         jpeg_image: 'JPEG-afbeelding',
-        keep_in_taskbar: 'In Taakbalk Houden',
         language: 'Taal',
         license: 'Licentie',
         lightness: 'Helderheid',
@@ -197,7 +194,6 @@ const nl = {
         refer_friends_c2a: 'Krijg 1 GB voor elke vriend die een account aanmaakt en bevestigt op Puter. Je vriend krijgt ook 1 GB!',
         refer_friends_social_media_c2a: 'Krijg 1 GB gratis opslagruimte op Puter.com!',
         refresh: 'Vernieuwen',
-        remove_from_taskbar: 'Verwijderen van taakbalk',
         rename: 'Hernoemen',
         replace: 'Vervangen',
         replace_all: 'Alles vervangen',
@@ -225,7 +221,6 @@ const nl = {
         share: 'Delen',
         share_to: 'Delen met',
         shortcut_to: 'Snelkoppeling naar',
-        show_all_windows: 'Toon alle vensters',
         show_hidden: 'Toon verborgen',
         sign_in_with_puter: 'Inloggen met Puter',
         sign_up: 'Aanmelden',
@@ -367,8 +362,6 @@ const nl = {
         'create_shortcut_s': 'Snelkoppelingen maken', // In English: "Create Shortcuts"
         'minimize': 'Minimaliseren', // In English: "Minimize"
         'reload_app': 'App herladen', // In English: "Reload App"
-        'new_window': 'Nieuw venster', // In English: "New Window"
-        'open_trash': 'Prullenbak openen', // In English: "Open Trash"
         'publish_as_serverless_worker': 'Publiceer als Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Naar volledig scherm', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -400,14 +393,8 @@ const nl = {
         'window_title_publish_worker': 'Worker publiceren', // In English: "Publish Worker"
         'window_title_authenticating': 'Authenticatie bezig...', // In English: "Authenticating..."
         'window_title_refer_friend': 'Verwijs een vriend!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'Toon bureaublad', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Toon geopende vensters', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Volledig scherm verlaten', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Naar volledig scherm', // In English: "Enter Full Screen"
-        'desktop_position': 'Positie', // In English: "Position"
-        'desktop_position_left': 'Links', // In English: "Left"
-        'desktop_position_bottom': 'Onderkant', // In English: "Bottom"
-        'desktop_position_right': 'Rechts', // In English: "Right"
 
         'item_shared_with_you': 'Een gebruiker heeft dit item met u gedeeld.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'U heeft dit item met ten minste één andere gebruiker gedeeld.', // In English: "You have shared this item with at least one other user."

@@ -27,18 +27,12 @@ import {
     isCardFallbackEligible,
     type CardFallbackClients,
 } from './cardFallback.js';
-import { getTaskbarItems } from './taskbarItems.js';
 import { isEmailGateLast } from './verificationOrder.js';
-
-type TaskbarDeps = Parameters<typeof getTaskbarItems>[1];
 
 export interface UserDetailsDeps {
     config: IConfig;
-    // `db.write` backs the taskbar's first-read default row.
-    clients: CardFallbackClients & {
-        db: { write: (query: string, params?: unknown[]) => Promise<unknown> };
-    };
-    stores: TaskbarDeps['stores'] & {
+    clients: CardFallbackClients;
+    stores: {
         kv: Pick<SystemKVStore, 'get'>;
         team?: Pick<TeamStoreContract, 'getOrgSeat'>;
     };
@@ -78,8 +72,8 @@ const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Delete every sensitive key at any depth (`metadata` and `taskbar_items` are
- * nested). Depth-limited and cycle-safe. Runs last over a whole payload.
+ * Delete every sensitive key at any depth (`metadata` is nested). Depth-limited
+ * and cycle-safe. Runs last over a whole payload.
  */
 export const scrubSensitive = (
     value: unknown,
@@ -124,7 +118,7 @@ export const toUnixSeconds = (value: unknown): number | undefined => {
 export async function buildUserDetails(
     user: UserRow,
     deps: UserDetailsDeps,
-    opts: { isUser: boolean; iconSize?: number; noIcons?: boolean },
+    opts: { isUser: boolean },
 ): Promise<Record<string, unknown>> {
     const { config, clients, stores, services } = deps;
     const { isUser } = opts;
@@ -182,14 +176,6 @@ export async function buildUserDetails(
         hasDevAccountAccess: !!user.metadata?.hasDevAccountAccess,
     };
 
-    // Not an inline literal, so a `TaskbarDeps` without `clients` still
-    // accepts it.
-    const taskbarDeps = {
-        clients,
-        stores,
-        apiBaseUrl: String(config.api_base_url ?? ''),
-        config,
-    };
     const linkedProvider = async () => {
         if (!oidcOnly) return null;
         try {
@@ -197,19 +183,6 @@ export async function buildUserDetails(
         } catch {
             // OIDC not configured
             return null;
-        }
-    };
-    const taskbarItems = async () => {
-        if (!isUser) return null;
-        try {
-            return {
-                items: await getTaskbarItems(user, taskbarDeps, {
-                    iconSize: opts.iconSize,
-                    noIcons: opts.noIcons,
-                }),
-            };
-        } catch (error) {
-            return { error };
         }
     };
     // The team that pays for the account; every seat restriction keys on it.
@@ -223,26 +196,14 @@ export async function buildUserDetails(
     };
     // Independent and each best-effort, so read together; the results land
     // below in the order the payload has always listed them.
-    const [provider, taskbar, team] = await Promise.all([
-        linkedProvider(),
-        taskbarItems(),
-        orgSeat(),
-    ]);
+    const [provider, team] = await Promise.all([linkedProvider(), orgSeat()]);
 
     if (provider) {
         const origin = (config.origin ?? '').replace(/\/$/, '');
         details.oidc_revalidate_url = `${origin}/auth/oidc/${provider}/start?flow=revalidate&user_uuid=${encodeURIComponent(user.uuid)}`;
     }
 
-    if (taskbar) {
-        // Best-effort: the account still works without them.
-        if ('error' in taskbar) {
-            console.warn('[user-details] taskbar_items failed:', taskbar.error);
-            details.taskbar_items = [];
-        } else {
-            details.taskbar_items = taskbar.items;
-        }
-
+    if (isUser) {
         const directories: Record<string, unknown> = {};
         const nameToProp: Record<string, string> = {
             desktop_uuid: `/${user.username}/Desktop`,

@@ -36,7 +36,6 @@ const ur = {
         change_password: 'پاس ورڈ تبدیل کریں',
         change_username: 'صارف کا نام تبدیل کریں',
         close: 'بند کریں',
-        close_all_windows: 'تمام ونڈوز بند کریں',
         close_all_windows_and_log_out: 'ونڈوز بند کریں اور لاگ آؤٹ کریں۔',
         change_always_open_with: 'کیا آپ ہمیشہ اس قسم کی فائل کو کھولنا چاہتے ہیں۔',
         confirm_2fa_setup: 'میں نے کوڈ کو اپنی تصدیق کنندہ ایپ میں شامل کر دیا ہے۔',
@@ -124,7 +123,6 @@ const ur = {
         general: 'عام ',
         get_a_copy_of_on_puter: "Puter.com پر '%%' کی ایک کاپی حاصل کریں!",
         get_copy_link: 'کاپی لنک حاصل کریں',
-        hide_all_windows: 'تمام ونڈوز چھپائیں ',
         home: 'گھر',
         html_document: 'ایچ ٹی ایم ایل دستاویز',
         hue: 'رنگت',
@@ -134,7 +132,6 @@ const ur = {
         items_in_trash_cannot_be_renamed:
       'کچرے میں موجود اشیاء کا نام تبدیل نہیں کیا جا سکتا',
         jpeg_image: 'جے پی ای جی_تصویر',
-        keep_in_taskbar: 'ٹاسک بار میں رکھیں ',
         language: 'زبان',
         license: 'License',
         lightness: 'لائسنس',
@@ -202,7 +199,6 @@ const ur = {
         refer_friends_social_media_c2a:
       'پیوٹر ڈاٹ کام پر مفت 1 گیگابائٹ ذخیرہ حاصل کریں!',
         refresh: 'تازہ کریں ',
-        remove_from_taskbar: 'ٹاسک بار سے ہٹائیں ',
         rename: 'دوبارہ نام دیں',
         replace: 'بدل دیں۔',
         replace_all: 'سبھی کو تبدیل کریں۔',
@@ -227,7 +223,6 @@ const ur = {
         settings: 'ترتیبات',
         set_new_password: 'نیا پاس ورڈ مقرر کریں ',
         share_to: ' کے ساتھ شیئر کریں',
-        show_all_windows: 'تمام ونڈوز دکھائیں ',
         show_hidden: 'پوشیدہ دکھائیں ',
         sign_in_with_puter: 'پیوٹر کے ساتھ سائن ان کریں',
         sign_up: 'سائن اپ کریں',
@@ -390,8 +385,6 @@ const ur = {
         'create_shortcut_s': 'شارٹ کٹس بنائیں', // In English: "Create Shortcuts"
         'minimize': 'چھوٹا کریں', // In English: "Minimize"
         'reload_app': 'ایپ دوبارہ لوڈ کریں', // In English: "Reload App"
-        'new_window': 'نیا ونڈو', // In English: "New Window"
-        'open_trash': 'ری سائیکل بن کھولیں', // In English: "Open Trash"
         'publish_as_serverless_worker': 'ورکر کے طور پر شائع کریں', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'فل اسکرین پر جائیں', // In English: "Enter Full Screen"
         'toolbar.github': 'گیٹ ہب', // In English: "GitHub"
@@ -423,14 +416,8 @@ const ur = {
         'window_title_publish_worker': 'ورکر شائع کریں', // In English: "Publish Worker"
         'window_title_authenticating': 'تصدیق جاری ہے...', // In English: "Authenticating..."
         'window_title_refer_friend': 'کسی دوست کو ریفر کریں!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'ڈیسک ٹاپ دکھائیں', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'کھلی ہوئی ونڈوز دکھائیں', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'فل اسکرین سے باہر نکلیں', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'فل اسکرین پر جائیں', // In English: "Enter Full Screen"
-        'desktop_position': 'پوزیشن', // In English: "Position"
-        'desktop_position_left': 'بائیں', // In English: "Left"
-        'desktop_position_bottom': 'نیچے', // In English: "Bottom"
-        'desktop_position_right': 'دائیں', // In English: "Right"
         'item_shared_with_you': 'کسی صارف نے یہ آئٹم آپ کے ساتھ شیئر کیا ہے۔', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'آپ نے یہ آئٹم کم از کم ایک دوسرے صارف کے ساتھ شیئر کیا ہے۔', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'شارٹ کٹ', // In English: "Shortcut"

@@ -44,7 +44,6 @@ const fi = {
         change_password: 'Vaihda salasana',
         change_username: 'Vaihda käyttäjänimi',
         close: 'Sulje',
-        close_all_windows: 'Sulje kaikki ikkunat',
         close_all_windows_and_log_out: 'Sulje ikkunat ja kirjaudu ulos',
         change_always_open_with:
       'Haluatko aina avata tämän tyyppisen tiedoston sovelluksella',
@@ -167,7 +166,6 @@ const fi = {
         // 'get a copy of a link' => 'Ota Kopio Linkkiin' or
         // 'get a link to the copy' => 'Ota Linkki Kopioon' - More probable, just want to be sure
 
-        hide_all_windows: 'Piilota kaikki ikkunat',
         home: 'Koti',
         html_document: 'HTML-dokumentti',
         hue: 'Sävy',
@@ -176,7 +174,6 @@ const fi = {
         item: 'kohde',
         items_in_trash_cannot_be_renamed: 'Tätä kohdetta ei voi nimetä uudelleen, koska se on roskakorissa. Jos haluat nimetä kohteen uudelleen, palauta se ensin roskakorista.',
         jpeg_image: 'JPEG-kuva',
-        keep_in_taskbar: 'Pidä tehtäväpalkissa',
         language: 'Kieli',
         license: 'Lisenssi',
         lightness: 'Valoisuus',
@@ -263,7 +260,6 @@ const fi = {
         // "get rid of" => "Oletko varma, että haluat luovuttaa tämän osoitteen?" or
         // "publish" => "Oletko varma, että haluat julkaista tämän osoitteen?"
 
-        remove_from_taskbar: 'Poista tehtäväpalkista',
         rename: 'Nimeä uudelleen',
         replace: 'Replace',
         replace_all: 'Korvaa kaikki',
@@ -296,7 +292,6 @@ const fi = {
         // If "share to" is followed by the name of a user, it will not make any sense, as the name can be suffixed by for example "Jaa %%lle".
 
         shortcut_to: 'Pikakuvake',
-        show_all_windows: 'Näytä kaikki ikkunat',
         show_hidden: 'Näytä piilotetut',
         sign_in_with_puter: 'Kirjaudu sisään Puterilla',
         sign_up: 'Rekisteröidy',
@@ -450,8 +445,6 @@ const fi = {
         'create_shortcut_s': 'Luo pikakuvakkeita',
         'minimize': 'Pienennä',
         'reload_app': 'Lataa sovellus uudelleen',
-        'new_window': 'Uusi ikkuna',
-        'open_trash': 'Avaa roskakori',
         'publish_as_serverless_worker': 'Julkaise työntekijänä',
         'toolbar.enter_fullscreen': 'Koko näyttöön',
         'toolbar.github': 'GitHub',
@@ -483,14 +476,8 @@ const fi = {
         'window_title_publish_worker': 'Julkaise työntekijä',
         'window_title_authenticating': 'Todennetaan...',
         'window_title_refer_friend': 'Suosittele ystävälle!',
-        'desktop_show_desktop': 'Näytä työpöytä',
-        'desktop_show_open_windows': 'Näytä avoimet ikkunat',
         'desktop_exit_full_screen': 'Poistu koko näytöstä',
         'desktop_enter_full_screen': 'Koko näyttöön',
-        'desktop_position': 'Sijainti',
-        'desktop_position_left': 'Vasen',
-        'desktop_position_bottom': 'Ala',
-        'desktop_position_right': 'Oikea',
         'item_shared_with_you': 'Käyttäjä on jakanut tämän kohteen kanssasi.',
         'item_shared_by_you': 'Olet jakanut tämän kohteen ainakin yhden muun käyttäjän kanssa.',
         'item_shortcut': 'Pikakuvake',

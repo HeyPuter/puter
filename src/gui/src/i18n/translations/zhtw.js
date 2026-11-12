@@ -56,7 +56,6 @@ const zhtw = {
         change_password: '更改密碼',
         change_username: '更改使用者名稱',
         close: '關閉',
-        close_all_windows: '關閉所有視窗',
         close_all_windows_and_log_out: '關閉視窗並登出',
         change_always_open_with: '您是否要始終使用以下程式開啟此類型的檔案',
         confirm: '確認',
@@ -139,7 +138,6 @@ const zhtw = {
         general: '一般',
         get_a_copy_of_on_puter: '在 Puter.com 上獲取 \'%%\' 的副本！',
         get_copy_link: '獲取副本連結',
-        hide_all_windows: '隱藏所有視窗',
         home: '首頁',
         html_document: 'HTML 文件',
         hue: '色相',
@@ -148,7 +146,6 @@ const zhtw = {
         item: '項目',
         items_in_trash_cannot_be_renamed: '此項目無法重新命名，因為它在垃圾桶中。要重新命名此項目，請先將其從垃圾桶中拖出。',
         jpeg_image: 'JPEG 圖片',
-        keep_in_taskbar: '保留在工作列',
         language: '語言',
         license: '授權',
         lightness: '亮度',
@@ -214,7 +211,6 @@ const zhtw = {
         refer_friends_c2a: '每邀請一位朋友在 Puter 上建立並確認帳戶，您就可獲得 1 GB 空間。您的朋友也會獲得 1 GB！',
         refer_friends_social_media_c2a: '在 Puter.com 上獲得 1 GB 免費儲存空間！',
         refresh: '重新整理',
-        remove_from_taskbar: '從工作列移除',
         rename: '重新命名',
         replace: '取代',
         replace_all: '全部取代',
@@ -242,7 +238,6 @@ const zhtw = {
         share: '分享',
         share_to: '分享到',
         shortcut_to: '捷徑到',
-        show_all_windows: '顯示所有視窗',
         show_hidden: '顯示隱藏項目',
         sign_in_with_puter: '使用 Puter 登入',
         sign_up: '註冊',
@@ -379,8 +374,6 @@ const zhtw = {
         'create_shortcut_s': "建立多個捷徑", // In English: "Create Shortcuts"
         'minimize': "最小化", // In English: "Minimize"
         'reload_app': "重新載入應用程式", // In English: "Reload App"
-        'new_window': "新視窗", // In English: "New Window"
-        'open_trash': "開啟垃圾桶", // In English: "Open Trash"
         'publish_as_serverless_worker': "發布為 Worker", // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': "進入全螢幕", // In English: "Enter Full Screen"
         'toolbar.github': "GitHub", // In English: "GitHub"
@@ -412,14 +405,8 @@ const zhtw = {
         'window_title_publish_worker': "發布 Worker", // In English: "Publish Worker"
         'window_title_authenticating': "正在驗證…", // In English: "Authenticating..."
         'window_title_refer_friend': "推薦好友！", // In English: "Refer a friend!"
-        'desktop_show_desktop': "顯示桌面", // In English: "Show Desktop"
-        'desktop_show_open_windows': "顯示開啟的視窗", // In English: "Show Open Windows"
         'desktop_exit_full_screen': "退出全螢幕", // In English: "Exit Full Screen"
         'desktop_enter_full_screen': "進入全螢幕", // In English: "Enter Full Screen"
-        'desktop_position': "位置", // In English: "Position"
-        'desktop_position_left': "左側", // In English: "Left"
-        'desktop_position_bottom': "底部", // In English: "Bottom"
-        'desktop_position_right': "右側", // In English: "Right"
         'item_shared_with_you': "有使用者與您分享了此項目。", // In English: "A user has shared this item with you."
         'item_shared_by_you': "您已將此項目分享給其他使用者。", // In English: "You have shared this item with at least one other user."
         'item_shortcut': "捷徑", // In English: "Shortcut"

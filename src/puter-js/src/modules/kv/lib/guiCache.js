@@ -14,7 +14,6 @@ const GUI_CACHE_KEYS = [
     'user_preferences.clock_visible',
     'desktop_item_positions',
     'desktop_icons_hidden',
-    'taskbar_position',
 ];
 
 // How long the resolved batch keeps serving reads before the cache disables

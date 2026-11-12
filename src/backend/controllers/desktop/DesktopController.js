@@ -25,17 +25,13 @@ const ALLOWED_SORT_BY = ['name', 'size', 'modified', 'type'];
 const ALLOWED_SORT_ORDER = ['asc', 'desc'];
 
 /**
- * Desktop/UI preference routes.
- *
- * Two categories:
- *
- * - User-level: taskbar items (UserStore)
- * - Folder-level: layout, sort_by/sort_order (fsentries table)
+ * Folder view preference routes: layout and sort_by/sort_order, stored on the
+ * folder's fsentries row.
  */
 /**
- * Desktop preference writes — taskbar, layout, sort order. Each persists on
- * every call, and the GUI fires them on direct user action, so a per-minute
- * ceiling well above human speed is enough to catch a stuck client.
+ * Desktop preference writes — layout, sort order. Each persists on every call,
+ * and the GUI fires them on direct user action, so a per-minute ceiling well
+ * above human speed is enough to catch a stuck client.
  */
 const PREFERENCE_WRITE_LIMIT = {
     scope: 'desktop-preference',
@@ -46,33 +42,6 @@ const PREFERENCE_WRITE_LIMIT = {
 
 export class DesktopController extends PuterController {
     registerRoutes(router) {
-        // -- Taskbar items -------------------------------------------
-
-        router.post(
-            '/update-taskbar-items',
-            {
-                subdomain: 'api',
-                requireUserActor: true,
-                allowFullAccessToken: true,
-                rateLimit: PREFERENCE_WRITE_LIMIT,
-            },
-            async (req, res) => {
-                const { items } = req.body ?? {};
-                if (!Array.isArray(items)) {
-                    throw new HttpError(
-                        400,
-                        'Missing or invalid `items` array',
-                        { legacyCode: 'bad_request' },
-                    );
-                }
-
-                await this.stores.user.update(req.actor.user.id, {
-                    taskbar_items: JSON.stringify(items),
-                });
-                res.json({});
-            },
-        );
-
         // -- Folder layout -------------------------------------------
 
         router.post(

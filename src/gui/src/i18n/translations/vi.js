@@ -38,7 +38,6 @@ const vi = {
         change_password: 'Thay đổi mật khẩu',
         change_username: 'Thay đổi tên người dùng',
         close: 'Đóng',
-        close_all_windows: 'Đóng tất cả cửa sổ',
         close_all_windows_and_log_out: 'Đóng cửa sổ và đăng xuất',
         change_always_open_with: 'Bạn có muốn luôn mở loại tệp này bằng',
         confirm: 'Xác nhận',
@@ -121,7 +120,6 @@ const vi = {
         general: 'Chung',
         get_a_copy_of_on_puter: 'Nhận một bản sao của \'%%\' trên Puter.com!',
         get_copy_link: 'Lấy liên kết sao chép',
-        hide_all_windows: 'Ẩn tất cả cửa sổ',
         home: 'Trang chủ',
         html_document: 'Tài liệu HTML',
         hue: 'Màu sắc',
@@ -130,7 +128,6 @@ const vi = {
         item: 'mục',
         items_in_trash_cannot_be_renamed: 'Mục này không thể đổi tên vì nó đang ở trong thùng rác. Để đổi tên mục này, trước tiên hãy kéo nó ra khỏi Thùng rác.',
         jpeg_image: 'Hình ảnh JPEG',
-        keep_in_taskbar: 'Giữ trong thanh tác vụ',
         language: 'Ngôn ngữ',
         license: 'Giấy phép',
         lightness: 'Độ sáng',
@@ -196,7 +193,6 @@ const vi = {
         refer_friends_c2a: 'Nhận 1 GB cho mỗi người bạn tạo và xác nhận tài khoản trên Puter. Bạn của bạn cũng sẽ nhận được 1 GB!',
         refer_friends_social_media_c2a: 'Nhận 1 GB dung lượng lưu trữ miễn phí trên Puter.com!',
         refresh: 'Làm mới',
-        remove_from_taskbar: 'Xóa khỏi thanh tác vụ',
         rename: 'Đổi tên',
         replace: 'Thay thế',
         replace_all: 'Thay thế tất cả',
@@ -224,7 +220,6 @@ const vi = {
         share: 'Chia sẻ',
         share_to: 'Chia sẻ đến',
         shortcut_to: 'Lối tắt đến',
-        show_all_windows: 'Hiển thị tất cả cửa sổ',
         show_hidden: 'Hiển thị mục ẩn',
         sign_in_with_puter: 'Đăng nhập bằng Puter',
         sign_up: 'Đăng ký',
@@ -363,8 +358,6 @@ const vi = {
         'create_shortcut_s': 'Tạo các lối tắt', // In English: "Create Shortcuts"
         'minimize': 'Thu nhỏ', // In English: "Minimize"
         'reload_app': 'Tải lại ứng dụng', // In English: "Reload App"
-        'new_window': 'Cửa sổ mới', // In English: "New Window"
-        'open_trash': 'Mở thùng rác', // In English: "Open Trash"
         'publish_as_serverless_worker': 'Xuất bản dưới dạng Worker', // In English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Vào chế độ toàn màn hình', // In English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // In English: "GitHub"
@@ -396,14 +389,8 @@ const vi = {
         'window_title_publish_worker': 'Xuất bản Worker', // In English: "Publish Worker"
         'window_title_authenticating': 'Đang xác thực...', // In English: "Authenticating..."
         'window_title_refer_friend': 'Giới thiệu bạn bè!', // In English: "Refer a friend!"
-        'desktop_show_desktop': 'Hiển thị Desktop', // In English: "Show Desktop"
-        'desktop_show_open_windows': 'Hiển thị các cửa sổ đang mở', // In English: "Show Open Windows"
         'desktop_exit_full_screen': 'Thoát chế độ toàn màn hình', // In English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Vào chế độ toàn màn hình', // In English: "Enter Full Screen"
-        'desktop_position': 'Vị trí', // In English: "Position"
-        'desktop_position_left': 'Bên trái', // In English: "Left"
-        'desktop_position_bottom': 'Phía dưới', // In English: "Bottom"
-        'desktop_position_right': 'Bên phải', // In English: "Right"
         'item_shared_with_you': 'Một người dùng đã chia sẻ mục này với bạn.', // In English: "A user has shared this item with you."
         'item_shared_by_you': 'Bạn đã chia sẻ mục này với ít nhất một người dùng khác.', // In English: "You have shared this item with at least one other user."
         'item_shortcut': 'Lối tắt', // In English: "Shortcut"

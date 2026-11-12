@@ -615,7 +615,7 @@ window.check_fsentry_against_allowed_file_types_string = function (fsentry, allo
 window.refresh_user_data = async (auth_token) => {
     let whoami;
     try {
-        whoami = await puter.os.user({ query: 'icon_size=64' });
+        whoami = await puter.os.user();
     } catch (e) {
         // Ignored
     }
@@ -677,6 +677,7 @@ window.update_auth_data = async (auth_token, user) => {
 
     const to_storable_user = user => {
         const storable_user = { ...user };
+        // Older sessions stored taskbar_items, with app icons, in these copies.
         delete storable_user.taskbar_items;
         return storable_user;
     };
@@ -1726,14 +1727,13 @@ window.trigger_download = (paths) => {
 
 /**
  * Updates every Trash icon in the UI to reflect whether the trash is empty:
- * the taskbar item, desktop items (and shortcuts to Trash), open explorer
- * window head icons, and the Dashboard's Files-tab sidebar.
+ * desktop items (and shortcuts to Trash), open explorer window head icons,
+ * and the Dashboard's Files-tab sidebar.
  *
  * @param {boolean} is_empty - Whether the trash is empty
  */
 window.update_trash_icons = function (is_empty) {
     const icon = is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'];
-    $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', icon);
     $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', icon);
     $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', icon);
     $('.directories [data-folder="Trash"] img').attr('src', icon);

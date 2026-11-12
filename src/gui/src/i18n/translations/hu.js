@@ -38,7 +38,6 @@ const hu = {
         change_password: 'Jelszó módosítása',
         change_username: 'Felhasználónév módosítása',
         close: 'Bezár',
-        close_all_windows: 'Minden ablak bezárása',
         close_all_windows_and_log_out: 'Ablakok bezárása és kijelentkezés',
         change_always_open_with: 'Mindig ezzel az alkalmazással nyitja meg ezt a fájlt?',
         confirm: 'Megerősít',
@@ -121,7 +120,6 @@ const hu = {
         general: 'Általános',
         get_a_copy_of_on_puter: "Szerezz egy példányt a(z) '%%' Puter.com-on!",
         get_copy_link: 'Másolási link megszerzése',
-        hide_all_windows: 'Minden ablak elrejtése',
         home: 'Otthon',
         html_document: 'HTML dokumentum',
         hue: 'Színárnyalat',
@@ -130,7 +128,6 @@ const hu = {
         item: 'elem',
         items_in_trash_cannot_be_renamed: 'Ez az elem nem nevezhető át, mert a kukában van. A név megváltoztatásához először húzd ki a Kukából.',
         jpeg_image: 'JPEG kép',
-        keep_in_taskbar: 'Tartsa a tálcán',
         language: 'Nyelv',
         license: 'Licenc',
         lightness: 'Világosság',
@@ -196,7 +193,6 @@ const hu = {
         refer_friends_c2a: 'Kapj 1 GB-ot minden barátodért, aki létrehoz és megerősít egy fiókot a Puteren. A barátod is kap 1 GB-ot!',
         refer_friends_social_media_c2a: 'Kapj 1 GB ingyenes tárhelyet a Puter.com-on!',
         refresh: 'Frissítés',
-        remove_from_taskbar: 'Eltávolítás a tálcáról',
         rename: 'Átnevezés',
         replace: 'Csere',
         replace_all: 'Összes cseréje',
@@ -224,7 +220,6 @@ const hu = {
         share: 'Megosztás',
         share_to: 'Megosztás ide:',
         shortcut_to: 'Parancsikon ide:',
-        show_all_windows: 'Összes ablak megjelenítése',
         show_hidden: 'Rejtett megjelenítése',
         sign_in_with_puter: 'Bejelentkezés Puterrel',
         sign_up: 'Regisztráció',
@@ -356,8 +351,6 @@ const hu = {
         'create_shortcut_s': 'Parancsikonok létrehozása', // English: "Create Shortcuts"
         'minimize': 'Minimalizálás', // English: "Minimize"
         'reload_app': 'Alkalmazás újratöltése', // English: "Reload App"
-        'new_window': 'Új ablak', // English: "New Window"
-        'open_trash': 'Szemetes megnyitása', // English: "Open Trash"
         'publish_as_serverless_worker': 'Munkás közzététele', // English: "Publish as Worker"
         'toolbar.enter_fullscreen': 'Teljes képernyő', // English: "Enter Full Screen"
         'toolbar.github': 'GitHub', // English: "GitHub"
@@ -389,14 +382,8 @@ const hu = {
         'window_title_publish_worker': 'Munkás közzététele', // English: "Publish Worker"
         'window_title_authenticating': 'Hitelesítés...', // English: "Authenticating..."
         'window_title_refer_friend': 'Barát ajánlása!', // English: "Refer a friend!"
-        'desktop_show_desktop': 'Asztal megjelenítése', // English: "Show Desktop"
-        'desktop_show_open_windows': 'Megnyitott ablakok megjelenítése', // English: "Show Open Windows"
         'desktop_exit_full_screen': 'Kilépés teljes képernyőből', // English: "Exit Full Screen"
         'desktop_enter_full_screen': 'Teljes képernyő', // English: "Enter Full Screen"
-        'desktop_position': 'Pozíció', // English: "Position"
-        'desktop_position_left': 'Bal', // English: "Left"
-        'desktop_position_bottom': 'Alul', // English: "Bottom"
-        'desktop_position_right': 'Jobb', // English: "Right"
         'item_shared_with_you': 'Egy felhasználó megosztotta Önnel ezt az elemet.', // English: "A user has shared this item with you."
         'item_shared_by_you': 'Legalább egy másik felhasználóval megosztotta ezt az elemet.', // English: "You have shared this item with at least one other user."
         'item_shortcut': 'Parancsikon', // English: "Shortcut"

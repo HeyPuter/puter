@@ -5111,9 +5111,8 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
 // ── GET /get-launch-apps ────────────────────────────────────────────
 //
 // `recent` is a launch-metadata producer: it returns `index_url` for
-// apps the user has opened before. The taskbar happens to launch these
-// by name (so AppDriver's hosted-backing guard applies), but the field
-// is served regardless, so the guard is applied here too.
+// apps the user has opened before. The field is served whoever reads it,
+// so AppDriver's hosted-backing guard is applied here too.
 
 describe('LegacyFSController GET /get-launch-apps', () => {
     const hostedUrl = (sub: string) => `https://${sub}.site.puter.localhost/`;

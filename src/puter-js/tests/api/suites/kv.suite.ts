@@ -892,9 +892,9 @@ export default suite('kv', {
 
     'writes to a GUI boot key are visible to the next get': async (t) => {
         await t.puter.kv.set('desktop_icons_hidden', 'true');
-        t.assert.equal(await t.puter.kv.get('taskbar_position'), null);
-        await t.puter.kv.set('taskbar_position', 'left');
-        t.assert.equal(await t.puter.kv.get('taskbar_position'), 'left');
+        t.assert.equal(await t.puter.kv.get('desktop_item_positions'), null);
+        await t.puter.kv.set('desktop_item_positions', '{}');
+        t.assert.equal(await t.puter.kv.get('desktop_item_positions'), '{}');
         await t.puter.kv.del('desktop_icons_hidden');
         t.assert.equal(await t.puter.kv.get('desktop_icons_hidden'), null);
     },
