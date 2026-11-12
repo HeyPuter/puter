@@ -132,7 +132,7 @@ describe('user_facing_windows', () => {
 
     it('keeps a background instance once it has been shown', () => {
         // makeWindowVisible drops the marker: from then on the window is the
-        // user's, and the tile/taskbar/history paths act on it again.
+        // user's, and the tile and history paths act on it again.
         const shown = win({ visible: '1', parent: 'parent-uuid' });
         expect(user_facing_windows([shown])).toEqual([shown]);
     });

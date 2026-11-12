@@ -23,10 +23,10 @@ import { colleagues_for_sharing } from './shareTeams.js';
 import { recent_recipients, remember_recipient } from './shareRecents.js';
 import { build_suggestions, recipient_for } from './shareSuggest.js';
 
-// Turns the sharing dialogs' recipient field into one control for every kind of
+// Turns the share modal's recipient field into one control for every kind of
 // recipient: a colleague, a whole team, someone shared with before, or an
-// address typed from scratch. Shared by both dialogs so the two can't drift;
-// each styles the `share-suggest-*` classes through its own tokens.
+// address typed from scratch. The host styles the `share-suggest-*` classes
+// through its own tokens.
 
 const teamIcon = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
 const clearIcon = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
@@ -77,7 +77,7 @@ export default function shareRecipientPicker ({
     const list_id = `share-suggest-list-${++picker_seq}`;
 
     const $field = $('<div class="share-suggest-field"></div>');
-    // Both dialogs focus this field as they open, and an element that leaves
+    // The share modal focuses this field as it opens, and an element that leaves
     // the document — which is what moving it into the wrapper does — takes its
     // focus with it. Put it back rather than leaving the caller to notice.
     const had_focus = document.activeElement === $input.get(0);
@@ -360,8 +360,8 @@ export default function shareRecipientPicker ({
 
     // -- Input wiring --
 
-    // Opened by a real interaction, not by focus: both dialogs focus this field
-    // as they open, and a list unfurled before the user has looked at the
+    // Opened by a real interaction, not by focus: the share modal focuses this
+    // field as it opens, and a list unfurled before the user has looked at the
     // dialog would push everything else out of view.
     $input.on('click', () => open_list());
 
