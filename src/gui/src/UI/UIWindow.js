@@ -4079,8 +4079,8 @@ $.fn.focusWindow = function (event) {
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
         // Update the tab title to the focused window. The URL itself is
-        // deliberately NOT touched here: on the desktop it stays /desktop
-        // (apps don't rewrite it), and in dashboard mode the open app owns
+        // deliberately NOT touched here: on the desktop apps don't rewrite
+        // it, and in dashboard mode the open app owns
         // it through real history entries (push_dashboard_app_url).
         if ( ! window.is_dashboard_mode ) {
             const update_window_url = $(this).attr('data-update_window_url');

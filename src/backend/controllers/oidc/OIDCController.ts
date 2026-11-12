@@ -102,13 +102,12 @@ function signupOptionsFromState(
 }
 
 // GUI pages an OIDC flow may return to: the root (where a share email lands),
-// /desktop, /dashboard, and direct app landings (/app/<name>, mirroring
+// /dashboard, and direct app landings (/app/<name>, mirroring
 // APP_NAME_REGEX in AppDriver). Strict whitelist — never a client-supplied URL
 // (no open redirect).
 function isWhitelistedReturnPath(path: string): boolean {
     return (
         path === '/' ||
-        path === '/desktop' ||
         path === '/dashboard' ||
         /^\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
     );
@@ -437,9 +436,8 @@ export class OIDCController extends PuterController {
 
                 let appRedirectUri = flowRedirects[flow] ?? (origin || '/');
 
-                // Optional GUI return path so login started from /desktop,
-                // /dashboard, an /app/<name> landing, or a share link lands
-                // back there.
+                // Optional GUI return path so login started from /dashboard,
+                // an /app/<name> landing, or a share link lands back there.
                 const rawReturnTo = Array.isArray(req.query.return_to)
                     ? req.query.return_to[0]
                     : req.query.return_to;

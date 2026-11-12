@@ -3471,22 +3471,6 @@ window.set_menu_item_prop = (items, item_id, prop, val) => {
     }
 };
 
-window.countSubstr = (str, substring) => {
-    if ( substring.length === 0 ) {
-        return 0;
-    }
-
-    let count = 0;
-    let pos = str.indexOf(substring);
-
-    while ( pos !== -1 ) {
-        count++;
-        pos = str.indexOf(substring, pos + 1);
-    }
-
-    return count;
-};
-
 // Updates the signed-in user's profile; `username` is kept for callers that
 // still pass it.
 window.update_profile = function (username, key_vals) {
@@ -3501,42 +3485,9 @@ window.update_profile = function (username, key_vals) {
     });
 };
 
-window.blob2str = (blob) => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsText(blob);
-    });
-};
-
 // Another user's picture is only available while they are on a paid plan.
 window.get_profile_picture = async function (username) {
     return (await puter.auth.getProfilePicture(username)) ?? undefined;
-};
-
-window.format_with_units = (num, { mulUnits, divUnits, precision = 3 }) => {
-    if ( num === 0 ) return '0';
-
-    mulUnits = mulUnits ?? ['', 'K', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y'];
-    divUnits = divUnits ?? ['m', 'µ', 'n', 'p', 'f', 'a', 'z', 'y'];
-
-    const abs = Math.abs(num);
-    let exp = Math.floor(Math.log10(abs) / 3);
-    let symbol = '';
-
-    symbol = exp >= 0
-        ? mulUnits[exp]
-        : divUnits[-exp - 1] ;
-
-    if ( ! symbol ) {
-        symbol = `e${exp * 3}`;
-    }
-
-    const scaled = num / Math.pow(10, exp * 3);
-    const rounded = Number.parseFloat(scaled.toPrecision(precision));
-
-    return `${rounded}${symbol}`;
 };
 
 /**

@@ -746,12 +746,6 @@ async function UIDesktop () {
             }
         }
     }
-    //--------------------------------------------------------------------------------------
-    // /settings redirects to /dashboard
-    //--------------------------------------------------------------------------------------
-    else if ( window.url_paths[0]?.toLocaleLowerCase() === 'settings' ) {
-        window.open('/dashboard/#home', '_blank');
-    }
     // ---------------------------------------------
     // load from direct app URLs: /app/app-name
     // ---------------------------------------------

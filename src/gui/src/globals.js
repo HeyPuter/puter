@@ -25,12 +25,9 @@ window.window_nav_history_current_position = {};
 window.dashboard_nav_history = [];
 window.dashboard_nav_history_current_position = 0;
 window.progress_tracker = [];
-window.upload_item_global_id = 0;
 window.app_instance_ids = new Set();
 
 window.menubars = [];
-window.download_progress = [];
-window.download_item_global_id = 0;
 
 // This is the minimum width of the window for the sidebar to be shown
 window.window_width_threshold_for_sidebar = 500;
@@ -128,7 +125,6 @@ window.window_counter = 0;
 window.keypress_item_seach_term = '';
 window.keypress_item_seach_buffer_timeout = undefined;
 window.first_visit_animation = false;
-window.show_twitter_link = true;
 window.animate_window_opening = true;
 window.animate_window_closing = true;
 window.desktop_loading_fade_delay = (window.first_visit_ever && window.first_visit_animation ? 6000 : 1000);
@@ -150,9 +146,6 @@ window.zippingProgressConfig.WRITING = Math.floor(Math.random() * (14 - 10 + 1))
 window.launch_apps = [];
 window.launch_apps.recent = [];
 window.launch_apps.recommended = [];
-
-// Map of { child_instance_id -> { parent_instance_id, launch_msg_id } }
-window.child_launch_callbacks = {};
 
 // Is puter being loaded inside an iframe?
 if ( window.location !== window.parent.location ) {

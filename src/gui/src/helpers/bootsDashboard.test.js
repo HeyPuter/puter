@@ -33,9 +33,8 @@ describe('bootsDashboard', () => {
         expect(boots('/app/editor')).toBe(true);
     });
 
-    it('boots the desktop at /desktop', () => {
-        expect(boots('/desktop')).toBe(false);
-        expect(boots('/desktop/app/editor')).toBe(false);
+    it('boots the desktop on action pages', () => {
+        expect(boots('/action/sign-in')).toBe(false);
     });
 
     it('boots the desktop for flows only the desktop handles', () => {

@@ -263,14 +263,29 @@ export class HomepageController extends PuterController {
             });
         }
 
-        router.get('/settings', {}, (req, res) => sendShell(req, res));
-        router.get('/settings/*splat', {}, (req, res) => sendShell(req, res));
+        // Old settings links land on the dashboard's Home tab.
+        router.get('/settings', {}, (_req, res) =>
+            res.redirect('/dashboard#home'),
+        );
+        router.get('/settings/*splat', {}, (_req, res) =>
+            res.redirect('/dashboard#home'),
+        );
 
         router.get('/dashboard', {}, (req, res) => sendShell(req, res));
         router.get('/dashboard/', {}, (req, res) => sendShell(req, res));
 
-        router.get('/desktop', {}, (req, res) => sendShell(req, res));
-        router.get('/desktop/', {}, (req, res) => sendShell(req, res));
+        const queryOf = (req: express.Request) => {
+            const separator = req.originalUrl.indexOf('?');
+            return separator === -1 ? '' : req.originalUrl.slice(separator);
+        };
+
+        // Old desktop links land on the dashboard, query intact.
+        router.get('/desktop', {}, (req, res) =>
+            res.redirect(`/${queryOf(req)}`),
+        );
+        router.get('/desktop/', {}, (req, res) =>
+            res.redirect(`/${queryOf(req)}`),
+        );
 
         router.get('/action/*splat', {}, (req, res) => sendShell(req, res));
 
@@ -279,11 +294,8 @@ export class HomepageController extends PuterController {
 
         // Old desktop app links open the app in the dashboard, query intact.
         router.get('/desktop/app/:name', {}, (req, res) => {
-            const separator = req.originalUrl.indexOf('?');
-            const query =
-                separator === -1 ? '' : req.originalUrl.slice(separator);
             const name = encodeURIComponent(String(req.params.name ?? ''));
-            res.redirect(`/app/${name}${query}`);
+            res.redirect(`/app/${name}${queryOf(req)}`);
         });
 
         // -- /app/:name - app metadata baked into the shell ----------

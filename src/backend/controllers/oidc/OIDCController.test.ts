@@ -380,6 +380,7 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
             '//evil.test',
             '/settings',
             `/app/${'a'.repeat(101)}`,
+            '/desktop',
             '/desktop/app/my-App_2',
             '/desktop/app/evil/extra',
             '/desktop/app/',
@@ -457,11 +458,11 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
                         sharedPath('b.txt'),
                         sharedPath('a.txt'),
                     ],
-                    '/desktop',
+                    '/dashboard',
                 ),
             );
             const url = new URL(uri);
-            expect(url.origin + url.pathname).toBe(`${TEST_ORIGIN}/desktop`);
+            expect(url.origin + url.pathname).toBe(`${TEST_ORIGIN}/dashboard`);
             expect(url.searchParams.getAll('shared')).toEqual([
                 sharedPath('a.txt'),
                 sharedPath('b.txt'),

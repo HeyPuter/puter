@@ -424,15 +424,14 @@ export const authHeadHtml = (flow, title, { openerNotice = true } = {}) => {
 };
 
 /**
- * On a cover page, the logo is a way out: desktop users stay on the desktop,
- * everyone else goes to the root dashboard.
+ * On a cover page, the logo is a way out, to the root dashboard.
  *
  * @param {AuthFlow} flow
  * @returns {string} Empty where the logo leads nowhere.
  */
 const logoHref = (flow) => {
     if ( ! flow.page || window.embedded_in_popup ) return '';
-    return window.location.pathname === '/desktop' ? '/desktop' : '/';
+    return '/';
 };
 
 /**
