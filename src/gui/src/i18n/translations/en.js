@@ -304,6 +304,7 @@ const en = {
         upload_some_failed: 'Some uploads failed:',
         upload_to_trash_not_allowed: 'Uploading to trash is not allowed!',
         url_save_failed: 'Couldn\'t download this file. The site it comes from may not allow Puter to download it.',
+        url_save_https_only: 'Only https links can be saved.',
         url_save_invalid_url: 'Only http and https links can be saved.',
         url_save_too_large: 'This file is too large. Files saved from a link can be up to 100 MB.',
         view_compact_grid: 'Compact Grid',

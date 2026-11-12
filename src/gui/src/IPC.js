@@ -1676,6 +1676,12 @@ const ipc_listener = async (event, handled) => {
         // The app hears exactly one answer: fileSaved, or fileSaveCancelled
         // when the dialog goes away without saving.
         let answered = false;
+        let closed = false;
+        let saving = false;
+        // Set from the start of a write until the app hears its outcome;
+        // closing the dialog meanwhile doesn't answer for it.
+        let writing = false;
+        const urlDownload = new AbortController();
 
         const tell_caller_and_update_views = async ({
             target_path,
@@ -1686,7 +1692,7 @@ const ipc_listener = async (event, handled) => {
             file_signature = file_signature.items;
 
             answered = true;
-            target_iframe.contentWindow.postMessage({
+            target_iframe.contentWindow?.postMessage({
                 msg: 'fileSaved',
                 original_msg_id: msg_id,
                 filename: res.name,
@@ -1739,18 +1745,33 @@ const ipc_listener = async (event, handled) => {
             }, '*');
         };
 
+        // Runs a write unless the app was already told the save is cancelled.
+        // A write that fails after the dialog closed ends the call quietly.
+        const runWrite = async (write) => {
+            if ( answered ) return;
+            writing = true;
+            try {
+                return await write();
+            } catch ( err ) {
+                writing = false;
+                if ( ! closed ) throw err;
+                tell_caller_its_cancelled();
+            }
+        };
+
         const write_file_tell_caller_and_update_views = async ({
             target_path, el_filedialog_window,
             file_to_upload, overwrite,
         }) => {
-            const res = await puter.fs.write(
+            const res = await runWrite(() => puter.fs.write(
                 target_path,
                 file_to_upload,
                 {
                     dedupeName: false,
                     overwrite: overwrite,
                 },
-            );
+            ));
+            if ( ! res ) return;
 
             await tell_caller_and_update_views({ res, el_filedialog_window, target_path });
         };
@@ -1758,8 +1779,12 @@ const ipc_listener = async (event, handled) => {
         const handle_url_save = async ({ target_path, el_filedialog_window }) => {
             let file_to_upload;
             try {
-                file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path));
+                file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path), {
+                    signal: urlDownload.signal,
+                });
             } catch ( err ) {
+                // Closing the dialog stops the download and has answered already.
+                if ( answered ) return;
                 await UIAlert({
                     message: i18n(err.code ?? 'url_save_failed'),
                     parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
@@ -1845,20 +1870,22 @@ const ipc_listener = async (event, handled) => {
             let node;
             const written = await window.handle_same_name_exists({
                 action: async ({ overwrite }) => {
-                    if ( overwrite ) {
-                        await puter.fs.delete(target_path);
-                    }
+                    node = await runWrite(async () => {
+                        if ( overwrite ) {
+                            await puter.fs.delete(target_path);
+                        }
 
-                    if ( save_type === 'move' ) {
-                        await puter.fs.move(source_path, target_path);
-                    } else {
-                        const target_dir = path.dirname(target_path);
-                        const new_name = path.basename(target_path);
-                        await puter.fs.copy(source_path, target_dir, {
-                            newName: new_name,
-                        });
-                    }
-                    node = await puter.fs.stat(target_path);
+                        if ( save_type === 'move' ) {
+                            await puter.fs.move(source_path, target_path);
+                        } else {
+                            const target_dir = path.dirname(target_path);
+                            const new_name = path.basename(target_path);
+                            await puter.fs.copy(source_path, target_dir, {
+                                newName: new_name,
+                            });
+                        }
+                        return await puter.fs.stat(target_path);
+                    });
                 },
                 parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
             });
@@ -1889,26 +1916,48 @@ const ipc_listener = async (event, handled) => {
             center: true,
             initiating_app_uuid: app_uuid,
             onDialogCancel: () => tell_caller_its_cancelled(),
-            on_close: () => tell_caller_its_cancelled(),
+            on_close: () => {
+                closed = true;
+                urlDownload.abort();
+                if ( ! writing ) tell_caller_its_cancelled();
+            },
             onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
+                // Enter in the filename field can fire this again mid-save.
+                if ( saving ) return;
+                saving = true;
                 $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                 let busy_init_ts = Date.now();
 
-                if ( event.data.url ) {
-                    await handle_url_save({ target_path, el_filedialog_window });
-                } else if ( event.data.source_path ) {
-                    await handle_move_save({
-                        save_type: event.data.save_type,
-                        source_path: event.data.source_path,
-                        target_path,
-                    });
-                } else {
-                    await handle_data_save({
-                        target_path,
-                        el_filedialog_window,
-                        file_to_upload: new File([event.data.content], path.basename(target_path)),
-                    });
+                try {
+                    if ( event.data.url ) {
+                        await handle_url_save({ target_path, el_filedialog_window });
+                    } else if ( event.data.source_path ) {
+                        await handle_move_save({
+                            save_type: event.data.save_type,
+                            source_path: event.data.source_path,
+                            target_path,
+                            el_filedialog_window,
+                        });
+                    } else {
+                        await handle_data_save({
+                            target_path,
+                            el_filedialog_window,
+                            file_to_upload: new File([event.data.content], path.basename(target_path)),
+                        });
+                    }
+                } catch ( err ) {
+                    console.error(err);
+                    if ( ! answered ) {
+                        await UIAlert({
+                            message: err?.message ?? i18n('error_unknown_cause'),
+                            parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+                        });
+                    }
+                } finally {
+                    saving = false;
                 }
+                // A save that ends without fileSaved closes the dialog as cancelled.
+                tell_caller_its_cancelled();
 
                 let busy_duration = (Date.now() - busy_init_ts);
                 if ( busy_duration >= window.busy_indicator_hide_delay ) {

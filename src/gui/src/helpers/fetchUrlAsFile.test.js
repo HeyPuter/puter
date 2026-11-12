@@ -5,6 +5,7 @@ const realFetch = globalThis.fetch;
 
 afterEach(() => {
     globalThis.fetch = realFetch;
+    vi.unstubAllGlobals();
 });
 
 const failsWith = async (promise, code) => {
@@ -47,6 +48,66 @@ describe('fetchUrlAsFile', () => {
     ])('refuses %j without fetching', async (url) => {
         globalThis.fetch = vi.fn();
         await failsWith(fetchUrlAsFile(url, 'a'), 'url_save_invalid_url');
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'http://example.com/a.txt',
+        'data:text/plain,hi',
+        '/relative/path',
+    ])('refuses %j on an https page without fetching', async (url) => {
+        vi.stubGlobal('location', { protocol: 'https:' });
+        globalThis.fetch = vi.fn();
+        await failsWith(fetchUrlAsFile(url, 'a'), 'url_save_https_only');
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('downloads an https url on an https page', async () => {
+        vi.stubGlobal('location', { protocol: 'https:' });
+        globalThis.fetch = vi.fn(async () => new Response('ok'));
+        const file = await fetchUrlAsFile('https://example.com/a.txt', 'a.txt');
+        expect(await file.text()).toBe('ok');
+    });
+
+    it('downloads an http url on an http page', async () => {
+        vi.stubGlobal('location', { protocol: 'http:' });
+        globalThis.fetch = vi.fn(async () => new Response('ok'));
+        const file = await fetchUrlAsFile('http://example.com/a.txt', 'a.txt');
+        expect(await file.text()).toBe('ok');
+    });
+
+    it('stops the download when the signal aborts', async () => {
+        globalThis.fetch = vi.fn((url, { signal }) => new Promise((resolve, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason));
+        }));
+        const caller = new AbortController();
+        const download = fetchUrlAsFile('https://example.com/slow', 'a', { signal: caller.signal });
+        caller.abort();
+        await failsWith(download, 'url_save_failed');
+        expect(globalThis.fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    });
+
+    it('stops reading the body when the signal aborts', async () => {
+        const caller = new AbortController();
+        let pulls = 0;
+        // Like fetch, an aborted request errors its body stream.
+        globalThis.fetch = vi.fn(async (url, { signal }) => new Response(new ReadableStream({
+            pull (controller) {
+                if ( signal.aborted ) return controller.error(signal.reason);
+                pulls++;
+                controller.enqueue(new Uint8Array(1));
+                if ( pulls === 2 ) caller.abort();
+            },
+        }, { highWaterMark: 0 })));
+        await failsWith(fetchUrlAsFile('https://example.com/a', 'a', { signal: caller.signal }), 'url_save_failed');
+        expect(pulls).toBe(2);
+    });
+
+    it('does not fetch when the signal has already aborted', async () => {
+        globalThis.fetch = vi.fn();
+        const caller = new AbortController();
+        caller.abort();
+        await failsWith(fetchUrlAsFile('https://example.com/a', 'a', { signal: caller.signal }), 'url_save_failed');
         expect(globalThis.fetch).not.toHaveBeenCalled();
     });
 

@@ -686,6 +686,8 @@ const postAuthActions = async (action) => {
                 }
                 window.removeEventListener('message', onFileData);
 
+                const urlDownload = new AbortController();
+
                 // Open dialog
                 UIWindow({
                     allowed_file_types: allowed_file_types,
@@ -706,7 +708,10 @@ const postAuthActions = async (action) => {
                     center: true,
                     initiating_app_uuid: app_uid,
                     onDialogCancel: () => tell_opener_cancelled('fileSaveCancelled'),
-                    on_close: () => tell_opener_cancelled('fileSaveCancelled'),
+                    on_close: () => {
+                        urlDownload.abort();
+                        tell_opener_cancelled('fileSaveCancelled');
+                    },
                     onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
                         $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                         let busy_init_ts = Date.now();
@@ -715,8 +720,12 @@ const postAuthActions = async (action) => {
                         let file_to_upload;
                         if ( event.data.url ) {
                             try {
-                                file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path));
+                                file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path), {
+                                    signal: urlDownload.signal,
+                                });
                             } catch ( err ) {
+                                // Closing the picker stops the download and answers.
+                                if ( urlDownload.signal.aborted ) return;
                                 await UIAlert({
                                     message: i18n(err.code ?? 'url_save_failed'),
                                     parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),

@@ -26,28 +26,35 @@ const urlSaveError = (code) => Object.assign(new Error(code), { code });
 /**
  * Downloads an http(s) URL that an app or website asked to save, as a File
  * named `name`. Sent without cookies or a referrer, so the target sees an
- * anonymous request, and it must allow this origin through CORS.
+ * anonymous request, and it must allow this origin through CORS. On an https
+ * page only https URLs are accepted, since the browser blocks http ones.
  *
  * Rejects with an Error whose `code` is `url_save_invalid_url`,
- * `url_save_too_large` or `url_save_failed`.
+ * `url_save_https_only`, `url_save_too_large` or `url_save_failed` (also when
+ * `signal` aborts).
  *
  * @param {string} url
  * @param {string} name
- * @param {{ maxBytes?: number, timeoutMs?: number }} [options]
+ * @param {{ maxBytes?: number, timeoutMs?: number, signal?: AbortSignal }} [options]
  * @returns {Promise<File>}
  */
-export default async function fetchUrlAsFile (url, name, { maxBytes = URL_SAVE_MAX_BYTES, timeoutMs = URL_SAVE_TIMEOUT_MS } = {}) {
+export default async function fetchUrlAsFile (url, name, { maxBytes = URL_SAVE_MAX_BYTES, timeoutMs = URL_SAVE_TIMEOUT_MS, signal } = {}) {
+    const httpsOnly = globalThis.location?.protocol === 'https:';
+    const invalidUrl = httpsOnly ? 'url_save_https_only' : 'url_save_invalid_url';
     let parsed;
     try {
         parsed = new URL(url);
     } catch {
-        throw urlSaveError('url_save_invalid_url');
+        throw urlSaveError(invalidUrl);
     }
-    if ( parsed.protocol !== 'https:' && parsed.protocol !== 'http:' ) {
-        throw urlSaveError('url_save_invalid_url');
+    if ( parsed.protocol !== 'https:' && (httpsOnly || parsed.protocol !== 'http:') ) {
+        throw urlSaveError(invalidUrl);
     }
+    if ( signal?.aborted ) throw urlSaveError('url_save_failed');
 
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
     let timer;
     const restartTimer = () => {
         clearTimeout(timer);
@@ -88,5 +95,6 @@ export default async function fetchUrlAsFile (url, name, { maxBytes = URL_SAVE_M
         throw urlSaveError('url_save_failed');
     } finally {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
     }
 }
