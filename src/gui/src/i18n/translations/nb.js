@@ -36,7 +36,6 @@ const nb = {
         allow: 'Tillate',
         ascending: 'Stigende',
         associated_websites: 'Tilknyttede nettsider',
-        auto_arrange: 'Automatisk sortering',
         cancel: 'Avbryt',
         change: 'Endre',
         change_always_open_with: 'Vil du alltid åpne denne filtypen med',

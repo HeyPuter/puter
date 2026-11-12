@@ -31,7 +31,6 @@ const hi = {
         allow: 'अनुमति दें',
         ascending: 'आरोही',
         associated_websites: 'संबंधित वेबसाइटें',
-        auto_arrange: 'स्वचालित व्यवस्तित',
         cancel: 'रद्द',
         change_email: 'ई - मेल बदले',
         change_language: 'भाषा बदलें',

@@ -38,7 +38,6 @@ const es = {
         allow: 'Permitir',
         ascending: 'Ascendiente',
         associated_websites: 'Sitios Web Asociados',
-        auto_arrange: 'Organización Automática',
         cancel: 'Cancelar',
         change_email: 'Cambiar Correo Electrónico',
         change_language: 'Cambiar Idioma',

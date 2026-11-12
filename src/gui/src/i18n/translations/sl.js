@@ -31,7 +31,6 @@ const sl = {
         allow: 'Dovoli',
         ascending: 'Naraščajoče',
         associated_websites: 'Povezana spletna mesta',
-        auto_arrange: 'Samodejno razporedi',
         cancel: 'Prekliči',
         change: 'Spremeni',
         change_always_open_with: 'Ali želite to vrsto datotek vedno odpirati s/z',

@@ -38,7 +38,6 @@ const my = {
         allow: 'Benarkan',
         ascending: 'Menaik',
         associated_websites: 'Laman Web Berkaitan',
-        auto_arrange: 'Susunan Automatik',
         cancel: 'Batal',
         change: 'Ubah',
         change_email: 'Tukar Emel',

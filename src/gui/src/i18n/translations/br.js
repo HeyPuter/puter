@@ -31,7 +31,6 @@ const br = {
         allow: 'Permitir',
         ascending: 'Ascendente',
         associated_websites: 'Sites Associados',
-        auto_arrange: 'Organizar Automaticamente',
         cancel: 'Cancelar',
         change_email: 'Mudar Email',
         change_language: 'Mudar Idioma',

@@ -31,7 +31,6 @@ const nl = {
         allow: 'Toestaan',
         ascending: 'Oplopend',
         associated_websites: 'Geassocieerde Websites',
-        auto_arrange: 'Automatisch sorteren',
         cancel: 'Annuleren',
         change_email: 'E-mail Wijzigen',
         change_language: 'Taal veranderen',

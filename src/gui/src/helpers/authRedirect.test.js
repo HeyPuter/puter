@@ -42,7 +42,6 @@ afterEach(() => {
 
 describe('get_oidc_return_to', () => {
     it('returns the interface pages the backend whitelists', () => {
-        expect(at('/desktop')).toBe('/desktop');
         expect(at('/dashboard')).toBe('/dashboard');
     });
 
@@ -84,15 +83,12 @@ describe('get_oidc_return_to', () => {
         ).toBe(`/dashboard${share_search(shared_path('a.txt'))}`);
     });
 
-    it('drops a share link on the desktop, which does not open one', () => {
-        expect(at('/desktop', share_search(shared_path('Report.pdf')))).toBe('/desktop');
-    });
-
     it('returns null for anything the backend would reject', () => {
         expect(at('/')).toBe(null);
         expect(at('/settings')).toBe(null);
         expect(at('/action/login')).toBe(null);
         expect(at('/app/editor/extra')).toBe(null);
+        expect(at('/desktop')).toBe(null);
         expect(at('/desktop/app/editor')).toBe(null);
         expect(at('/desktop/app/editor/extra')).toBe(null);
         expect(at('/dashboard/app/editor')).toBe(null);

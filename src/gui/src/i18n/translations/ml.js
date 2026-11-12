@@ -31,7 +31,6 @@ const ml = {
         allow: 'അനുവദിക്കുക',
         ascending: 'ആരോഹണം',
         associated_websites: 'ബന്ധപ്പെട്ട വെബ്സൈറ്റുകൾ',
-        auto_arrange: 'സ്വയം ക്രമീകരിക്കുക',
         cancel: 'റദ്ദാക്കുക',
         change: 'മാറ്റുക',
         change_always_open_with: 'ഈ തരത്തിലുള്ള ഫയൽ എപ്പോഴും ഇതുപയോഗിച്ച് തുറക്കണോ',

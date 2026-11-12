@@ -31,7 +31,6 @@ const pl = {
         allow: 'Pozwól',
         ascending: 'Rosnąco',
         associated_websites: 'Powiązane strony',
-        auto_arrange: 'Auto Aranżacja',
         cancel: 'Anuluj',
         change_email: 'Zmień email',
         change_language: 'Zmień język',

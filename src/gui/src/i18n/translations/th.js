@@ -31,7 +31,6 @@ const th = {
         allow: 'อนุญาต',
         ascending: 'เรียงจากน้อยไปมาก',
         associated_websites: 'เว็บไซต์ที่เกี่ยวข้อง',
-        auto_arrange: 'จัดเรียงอัตโนมัติ',
         cancel: 'ยกเลิก',
         change_email: 'เปลี่ยนอีเมล',
         change_language: 'เปลี่ยนภาษา',

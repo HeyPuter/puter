@@ -49,7 +49,6 @@ const zhtw = {
         app_group_ungroup: '解除群組',
         ascending: '升序',
         associated_websites: '關聯的網站',
-        auto_arrange: '自動排列',
         cancel: '取消',
         change_email: '更改電子郵件',
         change_language: '更改語言',

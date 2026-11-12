@@ -274,15 +274,7 @@ const postAuthActions = async (action) => {
     // Load desktop, only if we're not embedded in a popup and not on the dashboard page
     // -------------------------------------------------------------------------------------
     if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
-        if ( window.is_fullpage_mode ) {
-            // In fullpage mode, skip loading desktop items and background
-            UIDesktop({});
-        } else {
-            await window.get_auto_arrange_data();
-            puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
-                UIDesktop({ desktop_fsentry: desktop_fsentry });
-            });
-        }
+        UIDesktop();
     }
     // -------------------------------------------------------------------------------------
     // Dashboard mode
@@ -1261,7 +1253,7 @@ if (jQuery) {
 
 // are we in dashboard mode?
 // The dashboard is the default interface at the root path; `/dashboard` is kept as an
-// alias, and `/desktop` loads the desktop instead. Direct app landings (`/app/<name>`)
+// alias. Direct app landings (`/app/<name>`)
 // open in the dashboard too: the app comes up maximized in-page with the dashboard
 // route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
@@ -2274,8 +2266,8 @@ window.initgui = async function (options) {
                 sessionStorage.removeItem('puter.authme_redirect_attempted');
             } catch (e) { /* sessionStorage unavailable */ }
         }
-        // remove the token from URL, keeping the current path (e.g. `/` or
-        // `/desktop`) and hash (dashboard tab links like /#usage).
+        // remove the token from URL, keeping the current path and hash
+        // (dashboard tab links like /#usage).
         //
         // `replaceState`, not `pushState`: pushing leaves the token-bearing URL
         // as the previous history entry, so Back returns to a URL containing a
@@ -2415,9 +2407,7 @@ window.initgui = async function (options) {
         $('.desktop').remove();
         // disable native browser exit confirmation
         window.onbeforeunload = null;
-        // go back to the interface the user was in: dashboard users to the root
-        // dashboard, desktop users to /desktop
-        window.location.replace(window.is_dashboard_mode ? '/' : '/desktop');
+        window.location.replace('/');
     });
 
     $(document).ajaxError(async function (event, jqxhr) {

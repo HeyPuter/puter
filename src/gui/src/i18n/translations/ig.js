@@ -31,7 +31,6 @@ const ig = {
         allow: 'ekwe',
         ascending: 'Na-arịgo',
         associated_websites: 'Weebụsaịtị Ejikọtara',
-        auto_arrange: 'ndokwa onwe',
         cancel: 'Kagbuo',
         change_email: 'ịgbanwe email',
         change_language: 'ịgbanwe Asụsụ',

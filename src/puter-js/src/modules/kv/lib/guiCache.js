@@ -6,10 +6,8 @@ import { driverCallEnvelope } from '../../../lib/networkUtils.js';
 const GUI_CACHE_KEYS = [
     'window_sidebar_width',
     'sidebar_items',
-    'user_preferences.auto_arrange_desktop',
     'user_preferences.show_hidden_files',
     'user_preferences.language',
-    'desktop_item_positions',
 ];
 
 // How long the resolved batch keeps serving reads before the cache disables

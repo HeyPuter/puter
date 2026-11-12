@@ -31,7 +31,6 @@ const hy = {
         allow: 'Թույլատրել',
         ascending: 'Աճող',
         associated_websites: 'Կապված կայքեր',
-        auto_arrange: 'Ավտոմատ դասավորել',
         cancel: 'Չեղարկել',
         change_email: 'Փոխել էլ. փոստը',
         change_language: 'Փոխել լեզուն',

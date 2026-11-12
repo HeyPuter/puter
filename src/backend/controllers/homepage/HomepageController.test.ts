@@ -222,20 +222,41 @@ describe('HomepageController shell routes', () => {
         expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
     });
 
-    it('serves the shell on /settings, /dashboard, /desktop, /action', async () => {
-        for (const path of [
-            '/settings',
-            '/settings/*splat',
-            '/dashboard',
-            '/dashboard/',
-            '/desktop',
-            '/desktop/',
-            '/action/*splat',
-        ]) {
+    it('serves the shell on /dashboard and /action', async () => {
+        for (const path of ['/dashboard', '/dashboard/', '/action/*splat']) {
             const { res, captured } = makeRes();
             await callRoute('get', path, makeReq({ path }), res);
             expect(typeof captured.body).toBe('string');
             expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
+        }
+    });
+
+    it('redirects /desktop to the root, keeping the query', async () => {
+        for (const path of ['/desktop', '/desktop/']) {
+            const { res, captured } = makeRes();
+            await callRoute(
+                'get',
+                path,
+                makeReq({ path, originalUrl: `${path}?ref=abc&x=1` }),
+                res,
+            );
+            expect(captured.statusCode).toBe(302);
+            expect(captured.location).toBe('/?ref=abc&x=1');
+            expect(captured.body).toBeUndefined();
+        }
+
+        const { res, captured } = makeRes();
+        await callRoute('get', '/desktop', makeReq({ path: '/desktop' }), res);
+        expect(captured.location).toBe('/');
+    });
+
+    it('redirects /settings to the dashboard Home tab', async () => {
+        for (const path of ['/settings', '/settings/*splat']) {
+            const { res, captured } = makeRes();
+            await callRoute('get', path, makeReq({ path }), res);
+            expect(captured.statusCode).toBe(302);
+            expect(captured.location).toBe('/dashboard#home');
+            expect(captured.body).toBeUndefined();
         }
     });
 

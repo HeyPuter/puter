@@ -31,7 +31,6 @@ const zh = {
         allow: '允许',
         ascending: '升序',
         associated_websites: '相关网站',
-        auto_arrange: '自动排序',
         cancel: '取消',
         change_email: '更改邮箱',
         change_language: '更改语言',

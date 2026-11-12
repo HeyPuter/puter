@@ -31,7 +31,6 @@ const id = {
         allow: 'Izinkan',
         ascending: 'Menaik',
         associated_websites: 'Situs Web Terkait',
-        auto_arrange: 'Atur Otomatis',
         cancel: 'Batal',
         change_email: 'Ubah Email',
         change_language: 'Ubah Bahasa',

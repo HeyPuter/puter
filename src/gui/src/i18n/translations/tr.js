@@ -31,7 +31,6 @@ const tr = {
         allow: 'İzin ver',
         ascending: 'Artan',
         associated_websites: 'İlişkilendirilmiş Web Siteleri',
-        auto_arrange: 'Otomatik Düzenle',
         cancel: 'İptal',
         change_email: 'E-postayı Değiştir',
         change_language: 'Dili Değiştir',

@@ -31,7 +31,6 @@ const pt = {
         allow: 'Permitir',
         ascending: 'Ascendente',
         associated_websites: 'Sites Associados',
-        auto_arrange: 'Auto Organizar',
         cancel: 'Cancelar',
         change: 'Alterar',
         change_email: 'Alterar e-mail',

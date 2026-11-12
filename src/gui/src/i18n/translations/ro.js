@@ -31,7 +31,6 @@ const ro = {
         allow: 'Permite',
         ascending: 'Ascendent',
         associated_websites: 'Site-uri partenere',
-        auto_arrange: 'Aranjare automată',
         cancel: 'Anulează',
         change_email: 'Schimbă e-mailul',
         change_language: 'Schimbă Limba',

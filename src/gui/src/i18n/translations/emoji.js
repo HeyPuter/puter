@@ -26,7 +26,6 @@ const emoji = {
         add_another_account: '➕👤',
         all_fields_required: '📝🔒✅',
         ascending: '🔼',
-        auto_arrange: '🔄📂📄',
         cancel: '❌',
         change_language: '🔄🌐',
         change_password: '🔑🔄',

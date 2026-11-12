@@ -31,7 +31,6 @@ const bg = {
         allow: 'Разреши',
         ascending: 'Възходящ',
         associated_websites: 'Свързани уебсайтове',
-        auto_arrange: 'Автоматично подреждане',
         cancel: 'Отказ',
         change: 'Промени',
         change_always_open_with: 'Искате ли винаги да отваряте този тип файл с',

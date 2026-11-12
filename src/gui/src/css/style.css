@@ -361,28 +361,15 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
 }
 
 .desktop {
-    display: none;
     overflow: hidden;
     height: 100vh !important;
     width: 100%;
     box-sizing: border-box;
-    display: grid;
-    grid-template-rows: repeat(auto-fill, 109px);
-    grid-auto-flow: column;
-    grid-template-columns: repeat(auto-fill, 120px);
-    padding-top: 15px;
-}
-
-.device-desktop .desktop {
-    padding-top: 5px;
 }
 
 .device-phone .desktop {
     height: 100vh !important;
     height: 100dvh !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    padding-bottom: 0 !important;
 }
 
 .item-container-list {
@@ -882,18 +869,6 @@ span.header-sort-icon img {
     font-weight: 500;
     font-size: 13px;
     margin-left: 3px;
-}
-
-/* The desktop is a plain page color, so its labels need text that reads on it. */
-.desktop .item .item-name {
-    color: rgb(73, 73, 73);
-    text-shadow: none;
-}
-
-@media (prefers-color-scheme: dark) {
-    .desktop .item .item-name {
-        color: #e6e6e6;
-    }
 }
 
 .device-phone .item-container-list .item .item-name {
@@ -5136,34 +5111,6 @@ html.dark-mode .usage-table-fade-overlay {
     height: 100dvh;
     top: 0 !important;
     border-radius: 0;
-}
-
-.device-phone .desktop {
-    position: relative;
-
-    /* Enable smooth scrolling on iOS */
-    -webkit-overflow-scrolling: touch;
-
-    /* Allow vertical touch scrolling while preventing horizontal */
-    touch-action: pan-x;
-
-    /* Hide scrollbars while keeping functionality */
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-
-    /* Scrolling behavior */
-    overflow-y: visible !important;
-    overflow-x: scroll;
-
-    padding-bottom: 60px;
-}
-
-.device-phone .desktop * {
-    touch-action: pan-x;
-}
-
-.device-phone .desktop::-webkit-scrollbar {
-    display: none;
 }
 
 /* height of 100% should not be applied to file dialogs */
