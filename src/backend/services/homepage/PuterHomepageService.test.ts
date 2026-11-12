@@ -137,7 +137,6 @@ const render = async (
     service: PuterHomepageService,
     req: Request = makeReq(),
     meta: Record<string, unknown> = { title: 'Puter' },
-    launchOptions: Record<string, unknown> = {},
     actor: unknown = null,
 ): Promise<string> => {
     let sent = '';
@@ -149,7 +148,6 @@ const render = async (
     await service.send(
         { req, res, actor } as never,
         meta as never,
-        launchOptions as never,
     );
     return sent;
 };
@@ -292,7 +290,6 @@ describe('PuterHomepageService — gui() parameters', () => {
             asset_dir: '/dist',
             title: 'Editor',
             app: { name: 'editor' },
-            launch_options: {},
         });
         // No `config.origin`: fall back to the request's protocol + domain.
         expect(params.app_origin).toBe('http://puter.test');
@@ -338,7 +335,7 @@ describe('PuterHomepageService — gui() parameters', () => {
 
         const staff = { user: { id: 7, email: 'j@puter.com' } };
         expect(
-            guiParamsOf(await render(service, makeReq(), undefined, {}, staff))
+            guiParamsOf(await render(service, makeReq(), undefined, staff))
                 .teams_ui,
         ).toBe(true);
         expect(teamsAvailableTo).toHaveBeenCalledWith(7, 'j@puter.com');
@@ -349,7 +346,7 @@ describe('PuterHomepageService — gui() parameters', () => {
         teamsAvailableTo.mockResolvedValueOnce(false);
         expect(
             guiParamsOf(
-                await render(service, makeReq(), undefined, {}, {
+                await render(service, makeReq(), undefined, {
                     user: { id: 9, email: 'x@gmail.com' },
                 }),
             ).teams_ui,
@@ -419,22 +416,6 @@ describe('PuterHomepageService — gui() parameters', () => {
         const html = await render(service);
         expect(html).toContain('\\u003c/script>');
         expect(guiParamsOf(html).injected).toBe('</script><img src=x>');
-    });
-
-    it('passes launch options straight through', async () => {
-        const params = guiParamsOf(
-            await render(
-                makeService(),
-                makeReq(),
-                { title: 'Puter' },
-                {
-                    on_initialized: [{ do: 'thing' }],
-                },
-            ),
-        );
-        expect(params.launch_options).toEqual({
-            on_initialized: [{ do: 'thing' }],
-        });
     });
 });
 

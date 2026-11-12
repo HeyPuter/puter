@@ -62,10 +62,12 @@ export async function resolveNode(
 ): Promise<FSEntry | null> {
     if (ref.entry) return ref.entry;
 
+    // A uid/id lookup can return a legacy row with no path when its parent
+    // chain is broken. Nothing can authorize or address it, so it's a miss.
     const uuid = ref.uid ?? ref.uuid;
     if (isNonEmptyString(uuid)) {
         const entry = await fsEntryStore.getEntryByUuid(uuid);
-        if (entry) return entry;
+        if (entry?.path) return entry;
         return notFoundOrNull(
             options.required,
             `Entry not found: uuid=${uuid}`,
@@ -80,7 +82,7 @@ export async function resolveNode(
             });
         }
         const entry = await fsEntryStore.getEntryById(numericId);
-        if (entry) return entry;
+        if (entry?.path) return entry;
         return notFoundOrNull(
             options.required,
             `Entry not found: id=${numericId}`,

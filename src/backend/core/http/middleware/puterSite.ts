@@ -548,6 +548,8 @@ export const createPuterSiteMiddleware = (
                             requestHostname: host,
                         }),
                     );
+                    // A shared cache must not hand this visitor's cookie to others.
+                    res.set('Cache-Control', 'private');
                 }
             } catch (e) {
                 // Best-effort — don't block the public file serve.

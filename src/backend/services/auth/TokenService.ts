@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createHash } from 'node:crypto';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { PuterService } from '../types';
 
@@ -266,6 +267,24 @@ export class TokenService extends PuterService {
             // is the routing discriminant.
             keyid: 'v2',
         });
+    }
+
+    /**
+     * Digest of the claims `sign(scope, payload)` writes, minus `iat`: SHA-256
+     * over the claims as key-sorted `[key, value]` pairs in JSON, first 32 hex
+     * chars. The GUI computes the same over a stored token
+     * (`gui/src/helpers/guiToken.js`), so the two must stay in step.
+     */
+    claimsDigest(scope: string, payload: Record<string, unknown>): string {
+        const claims = this.#compressPayload(COMPRESSION[scope], payload);
+        const pairs = Object.keys(claims)
+            .filter((key) => key !== 'iat')
+            .sort()
+            .map((key) => [key, claims[key]]);
+        return createHash('sha256')
+            .update(JSON.stringify(pairs))
+            .digest('hex')
+            .slice(0, 32);
     }
 
     /**
