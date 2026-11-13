@@ -837,16 +837,9 @@ export class MeteringBufferStore extends PuterStore {
     async incr(
         input: IncrInput,
     ): Promise<{ res: RecursiveRecord<number>; exact: boolean }> {
+        let buffered: { delta: FlatAmounts; base: FlatAmounts };
         try {
-            const { delta, base } = await this.#buffer(input);
-            const resolved =
-                Object.keys(base).length > 0
-                    ? base
-                    : await this.#seedBase(input.key);
-            return {
-                res: unflattenAmounts(addAmounts(resolved, delta)),
-                exact: false,
-            };
+            buffered = await this.#buffer(input);
         } catch (e) {
             // A counter that decides whether someone may spend is never worth
             // dropping, so fall back to writing it directly. That value is
@@ -859,6 +852,24 @@ export class MeteringBufferStore extends PuterStore {
             await this.forgetBase(input.key);
             return { res, exact: true };
         }
+
+        const { delta } = buffered;
+        let base = buffered.base;
+        if (Object.keys(base).length === 0) {
+            try {
+                base = await this.#seedBase(input.key);
+            } catch (e) {
+                // The increment is already buffered, so writing it through as
+                // well would count it twice. The total is low until a seed works.
+                console.warn(
+                    `[metering] base seed failed, returning the buffered amount alone: ${(e as Error).message}`,
+                );
+            }
+        }
+        return {
+            res: unflattenAmounts(addAmounts(base, delta)),
+            exact: false,
+        };
     }
 
     /**

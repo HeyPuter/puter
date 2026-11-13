@@ -383,6 +383,29 @@ describe('MeteringBufferStore', () => {
             expect(await storedTotal(key)).toBe(9);
             boom.mockRestore();
         });
+
+        it('counts a buffered increment once when the base read fails', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 80 } });
+            const boom = vi
+                .spyOn(kv, 'get')
+                .mockRejectedValueOnce(new Error('store read failed'));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { res, exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 5 },
+            });
+            boom.mockRestore();
+            warn.mockRestore();
+
+            // Only the buffered amount is known, and nothing was written through.
+            expect(exact).toBe(false);
+            expect((res as { total: number }).total).toBe(5);
+            expect(await storedTotal(key)).toBe(80);
+
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(85);
+        });
     });
 
     describe('incrAux', () => {
