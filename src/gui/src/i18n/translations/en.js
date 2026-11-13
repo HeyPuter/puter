@@ -967,8 +967,6 @@ const en = {
         'enable_push_not_now': 'Not now',
         'enable_push_footnote': 'You can turn them off anytime in Settings.',
 
-        'error_user_or_path_not_found': 'User or path not found.',
-
         // Auth token
         auth_token: 'Auth Token',
         token_copied: 'Token copied',

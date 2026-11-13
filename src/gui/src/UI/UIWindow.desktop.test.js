@@ -51,7 +51,7 @@ const headMenuLabels = (el_window) => {
 };
 
 beforeEach(() => {
-    document.body.innerHTML = '<div class="desktop"></div>';
+    document.body.innerHTML = '';
     Object.assign(window, {
         global_element_id: 0,
         window_counter: 0,

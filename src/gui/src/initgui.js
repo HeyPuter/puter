@@ -20,7 +20,6 @@
 import UIDashboard from './UI/Dashboard/UIDashboard.js';
 import TabApps from './UI/Dashboard/TabApps.js';
 import UIAlert from './UI/UIAlert.js';
-import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
@@ -273,15 +272,9 @@ const postAuthActions = async (action) => {
     }
 
     // -------------------------------------------------------------------------------------
-    // Load desktop, only if we're not embedded in a popup and not on the dashboard page
-    // -------------------------------------------------------------------------------------
-    if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
-        UIDesktop();
-    }
-    // -------------------------------------------------------------------------------------
     // Dashboard mode
     // -------------------------------------------------------------------------------------
-    else if ( window.is_dashboard_mode ) {
+    if ( window.is_dashboard_mode ) {
         // Paint in the language this browser last loaded, so the dashboard
         // doesn't wait on the saved preferences; a different saved language
         // reloads into it.
@@ -302,13 +295,13 @@ const postAuthActions = async (action) => {
         // underneath first (replaceState) and the launch re-claims
         // /app/<name> as a real history entry, so Back minimizes to the
         // dashboard exactly like an in-dashboard launch. (`?c` suppresses
-        // the auto-launch, mirroring the desktop URL-launch flow.)
+        // the auto-launch.)
         if ( window.url_paths[0]?.toLocaleLowerCase() === 'app'
             && window.url_paths[1]
             && ! window.url_query_params.has('c') ) {
             const app_name = window.url_paths[1];
             // any query param that doesn't start with 'puter.' is passed
-            // through to the app (mirrors the desktop URL-launch flow)
+            // through to the app
             const app_query_params = {};
             for ( const [key, value] of window.url_query_params ) {
                 if ( ! key.startsWith('puter.') ) {
@@ -1291,12 +1284,9 @@ if (jQuery) {
 // alias. Direct app landings (`/app/<name>`)
 // open in the dashboard too: the app comes up maximized in-page with the dashboard
 // route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
-// URLs that carry a desktop-only flow keep booting the desktop: auth popups
-// (`?embedded_in_popup=`) and iframe embeds. A share link (`?shared=`,
-// from an email) lands in the dashboard: Files, on Shared, with the items it names
-// picked out; the desktop ignores it. App metadata
-// like fullpage_on_landing does NOT opt a landing out of the dashboard; it only
-// affects boots that still go through the desktop flow.
+// Auth popups (`?embedded_in_popup=`) keep booting the desktop flow. A share link
+// (`?shared=`, from an email) lands in the dashboard: Files, on Shared, with the
+// items it names picked out.
 {
     const pathname = window.location.pathname;
     const search_params = new URLSearchParams(window.location.search);
@@ -1311,11 +1301,8 @@ if (jQuery) {
         window.embedded_in_frame = !!window.tell_popup_frame;
         if (window.embedded_in_frame) focusOnFrameFocus(window);
     };
-    // note: iframe detection is inlined because globals.js (window.is_embedded) loads after this module
-    const in_iframe = window.location !== window.parent.location;
     if (bootsDashboard({
         pathname,
-        inIframe: in_iframe,
         embeddedInPopup: !!window.embedded_in_popup,
     })) {
         window.is_dashboard_mode = true;
@@ -1697,24 +1684,8 @@ window.initgui = async function (options) {
         return;
     }
 
-    //--------------------------------------------------------------------------------------
-    // Determine if we are in full-page mode. The dashboard always shows apps full
-    // page; a desktop boot (embeds, popups) can ask with ?puter.fullpage=true.
-    //--------------------------------------------------------------------------------------
+    // The dashboard always shows apps full page.
     if (window.is_dashboard_mode) {
-        window.is_fullpage_mode = true;
-    } else if (
-        window.url_query_params.has('puter.fullpage') &&
-        (window.url_query_params.get('puter.fullpage') === 'false' ||
-            window.url_query_params.get('puter.fullpage') === '0')
-    ) {
-        window.is_fullpage_mode = false;
-    } else if (
-        window.url_query_params.has('puter.fullpage') &&
-        (window.url_query_params.get('puter.fullpage') === 'true' ||
-            window.url_query_params.get('puter.fullpage') === '1')
-    ) {
-        // Puter is in fullpage mode.
         window.is_fullpage_mode = true;
     }
 
@@ -2044,32 +2015,6 @@ window.initgui = async function (options) {
         await UIAlert({
             message: window.url_query_params.get('message'),
         });
-    }
-
-    //--------------------------------------------------------------------------------------
-    // Early check for fullpage mode from app metadata
-    // If the user navigated to /app/<app_name> and the app has fullpage_on_landing,
-    // set fullpage mode now so we can skip loading the desktop background and items.
-    // Dashboard mode never reaches the fetch (it sets is_fullpage_mode itself): app
-    // landings open in the dashboard regardless of fullpage_on_landing — the flag only
-    // matters for the boots that still go through the desktop flow (embeds, popups).
-    //--------------------------------------------------------------------------------------
-    if (
-        !window.is_fullpage_mode &&
-        window.url_paths[0]?.toLocaleLowerCase() === 'app' &&
-        window.url_paths[1]
-    ) {
-        try {
-            const app_info = await puter.apps.get(window.url_paths[1], {
-                icon_size: 64,
-            });
-            if (app_info?.metadata?.fullpage_on_landing) {
-                window.is_fullpage_mode = true;
-                window.app_launched_from_url = app_info;
-            }
-        } catch (e) {
-            // App metadata fetch failed; will retry later in UIDesktop
-        }
     }
 
     //--------------------------------------------------------------------------------------
@@ -2470,8 +2415,6 @@ window.initgui = async function (options) {
         $('.window').close();
         // close all ctxmenus
         $('.context-menu').remove();
-        // remove desktop
-        $('.desktop').remove();
         // disable native browser exit confirmation
         window.onbeforeunload = null;
         window.location.replace('/');
@@ -3039,27 +2982,6 @@ window.initgui = async function (options) {
         }
         // close all windows
         $('.window').close();
-
-        // -------------------------------------------------------------------------------------
-        // Early check for fullpage mode from app metadata (after login)
-        // -------------------------------------------------------------------------------------
-        if (
-            !window.is_fullpage_mode &&
-            window.url_paths[0]?.toLocaleLowerCase() === 'app' &&
-            window.url_paths[1]
-        ) {
-            try {
-                const app_info = await puter.apps.get(window.url_paths[1], {
-                    icon_size: 64,
-                });
-                if (app_info?.metadata?.fullpage_on_landing) {
-                    window.is_fullpage_mode = true;
-                    window.app_launched_from_url = app_info;
-                }
-            } catch (e) {
-                // App metadata fetch failed; will retry later in UIDesktop
-            }
-        }
 
         await postAuthActions(action);
     });

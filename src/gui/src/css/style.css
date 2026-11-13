@@ -166,15 +166,6 @@ html.popup-frame-transparent body {
     user-select: text !important;
 }
 
-.window-container {
-    position: fixed;
-    top: 0;
-    left: -100000px;
-    width: 200000px;
-    height: 200000px;
-    z-index: -9999;
-}
-
 input[type=text], input[type=password], input[type=email], select {
     width: 100%;
     padding: 8px;
@@ -358,18 +349,6 @@ input[type=text]:focus, input[type=password]:focus, input[type=email]:focus, sel
     height: 24px;
     line-height: 24px;
     padding: 0 24px;
-}
-
-.desktop {
-    overflow: hidden;
-    height: 100vh !important;
-    width: 100%;
-    box-sizing: border-box;
-}
-
-.device-phone .desktop {
-    height: 100vh !important;
-    height: 100dvh !important;
 }
 
 .item-container-list {

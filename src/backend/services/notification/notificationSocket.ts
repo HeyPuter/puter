@@ -55,10 +55,7 @@ import type { IConfig } from '../../types.js';
  */
 
 export type NotifWire =
-    | 'notif.message'
-    | 'notif.unreads'
-    | 'notif.ack'
-    | 'notif.removed';
+    'notif.message' | 'notif.unreads' | 'notif.ack' | 'notif.removed';
 
 export const NOTIF_DELIVERY_EVENT = 'outer.notif.delivery';
 
@@ -200,7 +197,7 @@ export class NotificationSocketAdapter {
         });
     }
 
-    /** One notification, in the shape `UIDesktop` has always received. */
+    /** One notification, in the shape the GUI's socket listeners receive. */
     message(userId: number, uid: string, notification: unknown): void {
         const response = { uid, notification };
         if (this.#dispatched(userId, 'notif.message', response)) return;

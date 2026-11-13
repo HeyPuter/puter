@@ -20,9 +20,9 @@
 import { describe, it, expect } from 'vitest';
 import { bootsDashboard } from './bootsDashboard.js';
 
-const boots = (url, { inIframe = false, embeddedInPopup = false } = {}) => {
+const boots = (url, { embeddedInPopup = false } = {}) => {
     const { pathname } = new URL(url, 'https://puter.com');
-    return bootsDashboard({ pathname, inIframe, embeddedInPopup });
+    return bootsDashboard({ pathname, embeddedInPopup });
 };
 
 describe('bootsDashboard', () => {
@@ -33,17 +33,24 @@ describe('bootsDashboard', () => {
         expect(boots('/app/editor')).toBe(true);
     });
 
+    it('matches the paths in any letter case, as the server routes them', () => {
+        expect(boots('/Dashboard')).toBe(true);
+        expect(boots('/App/editor')).toBe(true);
+        expect(boots('/APP/Editor/')).toBe(true);
+        expect(boots('/App/editor', { embeddedInPopup: true })).toBe(false);
+    });
+
     it('boots the desktop on action pages', () => {
         expect(boots('/action/sign-in')).toBe(false);
     });
 
-    it('boots the desktop for flows only the desktop handles', () => {
-        expect(boots('/', { inIframe: true })).toBe(false);
+    it('boots the desktop in a popup', () => {
         expect(boots('/', { embeddedInPopup: true })).toBe(false);
+        expect(boots('/app/editor', { embeddedInPopup: true })).toBe(false);
     });
 
-    it('keeps /dashboard on the dashboard even inside an iframe', () => {
-        expect(boots('/dashboard', { inIframe: true })).toBe(true);
+    it('keeps /dashboard on the dashboard even in a popup', () => {
+        expect(boots('/dashboard', { embeddedInPopup: true })).toBe(true);
     });
 
     it('boots the dashboard whatever the query asks for', () => {
