@@ -54,7 +54,7 @@ The promise rejects with `{ message, code }`. These codes mean the name is alrea
 | -- | -- |
 | `item_with_same_name_exists` | A file with this name exists, and `overwrite` and `dedupeName` are both `false`. |
 | `cannot_overwrite_a_directory` | A folder with this name exists. |
-| `conflict` | The name differs from an existing file or folder's name only by accents or emoji, such as `😁.txt` next to `😀.txt`. The existing item is never replaced, even with `overwrite: true`. To write the file under a new name instead, set `dedupeName: true`. |
+| `conflict` | The name differs from an existing file or folder's name only by accents or emoji, such as `😁.txt` next to `😀.txt`. The existing item is never replaced, even with `overwrite: true`. To write the file under a new name instead, set `overwrite: false` and `dedupeName: true`. |
 
 ## Examples
 
