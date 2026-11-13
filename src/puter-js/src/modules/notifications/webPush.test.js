@@ -2189,14 +2189,54 @@ describe('enable({ background: true })', () => {
         expect(nav.serviceWorker.register).not.toHaveBeenCalled();
     });
 
-    it('registers without a click once the browser grants permission', async () => {
+    it('registers again without a click for a user who turned pushes on here with a click', async () => {
         const nav = makeNav({ existing: makeSubscription() });
         withBrowser(nav);
         server();
         const { module } = makeModule();
+        await expect(module.enable()).resolves.toBe(true);
+        mockRequest.mockClear();
         await expect(module.enable({ background: true })).resolves.toBe(true);
-        expect(Notification.requestPermission).not.toHaveBeenCalled();
+        expect(Notification.requestPermission).toHaveBeenCalledTimes(0);
+        expect(
+            mockRequest.mock.calls.map(([, method, route]) => [method, route]),
+        ).toContainEqual(['POST', '/push/web/subscriptions']);
         expect(store.get(OPT_IN)).toBe(true);
+    });
+
+    it('resolves false without a request for a user who never turned pushes on here', async () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        server();
+        const { module } = makeModule();
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('resolves false without a request after disable()', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server();
+        const { module } = makeModule();
+        await module.enable();
+        await module.disable();
+        nav.pushManager.getSubscription.mockResolvedValue(null);
+        nav.pushManager.subscribe.mockClear();
+        mockRequest.mockClear();
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('resolves false without a request outside a website or the Puter GUI', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server();
+        const { module } = makeModule({ env: 'web-worker' });
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.serviceWorker.register).not.toHaveBeenCalled();
     });
 });
 
@@ -2266,6 +2306,7 @@ describe('enable after the user removed this browser in Puter', () => {
     });
 
     it('leaves it removed for a background enable(), registering nothing new', async () => {
+        store.set(OPT_IN, true);
         const removed = makeSubscription(undefined, 'https://push.example/1');
         const nav = makeNav({ existing: removed });
         withBrowser(nav);
@@ -2285,6 +2326,12 @@ describe('enable after the user removed this browser in Puter', () => {
                 .map(([, , , body]) => body.subscription.endpoint),
         ).toEqual(['https://push.example/1']);
         expect(store.has(OPT_IN)).toBe(false);
+
+        mockRequest.mockClear();
+        nav.pushManager.getSubscription.mockResolvedValue(null);
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(mockRequest).not.toHaveBeenCalled();
     });
 
     describe('in the Puter GUI', () => {

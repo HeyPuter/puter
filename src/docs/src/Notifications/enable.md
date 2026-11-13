@@ -26,7 +26,7 @@ On a website with nobody signed in, it opens the sign-in after the browser's pro
 
 Inside the Puter desktop it does what [`enablePush()`](/Notifications/enablePush/) does, and it never rejects. When your app doesn't hold the permission yet, that's Puter's permission dialog, and allowing it also turns pushes on in this browser.
 
-With `background: true` it runs without a click, for example on page load. It turns pushes on only where the browser already granted notification permission and someone is signed in, and resolves `false` otherwise. It never opens the browser's prompt, Puter's dialog or the sign-in, and a browser the user removed in Puter stays removed: the call rejects with `push_device_removed`. Inside the Puter desktop it resolves whether pushes are already on, as [`status()`](/Notifications/status/) reports, without opening Puter's permission dialog.
+With `background: true` it runs without a click, for example on page load, and never opens the browser's prompt, Puter's dialog or the sign-in. On a website it turns pushes back on only for a signed-in user who turned them on in this browser with a click and hasn't turned them off since, whether with [`disable()`](/Notifications/disable/), by removing this browser in Puter, or by turning your app off in Puter. Otherwise, or when the browser hasn't already granted notification permission, it resolves `false` without a request. A browser the user removed in Puter stays removed, and the call rejects with `push_device_removed`. Inside the Puter desktop it resolves whether pushes are already on, as [`status()`](/Notifications/status/) reports, without opening Puter's permission dialog.
 
 ## Syntax
 ```js
@@ -41,7 +41,7 @@ puter.notifications.enable(options)
 | Option | Type | Description |
 |--------|------|-------------|
 | `serviceWorker` | `String` | The path of the worker that imports `push-sw.js`. Defaults to `/puter-sw.js`. Pass the same path to [`onPush()`](/Notifications/onPush/), [`disable()`](/Notifications/disable/) and [`status()`](/Notifications/status/). Only used on a website. |
-| `background` | `Boolean` | Turn pushes on without a click, only where the browser already granted permission. Opens no prompt, dialog or sign-in. Defaults to `false`. |
+| `background` | `Boolean` | Turn pushes back on without a click, only where the browser already granted permission and, on a website, the user turned them on here with a click and hasn't turned them off since. Opens no prompt, dialog or sign-in. Defaults to `false`. |
 
 ## Return value
 A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications, canceled Puter's dialog, or the browser can't receive pushes, such as a private window or an iPhone page that isn't opened from the Home Screen. [Where pushes work](/Notifications/push/#where-pushes-work) lists what each browser needs.
@@ -102,7 +102,7 @@ The promise rejects with an error carrying `message` and `code`:
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            // Resolves false without asking when the browser hasn't granted permission yet.
+            // Resolves false without asking unless the user turned pushes on here with a click.
             const on = await puter.notifications.enable({ background: true }).catch(() => false);
             puter.print(on ? 'Notifications are on<br>' : 'Notifications are off<br>');
         })();

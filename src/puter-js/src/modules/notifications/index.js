@@ -200,6 +200,7 @@ export class NotificationsModule extends EventListener {
     /** @type {OmitThisParameter<typeof dismiss>} */
     dismiss = dismiss;
     onNotification = onNotification;
+    /** @type {OmitThisParameter<typeof enable>} */
     enable = enable;
     disable = disable;
     status = status;
@@ -494,11 +495,19 @@ export class NotificationsModule extends EventListener {
      * @param {{ url: string; scope?: string }} worker
      * @param {{ background?: boolean }} [options] `background` is a call without
      *   a click: a browser the user removed in Puter rejects with
-     *   `push_device_removed`, and a rejected token opens no sign-in.
+     *   `push_device_removed`, a rejected token opens no sign-in, and a website
+     *   whose user hasn't opted in here resolves false.
+     * @returns {Promise<boolean>} Whether this browser was registered.
      * @internal
      */
     async _enableWebPush(worker, { background = false } = {}) {
         await this.#userChange;
+        if (
+            background &&
+            this.puter.env === 'web' &&
+            (await this.#readOptIn()) !== true
+        )
+            return false;
         this.#useWorker(worker);
         this.#listenForOptInChanges();
         /** @type {() => void} */
@@ -538,6 +547,7 @@ export class NotificationsModule extends EventListener {
             worker,
             'could not confirm this browser for pushes',
         );
+        return true;
     }
 
     /**

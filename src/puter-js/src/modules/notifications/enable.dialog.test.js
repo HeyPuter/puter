@@ -211,6 +211,7 @@ describe('enable({ background: true }) on a website', () => {
 
     it('opens no sign-in when the token is rejected', async () => {
         Notification.permission = 'granted';
+        store.set('opt-in:u-1', true);
         mockRequest.mockRejectedValue(
             Object.assign(new Error('token rejected'), {
                 code: 'token_auth_failed',

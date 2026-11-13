@@ -1,4 +1,4 @@
-import type { NotificationAction, Puter, PushShown } from '../../index.js';
+import type { EnableOptions, NotificationAction, Puter, PushShown } from '../../index.js';
 
 export const shown: PushShown = { requireInteraction: true };
 // @ts-expect-error The display hint must be a boolean.
@@ -37,4 +37,16 @@ export const listen = (puter: Puter): void => {
     });
     // @ts-expect-error Unsupported event name.
     puter.notifications.on('shown', () => {});
+};
+
+export const backgroundOptions: EnableOptions = { background: true, serviceWorker: '/puter-sw.js' };
+// @ts-expect-error `background` is a boolean.
+export const invalidBackground: EnableOptions = { background: 'yes' };
+
+export const enableInBackground = async (puter: Puter): Promise<void> => {
+    const on: boolean = await puter.notifications.enable({ background: true });
+    const clicked: boolean = await puter.notifications.enable();
+    // @ts-expect-error Unknown option.
+    await puter.notifications.enable({ quiet: true });
+    void [on, clicked];
 };

@@ -193,8 +193,10 @@
  * @property {string} [serviceWorker] Path of the app's worker that imports
  *   `push-sw.js`. Default `/puter-sw.js`. Only used on a website.
  * @property {boolean} [background] Turn pushes on without a click, only where
- *   the browser already granted permission. Opens no prompt, dialog or sign-in
- *   and leaves a browser the user removed in Puter removed.
+ *   the browser already granted permission and, on a website, the signed-in
+ *   user turned pushes on here with a click and hasn't turned them off since.
+ *   Opens no prompt, dialog or sign-in and leaves a browser the user removed in
+ *   Puter removed.
  */
 
 /**
