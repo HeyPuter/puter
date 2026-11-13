@@ -171,10 +171,19 @@ describe('ShareStore', () => {
             holder = await makeUser();
         });
 
-        it('says whether an owner has anything shared, legacy rows included', async () => {
+        it('says an owner with nothing shared has no shares', async () => {
             const owner = await makeUser();
+            await makeEntry(owner);
+            // An invite row that names no node is not a share of an entry.
+            await store.create({
+                issuerUserId: owner.id,
+                recipientEmail: `${owner.username}-invite@test.local`,
+            });
             await expect(store.ownerHasShares(owner.id)).resolves.toBe(false);
+        });
 
+        it('answers with one indexed read', async () => {
+            const owner = await makeUser();
             const entry = await makeEntry(owner);
             await store.upsertActive({
                 issuerUserId: owner.id,
@@ -182,24 +191,24 @@ describe('ShareStore', () => {
                 fsentryId: entry.id,
                 mode: 'read',
             });
-            await expect(store.ownerHasShares(owner.id)).resolves.toBe(true);
 
-            // A row written before the owner column existed.
-            const legacyOwner = await makeUser();
-            const legacy = await makeEntry(legacyOwner);
-            await store.upsertActive({
-                issuerUserId: legacyOwner.id,
-                holderUserId: holder.id,
-                fsentryId: legacy.id,
-                mode: 'read',
-            });
-            await server.clients.db.write(
-                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `fsentry_id` = ?',
-                [legacy.id],
-            );
-            await expect(store.ownerHasShares(legacyOwner.id)).resolves.toBe(
-                true,
-            );
+            const read = vi.spyOn(server.clients.db, 'read');
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                await expect(store.ownerHasShares(owner.id)).resolves.toBe(
+                    true,
+                );
+                const sql = [...read.mock.calls, ...pread.mock.calls].map(
+                    ([query]) => String(query),
+                );
+                expect(sql).toHaveLength(1);
+                expect(sql.some((q) => q.includes('JOIN `fsentries`'))).toBe(
+                    false,
+                );
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
         });
 
         it('finds a subtree share even when the descendant has no path yet', async () => {
@@ -859,12 +868,6 @@ describe('ShareStore', () => {
             await groupRow(member.id, await makeEntry(member));
             // A teammate's share of the member's item.
             await groupRow(mate.id, await makeEntry(member));
-            // As that, from before `entry_owner_user_id` was recorded.
-            const legacy = await groupRow(mate.id, await makeEntry(member));
-            await server.clients.db.write(
-                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `uid` = ?',
-                [legacy.uid],
-            );
             const theirs = await groupRow(mate.id, await makeEntry(mate));
             const direct = await store.upsertActive({
                 issuerUserId: mate.id,
@@ -884,6 +887,36 @@ describe('ShareStore', () => {
             const matePage = await store.listByHolder(mate.id, opts);
             expect(matePage.items).toHaveLength(1);
             expect(await store.countByHolder(mate.id, opts)).toBe(1);
+        });
+
+        it('lists a team row whose entry owner was never recorded', async () => {
+            const member = await makeUser();
+            const mate = await makeUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                    '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                [groupUid, member.id, 'team', 'No owner', '{}', '{}'],
+            );
+            const [{ id: groupId }] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
+            const row = await store.upsertActiveGroup({
+                issuerUserId: mate.id,
+                holderGroupId: Number(groupId),
+                fsentryId: (await makeEntry(mate)).id,
+                mode: 'read',
+            });
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `uid` = ?',
+                [row.uid],
+            );
+
+            const opts = { groupIds: [Number(groupId)] };
+            const page = await store.listByHolder(member.id, opts);
+            expect(page.items.map((r) => r.uid)).toEqual([row.uid]);
+            expect(await store.countByHolder(member.id, opts)).toBe(1);
         });
 
         it('lists what a user issued alongside what was issued on their node', async () => {
@@ -1142,22 +1175,25 @@ describe('ShareStore', () => {
 
         it('claims a pending invite without dropping the row', async () => {
             const entry = await makeEntry(issuer);
-            const pending = await store.create({
+            const { row: pending } = await store.upsertPending({
                 issuerUserId: issuer.id,
                 recipientEmail: `pending-${uuidv4()}@test.local`,
-                data: {},
+                fsentryId: entry.id,
+                mode: 'write',
             });
 
             const applied = await store.applyPending({
                 uid: pending.uid,
                 holderUserId: holder.id,
-                fsentryId: entry.id,
                 mode: 'read',
             });
 
             expect(applied.holder_user_id).toBe(holder.id);
             expect(applied.mode).toBe('read');
             expect(applied.applied_at).toBeTruthy();
+            // The entry and its owner are the ones the invite was written with.
+            expect(Number(applied.fsentry_id)).toBe(entry.id);
+            expect(Number(applied.entry_owner_user_id)).toBe(issuer.id);
             // Second claim finds nothing left to claim.
             expect(
                 await store.applyPending({
@@ -1354,7 +1390,14 @@ describe('ShareStore', () => {
                 await server.clients.db.write(
                     'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
                         '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
-                    [groupUid, issuer.id, 'team', 'Lagging replica', '{}', '{}'],
+                    [
+                        groupUid,
+                        issuer.id,
+                        'team',
+                        'Lagging replica',
+                        '{}',
+                        '{}',
+                    ],
                 );
                 const [team] = await server.clients.db.read(
                     'SELECT id FROM `group` WHERE uid = ?',
@@ -1459,7 +1502,6 @@ describe('ShareStore', () => {
                     const applied = await store.applyPending({
                         uid: claimable.uid,
                         holderUserId: holder.id,
-                        fsentryId: (await makeEntry(issuer)).id,
                         mode: 'read',
                     });
                     expect(applied.holder_user_id).toBe(holder.id);

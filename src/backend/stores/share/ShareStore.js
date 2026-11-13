@@ -133,8 +133,7 @@ export class ShareStore extends PuterStore {
      *
      * Separate reads rather than one `OR`, which no index can serve. Each is a
      * range scan: the issued half on `idx_share_issuer`, the delegated half on
-     * `idx_share_entry_owner`, and a third covering rows written before that
-     * column existed, which is empty once none remain. Unclaimed invites are
+     * `idx_share_entry_owner`, each bounded by its limit. Unclaimed invites are
      * included (an invite is something the user sent); the legacy invite rows
      * that name no node are not.
      *
@@ -147,11 +146,9 @@ export class ShareStore extends PuterStore {
     async listOutbound(userId, { limit, cursor, appUid } = {}) {
         const size = this.#pageSize(limit);
         const afterId = this.#afterId(cursor);
-        const own = this.#appFilter(appUid, '`data`');
+        const own = this.#appFilter(appUid);
 
-        const joined = this.#appFilter(appUid, '`share`.`data`');
-
-        const [issued, delegated, unrecorded] = await Promise.all([
+        const [issued, delegated] = await Promise.all([
             this.clients.db.read(
                 'SELECT * FROM `share` WHERE `issuer_user_id` = ? AND ' +
                     '`fsentry_id` IS NOT NULL AND `id` > ?' +
@@ -166,23 +163,12 @@ export class ShareStore extends PuterStore {
                     ' ORDER BY `id` LIMIT ?',
                 [userId, userId, afterId, ...own.params, size + 1],
             ),
-            // Rows left by a writer predating the column; indexed on the NULL.
-            this.clients.db.read(
-                'SELECT `share`.* FROM `share` JOIN `fsentries` ON ' +
-                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
-                    '`share`.`entry_owner_user_id` IS NULL AND ' +
-                    '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ? ' +
-                    'AND `share`.`id` > ?' +
-                    joined.sql +
-                    ' ORDER BY `share`.`id` LIMIT ?',
-                [userId, userId, afterId, ...joined.params, size + 1],
-            ),
         ]);
 
         // The halves are disjoint and each ordered by id, so merging them and
         // cutting at `size` is the true next page: whatever either half lost to
         // its own limit sorts after the cut and returns on the following one.
-        const merged = [...issued, ...delegated, ...unrecorded].sort(
+        const merged = [...issued, ...delegated].sort(
             (a, b) => Number(a.id) - Number(b.id),
         );
         const page = keysetPage(merged, size, this.config.jwt_secret_v2);
@@ -200,9 +186,8 @@ export class ShareStore extends PuterStore {
      * @param {{ appUid?: string | null }} [opts]
      */
     async countOutbound(userId, { appUid } = {}) {
-        const own = this.#appFilter(appUid, '`data`');
-        const joined = this.#appFilter(appUid, '`share`.`data`');
-        const [issued, delegated, unrecorded] = await Promise.all([
+        const own = this.#appFilter(appUid);
+        const [issued, delegated] = await Promise.all([
             this.clients.db.read(
                 'SELECT COUNT(*) AS `count` FROM `share` WHERE ' +
                     '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL' +
@@ -215,21 +200,8 @@ export class ShareStore extends PuterStore {
                     own.sql,
                 [userId, userId, ...own.params],
             ),
-            // As `listOutbound`: rows written before the column existed.
-            this.clients.db.read(
-                'SELECT COUNT(*) AS `count` FROM `share` JOIN `fsentries` ON ' +
-                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
-                    '`share`.`entry_owner_user_id` IS NULL AND ' +
-                    '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?' +
-                    joined.sql,
-                [userId, userId, ...joined.params],
-            ),
         ]);
-        return (
-            Number(issued[0]?.count ?? 0) +
-            Number(delegated[0]?.count ?? 0) +
-            Number(unrecorded[0]?.count ?? 0)
-        );
+        return Number(issued[0]?.count ?? 0) + Number(delegated[0]?.count ?? 0);
     }
 
     /**
@@ -266,8 +238,6 @@ export class ShareStore extends PuterStore {
                 userId,
                 userId,
                 userId,
-                userId,
-                userId,
                 ...(after === null ? [] : [after]),
                 size + 1,
             ],
@@ -292,7 +262,7 @@ export class ShareStore extends PuterStore {
             'SELECT COUNT(*) AS `count` FROM (SELECT DISTINCT `app_uid` FROM (' +
                 this.#outboundAppsSql() +
                 ') AS `outbound`) AS `apps`',
-            [userId, userId, userId, userId, userId],
+            [userId, userId, userId],
         );
         return Number(rows[0]?.count ?? 0);
     }
@@ -415,28 +385,18 @@ export class ShareStore extends PuterStore {
     /**
      * Whether any share row sits on one of `userId`'s entries. A write to an
      * owner with none has no audience to look for, and nearly every owner has
-     * none. Rows from before `entry_owner_user_id` existed are matched through
-     * their entry, as `listOutbound` does.
+     * none.
      *
      * @param {number} userId
      * @returns {Promise<boolean>}
      */
     async ownerHasShares(userId) {
-        const [recorded, unrecorded] = await Promise.all([
-            this.clients.db.read(
-                'SELECT 1 AS `found` FROM `share` WHERE ' +
-                    '`entry_owner_user_id` = ? LIMIT 1',
-                [userId],
-            ),
-            this.clients.db.read(
-                'SELECT 1 AS `found` FROM `share` JOIN `fsentries` ON ' +
-                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
-                    '`share`.`entry_owner_user_id` IS NULL AND ' +
-                    '`fsentries`.`user_id` = ? LIMIT 1',
-                [userId],
-            ),
-        ]);
-        return recorded.length > 0 || unrecorded.length > 0;
+        const rows = await this.clients.db.read(
+            'SELECT 1 AS `found` FROM `share` WHERE ' +
+                '`entry_owner_user_id` = ? LIMIT 1',
+            [userId],
+        );
+        return rows.length > 0;
     }
 
     /**
@@ -511,8 +471,8 @@ export class ShareStore extends PuterStore {
     /**
      * The holder's own rows, plus their teams' rows on items that aren't
      * theirs: what they shared with their own team, or a teammate shared of
-     * something they own, was not shared with them. Rows predating
-     * `entry_owner_user_id` are matched through their entry.
+     * something they own, was not shared with them. A row with no owner
+     * recorded is listed: the grant exists whoever owns the entry.
      */
     #holderClause(holderUserId, groups) {
         if (groups.length === 0) {
@@ -526,17 +486,8 @@ export class ShareStore extends PuterStore {
                 '(`holder_user_id` = ? OR (`holder_group_id` IN (' +
                 groups.map(() => '?').join(', ') +
                 ') AND `issuer_user_id` <> ? AND ' +
-                '(`entry_owner_user_id` <> ? OR (`entry_owner_user_id` IS NULL ' +
-                'AND NOT EXISTS (SELECT 1 FROM `fsentries` WHERE ' +
-                '`fsentries`.`id` = `share`.`fsentry_id` AND ' +
-                '`fsentries`.`user_id` = ?)))))',
-            holderParams: [
-                holderUserId,
-                ...groups,
-                holderUserId,
-                holderUserId,
-                holderUserId,
-            ],
+                '(`entry_owner_user_id` IS NULL OR `entry_owner_user_id` <> ?)))',
+            holderParams: [holderUserId, ...groups, holderUserId, holderUserId],
         };
     }
 
@@ -966,24 +917,17 @@ export class ShareStore extends PuterStore {
      * @param {object} input
      * @param {string} input.uid
      * @param {number} input.holderUserId
-     * @param {number | null} [input.fsentryId]
      * @param {string | null} [input.mode]
      */
-    async applyPending({ uid, holderUserId, fsentryId = null, mode = null }) {
+    async applyPending({ uid, holderUserId, mode = null }) {
         if (!uid || !holderUserId) {
             throw new Error('applyPending: uid and holderUserId are required');
         }
         const result = await this.clients.db.write(
             'UPDATE `share` SET `holder_user_id` = ?, `applied_at` = CURRENT_TIMESTAMP' +
-                (fsentryId === null ? '' : ', `fsentry_id` = ?') +
                 (mode === null ? '' : ', `mode` = ?') +
                 ' WHERE `uid` = ? AND `holder_user_id` IS NULL',
-            [
-                holderUserId,
-                ...(fsentryId === null ? [] : [fsentryId]),
-                ...(mode === null ? [] : [mode]),
-                uid,
-            ],
+            [holderUserId, ...(mode === null ? [] : [mode]), uid],
         );
         if ((result?.affectedRows ?? result?.changes ?? 0) === 0) return null;
         // Only the uid is known here; the caller holds the replica's copy.
@@ -1413,13 +1357,13 @@ export class ShareStore extends PuterStore {
      * whatever it was handed and legacy rows carry plain strings — extracting
      * from one of those aborts the whole query, so there the read is guarded.
      */
-    #issuedByAppExpr(dataColumn) {
+    #issuedByAppExpr() {
         const extracts = ['issuedByApp', 'issuerAppUid'].map((key) =>
-            this.clients.db.jsonTextExtract(dataColumn, [key]),
+            this.clients.db.jsonTextExtract('`data`', [key]),
         );
         const coalesced = `COALESCE(${extracts.join(', ')})`;
         return this.clients.db.case({
-            sqlite: `CASE WHEN json_valid(${dataColumn}) THEN ${coalesced} END`,
+            sqlite: `CASE WHEN json_valid(\`data\`) THEN ${coalesced} END`,
             otherwise: coalesced,
         });
     }
@@ -1429,37 +1373,25 @@ export class ShareStore extends PuterStore {
      * app, `null` the rows no app issued.
      *
      * @param {string | null | undefined} appUid
-     * @param {string} dataColumn
      */
-    #appFilter(appUid, dataColumn) {
+    #appFilter(appUid) {
         if (appUid === undefined) return { sql: '', params: [] };
-        const expr = this.#issuedByAppExpr(dataColumn);
+        const expr = this.#issuedByAppExpr();
         if (appUid === null) return { sql: ` AND ${expr} IS NULL`, params: [] };
         return { sql: ` AND ${expr} = ?`, params: [appUid] };
     }
 
     /**
      * Both outbound halves projected onto their issuing app. Takes the same
-     * five bound user ids as `listOutbound`, in that order.
+     * three bound user ids as `listOutbound`, in that order.
      */
     #outboundAppsSql() {
-        const own = this.clients.db.nullCoalesce(
-            this.#issuedByAppExpr('`data`'),
-            "''",
-        );
-        const joined = this.clients.db.nullCoalesce(
-            this.#issuedByAppExpr('`share`.`data`'),
-            "''",
-        );
+        const own = this.clients.db.nullCoalesce(this.#issuedByAppExpr(), "''");
         return (
             `SELECT ${own} AS \`app_uid\` FROM \`share\` WHERE ` +
             '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL UNION ALL ' +
             `SELECT ${own} AS \`app_uid\` FROM \`share\` WHERE ` +
-            '`entry_owner_user_id` = ? AND `issuer_user_id` <> ? UNION ALL ' +
-            `SELECT ${joined} AS \`app_uid\` FROM \`share\` JOIN \`fsentries\` ` +
-            'ON `fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
-            '`share`.`entry_owner_user_id` IS NULL AND ' +
-            '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?'
+            '`entry_owner_user_id` = ? AND `issuer_user_id` <> ?'
         );
     }
 
