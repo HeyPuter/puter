@@ -237,9 +237,10 @@ describe('UserAccountService', () => {
                 );
             try {
                 expect(
-                    await server.stores.permission.readUserGroupPerms(member.id, [
-                        permission,
-                    ]),
+                    await server.stores.permission.readUserGroupPerms(
+                        member.id,
+                        [permission],
+                    ),
                 ).toEqual([]);
             } finally {
                 read.mockRestore();
