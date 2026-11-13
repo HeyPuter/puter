@@ -95,6 +95,7 @@ export type {
     AppUsage,
     DetailedAppUsage,
     MonthlyUsage,
+    SignInOptions,
     SignInResult,
     User,
     UserProfile,

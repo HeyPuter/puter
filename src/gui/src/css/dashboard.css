@@ -11488,10 +11488,26 @@ body.dashboard-mode .notifications-close-all {
     background: var(--dashboard-border);
 }
 
-.auth-provider-list {
+.auth-provider-list,
+.auth-sign-in-methods {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+/* The login's providers and its email sign-in, as one list. */
+.auth-sign-in-methods .auth-provider-list:empty {
+    display: none;
+}
+
+/* Email sign-in for an account the site already signed in. */
+.auth-dialog .magic-link-continue-as {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    text-align: center;
+    color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
 }
 
 .dashboard-dialog-btn.auth-provider-btn {

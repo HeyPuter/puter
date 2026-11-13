@@ -25,6 +25,7 @@ import { AppService } from './apps/AppService';
 import { RecommendedAppsService } from './apps/RecommendedAppsService';
 import { SuggestedAppsService } from './apps/SuggestedAppsService';
 import { AuthService } from './auth/AuthService';
+import { MagicLinkService } from './auth/MagicLinkService';
 import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
 import { BroadcastService } from './broadcast/BroadcastService';
@@ -86,6 +87,7 @@ declare module './types' {
         broadcast: BroadcastService;
         cacheReplication: CacheReplicationService;
         oidc: OIDCService;
+        magicLink: MagicLinkService;
         appIcon: AppIconService;
         defaultUser: DefaultUserService;
         homepage: PuterHomepageService;
@@ -160,6 +162,7 @@ export const puterServices = {
     // Independent — only needs the event client and redis.
     cacheReplication: CacheReplicationService,
     oidc: OIDCService,
+    magicLink: MagicLinkService,
     appIcon: AppIconService,
     defaultUser: DefaultUserService,
     homepage: PuterHomepageService,

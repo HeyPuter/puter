@@ -130,3 +130,17 @@ export const takeOidcLoginChallenge = () => {
     } catch { /* Missing or malformed retry context returns to ordinary login. */ }
     return { token: fragment.get('token'), retryUrl };
 };
+
+/** Capture a sign-in link's token before boot code can retain its URL. */
+export const takeMagicLinkToken = () => {
+    const url = new URL(window.location.href);
+    const paths = url.pathname.split('/').filter(Boolean);
+    if ( paths[0]?.toLowerCase() === 'desktop' ) paths.shift();
+    if ( paths[0]?.toLowerCase() !== 'action' || paths[1]?.toLowerCase() !== 'magic-link' ) {
+        return null;
+    }
+    const token = new URLSearchParams(url.hash.slice(1)).get('token');
+    url.hash = '';
+    window.history.replaceState(null, document.title, url.pathname + url.search);
+    return token || null;
+};

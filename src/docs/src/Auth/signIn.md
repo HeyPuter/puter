@@ -34,7 +34,17 @@ An object with the following properties:
 | Option | Type | Description |
 |--------|------|-------------|
 | `attempt_temp_user_creation` | `Boolean` | Whether Puter should automatically create a temporary user. This is useful if you want to quickly onboard a user without requiring them to sign up. They can always sign up later if they want to. |
+| `email` | `String` | The user's email address, if your site already knows it. The popup asks the user to connect that address to Puter, and the user doesn't need a password. See [Email sign-in](#email-sign-in). |
 | `request_auth` | `Boolean` | Asks the popup to let the user re-pick their account, even when your site already holds a token for them. Puter otherwise skips that prompt for a site it has seen before. Useful for an explicit "switch account" button. |
+
+#### Email sign-in
+
+With `email`, the popup offers one of these, depending on the address:
+
+- A Gmail or Outlook address gets a Google or Microsoft sign-in button, when the Puter deployment offers that provider.
+- Any other address gets a sign-in link by email. When the user opens the link in the same browser, the popup finishes signing them in and the promise resolves. A link opened on another device signs the user in to Puter on that device instead, and your page's popup keeps waiting until the user closes it.
+
+The user can still choose a different account or switch to password sign-in, so the account they sign in with may not have this address.
 
 Each call completes from its own sign-in window, including when multiple calls run at once.
 
@@ -49,6 +59,8 @@ The promise will reject with an object containing an `error` code and a human-re
 - `popup_blocked`: The sign-in popup was blocked by the browser. This usually happens when `signIn()` is not called from a user action (such as a click event).
 
 - `auth_window_closed`: The user closed the sign-in window (or cancelled the consent dialog) without completing the sign-in process.
+
+- `invalid_email`: The `email` option isn't an email address. The promise rejects before any popup opens.
 
 - `not_available_in_app`: `signIn()` was called from an app running on Puter. An app is already signed in as the user who launched it — the Puter session hands it a token at launch — so there is nothing for the popup to do. Use `puter.auth.getUser()` to read who that is.
 
@@ -77,3 +89,11 @@ The promise may also reject with the failure response returned by the authentica
 </body>
 </html>
 ```
+
+To start the popup on email sign-in for a user your site already knows, pass their address:
+
+```js
+await puter.auth.signIn({ email: 'user@example.com' });
+```
+
+The limits on sign-in links are listed in [Rate Limits and Quotas](/rate-limits-and-quotas/#sign-in-links).

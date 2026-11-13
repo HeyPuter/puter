@@ -33,8 +33,10 @@ import openAuthFlow, {
 } from './authFlow.js';
 import { renderProviderButtons } from './authProviders.js';
 import { pushTwoFactorScreen } from './UIAuth2FA.js';
+import { MAGIC_LINK_ICON, pushMagicLinkScreen } from './UIAuthMagicLink.js';
 import { pushRecoverPasswordScreen } from './UIAuthRecoverPassword.js';
 import { pushSignupScreen } from './UIAuthSignup.js';
+import { looksLikeEmail } from '../../helpers/magicLinkSignIn.js';
 
 /**
  * @typedef {object} LoginScreenOptions
@@ -123,9 +125,16 @@ export function pushLoginScreen (flow, options = {}) {
     h += `<div class="auth-forgot-row"><button type="button" class="auth-link forgot-password-link">${i18n('forgot_pass_c2a')}</button></div>`;
     h += submitButtonHtml(i18n('log_in', [], false), 'login-btn');
     h += '</form>';
-    h += '<div class="auth-providers" hidden>';
+    // A sign-in link is a sign-in method in its own right, so this block
+    // shows even when no identity provider is configured.
+    h += '<div class="auth-providers">';
     h += `<div class="auth-divider"><span>${i18n('or')}</span></div>`;
+    h += '<div class="auth-sign-in-methods">';
     h += '<div class="auth-provider-list"></div>';
+    h += '<button type="button" class="dashboard-dialog-btn auth-provider-btn magic-link-btn">';
+    h += `<span class="auth-provider-icon" aria-hidden="true">${MAGIC_LINK_ICON}</span><span>${i18n('sign_in_with_email_link')}</span>`;
+    h += '</button>';
+    h += '</div>';
     h += '</div>';
     h += '</div>';
     if ( flow.options.show_signup_button ) {
@@ -155,8 +164,13 @@ export function pushLoginScreen (flow, options = {}) {
         kind: 'login',
         flow,
         referrer: () => flow.options.referrer ?? window.referrerStr ?? window.openerOrigin,
-    }).then((offered) => {
-        if ( offered ) $screen.find('.auth-providers').prop('hidden', false);
+    });
+
+    $screen.find('.magic-link-btn').on('click', () => {
+        if ( flow.isBusy() ) return;
+        // Carry a typed email over so the email screen starts with it.
+        const typed = String($user.val() ?? '').trim();
+        pushMagicLinkScreen(flow, { email: looksLikeEmail(typed) ? typed : '' });
     });
 
     $screen.find('.forgot-password-link').on('click', () => {

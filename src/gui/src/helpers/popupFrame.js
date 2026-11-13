@@ -68,7 +68,7 @@ const FOCUS_RETRIES = 20;
 export const POPUP_FRAME_MSG = 'puterPopupFrame';
 
 // The popup's query parameters a framing page may pass, in the fragment.
-const FRAGMENT_PARAMS = ['msg_id', 'options', 'request_auth', 'subdomain'];
+const FRAGMENT_PARAMS = ['email', 'msg_id', 'options', 'request_auth', 'subdomain'];
 
 // The account checks a sign-in can show (email, phone, card), and the
 // save-account window an email confirmation shows a temporary account first,
