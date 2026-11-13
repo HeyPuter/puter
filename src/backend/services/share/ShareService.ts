@@ -32,6 +32,7 @@ import {
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import {
     abuseKey,
     cleanEmail,
@@ -57,6 +58,7 @@ import {
 } from '../metering/enforcement.js';
 import { carriesClosedAppData } from '../permission/appDataScopes';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
+import { isOwnHomePath } from '../permission/fsPathPermission.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { SubscriptionCache } from '../events/subscriptionCache.js';
 import { KV_SHARE_ACCESS_LEVELS, kvShareRoot } from '../kvShare/kvShares.js';
@@ -292,6 +294,10 @@ export const modeFromEntryPermission = (permission: string): string | null => {
  */
 const RETIRE_CHUNK_SIZE = 100;
 
+/** Owner usernames kept per process, so the home check rarely reads a user. */
+const USERNAME_CACHE_MAX_ENTRIES = 10_000;
+const USERNAME_CACHE_TTL_MS = 60_000;
+
 /** How long after an owner shares the retire reads stay on the primary. */
 const RECENT_SHARE_WINDOW_MS = 30_000;
 
@@ -406,6 +412,11 @@ export class ShareService extends PuterService {
         RECENT_SHARE_WINDOW_MS,
     );
     readonly #ownerLookups = new Map<string, Promise<boolean>>();
+    readonly #usernames = new BoundedTtlMap<number, string | null>({
+        maxEntries: USERNAME_CACHE_MAX_ENTRIES,
+        ttlMs: USERNAME_CACHE_TTL_MS,
+    });
+    readonly #usernameLookups = new Map<number, Promise<string | null>>();
 
     /**
      * FS mutations only notify the owner, leaving a recipient's open window
@@ -450,6 +461,10 @@ export class ShareService extends PuterService {
                 fromUserId?: number;
             };
             if (!node?.uuid) return;
+            const handedOver =
+                typeof fromUserId === 'number' && fromUserId !== node.userId;
+            // The subtree's share rows were re-pointed at its new owner.
+            if (handedOver) this.#ownerShared(node.userId);
             const notify = this.#fanOutMove(node, fromPath).catch(() => {
                 // A stale window is better than a failed move.
             });
@@ -458,11 +473,7 @@ export class ShareService extends PuterService {
             // entry into its new owner's tree — leaving the new owner with
             // recipients they never agreed to. Awaited alongside the notify so
             // an `emitAndWait` caller sees both.
-            if (typeof fromUserId !== 'number' || fromUserId === node.userId) {
-                return notify;
-            }
-            // The subtree's share rows were re-pointed at its new owner.
-            this.#ownerShared(node.userId);
+            if (!handedOver) return notify;
             return Promise.all([
                 notify,
                 this.onEntryOwnerChanged(node).catch((err: unknown): void => {
@@ -873,6 +884,15 @@ export class ShareService extends PuterService {
         rows: ShareIndexRow[];
         nodesById: Map<number, FSEntry>;
     }> {
+        // Under another user's home an ancestor may belong to someone else.
+        const username = await this.#usernameOf(entry.userId);
+        if (
+            username !== null &&
+            isOwnHomePath(realPath, username) &&
+            !(await this.#ownerHasShares(entry.userId))
+        ) {
+            return { rows: [], nodesById: new Map() };
+        }
         const ancestors = await this.stores.fsEntry.getAncestors(
             pathPosix.dirname(realPath),
         );
@@ -892,6 +912,29 @@ export class ShareService extends PuterService {
             this.stores.share.listGroupReachingMembers(ids),
         ]);
         return { rows: [...direct, ...viaGroup], nodesById };
+    }
+
+    /** `userId`'s username, or null for none; cached per process. */
+    #usernameOf(userId: number): Promise<string | null> {
+        const cached = this.#usernames.get(userId);
+        if (cached !== undefined) return Promise.resolve(cached);
+        const inFlight = this.#usernameLookups.get(userId);
+        if (inFlight) return inFlight;
+        const lookup = (async () => {
+            try {
+                const user = await this.stores.user.getById(userId);
+                const username = user?.username || null;
+                this.#usernames.set(userId, username);
+                return username;
+            } catch {
+                // Unknown reads as someone else's home: the full lookup runs.
+                return null;
+            } finally {
+                this.#usernameLookups.delete(userId);
+            }
+        })();
+        this.#usernameLookups.set(userId, lookup);
+        return lookup;
     }
 
     /** Whether `ownerUserId` has anything shared, cached per process. */
