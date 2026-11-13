@@ -45,6 +45,7 @@ export function toMember (row) {
         ...(typeof row.created_at === 'string' ? { createdAt: row.created_at } : {}),
         // Owners only, and what billing keys a seat's plan on.
         ...(typeof row.uuid === 'string' ? { uuid: row.uuid } : {}),
+        ...(typeof row.password_pending === 'boolean' ? { passwordPending: row.password_pending } : {}),
     };
 }
 

@@ -51,6 +51,7 @@
  * @property {string} [createdAt] When the account joined the team. Absent when an app calls.
  * @property {string} [uuid] Present only when the team owner calls with their own session or
  * API token; billing keys a seat's plan on it.
+ * @property {boolean} [passwordPending] Whether the account has yet to set its own password; team owner only.
  */
 
 /**
