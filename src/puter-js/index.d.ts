@@ -36,6 +36,7 @@ export type { default as APICallLogger } from './types/lib/APICallLogger.js';
 // -- puter.ai --
 export type {
     AIMessageContent,
+    BuiltInTool,
     ChatMessage,
     ChatOptions,
     ServiceSpeed,
