@@ -271,6 +271,11 @@ shows only when whoami reports `subscribed: true` and no `team` paying for the
 account. On a page that can't frame the GUI, the item opens the dashboard with
 `?topup=` in a new tab instead.
 
+The Low Balance dialog puter.js shows on a website when a call is refused for
+credit offers the same top-up to the same accounts: **Add Credits** is its main
+button, with **Upgrade Plan** beside it. Everyone else gets **Upgrade Now**
+alone.
+
 The GUI reports `unavailable` unless its session belongs to `user`, the account
 has no verification or password change waiting, and the deployment defines
 `window.UITopUp` with `UITopUp.embeddable === true`. Otherwise it runs:
