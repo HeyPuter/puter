@@ -23,7 +23,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { PermissionUtil } from '../../services/permission/permissionUtil.ts';
-import { setupTestServer } from '../../testUtil.ts';
+import { lagReadReplica, setupTestServer } from '../../testUtil.ts';
 import { decodeCursor } from '../../util/pagination.ts';
 import { CACHE_TOMBSTONE_SUFFIX } from '../types.ts';
 import {
@@ -1433,7 +1433,7 @@ describe('PermissionStore', () => {
     // -- access token permissions --------------------------------------
 
     describe('access token permissions', () => {
-        it('serves the grants cached, and every write through the store invalidates them', async () => {
+        it('serves the grants cached until the store deletes them', async () => {
             const tokenUid = `tok-${uuidv4()}`;
             const authorizer = { userId: null, appId: null };
             await store.insertAccessTokenPerms(tokenUid, authorizer, [
@@ -1443,8 +1443,7 @@ describe('PermissionStore', () => {
                 'driver:kv',
             ]);
 
-            // A row written behind the store is invisible until a store
-            // write lands.
+            // A row written behind the store is invisible while the list is cached.
             await server.clients.db.write(
                 'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
                 [tokenUid, 'driver:fs'],
@@ -1452,13 +1451,6 @@ describe('PermissionStore', () => {
             expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
                 'driver:kv',
             ]);
-
-            await store.insertAccessTokenPerms(tokenUid, authorizer, [
-                { permission: 'driver:ai', extra: { note: 1 } },
-            ]);
-            expect((await store.listAccessTokenPerms(tokenUid)).sort()).toEqual(
-                ['driver:ai', 'driver:fs', 'driver:kv'],
-            );
 
             await store.deleteAccessTokenPerms(tokenUid);
             expect(await store.listAccessTokenPerms(tokenUid)).toEqual([]);
@@ -1515,6 +1507,130 @@ describe('PermissionStore', () => {
                 ]),
             ).toBe(false);
             expect(await store.hasAnyAccessTokenPerm(tokenUid, [])).toBe(false);
+        });
+
+        const TOKEN_PERM_QUERIES = /FROM `access_token_permissions`/;
+        const cachedTokenPerms = (tokenUid: string) =>
+            server.clients.redis.get(`perms:token:${tokenUid}`);
+
+        it("finds a new token's grants while the replica lags, and caches no empty list", async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            const replica = await lagReadReplica(server, TOKEN_PERM_QUERIES);
+            try {
+                await store.insertAccessTokenPerms(
+                    tokenUid,
+                    { userId: 7, appId: null },
+                    [{ permission: 'fs:abc:read' }],
+                );
+                expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                    'fs:abc:read',
+                ]);
+
+                await server.clients.redis.del(`perms:token:${tokenUid}`);
+                expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                    'fs:abc:read',
+                ]);
+                await vi.waitFor(async () =>
+                    expect(await cachedTokenPerms(tokenUid)).toBe(
+                        '["fs:abc:read"]',
+                    ),
+                );
+                expect(await store.getAccessTokenAuthorizerId(tokenUid)).toBe(
+                    7,
+                );
+            } finally {
+                replica.catchUp();
+            }
+        });
+
+        it('reads the primary only when the replica has no rows', async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            await store.insertAccessTokenPerms(
+                tokenUid,
+                { userId: 7, appId: null },
+                [{ permission: 'fs:abc:read' }],
+            );
+            await server.clients.redis.del(`perms:token:${tokenUid}`);
+
+            const current = await lagReadReplica(server, TOKEN_PERM_QUERIES, {
+                mode: 'current',
+            });
+            try {
+                expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
+                    'fs:abc:read',
+                ]);
+                expect(await store.getAccessTokenAuthorizerId(tokenUid)).toBe(
+                    7,
+                );
+                expect(current.primaryReads()).toBe(0);
+            } finally {
+                current.catchUp();
+            }
+
+            const lagging = await lagReadReplica(server, TOKEN_PERM_QUERIES);
+            try {
+                expect(await store.getAccessTokenAuthorizerId(tokenUid)).toBe(
+                    7,
+                );
+                expect(lagging.primaryReads()).toBe(1);
+            } finally {
+                lagging.catchUp();
+            }
+        });
+
+        it('caches the grants it stores without reading them back', async () => {
+            const scoped = `tok-${uuidv4()}`;
+            const unscoped = `tok-${uuidv4()}`;
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                await store.insertAccessTokenPerms(
+                    scoped,
+                    { userId: 7, appId: null },
+                    [
+                        { permission: 'fs:abc:read' },
+                        { permission: 'fs:def:read' },
+                    ],
+                );
+                // A token with no stored grants, as a full-access one is.
+                await store.insertAccessTokenPerms(
+                    unscoped,
+                    { userId: 7, appId: null },
+                    [],
+                );
+                expect(pread).not.toHaveBeenCalled();
+            } finally {
+                pread.mockRestore();
+            }
+            expect(await cachedTokenPerms(scoped)).toBe(
+                '["fs:abc:read","fs:def:read"]',
+            );
+            expect(await cachedTokenPerms(unscoped)).toBe('[]');
+        });
+
+        it('caches nothing when the token is deleted while its grants are being cached', async () => {
+            const tokenUid = `tok-${uuidv4()}`;
+            const db = server.clients.db;
+            const write = db.write.bind(db);
+            // The delete lands after the grants are stored, before they're cached.
+            const stored = vi
+                .spyOn(db, 'write')
+                .mockImplementationOnce(async (sql, params) => {
+                    const result = await write(sql, params);
+                    stored.mockRestore();
+                    await store.deleteAccessTokenPerms(tokenUid);
+                    return result;
+                });
+            try {
+                await store.insertAccessTokenPerms(
+                    tokenUid,
+                    { userId: 7, appId: null },
+                    [{ permission: 'fs:abc:read' }],
+                );
+            } finally {
+                stored.mockRestore();
+            }
+            expect(await cachedTokenPerms(tokenUid)).toBeNull();
+            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([]);
         });
     });
 

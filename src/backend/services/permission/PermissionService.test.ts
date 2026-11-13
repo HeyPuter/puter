@@ -2250,7 +2250,10 @@ describe('PermissionService — scan paths', () => {
                 [tokenUid, permission, '{}'],
             );
 
-            const get = vi.spyOn(server.clients.redis, 'get');
+            const list = vi.spyOn(
+                server.stores.permission,
+                'listAccessTokenPerms',
+            );
             try {
                 expect(
                     await permService.check(
@@ -2264,12 +2267,10 @@ describe('PermissionService — scan paths', () => {
                     ),
                 ).toBe(true);
                 expect(
-                    get.mock.calls.filter(
-                        ([key]) => key === `perms:token:${tokenUid}`,
-                    ),
+                    list.mock.calls.filter(([uid]) => uid === tokenUid),
                 ).toHaveLength(1);
             } finally {
-                get.mockRestore();
+                list.mockRestore();
             }
         });
 

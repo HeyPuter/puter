@@ -1617,25 +1617,31 @@ export class PermissionStore extends PuterStore {
     /** The token's whole grant list, so a check reads it once. */
     async listAccessTokenPerms(tokenUid: string): Promise<string[]> {
         const cacheKey = this.#tokenCacheKey(tokenUid);
-        try {
-            const raw = await this.clients.redis.get(cacheKey);
-            if (raw) {
+        const { tombstoned, raw } = await this.readCacheUnlessDeleted(cacheKey);
+        if (raw) {
+            try {
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed)) return parsed;
+            } catch {
+                // Fall through to DB.
             }
-        } catch {
-            // Fall through to DB.
         }
 
-        const rows = await this.clients.db.read(
-            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
-            [tokenUid],
-        );
+        // A replica can lag a mint (rows missing) or a revoke (rows still there).
+        const sql =
+            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?';
+        const rows = tombstoned
+            ? await this.clients.db.pread(sql, [tokenUid])
+            : await this.clients.db.tryHardRead(sql, [tokenUid], {
+                  race: false,
+              });
         const perms = rows.map((r) => String(r.permission));
 
-        this.clients.redis
-            .set(cacheKey, JSON.stringify(perms), 'EX', TOKEN_CACHE_TTL_SECONDS)
-            .catch(() => {});
+        if (!tombstoned) {
+            void this.writeCacheUnlessDeleted([cacheKey], () =>
+                this.#cacheAccessTokenPerms(tokenUid, perms, false),
+            ).catch(() => {});
+        }
         return perms;
     }
 
@@ -1648,7 +1654,10 @@ export class PermissionStore extends PuterStore {
         return permissions.some((permission) => all.includes(permission));
     }
 
-    /** Record a new token's grants, chunked multi-row inserts. */
+    /**
+     * Record a new token's grants, once per token, in chunked multi-row
+     * inserts.
+     */
     async insertAccessTokenPerms(
         tokenUid: string,
         authorizer: { userId: number | null; appId: number | null },
@@ -1678,7 +1687,13 @@ export class PermissionStore extends PuterStore {
                 ]),
             );
         }
-        await this.#invalidateAccessTokenPerms(tokenUid);
+        // Seeded with what was just stored, so a check right after the mint
+        // finds it without a read.
+        const perms = grants.map(({ permission }) => permission);
+        await this.writeCacheUnlessDeleted(
+            [this.#tokenCacheKey(tokenUid)],
+            () => this.#cacheAccessTokenPerms(tokenUid, perms, true),
+        );
     }
 
     /** Drop a token's grant manifest. */
@@ -1687,7 +1702,7 @@ export class PermissionStore extends PuterStore {
             'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
             [tokenUid],
         );
-        await this.#invalidateAccessTokenPerms(tokenUid);
+        await this.tombstoneCacheKeys([this.#tokenCacheKey(tokenUid)]);
     }
 
     /**
@@ -1695,17 +1710,24 @@ export class PermissionStore extends PuterStore {
      * none, which every full-access token is.
      */
     async getAccessTokenAuthorizerId(tokenUid: string): Promise<number | null> {
-        const rows = (await this.clients.db.read(
+        const rows = (await this.clients.db.tryHardRead(
             'SELECT `authorizer_user_id` FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
             [tokenUid],
+            { race: false },
         )) as Array<{ authorizer_user_id?: number | null }>;
         return rows[0]?.authorizer_user_id ?? null;
     }
 
-    async #invalidateAccessTokenPerms(tokenUid: string): Promise<void> {
+    async #cacheAccessTokenPerms(
+        tokenUid: string,
+        perms: string[],
+        broadcast: boolean,
+    ): Promise<void> {
         await this.publishCacheKeys({
             keys: [this.#tokenCacheKey(tokenUid)],
-            broadcast: true,
+            serializedData: JSON.stringify(perms),
+            ttlSeconds: TOKEN_CACHE_TTL_SECONDS,
+            broadcast,
         });
     }
 

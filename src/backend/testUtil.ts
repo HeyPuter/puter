@@ -1,6 +1,9 @@
 import bcrypt from 'bcrypt';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { v4 as uuidv4 } from 'uuid';
 import { deepMerge } from '../../tools/lib/configMigration.mjs';
@@ -14,6 +17,7 @@ import {
     PostgresDatabaseClient,
     type PostgresPool,
 } from './clients/database/PostgresDatabaseClient';
+import { SqliteDatabaseClient } from './clients/database/SqliteDatabaseClient';
 import type { PoolConfig } from 'pg';
 import { ADMIN_GROUP_UID } from './services/selfhosted/DefaultUserService';
 import { FULL_API_ACCESS } from './services/permission/consts';
@@ -470,3 +474,54 @@ export const inRequestScope = <T extends object>(controller: T): T =>
                 );
         },
     });
+
+/** Adds a replica that, for `queries`, is empty, a copy from now, or current. */
+export const lagReadReplica = async (
+    server: PuterServer,
+    queries: RegExp,
+    { mode = 'missing' }: { mode?: 'missing' | 'frozen' | 'current' } = {},
+) => {
+    type Read = (sql: string, params?: unknown[]) => Promise<unknown[]>;
+    const db = server.clients.db as unknown as Record<string, unknown> & {
+        read: Read;
+    };
+    let frozen: SqliteDatabaseClient | null = null;
+    let frozenDir: string | null = null;
+    if (mode === 'frozen') {
+        frozenDir = mkdtempSync(join(tmpdir(), 'puter-replica-'));
+        const path = join(frozenDir, 'replica.sqlite');
+        await server.clients.db.write('VACUUM INTO ?', [path]);
+        frozen = new SqliteDatabaseClient({
+            port: 0,
+            extensions: [],
+            database: { engine: 'sqlite', path },
+        } as IConfig);
+        await frozen.onServerStart();
+    }
+
+    const names = ['read', 'pread', 'hasReadReplica'];
+    const own = names.map((name) => Object.getOwnPropertyDescriptor(db, name));
+    const read = db.read.bind(db);
+    let primaryReads = 0;
+    db.hasReadReplica = () => true;
+    db.read = async (sql: string, params: unknown[] = []) => {
+        if (mode === 'current' || !queries.test(sql)) return read(sql, params);
+        return frozen ? frozen.read(sql, params) : [];
+    };
+    db.pread = async (sql: string, params: unknown[] = []) => {
+        if (queries.test(sql)) primaryReads++;
+        return read(sql, params);
+    };
+    return {
+        primaryReads: () => primaryReads,
+        catchUp: () => {
+            names.forEach((name, i) => {
+                const descriptor = own[i];
+                if (descriptor) Object.defineProperty(db, name, descriptor);
+                else delete db[name];
+            });
+            frozen?.onServerShutdown();
+            if (frozenDir) rmSync(frozenDir, { recursive: true, force: true });
+        },
+    };
+};
