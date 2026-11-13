@@ -21,6 +21,7 @@
 import crypto from 'node:crypto';
 import { withSpan } from '../../../util/span.js';
 import { HttpError } from '../HttpError.js';
+import { onResponseClose } from '../onResponseClose.js';
 import { subscriptionOverride } from '../../../services/metering/consts.js';
 
 /**
@@ -1169,7 +1170,7 @@ export function concurrencyGate(opts) {
         const { release } = guardSlot(slot, '[concurrent]');
         const onDone = () => void release();
         res.once('finish', onDone);
-        res.once('close', onDone);
+        onResponseClose(res, onDone);
         if (res.destroyed || res.writableFinished) onDone();
         next();
     };
