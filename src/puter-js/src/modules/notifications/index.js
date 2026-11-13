@@ -24,7 +24,7 @@ import {
 } from './lib/pushStore.js';
 import { closeNotification, reconcileDismissed } from './lib/osNotifications.js';
 import { HANDLED_EVENT, ReceiptLog, handledHere } from './lib/receipts.js';
-import { toClick } from './lib/shapes.js';
+import { toClick, toDevice } from './lib/shapes.js';
 import {
     currentWebPush,
     forgetWebPushReceipt,
@@ -560,7 +560,9 @@ export class NotificationsModule extends EventListener {
     /**
      * `status()` on a website or the GUI. On a website, a subscription counts
      * only while the signed-in user's opt-in is recorded here. An `on` is
-     * checked with the server, and kept when the server can't tell.
+     * checked with the server, and kept when the server can't tell. In the GUI,
+     * an endpoint the server doesn't know is off unless the user's device list
+     * has this browser.
      *
      * @param {{ url: string; scope?: string }} worker
      * @returns {Promise<import('./types.js').PushStatus>}
@@ -588,7 +590,38 @@ export class NotificationsModule extends EventListener {
             await this.#recordOptIn(false);
             return 'off';
         }
+        // Another account in this browser may have made the subscription.
+        if (
+            state === 'unknown' &&
+            this.puter.env === 'gui' &&
+            (await this.#listsThisBrowser()) === false
+        )
+            return 'off';
         return 'on';
+    }
+
+    /**
+     * Whether the signed-in user's devices include this browser, as the
+     * desktop's push client reads them, or null when the list can't be read.
+     *
+     * @returns {Promise<boolean | null>}
+     */
+    async #listsThisBrowser() {
+        try {
+            const result = await request(
+                this.puter,
+                'GET',
+                '/push/devices',
+                undefined,
+                { interactiveReauth: false },
+            );
+            if (!Array.isArray(result?.devices)) return null;
+            return result.devices
+                .map(toDevice)
+                .some((d) => d.current && d.platform === 'webpush');
+        } catch {
+            return null;
+        }
     }
 
     /**
