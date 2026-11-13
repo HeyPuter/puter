@@ -26,10 +26,6 @@ workflows:
     '.github/workflows/docs-build.yml':
         - 'actions/checkout@v7.0.1'
         - 'actions/setup-node@v7.1.0'
-    '.github/workflows/main.yml':
-        - 'actions/checkout@v7.0.1'
-        - 'juliangruber/find-pull-request-action@v1.12.0'
-        - 'peter-evans/create-pull-request@v8.1.1'
     '.github/workflows/notify-dev.yaml': []
     '.github/workflows/notify-prod.yaml': []
     '.github/workflows/puterjs-tests.yaml':
@@ -39,8 +35,6 @@ workflows:
         - 'actions/upload-artifact@v7.0.2'
         - 'davelosert/vitest-coverage-report-action@v2.13.2'
         - 'dorny/paths-filter@v4.0.3'
-    '.github/workflows/release-please.yml':
-        - 'googleapis/release-please-action@v4.4.1'
     '.github/workflows/tag-alias.yaml':
         - 'docker/login-action@v4.8.0'
         - 'docker/setup-buildx-action@v4.4.1'
@@ -105,21 +99,6 @@ dependencies:
         commit: 'sha1-ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d'
         owner_id: 1588572
         repo_id: 265601040
-    'googleapis/release-please-action@v4.4.1':
-        ref: 'v4.4.1'
-        commit: 'sha1-5c625bfb5d1ff62eadeeb3772007f7f66fdcf071'
-        owner_id: 16785467
-        repo_id: 262236530
-    'juliangruber/find-pull-request-action@v1.12.0':
-        ref: 'v1.12.0'
-        commit: 'sha1-0d2ca757412e2742b5cd5ce4ff56757c65652605'
-        owner_id: 10247
-        repo_id: 220436076
-    'peter-evans/create-pull-request@v8.1.1':
-        ref: 'v8.1.1'
-        commit: 'sha1-5f6978faf089d4d20b00c7766989d076bb2fc7f1'
-        owner_id: 18365890
-        repo_id: 197176365
     'peter-evans/dockerhub-description@v5.0.0':
         ref: 'v5.0.0'
         commit: 'sha1-1b9a80c056b620d92cedb9d9b5a223409c68ddfa'
