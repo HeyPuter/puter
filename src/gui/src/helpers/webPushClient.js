@@ -19,13 +19,8 @@
 
 // Puter's own push client: standard Web Push through `/sw.js` via `puter.notifications`, used when the server publishes `pushWebPushKey`.
 
+import { SUBSCRIPTION_CHANGED_MESSAGE } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import { forgetPushApps, webPushEndpointState } from './notificationApi.js';
-
-/** The GUI's worker, as `puter.notifications` registers it. */
-const GUI_WORKER = { url: '/sw.js', scope: '/' };
-
-/** What `/sw.js` posts when the browser replaced the subscription. */
-const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 
 // Where `/sw.js` marks a subscription the browser replaced, as puter.js's pushStore.js does.
 const DB_NAME = 'puter-push';
@@ -172,8 +167,7 @@ export const webPushClient = ({
                     if ( earlier === 'removed' ) throw removedError();
                     // The mark stays, so the next run asks again.
                     if ( earlier === 'busy' ) throw busyError();
-                    await notifications._enableWebPush(GUI_WORKER, { background: true });
-                    return true;
+                    return await notifications.enable({ background: true });
                 })
                 : notifications.enable();
             return turningOn.then(async (on) => {

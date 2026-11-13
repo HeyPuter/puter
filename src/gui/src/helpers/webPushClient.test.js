@@ -129,7 +129,8 @@ describe('webPushClient', () => {
         registerPushClient(client);
         const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
         await expect(syncBrowserPush({}, { NotificationApi: { permission: 'granted' }, userUid: 'u-1', storage, holdsPush: async () => true })).resolves.toBe('on');
-        expect(notifications._enableWebPush).toHaveBeenCalledTimes(1);
+        expect(notifications.enable).toHaveBeenCalledTimes(1);
+        expect(notifications.enable).toHaveBeenCalledWith({ background: true });
     });
 
     it('turns off through puter.notifications', async () => {
@@ -145,15 +146,21 @@ describe('webPushClient', () => {
         expect(notifications._enableWebPush).not.toHaveBeenCalled();
     });
 
-    it('turns on in the background without replacing a browser removed in Puter', async () => {
+    it('turns on in the background through enable({ background: true }), not the internal method', async () => {
         const { notifications, client } = make({ devices: [current] });
         await expect(client.enable({ background: true })).resolves.toEqual({ deviceUid: 'd1' });
-        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { background: true });
-        expect(notifications.enable).not.toHaveBeenCalled();
+        expect(notifications.enable).toHaveBeenCalledWith({ background: true });
+        expect(notifications._enableWebPush).not.toHaveBeenCalled();
 
         const removed = Object.assign(new Error('removed'), { code: 'push_device_removed' });
-        notifications._enableWebPush.mockRejectedValue(removed);
+        notifications.enable.mockRejectedValue(removed);
         await expect(client.enable({ background: true })).rejects.toBe(removed);
+    });
+
+    it('rejects in the background when enable() resolves false', async () => {
+        const { notifications, client } = make({ devices: [current], on: false, permission: 'default' });
+        await expect(client.enable({ background: true })).rejects.toThrow('notifications default');
+        expect(notifications.listDevices).not.toHaveBeenCalled();
     });
 });
 
@@ -317,7 +324,7 @@ describe('webPushClient status with cached', () => {
     it('keeps no on read while an enable() that failed was running', async () => {
         const { notifications, client } = make({ devices: [current] });
         let fail;
-        notifications._enableWebPush.mockImplementationOnce(() => new Promise((_, reject) => {
+        notifications.enable.mockImplementationOnce(() => new Promise((_, reject) => {
             fail = reject;
         }));
         const enabling = client.enable({ background: true });
@@ -356,7 +363,7 @@ describe('webPushClient and a browser removed from another device', () => {
         const made = removedElsewhere({ idb: fakeIdb({ [CHANGED]: { at: 1, oldEndpoint: OLD } }) });
         await expect(sync(made.storage)).resolves.toBe('removed');
         expect(made.endpointState).toHaveBeenCalledWith(OLD);
-        expect(made.notifications._enableWebPush).not.toHaveBeenCalled();
+        expect(made.notifications.enable).not.toHaveBeenCalled();
         expect(NEW.unsubscribe).toHaveBeenCalledTimes(1);
         expect(made.idb.map.has(CHANGED)).toBe(false);
         expect(made.storage.map.get(OPT_OUT)).toBe('1');
@@ -373,7 +380,7 @@ describe('webPushClient and a browser removed from another device', () => {
     it('stays off after the browser dropped the subscription, from the last endpoint the server confirmed', async () => {
         const made = removedElsewhere({ subscription: null, storage: fakeStorage({ [LAST_ENDPOINT_KEY]: OLD }) });
         await expect(sync(made.storage)).resolves.toBe('removed');
-        expect(made.notifications._enableWebPush).not.toHaveBeenCalled();
+        expect(made.notifications.enable).not.toHaveBeenCalled();
         expect(made.storage.map.get(OPT_OUT)).toBe('1');
     });
 
@@ -401,7 +408,7 @@ describe('webPushClient and a browser removed from another device', () => {
         await expect(sync(made.storage)).resolves.toBe('removed');
         expect(made.endpointState).toHaveBeenCalledWith('https://push.test/0b');
         expect(made.endpointState).toHaveBeenCalledWith(OLD);
-        expect(made.notifications._enableWebPush).not.toHaveBeenCalled();
+        expect(made.notifications.enable).not.toHaveBeenCalled();
         expect(made.storage.map.get(OPT_OUT)).toBe('1');
     });
 
@@ -409,14 +416,14 @@ describe('webPushClient and a browser removed from another device', () => {
         const made = removedElsewhere({ idb: fakeIdb({ [CHANGED]: { at: 1, oldEndpoint: OLD } }) });
         made.endpointState.mockResolvedValue('busy');
         await expect(sync(made.storage)).resolves.toBe('later');
-        expect(made.notifications._enableWebPush).not.toHaveBeenCalled();
+        expect(made.notifications.enable).not.toHaveBeenCalled();
         expect(made.idb.map.has(CHANGED)).toBe(true);
         expect(made.storage.map.has(OPT_OUT)).toBe(false);
 
         made.endpointState.mockResolvedValue('unknown');
         made.notifications.listDevices.mockResolvedValue([current]);
         await expect(sync(made.storage)).resolves.toBe('on');
-        expect(made.notifications._enableWebPush).toHaveBeenCalledTimes(1);
+        expect(made.notifications.enable).toHaveBeenCalledWith({ background: true });
     });
 
     it('turns on from a click while the server answers 429', async () => {
@@ -431,7 +438,7 @@ describe('webPushClient and a browser removed from another device', () => {
         made.endpointState.mockResolvedValue('unknown');
         made.notifications.listDevices.mockResolvedValue([current]);
         await expect(sync(made.storage)).resolves.toBe('on');
-        expect(made.notifications._enableWebPush).toHaveBeenCalledTimes(1);
+        expect(made.notifications.enable).toHaveBeenCalledWith({ background: true });
     });
 });
 
