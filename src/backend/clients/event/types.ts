@@ -20,6 +20,7 @@ import type {
     Response as ExpressResponse,
 } from 'express';
 import { Actor } from '../../core';
+import type { EmailTemplateName } from '../email/templates';
 import type { UsageInput } from '../../services/metering/types';
 import { FSEntry } from '../../stores/fs/FSEntry';
 
@@ -247,6 +248,12 @@ export type EventMap = {
         requires_phone_verification?: boolean;
         /** Set by the abuse harness — require card verification post-signup. */
         requires_card_verification?: boolean;
+        /**
+         * The email stream the confirmation message is sent on: lowercase
+         * letters, digits, `:`, `_` and `-`, up to 64 characters, starting with
+         * a letter or digit. Any other value is ignored.
+         */
+        email_stream?: string | null;
         [key: string]: unknown;
     };
     'puter.signup.success': {
@@ -298,6 +305,8 @@ export type EventMap = {
         message: string | null;
         [key: string]: unknown;
     };
+    /** Before notification emails; a listener clears `allow` per recipient. */
+    'email.notify.validate': EmailNotifyValidateEvent;
     // Inbound mail to a feedback address (`abuse@`, `fbl@`, ...), emitted via
     // `emitAndWait`. A listener that takes it sets `handled` and it reaches no
     // mailbox; otherwise it is routed like any other message.
@@ -978,6 +987,21 @@ export type EventMap = {
      */
     'outer.pubsub.metering.credits-changed': { userUuid: string };
 } & IExtensionEventMap;
+
+/** A union of `Names`, each of which has to be an email template. */
+type TemplateNames<Names extends EmailTemplateName> = Names;
+
+/** The emails that ask `email.notify.validate`, by template name. */
+export type EmailNotifyKind = TemplateNames<
+    'file_shared_with_you' | 'file_shared_invite' | 'app-user-feedback'
+>;
+
+/** Payload for `email.notify.validate`: one kind of mail, all its recipients. */
+export type EmailNotifyValidateEvent = {
+    kind: EmailNotifyKind;
+    /** `to` is the address as it will be sent; `allow` starts true. */
+    recipients: Array<{ to: string; allow: boolean }>;
+};
 
 /** Payload for `subscription.gate.<surface>` events. */
 export type SubscriptionGateEvent = {

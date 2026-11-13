@@ -161,6 +161,44 @@ describe('NotificationDriver.create', () => {
         expect(result?.value).toEqual({ type: NOTIF_TYPE, title: 'lagged' });
     });
 
+    it('writes once and returns the row without reading it back', async () => {
+        const { actor, userId } = await makeUser();
+        const db = server.clients.db;
+        const read = vi.spyOn(db, 'read');
+        const pread = vi.spyOn(db, 'pread');
+        const write = vi.spyOn(db, 'write');
+        let result: Record<string, unknown> | null;
+        let writes: unknown[][];
+        let reads: unknown[][];
+        try {
+            result = (await withActor(actor, () =>
+                driver.create({
+                    object: { value: { type: NOTIF_TYPE, title: 'once' } },
+                }),
+            )) as Record<string, unknown> | null;
+        } finally {
+            writes = write.mock.calls;
+            reads = [...read.mock.calls, ...pread.mock.calls];
+            for (const spy of [read, pread, write]) spy.mockRestore();
+        }
+
+        const touches = (q: unknown) => /`notification`/u.test(String(q));
+        expect(writes.filter(([q]) => touches(q))).toHaveLength(1);
+        expect(reads.filter(([q]) => touches(q))).toEqual([]);
+        const row = await server.stores.notification.getByUid(
+            result!.uid as string,
+            { userId, primary: true },
+        );
+        expect(result).toEqual({
+            uid: row?.uid,
+            value: row?.value,
+            app_uid: row?.app_uid ?? null,
+            shown: row?.shown ?? null,
+            acknowledged: row?.acknowledged ?? null,
+            created_at: row?.created_at ?? null,
+        });
+    });
+
     it('rejects a `value` with no `type` with 400', async () => {
         const { actor } = await makeUser();
         await expect(

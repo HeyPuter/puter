@@ -537,6 +537,15 @@ export default suite('kv', {
         );
     },
 
+    'set rejects a value under the cap that is too large once stored': async (t) => {
+        // 280 KB of JSON; every element takes more room stored.
+        const err = await t.assert.rejects(
+            () => t.puter.kv.set('kv-suite-many-small', Array(140_000).fill(1)),
+            'a value over the stored cap should be rejected',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'value_too_large');
+    },
+
     'set measures value size in bytes of the JSON value': async (t) => {
         const max = t.puter.kv.MAX_VALUE_SIZE;
         for (const value of [

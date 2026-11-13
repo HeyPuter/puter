@@ -18,7 +18,7 @@
  */
 
 import { HttpError } from '../../core/http/HttpError.js';
-import { isBlockedEmail } from '../../util/email.js';
+import { isBlockedEmail, mayEmailNotify } from '../../util/email.js';
 import { PuterService } from '../types.js';
 
 /**
@@ -271,7 +271,7 @@ export class AppFeedbackService extends PuterService {
      * precondition holds; otherwise silently skip (the row stays stored with
      * `email_sent = 0`). Preconditions: transport configured, owner exists with
      * a confirmed non-blocklisted email, owner not suspended and not
-     * unsubscribed, per-app daily email cap not reached.
+     * unsubscribed, not declined by a listener, per-app email cap not reached.
      */
     async #emailOwner({
         app,
@@ -301,6 +301,14 @@ export class AppFeedbackService extends PuterService {
             return;
         }
         if (isBlockedEmail(owner.email, this.config.blockedEmailDomains))
+            return;
+        if (
+            !(
+                await mayEmailNotify(this.clients.event, 'app-user-feedback', [
+                    owner.email,
+                ])
+            ).has(owner.email)
+        )
             return;
 
         // Claim an email-cap slot *before* sending: flip email_sent, recount
@@ -350,7 +358,10 @@ export class AppFeedbackService extends PuterService {
                     dev_center_link: `${this.config.origin}/app/dev-center`,
                     message,
                 },
-                senderEmail ? { replyTo: senderEmail } : {},
+                {
+                    stream: 'notify',
+                    ...(senderEmail ? { replyTo: senderEmail } : {}),
+                },
             );
         } catch (e) {
             // Release the claimed slot — the mail never went out.
