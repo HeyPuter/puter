@@ -803,16 +803,30 @@ export class FSEntryStore extends PuterStore {
                 return entries;
             },
         );
-        // A row returned under another spelling than any asked for: what it
-        // stands for may exist only on the primary so far.
         const requested = new Set(normalizedPaths);
-        let otherSpelling = false;
+        const otherSpellings: FSEntry[] = [];
         for (const chunkEntries of chunkResults) {
             for (const entry of chunkEntries) {
                 entriesByPath.set(entry.path, entry);
-                if (!requested.has(entry.path)) otherSpelling = true;
+                if (!requested.has(entry.path)) otherSpellings.push(entry);
             }
         }
+        // The same name in another case or normalization form is the entry
+        // asked for, as in `getEntryByPath`. The walk below compares `name`,
+        // whose collation keeps NFC and NFD apart.
+        const claimed = new Set<FSEntry>();
+        for (const path of normalizedPaths) {
+            if (entriesByPath.has(path)) continue;
+            const same = otherSpellings
+                .filter((entry) => entryNamesMatch(entry.path, path))
+                .sort((x, y) => x.id - y.id);
+            if (same.length === 0) continue;
+            entriesByPath.set(path, same[0]!);
+            for (const entry of same) claimed.add(entry);
+        }
+        // A row left over, returned under a spelling nobody asked for: what it
+        // stands for may exist only on the primary so far.
+        const otherSpelling = otherSpellings.length > claimed.size;
 
         // Per-path lineage fallback for entries the bulk SELECT missed —
         // legacy rows with a NULL `path` column (see #resolveEntryByPathLineage).
