@@ -889,6 +889,29 @@ describe('FSEntryStore legacy NULL-path healing', () => {
         ).resolves.toBeNull();
     });
 
+    it('heals a stored path the parent chain no longer spells, from the primary', async () => {
+        const user = await makeUser();
+        const file = await createFile(user, `${user.home}/Documents/kept.txt`);
+        await blankPath(file.uuid);
+
+        // The replica still has no path; the primary has one its names don't spell.
+        const lag = await lagReplicaFor(file.uuid);
+        const stale = `${user.home}/Documents/other.txt`;
+        await server.clients.db.write(
+            'UPDATE fsentries SET path = ? WHERE uuid = ?',
+            [stale, file.uuid],
+        );
+        try {
+            await expect(
+                store.getEntryByPath(file.path),
+            ).resolves.toMatchObject({ uuid: file.uuid, path: file.path });
+        } finally {
+            lag.mockRestore();
+        }
+        await expect(pathOf(file.uuid)).resolves.toBe(file.path);
+        await expect(store.getEntryByPath(stale)).resolves.toBeNull();
+    });
+
     it('heals the path-less children of a listing a few at a time', async () => {
         const user = await makeUser();
         const dir = `${user.home}/Documents/many`;
@@ -1163,6 +1186,14 @@ describe('FSEntryStore legacy NULL-path healing', () => {
             uuid: orphan.uuid,
             path: null,
         });
+        await expect(
+            server.clients.redis.get(`prodfsv2:fsentry:uuid:${orphan.uuid}`),
+        ).resolves.toBeNull();
+
+        const listed = await store.listChildren('does-not-exist');
+        expect(
+            listed.find((entry) => entry.uuid === orphan.uuid),
+        ).toMatchObject({ path: null });
         await expect(
             server.clients.redis.get(`prodfsv2:fsentry:uuid:${orphan.uuid}`),
         ).resolves.toBeNull();
