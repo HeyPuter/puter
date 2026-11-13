@@ -1,4 +1,12 @@
-import type { EnableOptions, NotificationAction, Puter, PushShown } from '../../index.js';
+import type {
+    EnableOptions,
+    NotificationAction,
+    NotificationListener,
+    Puter,
+    PushDevice,
+    PushShown,
+    PushStatus,
+} from '../../index.js';
 
 export const shown: PushShown = { requireInteraction: true };
 // @ts-expect-error The display hint must be a boolean.
@@ -49,4 +57,23 @@ export const enableInBackground = async (puter: Puter): Promise<void> => {
     // @ts-expect-error Unknown option.
     await puter.notifications.enable({ quiet: true });
     void [on, clicked];
+};
+
+// Each method is called on `puter.notifications`, so a `this` type left on one fails here.
+export const callMethods = async (puter: Puter): Promise<void> => {
+    const n = puter.notifications;
+    const uid: string = await n.notify({ title: 'Hello' });
+    await n.cancel('schedule-id');
+    const marked: boolean = await n.markShown(uid);
+    const dismissed: boolean = await n.dismiss(uid);
+    const feed: NotificationListener = await n.onNotification(() => {});
+    const disabled: boolean = await n.disable();
+    const state: PushStatus = await n.status();
+    const push: NotificationListener = await n.onPush('chat', () => {});
+    const asked: boolean = await n.requestPermission();
+    const held: boolean = await n.hasPermission();
+    const offered: boolean = await n.enablePush();
+    const devices: PushDevice[] = await n.listDevices();
+    const removed: void = await n.removeDevice('device-uid');
+    void [marked, dismissed, feed, disabled, state, push, asked, held, offered, devices, removed];
 };

@@ -192,6 +192,7 @@ const tapBaseFor = (worker, pageUrl) => {
  */
 export class NotificationsModule extends EventListener {
     // Rebound in the constructor so destructured calls keep `this`.
+    /** @type {OmitThisParameter<typeof notify>} */
     notify = notify;
     /** @type {OmitThisParameter<typeof cancel>} */
     cancel = cancel;
@@ -199,16 +200,25 @@ export class NotificationsModule extends EventListener {
     markShown = markShown;
     /** @type {OmitThisParameter<typeof dismiss>} */
     dismiss = dismiss;
+    /** @type {OmitThisParameter<typeof onNotification>} */
     onNotification = onNotification;
     /** @type {OmitThisParameter<typeof enable>} */
     enable = enable;
+    /** @type {OmitThisParameter<typeof disable>} */
     disable = disable;
+    /** @type {OmitThisParameter<typeof status>} */
     status = status;
+    /** @type {OmitThisParameter<typeof onPush>} */
     onPush = onPush;
+    /** @type {OmitThisParameter<typeof requestPermission>} */
     requestPermission = requestPermission;
+    /** @type {OmitThisParameter<typeof hasPermission>} */
     hasPermission = hasPermission;
+    /** @type {OmitThisParameter<typeof enablePush>} */
     enablePush = enablePush;
+    /** @type {OmitThisParameter<typeof listDevices>} */
     listDevices = listDevices;
+    /** @type {OmitThisParameter<typeof removeDevice>} */
     removeDevice = removeDevice;
 
     #pushListener = (notification) => {
