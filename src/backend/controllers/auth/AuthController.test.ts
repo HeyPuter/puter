@@ -30,6 +30,7 @@
 
 import { installSeatStub } from '../../testFixtures/seatStub.js';
 import bcrypt from 'bcrypt';
+import { inspect } from 'node:util';
 import jwt from 'jsonwebtoken';
 import { TOTP } from 'otpauth';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
@@ -4765,14 +4766,24 @@ describe('AuthController.handleSendConfirmEmail', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it('rotates the email_confirm_code and returns {} on success', async () => {
+    it('rotates the email_confirm_code and reports the send', async () => {
         const { user, actor } = await makeUserAndActor();
         const before = await server.stores.user.getById(user.id, {
             force: true,
         });
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockResolvedValue({ messageId: 'm' } as never);
         const res = makeRes();
-        await controller.handleSendConfirmEmail(makeReq({}, { actor }), res);
-        expect(res.body).toEqual({});
+        try {
+            await controller.handleSendConfirmEmail(
+                makeReq({}, { actor }),
+                res,
+            );
+        } finally {
+            send.mockRestore();
+        }
+        expect(res.body).toEqual({ sent: true });
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -4782,7 +4793,7 @@ describe('AuthController.handleSendConfirmEmail', () => {
 
     // The resend is the recovery path for a lost code, so it must not fail
     // silently either.
-    it('alarms — and still returns {} — when the resend send throws', async () => {
+    it('alarms, and still answers 200 with sent: false, when the resend send throws', async () => {
         const { actor } = await makeUserAndActor();
         const alarm = vi
             .spyOn(server.clients.alarm, 'create')
@@ -4797,7 +4808,8 @@ describe('AuthController.handleSendConfirmEmail', () => {
                 res,
             );
             // Not the caller's fault; still a 200.
-            expect(res.body).toEqual({});
+            expect(res.statusCode).toBe(200);
+            expect(res.body).toEqual({ sent: false });
 
             const raised = alarm.mock.calls.find(
                 (c) => c[0] === 'auth:confirmation-email-send-failed:resend',
@@ -7518,6 +7530,46 @@ describe('AuthController.handleSaveAccount', () => {
         };
     };
 
+    it('sends the confirmation code on the account confirmation stream', async () => {
+        const { user, actor } = await makeTempActor();
+        await server.stores.user.updateMetadata(user.id, {
+            emailStream: 'review',
+        });
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockResolvedValue(null);
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        try {
+            const username = `s_${uniq()}`;
+            await controller.handleSaveAccount(
+                makeReq(
+                    {
+                        username,
+                        email: `${username}@test.local`,
+                        password: 'correct-horse-battery',
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                `${username}@test.local`,
+                'email_verification_code',
+                expect.anything(),
+                { stream: 'review' },
+            );
+            // The dropped send is reported under its own stage.
+            expect(alarm.mock.calls.map((c) => c[0])).toEqual([
+                'auth:confirmation-email-send-failed:save-account',
+            ]);
+        } finally {
+            send.mockRestore();
+            alarm.mockRestore();
+        }
+    });
+
     it('rejects non-temp accounts with 400', async () => {
         const { actor } = await makeUserAndActor();
         await expect(
@@ -9509,14 +9561,18 @@ describe('AuthController.handleSignup additional branches', () => {
                 },
                 async () => {
                     const username = `cefail_${uniq()}`;
+                    const res = makeRes();
                     await controller.handleSignup(
                         makeReq({
                             username,
                             email: `${username}@test.local`,
                             password: 'correct-horse-battery',
                         }),
-                        makeRes(),
+                        res,
                     );
+                    expect(res.body).toMatchObject({
+                        confirmation_email_sent: false,
+                    });
                 },
             );
 
@@ -9534,6 +9590,93 @@ describe('AuthController.handleSignup additional branches', () => {
         } finally {
             alarm.mockRestore();
         }
+    });
+});
+
+describe('AuthController.handleSignup confirmation email outcome', () => {
+    const signupWithSend = async (send: () => Promise<unknown>) => {
+        const spy = vi
+            .spyOn(server.clients.email, 'send')
+            .mockImplementation(send as never);
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const res = makeRes();
+        const username = `ceo_${uniq()}`;
+        let alarms: string[] = [];
+        try {
+            await withSignupValidateOverride(
+                (event) => {
+                    event.requires_email_confirmation = true;
+                },
+                () =>
+                    controller.handleSignup(
+                        makeReq({
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        }),
+                        res,
+                    ),
+            );
+            alarms = alarm.mock.calls.map((c) => String(c[0]));
+        } finally {
+            spy.mockRestore();
+            alarm.mockRestore();
+        }
+        return {
+            body: res.body as {
+                proceed: boolean;
+                confirmation_email_sent?: boolean;
+                user: { requires_email_confirmation: boolean };
+            },
+            alarms,
+        };
+    };
+
+    it('reports a send that throws and still completes the signup', async () => {
+        const { body, alarms } = await signupWithSend(async () => {
+            throw new Error('refused');
+        });
+        expect(body.proceed).toBe(true);
+        expect(body.confirmation_email_sent).toBe(false);
+        expect(body.user.requires_email_confirmation).toBeTruthy();
+        expect(alarms).toContain('auth:confirmation-email-send-failed:signup');
+    });
+
+    it('reports a send the transport accepted', async () => {
+        const { body } = await signupWithSend(async () => ({ messageId: 'm' }));
+        expect(body.confirmation_email_sent).toBe(true);
+    });
+
+    it('keeps the confirmation stream out of the returned user details', async () => {
+        const res = makeRes();
+        const username = `ces_${uniq()}`;
+        await withSignupValidateOverride(
+            (event) => {
+                (event as Record<string, unknown>).email_stream = 'review';
+            },
+            () =>
+                controller.handleSignup(
+                    makeReq({
+                        username,
+                        email: `${username}@test.local`,
+                        password: 'correct-horse-battery',
+                    }),
+                    res,
+                ),
+        );
+        const stored = await server.stores.user.getByUsername(username);
+        expect(stored!.metadata?.emailStream).toBe('review');
+        const details = (res.body as { user: { metadata?: object } }).user;
+        expect(details.metadata ?? {}).not.toHaveProperty('emailStream');
+    });
+
+    it('leaves the field out when no confirmation email is due', async () => {
+        const res = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), res);
+        expect(res.body).toMatchObject({ proceed: true });
+        expect(res.body).not.toHaveProperty('confirmation_email_sent');
     });
 });
 
@@ -10632,10 +10775,10 @@ describe('AuthController.loginWait audience binding', () => {
         // party holding the session id is somewhere else entirely.
         const token = await mintAppToken(actor, OPENER);
 
-        const { res, outcome } = await waitWithRelay(
-            uuidv4(),
-            { origin: 'https://evil.test' },
-            token,
+        const session = uuidv4();
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: 'https://evil.test' }],
+            { during: () => setToken(session, token) },
         );
         // Same 408 the empty path returns — a mismatched caller must not be
         // able to tell "nothing arrived" from "something arrived for someone
@@ -10711,10 +10854,10 @@ describe('AuthController.loginWait audience binding', () => {
         );
         const guiToken = (loginRes.body as { token: string }).token;
 
-        const { res, outcome } = await waitWithRelay(
-            uuidv4(),
-            { origin: OPENER },
-            guiToken,
+        const session = uuidv4();
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            { during: () => setToken(session, guiToken) },
         );
         expect(outcome).toMatchObject({ statusCode: 408 });
         expect(res.body).toBeUndefined();
@@ -10729,13 +10872,405 @@ describe('AuthController.loginWait audience binding', () => {
             { keyid: 'v2' },
         );
 
-        const { res, outcome } = await waitWithRelay(
-            uuidv4(),
-            { origin: OPENER },
-            forged,
+        const session = uuidv4();
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            { during: () => setToken(session, forged) },
         );
         expect(outcome).toMatchObject({ statusCode: 408 });
         expect(res.body).toBeUndefined();
+    });
+
+    /** Post a token to `/login/set` with no wait running. */
+    const setToken = (session: string, token: string) =>
+        controller.loginSet(makeReq({ session, auth_token: token }), makeRes());
+
+    /**
+     * Run waits on fake timers so the 10 s window passes without real waiting.
+     * `during` runs once every wait has subscribed; `now` pins the clock.
+     */
+    const runWaits = async (
+        calls: Array<{ session: string; origin: string; clientGone?: boolean }>,
+        opts: { now?: number; during?: () => Promise<unknown> } = {},
+    ) => {
+        const subscribed = vi.spyOn(eventClient, 'on');
+        vi.useFakeTimers({
+            toFake:
+                opts.now === undefined
+                    ? ['setTimeout']
+                    : ['setTimeout', 'Date'],
+        });
+        if (opts.now !== undefined) vi.setSystemTime(opts.now);
+        const tick = () => new Promise((r) => setImmediate(r));
+        try {
+            let pending = calls.length;
+            const runs = calls.map(({ session, origin, clientGone }) => {
+                const res = makeRes();
+                const req = makeReq({ session }, { headers: { origin } });
+                if (clientGone) {
+                    Object.assign(req.socket, { destroyed: true });
+                }
+                const outcome = controller
+                    .loginWait(req, res)
+                    .then(
+                        () => 'ok' as const,
+                        (e: unknown) => e,
+                    )
+                    .finally(() => {
+                        pending--;
+                    });
+                return { res, outcome };
+            });
+            const allSubscribed = () =>
+                calls.every(({ session }) =>
+                    subscribed.mock.calls.some(
+                        ([key]) => key === `pubsub.login.${session}`,
+                    ),
+                );
+            for (let i = 0; i < 200 && pending > 0 && !allSubscribed(); i++) {
+                await tick();
+            }
+            for (let i = 0; i < 20; i++) await tick();
+            await opts.during?.();
+            for (let i = 0; i < 200 && pending > 0; i++) {
+                await tick();
+                await vi.advanceTimersByTimeAsync(1000);
+            }
+            return await Promise.all(
+                runs.map(async ({ res, outcome }) => ({
+                    res,
+                    outcome: await outcome,
+                })),
+            );
+        } finally {
+            vi.useRealTimers();
+            subscribed.mockRestore();
+        }
+    };
+
+    const waitAlone = async (session: string, origin: string, now?: number) =>
+        (await runWaits([{ session, origin }], { now }))[0];
+
+    it('delivers a token set before the wait subscribes', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('delivers a token set between one wait timing out and the next', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const first = await waitAlone(session, OPENER);
+        expect(first.outcome).toMatchObject({ statusCode: 408 });
+
+        await setToken(session, token);
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('hands a token out only once', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        expect((await waitAlone(session, OPENER)).outcome).toBe('ok');
+
+        const again = await waitAlone(session, OPENER);
+        expect(again.outcome).toMatchObject({ statusCode: 408 });
+        expect(again.res.body).toBeUndefined();
+    });
+
+    it('withholds a stored token from a mismatched Origin and keeps it for the matching one', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        const other = await waitAlone(session, 'https://other.test');
+        expect(other.outcome).toMatchObject({ statusCode: 408 });
+        expect(other.res.body).toBeUndefined();
+
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('drops a stored token after a couple of minutes', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const early = uuidv4();
+        const late = uuidv4();
+        await setToken(early, token);
+        await setToken(late, token);
+
+        const start = Date.now();
+        expect((await waitAlone(early, OPENER, start + 110_000)).outcome).toBe(
+            'ok',
+        );
+        const expired = await waitAlone(late, OPENER, start + 121_000);
+        expect(expired.outcome).toMatchObject({ statusCode: 408 });
+    });
+
+    it('keeps waiting past a stored token for another app and delivers the real one', async () => {
+        const { actor } = await makeUserAndActor();
+        const otherToken = await mintAppToken(actor, 'https://other.test');
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, otherToken);
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            {
+                during: () => setToken(session, token),
+            },
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('still relays to a subscribed wait when storing the token fails', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+        const failingSet = vi
+            .spyOn(server.clients.redis, 'set')
+            .mockRejectedValueOnce(new Error('unavailable'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            let setRes: MockRes | undefined;
+            const [{ res, outcome }] = await runWaits(
+                [{ session, origin: OPENER }],
+                {
+                    during: async () => {
+                        setRes = makeRes();
+                        await controller.loginSet(
+                            makeReq({ session, auth_token: token }),
+                            setRes,
+                        );
+                    },
+                },
+            );
+            expect(setRes?.body).toEqual({ success: true });
+            expect(outcome).toBe('ok');
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+        } finally {
+            failingSet.mockRestore();
+            warn.mockRestore();
+        }
+    });
+
+    it('removes the stored copy once a subscribed wait takes the token', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const { outcome } = await waitWithRelay(
+            session,
+            { origin: OPENER },
+            token,
+        );
+        expect(outcome).toBe('ok');
+
+        const later = await waitAlone(session, OPENER);
+        expect(later.outcome).toMatchObject({ statusCode: 408 });
+    });
+
+    it('hands a stored token to only one of two concurrent waits', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await setToken(session, token);
+        const results = await runWaits([
+            { session, origin: OPENER },
+            { session, origin: OPENER },
+        ]);
+        const outcomes = results.map((r) => r.outcome);
+        expect(outcomes.filter((o) => o === 'ok')).toHaveLength(1);
+        expect(outcomes.filter((o) => o !== 'ok')).toEqual([
+            expect.objectContaining({ statusCode: 408 }),
+        ]);
+    });
+
+    it('relays a token to every wait already subscribed', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const results = await runWaits(
+            [
+                { session, origin: OPENER },
+                { session, origin: OPENER },
+            ],
+            { during: () => setToken(session, token) },
+        );
+        expect(results.map((r) => r.outcome)).toEqual(['ok', 'ok']);
+        for (const { res } of results) {
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+        }
+    });
+
+    it('keeps the stored copy when the subscribed wait has lost its client', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        await runWaits([{ session, origin: OPENER, clientGone: true }], {
+            during: () => setToken(session, token),
+        });
+
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('still relays to a subscribed wait when the stored copy cannot be read or removed', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+        const failingGet = vi
+            .spyOn(server.clients.redis, 'get')
+            .mockRejectedValue(new Error('unavailable'));
+        const failingEval = vi
+            .spyOn(server.clients.redis, 'eval')
+            .mockRejectedValue(new Error('unavailable'));
+        try {
+            const [{ res, outcome }] = await runWaits(
+                [{ session, origin: OPENER }],
+                { during: () => setToken(session, token) },
+            );
+            expect(outcome).toBe('ok');
+            expect((res.body as { auth_token: string }).auth_token).toBe(token);
+        } finally {
+            failingGet.mockRestore();
+            failingEval.mockRestore();
+        }
+    });
+
+    it('answers a subscribed wait when a second token is set right after the first', async () => {
+        const { actor } = await makeUserAndActor();
+        const first = await mintAppToken(actor, OPENER);
+        // A later `iat` makes the second token differ from the first.
+        await new Promise((r) => setTimeout(r, 1100));
+        const second = await mintAppToken(actor, OPENER);
+        expect(second).not.toBe(first);
+        const session = uuidv4();
+
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            {
+                during: async () => {
+                    await setToken(session, first);
+                    await setToken(session, second);
+                },
+            },
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(first);
+    });
+
+    it('keeps a subscribed wait listening past a token for another app', async () => {
+        const { actor } = await makeUserAndActor();
+        const otherToken = await mintAppToken(actor, 'https://other.test');
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+
+        const [{ res, outcome }] = await runWaits(
+            [{ session, origin: OPENER }],
+            {
+                during: async () => {
+                    await setToken(session, otherToken);
+                    await setToken(session, token);
+                },
+            },
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it("keeps a stored token when a later set carries another app's token or an unsigned one", async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const otherToken = await mintAppToken(actor, 'https://other.test');
+        const session = uuidv4();
+
+        await setToken(session, token);
+        await setToken(session, otherToken);
+        await setToken(session, 'x'.repeat(100_000));
+
+        const { res, outcome } = await waitAlone(session, OPENER);
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('stores only a token this server signed for an app', async () => {
+        const { actor } = await makeUserAndActor();
+        const real = await mintAppToken(actor, OPENER);
+        const forged = jwt.sign(
+            jwt.decode(real) as object,
+            'not-the-server-secret',
+            { keyid: 'v2' },
+        );
+        const set = vi.spyOn(server.clients.redis, 'set');
+        try {
+            const session = uuidv4();
+            await setToken(session, forged);
+            await setToken(session, 'x'.repeat(100_000));
+            expect(set).not.toHaveBeenCalled();
+
+            await setToken(session, real);
+            expect(set).toHaveBeenCalledTimes(1);
+        } finally {
+            set.mockRestore();
+        }
+    });
+
+    it('leaves the token out of the warning when storing it fails', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+        const session = uuidv4();
+        const failure = Object.assign(new Error('ERR unavailable'), {
+            command: { name: 'set', args: [session, token, 'EX', '120'] },
+        });
+        const failingSet = vi
+            .spyOn(server.clients.redis, 'set')
+            .mockRejectedValueOnce(failure);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const res = makeRes();
+            await controller.loginSet(
+                makeReq({ session, auth_token: token }),
+                res,
+            );
+            expect(res.body).toEqual({ success: true });
+            expect(warn).toHaveBeenCalled();
+            const logged = warn.mock.calls
+                .flat()
+                .map((arg) => inspect(arg, { depth: 10 }))
+                .join(' ');
+            expect(logged).not.toContain(token);
+        } finally {
+            failingSet.mockRestore();
+            warn.mockRestore();
+        }
+    });
+
+    it('answers 400 when auth_token is not a string', async () => {
+        await expect(
+            controller.loginSet(
+                makeReq({ session: uuidv4(), auth_token: { nested: true } }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
     });
 });
 
@@ -11091,5 +11626,102 @@ describe('AuthController — a seat address nobody confirmed', () => {
         );
         expect(await emailOf(tempRow!.id)).toBe(seat.email);
         expect(await emailOf(seat.id)).toBeNull();
+    });
+});
+
+describe('AuthController account mail streams', () => {
+    const spySend = () =>
+        vi.spyOn(server.clients.email, 'send').mockResolvedValue(null);
+
+    it('sends password recovery on the auth stream', async () => {
+        const { user } = await makeUserAndActor();
+        const send = spySend();
+        try {
+            await controller.handleSendPassRecoveryEmail(
+                makeReq({ email: user.email! }),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'email_password_recovery',
+                expect.anything(),
+                { stream: 'auth' },
+            );
+        } finally {
+            send.mockRestore();
+        }
+    });
+
+    it('sends the password change notice on the auth stream', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const req = makeReq({ new_pass: 'a-fresh-password-456' }, { actor });
+        (req as unknown as { userProtected: unknown }).userProtected = { user };
+        const send = spySend();
+        try {
+            await controller.handleChangePassword(req, makeRes());
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'password_change_notification',
+                expect.anything(),
+                { stream: 'auth' },
+            );
+        } finally {
+            send.mockRestore();
+        }
+    });
+
+    it('sends both change-email messages on the auth stream', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const newEmail = `cs_${uniq()}@test.local`;
+        const send = spySend();
+        const sendRaw = vi
+            .spyOn(server.clients.email, 'sendRaw')
+            .mockResolvedValue(null);
+        try {
+            await controller.handleChangeEmail(
+                makeReq({ new_email: newEmail }, { actor }),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                newEmail,
+                'email_verification_link',
+                expect.anything(),
+                { stream: 'auth' },
+            );
+            expect(sendRaw).toHaveBeenCalledWith(
+                expect.objectContaining({ to: user.email, stream: 'auth' }),
+            );
+        } finally {
+            send.mockRestore();
+            sendRaw.mockRestore();
+        }
+    });
+
+    it('sends the 2FA enable and disable notices on the auth stream', async () => {
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1 });
+        const send = spySend();
+        try {
+            const { secret } = await setup2fa(actor);
+            await enable2fa(actor, { code: liveTotp(user.username, secret) });
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'enabled_2fa',
+                { username: user.username },
+                { stream: 'auth' },
+            );
+
+            await controller.handleDisable2fa(
+                makeReq({ code: liveTotp(user.username, secret) }, { actor }),
+                makeRes(),
+            );
+            expect(send).toHaveBeenCalledWith(
+                user.email,
+                'disabled_2fa',
+                { username: user.username },
+                { stream: 'auth' },
+            );
+        } finally {
+            send.mockRestore();
+        }
     });
 });

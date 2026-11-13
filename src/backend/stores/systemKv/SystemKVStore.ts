@@ -761,6 +761,27 @@ const unfitPathsError = (
 };
 
 /**
+ * The store's cap is on the whole stored entry, key and per-element overhead
+ * included, so a value that passed `assertValue` can still be refused.
+ */
+const itemTooLargeError = (cause: unknown, key?: string): HttpError =>
+    new HttpError(
+        400,
+        `kv: this write would take ${key === undefined ? 'a stored value' : `the value stored at \`${key}\``} over the 400 KB limit`,
+        { code: 'value_too_large', cause },
+    );
+
+/**
+ * The caller-facing error for a whole-value write the store refused; anything
+ * else unchanged.
+ */
+const valueWriteError = (err: unknown, key?: string): unknown => {
+    if (isNestingTooDeep(err)) return tooDeeplyNestedError(undefined, err);
+    if (isItemTooLarge(err)) return itemTooLargeError(err, key);
+    return err;
+};
+
+/**
  * The caller-facing error for a path write the store refused; anything else
  * unchanged.
  */
@@ -775,12 +796,7 @@ const pathWriteError = (
         return notAListError(key, paths, false, err);
     if (isInvalidDocumentPath(err))
         return unfitPathsError(key, paths, false, err);
-    if (isItemTooLarge(err))
-        return new HttpError(
-            400,
-            `kv: this write would take the value stored at \`${key}\` over the 400 KB limit`,
-            { code: 'value_too_large', cause: err },
-        );
+    if (isItemTooLarge(err)) return itemTooLargeError(err, key);
     if (isOversizedExpression(err)) return tooManyPathsError(err);
     if (isNestingTooDeep(err))
         return new HttpError(
@@ -2189,6 +2205,7 @@ export class SystemKVStore extends PuterStore {
                 const { entries, usage: u } = await this.getBatches(
                     namespace,
                     toFetch,
+                    consistentRead,
                 );
                 fetched = entries;
                 fetchUnits = u.read;
@@ -2306,8 +2323,7 @@ export class SystemKVStore extends PuterStore {
                 response = await put();
             }
         } catch (e) {
-            if (isNestingTooDeep(e)) throw tooDeeplyNestedError(undefined, e);
-            throw e;
+            throw valueWriteError(e, key);
         }
         if (response === null) {
             if (!onlyIfAbsent) throw new KvPrivateEntryError();
@@ -2404,8 +2420,7 @@ export class SystemKVStore extends PuterStore {
         try {
             response = await this.clients.dynamo.batchPut(putParams);
         } catch (e) {
-            if (isNestingTooDeep(e)) throw tooDeeplyNestedError(undefined, e);
-            throw e;
+            throw valueWriteError(e);
         }
         await this.#committed(
             opts,

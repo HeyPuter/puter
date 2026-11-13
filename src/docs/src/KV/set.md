@@ -31,6 +31,8 @@ The key to create or update, at most **1 KB** (1,024 bytes of UTF-8). A longer k
 
 The value to store. Objects and arrays come back the same way they were stored. A value can be at most **399 KB** ([`puter.kv.MAX_VALUE_SIZE`](/KV/MAX_VALUE_SIZE/) bytes), measured as the UTF-8 bytes of its JSON encoding, so a string's quotes and escapes count. A larger value rejects with `value_too_large`.
 
+The stored entry can be at most **400 KB**. That size counts the key, and a value with many small elements, such as a long array of single digits, takes more room stored than it does as JSON. Such a value, or a value near 399 KB under a long key, can reach 400 KB stored and also rejects with `value_too_large`.
+
 Every number in the value, at any depth, must be within **±9,007,199,254,740,991** (`Number.MAX_SAFE_INTEGER`). A number past that is stored clamped to the bound, and `NaN` is stored as `null`. Store an id or a total that has to stay exact past that point as a string.
 
 A value can be at most 32 levels deep. The value itself is the first level, and each object or array inside it adds one, so `{ a: { b: 1 } }` is 3 levels deep. A deeper value rejects with `bad_request`.
@@ -71,7 +73,7 @@ The promise rejects with `{ message, code }`:
 | Code | Meaning |
 | -- | -- |
 | `key_too_large` | A key is over 1 KB. |
-| `value_too_large` | A value is over 399 KB. |
+| `value_too_large` | A value is over 399 KB, or its stored entry is over 400 KB. |
 | `bad_request` | A value is nested more than 32 levels deep, `expireAt` is text that isn't a number, a batch has more than 1,000 items, `onlyIfAbsent` isn't `true` or `false`, or `disableSharing` was passed with another app's `appUuid`. |
 | `invalid_request` | `onlyIfAbsent` was passed to the batch form. |
 | `forbidden` | `appUuid` names another app's data that your app may not write, or the entry is private to that app. |

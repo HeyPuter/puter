@@ -168,9 +168,22 @@ export interface IClickhouseConfig {
     flush_interval_ms?: number;
 }
 
+/**
+ * A named sending category. Its headers are added to every message sent on it,
+ * and its `from` replaces the default sender when the caller gives none.
+ */
+export interface EmailStreamConfig {
+    from?: string;
+    headers?: Record<string, string>;
+    /** Header carrying the message tags as `name=value` pairs joined by `, `. */
+    tagsHeader?: string;
+}
+
 export interface IEmailConfig {
     /** "From" address used when callers don't override. */
     from?: string;
+    /** Sending categories by name; never passed to the transport. */
+    streams?: Record<string, EmailStreamConfig>;
     // nodemailer transport options (passed through as-is)
     host?: string;
     port?: number;

@@ -383,6 +383,53 @@ describe('MeteringBufferStore', () => {
             expect(await storedTotal(key)).toBe(9);
             boom.mockRestore();
         });
+
+        it('counts an increment once when the base read fails after buffering', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 80 } });
+            const boom = vi
+                .spyOn(kv, 'get')
+                .mockRejectedValueOnce(new Error('store read failed'));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const { res, exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 5 },
+            });
+            boom.mockRestore();
+            warn.mockRestore();
+
+            // Written through for an authoritative total...
+            expect(exact).toBe(true);
+            expect((res as { total: number }).total).toBe(85);
+            expect(await storedTotal(key)).toBe(85);
+
+            // ...and no longer buffered, so the flush adds nothing.
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(85);
+            const read = await target.get({ key });
+            expect((read.res as { total: number }).total).toBe(85);
+        });
+
+        it('keeps the buffered increment when the base read and the write-through both fail', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 80 } });
+            const readBoom = vi
+                .spyOn(kv, 'get')
+                .mockRejectedValueOnce(new Error('store read failed'));
+            const writeBoom = vi
+                .spyOn(kv, 'incr')
+                .mockRejectedValueOnce(new Error('store write failed'));
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await expect(
+                target.incr({ key, pathAndAmountMap: { total: 5 } }),
+            ).rejects.toThrow('store write failed');
+            readBoom.mockRestore();
+            writeBoom.mockRestore();
+            warn.mockRestore();
+
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(85);
+        });
     });
 
     describe('incrAux', () => {
