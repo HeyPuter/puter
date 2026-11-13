@@ -277,6 +277,15 @@ export class Puter {
      */
     openerLaunchItem_ = null;
 
+    /**
+     * Whether this is a tab the GUI opened for an app and handed a session
+     * token, which it then keeps in sessionStorage the way a framed app does.
+     *
+     * @internal
+     * @type {boolean}
+     */
+    appTabSession_ = false;
+
     // Holds the unique app instance ID that is provided by the host environment
     appInstanceID;
 
@@ -751,6 +760,9 @@ export class Puter {
         // the SDK needs to show a dialog to the user to ask for permission to access their Puter account.
         else if (this.env === 'web') {
             try {
+                // A godmode app reloading in the tab the GUI opened it in;
+                // only that handoff stores a session token on this origin.
+                const godmodeToken = this.readStoredSessionToken_();
                 const storedToken = this.normalizeAuthTokenCandidate(
                     localStorage.getItem(STORAGE_KEY_V2),
                 );
@@ -763,7 +775,10 @@ export class Puter {
                 const boundOrigin = this.normalizeStringCandidate(
                     localStorage.getItem(STORAGE_KEY_ORIGIN_V2),
                 );
-                if (
+                if (godmodeToken) {
+                    this.appTabSession_ = true;
+                    this.setAuthToken(godmodeToken);
+                } else if (
                     storedToken &&
                     this._storedTokenUsableForCurrentOrigin(boundOrigin)
                 ) {
@@ -800,7 +815,12 @@ export class Puter {
                             launch.item,
                         );
                     }
-                    if (launch?.token) this.setAuthToken(launch.token);
+                    if (launch?.token) {
+                        this.appTabSession_ = this.isUserSessionToken_(
+                            launch.token,
+                        );
+                        this.setAuthToken(launch.token);
+                    }
                 });
             }
 
@@ -1041,10 +1061,10 @@ export class Puter {
 
         // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage.
         // A user session token (a godmode app's launch token) never goes there:
-        // an app keeps it in sessionStorage so a frame reload still has it.
+        // an app keeps it in sessionStorage so a reload still has it.
         if (this.env === 'web' || this.env === 'app') {
             this.storeSessionToken_(
-                this.env === 'app' &&
+                (this.env === 'app' || this.appTabSession_) &&
                     this.isUserSessionToken_(normalizedAuthToken)
                     ? normalizedAuthToken
                     : null,
