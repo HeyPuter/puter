@@ -5,16 +5,21 @@ on:
     paths:
       - 'src/docs/**'
 
+permissions:
+  contents: read
+
 jobs:
   build-docs:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: '26'
           cache: 'npm'
