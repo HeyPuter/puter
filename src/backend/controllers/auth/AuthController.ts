@@ -1510,6 +1510,7 @@ export class AuthController extends PuterController {
                     ip,
                     device_id: req.deviceFingerprint ?? undefined,
                     user_agent: userAgent,
+                    tls_fingerprint: req.tlsFingerprint,
                     dispatch_id: dispatchId,
                 },
             );

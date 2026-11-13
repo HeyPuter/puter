@@ -245,6 +245,7 @@ export class SignupService extends PuterService {
             data: input.data,
             ip: clientIp,
             user_agent: req?.headers?.['user-agent'] ?? null,
+            tls_fingerprint: req?.tlsFingerprint ?? null,
             email,
             // The form `email.validate` was given, so the abuse harness can
             // find the verdict that hook cached for this address.
@@ -559,6 +560,7 @@ export class SignupService extends PuterService {
                         // column; the raw chain stays in `audit_metadata`.
                         signup_ip_forwarded: clientIp,
                         signup_user_agent: req.headers?.['user-agent'] ?? null,
+                        signup_tls_fingerprint: req.tlsFingerprint ?? null,
                         signup_origin:
                             (req.headers?.origin as string | null) ?? null,
                         signup_server: this.config.serverId,

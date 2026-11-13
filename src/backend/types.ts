@@ -807,6 +807,12 @@ interface IConfigOptional {
      * forgeable. See https://expressjs.com/en/guide/behind-proxies.html.
      */
     trust_proxy: boolean | number | string | string[];
+    /**
+     * Request header carrying the client's TLS fingerprint (JA3/JA4), set by a
+     * proxy that terminates TLS in front of the server. Only set this when that
+     * proxy overwrites any value the client sends. Unset disables it.
+     */
+    tlsFingerprintHeader?: string;
     /** Don't launch browser when starting. */
     no_browser_launch: boolean;
     /** Disable dev-time frontend webpack watchers. */

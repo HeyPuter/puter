@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 99;
+const CURRENT_SCHEMA_VERSION = 100;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -735,7 +735,12 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
                     '`recipient_email`) VALUES (?, ?, ?)',
                 ['share-invite', user.id, 'invite@test.local'],
             );
-            // The full schema as it stood before 0103, so only 0103 reruns.
+            // The full schema as it stood before 0103, so 0103 reruns; 0104
+            // is undone so it can apply again after it.
+            await before.write('DROP INDEX idx_user_signup_tls_fingerprint');
+            await before.write(
+                'ALTER TABLE `user` DROP COLUMN `signup_tls_fingerprint`',
+            );
             await before.write('PRAGMA user_version = 98');
             before.onServerShutdown();
 
