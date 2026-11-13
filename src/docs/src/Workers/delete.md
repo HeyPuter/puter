@@ -6,6 +6,8 @@ platforms: [websites, apps, nodejs, workers]
 
 Deletes an existing worker and stops its execution.
 
+If the worker runs in its own `sandbox-<workerName>` app, that app is deleted with it, unless another worker still runs as it. A worker you create later under the same name gets a new sandbox app, so it starts with an empty KV namespace and AppData directory.
+
 ## Syntax
 
 ```js

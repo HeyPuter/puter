@@ -1949,3 +1949,66 @@ describe('WorkerDriver keeps a worker`s token tied to the worker', () => {
         );
     });
 });
+
+describe('WorkerDriver teardown of a worker’s sandbox app', () => {
+    const SANDBOX_URL = 'https://worker-sandbox.puter.com/';
+
+    /** A worker bound to an app made the way puter.js makes its sandbox. */
+    const deploySandboxed = async ({
+        appName,
+        indexUrl = SANDBOX_URL,
+    }: { appName?: (worker: string) => string; indexUrl?: string } = {}) => {
+        const { user, actor } = await makeUser();
+        const name = `sbx-${user.username}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName ? appName(name) : `sandbox-${name}`,
+                title: name,
+                index_url: indexUrl,
+            },
+            { ownerUserId: user.id },
+        );
+        const path = `/${user.username}/sbx.js`;
+        await writeSource(actor, user.id, path, 'export default {}');
+        await inCtx(actor, () =>
+            target.create({ appId: app.uid, workerName: name, filePath: path }),
+        );
+        return { user, actor, app, name, path };
+    };
+
+    it('deletes the sandbox app with the worker, freeing its name', async () => {
+        const { actor, app, name } = await deploySandboxed();
+        await inCtx(actor, () => target.destroy({ workerName: name }));
+        expect(await server.stores.app.getByUid(app.uid)).toBeFalsy();
+        expect(await server.stores.app.getByName(`sandbox-${name}`)).toBeFalsy();
+    });
+
+    it('keeps the app while another worker still runs as it', async () => {
+        const { user, actor, app, name, path } = await deploySandboxed();
+        const other = `${name}-2`;
+        await inCtx(actor, () =>
+            target.create({ appId: app.uid, workerName: other, filePath: path }),
+        );
+        await inCtx(actor, () => target.destroy({ workerName: name }));
+        expect(await server.stores.app.getByUid(app.uid)).toBeTruthy();
+        expect(
+            await server.stores.subdomain.getBySubdomain(`workers.puter.${other}`),
+        ).toMatchObject({ user_id: user.id });
+    });
+
+    it('keeps an app that is not named for the worker', async () => {
+        const { actor, app, name } = await deploySandboxed({
+            appName: (worker) => `mine-${worker}`,
+        });
+        await inCtx(actor, () => target.destroy({ workerName: name }));
+        expect(await server.stores.app.getByUid(app.uid)).toBeTruthy();
+    });
+
+    it('keeps a sandbox-named app that points somewhere else', async () => {
+        const { actor, app, name } = await deploySandboxed({
+            indexUrl: 'https://example.com/',
+        });
+        await inCtx(actor, () => target.destroy({ workerName: name }));
+        expect(await server.stores.app.getByUid(app.uid)).toBeTruthy();
+    });
+});

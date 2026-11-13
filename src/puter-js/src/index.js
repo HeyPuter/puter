@@ -317,6 +317,14 @@ export class Puter {
     socketEnabled = globalThis.puter_socket_enabled !== false;
 
     /**
+     * @internal
+     * Whether this client reports an app open (`/rao`) when it authenticates.
+     * Seeded off `puter_report_app_open`, which the worker runtimes set to
+     * `false`: code running as the account isn't a visit.
+     */
+    reportsAppOpen = globalThis.puter_report_app_open !== false;
+
+    /**
      * Puter.js Modules
      *
      * These are the modules you see on docs.puter.com; for example:
@@ -865,7 +873,12 @@ export class Puter {
         // when running as a Puter app (i.e. within an iframe in the GUI).
         // Same call opted out of by `socketEnabled: false` — that flag means
         // this client is a disposable per-invocation one, not a real visit.
-        if (this.env === 'gui' || this.env === 'app' || !this.socketEnabled) {
+        if (
+            this.env === 'gui' ||
+            this.env === 'app' ||
+            !this.socketEnabled ||
+            !this.reportsAppOpen
+        ) {
             return;
         }
 

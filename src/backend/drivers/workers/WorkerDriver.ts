@@ -58,6 +58,18 @@ const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 export const WORKER_COMPATIBILITY_DATE = '2025-07-15';
 export const WORKER_COMPATIBILITY_FLAGS = ['global_fetch_strictly_public'];
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
+/** `subdomains.subdomain` is varchar(64) and holds `workers.puter.<name>`. */
+export const WORKER_NAME_MAX_LENGTH = 64 - WORKER_SUBDOMAIN_PREFIX.length;
+/** Puter.js names a worker's default sandbox app `sandbox-<workerName>`. */
+const SANDBOX_APP_PREFIX = 'sandbox-';
+/** The page a sandbox app points at, served on the `worker-sandbox` subdomain. */
+const isWorkerSandboxUrl = (url: unknown): boolean => {
+    try {
+        return new URL(String(url)).hostname.split('.')[0] === 'worker-sandbox';
+    } catch {
+        return false;
+    }
+};
 /** Cap on ordinary workers while user-scope handlers are off. */
 const MAX_WORKERS_PER_USER = 100;
 
@@ -434,6 +446,15 @@ export class WorkerDriver extends PuterDriver {
                 { legacyCode: 'bad_request' },
             );
         }
+        // A deploy target names its own script, so only a worker that becomes
+        // a subdomain row is bound by the column's width.
+        if (!deployTarget && workerName.length > WORKER_NAME_MAX_LENGTH) {
+            throw new HttpError(
+                400,
+                `Worker name must be at most ${WORKER_NAME_MAX_LENGTH} characters`,
+                { legacyCode: 'bad_request' },
+            );
+        }
         this.#rejectReserved(workerName);
         const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
 
@@ -777,6 +798,50 @@ export class WorkerDriver extends PuterDriver {
             );
         } catch {
             // Non-critical.
+        }
+        await this.#releaseSandboxApp(row, workerName);
+    }
+
+    /**
+     * Delete the `sandbox-<name>` app puter.js made for this worker, so the
+     * next owner of the worker name can make their own. Only when nothing else
+     * runs as it: deleting an app cascades to every row bound to it.
+     */
+    async #releaseSandboxApp(
+        row: SubdomainRow,
+        workerName: string,
+    ): Promise<void> {
+        if (row.app_owner === null || row.app_owner === undefined) return;
+        try {
+            const app = await this.stores.app.getById(Number(row.app_owner));
+            if (
+                !app ||
+                app.protected ||
+                app.name !== `${SANDBOX_APP_PREFIX}${workerName}` ||
+                Number(app.owner_user_id) !== Number(row.user_id) ||
+                !isWorkerSandboxUrl(app.index_url)
+            )
+                return;
+            const stillBound = await this.stores.subdomain.listAppCascade({
+                appId: Number(app.id),
+            });
+            if (stillBound.length > 0) return;
+            await this.stores.app.delete(Number(app.id));
+            this.clients.event.emit(
+                'app.changed',
+                {
+                    app_uid: app.uid,
+                    app: null,
+                    old_app: app,
+                    action: 'deleted',
+                },
+                {},
+            );
+        } catch (e) {
+            console.error(
+                `[workers] sandbox app cleanup failed for ${workerName}`,
+                e,
+            );
         }
     }
 

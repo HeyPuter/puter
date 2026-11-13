@@ -408,6 +408,8 @@ For long-lived mounts, sign in with a `-token` username and an API token as the 
 | Concurrent worker calls             | 10   | 5    | 3         |
 | Concurrent deploys                  | 5    | 2    | 2         |
 
+A worker's name may be up to 50 characters. A [`puter.workers.create()`](/Workers/create/) call with a longer name is rejected with `400 bad_request`.
+
 ### Apps
 
 | Operation                                                                    | Paid      | Free      | Anonymous |

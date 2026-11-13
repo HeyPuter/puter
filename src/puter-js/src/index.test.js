@@ -376,3 +376,42 @@ describe('GUI message listener', () => {
         }
     });
 });
+
+describe('app-open reporting', () => {
+    /** URLs opened through XHR, the transport `fetchUrl` uses. */
+    let opened;
+    beforeEach(() => {
+        opened = [];
+        globalThis.XMLHttpRequest = class extends StubXHR {
+            open(_method, url) {
+                opened.push(String(url));
+            }
+        };
+    });
+
+    /** Starts the report (never answered) and waits for its request. */
+    const raoRequested = async (puter) => {
+        void puter.request_rao_();
+        for (let i = 0; i < 50; i++) {
+            if (opened.some((url) => url.endsWith('/rao'))) return true;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        return false;
+    };
+
+    it('reports an open from a page', async () => {
+        const puter = await bootWeb('');
+        expect(await raoRequested(puter)).toBe(true);
+    });
+
+    it('reports nothing from a client a worker runtime built', async () => {
+        globalThis.puter_report_app_open = false;
+        try {
+            const puter = await bootWeb('');
+            expect(puter.reportsAppOpen).toBe(false);
+            expect(await raoRequested(puter)).toBe(false);
+        } finally {
+            delete globalThis.puter_report_app_open;
+        }
+    });
+});
