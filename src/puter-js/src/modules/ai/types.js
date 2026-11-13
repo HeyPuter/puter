@@ -35,6 +35,13 @@
  */
 
 /**
+ * A tool the model's provider runs itself, such as web search.
+ *
+ * @typedef {Object} BuiltInTool
+ * @property {'web_search'} type
+ */
+
+/**
  * One message in a chat conversation.
  *
  * @typedef {Object} ChatMessage
@@ -77,7 +84,8 @@
  * fast, then standard when the requested speed is unavailable. Faster service may cost more.
  * @property {boolean} [fallback] Set to `false` to fail the request when the first provider tried
  * fails, instead of retrying it on another provider that serves the same model.
- * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
+ * @property {(Tool | BuiltInTool)[]} [tools] Function definitions the model can call, or a built-in
+ * tool such as `{ type: 'web_search' }`. See Function Calling.
  * @property {boolean} [normalize] Response-format control for non-streaming results. `true` returns the
  * OpenAI-style shape regardless of provider or release date (`message.content` as a string,
  * `message.tool_calls`, a mapped `finish_reason`); `false` forces the provider's native shape. Left

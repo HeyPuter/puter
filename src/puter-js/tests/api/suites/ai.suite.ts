@@ -184,6 +184,16 @@ export default suite('ai', {
         t.assert.ok(textOf(result).length > 0, 'message should contain text');
     },
 
+    'chat accepts the built-in web search tool': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat('Search the web', {
+            model: 'fake',
+            tools: [{ type: 'web_search' }],
+        });
+        t.assert.equal(result.message?.role, 'assistant');
+        t.assert.ok(textOf(result).length > 0, 'message should contain text');
+    },
+
     'chat with normalize true returns an OpenAI-shaped message': async (t) => {
         useApiToken(t);
         const result = await t.puter.ai.chat('Hello there', {
