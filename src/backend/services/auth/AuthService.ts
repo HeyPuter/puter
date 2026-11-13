@@ -31,6 +31,7 @@ import { awaitLater } from '../../util/concurrency.js';
 import { appGenerationStart } from '../../util/appGeneration.js';
 import {
     ASSET_WINDOW_SECONDS,
+    DEBUG_APP_SESSION_KIND,
     GODMODE_TOKEN_MAX_AGE_SECONDS,
     GODMODE_TOKEN_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
@@ -787,6 +788,8 @@ export class AuthService extends PuterService {
         const visible = [...live.values()].filter(
             (row) =>
                 row.kind !== 'asset' &&
+                // Operator-created debug sessions are never the user's own.
+                row.kind !== DEBUG_APP_SESSION_KIND &&
                 (row.kind !== 'access_token' ||
                     !row.parent_session_id ||
                     live.has(row.parent_session_id)),
@@ -1075,7 +1078,12 @@ export class AuthService extends PuterService {
         });
         await this.#revokeCascades(
             rows
-                .filter((row) => row.kind === 'web' || row.kind === 'app')
+                .filter(
+                    (row) =>
+                        row.kind === 'web' ||
+                        row.kind === 'app' ||
+                        row.kind === DEBUG_APP_SESSION_KIND,
+                )
                 .map((row) => row.uuid as string),
         );
     }
@@ -1856,6 +1864,49 @@ export class AuthService extends PuterService {
                   }
                 : {}),
         });
+    }
+
+    /**
+     * An app token acting as `user` in `app` on its own `debug_app` session,
+     * which expires after `ttlSeconds` and never touches the user's real
+     * sessions. The caller authorizes who may ask; `meta` lands on the row.
+     */
+    async createDebugAppToken(
+        user: UserRow,
+        app: { uid: string },
+        opts: {
+            ttlSeconds: number;
+            label?: string | null;
+            meta?: Record<string, unknown>;
+        },
+    ): Promise<{ token: string; sessionUuid: string; expiresAt: number }> {
+        const authId = this.#authIdFor(user);
+        const expiresAtSeconds = nowSeconds() + opts.ttlSeconds;
+        const session = await this.stores.session.create(user.id as number, {
+            kind: DEBUG_APP_SESSION_KIND,
+            app_uid: app.uid,
+            expires_at: expiresAtSeconds,
+            auth_id: authId,
+            label: opts.label ?? null,
+            meta: opts.meta ?? {},
+        });
+        const token = this.services.token.sign(
+            'auth',
+            {
+                type: 'app-under-user',
+                version: '2',
+                user_uid: user.uuid,
+                app_uid: app.uid,
+                session_uid: session.uuid,
+                auth_id: authId,
+            },
+            { expiresIn: opts.ttlSeconds },
+        );
+        return {
+            token,
+            sessionUuid: session.uuid as string,
+            expiresAt: expiresAtSeconds * 1000,
+        };
     }
 
     /**
@@ -2760,7 +2811,11 @@ export class AuthService extends PuterService {
 
         // An events handler's calls are background work, not the user being
         // active, and its session never expires, so they record no activity.
-        if (decoded.worker_name !== EVENTS_WORKER_SESSION_NAME)
+        // Nor do calls on a debug session, which aren't the user's own.
+        if (
+            decoded.worker_name !== EVENTS_WORKER_SESSION_NAME &&
+            session.kind !== DEBUG_APP_SESSION_KIND
+        )
             void this.#touchSession(session.uuid, user.id, ctx);
 
         const actor = this.#buildAppUnderUserActor(user, app, session);

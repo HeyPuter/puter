@@ -60,6 +60,9 @@ export const APP_WINDOW_SECONDS = 365 * 24 * 60 * 60; // 1y
 export const WORKER_WINDOW_SECONDS = 99 * 365 * 24 * 60 * 60; // 99y (virtually infinite);
 
 export const ASSET_WINDOW_SECONDS = 7 * 24 * 60 * 60; // 7 days
+// An app session created on a user's behalf for debugging: hard expiry, never
+// slid, and hidden from the user's own session list.
+export const DEBUG_APP_SESSION_KIND = 'debug_app';
 // A godmode app's token lapses at most this long after the desktop last asked
 // for it, so a closed desktop's tokens die on their own. A token past the max
 // age is never renewed again; the next ask replaces it and revokes the old one.
@@ -1000,6 +1003,18 @@ export class SessionStore extends PuterStore {
                 "(`kind` = 'web' AND (`revoked_at` < ? OR `expires_at` < ?)) OR " +
                 "(`kind` <> 'web' AND (`revoked_at` < ? OR `expires_at` < ?)))",
             [afterId, afterId + span, webCutoff, webCutoff, cutoff, cutoff],
+        );
+        return result?.affectedRows ?? result?.changes ?? 0;
+    }
+
+    /**
+     * Hard-delete debug app sessions that expired before `cutoff` (unix
+     * seconds). Cached copies still read as expired, so need no invalidation.
+     */
+    async deleteExpiredDebugAppSessions(cutoff) {
+        const result = await this.clients.db.write(
+            'DELETE FROM `sessions` WHERE `kind` = ? AND `expires_at` IS NOT NULL AND `expires_at` < ?',
+            [DEBUG_APP_SESSION_KIND, cutoff],
         );
         return result?.affectedRows ?? result?.changes ?? 0;
     }
