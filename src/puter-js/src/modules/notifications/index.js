@@ -27,6 +27,7 @@ import { HANDLED_EVENT, ReceiptLog, handledHere } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
 import {
     currentWebPush,
+    forgetWebPushReceipt,
     removeWebPush,
     syncWebPush,
     unsubscribeWebPush,
@@ -616,6 +617,16 @@ export class NotificationsModule extends EventListener {
         });
     }
 
+    /**
+     * Sign-out in the Puter GUI: forgets the receipt, so the next account to
+     * sign in confirms this browser itself. Never throws.
+     *
+     * @internal
+     */
+    async _forgetPushReceipt() {
+        await forgetWebPushReceipt(this.puter, workerFor('gui'));
+    }
+
     /** Another user signing in here ends push for the last one, as sign-out. */
     #watchUser() {
         /** @type {{ token: string; user: Promise<string | null> } | null} */
@@ -908,6 +919,7 @@ export class NotificationsModule extends EventListener {
         } catch {
             // Already gone, or the browser can't tell.
         }
+        await forgetWebPushReceipt(this.puter, worker);
         await this.#recordOptIn(false);
     }
 

@@ -13,6 +13,8 @@ export const SERVER_KEYS_ENTRY = 'puter:server-keys';
 export const SYNCED_PREFIX = 'puter:synced:';
 /** Per worker scope: set by `push-sw.js` when a subscription is replaced. */
 export const SUBSCRIPTION_CHANGED_PREFIX = 'puter:subscription-changed:';
+/** Per worker scope: `{ endpoint, receipt }` the server last gave. */
+export const RECEIPT_PREFIX = 'puter:receipt:';
 /** Where a tap without a URL goes, per worker scope; read by `push-sw.js`. */
 export const TAP_BASE_PREFIX = 'puter:tap-base:';
 /** How long a kept tap waits for its page, as in `push-sw.js`. */
