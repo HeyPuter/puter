@@ -35,6 +35,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { makeActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
+import type { EmailNotifyValidateEvent } from '../../clients/event/types.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 const SETTLE_MS = 300;
@@ -752,6 +753,168 @@ describe('share email', () => {
                 (item) => item.uid_entry === second.uid,
             ),
         );
+    });
+
+    describe('email.notify.validate', () => {
+        type Listener = (key: string, data: EmailNotifyValidateEvent) => void;
+        let listener: Listener | null = null;
+        const listen = (fn: Listener) => {
+            listener = fn;
+            env.server.clients.event.on('email.notify.validate', fn);
+        };
+        const unlisten = () => {
+            if (listener) {
+                env.server.clients.event.off('email.notify.validate', listener);
+            }
+            listener = null;
+        };
+        afterEach(unlisten);
+
+        /** The events that name `to`; other tests' late sends name others. */
+        const about = (seen: EmailNotifyValidateEvent[], to: string) =>
+            seen.filter((event) => event.recipients.some((r) => r.to === to));
+        const decline = (data: EmailNotifyValidateEvent, to: string) => {
+            for (const recipient of data.recipients) {
+                if (recipient.to === to) recipient.allow = false;
+            }
+        };
+
+        it('skips only the account holder a listener declines', async () => {
+            const owner = env.users.user;
+            const seen: EmailNotifyValidateEvent[] = [];
+            let declined = '';
+            listen((_key, data) => {
+                seen.push(structuredClone(data));
+                decline(data, declined);
+            });
+            // Signed up with the listener on: account mail is not asked about.
+            const skippedHolder = await signUpAndConfirm(uninvitedAddress());
+            const keptHolder = await signUpAndConfirm(uninvitedAddress());
+            declined = skippedHolder.email;
+            sent = [];
+
+            const file = await makeFile(owner, 'notify-holder');
+            const res = await post('/share', owner.token, {
+                recipients: [skippedHolder.email, keptHolder.email],
+                items: [{ uid: file.uid }],
+                mode: 'read',
+            });
+            expect(res.status).toBe(200);
+
+            await waitForMail({ to: keptHolder.email });
+            await sleep(SETTLE_MS);
+            expect(mailTo(skippedHolder.email)).toHaveLength(0);
+            // Each holder is asked alone, once, when their digest is sent.
+            for (const to of [skippedHolder.email, keptHolder.email]) {
+                expect(about(seen, to)).toEqual([
+                    {
+                        kind: 'file_shared_with_you',
+                        recipients: [{ to, allow: true }],
+                    },
+                ]);
+            }
+            // Only the mail is skipped; the share itself stands.
+            await eventually('the share to be listed anyway', async () =>
+                (await sharedWithMe(skippedHolder.token)).some(
+                    (item) => item.uid_entry === file.uid,
+                ),
+            );
+        });
+
+        it('asks once for every invite address, and skips only the declined ones, spending none of their budget', async () => {
+            const owner = env.users.user;
+            const skippedInvitee = uninvitedAddress();
+            const keptInvitee = uninvitedAddress();
+            const otherKept = uninvitedAddress();
+            const seen: EmailNotifyValidateEvent[] = [];
+            listen((_key, data) => {
+                seen.push(structuredClone(data));
+                decline(data, skippedInvitee);
+            });
+
+            const first = await makeFile(owner, 'notify-invite-1');
+            await post('/share', owner.token, {
+                recipients: [skippedInvitee, keptInvitee, otherKept],
+                items: [{ uid: first.uid }],
+                mode: 'read',
+            });
+
+            await waitForMail({ to: keptInvitee });
+            await waitForMail({ to: otherKept });
+            await sleep(SETTLE_MS);
+            expect(mailTo(skippedInvitee)).toHaveLength(0);
+            // One event carries all three; the declined one never reaches a send.
+            expect(about(seen, skippedInvitee)).toEqual([
+                {
+                    kind: 'file_shared_invite',
+                    recipients: [skippedInvitee, keptInvitee, otherKept].map(
+                        (to) => ({ to, allow: true }),
+                    ),
+                },
+            ]);
+            // The others are asked again, alone, when their digest is sent.
+            for (const to of [keptInvitee, otherKept]) {
+                expect(about(seen, to).slice(1)).toEqual([
+                    {
+                        kind: 'file_shared_invite',
+                        recipients: [{ to, allow: true }],
+                    },
+                ]);
+            }
+
+            // The pair window was never claimed, so the next share mails.
+            unlisten();
+            const second = await makeFile(owner, 'notify-invite-2');
+            await shareWith(owner, skippedInvitee, [{ uid: second.uid }]);
+            const mail = await waitForMail({ to: skippedInvitee });
+            expect(mail.html).toContain(second.name);
+        });
+
+        it('still emails when a listener throws', async () => {
+            const owner = env.users.user;
+            const invitee = uninvitedAddress();
+            vi.spyOn(console, 'error').mockImplementation(() => {});
+            const asked: string[] = [];
+            listen((_key, data) => {
+                for (const { to } of data.recipients) {
+                    if (to === invitee) asked.push(to);
+                }
+                throw new Error('listener failed');
+            });
+
+            const file = await makeFile(owner, 'notify-throw');
+            await shareWith(owner, invitee, [{ uid: file.uid }]);
+
+            const mail = await waitForMail({ to: invitee });
+            expect(mail.html).toContain(file.name);
+            // Once before the invite budget is claimed, once at send.
+            expect(asked).toEqual([invitee, invitee]);
+        });
+
+        it('asks again when the digest is sent, and honours that answer', async () => {
+            const owner = env.users.user;
+            const invitee = uninvitedAddress();
+            const answers: boolean[] = [];
+            listen((_key, data) => {
+                for (const recipient of data.recipients) {
+                    if (recipient.to !== invitee) continue;
+                    // Allowed when queued, declined by the time it is sent.
+                    recipient.allow = answers.length === 0;
+                    answers.push(recipient.allow);
+                }
+            });
+
+            const file = await makeFile(owner, 'notify-at-send');
+            await shareWith(owner, invitee, [{ uid: file.uid }]);
+
+            await eventually(
+                'the digest to be asked about',
+                async () => answers.length === 2,
+            );
+            await sleep(SETTLE_MS);
+            expect(answers).toEqual([true, false]);
+            expect(mailTo(invitee)).toHaveLength(0);
+        });
     });
 
     it('sends nothing to a recipient who has blocked the sender', async () => {

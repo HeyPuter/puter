@@ -29,6 +29,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import type { EmailNotifyValidateEvent } from '../../clients/event/types.js';
 import { AppFeedbackService } from './AppFeedbackService.js';
 
 // Drives the real wired service against the real stores and in-memory
@@ -688,6 +689,93 @@ describe('AppFeedbackService owner email', () => {
                 Math.floor(Date.now() / 1000) - 24 * 60 * 60,
             ),
         ).toBe(AppFeedbackService.PER_APP_DAILY_EMAIL_LIMIT);
+    });
+
+    describe('email.notify.validate', () => {
+        type Listener = (key: string, data: EmailNotifyValidateEvent) => void;
+        let listener: Listener | null = null;
+        const listen = (fn: Listener) => {
+            listener = fn;
+            server.clients.event.on('email.notify.validate', fn);
+        };
+        afterEach(() => {
+            if (listener) {
+                server.clients.event.off('email.notify.validate', listener);
+            }
+            listener = null;
+        });
+
+        it('skips only the owner a listener declines, without claiming a cap slot', async () => {
+            const send = mockEmailReady();
+            const markSent = vi.spyOn(
+                server.stores.appFeedback,
+                'markEmailSent',
+            );
+            const declinedId = await makeDeliverableOwner();
+            const declined = (await server.stores.user.getById(declinedId))!;
+            const acceptedId = await makeDeliverableOwner();
+            const accepted = (await server.stores.user.getById(acceptedId))!;
+            const seen: EmailNotifyValidateEvent[] = [];
+            listen((_key, data) => {
+                seen.push(structuredClone(data));
+                for (const recipient of data.recipients) {
+                    if (recipient.to === declined.email) recipient.allow = false;
+                }
+            });
+            const declinedApp = await makeApp(declinedId, {
+                feedbackEnabled: true,
+            });
+            const acceptedApp = await makeApp(acceptedId, {
+                feedbackEnabled: true,
+            });
+            const userId = await makeUser();
+
+            await service.submit({
+                userId,
+                app: declinedApp.name,
+                message: 'a',
+            });
+            await service.submit({
+                userId,
+                app: acceptedApp.name,
+                message: 'b',
+            });
+
+            // One entry per ask: the app's owner.
+            expect(seen).toEqual(
+                [declined.email, accepted.email].map((to) => ({
+                    kind: 'app-user-feedback',
+                    recipients: [{ to, allow: true }],
+                })),
+            );
+            expect(send).toHaveBeenCalledTimes(1);
+            expect(send.mock.calls[0][0]).toBe(accepted.email);
+            expect(markSent).toHaveBeenCalledTimes(1);
+            const rows = await feedbackRows(userId);
+            expect(rows).toHaveLength(2);
+            expect(rows.map((row) => Boolean(row.email_sent))).toEqual([
+                false,
+                true,
+            ]);
+        });
+
+        it('still emails the owner when a listener throws', async () => {
+            const send = mockEmailReady();
+            vi.spyOn(console, 'error').mockImplementation(() => {});
+            const ownerId = await makeDeliverableOwner();
+            const app = await makeApp(ownerId, { feedbackEnabled: true });
+            const userId = await makeUser();
+            const calls: string[] = [];
+            listen((_key, data) => {
+                calls.push(...data.recipients.map((r) => r.to));
+                throw new Error('listener failed');
+            });
+
+            await service.submit({ userId, app: app.name, message: 'hi' });
+
+            expect(calls).toHaveLength(1);
+            expect(send).toHaveBeenCalledTimes(1);
+        });
     });
 
     it('keeps the feedback and releases the email slot when the send fails', async () => {
