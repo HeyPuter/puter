@@ -19,34 +19,37 @@
 
 // Puter's own push client: standard Web Push through `/sw.js` via `puter.notifications`, used when the server publishes `pushWebPushKey`.
 
-import { SUBSCRIPTION_CHANGED_MESSAGE } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
+import {
+    CLICKS_STORE,
+    HANDLERS_STORE,
+    PUSH_DB_NAME,
+    RECEIPT_PREFIX,
+    SUBSCRIPTION_CHANGED_MESSAGE,
+    SUBSCRIPTION_CHANGED_PREFIX,
+} from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import { forgetPushApps, webPushEndpointState } from './notificationApi.js';
 
-// Where `/sw.js` marks a subscription the browser replaced, as puter.js's pushStore.js does.
-const DB_NAME = 'puter-push';
-const HANDLERS = 'handlers';
-const CLICKS = 'clicks';
-export const SUBSCRIPTION_CHANGED_PREFIX = 'puter:subscription-changed:';
-export const RECEIPT_PREFIX = 'puter:receipt:';
+export { RECEIPT_PREFIX, SUBSCRIPTION_CHANGED_PREFIX };
 
 /** The endpoint the server last confirmed here for each user, in `localStorage`. */
 export const LAST_ENDPOINT_PREFIX = 'puter.push.last-endpoint:';
 
 const removedError = () => Object.assign(new Error('this browser was removed from push in Puter'), { code: 'push_device_removed' });
 const busyError = () => Object.assign(new Error('Puter asked to wait before registering this browser'), { code: 'too_many_requests' });
+const unavailableError = () => Object.assign(new Error('push notifications are unavailable in this browser'), { code: 'unavailable' });
 
 /** Runs one request on the handlers store. @param {IDBFactory} idb @param {IDBTransactionMode} mode @param {(store: IDBObjectStore) => IDBRequest} action */
 const handlersStore = (idb, mode, action) => new Promise((resolve, reject) => {
-    const open = idb.open(DB_NAME, 1);
+    const open = idb.open(PUSH_DB_NAME, 1);
     open.onupgradeneeded = () => {
-        open.result.createObjectStore(HANDLERS);
-        open.result.createObjectStore(CLICKS);
+        open.result.createObjectStore(HANDLERS_STORE);
+        open.result.createObjectStore(CLICKS_STORE);
     };
     open.onerror = () => reject(open.error);
     open.onsuccess = () => {
         const db = open.result;
         try {
-            const req = action(db.transaction(HANDLERS, mode).objectStore(HANDLERS));
+            const req = action(db.transaction(HANDLERS_STORE, mode).objectStore(HANDLERS_STORE));
             req.onsuccess = () => {
                 db.close();
                 resolve(req.result);
@@ -171,7 +174,10 @@ export const webPushClient = ({
                 })
                 : notifications.enable();
             return turningOn.then(async (on) => {
-                if ( ! on ) throw new Error(`notifications ${NotificationApi?.permission ?? 'unavailable'}`);
+                if ( ! on ) {
+                    const permission = NotificationApi?.permission;
+                    throw permission && permission !== 'granted' ? new Error(`notifications ${permission}`) : unavailableError();
+                }
                 const reading = generation;
                 const user = userUid();
                 const device = await currentDevice();
