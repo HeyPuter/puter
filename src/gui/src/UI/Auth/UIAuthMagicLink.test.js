@@ -167,6 +167,8 @@ describe('email screen', () => {
         await vi.waitFor(() => expect(screen().find('.magic-link-sent')).toHaveLength(1));
         expect(sentBody('/auth/magic-link/request')).toEqual({ email: 'me@example.com' });
         expect(screen().find('.magic-link-sent').text()).toContain('magic_link_sent_message:me@example.com');
+        expect(screen().find('.auth-title').text()).toBe('magic_link_sent_title');
+        expect(screen().find('.magic-link-sent svg')).toHaveLength(0);
 
         const [channel] = FakeChannel.opened;
         channel.onmessage({ data: { type: 'signed-in', request_id: 'request-1', user_uuid: 'user-1' } });
@@ -202,6 +204,72 @@ describe('email screen', () => {
         await vi.waitFor(() => expect(screen().find('.magic-link-sent')).toHaveLength(1));
         $('.auth-dialog-back').trigger('click');
         expect(FakeChannel.opened[0].closed).toBe(true);
+    });
+});
+
+describe('connecting the account a site signed the user in with', () => {
+    const asSitePopup = () => {
+        window.embedded_in_popup = true;
+        window.openerOrigin = 'http://localhost:5180';
+    };
+
+    it('reads as connecting, with the address shown instead of a field', () => {
+        asSitePopup();
+        void UIAuthMagicLink({ email: 'me@example.com', connect: true, reload_on_success: false });
+        expect(screen().find('.auth-title').text()).toBe('magic_link_connect_title');
+        expect(screen().find('.auth-opener-notice').text()).toBe('magic_link_connect_message:localhost');
+        expect(screen().find('.magic-link-continue-as').text()).toBe('magic_link_continue_as:me@example.com');
+        expect(screen().find('.magic-link-email-field').prop('hidden')).toBe(true);
+        expect(screen().find('.magic-link-send-btn').text()).toBe('magic_link_connect_send');
+        expect(screen().find('.signup-terms').text()).toBe('magic_link_connect_tos_fineprint');
+    });
+
+    it('opens the field when the user wants a different email', () => {
+        asSitePopup();
+        void UIAuthMagicLink({ email: 'me@example.com', connect: true, reload_on_success: false });
+        screen().find('.magic-link-change-email .auth-link').trigger('click');
+        expect(screen().find('.magic-link-email-field').prop('hidden')).toBe(false);
+        expect(screen().find('.magic-link-continue-as').prop('hidden')).toBe(true);
+        expect(screen().find('.magic-link-change-email').prop('hidden')).toBe(true);
+        expect(screen().find('[name="email"]').val()).toBe('me@example.com');
+    });
+
+    it('opens the field when the server refuses the address', async () => {
+        asSitePopup();
+        routeFetch({
+            '/auth/oidc/providers': reply(200, { providers: [] }),
+            '/auth/magic-link/request': () => reply(400, { message: 'This email is not allowed.' }),
+        });
+        void UIAuthMagicLink({ email: 'me@example.com', connect: true, reload_on_success: false });
+        screen().find('.magic-link-form').trigger('submit');
+        await vi.waitFor(() => expect(screen().find('.dashboard-form-status').text()).toBe('This email is not allowed.'));
+        expect(screen().find('.magic-link-email-field').prop('hidden')).toBe(false);
+    });
+
+    it('says the link connects the site once it is sent', async () => {
+        asSitePopup();
+        routeFetch({
+            '/auth/oidc/providers': reply(200, { providers: [] }),
+            '/auth/magic-link/request': () => reply(200, { request_id: 'request-1' }),
+        });
+        void UIAuthMagicLink({ email: 'me@example.com', connect: true, reload_on_success: false });
+        screen().find('.magic-link-form').trigger('submit');
+        await vi.waitFor(() => expect(screen().find('.magic-link-sent')).toHaveLength(1));
+        expect(sentBody('/auth/magic-link/request')).toEqual({ email: 'me@example.com', app_origin: 'http://localhost:5180' });
+        expect(screen().find('.auth-title').text()).toBe('magic_link_sent_title');
+        expect(screen().find('.magic-link-sent p').map(function () {
+            return $(this).text();
+        }).get()).toEqual([
+            'magic_link_connect_sent_message:me@example.com',
+            'magic_link_connect_sent_keep_open:localhost',
+        ]);
+    });
+
+    it('signs in as usual without a site to name', () => {
+        void UIAuthMagicLink({ email: 'me@example.com', connect: true, reload_on_success: false });
+        expect(screen().find('.auth-title').text()).toBe('magic_link_title');
+        expect(screen().find('.magic-link-continue-as')).toHaveLength(0);
+        expect(screen().find('.magic-link-email-field').prop('hidden')).toBe(false);
     });
 });
 

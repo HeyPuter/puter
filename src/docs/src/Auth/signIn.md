@@ -34,7 +34,7 @@ An object with the following properties:
 | Option | Type | Description |
 |--------|------|-------------|
 | `attempt_temp_user_creation` | `Boolean` | Whether Puter should automatically create a temporary user. This is useful if you want to quickly onboard a user without requiring them to sign up. They can always sign up later if they want to. |
-| `email` | `String` | The user's email address, if your site already knows it. The popup opens on email sign-in with the address filled in, and the user doesn't need a password. See [Email sign-in](#email-sign-in). |
+| `email` | `String` | The user's email address, if your site already knows it. The popup asks the user to connect that address to Puter, and the user doesn't need a password. See [Email sign-in](#email-sign-in). |
 | `request_auth` | `Boolean` | Asks the popup to let the user re-pick their account, even when your site already holds a token for them. Puter otherwise skips that prompt for a site it has seen before. Useful for an explicit "switch account" button. |
 
 #### Email sign-in

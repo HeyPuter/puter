@@ -11500,6 +11500,16 @@ body.dashboard-mode .notifications-close-all {
     display: none;
 }
 
+/* Email sign-in for an account the site already signed in. */
+.auth-dialog .magic-link-continue-as {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    text-align: center;
+    color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
+}
+
 .dashboard-dialog-btn.auth-provider-btn {
     width: 100%;
     height: 40px;

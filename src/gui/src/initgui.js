@@ -1995,14 +1995,15 @@ window.initgui = async function (options) {
                 send_confirmation_code: true,
                 page: true,
             };
-            // A site that already knows the user's email starts on email
-            // sign-in; everyone else starts on signup.
+            // A site that already signed the user in passes their email, and
+            // the popup connects that account; everyone else starts on signup.
             const signin_email = window.url_query_params.get('email');
             if (
                 looksLikeEmail(signin_email)
                     ? await UIAuthMagicLink({
                           ...popup_auth_options,
                           email: signin_email.trim(),
+                          connect: true,
                       })
                     : await UIAuthSignup(popup_auth_options)
             ) {

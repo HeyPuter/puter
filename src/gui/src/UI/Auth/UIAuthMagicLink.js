@@ -29,6 +29,7 @@ import {
     oidcProviderForEmail,
     watchMagicLinkSignIn,
 } from '../../helpers/magicLinkSignIn.js';
+import { isTouchPrimaryDevice } from '../Dashboard/ContextMenu/ContextMenu.js';
 import { formFieldHtml } from '../Dashboard/UIDashboardFormDialog.js';
 import { SVG } from '../Dashboard/UIDashboardDialog.js';
 import openAuthFlow, {
@@ -49,7 +50,7 @@ import {
 } from './authProviders.js';
 import { pushLoginScreen } from './UIAuthLogin.js';
 
-/** An envelope: the login screen's email link button, and the sent state. */
+/** The envelope on the login screen's "Sign in with Email Link" button. */
 export const MAGIC_LINK_ICON = SVG('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>');
 
 /**
@@ -74,21 +75,36 @@ const adoptBrowserSession = async (userUuid) => {
 /**
  * Shows the email sign-in screen in `flow`.
  *
+ * With `connect`, the site already signed the user in with `email`, so this
+ * reads as connecting that account to Puter rather than signing in again,
+ * and the address shows as text the user can change. It takes a sign-in
+ * popup whose opener has a name to show; elsewhere it is ignored.
+ *
  * @param {import('./authFlow.js').AuthFlow} flow
- * @param {{ email?: string }} [opts] Prefills the field.
+ * @param {{ email?: string, connect?: boolean }} [opts] `email` prefills the field.
  * @returns {jQuery}
  */
-export function pushMagicLinkScreen (flow, { email = '' } = {}) {
+export function pushMagicLinkScreen (flow, { email = '', connect = false } = {}) {
     const id = `auth-magic-link-${window.uuidv4?.() ?? Date.now()}`;
     const opener_origin = window.embedded_in_popup && isAttestedOrigin(window.openerOrigin)
         ? window.openerOrigin
         : '';
+    const site = opener_origin ? new URL(opener_origin).hostname : '';
+    const connecting = connect && !! site && looksLikeEmail(email);
     let stop_watching = () => {};
 
     let h = '<div class="dashboard-dialog-body auth-body">';
-    h += authHeadHtml(flow, i18n('magic_link_title', [], false));
+    h += authHeadHtml(
+        flow,
+        i18n(connecting ? 'magic_link_connect_title' : 'magic_link_title', [], false),
+        { openerNotice: ! connecting },
+    );
     h += '<form class="auth-form magic-link-form" novalidate>';
     h += '<div class="dashboard-form-status" role="status" aria-live="polite"></div>';
+    if ( connecting ) {
+        h += `<p class="magic-link-continue-as">${i18n('magic_link_continue_as', [email.trim()])}</p>`;
+    }
+    h += `<div class="magic-link-email-field"${connecting ? ' hidden' : ''}>`;
     h += formFieldHtml({
         name: 'email',
         type: 'email',
@@ -96,9 +112,13 @@ export function pushMagicLinkScreen (flow, { email = '' } = {}) {
         value: email,
         attrs: { autocomplete: 'email', inputmode: 'email', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' },
     }, id);
-    h += submitButtonHtml(i18n('magic_link_send', [], false), 'magic-link-send-btn');
+    h += '</div>';
+    h += submitButtonHtml(i18n(connecting ? 'magic_link_connect_send' : 'magic_link_send', [], false), 'magic-link-send-btn');
     h += '<div class="magic-link-provider" hidden></div>';
-    h += `<p class="signup-terms">${i18n('magic_link_tos_fineprint', [], false)}</p>`;
+    if ( connecting ) {
+        h += `<div class="auth-link-row magic-link-change-email"><button type="button" class="auth-link">${i18n('magic_link_use_different_email')}</button></div>`;
+    }
+    h += `<p class="signup-terms">${i18n(connecting ? 'magic_link_connect_tos_fineprint' : 'magic_link_tos_fineprint', [], false)}</p>`;
     h += '</form>';
     h += '</div>';
     h += '<div class="dashboard-dialog-footer auth-footer">';
@@ -108,6 +128,8 @@ export function pushMagicLinkScreen (flow, { email = '' } = {}) {
     const $screen = flow.push({
         name: 'magic-link',
         html: h,
+        // Connecting has no field showing; the button below takes focus instead.
+        autofocus: ! connecting,
         onLeave: () => stop_watching(),
     });
     const $form = $screen.find('.magic-link-form');
@@ -117,6 +139,23 @@ export function pushMagicLinkScreen (flow, { email = '' } = {}) {
     wireAuthHead($screen);
 
     const typed_email = () => String($email.val() ?? '').trim();
+
+    // -- Connecting: the site's address, shown as text until the user changes it --
+    const showEmailField = () => {
+        $form.find('.magic-link-continue-as, .magic-link-change-email').prop('hidden', true);
+        $form.find('.magic-link-email-field').prop('hidden', false);
+    };
+    if ( connecting ) {
+        $screen.find('.auth-head').append(`<p class="auth-opener-notice">${i18n('magic_link_connect_message', [site])}</p>`);
+        $form.find('.magic-link-change-email .auth-link').on('click', () => {
+            if ( flow.isBusy() ) return;
+            showEmailField();
+            $email.get(0)?.focus({ preventScroll: true });
+            $email.get(0)?.select?.();
+        });
+        // A keyboard popping up on a phone hides half the card; there the user taps.
+        if ( ! isTouchPrimaryDevice() ) $send_btn.get(0)?.focus({ preventScroll: true });
+    }
 
     // -- Routing: provider button or sign-in link --
     let providers = [];
@@ -222,8 +261,11 @@ export function pushMagicLinkScreen (flow, { email = '' } = {}) {
             return;
         }
         if ( ! resp?.ok || ! body?.request_id ) {
-            // A refused address comes back with text saying why.
-            setAuthStatus($screen, resp?.status === 400 && body?.message
+            // A refused address comes back with text saying why, and is
+            // changed in the field.
+            const refused = resp?.status === 400 && body?.message;
+            if ( refused ) showEmailField();
+            setAuthStatus($screen, refused
                 ? String(body.message)
                 : i18n('magic_link_request_failed', [], false), { field: '[name="email"]' });
             return;
@@ -235,10 +277,14 @@ export function pushMagicLinkScreen (flow, { email = '' } = {}) {
             openChannel: () => new BroadcastChannel(MAGIC_LINK_CHANNEL),
             onSignedIn,
         });
-        // The rest happens from the inbox; the way back to the login stays below.
+        // The rest happens from the inbox. The title says so, rather than a
+        // second icon under the header; the way back to the login stays below.
+        $screen.find('.auth-title').text(i18n('magic_link_sent_title', [], false));
         $form.replaceWith('<div class="dashboard-form-done auth-done magic-link-sent" role="status">'
-            + `${MAGIC_LINK_ICON}<p>${i18n('magic_link_sent_message', [value])}</p>`
-            + `<p>${i18n('magic_link_sent_keep_open')}</p></div>`);
+            + (connecting
+                ? `<p>${i18n('magic_link_connect_sent_message', [value])}</p><p>${i18n('magic_link_connect_sent_keep_open', [site])}</p>`
+                : `<p>${i18n('magic_link_sent_message', [value])}</p><p>${i18n('magic_link_sent_keep_open')}</p>`)
+            + '</div>');
         $screen.find('.auth-to-login').get(0)?.focus({ preventScroll: true });
     });
 
@@ -249,8 +295,9 @@ export function pushMagicLinkScreen (flow, { email = '' } = {}) {
  * Asks the user to sign in by email, with `email` filled in.
  *
  * @param {Partial<import('./authFlow.js').AuthFlowOptions> & {
- *   email?: string, page?: boolean, dismissable?: boolean,
- * }} [options] `page` and `dismissable` as in `openAuthFlow`.
+ *   email?: string, connect?: boolean, page?: boolean, dismissable?: boolean,
+ * }} [options] `connect` as in `pushMagicLinkScreen`; `page` and
+ *   `dismissable` as in `openAuthFlow`.
  * @returns {Promise<boolean>} True once signed in, unless the page reloads
  *   first; false when the user dismisses it. Joins an auth flow that is
  *   already open instead of opening another.
@@ -263,6 +310,6 @@ export default function UIAuthMagicLink (options = {}) {
         dismissable: options.dismissable,
         options,
     });
-    pushMagicLinkScreen(flow, { email: options.email });
+    pushMagicLinkScreen(flow, { email: options.email, connect: options.connect });
     return flow.result;
 }
