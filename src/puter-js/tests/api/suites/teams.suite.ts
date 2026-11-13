@@ -1,6 +1,5 @@
 import { suite } from '../harness/types.ts';
 import type {
-    SuiteTest,
     SuiteTestSpec,
     TestContext,
 } from '../harness/types.ts';
@@ -15,12 +14,16 @@ const CLIENT_SIDE = new Set([
 ]);
 
 const needsTeams = (
-    tests: Record<string, SuiteTest>,
+    tests: Record<string, SuiteTestSpec>,
 ): Record<string, SuiteTestSpec> =>
     Object.fromEntries(
-        Object.entries(tests).map(([name, fn]) => [
+        Object.entries(tests).map(([name, spec]) => [
             name,
-            CLIENT_SIDE.has(name) ? fn : { requires: ['teams'], fn },
+            CLIENT_SIDE.has(name)
+                ? spec
+                : typeof spec === 'function'
+                    ? { requires: ['teams'], fn: spec }
+                    : { ...spec, requires: ['teams', ...(spec.requires ?? [])] },
         ]),
     );
 
@@ -164,6 +167,67 @@ export default suite('teams', needsTeams({
             typeof member!.uuid === 'string' && member!.uuid.length > 0,
             'the owner should see the seat uuid',
         );
+    },
+
+    'listMembers tells the owner which seats still have a password to set': async (t) => {
+        const team = await makeTeam(t, 'pending');
+        const username = `tsp${tag()}`;
+        await t.puter.teams.createMember(team.uid, { username });
+
+        const members = (await t.puter.teams.listMembers(team.uid)) as Array<{
+            username: string; passwordPending?: boolean;
+        }>;
+        const seat = members.find((m) => m.username === username);
+        const owner = members.find((m) => m.username === t.env.users.user.username);
+        t.assert.equal(seat?.passwordPending, true);
+        t.assert.equal(owner?.passwordPending, false);
+    },
+
+    "a member's listMembers carries no passwordPending": {
+        // Sends the seat's session cookie by hand, which a browser page cannot.
+        platforms: ['node', 'workerd'],
+        fn: async (t) => {
+            const team = await makeTeam(t, 'member-view');
+            const username = `tsv${tag()}`;
+            const { temporaryPassword } = (await t.puter.teams.createMember(team.uid, {
+                username,
+            })) as { temporaryPassword: string };
+
+            const login = await fetch(`${t.env.origin}/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Origin: t.env.origin },
+                body: JSON.stringify({ username, password: temporaryPassword }),
+            });
+            t.assert.ok(login.ok, `seat login failed: ${login.status}`);
+            // The body carries a GUI token; the change-password gate wants the session cookie's.
+            const setCookies = login.headers.getSetCookie?.() ?? [login.headers.get('set-cookie') ?? ''];
+            const cookie = setCookies.find((c) => /httponly/iu.test(c))?.split(';')[0] ?? '';
+            const token = cookie.slice(cookie.indexOf('=') + 1);
+            t.assert.ok(cookie.includes('=') && token.length > 0, 'login should set a session cookie');
+
+            const changed = await fetch(`${t.env.origin}/user-protected/change-password`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Origin: t.env.origin,
+                    Authorization: `Bearer ${token}`,
+                    Cookie: cookie,
+                },
+                body: JSON.stringify({ password: temporaryPassword, new_pass: `seat-${tag()}-${tag()}` }),
+            });
+            t.assert.ok(changed.ok, `password change failed: ${changed.status}`);
+
+            t.puter.setAuthToken(token);
+            try {
+                const members = (await t.puter.teams.listMembers(team.uid)) as Array<Record<string, unknown>>;
+                t.assert.ok(members.length > 0, 'the member should see the roster');
+                for (const m of members) {
+                    t.assert.ok(!('passwordPending' in m), `${String(m.username)} should carry no passwordPending`);
+                }
+            } finally {
+                t.puter.setAuthToken(t.env.users.user.token);
+            }
+        },
     },
 
     'createMember with a taken username rejects': async (t) => {
