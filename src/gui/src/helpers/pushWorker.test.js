@@ -93,6 +93,16 @@ describe('startPushWorker', () => {
         expect(handler.mock.calls).toEqual([[{ uid: UID }]]);
     });
 
+    it('syncs again when the worker reports the subscription replaced', async () => {
+        const resync = vi.fn(async () => 'on');
+        const nav = makeNav();
+        await start(await load(), { nav, resync });
+        nav.listeners.message({ data: { type: 'puter-notification-click', id: 'click-1', notification: { uid: UID } }, source: { postMessage: vi.fn() } });
+        expect(resync).not.toHaveBeenCalled();
+        nav.listeners.message({ data: { type: 'puter-push-subscription-changed' }, source: {} });
+        expect(resync).toHaveBeenCalledTimes(1);
+    });
+
     it('registers nothing inside a frame', async () => {
         const nav = makeNav();
         await start(await load(), { nav, framed: true });

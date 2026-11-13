@@ -40,13 +40,10 @@ import UIAuthSignup from './UI/Auth/UIAuthSignup.js';
 import UINotification from './UI/UINotification.js';
 
 import { renewGodmodeToken } from './helpers/godmodeTokens.js';
+import { askPushPermission } from './helpers/askPushPermission.js';
 import { appHoldsPermissions } from './helpers/holdsPermissions.js';
-import {
-    browserPushState,
-    PUSH_PERMISSION,
-    pushClientWithin,
-    withEnableDeadline,
-} from './helpers/pushClient.js';
+import { appHoldsForPuter, withoutHeldPush } from './helpers/pushApps.js';
+import { PUSH_PERMISSION } from './helpers/pushClient.js';
 import { ipc_target_window } from './helpers/ipcTargetWindow.js';
 import { addItemWatcher } from './helpers/watchItems.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
@@ -63,27 +60,6 @@ const feedback_dialog_guard = createFeedbackDialogGuard();
 const enable_push_dialog_guard = createFeedbackDialogGuard();
 // Same one-at-a-time rule for the custom domain dialog.
 const custom_domain_dialog_guard = createFeedbackDialogGuard();
-
-/** For an app without `notifications:push`: the permission dialog, whose Allow also turns push on here. Resolves this browser's push state once that settles, `'off'` when denied. @returns {Promise<import('./helpers/pushClient.js').BrowserPushState>} */
-const ask_push_permission = async (app_uid, app_name) => {
-    if ( ! app_uid ) return 'unavailable';
-    const client = await pushClientWithin();
-    const state = await browserPushState(client);
-    // A grant can't turn push on in this browser.
-    if ( state === 'unavailable' || state === 'blocked' ) return state;
-    let enabling = null;
-    const granted = await UIPermissionDialog({
-        permission: PUSH_PERMISSION,
-        app_uid,
-        app_name,
-        on_push_enable: (promise) => {
-            enabling = promise;
-        },
-    });
-    if ( granted !== true ) return 'off';
-    if ( enabling ) await withEnableDeadline(enabling);
-    return await browserPushState(client);
-};
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
@@ -1400,14 +1376,25 @@ const ipc_listener = async (event, handled) => {
             return;
         }
 
+        // The SDK leaves push to the desktop, which tells a website's own grant apart.
+        // A push grant held for Puter isn't asked again beside what's missing.
+        const asked_permissions = await withoutHeldPush(requested_permissions, app_uuid);
+        if ( asked_permissions.length < requested_permissions.length
+            && ( asked_permissions.length === 0
+                || await appHoldsPermissions(asked_permissions, app_uuid) ) )
+        {
+            respond(true);
+            return;
+        }
+
         let granted = await UIPermissionDialog({
             // Both forms: the dialog reads `permissions`, and `permission` keeps
             // the single-scope path working for callers (and dialog versions)
             // that only know the scalar. A multi-scope request with no list
             // support is refused rather than partially granted.
-            permissions: requested_permissions,
-            permission: requested_permissions.length === 1
-                ? requested_permissions[0]
+            permissions: asked_permissions,
+            permission: asked_permissions.length === 1
+                ? asked_permissions[0]
                 : undefined,
             app_uid: app_uuid,
             app_name: app_name,
@@ -1519,9 +1506,9 @@ const ipc_listener = async (event, handled) => {
             let state = 'unavailable';
             try {
                 // The push dialog says this app wants to send pushes, so an app that may not asks for that first.
-                state = await appHoldsPermissions([PUSH_PERMISSION], app_uuid)
+                state = await appHoldsForPuter([PUSH_PERMISSION], app_uuid)
                     ? await UIEnablePushDialog({ app_name })
-                    : await ask_push_permission(app_uuid, app_name);
+                    : await askPushPermission({ app_uid: app_uuid, app_name });
             } catch ( e ) {
                 console.error('IPC enablePush failed', e);
             }

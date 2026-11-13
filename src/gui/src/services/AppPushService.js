@@ -20,6 +20,7 @@
 import { Service } from '../definitions.js';
 import { appHoldsPermissions } from '../helpers/holdsPermissions.js';
 import { revokePushApp } from '../helpers/notificationApi.js';
+import { appHoldsForPuter } from '../helpers/pushApps.js';
 import { browserPushState, PUSH_PERMISSION, pushClientWithin } from '../helpers/pushClient.js';
 
 /** The calling app, from the GUI's own record of the window that owns its iframe. */
@@ -45,17 +46,14 @@ export class AppPushService extends Service {
     }
 
     /**
-     * IPC: this browser's push state for the calling app, `on` only while
-     * push is on here and the app holds `notifications:push`. An `on` this
-     * page already read for the browser counts.
+     * IPC: this browser's push state for the app, `on` only while push is on here (cached) and the app may push to Puter.
      *
      * @returns {Promise<{ state: 'on'|'off'|'blocked'|'unavailable' }>}
      */
     async pushStatus (_params, { ipc_context } = {}) {
         const state = await browserPushState(await pushClientWithin(), { cached: true });
         if ( state !== 'on' ) return { state };
-        const held = await appHoldsPermissions([PUSH_PERMISSION], app_uid_of(ipc_context));
-        return { state: held ? 'on' : 'off' };
+        return { state: await appHoldsForPuter([PUSH_PERMISSION], app_uid_of(ipc_context)) ? 'on' : 'off' };
     }
 
     /**

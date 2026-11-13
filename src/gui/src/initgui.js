@@ -79,7 +79,9 @@ import {
     wantsFullToken,
 } from './util/authmeGrant.js';
 import init_device_signals from './helpers/deviceSignals.js';
-import { appHoldsPermissions, holdsPermissions } from './helpers/holdsPermissions.js';
+import { holdsPermissions } from './helpers/holdsPermissions.js';
+import { askPushPermission } from './helpers/askPushPermission.js';
+import { appHoldsForPuter, pushGrantOf } from './helpers/pushApps.js';
 import { PUSH_PERMISSION, withEnableDeadline } from './helpers/pushClient.js';
 import { startPushWorker } from './helpers/pushWorker.js';
 import item_icon from './helpers/itemIcon.js';
@@ -898,7 +900,9 @@ const postAuthActions = async (action) => {
             }
             // A signed-out opener holds no token to settle this for itself, so
             // ask here, as the app, with the token the exchange just minted.
-            const already_held = await holdsPermissions(permissions, user_app_token);
+            const already_held = await appHoldsForPuter(permissions, window.host_app_uid, {
+                holds: (wanted) => holdsPermissions(wanted, user_app_token),
+            });
             // The requesting app is identified by its origin, and only the
             // server turns that origin into a grant target. No uid is sent
             // from here: a uid from the query string is chosen by whoever
@@ -968,9 +972,14 @@ const postAuthActions = async (action) => {
             }
             // The dialog says this site wants to send pushes, so only a site whose app may.
             const app_uid = await window.getAppUIDFromOrigin(origin);
-            if ( app_uid && await appHoldsPermissions([PUSH_PERMISSION], app_uid) ) {
+            const grant = app_uid ? await pushGrantOf(app_uid) : 'none';
+            if ( grant === 'puter' ) {
                 startPushWorker();
                 state = await UIEnablePushDialog({ origin });
+            } else if ( grant === 'website' ) {
+                // Its site's own Web Push grant doesn't reach Puter, so Puter's prompt asks first.
+                startPushWorker();
+                state = await askPushPermission({ origin });
             }
         } catch (e) {
             console.error('enable-push action failed', e);
