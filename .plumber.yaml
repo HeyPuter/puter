@@ -1,0 +1,14 @@
+# Plumber overlay: inherits every control from the built-in defaults, only
+# what differs for this repository is written here.
+extends: plumber:default
+version: '2.0'
+
+github:
+  controls:
+    githubActionMustComeFromAuthorizedSources:
+      # Keeps the default list and adds the third-party actions the test
+      # workflows use.
+      includePlumberDefaults: true
+      trustedGithubActions:
+        - davelosert/vitest-coverage-report-action
+        - dorny/paths-filter

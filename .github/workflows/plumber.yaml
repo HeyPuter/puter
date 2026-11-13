@@ -1,0 +1,42 @@
+name: Plumber
+
+# Scores the workflow files in this directory. Pushes to main keep the
+# published score current, pull requests are held to the same 85 point gate.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  plumber:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Reads the workflow states and one run log to prove each job's token scope.
+      actions: read
+      # Uploads the findings to code scanning.
+      security-events: write
+      # Lets score-push publish the score, without a secret.
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run Plumber
+        uses: getplumber/plumber@v0.7.23
+        with:
+          # One small finding costs a few points, so it does not block a PR.
+          min-points: 85
+          # Publishes the score and the repository name on score.getplumber.io.
+          # A failed publish never fails the run.
+          score-push: true
+          # A fork's token is read-only and cannot write to code scanning. The
+          # report stays available as a workflow artifact there.
+          upload-sarif: ${{ github.event.pull_request.head.repo.fork != true }}
