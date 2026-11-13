@@ -28,6 +28,9 @@ workflows:
         - 'actions/setup-node@v7.1.0'
     '.github/workflows/notify-dev.yaml': []
     '.github/workflows/notify-prod.yaml': []
+    '.github/workflows/plumber.yaml':
+        - 'actions/checkout@v7.0.1'
+        - 'getplumber/plumber@v0.7.23'
     '.github/workflows/puterjs-tests.yaml':
         - 'actions/checkout@v7.0.1'
         - 'actions/download-artifact@v8.0.2'
@@ -54,6 +57,11 @@ dependencies:
         commit: 'sha1-949feb2413d6458794dcd2491c4babbbce0c15c1'
         owner_id: 44036562
         repo_id: 189476904
+    'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9':
+        ref: 'v7.0.2'
+        commit: 'sha1-cf430e030ddbb5b0abf93d22962f4752f3646cd9'
+        owner_id: 44036562
+        repo_id: 192625955
     'actions/upload-artifact@v7.0.2':
         ref: 'v7.0.2'
         commit: 'sha1-cf430e030ddbb5b0abf93d22962f4752f3646cd9'
@@ -99,6 +107,19 @@ dependencies:
         commit: 'sha1-ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d'
         owner_id: 1588572
         repo_id: 265601040
+    'getplumber/plumber@v0.7.23':
+        ref: 'v0.7.23'
+        commit: 'sha1-ec8cb3a7edd6a324b33e85109b627b2df6023d94'
+        owner_id: 255179076
+        repo_id: 1137327132
+        uses:
+            - 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9'
+            - 'github/codeql-action@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee'
+    'github/codeql-action@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee':
+        ref: 'v4.39.0'
+        commit: 'sha1-6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee'
+        owner_id: 9919
+        repo_id: 259445878
     'peter-evans/dockerhub-description@v5.0.0':
         ref: 'v5.0.0'
         commit: 'sha1-1b9a80c056b620d92cedb9d9b5a223409c68ddfa'
