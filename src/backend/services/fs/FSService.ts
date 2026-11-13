@@ -3027,9 +3027,10 @@ export class FSService extends PuterService {
         if (!liveKey || liveKey === session.objectKey) return;
         // The completion was allowed against a path, so that is where the
         // entry has to still be; a move since would put the bytes elsewhere.
+        // The upload may spell the entry's name in another case or form.
         const target =
             await this.stores.fsEntry.getEntryByUuidFromPrimary(liveKey);
-        if (!target || target.path !== session.targetPath) {
+        if (!target || !entryNamesMatch(target.path, session.targetPath)) {
             throw new HttpError(409, 'Upload target has moved', {
                 legacyCode: 'conflict',
             });

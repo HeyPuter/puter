@@ -333,6 +333,76 @@ describe.each(engines.filter((engine) => !engine.skip))(
             expect(await readBack(replaced)).toBe('two');
         });
 
+        // The upload a client makes straight to storage, then confirms.
+        const signedWrite = async (path: string, content: string) => {
+            const started = await fs.startUrlWrite(userId, {
+                fileMetadata: {
+                    path,
+                    size: Buffer.byteLength(content),
+                    contentType: 'text/plain',
+                    overwrite: true,
+                },
+            });
+            await fetch(started.url!, {
+                method: 'PUT',
+                body: content,
+                headers: { 'content-type': 'text/plain' },
+            });
+            return fs.completeUrlWrite(userId, { uploadId: started.sessionId });
+        };
+
+        it('overwrites a case-only spelling in place through a signed upload', async () => {
+            const dir = await freshDir();
+            const original = await write(`${dir}/Notes.txt`, 'one');
+
+            const completed = await signedWrite(`${dir}/notes.txt`, 'two');
+            expect(completed.wasOverwrite).toBe(true);
+            expect(completed.fsEntry.uuid).toBe(original.uuid);
+            expect(await names(dir)).toEqual(['notes.txt']);
+            expect(await readBack(completed.fsEntry)).toBe('two');
+        });
+
+        it('overwrites a case-only spelling in place through a signed batch upload', async () => {
+            const dir = await freshDir();
+            const original = await write(`${dir}/Notes.txt`, 'one');
+
+            const [started] = await fs.batchStartUrlWrites(userId, [
+                {
+                    fileMetadata: {
+                        path: `${dir}/notes.txt`,
+                        size: 3,
+                        contentType: 'text/plain',
+                        overwrite: true,
+                    },
+                },
+            ]);
+            await fetch(started!.url!, { method: 'PUT', body: 'two' });
+            const [completed] = await fs.batchCompleteUrlWrite(userId, [
+                { uploadId: started!.sessionId },
+            ]);
+            expect(completed?.wasOverwrite).toBe(true);
+            expect(completed?.fsEntry.uuid).toBe(original.uuid);
+            expect(await names(dir)).toEqual(['notes.txt']);
+        });
+
+        it('overwrites an NFD spelling of a stored name in place, signed or not', async () => {
+            const dir = await freshDir();
+            const nfc = `${dir}/r\u00e9sum\u00e9.txt`;
+            const nfd = nfc.normalize('NFD');
+            expect(nfd).not.toBe(nfc);
+            const original = await write(nfc, 'one');
+
+            const replaced = await write(nfd, 'two', { overwrite: true });
+            expect(replaced.uuid).toBe(original.uuid);
+            expect(await names(dir)).toHaveLength(1);
+
+            const completed = await signedWrite(nfd, 'three');
+            expect(completed.wasOverwrite).toBe(true);
+            expect(completed.fsEntry.uuid).toBe(original.uuid);
+            expect(await names(dir)).toHaveLength(1);
+            expect(await readBack(completed.fsEntry)).toBe('three');
+        });
+
         it('reads nothing at a folded name, without caching the sibling under it', async () => {
             const dir = await freshDir();
             const original = await write(`${dir}/😀.txt`, 'grinning');
