@@ -1850,7 +1850,9 @@ export class FSController extends PuterController {
     }
 
     async #assertCanDedupeCreate(actor: Actor, targetPath: string) {
-        const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
+        const existing = await this.stores.fsEntry.getEntryByPath(targetPath, {
+            foldedNames: true,
+        });
         if (!existing) return;
         const parent = pathPosix.dirname(targetPath);
         await this.#assertAccess(

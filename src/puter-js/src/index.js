@@ -14,7 +14,6 @@ import {
 import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
-import * as utils from './lib/utils.js';
 import { AI } from './modules/ai/index.js';
 import { Apps } from './modules/apps/index.js';
 import Auth from './modules/Auth.js';
@@ -648,6 +647,8 @@ export class Puter {
         // The in-flight boot `/whoami`, awaited by anything that wants the
         // cached user without issuing its own request.
         this.whoamiCache_ = null;
+        /** @internal The boot `/whoami` while in flight, for `getUser()` to join. */
+        this.whoamiInFlight_ = null;
 
         // A user session token must never be adopted from storage, and an
         // earlier boot may have left one behind.
@@ -920,25 +921,44 @@ export class Puter {
         // use for a cached user and shouldn't pay for the request.
         if (!this.authToken || !this.socketEnabled) return null;
         const issuedUnder = this.authToken;
+        // `user` settles with the user, or null at the first failed attempt.
+        let settle;
+        const inFlight = {
+            token: issuedUnder,
+            origin: this.APIOrigin,
+            user: new Promise((resolve) => {
+                settle = resolve;
+            }),
+            refusal: null,
+        };
+        this.whoamiInFlight_ = inFlight;
         try {
             const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
                 authToken: this.authToken,
                 interactiveReauth: false,
+                onRetry: () => settle(null),
                 logContext: {
                     service: 'auth',
                     operation: 'whoami',
                     params: {},
                 },
             });
-            if (!resp.ok) return null;
+            if (!resp.ok) {
+                inFlight.refusal = await resp.json().catch(() => null);
+                return null;
+            }
             const body = await resp.json();
             // The answer belongs to the token that asked for it.
             if (this.authToken !== issuedUnder) return null;
             this.whoami = body;
+            settle(body);
             return this.whoami;
         } catch (e) {
             // Best-effort cache — a network failure leaves it unset.
             return null;
+        } finally {
+            settle(null);
+            if (this.whoamiInFlight_ === inFlight) this.whoamiInFlight_ = null;
         }
     }
 
@@ -1165,6 +1185,7 @@ export class Puter {
     _dropIdentityCaches = function () {
         this.whoami = undefined;
         this.whoamiCache_ = null;
+        this.whoamiInFlight_ = null;
         try {
             this._cache.flushall();
         } catch (e) {
@@ -1710,24 +1731,7 @@ export class Puter {
             };
         }
 
-        return new Promise((resolve, reject) => {
-            const xhr = utils.initXhr(
-                '/whoami',
-                this.APIOrigin,
-                this.authToken,
-                'get',
-            );
-            // set up event handlers for load and error events
-            utils.setupXhrEventHandlers(
-                xhr,
-                options.success,
-                options.error,
-                resolve,
-                reject,
-            );
-
-            xhr.send();
-        });
+        return this.auth.requestUser_(options);
     };
 
     print = function (...args) {

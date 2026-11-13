@@ -147,13 +147,31 @@ describe('the permission popup and browser push', () => {
         expect(requestPermission).not.toContain('setTimeout');
     });
 
-    it('shows the enable-push dialog only for a site whose app may send pushes', () => {
+    it('skips the permission dialog only for a push grant that reaches Puter devices', () => {
+        const held = requestPermission.indexOf('await appHoldsForPuter(permissions, window.host_app_uid');
+        expect(held).toBeGreaterThan(-1);
+        expect(held).toBeLessThan(requestPermission.indexOf('await UIPermissionDialog({'));
+    });
+
+    it('takes the helper`s answer for a held push grant as it comes, also when the app list can`t be read', () => {
+        const held = requestPermission.indexOf('await appHoldsForPuter(permissions, window.host_app_uid');
+        const statement = requestPermission.slice(held, requestPermission.indexOf(';', held));
+        expect(statement).not.toContain('.catch(');
+    });
+
+    it('shows the enable-push dialog only for a site whose app may push to Puter devices', () => {
         const resolved = enablePush.indexOf('await window.getAppUIDFromOrigin(origin)');
-        const checked = enablePush.indexOf('await appHoldsPermissions([PUSH_PERMISSION], app_uid)');
+        const checked = enablePush.indexOf('await pushGrantOf(app_uid)');
         const dialog = enablePush.indexOf('await UIEnablePushDialog({ origin })');
         expect(resolved).toBeGreaterThan(-1);
         expect(checked).toBeGreaterThan(resolved);
         expect(dialog).toBeGreaterThan(checked);
+    });
+
+    it('asks Puter`s permission in the enable-push popup for a site holding only its own Web Push grant', () => {
+        const website = enablePush.indexOf("grant === 'website'");
+        expect(website).toBeGreaterThan(-1);
+        expect(enablePush.indexOf('await askPushPermission({ origin })')).toBeGreaterThan(website);
     });
 
     it('answers an enable-push opener it cannot attest, like a permission prompt', () => {

@@ -740,6 +740,60 @@ describe('AuthService (integration)', () => {
             ).toBeFalsy();
         });
 
+        describe('listSessions and expiry', () => {
+            const nowS = () => Math.floor(Date.now() / 1000);
+
+            const listedUuids = async (user: { id: number }) =>
+                (await authService.listSessions({ user } as Actor)).map(
+                    (r) => (r as { uuid: string }).uuid,
+                );
+
+            it.each(['web', 'app', 'access_token'])(
+                'leaves out an expired %s session and lists a live one',
+                async (kind) => {
+                    const user = await makeUser();
+                    const sessions = server.stores.session;
+                    const live = await sessions.create(user.id, {
+                        kind,
+                        expires_at: nowS() + 3600,
+                    });
+                    const expired = await sessions.create(user.id, {
+                        kind,
+                        expires_at: nowS() - 1,
+                    });
+
+                    const uuids = await listedUuids(user);
+                    expect(uuids).toContain(live.uuid);
+                    expect(uuids).not.toContain(expired.uuid);
+                },
+            );
+
+            it('leaves out a token whose parent session has expired or is gone', async () => {
+                const user = await makeUser();
+                const sessions = server.stores.session;
+                const token = (parent: string) =>
+                    sessions.create(user.id, {
+                        kind: 'access_token',
+                        parent_session_id: parent,
+                        expires_at: nowS() + 3600,
+                    });
+                const liveParent = await sessions.create(user.id);
+                const expiredParent = await sessions.create(user.id, {
+                    expires_at: nowS() - 1,
+                });
+                const listed = await token(liveParent.uuid);
+                const underExpired = await token(expiredParent.uuid);
+                const underMissing = await token(uuidv4());
+
+                const uuids = await listedUuids(user);
+                expect(uuids).toContain(liveParent.uuid);
+                expect(uuids).toContain(listed.uuid);
+                expect(uuids).not.toContain(expiredParent.uuid);
+                expect(uuids).not.toContain(underExpired.uuid);
+                expect(uuids).not.toContain(underMissing.uuid);
+            });
+        });
+
         it('listSessions excludes kind="asset" rows', async () => {
             // Asset rows are per-cookie children of `web` rows, revoked
             // transitively via the cascade — surfacing them in the
@@ -4298,6 +4352,32 @@ describe('AuthService (integration)', () => {
                     // Only revokeAllSessions keeps app authorizations.
                     expect(revoked).toBe(name !== 'revokeAllSessions');
                 }
+            },
+        );
+
+        it.each(revokers)(
+            '%s revokes an expired session and its live children',
+            async (_name, revoke) => {
+                const user = await makeUser();
+                const sessions = server.stores.session;
+                const now = Math.floor(Date.now() / 1000);
+                const web = await sessions.create(user.id, {
+                    expires_at: now - 1,
+                });
+                const child = await sessions.create(user.id, {
+                    kind: 'access_token',
+                    parent_session_id: web.uuid,
+                    expires_at: now + 3600,
+                });
+
+                await revoke(user);
+
+                const rows = await server.clients.db.read(
+                    'SELECT `uuid`, `revoked_at` FROM `sessions` WHERE `uuid` IN (?, ?)',
+                    [web.uuid, child.uuid],
+                );
+                expect(rows).toHaveLength(2);
+                for (const row of rows) expect(row.revoked_at).not.toBeNull();
             },
         );
 

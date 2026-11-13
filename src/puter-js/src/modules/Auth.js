@@ -1,5 +1,5 @@
 import * as utils from '../lib/utils.js';
-import { fetchUrl } from '../lib/networkUtils.js';
+import { fetchUrl, resolveReauth } from '../lib/networkUtils.js';
 import { PuterModule } from '../lib/PuterModule.js';
 import PuterDialog from './PuterDialog.js';
 import { hasOpaqueOrigin } from '../lib/auth-popup.js';
@@ -536,26 +536,81 @@ export class AuthModule extends PuterModule {
             };
         }
 
-        return new Promise((resolve, reject) => {
-            const xhr = utils.initXhr(
-                '/whoami',
-                puter.APIOrigin,
-                puter.authToken,
-                'get',
-            );
-
-            // set up event handlers for load and error events
-            utils.setupXhrEventHandlers(
-                xhr,
-                options.success,
-                options.error,
-                resolve,
-                reject,
-            );
-
-            xhr.send();
-        });
+        return puter.auth.requestUser_(options);
     };
+
+    /** @internal `/whoami` for `getUser()` and `puter.getUser()`. */
+    requestUser_(options) {
+        return new Promise((resolve, reject) => {
+            const send = () => {
+                const xhr = utils.initXhr(
+                    '/whoami',
+                    this.puter.APIOrigin,
+                    this.puter.authToken,
+                    'get',
+                );
+                utils.setupXhrEventHandlers(
+                    xhr,
+                    options.success,
+                    options.error,
+                    resolve,
+                    reject,
+                );
+                xhr.send();
+            };
+            const joined = this.joinBootLookup_();
+            if (!joined) return send();
+            joined.then(
+                (user) => {
+                    if (!user) return send();
+                    try {
+                        if (typeof options.success === 'function') {
+                            options.success(user);
+                        }
+                    } finally {
+                        resolve(user);
+                    }
+                },
+                (error) => utils.handle_error(options.error, reject, error),
+            );
+        });
+    }
+
+    /**
+     * @internal Joins the boot `/whoami` in flight for the live token at this
+     * origin: a promise of the caller's own copy of its user, or of null when
+     * the caller should send its own request. Null when there is none to join.
+     *
+     * @param {(reauth: { error: unknown }, body: Record<string, any>) => unknown} [refusalError]
+     * What to reject with when the user declines the sign-in a refused lookup
+     * asks for. Defaults to the sign-in's own error.
+     */
+    joinBootLookup_(refusalError = (reauth) => reauth.error) {
+        const { puter } = this;
+        const inFlight = puter.whoamiInFlight_;
+        if (
+            !inFlight ||
+            inFlight.token !== puter.authToken ||
+            inFlight.origin !== puter.APIOrigin
+        ) {
+            return null;
+        }
+        return inFlight.user.then(async (user) => {
+            // The body is parsed JSON, so this copies all of it.
+            if (user) return JSON.parse(JSON.stringify(user));
+            if (inFlight.refusal) {
+                // Ask the user to sign in, as the caller's own 401 would.
+                const reauth = await resolveReauth(inFlight.refusal, {
+                    sentToken: inFlight.token,
+                });
+                if (reauth?.action === 'reject') {
+                    throw refusalError(reauth, inFlight.refusal);
+                }
+            }
+            if (!puter.authToken) throw { status: 401, message: 'Unauthorized' };
+            return null;
+        });
+    }
 
     /**
      * A user's profile, or `null` when none is available: the user does not
@@ -691,20 +746,33 @@ export class AuthModule extends PuterModule {
             };
         }
 
+        // Not always 'Unauthorized': a 502 with an HTML body is not a 401.
+        const refused = (status, body) => ({
+            status,
+            message: body?.message ?? body?.error
+                ?? `whoami failed with status ${status}`,
+            ...(body?.code ? { code: body.code } : {}),
+        });
+
+        // A declined sign-in rejects as this call's own refused request would.
+        const joined = await this.joinBootLookup_(
+            (_reauth, body) => refused(401, body),
+        );
+        if (joined) return joined;
+
         const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
             includePuterAuth: true,
             logContext: { service: 'auth', operation: 'whoami', params: {} },
         });
         // Unchecked, an expired token resolves to an error body typed as a user.
         if (!resp.ok) {
-            const body = await resp.json().catch(() => ({}));
-            // Not always 'Unauthorized': a 502 with an HTML body is not a 401.
-            throw {
-                status: resp.status,
-                message: body?.message ?? body?.error
-                    ?? `whoami failed with status ${resp.status}`,
-                ...(body?.code ? { code: body.code } : {}),
-            };
+            let body = {};
+            try {
+                body = await resp.json();
+            } catch {
+                // No JSON body; the status alone describes the failure.
+            }
+            throw refused(resp.status, body);
         }
         return await resp.json();
     }

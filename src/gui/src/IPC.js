@@ -17,8 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import download from './helpers/download.js';
 import ensureConfirmedEmail from './helpers/ensureConfirmedEmail.js';
+import fetchUrlAsFile from './helpers/fetchUrlAsFile.js';
+import createSavePickerAnswer, { signSavedFile } from './helpers/savePickerAnswer.js';
 import item_icon from './helpers/itemIcon.js';
 import { atPath } from './helpers/pathElements.js';
 import socialLink from './helpers/socialLink.js';
@@ -39,13 +40,10 @@ import UIAuthSignup from './UI/Auth/UIAuthSignup.js';
 import UINotification from './UI/UINotification.js';
 
 import { renewGodmodeToken } from './helpers/godmodeTokens.js';
+import { askPushPermission } from './helpers/askPushPermission.js';
 import { appHoldsPermissions } from './helpers/holdsPermissions.js';
-import {
-    browserPushState,
-    PUSH_PERMISSION,
-    pushClientWithin,
-    withEnableDeadline,
-} from './helpers/pushClient.js';
+import { appHoldsForPuter, withoutHeldPush } from './helpers/pushApps.js';
+import { PUSH_PERMISSION } from './helpers/pushClient.js';
 import { ipc_target_window } from './helpers/ipcTargetWindow.js';
 import { addItemWatcher } from './helpers/watchItems.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
@@ -62,27 +60,6 @@ const feedback_dialog_guard = createFeedbackDialogGuard();
 const enable_push_dialog_guard = createFeedbackDialogGuard();
 // Same one-at-a-time rule for the custom domain dialog.
 const custom_domain_dialog_guard = createFeedbackDialogGuard();
-
-/** For an app without `notifications:push`: the permission dialog, whose Allow also turns push on here. Resolves this browser's push state once that settles, `'off'` when denied. @returns {Promise<import('./helpers/pushClient.js').BrowserPushState>} */
-const ask_push_permission = async (app_uid, app_name) => {
-    if ( ! app_uid ) return 'unavailable';
-    const client = await pushClientWithin();
-    const state = await browserPushState(client);
-    // A grant can't turn push on in this browser.
-    if ( state === 'unavailable' || state === 'blocked' ) return state;
-    let enabling = null;
-    const granted = await UIPermissionDialog({
-        permission: PUSH_PERMISSION,
-        app_uid,
-        app_name,
-        on_push_enable: (promise) => {
-            enabling = promise;
-        },
-    });
-    if ( granted !== true ) return 'off';
-    if ( enabling ) await withEnableDeadline(enabling);
-    return await browserPushState(client);
-};
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
@@ -1399,14 +1376,25 @@ const ipc_listener = async (event, handled) => {
             return;
         }
 
+        // The SDK leaves push to the desktop, which tells a website's own grant apart.
+        // A push grant held for Puter isn't asked again beside what's missing.
+        const asked_permissions = await withoutHeldPush(requested_permissions, app_uuid);
+        if ( asked_permissions.length < requested_permissions.length
+            && ( asked_permissions.length === 0
+                || await appHoldsPermissions(asked_permissions, app_uuid) ) )
+        {
+            respond(true);
+            return;
+        }
+
         let granted = await UIPermissionDialog({
             // Both forms: the dialog reads `permissions`, and `permission` keeps
             // the single-scope path working for callers (and dialog versions)
             // that only know the scalar. A multi-scope request with no list
             // support is refused rather than partially granted.
-            permissions: requested_permissions,
-            permission: requested_permissions.length === 1
-                ? requested_permissions[0]
+            permissions: asked_permissions,
+            permission: asked_permissions.length === 1
+                ? asked_permissions[0]
                 : undefined,
             app_uid: app_uuid,
             app_name: app_name,
@@ -1518,9 +1506,9 @@ const ipc_listener = async (event, handled) => {
             let state = 'unavailable';
             try {
                 // The push dialog says this app wants to send pushes, so an app that may not asks for that first.
-                state = await appHoldsPermissions([PUSH_PERMISSION], app_uuid)
+                state = await appHoldsForPuter([PUSH_PERMISSION], app_uuid)
                     ? await UIEnablePushDialog({ app_name })
-                    : await ask_push_permission(app_uuid, app_name);
+                    : await askPushPermission({ app_uid: app_uuid, app_name });
             } catch ( e ) {
                 console.error('IPC enablePush failed', e);
             }
@@ -1679,28 +1667,47 @@ const ipc_listener = async (event, handled) => {
         $el_parent_disable_mask.css('z-index', parseInt($el_parent_window.css('z-index')) + 1);
         $(target_iframe).blur();
 
+        const answer = createSavePickerAnswer({
+            // Gone if the app's own window closed first.
+            cancelled: () => target_iframe.contentWindow?.postMessage({
+                msg: 'fileSaveCancelled',
+                original_msg_id: msg_id,
+            }, '*'),
+        });
+
         const tell_caller_and_update_views = async ({
             target_path,
             el_filedialog_window,
             res,
         }) => {
-            let file_signature = await puter.fs.sign(app_uuid, { uid: res.uid, action: 'write' });
-            file_signature = file_signature.items;
+            let file_signature;
+            try {
+                file_signature = (await signSavedFile(app_uuid, res.uid)).items;
+            } catch ( err ) {
+                console.error(err);
+                await UIAlert({
+                    message: i18n('save_file_not_returned', [], false),
+                    parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+                });
+                answer.cancel();
+            }
 
-            target_iframe.contentWindow.postMessage({
-                msg: 'fileSaved',
-                original_msg_id: msg_id,
-                filename: res.name,
-                saved_file: {
-                    name: file_signature.fsentry_name,
-                    readURL: file_signature.read_url,
-                    writeURL: file_signature.write_url,
-                    metadataURL: file_signature.metadata_url,
-                    type: file_signature.type,
-                    uid: file_signature.uid,
-                    path: privacy_aware_path(res.path),
-                },
-            }, '*');
+            if ( file_signature && answer.saved() ) {
+                target_iframe.contentWindow?.postMessage({
+                    msg: 'fileSaved',
+                    original_msg_id: msg_id,
+                    filename: res.name,
+                    saved_file: {
+                        name: file_signature.fsentry_name,
+                        readURL: file_signature.read_url,
+                        writeURL: file_signature.write_url,
+                        metadataURL: file_signature.metadata_url,
+                        type: file_signature.type,
+                        uid: file_signature.uid,
+                        path: privacy_aware_path(res.path),
+                    },
+                }, '*');
+            }
 
             $(target_iframe).get(0).focus({ preventScroll: true });
             // Update matching items on open windows
@@ -1730,64 +1737,42 @@ const ipc_listener = async (event, handled) => {
             window.show_save_account_notice_if_needed();
         };
 
-        const tell_caller_its_cancelled = async () => {
-            target_iframe.contentWindow.postMessage({
-                msg: 'fileSaveCancelled',
-                original_msg_id: msg_id,
-            }, '*');
-        };
-
         const write_file_tell_caller_and_update_views = async ({
             target_path, el_filedialog_window,
             file_to_upload, overwrite,
         }) => {
-            const res = await puter.fs.write(
+            const res = await answer.write(() => puter.fs.write(
                 target_path,
                 file_to_upload,
                 {
                     dedupeName: false,
                     overwrite: overwrite,
                 },
-            );
+            ));
+            if ( ! res ) return;
 
             await tell_caller_and_update_views({ res, el_filedialog_window, target_path });
         };
 
-        const handle_url_save = async ({ target_path }) => {
-            // download progress tracker
-            let dl_op_id = window.operation_id++;
-
-            // upload progress tracker defaults
-            window.progress_tracker[dl_op_id] = [];
-            window.progress_tracker[dl_op_id][0] = {};
-            window.progress_tracker[dl_op_id][0].total = 0;
-            window.progress_tracker[dl_op_id][0].ajax_uploaded = 0;
-            window.progress_tracker[dl_op_id][0].cloud_uploaded = 0;
-
-            let item_with_same_name_already_exists = true;
-            while ( item_with_same_name_already_exists ) {
-                await download({
-                    url: event.data.url,
-                    name: path.basename(target_path),
-                    dest_path: path.dirname(target_path),
-                    auth_token: window.auth_token,
-                    api_origin: window.api_origin,
-                    dedupe_name: false,
-                    overwrite: false,
-                    operation_id: dl_op_id,
-                    item_upload_id: 0,
-                    success: function (res) {
-                    },
-                    error: function (err) {
-                        UIAlert(err && err.message ? err.message : 'Download failed.');
-                    },
+        const handle_url_save = async ({ target_path, el_filedialog_window }) => {
+            let file_to_upload;
+            try {
+                file_to_upload = await fetchUrlAsFile(event.data.url, path.basename(target_path), {
+                    signal: answer.signal,
                 });
-                item_with_same_name_already_exists = false;
+            } catch ( err ) {
+                // Closing the dialog stops the download and has answered already.
+                if ( answer.answered ) return;
+                await UIAlert({
+                    message: i18n(err.code ?? 'url_save_failed', [], false),
+                    parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+                });
+                return;
             }
+            return await handle_data_save({ target_path, el_filedialog_window, file_to_upload });
         };
 
-        const handle_data_save = async ({ target_path, el_filedialog_window }) => {
-            let file_to_upload = new File([event.data.content], path.basename(target_path));
+        const handle_data_save = async ({ target_path, el_filedialog_window, file_to_upload }) => {
             const written = await window.handle_same_name_exists({
                 action: async ({ overwrite }) => {
                     await write_file_tell_caller_and_update_views({
@@ -1863,20 +1848,22 @@ const ipc_listener = async (event, handled) => {
             let node;
             const written = await window.handle_same_name_exists({
                 action: async ({ overwrite }) => {
-                    if ( overwrite ) {
-                        await puter.fs.delete(target_path);
-                    }
+                    node = await answer.write(async () => {
+                        if ( overwrite ) {
+                            await puter.fs.delete(target_path);
+                        }
 
-                    if ( save_type === 'move' ) {
-                        await puter.fs.move(source_path, target_path);
-                    } else {
-                        const target_dir = path.dirname(target_path);
-                        const new_name = path.basename(target_path);
-                        await puter.fs.copy(source_path, target_dir, {
-                            newName: new_name,
-                        });
-                    }
-                    node = await puter.fs.stat(target_path);
+                        if ( save_type === 'move' ) {
+                            await puter.fs.move(source_path, target_path);
+                        } else {
+                            const target_dir = path.dirname(target_path);
+                            const new_name = path.basename(target_path);
+                            await puter.fs.copy(source_path, target_dir, {
+                                newName: new_name,
+                            });
+                        }
+                        return await puter.fs.stat(target_path);
+                    });
                 },
                 parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
             });
@@ -1885,7 +1872,7 @@ const ipc_listener = async (event, handled) => {
                 await tell_caller_and_update_views({ res: node, el_filedialog_window, target_path });
                 if ( written ) return true;
             } else {
-                await tell_caller_its_cancelled();
+                answer.cancel();
                 return true;
             }
 
@@ -1906,22 +1893,43 @@ const ipc_listener = async (event, handled) => {
             iframe_msg_uid: msg_id,
             center: true,
             initiating_app_uuid: app_uuid,
-            onDialogCancel: () => tell_caller_its_cancelled(),
+            onDialogCancel: () => answer.cancel(),
+            on_close: () => answer.close(),
             onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
+                if ( ! answer.startSave() ) return;
                 $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                 let busy_init_ts = Date.now();
 
-                if ( event.data.url ) {
-                    await handle_url_save({ target_path });
-                } else if ( event.data.source_path ) {
-                    await handle_move_save({
-                        save_type: event.data.save_type,
-                        source_path: event.data.source_path,
-                        target_path,
-                    });
-                } else {
-                    await handle_data_save({ target_path, el_filedialog_window });
+                try {
+                    if ( event.data.url ) {
+                        await handle_url_save({ target_path, el_filedialog_window });
+                    } else if ( event.data.source_path ) {
+                        await handle_move_save({
+                            save_type: event.data.save_type,
+                            source_path: event.data.source_path,
+                            target_path,
+                            el_filedialog_window,
+                        });
+                    } else {
+                        await handle_data_save({
+                            target_path,
+                            el_filedialog_window,
+                            file_to_upload: new File([event.data.content], path.basename(target_path)),
+                        });
+                    }
+                } catch ( err ) {
+                    console.error(err);
+                    if ( ! answer.answered ) {
+                        await UIAlert({
+                            message: err?.message ?? i18n('error_unknown_cause'),
+                            parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+                        });
+                    }
+                } finally {
+                    answer.endSave();
                 }
+                // A save that ends without fileSaved closes the dialog as cancelled.
+                answer.cancel();
 
                 let busy_duration = (Date.now() - busy_init_ts);
                 if ( busy_duration >= window.busy_indicator_hide_delay ) {

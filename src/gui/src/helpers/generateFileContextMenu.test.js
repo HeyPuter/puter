@@ -48,6 +48,7 @@ const { default: generate_file_context_menu } =
     await import('./generateFileContextMenu.js');
 const { default: launch_app } = await import('./launchApp.js');
 const { default: UIAlert } = await import('../UI/UIAlert.js');
+const { unshareAnswering, allRefused, goneRefused } = await import('../../tests/fixtures/sdkUnshare.js');
 const { can_share } = await import('./sharedAccess.js');
 const { is_owned_by_me } = await import('./pathOwner.js');
 
@@ -195,6 +196,29 @@ describe('Remove from Shared', () => {
 
     afterEach(() => {
         document.body.innerHTML = '';
+        UIAlert.mockReset();
+    });
+
+    it.each([
+        ['is refused', allRefused, 'Held through a team'],
+        ['resolves with the pair refused', goneRefused, 'Subject does not exist'],
+    ])('keeps the row and shows the error when leaving the share %s', async (_, answer, message) => {
+        const row = sharedRow();
+        document.body.append(row);
+        const onRemovedFromShared = vi.fn();
+        window.user = { username: 'alice' };
+        globalThis.puter = { fs: { unshare: unshareAnswering(answer) } };
+        const items = await generate_file_context_menu({
+            element: row,
+            fsentry: { name: 'notes.txt', path: '/ann/uid-1/notes.txt' },
+            associated_app_name: 'editor',
+            onRemovedFromShared,
+        });
+        await items.find((item) => item.html === 'share_remove_from_shared').onClick();
+
+        expect(UIAlert).toHaveBeenCalledWith({ message });
+        expect(row.isConnected).toBe(true);
+        expect(onRemovedFromShared).not.toHaveBeenCalled();
     });
 
     it('takes the row away once the user has left it', async () => {
