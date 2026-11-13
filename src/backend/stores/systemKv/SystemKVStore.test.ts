@@ -185,6 +185,38 @@ describe('SystemKVStore', () => {
             ).rejects.toMatchObject({ statusCode: 400, code: 'value_too_large' });
         });
 
+        it('rejects a value under the size limit that is too large once stored', async () => {
+            // Every element costs more stored than it does as JSON.
+            const grid = new Array(140_000).fill(1);
+            await expect(
+                target.set({ key: 'grid', value: grid }, opts),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_too_large',
+            });
+
+            // The key counts toward the stored size too.
+            const atLimit = 'x'.repeat(399 * 1024 - 2);
+            await expect(
+                target.set({ key: 'k'.repeat(1000), value: atLimit }, opts),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_too_large',
+            });
+            await expect(
+                target.set({ key: 'short', value: atLimit }, opts),
+            ).resolves.toMatchObject({ res: true });
+        });
+
+        it('asks the store for a consistent read of several keys', async () => {
+            const batchGet = vi.spyOn(server.clients.dynamo, 'batchGet');
+            await target.get({ key: ['a', 'b'], consistentRead: true }, opts);
+            await target.get({ key: ['a', 'b'] }, opts);
+            const consistent = batchGet.mock.calls.map((call) => !!call[1]);
+            batchGet.mockRestore();
+            expect(consistent).toEqual([true, false]);
+        });
+
         it('clamps a number too large to store, rather than failing the write', async () => {
             await target.set(
                 { key: 'huge', value: 1.6515584833071455e55 },
@@ -316,6 +348,23 @@ describe('SystemKVStore', () => {
             );
             const result = await target.get({ key: 'dup' }, opts);
             expect(result.res).toBe('last');
+        });
+
+        it('rejects an item under the size limit that is too large once stored', async () => {
+            await expect(
+                target.batchPut(
+                    {
+                        items: [
+                            { key: 'ok', value: 1 },
+                            { key: 'grid', value: new Array(140_000).fill(1) },
+                        ],
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                code: 'value_too_large',
+            });
         });
 
         it('rejects when any item has an oversized key', async () => {

@@ -280,12 +280,13 @@ Sizes are the same for every account:
 | Key, through a share handle | 768 bytes (UTF-8)                       |
 | `list()` pattern, through a share handle | 768 bytes (UTF-8)            |
 | Value                     | 399 KB (408,576 bytes)                    |
+| Stored entry (key and value) | 400 KB                                 |
 | Any number inside a value | ±9,007,199,254,740,991 (2<sup>53</sup>−1) |
 | Path nesting (`add`/`update`/`incr`/`decr`/`remove`) | 31 levels |
 | Path segments in one call, all paths together | 1,500 |
 | Nesting depth of a value, counting its path | 32 levels |
 
-A key or value over its size limit is rejected. A key you pass with a share handle is relative to the handle, and its 768-byte limit stays the same whatever the length of the shared prefix. An empty key or a longer one is refused with `kv_handle_key_invalid`, and so is a longer `list()` pattern.
+A key or value over its size limit is rejected. A value is measured as JSON. The stored entry counts its key too, and a value with many small elements, such as a long array of single digits, takes more room stored than it does as JSON, so it can reach the 400 KB stored limit below 399 KB of JSON. A key you pass with a share handle is relative to the handle, and its 768-byte limit stays the same whatever the length of the shared prefix. An empty key or a longer one is refused with `kv_handle_key_invalid`, and so is a longer `list()` pattern.
 
 A number out of range isn't rejected. It's stored clamped to the bound, and `NaN` is stored as `null`, as `JSON.stringify()` does. This applies at any depth inside an object or array. Store values that must stay exact past 2<sup>53</sup>, such as large ids or running totals, as strings.
 
