@@ -126,6 +126,12 @@ const NEGATIVE_CACHE_TTL_SECONDS = 10;
 // Cap on placeholders per `IN (?, ?, …)` chunk — mirrors AppStore/UserStore.
 const BULK_QUERY_CHUNK_SIZE = 200;
 
+/**
+ * The spelling a name is stored under. Lookups go through it so every spelling
+ * shares the cache entry a write to the row clears.
+ */
+const normalizeName = (name: string): string => name.trim().toLowerCase();
+
 export class SubdomainStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
@@ -168,9 +174,11 @@ export class SubdomainStore extends PuterStore {
             cachedMisses,
         }: { primary?: boolean; cachedMisses?: Set<string> } = {},
     ): Promise<SubdomainRow | null> {
-        if (!subdomain) return null;
+        if (typeof subdomain !== 'string') return null;
+        const name = normalizeName(subdomain);
+        if (!name) return null;
 
-        const cacheKey = this.#cacheKey(subdomain);
+        const cacheKey = this.#cacheKey(name);
         if (!primary) {
             try {
                 const raw = await this.clients.redis.get(cacheKey);
@@ -193,8 +201,8 @@ export class SubdomainStore extends PuterStore {
         const fromPrimary = primary || tombstoned;
         const sql = 'SELECT * FROM `subdomains` WHERE `subdomain` = ? LIMIT 1';
         const rows = fromPrimary
-            ? await this.clients.db.pread(sql, [subdomain])
-            : await this.clients.db.read(sql, [subdomain]);
+            ? await this.clients.db.pread(sql, [name])
+            : await this.clients.db.read(sql, [name]);
         const row = (rows[0] as unknown as SubdomainRow | undefined) ?? null;
 
         const populate = () =>
@@ -226,15 +234,27 @@ export class SubdomainStore extends PuterStore {
             cachedMisses,
         }: { primary?: boolean; cachedMisses?: Set<string> } = {},
     ): Promise<Map<string, SubdomainRow>> {
-        const result = new Map<string, SubdomainRow>();
-        const uniqueNames = [
-            ...new Set(
-                (Array.isArray(names) ? names : []).filter(
-                    (n): n is string => typeof n === 'string' && n.length > 0,
-                ),
-            ),
-        ];
-        if (uniqueNames.length === 0) return result;
+        // Looked up by normalized name, answered under the caller's spelling.
+        const requested = new Map<string, string>();
+        for (const name of Array.isArray(names) ? names : []) {
+            if (typeof name !== 'string') continue;
+            const normalized = normalizeName(name);
+            if (normalized) requested.set(name, normalized);
+        }
+        const found = new Map<string, SubdomainRow>();
+        const negativeCached = new Set<string>();
+        const answer = () => {
+            const answered = new Map<string, SubdomainRow>();
+            for (const [name, normalized] of requested) {
+                const row = found.get(normalized);
+                if (row) answered.set(name, row);
+                else if (negativeCached.has(normalized))
+                    cachedMisses?.add(name);
+            }
+            return answered;
+        };
+        const uniqueNames = [...new Set(requested.values())];
+        if (uniqueNames.length === 0) return answer();
 
         let missingNames = uniqueNames;
         if (!primary) {
@@ -249,7 +269,7 @@ export class SubdomainStore extends PuterStore {
                     const name = uniqueNames[i]!;
                     const raw = cacheResults[i]?.[1];
                     if (raw === NEGATIVE_CACHE_MARKER) {
-                        cachedMisses?.add(name);
+                        negativeCached.add(name);
                         continue;
                     }
                     if (typeof raw === 'string') {
@@ -258,7 +278,7 @@ export class SubdomainStore extends PuterStore {
                                 raw,
                             ) as SubdomainRow | null;
                             if (parsed) {
-                                result.set(name, parsed);
+                                found.set(name, parsed);
                                 continue;
                             }
                         } catch {
@@ -271,7 +291,7 @@ export class SubdomainStore extends PuterStore {
                 missingNames = uniqueNames;
             }
         }
-        if (missingNames.length === 0) return result;
+        if (missingNames.length === 0) return answer();
 
         // Names changed moments ago go to the primary; see `getBySubdomain`.
         const tombstoned = primary
@@ -290,13 +310,13 @@ export class SubdomainStore extends PuterStore {
             if (names.length === 0) continue;
             const rowsByName = await this.#readByNames(names, fromPrimary);
             for (const name of names) {
-                const row = rowsByName.get(name.toLowerCase());
-                if (row) result.set(name, row);
+                const row = rowsByName.get(name);
+                if (row) found.set(name, row);
             }
             const populate = () =>
                 this.#populateCacheForNames(
                     names,
-                    result,
+                    found,
                     fromPrimary,
                     this.#rowTtlSeconds(fromPrimary && !primary),
                 );
@@ -308,7 +328,7 @@ export class SubdomainStore extends PuterStore {
                   ));
         }
 
-        return result;
+        return answer();
     }
 
     /** Rows for `names`, keyed by lowercased name. */
@@ -885,7 +905,7 @@ export class SubdomainStore extends PuterStore {
     // -- Internals ----------------------------------------------------
 
     #cacheKey(subdomain: string) {
-        return `${CACHE_KEY_PREFIX}:name:${subdomain}`;
+        return `${CACHE_KEY_PREFIX}:name:${normalizeName(subdomain)}`;
     }
 
     /**
