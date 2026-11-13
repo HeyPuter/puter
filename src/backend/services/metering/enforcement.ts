@@ -82,6 +82,18 @@ export const creditEnforcementExempt = (
     return false;
 };
 
+/** Whether the credit gate lets this actor through. */
+export const actorHasCredits = async (
+    metering: CreditMetering | undefined,
+    actor: Actor | undefined,
+    config: EnforcementConfig,
+): Promise<boolean> => {
+    if (!metering) return true;
+    if (!enforcementEnabled(config)) return true;
+    if (creditEnforcementExempt(actor, config)) return true;
+    return metering.hasAnyUsageCached(actor!);
+};
+
 /**
  * Reject an actor with nothing left to spend. Same status and code the AI
  * surfaces use, so a client that already handles one handles this.
@@ -91,11 +103,7 @@ export const assertActorHasCredits = async (
     actor: Actor | undefined,
     config: EnforcementConfig,
 ): Promise<void> => {
-    if (!metering) return;
-    if (!enforcementEnabled(config)) return;
-    if (creditEnforcementExempt(actor, config)) return;
-
-    if (!(await metering.hasAnyUsageCached(actor!))) {
+    if (!(await actorHasCredits(metering, actor, config))) {
         throw insufficientCreditsError();
     }
 };
