@@ -25,7 +25,7 @@ import {
 import { cachedPushApps } from './notificationApi.js';
 import { registerPushClient } from './pushClient.js';
 import { syncBrowserPush } from './pushSync.js';
-import { LAST_ENDPOINT_PREFIX, ON_KEPT_MS, RECEIPT_PREFIX, SUBSCRIPTION_CHANGED_PREFIX, webPushClient } from './webPushClient.js';
+import { LAST_ENDPOINT_PREFIX, ON_KEPT_MS, webPushClient } from './webPushClient.js';
 
 const SCOPE = 'https://puter.test/';
 const LAST_ENDPOINT_KEY = `${LAST_ENDPOINT_PREFIX}u-1`;
@@ -473,11 +473,6 @@ describe('webPushClient requests', () => {
         await client.disable();
         await cachedPushApps();
         expect(fetch).toHaveBeenCalledTimes(3);
-    });
-
-    it('reads the marker under the key puter.js and the worker use', () => {
-        expect(SUBSCRIPTION_CHANGED_PREFIX).toBe(STORED_CHANGED_PREFIX);
-        expect(RECEIPT_PREFIX).toBe(STORED_RECEIPT_PREFIX);
     });
 });
 

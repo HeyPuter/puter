@@ -512,12 +512,10 @@ export class NotificationsModule extends EventListener {
      */
     async _enableWebPush(worker, { background = false } = {}) {
         await this.#userChange;
-        if (
-            background &&
-            this.puter.env === 'web' &&
-            (await this.#readOptIn()) !== true
-        )
-            return false;
+        const signal = this.#stopVerifying.signal;
+        const needsOptIn = background && this.puter.env === 'web';
+        const optedIn = async () => (await this.#readOptIn()) === true;
+        if (needsOptIn && (!(await optedIn()) || signal.aborted)) return false;
         this.#useWorker(worker);
         this.#listenForOptInChanges();
         /** @type {() => void} */
@@ -525,13 +523,13 @@ export class NotificationsModule extends EventListener {
         const sent = new Promise((resolve) => {
             pending = () => resolve(undefined);
         });
-        const signal = this.#stopVerifying.signal;
         const syncing = syncWebPush(this.puter, {
             worker,
             onPending: pending,
             signal,
             renewRemoved: !background,
             interactive: !background,
+            ...(needsOptIn ? { stillWanted: optedIn } : {}),
             withLock: withPushLock,
             onAnnounced: () => this.#recordOptIn(true),
             onSynced: (endpoint) => this.#noteSynced(worker, endpoint),

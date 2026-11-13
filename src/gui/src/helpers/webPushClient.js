@@ -20,16 +20,14 @@
 // Puter's own push client: standard Web Push through `/sw.js` via `puter.notifications`, used when the server publishes `pushWebPushKey`.
 
 import {
-    CLICKS_STORE,
     HANDLERS_STORE,
-    PUSH_DB_NAME,
     RECEIPT_PREFIX,
     SUBSCRIPTION_CHANGED_MESSAGE,
     SUBSCRIPTION_CHANGED_PREFIX,
+    idbDelete,
+    idbGet,
 } from '../../../puter-js/src/modules/notifications/lib/pushStore.js';
 import { forgetPushApps, webPushEndpointState } from './notificationApi.js';
-
-export { RECEIPT_PREFIX, SUBSCRIPTION_CHANGED_PREFIX };
 
 /** The endpoint the server last confirmed here for each user, in `localStorage`. */
 export const LAST_ENDPOINT_PREFIX = 'puter.push.last-endpoint:';
@@ -37,33 +35,6 @@ export const LAST_ENDPOINT_PREFIX = 'puter.push.last-endpoint:';
 const removedError = () => Object.assign(new Error('this browser was removed from push in Puter'), { code: 'push_device_removed' });
 const busyError = () => Object.assign(new Error('Puter asked to wait before registering this browser'), { code: 'too_many_requests' });
 const unavailableError = () => Object.assign(new Error('push notifications are unavailable in this browser'), { code: 'unavailable' });
-
-/** Runs one request on the handlers store. @param {IDBFactory} idb @param {IDBTransactionMode} mode @param {(store: IDBObjectStore) => IDBRequest} action */
-const handlersStore = (idb, mode, action) => new Promise((resolve, reject) => {
-    const open = idb.open(PUSH_DB_NAME, 1);
-    open.onupgradeneeded = () => {
-        open.result.createObjectStore(HANDLERS_STORE);
-        open.result.createObjectStore(CLICKS_STORE);
-    };
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-        const db = open.result;
-        try {
-            const req = action(db.transaction(HANDLERS_STORE, mode).objectStore(HANDLERS_STORE));
-            req.onsuccess = () => {
-                db.close();
-                resolve(req.result);
-            };
-            req.onerror = () => {
-                db.close();
-                reject(req.error);
-            };
-        } catch ( e ) {
-            db.close();
-            reject(e);
-        }
-    };
-});
 
 /** How long a page answers `cached` reads from its last `on`. */
 export const ON_KEPT_MS = 5 * 60 * 1000;
@@ -111,7 +82,7 @@ export const webPushClient = ({
     /** The worker's mark for a replaced subscription, else null. */
     const marker = async (scope) => {
         try {
-            return (await handlersStore(idb, 'readonly', (s) => s.get(SUBSCRIPTION_CHANGED_PREFIX + scope))) ?? null;
+            return (await idbGet(HANDLERS_STORE, SUBSCRIPTION_CHANGED_PREFIX + scope, idb)) ?? null;
         } catch ( e ) {
             return null;
         }
@@ -135,7 +106,7 @@ export const webPushClient = ({
     const clearChanged = async () => {
         try {
             const scope = (await registration())?.scope;
-            if ( scope ) await handlersStore(idb, 'readwrite', (s) => s.delete(SUBSCRIPTION_CHANGED_PREFIX + scope));
+            if ( scope ) await idbDelete(HANDLERS_STORE, SUBSCRIPTION_CHANGED_PREFIX + scope, idb);
         } catch ( e ) {
             // The next load registers again.
         }
@@ -153,7 +124,7 @@ export const webPushClient = ({
             // The next background run asks again.
         }
         try {
-            if ( worker?.scope ) await handlersStore(idb, 'readwrite', (s) => s.delete(RECEIPT_PREFIX + worker.scope));
+            if ( worker?.scope ) await idbDelete(HANDLERS_STORE, RECEIPT_PREFIX + worker.scope, idb);
         } catch ( e ) {
             // A receipt is only sent for its own endpoint.
         }

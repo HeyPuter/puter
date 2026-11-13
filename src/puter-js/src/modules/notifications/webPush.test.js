@@ -2214,6 +2214,66 @@ describe('enable({ background: true })', () => {
         expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
     });
 
+    it('stays off when disable() runs while it reads the opt-in', async () => {
+        store.set(OPT_IN, true);
+        const nav = makeNav();
+        withBrowser(nav);
+        server();
+        const { hasOptIn } = await import('./lib/pushStore.js');
+        hasOptIn.mockClear();
+        let answer = () => {};
+        hasOptIn.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    answer = () => resolve(true);
+                }),
+        );
+        const { module } = makeModule();
+        const enabling = module.enable({ background: true });
+        await vi.waitFor(() => expect(hasOptIn).toHaveBeenCalled());
+        await module.disable();
+        answer();
+        await expect(enabling).resolves.toBe(false);
+        await flush();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(
+            mockRequest.mock.calls.filter(
+                ([, method, route]) =>
+                    method === 'POST' && route === '/push/web/subscriptions',
+            ),
+        ).toEqual([]);
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
+    it('stops before subscribing when another tab turns pushes off meanwhile', async () => {
+        store.set(OPT_IN, true);
+        const nav = makeNav();
+        withBrowser(nav);
+        let keyAnswer = () => {};
+        mockRequest.mockImplementation(async (_p, _method, route) => {
+            if (route === '/push/web/key') {
+                return await new Promise((resolve) => {
+                    keyAnswer = () => resolve({ publicKey: KEY });
+                });
+            }
+            return { status: 'active', device: { uid: 'd1' } };
+        });
+        const { module } = makeModule();
+        const enabling = module.enable({ background: true });
+        await vi.waitFor(() =>
+            expect(mockRequest.mock.calls.map(([, , route]) => route)).toContain(
+                '/push/web/key',
+            ),
+        );
+        store.delete(OPT_IN);
+        keyAnswer();
+        await expect(enabling).rejects.toMatchObject({
+            code: 'push_verification_canceled',
+        });
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
     it('resolves false without a request after disable()', async () => {
         const nav = makeNav({ existing: makeSubscription() });
         withBrowser(nav);

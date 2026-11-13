@@ -110,6 +110,12 @@ describe('syncBrowserPush', () => {
         expect(client.enable).toHaveBeenCalledWith({ background: true });
     });
 
+    it('reports unavailable when this browser can`t receive pushes', async () => {
+        const client = off();
+        client.enable.mockRejectedValue(Object.assign(new Error('unavailable'), { code: 'unavailable' }));
+        await expect(syncBrowserPush({}, { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => true })).resolves.toBe('unavailable');
+    });
+
     it('leaves a browser the user removed in Puter off, now and on later loads', async () => {
         const client = off();
         client.enable.mockRejectedValue(Object.assign(new Error('removed'), { code: 'push_device_removed' }));

@@ -79,9 +79,11 @@ const askBrowser = (env) => {
  * sign-in. It resolves `false` unless the browser already granted permission
  * and, on a website, the signed-in user turned pushes on here with a click and
  * hasn't turned them off since (`disable()`, or Puter removing this browser or
- * turning the app off). It rejects with `push_device_removed` for a browser the
- * user removed in Puter. Inside the Puter desktop it resolves whether pushes
- * are already on, as `status()` reports.
+ * turning the app off), and sends no push registration then. A removal or
+ * turn-off this browser hasn't learned yet rejects once with
+ * `push_device_removed` or `push_revoked`, and later calls resolve `false`.
+ * Inside the Puter desktop it resolves whether pushes are already on, as
+ * `status()` reports.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {import('./types.js').EnableOptions} [options]

@@ -70,6 +70,7 @@ const runSync = async ({ appUid } = {}, {
             return 'removed';
         }
         if ( e?.code === 'too_many_requests' ) return 'later';
+        if ( e?.code === 'unavailable' ) return 'unavailable';
         console.debug('[push] enable failed', e);
         return 'failed';
     }
