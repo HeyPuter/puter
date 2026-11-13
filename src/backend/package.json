@@ -68,7 +68,7 @@
     "undici": "^7.30.2",
     "uuid": "^14.0.3",
     "validator": "^13.15.35",
-    "ws": "^8.22.0"
+    "ws": "^8.22.2"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
