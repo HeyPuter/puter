@@ -1414,6 +1414,26 @@ describe('enablePush', () => {
     });
 });
 
+describe('enable({ background: true }) inside the desktop', () => {
+    it.each([
+        ['on', true],
+        ['off', false],
+    ])(
+        'opens no prompt and resolves whether pushes are already %s',
+        async (state, on) => {
+            const ui = {
+                ...makeUI(),
+                enablePush: vi.fn(async () => true),
+                pushStatus_: vi.fn(async () => state),
+            };
+            expect(await makeModule({ ui }).enable({ background: true })).toBe(
+                on,
+            );
+            expect(ui.enablePush).not.toHaveBeenCalled();
+        },
+    );
+});
+
 describe('disable inside the desktop', () => {
     it('has the desktop revoke the app`s push permission', async () => {
         const ui = { ...makeUI(), disablePush_: vi.fn(async () => true) };

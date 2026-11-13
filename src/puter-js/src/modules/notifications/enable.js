@@ -75,18 +75,34 @@ const askBrowser = (env) => {
  * `requestPermission()` from a click undoes that. A browser the user removed in
  * Puter is subscribed again.
  *
+ * With `background`, it runs without a click: it resolves `false` unless the
+ * browser already granted permission and someone is signed in, opens no prompt,
+ * dialog or sign-in, and rejects with `push_device_removed` for a browser the
+ * user removed in Puter. Inside the Puter desktop it resolves whether pushes
+ * are already on, as `status()` reports.
+ *
  * @this {import('./index.js').NotificationsModule}
- * @param {{ serviceWorker?: string }} [options]
+ * @param {import('./types.js').EnableOptions} [options]
  * @returns {Promise<boolean>} Whether this browser now receives pushes.
  */
 export async function enable(options = {}) {
     const { puter } = this;
-    if (puter.env === 'app') return this.enablePush();
+    const background = options.background === true;
+    if (puter.env === 'app')
+        return background ? (await this.status()) === 'on' : this.enablePush();
     if (!webPushSupported()) return false;
+    const worker = workerFor(puter.env, options.serviceWorker);
+
+    if (background) {
+        if (Notification.permission !== 'granted' || needsSignIn(puter))
+            return false;
+        await this._enableWebPush(worker, { background: true });
+        return true;
+    }
 
     if ((await askBrowser(puter.env)) !== 'granted') return false;
 
     if (needsSignIn(puter)) await signInVisitor(puter);
-    await this._enableWebPush(workerFor(puter.env, options.serviceWorker));
+    await this._enableWebPush(worker);
     return true;
 }

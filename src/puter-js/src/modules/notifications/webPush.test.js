@@ -21,6 +21,7 @@ vi.mock('./lib/pushStore.js', () => {
         SERVER_KEYS_ENTRY: 'puter:server-keys',
         SYNCED_PREFIX: 'puter:synced:',
         SUBSCRIPTION_CHANGED_PREFIX: 'puter:subscription-changed:',
+        SUBSCRIPTION_CHANGED_MESSAGE: 'puter-push-subscription-changed',
         RECEIPT_PREFIX: 'puter:receipt:',
         TAP_BASE_PREFIX: 'puter:tap-base:',
         CLICK_KEEP_MS: 5 * 60 * 1000,
@@ -2177,6 +2178,28 @@ describe('enable', () => {
     });
 });
 
+describe('enable({ background: true })', () => {
+    it('resolves false without a request where the browser can`t receive pushes', async () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        delete globalThis.PushManager;
+        const { module } = makeModule();
+        await expect(module.enable({ background: true })).resolves.toBe(false);
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(nav.serviceWorker.register).not.toHaveBeenCalled();
+    });
+
+    it('registers without a click once the browser grants permission', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        server();
+        const { module } = makeModule();
+        await expect(module.enable({ background: true })).resolves.toBe(true);
+        expect(Notification.requestPermission).not.toHaveBeenCalled();
+        expect(store.get(OPT_IN)).toBe(true);
+    });
+});
+
 describe('enable() while another tab loads', () => {
     it('records the opt-in before the other tab checks it, so the new subscription stays', async () => {
         store.set(SERVER_KEY, KEY);
@@ -2242,6 +2265,28 @@ describe('enable after the user removed this browser in Puter', () => {
         expect(store.get(OPT_IN)).toBe(true);
     });
 
+    it('leaves it removed for a background enable(), registering nothing new', async () => {
+        const removed = makeSubscription(undefined, 'https://push.example/1');
+        const nav = makeNav({ existing: removed });
+        withBrowser(nav);
+        server((route, body) => {
+            if (body.subscription.endpoint === 'https://push.example/1')
+                throw new PuterJSError('removed', 'push_device_removed');
+            return { status: 'active', device: { uid: 'd2' } };
+        });
+        const { module } = makeModule();
+        await expect(module.enable({ background: true })).rejects.toMatchObject(
+            { code: 'push_device_removed' },
+        );
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(
+            mockRequest.mock.calls
+                .filter(([, , route]) => route === '/push/web/subscriptions')
+                .map(([, , , body]) => body.subscription.endpoint),
+        ).toEqual(['https://push.example/1']);
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
     describe('in the Puter GUI', () => {
         const RECEIPT = `handlers:puter:receipt:${ORIGIN}/`;
         /** A browser holding a removed subscription and its receipt. */
@@ -2292,7 +2337,7 @@ describe('enable after the user removed this browser in Puter', () => {
             const { removed, nav } = removedHere();
             const { module } = makeModule({ env: 'gui' });
             await expect(
-                module._enableWebPush(workerFor('gui'), { background: true }),
+                module.enable({ background: true }),
             ).rejects.toMatchObject({ code: 'push_device_removed' });
             expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
             expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
@@ -2305,9 +2350,7 @@ describe('enable after the user removed this browser in Puter', () => {
         it('opens no sign-in for a rejected token in the background', async () => {
             removedHere();
             const { module } = makeModule({ env: 'gui' });
-            await module
-                ._enableWebPush(workerFor('gui'), { background: true })
-                .catch(() => {});
+            await module.enable({ background: true }).catch(() => {});
             expect(reauthOf('/push/web/key')).toEqual([false]);
             expect(reauthOf('/push/web/subscriptions')).toEqual([false]);
         });

@@ -10,6 +10,7 @@ import { request } from './lib/api.js';
 import {
     CLICK_KEEP_MS,
     HANDLERS_STORE,
+    SUBSCRIPTION_CHANGED_MESSAGE,
     SUBSCRIPTION_CHANGED_PREFIX,
     SYNCED_PREFIX,
     TAP_BASE_PREFIX,
@@ -53,8 +54,7 @@ export const CLICK_BROADCAST = 'notificationClick';
 export const WORKER_CLICK_MESSAGE = 'puter-notification-click';
 /** What the page answers a tap with when a click handler took it. */
 export const WORKER_CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
-/** What a worker posts when the browser replaced the push subscription. */
-export const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
+export { SUBSCRIPTION_CHANGED_MESSAGE };
 /** Query parameter `push-sw.js` adds to a page it opens for a tap. */
 export const CLICK_PARAM = 'puter.notification';
 
