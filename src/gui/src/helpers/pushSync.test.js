@@ -58,12 +58,70 @@ const off = () => {
     return client;
 };
 
+describe('syncBrowserPush with the built-in client', () => {
+    const current = { uid: 'dev-1', platform: 'webpush', current: true };
+    const builtIn = async () => {
+        const { webPushClient } = await import('./webPushClient.js');
+        const notifications = {
+            enable: vi.fn(async () => true),
+            _enableWebPush: vi.fn(async () => {}),
+            disable: vi.fn(async () => true),
+            listDevices: vi.fn(async () => [current]),
+        };
+        const nav = {
+            serviceWorker: {
+                getRegistration: async () => ({ pushManager: { getSubscription: async () => ({ endpoint: 'https://push.test/1' }) } }),
+                addEventListener: () => {},
+            },
+        };
+        notifications.endpointState = vi.fn(async () => 'active');
+        registerPushClient(webPushClient({ notifications, NotificationApi: granted, nav, userUid: () => 'u-1', endpointState: notifications.endpointState }));
+        return notifications;
+    };
+
+    it('lists devices on the first launch only, once push is on', async () => {
+        const notifications = await builtIn();
+        const deps = { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => true };
+        await expect(syncBrowserPush({ appUid: 'app-1' }, deps)).resolves.toBe('on');
+        await expect(syncBrowserPush({ appUid: 'app-2' }, deps)).resolves.toBe('on');
+        expect(notifications.listDevices).toHaveBeenCalledTimes(1);
+        expect(notifications.endpointState).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not subscribe again, and stays off, when the user removed this browser in Puter', async () => {
+        const notifications = await builtIn();
+        notifications.listDevices.mockResolvedValue([]);
+        notifications._enableWebPush.mockRejectedValue(Object.assign(new Error('removed'), { code: 'push_device_removed' }));
+        const deps = { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => true };
+        await expect(syncBrowserPush({}, deps)).resolves.toBe('removed');
+        expect(notifications._enableWebPush).toHaveBeenCalledWith({ url: '/sw.js', scope: '/' }, { background: true });
+        expect(notifications.enable).not.toHaveBeenCalled();
+        await expect(syncBrowserPush({}, deps)).resolves.toBe('opted_out');
+        expect(notifications._enableWebPush).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('syncBrowserPush', () => {
     it('registers this browser again when an app may send pushes', async () => {
         const client = off();
         const holdsPush = vi.fn(async () => true);
         await expect(syncBrowserPush({}, { NotificationApi: granted, userUid: 'u-1', holdsPush })).resolves.toBe('on');
         expect(client.enable).toHaveBeenCalledTimes(1);
+        expect(client.enable).toHaveBeenCalledWith({ background: true });
+    });
+
+    it('leaves a browser the user removed in Puter off, now and on later loads', async () => {
+        const client = off();
+        client.enable.mockRejectedValue(Object.assign(new Error('removed'), { code: 'push_device_removed' }));
+        const deps = { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => true };
+        await expect(syncBrowserPush({}, deps)).resolves.toBe('removed');
+        expect(localStorage.getItem('puter.push.browser-off:u-1')).toBe('1');
+
+        client.enable.mockClear();
+        client.status.mockClear();
+        await expect(syncBrowserPush({ appUid: 'app-1' }, deps)).resolves.toBe('opted_out');
+        expect(client.status).not.toHaveBeenCalled();
+        expect(client.enable).not.toHaveBeenCalled();
     });
 
     it('runs once at a time: a call during a run joins it', async () => {
@@ -85,6 +143,23 @@ describe('syncBrowserPush', () => {
         client.status.mockResolvedValue({ permission: 'granted', registered: true, deviceUid: 'dev-new' });
         await expect(syncBrowserPush({}, deps)).resolves.toBe('on');
         expect(client.enable).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs again after the run in flight for a fresh call', async () => {
+        const client = off();
+        let release;
+        client.enable.mockImplementationOnce(() => new Promise((resolve) => {
+            release = resolve;
+        }));
+        const deps = { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => true };
+
+        const first = syncBrowserPush({}, deps);
+        await vi.waitFor(() => expect(release).toBeDefined());
+        const fresh = syncBrowserPush({ fresh: true }, deps);
+        release({ deviceUid: 'dev-new' });
+        await expect(first).resolves.toBe('on');
+        await expect(fresh).resolves.toBe('on');
+        expect(client.enable).toHaveBeenCalledTimes(2);
     });
 
     it('does nothing when no app may send pushes', async () => {

@@ -44,7 +44,11 @@ import { setupTestServer } from '../../testUtil.js';
 import type { PuterServer } from '../../server.js';
 import type { IConfig } from '../../types.js';
 import { CONCURRENT_SLOT_TTL_MS } from '../../core/http/middleware/rateLimit.js';
-import { presenceItemKey } from './PresenceStore.js';
+import {
+    HANDLER_LIVE_MS,
+    HANDLER_SOCKETS_MAX,
+    presenceItemKey,
+} from './PresenceStore.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 
@@ -518,5 +522,97 @@ describe('a touch`s item refresh', () => {
         await store.touchConnection(seq, appUid(), 'tab-1');
 
         expect(spy).not.toHaveBeenCalled();
+    });
+});
+
+describe('this region`s handler connections', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    const sub = () => [{ appUid: appUid(), subId: `sub-${seq}` }];
+    const holds = () => presence().holdsHandler(seq, appUid(), `sub-${seq}`);
+
+    it('holds a subscription once a connection is added, and not after it goes', async () => {
+        await expect(holds()).resolves.toBe(false);
+
+        await presence().addHandlerSocket(seq, 'tab-1', sub());
+        await presence().addHandlerSocket(seq, 'tab-2', sub());
+        await expect(holds()).resolves.toBe(true);
+
+        await presence().removeHandlerSocket(seq, 'tab-1', sub());
+        await expect(holds()).resolves.toBe(true);
+        await presence().removeHandlerSocket(seq, 'tab-2', sub());
+        await expect(holds()).resolves.toBe(false);
+    });
+
+    it('is kept per user, app and subscription', async () => {
+        await presence().addHandlerSocket(seq, 'tab-1', sub());
+
+        await expect(
+            presence().holdsHandler(seq + 1_000_000, appUid(), `sub-${seq}`),
+        ).resolves.toBe(false);
+        await expect(
+            presence().holdsHandler(seq, `${appUid()}-other`, `sub-${seq}`),
+        ).resolves.toBe(false);
+        await expect(
+            presence().holdsHandler(seq, appUid(), `sub-${seq}-other`),
+        ).resolves.toBe(false);
+    });
+
+    it('stops holding one whose connection stopped renewing, and the set expires', async () => {
+        await presence().addHandlerSocket(seq, 'tab-1', sub());
+
+        jump(HANDLER_LIVE_MS - 1_000);
+        await expect(holds()).resolves.toBe(true);
+        jump(2_000);
+        await expect(holds()).resolves.toBe(false);
+
+        const ttl = await server.clients.redis.pttl(
+            `ev:phs:{${seq}}:${appUid()}:sub-${seq}`,
+        );
+        expect(ttl).toBeLessThanOrEqual(HANDLER_LIVE_MS);
+    });
+
+    it('keeps holding one that renews', async () => {
+        await presence().addHandlerSocket(seq, 'tab-1', sub());
+        jump(HANDLER_LIVE_MS - 1_000);
+        await presence().addHandlerSocket(seq, 'tab-1', sub());
+        jump(HANDLER_LIVE_MS - 1_000);
+
+        await expect(holds()).resolves.toBe(true);
+    });
+
+    it('keeps only the most recently renewed connections past the cap', async () => {
+        for (let i = 0; i < HANDLER_SOCKETS_MAX + 5; i++) {
+            jump(1);
+            await presence().addHandlerSocket(seq, `tab-${i}`, sub());
+        }
+        const members = await server.clients.redis.zrange(
+            `ev:phs:{${seq}}:${appUid()}:sub-${seq}`,
+            0,
+            -1,
+        );
+
+        expect(members).toHaveLength(HANDLER_SOCKETS_MAX);
+        expect(members).not.toContain('tab-0');
+        expect(members).toContain(`tab-${HANDLER_SOCKETS_MAX + 4}`);
+        await expect(holds()).resolves.toBe(true);
+    });
+
+    it('writes several of one connection`s subscriptions in one call', async () => {
+        const subs = [
+            { appUid: appUid(), subId: `sub-${seq}` },
+            { appUid: appUid(), subId: `sub-${seq}-b` },
+        ];
+        await presence().addHandlerSocket(seq, 'tab-1', subs);
+
+        await expect(holds()).resolves.toBe(true);
+        await expect(
+            presence().holdsHandler(seq, appUid(), `sub-${seq}-b`),
+        ).resolves.toBe(true);
+
+        await presence().removeHandlerSocket(seq, 'tab-1', subs);
+        await expect(holds()).resolves.toBe(false);
     });
 });

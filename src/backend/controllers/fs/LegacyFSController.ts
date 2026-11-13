@@ -765,8 +765,10 @@ export class LegacyFSController extends PuterController {
             normalizedTarget,
         );
         if (dedupeName) {
-            const existing =
-                await this.stores.fsEntry.getEntryByPath(normalizedTarget);
+            const existing = await this.stores.fsEntry.getEntryByPath(
+                normalizedTarget,
+                { foldedNames: true },
+            );
             if (existing) {
                 const parent = pathPosix.dirname(normalizedTarget);
                 await assertAccess(
@@ -1320,7 +1322,7 @@ export class LegacyFSController extends PuterController {
         if (options.realMime) {
             res.setHeader(
                 'Content-Type',
-                contentTypeFromMime(entry.name) as string,
+                contentTypeFromMime(entry.name) || 'application/octet-stream',
             );
         } else {
             res.setHeader('Content-Type', 'application/octet-stream');

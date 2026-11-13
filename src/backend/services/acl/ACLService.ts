@@ -57,11 +57,7 @@ export interface ResourceDescriptor {
 }
 
 export type AclMode =
-    | 'see'
-    | 'list'
-    | 'read'
-    | 'write'
-    | typeof MANAGE_PERM_PREFIX;
+    'see' | 'list' | 'read' | 'write' | typeof MANAGE_PERM_PREFIX;
 
 /** Duck-typed error shape compatible with APIError consumers (fsv2). */
 export interface AclError {
@@ -183,6 +179,7 @@ export class ACLService extends PuterService {
         mode: AclMode,
     ): Promise<boolean> {
         if (isSystemActor(actor)) return true;
+        if (typeof resource?.path !== 'string') return false;
 
         if (resource.path === '/') {
             return (PUBLIC_READ_MODES as AclMode[]).includes(mode);
@@ -296,6 +293,10 @@ export class ACLService extends PuterService {
             ) {
                 return true;
             }
+
+            // Capped by the user check above, given the app's own grant.
+            if (await this.#userAppGrantReaches(actor, await ancestors(), mode))
+                return true;
         }
 
         // Fall back to the permission scan: walk ancestors, any hit wins.
@@ -327,6 +328,47 @@ export class ACLService extends PuterService {
         // Last: a link share on the node or a folder above it. Nothing in the
         // permission tables stands behind one, so it is read on its own.
         return this.#anyoneWithLinkAllows(actor, ancestry, mode);
+    }
+
+    /**
+     * Whether the user granted this app `mode` on the node, or on a folder
+     * above it that the user holds `mode` on too.
+     */
+    async #userAppGrantReaches(
+        actor: Actor,
+        ancestors: ReadonlyArray<{ uid: string; path: string }>,
+        mode: AclMode,
+    ): Promise<boolean> {
+        const appId = actor.app?.id;
+        const userId = actor.user?.id;
+        if (typeof appId !== 'number' || typeof userId !== 'number') {
+            return false;
+        }
+        const rows = await this.stores.permission.readUserAppPerms(
+            userId,
+            appId,
+            ancestors.flatMap((ancestor) =>
+                this.permissionsFor(ancestor.uid, mode),
+            ),
+        );
+        if (rows.length === 0) return false;
+
+        const granted = new Set(rows.map((row) => row.permission));
+        const userActor: Actor = { user: actor.user, effectiveApp: null };
+        for (const [depth, ancestor] of ancestors.entries()) {
+            const grantedHere = this.permissionsFor(ancestor.uid, mode).some(
+                (permission) => granted.has(permission),
+            );
+            if (!grantedHere) continue;
+            // The caller already checked the user on the node itself.
+            if (depth === 0) return true;
+            const folder: ResourceDescriptor = {
+                path: ancestor.path,
+                resolveAncestors: async () => ancestors.slice(depth),
+            };
+            if (await this.check(userActor, folder, mode)) return true;
+        }
+        return false;
     }
 
     /**

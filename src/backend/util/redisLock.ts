@@ -20,10 +20,16 @@
 import { randomUUID } from 'node:crypto';
 import type { Cluster } from 'ioredis';
 
-// Compare-and-delete in one step: a GET then DEL could delete a lock another
-// holder took after ours lapsed in between.
-const RELEASE_SCRIPT =
+const DELETE_IF_EQUAL_SCRIPT =
     "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end return 0";
+
+/** Atomically delete `key` if it still holds `value`; true if removed. */
+export const deleteIfEqual = async (
+    redis: Pick<Cluster, 'eval'>,
+    key: string,
+    value: string,
+): Promise<boolean> =>
+    (await redis.eval(DELETE_IF_EQUAL_SCRIPT, 1, key, value)) === 1;
 
 export interface RedisLockOptions<T> {
     /** How long a holder that never releases (crashed, stalled) blocks others. */
@@ -71,7 +77,8 @@ export const withRedisLock = async <T>(
         return await fn();
     } finally {
         try {
-            await redis.eval(RELEASE_SCRIPT, 1, key, token);
+            // A GET then DEL could drop a lock another holder took after ours lapsed.
+            await deleteIfEqual(redis, key, token);
         } catch {
             // The TTL clears it.
         }

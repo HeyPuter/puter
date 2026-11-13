@@ -44,7 +44,11 @@ import type { DurableSubscription } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
 import { EventForwardService } from './EventForwardService.js';
-import { EventsService, type DeliveryEnvelope } from './EventsService.js';
+import {
+    EventsService,
+    handlerSocketRoom,
+    type DeliveryEnvelope,
+} from './EventsService.js';
 import { appSocketRoom } from '../socket/SocketService.js';
 import type {
     ForwardBatch,
@@ -199,6 +203,9 @@ interface Region {
     subscriptions: EventSubscriptionStore;
     forward: EventForwardService;
     events: EventsService;
+    socket: {
+        send: ReturnType<typeof vi.fn>;
+    };
     /** Every addressed POST this region made, whether or not it arrived. */
     posts: Array<{ peerId: string; batch: ForwardBatch }>;
     /** Rooms this region terminates a socket for. */
@@ -368,6 +375,7 @@ const makeRegion = (
             region.sent.push(data as DeliveryEnvelope);
         }),
     };
+    region.socket = socket;
 
     const broadcast = {
         get regionId() {
@@ -1474,7 +1482,8 @@ describe('a delivery owed to exactly one consumer', () => {
     it('sends a decline home, and the emitting region runs the worker', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        east.rooms.add(appSocketRoom(userId, APP_UID));
+        const room = appSocketRoom(userId, APP_UID);
+        east.rooms.add(room);
         await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
         workerOutcome = 'settled';
         const row = await register(west, {
@@ -1482,6 +1491,7 @@ describe('a delivery owed to exactly one consumer', () => {
             delivery: 'single',
             handlerName: 'onWrite',
         });
+        east.rooms.add(handlerSocketRoom(room, row.subId));
 
         await dispatch(west);
         await posted(west);
@@ -1506,6 +1516,124 @@ describe('a delivery owed to exactly one consumer', () => {
             subId: row.subId,
             reason: 'no_handler',
         });
+    });
+
+    it('is declined home by a region where no connection runs its handler', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(appSocketRoom(userId, APP_UID));
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
+        workerOutcome = 'settled';
+        const row = await register(west, {
+            appUid: APP_UID,
+            delivery: 'single',
+            handlerName: 'onWrite',
+        });
+
+        await dispatch(west);
+        await posted(west);
+
+        await vi.waitFor(() => expect(west.invoked).toHaveLength(1), {
+            timeout: 3_000,
+            interval: 20,
+        });
+        // No client there saw it, so none can also be running it.
+        expect(east.sent).toEqual([]);
+        expect(deliveriesIn(west)[0]).toMatchObject({ toHandlers: true });
+        expect(east.posts.at(-1)?.batch.items[0]).toMatchObject({
+            kind: 'nack',
+            subId: row.subId,
+            reason: 'no_handler',
+        });
+        await vi.waitFor(
+            async () => expect(await west.pending.depth(row.subId)).toBe(0),
+            { timeout: 3_000, interval: 20 },
+        );
+    });
+
+    it('reaches the region whose client runs the handler after a nearer one without it declines', async () => {
+        const west = makeRegion('west', ['east', 'south']);
+        const east = makeRegion('east', ['west', 'south']);
+        const south = makeRegion('south', ['west', 'east']);
+        const room = appSocketRoom(userId, APP_UID);
+        south.rooms.add(room);
+        await south.forward.noteConnect(actorFor(APP_UID), 'tab-s');
+        await quiet(5);
+        east.rooms.add(room);
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-e');
+        workerOutcome = 'settled';
+        const row = await register(west, {
+            appUid: APP_UID,
+            delivery: 'single',
+            handlerName: 'onWrite',
+        });
+        // South's handler connection is on another of its nodes.
+        await south.presence.addHandlerSocket(userId, 'tab-s', [
+            { appUid: APP_UID, subId: row.subId },
+        ]);
+
+        await dispatch(west);
+        await arrived(south);
+
+        expect(deliveriesIn(west).map((item) => item.subId)).toEqual([
+            row.subId,
+            row.subId,
+        ]);
+        expect(west.posts.map((post) => post.peerId)).toEqual([
+            'east',
+            'south',
+        ]);
+        expect(east.sent).toEqual([]);
+        expect(south.socket.send.mock.calls[0][0]).toEqual({
+            room: handlerSocketRoom(room, row.subId),
+        });
+
+        const envelope = south.sent[0];
+        await south.events.ackDelivery(actorFor(APP_UID), {
+            subId: row.subId,
+            id: envelope.ackId,
+            origin: envelope.origin,
+        });
+        await vi.waitFor(
+            async () => expect(await west.pending.depth(row.subId)).toBe(0),
+            { timeout: 3_000, interval: 20 },
+        );
+        expect(west.invoked).toEqual([]);
+        expect(south.sent).toHaveLength(1);
+        expect(west.metered).toHaveLength(1);
+    });
+
+    it('runs the worker once after every region with the app open declines', async () => {
+        const west = makeRegion('west', ['east', 'south']);
+        const east = makeRegion('east', ['west', 'south']);
+        const south = makeRegion('south', ['west', 'east']);
+        const room = appSocketRoom(userId, APP_UID);
+        for (const region of [east, south]) {
+            region.rooms.add(room);
+            await region.forward.noteConnect(actorFor(APP_UID), 'tab-1');
+        }
+        workerOutcome = 'settled';
+        const row = await register(west, {
+            appUid: APP_UID,
+            delivery: 'single',
+            handlerName: 'onWrite',
+        });
+
+        await dispatch(west);
+
+        await vi.waitFor(() => expect(west.invoked).toHaveLength(1), {
+            timeout: 3_000,
+            interval: 20,
+        });
+        expect(deliveriesIn(west)).toHaveLength(2);
+        expect(east.sent).toEqual([]);
+        expect(south.sent).toEqual([]);
+        await vi.waitFor(
+            async () => expect(await west.pending.depth(row.subId)).toBe(0),
+            { timeout: 3_000, interval: 20 },
+        );
+        await quiet(100);
+        expect(west.invoked).toHaveLength(1);
     });
 
     it('never settles a lease in the region the client happened to reach', async () => {
@@ -1800,6 +1928,129 @@ describe('receiving a batch', () => {
         // in flight, proving they ran concurrently rather than queued
         // behind it.
         expect(settled.at(-1)).toBe('slow');
+    });
+});
+
+describe('receiving queued deliveries that only a handler connection takes', () => {
+    const queued = (subId: string): ForwardDelivery => ({
+        kind: 'delivery',
+        userId,
+        appUid: APP_UID,
+        subId,
+        event: {
+            id: `e-${subId}`,
+            subject: 'fs:/u7/Documents',
+            op: 'write',
+            uid: 'node-1',
+            path: '/u7/Documents/notes.txt',
+            self: true,
+            seq: 0,
+            ts: 1,
+        },
+        ackRequired: true,
+        ackId: `entry-${subId}`,
+        origin: 'west',
+        toHandlers: true,
+    });
+    const plain = (subId: string): ForwardDelivery => ({
+        kind: 'delivery',
+        userId,
+        appUid: APP_UID,
+        subId,
+        event: queued(subId).event,
+    });
+    const handlerRoom = (subId: string) =>
+        handlerSocketRoom(appSocketRoom(userId, APP_UID), subId);
+    /** A connection on another node of east that runs the handler. */
+    const handledElsewhere = (east: Region, subId: string, socketId = 'tab-1') =>
+        east.presence.addHandlerSocket(userId, socketId, [
+            { appUid: APP_UID, subId },
+        ]);
+
+    it("sends what this region's record names a handler connection for, and declines the rest", async () => {
+        const east = makeRegion('east', ['west']);
+        const nack = vi
+            .spyOn(east.forward, 'relayNack')
+            .mockImplementation(() => {});
+        await handledElsewhere(east, 'h-0');
+        east.rooms.add(handlerRoom('h-2'));
+
+        await east.forward.receive(
+            {
+                from: 'west',
+                items: [
+                    queued('h-0'),
+                    queued('h-1'),
+                    queued('h-2'),
+                    queued('h-3'),
+                    plain('plain'),
+                ],
+            },
+            'west',
+        );
+
+        // Still sent in the batch's order, and each empty room declined.
+        expect(east.sent.map((envelope) => envelope.subId)).toEqual([
+            'h-0',
+            'h-2',
+            'plain',
+        ]);
+        expect(east.socket.send.mock.calls[0][0]).toEqual({
+            room: handlerRoom('h-0'),
+        });
+        expect(nack.mock.calls.map((call) => call[2])).toEqual(['h-1', 'h-3']);
+        expect(nack.mock.calls.every((call) => call[4] === 'no_handler')).toBe(
+            true,
+        );
+    });
+
+    it('looks a room up once however many of its deliveries the batch carries', async () => {
+        const east = makeRegion('east', ['west']);
+        await handledElsewhere(east, 'same');
+        const lookup = vi.spyOn(east.presence, 'holdsHandler');
+
+        await east.forward.receive(
+            {
+                from: 'west',
+                items: [queued('same'), queued('same'), queued('same')],
+            },
+            'west',
+        );
+
+        expect(lookup).toHaveBeenCalledTimes(1);
+        expect(east.sent).toHaveLength(3);
+    });
+
+    it('declines what it could not look up', async () => {
+        const east = makeRegion('east', ['west']);
+        const nack = vi
+            .spyOn(east.forward, 'relayNack')
+            .mockImplementation(() => {});
+        await handledElsewhere(east, 'h-0');
+        vi.spyOn(east.presence, 'holdsHandler').mockRejectedValue(
+            new Error('redis down'),
+        );
+
+        await east.forward.receive(
+            { from: 'west', items: [queued('h-0')] },
+            'west',
+        );
+
+        expect(east.sent).toEqual([]);
+        expect(nack).toHaveBeenCalledTimes(1);
+    });
+
+    it('never looks anything up for a batch without such a delivery', async () => {
+        const east = makeRegion('east', ['west']);
+        const lookup = vi.spyOn(east.presence, 'holdsHandler');
+
+        await east.forward.receive(
+            { from: 'west', items: [plain('a'), plain('b')] },
+            'west',
+        );
+
+        expect(lookup).not.toHaveBeenCalled();
+        expect(east.sent).toHaveLength(2);
     });
 });
 

@@ -40,7 +40,7 @@ The last argument. It takes these properties:
 
 ## Return value
 
-A `Promise` that resolves to the updated value stored at `key`. An expired key resolves to `null`. A call on another app's data with `optConfig.appUuid` also resolves to `null` when your app may delete that app's entries but not read them.
+A `Promise` that resolves to the updated value stored at `key`. An expired key resolves to `null`. A call on another app's data with `optConfig.appUuid` also resolves to `null` when your app may delete that app's entries but not read them. On an account with no usage left, the call removes the paths and resolves to `null`.
 
 ## Errors
 

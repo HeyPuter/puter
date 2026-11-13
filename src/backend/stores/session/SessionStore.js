@@ -676,19 +676,15 @@ export class SessionStore extends PuterStore {
             mysql: 'legacy_token_unique_key',
             otherwise: 'legacy_token_uid',
         });
-        const findBy = async (column) => {
-            const rows = await this.clients.db.read(
-                `SELECT * FROM \`sessions\` WHERE \`kind\` = 'access_token' AND \`${column}\` = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) ORDER BY \`id\` DESC LIMIT 1`,
-                [tokenUid, nowSeconds()],
-            );
-            return this.#normalizeRow(rows[0]);
-        };
-        // Sent together, so a miss on the first costs no second round trip.
-        const [own, legacy] = await Promise.all([
-            findBy('access_token_uid'),
-            findBy(legacyColumn),
-        ]);
-        return own ?? legacy;
+        const now = nowSeconds();
+        // A token minted moments ago is found while the replica catches up.
+        const [own, legacy] = await this.clients.db.tryHardReadAll(
+            ['access_token_uid', legacyColumn].map((column) => ({
+                query: `SELECT * FROM \`sessions\` WHERE \`kind\` = 'access_token' AND \`${column}\` = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) ORDER BY \`id\` DESC LIMIT 1`,
+                params: [tokenUid, now],
+            })),
+        );
+        return this.#normalizeRow(own[0]) ?? this.#normalizeRow(legacy[0]);
     }
 
     /**

@@ -32,6 +32,7 @@ import {
     runWithConcurrencyLimitSettled,
 } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import {
     abuseKey,
     cleanEmail,
@@ -57,6 +58,7 @@ import {
 } from '../metering/enforcement.js';
 import { carriesClosedAppData } from '../permission/appDataScopes';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
+import { isOwnHomePath } from '../permission/fsPathPermission.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { SubscriptionCache } from '../events/subscriptionCache.js';
 import { KV_SHARE_ACCESS_LEVELS, kvShareRoot } from '../kvShare/kvShares.js';
@@ -292,6 +294,13 @@ export const modeFromEntryPermission = (permission: string): string | null => {
  */
 const RETIRE_CHUNK_SIZE = 100;
 
+/** Owner usernames kept per process, so the home check rarely reads a user. */
+const USERNAME_CACHE_MAX_ENTRIES = 10_000;
+const USERNAME_CACHE_TTL_MS = 60_000;
+
+/** How long after an owner shares the retire reads stay on the primary. */
+const RECENT_SHARE_WINDOW_MS = 30_000;
+
 /** Shares one user may create per UTC day, absent a config override. */
 export const DEFAULT_DAILY_SHARE_LIMIT = 200;
 
@@ -397,7 +406,17 @@ export class ShareService extends PuterService {
      * fleet-wide; its TTL covers a process the bump missed.
      */
     readonly #ownerShares = new SubscriptionCache();
+    /** Owners who shared just now: a replica may not have the row yet. */
+    readonly #recentSharers = new SubscriptionCache(
+        undefined,
+        RECENT_SHARE_WINDOW_MS,
+    );
     readonly #ownerLookups = new Map<string, Promise<boolean>>();
+    readonly #usernames = new BoundedTtlMap<number, string | null>({
+        maxEntries: USERNAME_CACHE_MAX_ENTRIES,
+        ttlMs: USERNAME_CACHE_TTL_MS,
+    });
+    readonly #usernameLookups = new Map<number, Promise<string | null>>();
 
     /**
      * FS mutations only notify the owner, leaving a recipient's open window
@@ -442,6 +461,10 @@ export class ShareService extends PuterService {
                 fromUserId?: number;
             };
             if (!node?.uuid) return;
+            const handedOver =
+                typeof fromUserId === 'number' && fromUserId !== node.userId;
+            // The subtree's share rows were re-pointed at its new owner.
+            if (handedOver) this.#ownerShared(node.userId);
             const notify = this.#fanOutMove(node, fromPath).catch(() => {
                 // A stale window is better than a failed move.
             });
@@ -450,11 +473,7 @@ export class ShareService extends PuterService {
             // entry into its new owner's tree — leaving the new owner with
             // recipients they never agreed to. Awaited alongside the notify so
             // an `emitAndWait` caller sees both.
-            if (typeof fromUserId !== 'number' || fromUserId === node.userId) {
-                return notify;
-            }
-            // The subtree's share rows were re-pointed at its new owner.
-            this.#ownerShared(node.userId);
+            if (!handedOver) return notify;
             return Promise.all([
                 notify,
                 this.onEntryOwnerChanged(node).catch((err: unknown): void => {
@@ -619,6 +638,11 @@ export class ShareService extends PuterService {
             const chunk = entries.slice(i, i + RETIRE_CHUNK_SIZE);
             const removed = await this.onEntryDeleted(
                 chunk.map((entry) => entry.uuid),
+                {
+                    primary: this.#sharedRecently(
+                        chunk.map((entry) => entry.userId),
+                    ),
+                },
             );
 
             const holdersByEntry = new Map<string, Set<number>>();
@@ -860,6 +884,15 @@ export class ShareService extends PuterService {
         rows: ShareIndexRow[];
         nodesById: Map<number, FSEntry>;
     }> {
+        // Under another user's home an ancestor may belong to someone else.
+        const username = await this.#usernameOf(entry.userId);
+        if (
+            username !== null &&
+            isOwnHomePath(realPath, username) &&
+            !(await this.#ownerHasShares(entry.userId))
+        ) {
+            return { rows: [], nodesById: new Map() };
+        }
         const ancestors = await this.stores.fsEntry.getAncestors(
             pathPosix.dirname(realPath),
         );
@@ -879,6 +912,29 @@ export class ShareService extends PuterService {
             this.stores.share.listGroupReachingMembers(ids),
         ]);
         return { rows: [...direct, ...viaGroup], nodesById };
+    }
+
+    /** `userId`'s username, or null for none; cached per process. */
+    #usernameOf(userId: number): Promise<string | null> {
+        const cached = this.#usernames.get(userId);
+        if (cached !== undefined) return Promise.resolve(cached);
+        const inFlight = this.#usernameLookups.get(userId);
+        if (inFlight) return inFlight;
+        const lookup = (async () => {
+            try {
+                const user = await this.stores.user.getById(userId);
+                const username = user?.username || null;
+                this.#usernames.set(userId, username);
+                return username;
+            } catch {
+                // Unknown reads as someone else's home: the full lookup runs.
+                return null;
+            } finally {
+                this.#usernameLookups.delete(userId);
+            }
+        })();
+        this.#usernameLookups.set(userId, lookup);
+        return lookup;
     }
 
     /** Whether `ownerUserId` has anything shared, cached per process. */
@@ -932,6 +988,16 @@ export class ShareService extends PuterService {
             this.#ownerShares.generationOf(ownerUserId),
             true,
         );
+        this.#recentSharers.write(
+            ownerUserId,
+            this.#recentSharers.generationOf(ownerUserId),
+            true,
+        );
+    }
+
+    /** Whether this process heard any of these owners share within the window. */
+    #sharedRecently(ownerUserIds: number[]): boolean {
+        return ownerUserIds.some((id) => this.#recentSharers.read(id) === true);
     }
 
     async #emitGui(
@@ -1555,7 +1621,9 @@ export class ShareService extends PuterService {
         // Every row, not just the applied ones: a node whose only share is a
         // pending invite or a team grant is exactly what the group and invite
         // sweeps ask about.
-        const rows = await this.stores.share.listAllByFsentrySubtree(entry.id);
+        const rows = await this.stores.share.listAllByFsentrySubtree(entry.id, {
+            primary: true,
+        });
         const nodes = await this.stores.fsEntry.getEntriesByIds(
             rows.map((row: { fsentry_id: number }) => Number(row.fsentry_id)),
         );
@@ -1779,9 +1847,13 @@ export class ShareService extends PuterService {
     /**
      * Retire the grants pointing at a node that no longer exists. Returns the
      * rows removed, which is the only record of who had access — the index rows
-     * cascade away with the fsentry.
+     * cascade away with the fsentry. Reads a replica unless `primary` says a
+     * grant may be too new for one.
      */
-    async onEntryDeleted(entryUids: string | string[]): Promise<
+    async onEntryDeleted(
+        entryUids: string | string[],
+        { primary = false }: { primary?: boolean } = {},
+    ): Promise<
         Array<{
             holder_user_id: number;
             issuer_user_id: number;
@@ -1796,6 +1868,7 @@ export class ShareService extends PuterService {
         const removed =
             await this.stores.permission.deleteUserUserPermsByPermissionPrefixes(
                 uids.flatMap((uid) => [`fs:${uid}`, `manage:fs:${uid}`]),
+                { primary },
             );
 
         // Retiring the rows is not enough: a holder's cached scan still answers
@@ -1808,19 +1881,14 @@ export class ShareService extends PuterService {
 
         // Group grants on the same node, and their members' caches: without
         // this they outlive the file and keep answering "allowed".
-        const removedGroups =
+        const { members } =
             await this.stores.permission.deleteUserGroupPermsByPermissionPrefixes(
                 uids.flatMap((uid) => [`fs:${uid}`, `manage:fs:${uid}`]),
+                { primary },
             );
-        const memberUuids = (
-            await Promise.all(
-                [...new Set(removedGroups.map((row) => Number(row.group_id)))]
-                    .filter((id) => Number.isFinite(id))
-                    .map((id) =>
-                        this.stores.permission.listGroupMemberUuids(id),
-                    ),
-            )
-        ).flat();
+        const memberUuids = members
+            .map((member) => member.uuid)
+            .filter((uuid): uuid is string => Boolean(uuid));
 
         await this.stores.permission.bumpCacheGenerations([
             ...new Set([
@@ -1877,15 +1945,23 @@ export class ShareService extends PuterService {
      * the subtree stands on its own, and one left behind keeps granting the
      * issuer's recipients access under an owner who never agreed to them.
      */
-    async onEntryOwnerChanged(entry: FSEntry): Promise<void> {
+    async onEntryOwnerChanged(
+        entry: FSEntry,
+        { primary = true }: { primary?: boolean } = {},
+    ): Promise<void> {
         // A file's share rows can only name the file itself, so there is
         // nothing to list or hydrate.
         if (!entry.isDir) {
-            await this.onEntryDeleted([entry.uuid]);
-            await this.stores.share.deleteByFsentryIds([entry.id]);
+            await this.onEntryDeleted([entry.uuid], { primary });
+            await this.stores.share.deleteByFsentryIds(
+                [entry.id],
+                [entry.uuid],
+            );
             return;
         }
-        const rows = await this.stores.share.listAllByFsentrySubtree(entry.id);
+        const rows = await this.stores.share.listAllByFsentrySubtree(entry.id, {
+            primary,
+        });
         const fsentryIds = [
             ...new Set([
                 entry.id,
@@ -1897,8 +1973,8 @@ export class ShareService extends PuterService {
 
         const nodes = await this.stores.fsEntry.getEntriesByIds(fsentryIds);
         const uuids = [...nodes.values()].map((node) => node.uuid);
-        if (uuids.length > 0) await this.onEntryDeleted(uuids);
-        await this.stores.share.deleteByFsentryIds(fsentryIds);
+        if (uuids.length > 0) await this.onEntryDeleted(uuids, { primary });
+        await this.stores.share.deleteByFsentryIds(fsentryIds, uuids);
     }
 
     /**
@@ -1913,7 +1989,11 @@ export class ShareService extends PuterService {
     async onEntryTrashed(entry: FSEntry): Promise<void> {
         // The same sweep as a change of owner: every kind of row in the
         // subtree, since a link share deeper down grants access on its own.
-        await this.onEntryOwnerChanged(entry);
+        // Nearly every trashed entry has no shares, so the reads stay off the
+        // primary unless its owner shared just now.
+        await this.onEntryOwnerChanged(entry, {
+            primary: this.#sharedRecently([entry.userId]),
+        });
     }
 
     // -- Reads --------------------------------------------------------
@@ -3015,6 +3095,7 @@ export class ShareService extends PuterService {
                 mode,
                 issuerAppUid: this.#actingAppUid(actor),
             });
+            this.#ownerShared(entry.userId);
             return {
                 ...this.#resolve(row, entry, actor, { username: null }),
                 anyone: true,
@@ -3314,6 +3395,7 @@ export class ShareService extends PuterService {
                 mode,
                 issuerAppUid: this.#actingAppUid(actor),
             });
+            this.#ownerShared(entry.userId);
             return {
                 ...this.#resolve(row, entry, actor, { username: null }),
                 pending: true,

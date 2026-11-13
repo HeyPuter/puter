@@ -254,8 +254,13 @@ const en = {
         folder_open_failed: 'This folder couldn\'t be opened.',
         path_not_found: 'Couldn\'t find "%%". Check the path and try again.',
         reserved_name_not_allowed: 'The name "{{name}}" is not allowed, because it is a reserved name. Please choose another name.',
+        save_file_not_returned: 'The file was saved, but it couldn\'t be passed back to the app or website that asked for it.',
         upload_some_failed: 'Some uploads failed:',
         upload_to_trash_not_allowed: 'Uploading to trash is not allowed!',
+        url_save_failed: 'Couldn\'t download this file. The site it comes from may not allow Puter to download it.',
+        url_save_https_only: 'Only https links can be saved.',
+        url_save_invalid_url: 'Only http and https links can be saved.',
+        url_save_too_large: 'This file is too large. Files saved from a link can be up to 100 MB.',
         view_compact_grid: 'Compact Grid',
         view_grid: 'Grid',
         view_list: 'List',
@@ -568,6 +573,8 @@ const en = {
         share_access_updated_items:
             'Updated access for {{recipient}} on {{count}} items',
         share_access_removed_items: 'Removed {{recipient}} from {{count}} items',
+        share_access_removed_partial:
+            'Removed {{recipient}} from {{count}} of {{total}} items',
         block: 'Block',
         unblock: 'Unblock',
         manage: 'Manage',
@@ -614,6 +621,8 @@ const en = {
         share_link_on_write_items: 'Anyone with the link can now edit these items',
         share_link_off: 'Only people with access can open this item now',
         share_link_off_items: 'Only people with access can open these items now',
+        share_link_off_partial:
+            'Only people with access can open {{count}} of {{total}} items now',
         share_link_requires_plan:
             'Sharing with anyone who has the link requires a subscription.',
         share_copy_link: 'Copy link',

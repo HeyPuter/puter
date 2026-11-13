@@ -103,6 +103,11 @@ export interface ForwardableDelivery {
     ackId?: string;
     /** Client skips its handler: the event is past the handler-chain limit. */
     skipHandler?: true;
+    /**
+     * Set on a queued delivery with a worker behind it: only connections that
+     * run the subscription's handler get it, and with none it is declined.
+     */
+    toHandlers?: true;
 }
 
 /** What stands in for events a full queue could not carry across. */
@@ -608,10 +613,22 @@ export class EventForwardService extends PuterService {
             to: this.region,
         });
 
+        // Handler rooms are looked up up front, once each however many of the
+        // batch's deliveries name one.
+        let heldRooms: Map<string, boolean> | undefined;
+        try {
+            heldRooms = await this.services.events.heldHandlerRooms(
+                items.filter(
+                    (item): item is ForwardDelivery => item.kind === 'delivery',
+                ),
+            );
+        } catch (err) {
+            console.warn('[events] handler room probe failed', err);
+        }
         for (const item of items) {
             if (item.kind !== 'delivery') continue;
             try {
-                await this.services.events.deliverForwarded(item);
+                await this.services.events.deliverForwarded(item, heldRooms);
             } catch (err) {
                 console.warn('[events] forwarded delivery failed', err);
             }
@@ -698,6 +715,7 @@ export class EventForwardService extends PuterService {
                     nack.reason === 'retriable' || nack.reason === 'terminal'
                         ? nack.reason
                         : 'no_handler',
+                    from,
                 ),
         );
         for (const outcome of declined)
@@ -797,6 +815,7 @@ export class EventForwardService extends PuterService {
                   }
                 : {}),
             ...(delivery.skipHandler ? { skipHandler: true as const } : {}),
+            ...(delivery.toHandlers ? { toHandlers: true as const } : {}),
         };
         this.#queueFor().push(region, item);
     }

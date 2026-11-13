@@ -1,6 +1,10 @@
 import bcrypt from 'bcrypt';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { ServerResponse, type IncomingMessage } from 'node:http';
 import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { v4 as uuidv4 } from 'uuid';
 import { deepMerge } from '../../tools/lib/configMigration.mjs';
@@ -14,6 +18,7 @@ import {
     PostgresDatabaseClient,
     type PostgresPool,
 } from './clients/database/PostgresDatabaseClient';
+import { SqliteDatabaseClient } from './clients/database/SqliteDatabaseClient';
 import type { PoolConfig } from 'pg';
 import { ADMIN_GROUP_UID } from './services/selfhosted/DefaultUserService';
 import { FULL_API_ACCESS } from './services/permission/consts';
@@ -470,3 +475,107 @@ export const inRequestScope = <T extends object>(controller: T): T =>
                 );
         },
     });
+
+/** Adds a replica that, for `queries`, is empty, a copy from now, or current. */
+export const lagReadReplica = async (
+    server: PuterServer,
+    queries: RegExp,
+    { mode = 'missing' }: { mode?: 'missing' | 'frozen' | 'current' } = {},
+) => {
+    type Read = (sql: string, params?: unknown[]) => Promise<unknown[]>;
+    const db = server.clients.db as unknown as Record<string, unknown> & {
+        read: Read;
+    };
+    let frozen: SqliteDatabaseClient | null = null;
+    let frozenDir: string | null = null;
+    if (mode === 'frozen') {
+        frozenDir = mkdtempSync(join(tmpdir(), 'puter-replica-'));
+        const path = join(frozenDir, 'replica.sqlite');
+        await server.clients.db.write('VACUUM INTO ?', [path]);
+        frozen = new SqliteDatabaseClient({
+            port: 0,
+            extensions: [],
+            database: { engine: 'sqlite', path },
+        } as IConfig);
+        await frozen.onServerStart();
+    }
+
+    const names = ['read', 'pread', 'hasReadReplica'];
+    const own = names.map((name) => Object.getOwnPropertyDescriptor(db, name));
+    const read = db.read.bind(db);
+    let primaryReads = 0;
+    db.hasReadReplica = () => true;
+    db.read = async (sql: string, params: unknown[] = []) => {
+        if (mode === 'current' || !queries.test(sql)) return read(sql, params);
+        return frozen ? frozen.read(sql, params) : [];
+    };
+    db.pread = async (sql: string, params: unknown[] = []) => {
+        if (queries.test(sql)) primaryReads++;
+        return read(sql, params);
+    };
+    return {
+        primaryReads: () => primaryReads,
+        catchUp: () => {
+            names.forEach((name, i) => {
+                const descriptor = own[i];
+                if (descriptor) Object.defineProperty(db, name, descriptor);
+                else delete db[name];
+            });
+            frozen?.onServerShutdown();
+            if (frozenDir) rmSync(frozenDir, { recursive: true, force: true });
+        },
+    };
+};
+
+/**
+ * The most `close` listeners the backend may leave on one response. Request
+ * tracing adds up to five of its own, and Node warns past ten.
+ */
+export const RESPONSE_CLOSE_LISTENER_BUDGET = 5;
+
+/**
+ * Records the most `close` listeners each server response held at once. The
+ * hook is process-wide, so call `restore` when done.
+ */
+export const trackResponseCloseListeners = () => {
+    const peaks = new Map<ServerResponse, number>();
+    const proto = ServerResponse.prototype as unknown as Record<
+        string,
+        (
+            this: ServerResponse,
+            event: string | symbol,
+            listener: unknown,
+        ) => unknown
+    >;
+    const methods = ['on', 'addListener', 'prependListener'];
+    const own = methods.map((m) => Object.getOwnPropertyDescriptor(proto, m));
+    for (const method of methods) {
+        const original = proto[method]!;
+        proto[method] = function (event, listener) {
+            const result = original.call(this, event, listener);
+            if (event === 'close') {
+                const count = this.listenerCount('close');
+                peaks.set(this, Math.max(peaks.get(this) ?? 0, count));
+            }
+            return result;
+        };
+    }
+    return {
+        /** The highest count on any response to a request `match` accepts. */
+        peak: (match: (req: IncomingMessage) => boolean): number =>
+            Math.max(
+                0,
+                ...[...peaks]
+                    .filter(([res]) => match(res.req))
+                    .map(([, count]) => count),
+            ),
+        restore: () => {
+            methods.forEach((method, i) => {
+                const descriptor = own[i];
+                if (descriptor)
+                    Object.defineProperty(proto, method, descriptor);
+                else delete proto[method];
+            });
+        },
+    };
+};

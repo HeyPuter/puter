@@ -21,7 +21,6 @@ import type { Team2faLookup } from '../../core/http/middleware/gates.js';
 import { compare as bcryptCompare } from 'bcrypt';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
-import { pipeline } from 'node:stream/promises';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { pipeToResponse } from '../../core/http/pipeToResponse.js';
@@ -551,12 +550,7 @@ export class WebDAVController extends PuterController {
                 'Content-Length': String(result.contentLength ?? 0),
             });
         }
-        try {
-            await pipeline(result.body, res);
-        } catch {
-            // Client disconnect or upstream stream error: pipeline already
-            // tore down both ends, so nothing is left dangling to crash on.
-        }
+        await pipeToResponse(result.body, res);
     }
 
     // -- PROPFIND ----------------------------------------------------
@@ -813,7 +807,10 @@ export class WebDAVController extends PuterController {
         const userId = actor.user!.id as number;
         await this.#assertCreate(actor, davPath);
 
-        const existing = await this.stores.fsEntry.getEntryByPath(davPath);
+        // A name only the collation matches is taken too.
+        const existing = await this.stores.fsEntry.getEntryByPath(davPath, {
+            foldedNames: true,
+        });
         if (existing)
             throw new HttpError(405, 'Already exists', {
                 legacyCode: 'bad_request',
@@ -937,7 +934,9 @@ export class WebDAVController extends PuterController {
         await this.#assertCreate(actor, destPath);
 
         const overwrite = req.headers.overwrite !== 'F';
-        const destExists = await this.stores.fsEntry.getEntryByPath(destPath);
+        const destExists = await this.stores.fsEntry.getEntryByPath(destPath, {
+            foldedNames: true,
+        });
         if (destExists && !overwrite)
             throw new HttpError(412, 'Destination exists and Overwrite=F', {
                 legacyCode: 'conflict',
@@ -985,7 +984,9 @@ export class WebDAVController extends PuterController {
         await this.#assertCreate(actor, destPath);
 
         const overwrite = req.headers.overwrite !== 'F';
-        const destExists = await this.stores.fsEntry.getEntryByPath(destPath);
+        const destExists = await this.stores.fsEntry.getEntryByPath(destPath, {
+            foldedNames: true,
+        });
         if (destExists && !overwrite)
             throw new HttpError(412, 'Destination exists and Overwrite=F', {
                 legacyCode: 'conflict',

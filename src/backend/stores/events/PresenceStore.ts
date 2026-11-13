@@ -47,6 +47,9 @@ import { KV_GLOBAL_APP_KEY } from '../systemKv/SystemKVStore.js';
  * its write would then replace a fresher join. A region whose sockets went
  * without disconnecting retires its own item when a forward next reaches it;
  * one that never answers ages out on the item's `ttl`.
+ *
+ * Which connections run a queued subscription's handler is kept only in the
+ * region's own Redis, per subscription, and lapses without renewals.
  */
 
 // -- Keys -------------------------------------------------------------
@@ -102,6 +105,17 @@ const retireClaimKey = (userId: number | string, appUid: string): string =>
 const leavingKey = (userId: number | string, appUid: string): string =>
     `ev:plg:{${userId}}:${appUid}`;
 
+/**
+ * This region's connections that run one subscription's handler, scored by last
+ * renewal. Shares the user's hash tag, so one connection's subscriptions go in
+ * one pipeline.
+ */
+const handlerSocketsKey = (
+    userId: number | string,
+    appUid: string,
+    subId: string,
+): string => `ev:phs:{${userId}}:${appUid}:${subId}`;
+
 // -- Lifetimes --------------------------------------------------------
 
 /**
@@ -148,6 +162,19 @@ const PRESENCE_ITEM_REFRESH_SECONDS = 12 * 60 * 60;
  */
 const RETIRE_CLAIM_SECONDS = 60;
 
+/** How often a connection renews the subscriptions it runs handlers for. */
+export const HANDLER_RENEW_MS = 60_000;
+
+/**
+ * How long a handler connection counts without a renewal, and how long its set
+ * outlives the last one. Far shorter than `SOCKET_LIVE_MS`: a connection whose
+ * node died still counting sends each queued event to nobody for a lease.
+ */
+export const HANDLER_LIVE_MS = 3 * HANDLER_RENEW_MS;
+
+/** Connections one subscription's set keeps; the most recently renewed stay. */
+export const HANDLER_SOCKETS_MAX = 64;
+
 // -- Scripts ----------------------------------------------------------
 
 // Both drop members not renewed inside the window and answer with the live
@@ -182,6 +209,37 @@ end
 return 0
 `;
 
+/**
+ * Add or renew one handler connection, dropping lapsed members and all but the
+ * newest `ARGV[5]`. KEYS[1] is the set.
+ */
+const ADD_HANDLER_SCRIPT = `
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[3])
+redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
+redis.call('ZREMRANGEBYRANK', KEYS[1], 0, -1 - tonumber(ARGV[5]))
+redis.call('PEXPIRE', KEYS[1], ARGV[4])
+return 1
+`;
+
+interface HandlerPipeline {
+    presenceAddHandler(
+        handlerSocketsKey: string,
+        socketId: string,
+        nowMs: string,
+        staleAtMs: string,
+        ttlMs: string,
+        max: string,
+    ): HandlerPipeline;
+    zrem(key: string, member: string): HandlerPipeline;
+    exec(): Promise<Array<[Error | null, unknown]> | null>;
+}
+
+/** One handled subscription, as its connection's set key names it. */
+export interface HandledSubscription {
+    appUid: string;
+    subId: string;
+}
+
 interface PresenceScripts {
     presenceAddSocket(
         socketsKey: string,
@@ -204,6 +262,11 @@ interface PresenceScripts {
 /** Scores at or below this are sockets that stopped renewing. */
 const staleAt = (nowMs: number): number => nowMs - SOCKET_LIVE_MS;
 
+/** A pipeline answers per command; the first failure fails the call. */
+const execAll = async (pipeline: HandlerPipeline): Promise<void> => {
+    for (const [err] of (await pipeline.exec()) ?? []) if (err) throw err;
+};
+
 // -- Row --------------------------------------------------------------
 
 /** One pair's presence, reassembled from its regions' items. */
@@ -225,6 +288,10 @@ export class PresenceStore extends PuterStore {
             this.clients.redis.defineCommand('presenceRemoveSocket', {
                 numberOfKeys: 2,
                 lua: REMOVE_SOCKET_SCRIPT,
+            });
+            this.clients.redis.defineCommand('presenceAddHandler', {
+                numberOfKeys: 1,
+                lua: ADD_HANDLER_SCRIPT,
             });
         }
         return this.clients.redis as unknown as PresenceScripts;
@@ -455,6 +522,58 @@ export class PresenceStore extends PuterStore {
             throw err;
         }
         return true;
+    }
+
+    // -- Handler connections (region-local) ----------------------------
+
+    /** Add or renew one connection in the sets of the subscriptions it runs. */
+    async addHandlerSocket(
+        userId: number,
+        socketId: string,
+        handled: readonly HandledSubscription[],
+    ): Promise<void> {
+        if (handled.length === 0) return;
+        this.#scripts();
+        const now = Date.now();
+        const pipeline =
+            this.clients.redis.pipeline() as unknown as HandlerPipeline;
+        for (const { appUid, subId } of handled)
+            pipeline.presenceAddHandler(
+                handlerSocketsKey(userId, appUid, subId),
+                socketId,
+                String(now),
+                String(now - HANDLER_LIVE_MS),
+                String(HANDLER_LIVE_MS),
+                String(HANDLER_SOCKETS_MAX),
+            );
+        await execAll(pipeline);
+    }
+
+    async removeHandlerSocket(
+        userId: number,
+        socketId: string,
+        handled: readonly HandledSubscription[],
+    ): Promise<void> {
+        if (handled.length === 0) return;
+        const pipeline =
+            this.clients.redis.pipeline() as unknown as HandlerPipeline;
+        for (const { appUid, subId } of handled)
+            pipeline.zrem(handlerSocketsKey(userId, appUid, subId), socketId);
+        await execAll(pipeline);
+    }
+
+    /** Whether a connection in this region renewed as running the handler. */
+    async holdsHandler(
+        userId: number,
+        appUid: string,
+        subId: string,
+    ): Promise<boolean> {
+        const live = await this.clients.redis.zcount(
+            handlerSocketsKey(userId, appUid, subId),
+            Date.now() - HANDLER_LIVE_MS + 1,
+            '+inf',
+        );
+        return Number(live) > 0;
     }
 
     // -- Generation --------------------------------------------------

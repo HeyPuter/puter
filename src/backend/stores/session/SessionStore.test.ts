@@ -19,7 +19,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { setupTestServer } from '../../testUtil.ts';
+import { lagReadReplica, setupTestServer } from '../../testUtil.ts';
 import { PuterServer } from '../../server.ts';
 import {
     APP_WINDOW_SECONDS,
@@ -908,6 +908,59 @@ describe('SessionStore', () => {
                 await target.findActiveByAccessTokenUid(tokenUid),
             ).toBeNull();
         });
+
+        const TOKEN_UID_QUERIES =
+            /`(access_token_uid|legacy_token_uid|legacy_token_unique_key)` = \?/;
+        const byColumn = [
+            ['access_token_uid', {}],
+            ['legacy_token_uid', { created_via: 'legacy_backfill' }],
+        ] as const;
+
+        it.each(byColumn)(
+            'finds a row just written under %s while the replica lags',
+            async (column, extra) => {
+                const user = await makeUser();
+                const tokenUid = uuidv4();
+                const row = await tokenRow(user.id, {
+                    [column]: tokenUid,
+                    ...extra,
+                });
+                const replica = await lagReadReplica(server, TOKEN_UID_QUERIES);
+                try {
+                    const found =
+                        await target.findActiveByAccessTokenUid(tokenUid);
+                    expect(found?.uuid).toBe(row.uuid);
+                    expect(replica.primaryReads()).toBe(2);
+                } finally {
+                    replica.catchUp();
+                }
+            },
+        );
+
+        it.each(byColumn)(
+            'skips the primary when the replica has the row under %s',
+            async (column, extra) => {
+                const user = await makeUser();
+                const tokenUid = uuidv4();
+                const row = await tokenRow(user.id, {
+                    [column]: tokenUid,
+                    ...extra,
+                });
+                const replica = await lagReadReplica(
+                    server,
+                    TOKEN_UID_QUERIES,
+                    { mode: 'current' },
+                );
+                try {
+                    const found =
+                        await target.findActiveByAccessTokenUid(tokenUid);
+                    expect(found?.uuid).toBe(row.uuid);
+                    expect(replica.primaryReads()).toBe(0);
+                } finally {
+                    replica.catchUp();
+                }
+            },
+        );
     });
 
     describe('getOrCreateGodmodeToken', () => {

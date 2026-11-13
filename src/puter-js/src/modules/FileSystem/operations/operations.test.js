@@ -599,6 +599,117 @@ describe('stat', () => {
     });
 });
 
+describe('unshare', () => {
+    const answer = (status, revoked, results) => {
+        FakeXHR.respondWith = () => ({ status, revoked, results });
+    };
+    const refused = (path, code, message = code) => ({
+        recipient: 'me', path, status: 'error', message, ...(code ? { code } : {}),
+    });
+    const failure = (path, code, message = code) => ({ recipient: 'me', path, message, code });
+
+    it('rejects with the first error and every refused pair when all were refused', async () => {
+        answer('aborted', 0, [
+            refused('/a/file.txt', 'team_share', 'Held through a team'),
+            refused('/a/other.txt', 'forbidden', 'Not allowed'),
+        ]);
+        const onSuccess = vi.fn();
+        const onError = vi.fn();
+        const expected = {
+            message: 'Held through a team',
+            code: 'team_share',
+            failed: [
+                failure('/a/file.txt', 'team_share', 'Held through a team'),
+                failure('/a/other.txt', 'forbidden', 'Not allowed'),
+            ],
+        };
+        await expect(fs.unshare('/a/file.txt', 'me', onSuccess, onError))
+            .rejects.toEqual(expected);
+        expect(onSuccess).not.toHaveBeenCalled();
+        expect(onError).toHaveBeenCalledWith(expected);
+    });
+
+    it('lists the refused pair when others were withdrawn', async () => {
+        answer('mixed', 1, [
+            { recipient: 'bob', path: '/a/file.txt', status: 'success' },
+            { recipient: 'me', uid: 'u-2', status: 'error', code: 'forbidden', message: 'Not allowed' },
+        ]);
+        await expect(fs.unshare({ path: '/a/file.txt', recipients: ['bob', 'me'] })).resolves.toEqual({
+            revoked: 1,
+            failed: [{ recipient: 'me', uid: 'u-2', message: 'Not allowed', code: 'forbidden' }],
+        });
+    });
+
+    it('rejects with a named refusal ahead of a pair the server could not complete', async () => {
+        answer('aborted', 0, [
+            refused('/a/file.txt', undefined, 'Request failed'),
+            refused('/a/other.txt', 'team_share', 'Held through a team'),
+        ]);
+        await expect(fs.unshare({ paths: ['/a/file.txt', '/a/other.txt'], recipient: 'me' }))
+            .rejects.toMatchObject({ message: 'Held through a team', code: 'team_share' });
+    });
+
+    it('rejects with a fallback code when no refused pair names one', async () => {
+        answer('aborted', 0, [refused('/a/file.txt', undefined, 'Request failed')]);
+        await expect(fs.unshare('/a/file.txt', 'me'))
+            .rejects.toMatchObject({ message: 'Request failed', code: 'unshare_failed' });
+    });
+
+    it('resolves, listing the refused pair, next to one with nothing to withdraw', async () => {
+        answer('mixed', 0, [
+            { recipient: 'me', path: '/a/file.txt', status: 'success' },
+            refused('/a/other.txt', 'team_share', 'Held through a team'),
+        ]);
+        const onSuccess = vi.fn();
+        const onError = vi.fn();
+        const expected = {
+            revoked: 0,
+            failed: [failure('/a/other.txt', 'team_share', 'Held through a team')],
+        };
+        await expect(fs.unshare({
+            paths: ['/a/file.txt', '/a/other.txt'], recipient: 'me', success: onSuccess, error: onError,
+        })).resolves.toEqual(expected);
+        expect(onSuccess).toHaveBeenCalledWith(expected);
+        expect(onError).not.toHaveBeenCalled();
+    });
+
+    it('resolves, listing the pair, when the recipient or the item is gone', async () => {
+        for ( const code of ['user_does_not_exist', 'subject_does_not_exist'] ) {
+            answer('aborted', 0, [refused('/a/file.txt', code)]);
+            await expect(fs.unshare('/a/file.txt', 'me'))
+                .resolves.toEqual({ revoked: 0, failed: [failure('/a/file.txt', code)] });
+        }
+    });
+
+    it('rejects with the other refusal when a gone pair comes first', async () => {
+        answer('aborted', 0, [
+            refused('/a/file.txt', 'subject_does_not_exist'),
+            refused('/a/other.txt', 'forbidden', 'Not allowed'),
+        ]);
+        await expect(fs.unshare({ paths: ['/a/file.txt', '/a/other.txt'], recipient: 'me' }))
+            .rejects.toEqual({
+                message: 'Not allowed',
+                code: 'forbidden',
+                failed: [
+                    failure('/a/file.txt', 'subject_does_not_exist'),
+                    failure('/a/other.txt', 'forbidden', 'Not allowed'),
+                ],
+            });
+    });
+
+    it('rejects with the server error, and no refused pairs, when the request itself fails', async () => {
+        FakeXHR.status = 429;
+        FakeXHR.respondWith = () => ({ message: 'Too many requests', code: 'too_many_requests' });
+        await expect(fs.unshare('/a/file.txt', 'me'))
+            .rejects.toEqual({ message: 'Too many requests', code: 'too_many_requests' });
+    });
+
+    it('resolves with no refused pairs when there was nothing to withdraw', async () => {
+        answer('success', 0, [{ recipient: 'bob', path: '/a/file.txt', status: 'success' }]);
+        await expect(fs.unshare('/a/file.txt', 'bob')).resolves.toEqual({ revoked: 0, failed: [] });
+    });
+});
+
 describe('readdir', () => {
     beforeEach(() => {
         FakeXHR.respondWith = () => [{ uuid: 'u1', name: 'file.txt', path: '/a/file.txt', isDir: false }];

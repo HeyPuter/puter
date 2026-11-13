@@ -837,8 +837,10 @@ export class MeteringBufferStore extends PuterStore {
     async incr(
         input: IncrInput,
     ): Promise<{ res: RecursiveRecord<number>; exact: boolean }> {
+        let buffered = false;
         try {
             const { delta, base } = await this.#buffer(input);
+            buffered = true;
             const resolved =
                 Object.keys(base).length > 0
                     ? base
@@ -855,6 +857,9 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] buffered incr failed, writing through: ${(e as Error).message}`,
             );
             const { res } = await this.#writeThrough(input);
+            // Only the running total was missing: the buffered copy comes back
+            // out, or the next flush writes this increment a second time.
+            if (buffered) await this.#unbuffer(input);
             // The cached base doesn't have this write; the next read reseeds it.
             await this.forgetBase(input.key);
             return { res, exact: true };
@@ -1253,6 +1258,20 @@ export class MeteringBufferStore extends PuterStore {
     }
 
     // -- Internals: writes --------------------------------------------
+
+    /** Best-effort: an increment it can't take back out is flushed as well. */
+    async #unbuffer({ key, pathAndAmountMap }: IncrInput): Promise<void> {
+        const negated: Record<string, number> = {};
+        for (const [path, amount] of Object.entries(pathAndAmountMap))
+            negated[path] = -amount;
+        try {
+            await this.#buffer({ key, pathAndAmountMap: negated });
+        } catch (e) {
+            console.warn(
+                `[metering] written-through incr is still buffered and will be counted twice: ${(e as Error).message}`,
+            );
+        }
+    }
 
     #writeThrough(input: IncrInput): Promise<{ res: RecursiveRecord<number> }> {
         return this.stores.kv.incr({

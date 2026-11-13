@@ -19,7 +19,7 @@
 
 import { dirname as pathDirname } from 'node:path/posix';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
@@ -238,6 +238,161 @@ describe('ShareService: deleting a shared item', () => {
         expect(await server.stores.share.listPendingOnFsentry(file.id)).toEqual(
             [],
         );
+    });
+
+    it('reads no grants or shares from the primary for an owner with nothing shared', async () => {
+        const owner = await makeUser();
+        const { dir } = await makeDirWithFile(owner.user);
+        const trash = await dirAt(`/${owner.user.username}/Trash`);
+
+        const pread = vi.spyOn(server.clients.db, 'pread');
+        try {
+            await move(owner, dir, trash);
+            const retireReads = pread.mock.calls
+                .map(([sql]) => String(sql))
+                .filter((sql) =>
+                    /`user_to_user_permissions`|`user_to_group_permissions`|FROM `share`/u.test(
+                        sql,
+                    ),
+                );
+            expect(retireReads).toEqual([]);
+        } finally {
+            pread.mockRestore();
+        }
+    });
+
+    it('withdraws a share made just now that the replica has not seen', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+        await share(owner.actor, {
+            uid: dir.uuid,
+            recipient: { username: recipient.user.username },
+            mode: 'read',
+        });
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+        const trash = await dirAt(`/${owner.user.username}/Trash`);
+
+        // The replica has neither the grant nor the share row yet.
+        const db = server.clients.db;
+        const primaryRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(primaryRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                /`user_to_user_permissions`|FROM `share`/u.test(String(sql))
+                    ? []
+                    : primaryRead(sql, params),
+            );
+        let moved;
+        try {
+            moved = await move(owner, dir, trash);
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+
+        expect(
+            await canRead(recipient.actor, `${moved.path}/${file.name}`),
+        ).toBe(false);
+        expect(
+            await server.stores.share.listAllByFsentrySubtree(dir.id),
+        ).toEqual([]);
+    });
+
+    it("does not honour a lagging replica's copy of a link the delete removed", async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+        // The owner's plan covers link sharing.
+        const plan = vi
+            .spyOn(server.services.metering, 'getActorSubscription')
+            .mockResolvedValue({ id: 'business' } as never);
+        await server.stores.share.upsertAnyone({
+            issuerUserId: owner.user.id,
+            fsentryId: dir.id,
+            mode: 'read',
+        });
+        expect(await canRead(stranger.actor, file.path)).toBe(true);
+
+        const trash = await dirAt(`/${owner.user.username}/Trash`);
+        const moved = await move(owner, dir, trash);
+
+        // The replica still has the link row the primary just deleted.
+        const db = server.clients.db;
+        const primaryRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(primaryRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                String(sql).includes('`share`.`anyone` = 1')
+                    ? [
+                          {
+                              mode: 'read',
+                              entry_uuid: dir.uuid,
+                              owner_user_id: owner.user.id,
+                          },
+                      ]
+                    : primaryRead(sql, params),
+            );
+        try {
+            expect(
+                await canRead(stranger.actor, `${moved.path}/${file.name}`),
+            ).toBe(false);
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+            plan.mockRestore();
+        }
+    });
+
+    it("drops a team member's cached access when the replica lacks them", async () => {
+        const owner = await makeUser();
+        const member = await makeUser();
+        const file = await makeFile(owner.user);
+        const groupUid = uuidv4();
+        await server.clients.db.write(
+            'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, `name`, ' +
+                '`extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+            [groupUid, owner.user.id, 'team', 'Team', '{}', '{}'],
+        );
+        const [group] = (await server.clients.db.read(
+            'SELECT id FROM `group` WHERE uid = ?',
+            [groupUid],
+        )) as { id: number }[];
+        await server.clients.db.write(
+            'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+            [member.user.id, group.id],
+        );
+        await server.stores.permission.upsertUserGroupPerm(
+            Number(group.id),
+            owner.user.id,
+            `fs:${file.uuid}:read`,
+            {},
+        );
+
+        // The replica has not seen the member join yet.
+        const db = server.clients.db;
+        const primaryRead = db.read.bind(db);
+        const pread = vi.spyOn(db, 'pread').mockImplementation(primaryRead);
+        const read = vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql, params) =>
+                String(sql).includes('jct_user_group')
+                    ? []
+                    : primaryRead(sql, params),
+            );
+        const bump = vi.spyOn(server.stores.permission, 'bumpCacheGenerations');
+        try {
+            await server.services.share.onEntryDeleted(file.uuid);
+            expect(bump.mock.calls.flat(2)).toContain(
+                `user:${member.user.uuid}`,
+            );
+        } finally {
+            bump.mockRestore();
+            read.mockRestore();
+            pread.mockRestore();
+        }
     });
 
     it('does not answer whether a name is already in the owner\'s Trash', async () => {

@@ -2128,6 +2128,29 @@ describe('KVStoreDriver', () => {
             await expect(inCtx(() => target.flush({}))).resolves.toBe(true);
         });
 
+        it('removes paths without handing the value back', async () => {
+            await inCtx(() =>
+                target.set({ key: 'obj', value: { a: 1, b: 2 } }),
+            );
+            expect(
+                await inCtx(() => target.remove({ key: 'obj', paths: ['a'] })),
+            ).toEqual({ b: 2 });
+            await exhaust(actor);
+
+            // A path the value doesn't have would otherwise read it all back.
+            expect(
+                await inCtx(() => target.remove({ key: 'obj', paths: ['x'] })),
+            ).toBeNull();
+            expect(
+                await inCtx(() => target.remove({ key: 'obj', paths: ['b'] })),
+            ).toBeNull();
+            const stored = await server.stores.kv.get(
+                { key: 'obj' },
+                { actor },
+            );
+            expect(stored.res).toEqual({});
+        });
+
         it('exempts a worker session', async () => {
             const worker = makeActor({
                 session: { uid: 'worker-session', kind: 'worker' },

@@ -17,7 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { PuterStore } from '../types';
+import {
+    CACHE_TOMBSTONE_SUFFIX,
+    CACHE_TOMBSTONE_TTL_SECONDS,
+    PuterStore,
+} from '../types';
 import type { LayerInstances } from '../../types';
 import type { puterStores } from '../index';
 import { PermissionUtil } from '../../services/permission/permissionUtil';
@@ -97,6 +101,11 @@ type DbRead = (
     query: string,
     params: unknown[],
 ) => Promise<Record<string, unknown>[]>;
+
+export interface GroupMember {
+    id: number;
+    uuid: string | null;
+}
 
 export interface LinkedUserUserPermRow {
     holder_user_id: number;
@@ -645,25 +654,40 @@ export class PermissionStore extends PuterStore {
         }));
     }
 
+    /** `primary` when a grant may be too new for a replica to have it. */
+    #grantRead(primary: boolean): DbRead {
+        return primary
+            ? this.clients.db.pread.bind(this.clients.db)
+            : this.clients.db.read.bind(this.clients.db);
+    }
+
     /** The group analogue: a deleted node's group grants must go with it. */
     async deleteUserGroupPermsByPermissionPrefixes(
         permissions: string[],
-    ): Promise<Array<{ group_id: number; permission: string }>> {
-        if (permissions.length === 0) return [];
+        { primary = false }: { primary?: boolean } = {},
+    ): Promise<{
+        rows: Array<{ group_id: number; permission: string }>;
+        members: GroupMember[];
+    }> {
+        if (permissions.length === 0) return { rows: [], members: [] };
         const { where, params } = subtreeClause(permissions);
 
-        const rows = (await this.clients.db.read(
+        const rows = (await this.#grantRead(primary)(
             'SELECT `group_id`, `permission` FROM `user_to_group_permissions` ' +
                 `WHERE ${where}`,
             params,
         )) as Array<{ group_id: number; permission: string }>;
-        if (rows.length === 0) return [];
+        if (rows.length === 0) return { rows, members: [] };
 
-        await this.clients.db.write(
-            `DELETE FROM \`user_to_group_permissions\` WHERE ${where}`,
-            params,
+        const { members } = await this.#deleteGroupGrants(
+            rows.map((row) => row.group_id),
+            () =>
+                this.clients.db.write(
+                    `DELETE FROM \`user_to_group_permissions\` WHERE ${where}`,
+                    params,
+                ),
         );
-        return rows;
+        return { rows, members };
     }
 
     /**
@@ -678,6 +702,7 @@ export class PermissionStore extends PuterStore {
      */
     async deleteUserUserPermsByPermissionPrefixes(
         permissions: string[],
+        { primary = false }: { primary?: boolean } = {},
     ): Promise<
         Array<{
             holder_user_id: number;
@@ -688,7 +713,7 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return [];
         const { where, params } = subtreeClause(permissions);
 
-        const rows = (await this.clients.db.read(
+        const rows = (await this.#grantRead(primary)(
             'SELECT `holder_user_id`, `issuer_user_id`, `permission` FROM `user_to_user_permissions` ' +
                 `WHERE ${where}`,
             params,
@@ -1332,9 +1357,6 @@ export class PermissionStore extends PuterStore {
     }
 
     // -- SQL: user-to-group permissions ------------------------------
-    //
-    // Read-only. Group grants are seeded by migration (the admin group's
-    // unrestricted `driver` access); nothing writes them at runtime.
 
     /**
      * Reads group permissions granted to groups the user is a member of, for a
@@ -1351,9 +1373,15 @@ export class PermissionStore extends PuterStore {
         if (permissions.length === 0) return [];
         let permClause = permissions.map(() => 'p.permission = ?').join(' OR ');
         if (permissions.length > 1) permClause = `(${permClause})`;
+        const tombstoned = await this.isCacheKeyTombstoned([
+            this.#u2gCacheKey(userId),
+        ]);
+        const read: DbRead = tombstoned
+            ? this.clients.db.pread.bind(this.clients.db)
+            : this.clients.db.read.bind(this.clients.db);
         // Deletion leaves memberships and grants, so a deleted team would
         // otherwise keep resolving access nothing can withdraw.
-        const rows = await this.clients.db.read(
+        const rows = await read(
             'SELECT p.permission, p.user_id, p.group_id, p.extra FROM `user_to_group_permissions` p ' +
                 'JOIN `jct_user_group` ug ON p.group_id = ug.group_id ' +
                 'JOIN `group` g ON g.`id` = ug.group_id ' +
@@ -1387,13 +1415,44 @@ export class PermissionStore extends PuterStore {
             .filter((uuid): uuid is string => Boolean(uuid));
     }
 
-    /** Whose standing access a grant to this group settles. */
-    async listGroupMemberIds(groupId: number): Promise<number[]> {
-        const rows = (await this.clients.db.read(
-            'SELECT `user_id` FROM `jct_user_group` WHERE `group_id` = ?',
-            [groupId],
-        )) as { user_id: number }[];
-        return rows.map((r) => Number(r.user_id));
+    async #listGroupMembers(groupIds: number[]): Promise<GroupMember[]> {
+        const ids = [...new Set(groupIds.map(Number))].filter((id) =>
+            Number.isFinite(id),
+        );
+        if (ids.length === 0) return [];
+        const rows = (await this.clients.db.pread(
+            'SELECT DISTINCT u.`id`, u.`uuid` FROM `jct_user_group` ug ' +
+                'JOIN `user` u ON u.`id` = ug.`user_id` ' +
+                `WHERE ug.\`group_id\` IN (${ids.map(() => '?').join(', ')})`,
+            ids,
+        )) as { id: number; uuid: string | null }[];
+        return rows.map((row) => ({ id: Number(row.id), uuid: row.uuid }));
+    }
+
+    /**
+     * Runs a delete of these groups' grants with their members' group reads
+     * already on the primary. Returns the members, later joiners included.
+     */
+    async #deleteGroupGrants<T>(
+        groupIds: number[],
+        deleteGrants: () => Promise<T>,
+    ): Promise<{ result: T; members: GroupMember[] }> {
+        // Before the delete: a failed member read leaves the grants to retry.
+        const members = await this.#listGroupMembers(groupIds);
+        await this.markGroupMembershipChanged(members.map((m) => m.id));
+        const result = await deleteGrants();
+        try {
+            const known = new Set(members.map((m) => m.id));
+            const joined = (await this.#listGroupMembers(groupIds)).filter(
+                (m) => !known.has(m.id),
+            );
+            await this.markGroupMembershipChanged(joined.map((m) => m.id));
+            members.push(...joined);
+        } catch (e) {
+            // The grants are gone; only someone who joined meanwhile is missed.
+            console.warn('[permission] group members not re-read:', e);
+        }
+        return { result, members };
     }
 
     /** Batched `readUserGroupPerms`, tagged with the user each row reached. */
@@ -1406,7 +1465,14 @@ export class PermissionStore extends PuterStore {
         const holders = [...new Set(userIds)];
         const perms = [...new Set(permissions)];
         if (holders.length === 0 || perms.length === 0) return [];
-        const rows = await this.clients.db.read(
+        const changed = await this.tombstonedCacheKeys(
+            holders.map((holder) => this.#u2gCacheKey(holder)),
+        );
+        const read: DbRead =
+            changed.size > 0
+                ? this.clients.db.pread.bind(this.clients.db)
+                : this.clients.db.read.bind(this.clients.db);
+        const rows = await read(
             'SELECT ug.`user_id` AS `holder_user_id`, p.`permission`, p.`user_id` ' +
                 'FROM `user_to_group_permissions` p ' +
                 'JOIN `jct_user_group` ug ON p.`group_id` = ug.`group_id` ' +
@@ -1492,13 +1558,34 @@ export class PermissionStore extends PuterStore {
         groupId: number,
         issuerUserId: number,
         permission: string,
-    ): Promise<boolean> {
-        const result = await this.clients.db.write(
-            'DELETE FROM `user_to_group_permissions` ' +
-                'WHERE `group_id` = ? AND `user_id` = ? AND `permission` = ?',
-            [groupId, issuerUserId, permission],
+    ): Promise<{ removed: boolean; members: GroupMember[] }> {
+        const { result, members } = await this.#deleteGroupGrants(
+            [groupId],
+            () =>
+                this.clients.db.write(
+                    'DELETE FROM `user_to_group_permissions` ' +
+                        'WHERE `group_id` = ? AND `user_id` = ? AND `permission` = ?',
+                    [groupId, issuerUserId, permission],
+                ),
         );
-        return result.anyRowsAffected;
+        return { removed: result.anyRowsAffected, members };
+    }
+
+    /** Group reads of these users go to the primary; for leaves and deletes. */
+    async markGroupMembershipChanged(userIds: number[]): Promise<void> {
+        const ids = [...new Set(userIds.map(Number))].filter((id) =>
+            Number.isFinite(id),
+        );
+        if (ids.length === 0) return;
+        // Only the tombstones: nothing is cached under the base key.
+        await this.publishCacheKeys({
+            keys: ids.map(
+                (id) => this.#u2gCacheKey(id) + CACHE_TOMBSTONE_SUFFIX,
+            ),
+            serializedData: '1',
+            ttlSeconds: CACHE_TOMBSTONE_TTL_SECONDS,
+            broadcast: true,
+        });
     }
 
     async auditUserGroupPerm(
@@ -1530,25 +1617,31 @@ export class PermissionStore extends PuterStore {
     /** The token's whole grant list, so a check reads it once. */
     async listAccessTokenPerms(tokenUid: string): Promise<string[]> {
         const cacheKey = this.#tokenCacheKey(tokenUid);
-        try {
-            const raw = await this.clients.redis.get(cacheKey);
-            if (raw) {
+        const { tombstoned, raw } = await this.readCacheUnlessDeleted(cacheKey);
+        if (raw) {
+            try {
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed)) return parsed;
+            } catch {
+                // Fall through to DB.
             }
-        } catch {
-            // Fall through to DB.
         }
 
-        const rows = await this.clients.db.read(
-            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
-            [tokenUid],
-        );
+        // A replica can lag a mint (rows missing) or a revoke (rows still there).
+        const sql =
+            'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?';
+        const rows = tombstoned
+            ? await this.clients.db.pread(sql, [tokenUid])
+            : await this.clients.db.tryHardRead(sql, [tokenUid], {
+                  race: false,
+              });
         const perms = rows.map((r) => String(r.permission));
 
-        this.clients.redis
-            .set(cacheKey, JSON.stringify(perms), 'EX', TOKEN_CACHE_TTL_SECONDS)
-            .catch(() => {});
+        if (!tombstoned) {
+            void this.writeCacheUnlessDeleted([cacheKey], () =>
+                this.#cacheAccessTokenPerms(tokenUid, perms, false),
+            ).catch(() => {});
+        }
         return perms;
     }
 
@@ -1561,7 +1654,10 @@ export class PermissionStore extends PuterStore {
         return permissions.some((permission) => all.includes(permission));
     }
 
-    /** Record a new token's grants, chunked multi-row inserts. */
+    /**
+     * Record a new token's grants, once per token, in chunked multi-row
+     * inserts.
+     */
     async insertAccessTokenPerms(
         tokenUid: string,
         authorizer: { userId: number | null; appId: number | null },
@@ -1591,7 +1687,13 @@ export class PermissionStore extends PuterStore {
                 ]),
             );
         }
-        await this.#invalidateAccessTokenPerms(tokenUid);
+        // Seeded with what was just stored, so a check right after the mint
+        // finds it without a read.
+        const perms = grants.map(({ permission }) => permission);
+        await this.writeCacheUnlessDeleted(
+            [this.#tokenCacheKey(tokenUid)],
+            () => this.#cacheAccessTokenPerms(tokenUid, perms, true),
+        );
     }
 
     /** Drop a token's grant manifest. */
@@ -1600,7 +1702,7 @@ export class PermissionStore extends PuterStore {
             'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
             [tokenUid],
         );
-        await this.#invalidateAccessTokenPerms(tokenUid);
+        await this.tombstoneCacheKeys([this.#tokenCacheKey(tokenUid)]);
     }
 
     /**
@@ -1608,17 +1710,24 @@ export class PermissionStore extends PuterStore {
      * none, which every full-access token is.
      */
     async getAccessTokenAuthorizerId(tokenUid: string): Promise<number | null> {
-        const rows = (await this.clients.db.read(
+        const rows = (await this.clients.db.tryHardRead(
             'SELECT `authorizer_user_id` FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
             [tokenUid],
+            { race: false },
         )) as Array<{ authorizer_user_id?: number | null }>;
         return rows[0]?.authorizer_user_id ?? null;
     }
 
-    async #invalidateAccessTokenPerms(tokenUid: string): Promise<void> {
+    async #cacheAccessTokenPerms(
+        tokenUid: string,
+        perms: string[],
+        broadcast: boolean,
+    ): Promise<void> {
         await this.publishCacheKeys({
             keys: [this.#tokenCacheKey(tokenUid)],
-            broadcast: true,
+            serializedData: JSON.stringify(perms),
+            ttlSeconds: TOKEN_CACHE_TTL_SECONDS,
+            broadcast,
         });
     }
 
@@ -1886,6 +1995,11 @@ export class PermissionStore extends PuterStore {
 
     #u2uCacheKey(holderUserId: number): string {
         return `perms:u2u:holder:${holderUserId}`;
+    }
+
+    /** Holds only a tombstone: group reads aren't cached here. */
+    #u2gCacheKey(userId: number): string {
+        return `perms:u2g:${userId}`;
     }
 
     #u2aCacheKey(userId: number, appId: number): string {

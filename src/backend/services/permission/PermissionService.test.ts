@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import MockRedis from 'ioredis-mock';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor, type Actor } from '../../core/actor.js';
@@ -26,6 +27,16 @@ import { createTestUser, setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { kv } from '../../util/kvSingleton.js';
 import { PermissionService } from './PermissionService.js';
+
+// The servers here share one redis mock; start each on an empty one.
+const setupFreshServer = async (
+    ...args: Parameters<typeof setupTestServer>
+): Promise<PuterServer> => {
+    const redis = new MockRedis();
+    await redis.flushall();
+    redis.disconnect();
+    return setupTestServer(...args);
+};
 
 /** `default_temp_group` from config.default.json. */
 const DEFAULT_TEMP_GROUP_UID = 'b7220104-7905-4985-b996-649fdcdb3c8f';
@@ -190,7 +201,7 @@ describe('PermissionService (integration)', () => {
     let permService: PermissionService;
 
     beforeAll(async () => {
-        server = await setupTestServer();
+        server = await setupFreshServer();
         permService = server.services
             .permission as unknown as PermissionService;
     });
@@ -1641,7 +1652,7 @@ describe('PermissionService — scan paths', () => {
     let permService: PermissionService;
 
     beforeAll(async () => {
-        server = await setupTestServer();
+        server = await setupFreshServer();
         permService = server.services
             .permission as unknown as PermissionService;
     }, 60_000);
@@ -1898,6 +1909,77 @@ describe('PermissionService — scan paths', () => {
             expect(await permService.check(originActor, permission)).toBe(true);
             expect(await permService.check(sharerActor, permission)).toBe(true);
         }, 20_000);
+
+        it('does not read a revoked group grant back from a lagging replica', async () => {
+            const { row: issuer } = await makeGroupedUser();
+            const { row: member, actor: memberActor } = await makeGroupedUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [groupUid, issuer.id, '{}', '{}'],
+            );
+            const [group] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
+            await server.stores.group.addUsers(groupUid, [member.username]);
+
+            const permission = `zztest:lag-${uuidv4()}:ii:read`;
+            await server.stores.permission.setFlatUserPerm(
+                issuer.id,
+                permission,
+                {
+                    permission,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+            await server.clients.db.write(
+                'INSERT INTO `user_to_group_permissions` ' +
+                    '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [issuer.id, group.id, permission, '{}'],
+            );
+            expect(await permService.check(memberActor, permission)).toBe(true);
+
+            await server.stores.permission.deleteUserGroupPerm(
+                Number(group.id),
+                issuer.id,
+                permission,
+            );
+            await permService.bumpPermissionCacheForUsernames([
+                member.username,
+            ]);
+
+            // The replica still returns the row; the primary has deleted it.
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('user_to_group_permissions')
+                        ? [
+                              {
+                                  permission,
+                                  user_id: issuer.id,
+                                  group_id: group.id,
+                                  extra: '{}',
+                              },
+                          ]
+                        : primaryRead(sql, params),
+                );
+            try {
+                expect(await permService.check(memberActor, permission)).toBe(
+                    false,
+                );
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+        });
     });
 
     describe('app-under-user grants', () => {
@@ -1933,6 +2015,42 @@ describe('PermissionService — scan paths', () => {
                     'driver:puter-analytics:record',
                 ),
             ).toBe(true);
+        });
+
+        it('scans the user for an app only when an option is implied for it', async () => {
+            const { row, actor } = await makeGroupedUser();
+            const app = await makeApp(row.id);
+            const appActor: Actor = makeActor({
+                user: actor.user,
+                app: { uid: app.uid, id: app.id },
+            });
+            const scan = vi.spyOn(permService, 'scan');
+            const userScans = () =>
+                scan.mock.calls.filter(
+                    ([scanned]) => !scanned.app && !scanned.accessToken,
+                ).length;
+            const scanAsApp = (permission: string) =>
+                permService.scan(appActor, permission, undefined, {
+                    noCache: true,
+                });
+            try {
+                expect(
+                    await scanAsApp(`zztest:none-${uuidv4()}:ii:read`),
+                ).not.toContainEqual(
+                    expect.objectContaining({ source: 'user-app-implied' }),
+                );
+                expect(userScans()).toBe(0);
+
+                expect(await scanAsApp('driver:puter-kvstore')).toContainEqual(
+                    expect.objectContaining({
+                        source: 'user-app-implied',
+                        has_terminal: true,
+                    }),
+                );
+                expect(userScans()).toBeGreaterThan(0);
+            } finally {
+                scan.mockRestore();
+            }
         });
 
         it('resolves a user-to-app grant, and stops once revoked', async () => {
@@ -2132,7 +2250,10 @@ describe('PermissionService — scan paths', () => {
                 [tokenUid, permission, '{}'],
             );
 
-            const get = vi.spyOn(server.clients.redis, 'get');
+            const list = vi.spyOn(
+                server.stores.permission,
+                'listAccessTokenPerms',
+            );
             try {
                 expect(
                     await permService.check(
@@ -2146,12 +2267,10 @@ describe('PermissionService — scan paths', () => {
                     ),
                 ).toBe(true);
                 expect(
-                    get.mock.calls.filter(
-                        ([key]) => key === `perms:token:${tokenUid}`,
-                    ),
+                    list.mock.calls.filter(([uid]) => uid === tokenUid),
                 ).toHaveLength(1);
             } finally {
-                get.mockRestore();
+                list.mockRestore();
             }
         });
 
@@ -2606,7 +2725,7 @@ describe('PermissionService — default user permissions vs. group config', () =
         // Self-hosted deployments may run without default groups. The floor
         // is not group-derived, so it applies regardless — a deployment that
         // clears both no longer has every driver call fail closed.
-        const bare = await setupTestServer({
+        const bare = await setupFreshServer({
             default_user_group: '',
             default_temp_group: '',
         } as never);
