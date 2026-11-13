@@ -29,7 +29,7 @@ import {
     type PuterTestEnv,
 } from '../../testUtil.js';
 
-/** File downloads over WebDAV: the bytes, ranges, and a client that leaves. */
+/** File downloads over WebDAV: the bytes, ranges, and either end failing. */
 describe('WebDAV GET over HTTP', () => {
     let env: PuterTestEnv;
 
@@ -95,13 +95,11 @@ describe('WebDAV GET over HTTP', () => {
         );
     });
 
-    it('releases the storage stream when the client aborts', async () => {
-        const file = await writeFile(
-            'dav-abort.bin',
-            Buffer.alloc(1024 * 1024, 1),
-        );
-        // Storage hands over one chunk and then goes quiet, as a large object
-        // does while the client is still reading.
+    /**
+     * Storage hands over one chunk of `file` and then goes quiet, as a large
+     * object does while the client is still reading.
+     */
+    const stallStorage = (file: { uuid: string }) => {
         const s3 = env.server.stores.s3Object;
         const client = env.server.clients.s3.get(s3.resolveRegion(null));
         const send = client.send.bind(client);
@@ -131,6 +129,21 @@ describe('WebDAV GET over HTTP', () => {
                 ContentType: 'application/octet-stream',
             });
         }) as never);
+        return { bodies, restore: () => spy.mockRestore() };
+    };
+
+    const expectFullDownload = async (path: string) => {
+        const response = await dav(path);
+        expect(response.status).toBe(200);
+        expect((await response.arrayBuffer()).byteLength).toBe(1024 * 1024);
+    };
+
+    it('releases the storage stream when the client aborts', async () => {
+        const file = await writeFile(
+            'dav-abort.bin',
+            Buffer.alloc(1024 * 1024, 1),
+        );
+        const storage = stallStorage(file);
         try {
             const abort = new AbortController();
             const response = await dav(file.path, { signal: abort.signal });
@@ -138,15 +151,44 @@ describe('WebDAV GET over HTTP', () => {
             await response.body!.getReader().read();
             abort.abort();
 
-            expect(bodies).toHaveLength(1);
-            await vi.waitFor(() => expect(bodies[0]!.destroyed).toBe(true));
+            expect(storage.bodies).toHaveLength(1);
+            await vi.waitFor(() =>
+                expect(storage.bodies[0]!.destroyed).toBe(true),
+            );
         } finally {
-            spy.mockRestore();
+            storage.restore();
         }
 
-        const next = await dav(file.path);
-        expect(next.status).toBe(200);
-        expect((await next.arrayBuffer()).byteLength).toBe(1024 * 1024);
+        await expectFullDownload(file.path);
+    });
+
+    it('cuts the download off when storage fails mid-stream', async () => {
+        const file = await writeFile(
+            'dav-reset.bin',
+            Buffer.alloc(1024 * 1024, 1),
+        );
+        const storage = stallStorage(file);
+        try {
+            const response = await dav(file.path);
+            expect(response.status).toBe(200);
+            const reader = response.body!.getReader();
+            await reader.read();
+            storage.bodies[0]!.destroy(new Error('upstream reset'));
+
+            const outcome = await (async () => {
+                try {
+                    while (!(await reader.read()).done);
+                    return 'ended';
+                } catch {
+                    return 'cut off';
+                }
+            })();
+            expect(outcome).toBe('cut off');
+        } finally {
+            storage.restore();
+        }
+
+        await expectFullDownload(file.path);
     });
 
     it('stays within the close listener budget per response', async () => {
