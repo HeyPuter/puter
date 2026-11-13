@@ -735,26 +735,16 @@ export class PermissionService extends PuterService {
         // `#scanAccessToken`, bounded by its own rows. Reading the chain here
         // would hand it the issuing app's grants unbounded.
         if (!actor.app) return;
-        const issuerActor = userRelatedActor(actor);
-        const issuerReading = await this.scan(issuerActor, options);
-        const hasTerminal = readingHasTerminal(issuerReading);
         const appUid = actor.app.uid;
 
+        const found: Array<{ permission: string; by: string; data: unknown }> =
+            [];
         for (const permission of options) {
             const implied = (
                 default_implicit_user_app_permissions as Record<string, unknown>
             )[permission];
             if (implied) {
-                reading.push({
-                    $: 'path',
-                    permission,
-                    has_terminal: hasTerminal,
-                    source: 'user-app-implied',
-                    by: 'user-app-hc-1',
-                    data: implied,
-                    issuer_username: actor.user?.username,
-                    reading: issuerReading,
-                });
+                found.push({ permission, by: 'user-app-hc-1', data: implied });
             }
 
             // per-app hardcoded overrides
@@ -768,17 +758,29 @@ export class PermissionService extends PuterService {
                 }
             }
             if (hits[permission]) {
-                reading.push({
-                    $: 'path',
+                found.push({
                     permission,
-                    has_terminal: hasTerminal,
-                    source: 'user-app-implied',
                     by: 'user-app-hc-2',
                     data: hits[permission],
-                    issuer_username: actor.user?.username,
-                    reading: issuerReading,
                 });
             }
+        }
+        // The user is scanned only when an option is implied for the app.
+        if (found.length === 0) return;
+
+        const issuerReading = await this.scan(userRelatedActor(actor), options);
+        const hasTerminal = readingHasTerminal(issuerReading);
+        for (const { permission, by, data } of found) {
+            reading.push({
+                $: 'path',
+                permission,
+                has_terminal: hasTerminal,
+                source: 'user-app-implied',
+                by,
+                data,
+                issuer_username: actor.user?.username,
+                reading: issuerReading,
+            });
         }
     }
 
