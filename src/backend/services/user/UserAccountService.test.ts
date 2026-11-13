@@ -187,6 +187,119 @@ describe('UserAccountService', () => {
             expect(Number(sessions[0].n)).toBe(0);
         });
 
+        /** A group with a grant, and `member` in it; returns the grant's row. */
+        const seedGroupGrant = async (memberId: number) => {
+            const owner = await seedUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) VALUES (?, ?, ?, ?)',
+                [groupUid, owner.id, '{}', '{}'],
+            );
+            const [group] = (await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            )) as Array<{ id: number }>;
+            await server.clients.db.write(
+                'INSERT INTO `jct_user_group` (`user_id`, `group_id`) VALUES (?, ?)',
+                [memberId, group.id],
+            );
+            const permission = `fs:${uuidv4()}:read`;
+            await server.clients.db.write(
+                'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [owner.id, group.id, permission, '{}'],
+            );
+            const [row] = await server.stores.permission.readUserGroupPerms(
+                memberId,
+                [permission],
+            );
+            expect(row).toBeDefined();
+            return { permission, row: { ...row, extra: '{}' } };
+        };
+
+        it("reads the account's group grants from the primary once it is deleted", async () => {
+            const member = await seedUser();
+            const { permission, row } = await seedGroupGrant(member.id);
+
+            await server.services.userAccount.cascadeDelete(member.id);
+
+            // The replica still returns the membership; the primary has none.
+            const db = server.clients.db;
+            const primaryRead = db.read.bind(db);
+            const pread = vi
+                .spyOn(db, 'pread')
+                .mockImplementation((sql, params) => primaryRead(sql, params));
+            const read = vi
+                .spyOn(db, 'read')
+                .mockImplementation(async (sql, params) =>
+                    String(sql).includes('user_to_group_permissions')
+                        ? [row]
+                        : primaryRead(sql, params),
+                );
+            try {
+                expect(
+                    await server.stores.permission.readUserGroupPerms(member.id, [
+                        permission,
+                    ]),
+                ).toEqual([]);
+            } finally {
+                read.mockRestore();
+                pread.mockRestore();
+            }
+        });
+
+        it("drops the account's cached permission readings", async () => {
+            const user = await seedUser();
+            const before = await server.stores.permission.getCacheGeneration(
+                `user:${user.uuid}`,
+            );
+
+            await server.services.userAccount.cascadeDelete(user.id);
+
+            expect(
+                await server.stores.permission.getCacheGeneration(
+                    `user:${user.uuid}`,
+                ),
+            ).toBeGreaterThan(before);
+        });
+
+        it('finishes when the group mark cannot be written', async () => {
+            const member = await seedUser();
+            await seedGroupGrant(member.id);
+            const mark = `perms:u2g:${member.id}:deleted`;
+
+            const redis = server.clients.redis;
+            const realPipeline = redis.pipeline.bind(redis);
+            const pipeline = vi.spyOn(redis, 'pipeline').mockImplementation(((
+                ...args: Parameters<typeof realPipeline>
+            ) => {
+                const p = realPipeline(...args);
+                const set = p.set.bind(p) as (...a: unknown[]) => typeof p;
+                let failing = false;
+                (p as unknown as { set: unknown }).set = (...a: unknown[]) => {
+                    if (a[0] === mark) failing = true;
+                    return set(...a);
+                };
+                const exec = p.exec.bind(p);
+                p.exec = (async () => {
+                    if (failing) throw new Error('redis down');
+                    return exec();
+                }) as typeof p.exec;
+                return p;
+            }) as never);
+            const warn = vi.spyOn(console, 'warn');
+            try {
+                await server.services.userAccount.cascadeDelete(member.id);
+                expect(warn).toHaveBeenCalledWith(
+                    expect.stringContaining('publishCacheKeys'),
+                    [mark],
+                );
+            } finally {
+                pipeline.mockRestore();
+                warn.mockRestore();
+            }
+            expect(await server.stores.user.getById(member.id)).toBeNull();
+        });
+
         it('clears the flat entries for grants the account issued', async () => {
             const issuer = await seedUser();
             const holder = await seedUser();

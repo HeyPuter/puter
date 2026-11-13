@@ -134,9 +134,17 @@ export class UserAccountService extends PuterService {
             'DELETE FROM `sessions` WHERE `user_id` = ?',
             [userId],
         );
+        // Group reads go to the primary while the memberships cascade away.
+        await this.stores.permission.markGroupMembershipChanged([userId]);
         await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
             userId,
         ]);
+        // After the delete: a check that ran before it would cache the old answer.
+        if (userUuid) {
+            await this.stores.permission.bumpCacheGenerations([
+                `user:${userUuid}`,
+            ]);
+        }
         if (cachedIdentity) await this.stores.user.markDeleted(cachedIdentity);
         else await this.stores.user.invalidateById(userId);
         await this.stores.subdomain.forgetCascadeDeleted(appSites);
