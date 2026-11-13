@@ -492,9 +492,12 @@ export class NotificationsModule extends EventListener {
      * failed confirmation is tried again on the next load.
      *
      * @param {{ url: string; scope?: string }} worker
+     * @param {{ background?: boolean }} [options] `background` is a call without
+     *   a click: a browser the user removed in Puter rejects with
+     *   `push_device_removed`, and a rejected token opens no sign-in.
      * @internal
      */
-    async _enableWebPush(worker) {
+    async _enableWebPush(worker, { background = false } = {}) {
         await this.#userChange;
         this.#useWorker(worker);
         this.#listenForOptInChanges();
@@ -508,8 +511,8 @@ export class NotificationsModule extends EventListener {
             worker,
             onPending: pending,
             signal,
-            renewRemoved: true,
-            interactive: true,
+            renewRemoved: !background,
+            interactive: !background,
             withLock: withPushLock,
             onAnnounced: () => this.#recordOptIn(true),
             onSynced: (endpoint) => this.#noteSynced(worker, endpoint),

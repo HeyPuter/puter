@@ -24,17 +24,17 @@ import { listPushApps } from './notificationApi.js';
 import {
     browserPushOptedOut,
     browserPushState,
-    enableBrowserPush,
     PUSH_PERMISSION,
     pushClientWithin,
+    setBrowserPushOptOut,
 } from './pushClient.js';
 
-/** @typedef {'skipped'|'opted_out'|'unavailable'|'blocked'|'on'|'off'|'no_app'|'failed'} PushSyncResult */
+/** @typedef {'skipped'|'opted_out'|'unavailable'|'blocked'|'on'|'off'|'no_app'|'removed'|'failed'} PushSyncResult */
 
 /** @type {Promise<PushSyncResult>|null} */
 let inFlight = null;
 
-/** Turns push on here when the browser already grants it, the user has not turned it off here, and an app holds `notifications:push` for Puter's devices: the one named by `appUid`, or any app without one. One run at a time; a call during a run joins it. @param {{ appUid?: string }} [scope] @param {{ NotificationApi?: { permission: string }, userUid?: string, storage?: Storage, holdsPush?: () => Promise<boolean> }} [deps] @returns {Promise<PushSyncResult>} */
+/** Turns push on here when the browser already grants it, the user has not turned it off here, and an app holds `notifications:push` for Puter's devices: the one named by `appUid`, or any app without one. A browser the user removed in Puter is left off, as if turned off here. An `on` this page already read counts. One run at a time; a call during a run joins it. @param {{ appUid?: string }} [scope] @param {{ NotificationApi?: { permission: string }, userUid?: string, storage?: Storage, holdsPush?: () => Promise<boolean> }} [deps] @returns {Promise<PushSyncResult>} */
 export const syncBrowserPush = (scope, deps) => {
     if ( inFlight ) return inFlight;
     inFlight = runSync(scope, deps).finally(() => {
@@ -58,7 +58,7 @@ const runSync = async ({ appUid } = {}, {
     if ( NotificationApi?.permission !== 'granted' || ! userUid ) return 'skipped';
     if ( browserPushOptedOut(userUid, storage) ) return 'opted_out';
     const client = await pushClientWithin();
-    const state = await browserPushState(client);
+    const state = await browserPushState(client, { cached: true });
     if ( state !== 'off' ) return state;
     try {
         if ( ! await holdsPush() ) return 'no_app';
@@ -66,5 +66,15 @@ const runSync = async ({ appUid } = {}, {
         console.warn('[push] could not tell whether an app may send pushes', e);
         return 'failed';
     }
-    return await enableBrowserPush(client, userUid) ? 'on' : 'failed';
+    try {
+        await client.enable({ background: true });
+    } catch ( e ) {
+        if ( e?.code === 'push_device_removed' ) {
+            setBrowserPushOptOut(userUid, true, storage);
+            return 'removed';
+        }
+        console.debug('[push] enable failed', e);
+        return 'failed';
+    }
+    return 'on';
 };

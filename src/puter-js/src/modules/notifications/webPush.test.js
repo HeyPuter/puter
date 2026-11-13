@@ -2241,6 +2241,77 @@ describe('enable after the user removed this browser in Puter', () => {
         expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(1);
         expect(store.get(OPT_IN)).toBe(true);
     });
+
+    describe('in the Puter GUI', () => {
+        const RECEIPT = `handlers:puter:receipt:${ORIGIN}/`;
+        /** A browser holding a removed subscription and its receipt. */
+        const removedHere = () => {
+            const removed = makeSubscription(
+                undefined,
+                'https://push.example/1',
+            );
+            store.set(RECEIPT, {
+                endpoint: 'https://push.example/1',
+                receipt: 'r-1',
+            });
+            const nav = makeNav({
+                existing: removed,
+                active: { scriptURL: `${ORIGIN}/sw.js` },
+            });
+            nav.pushManager.subscribe.mockResolvedValue(
+                makeSubscription(undefined, 'https://push.example/2'),
+            );
+            withBrowser(nav);
+            server((route, body) => {
+                if (body.subscription.endpoint === 'https://push.example/1')
+                    throw new PuterJSError('removed', 'push_device_removed');
+                return { status: 'active', device: { uid: 'd2' } };
+            });
+            return { removed, nav };
+        };
+        const announced = () =>
+            mockRequest.mock.calls
+                .filter(([, , route]) => route === '/push/web/subscriptions')
+                .map(([, , , body]) => body);
+        /** Whether each call to `route` could open Puter's sign-in. */
+        const reauthOf = (route) =>
+            mockRequest.mock.calls
+                .filter(([, , r]) => r === route)
+                .map(([, , , , options]) => options?.interactiveReauth);
+
+        it('replaces the removed subscription for a click', async () => {
+            const { removed, nav } = removedHere();
+            const { module } = makeModule({ env: 'gui' });
+            await expect(module.enable()).resolves.toBe(true);
+            expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(1);
+            expect(reauthOf('/push/web/key')).toEqual([true]);
+        });
+
+        it('leaves it removed in the background, and forgets its receipt', async () => {
+            const { removed, nav } = removedHere();
+            const { module } = makeModule({ env: 'gui' });
+            await expect(
+                module._enableWebPush(workerFor('gui'), { background: true }),
+            ).rejects.toMatchObject({ code: 'push_device_removed' });
+            expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+            expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(announced()).toEqual([
+                expect.objectContaining({ receipt: 'r-1' }),
+            ]);
+            expect(store.has(RECEIPT)).toBe(false);
+        });
+
+        it('opens no sign-in for a rejected token in the background', async () => {
+            removedHere();
+            const { module } = makeModule({ env: 'gui' });
+            await module
+                ._enableWebPush(workerFor('gui'), { background: true })
+                .catch(() => {});
+            expect(reauthOf('/push/web/key')).toEqual([false]);
+            expect(reauthOf('/push/web/subscriptions')).toEqual([false]);
+        });
+    });
 });
 
 describe('status', () => {

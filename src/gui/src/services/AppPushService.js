@@ -46,12 +46,13 @@ export class AppPushService extends Service {
 
     /**
      * IPC: this browser's push state for the calling app, `on` only while
-     * push is on here and the app holds `notifications:push`.
+     * push is on here and the app holds `notifications:push`. An `on` this
+     * page already read for the browser counts.
      *
      * @returns {Promise<{ state: 'on'|'off'|'blocked'|'unavailable' }>}
      */
     async pushStatus (_params, { ipc_context } = {}) {
-        const state = await browserPushState(await pushClientWithin());
+        const state = await browserPushState(await pushClientWithin(), { cached: true });
         if ( state !== 'on' ) return { state };
         const held = await appHoldsPermissions([PUSH_PERMISSION], app_uid_of(ipc_context));
         return { state: held ? 'on' : 'off' };
