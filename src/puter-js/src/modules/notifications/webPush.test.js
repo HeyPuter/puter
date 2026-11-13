@@ -2557,6 +2557,38 @@ describe('status', () => {
                 },
             );
 
+            it.each([
+                ['says active', () => ({ state: 'active' })],
+                [
+                    'answers a 429',
+                    () => {
+                        throw new PuterJSError(
+                            'slow down',
+                            'too_many_requests',
+                        );
+                    },
+                ],
+                [
+                    'fails on the network',
+                    () => {
+                        throw new TypeError('Failed to fetch');
+                    },
+                ],
+            ])(
+                'stays on in the GUI without reading the device list when Puter %s',
+                async (_label, reply) => {
+                    mockRequest.mockImplementation(async (_p, _m, route) => {
+                        if (route === '/push/web/subscriptions/status')
+                            return await reply();
+                        return { devices: [] };
+                    });
+                    await expect(inGui().status()).resolves.toBe('on');
+                    expect(routes()).toEqual([
+                        '/push/web/subscriptions/status',
+                    ]);
+                },
+            );
+
             it('stays on on a website without reading the device list', async () => {
                 devicesSay(() => ({ devices: [] }));
                 await expect(makeModule().module.status()).resolves.toBe('on');

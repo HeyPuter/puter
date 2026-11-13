@@ -13,7 +13,10 @@ const STATES = new Set(['on', 'off', 'blocked', 'unavailable']);
  * browser holds the subscription, and Puter hasn't had this browser removed or
  * the app turned off. Inside the Puter desktop it means pushes are on in this
  * browser and the user allowed the app's pushes in Puter's prompt. In the
- * desktop's own page, it's `off` while the signed-in user has no device here.
+ * desktop's own page, it's `off` when Puter doesn't know this browser's
+ * subscription and the signed-in user's devices don't include this browser.
+ * Devices match by session, so one from an earlier subscription in this session
+ * still reads `on`.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {{ serviceWorker?: string }} [options]

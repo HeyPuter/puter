@@ -66,3 +66,7 @@ export const toDevice = (device) => ({
     lastSeenAt: Number(device.last_seen_at),
     current: device.current === true,
 });
+
+/** @param {import('../types.js').PushDevice[]} devices */
+export const currentWebPushDevice = (devices) =>
+    devices.find((d) => d.current && d.platform === 'webpush') ?? null;
