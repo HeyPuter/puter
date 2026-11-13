@@ -1433,7 +1433,7 @@ describe('PermissionStore', () => {
     // -- access token permissions --------------------------------------
 
     describe('access token permissions', () => {
-        it('serves the grants cached, and every write through the store invalidates them', async () => {
+        it('serves the grants cached until the store deletes them', async () => {
             const tokenUid = `tok-${uuidv4()}`;
             const authorizer = { userId: null, appId: null };
             await store.insertAccessTokenPerms(tokenUid, authorizer, [
@@ -1443,8 +1443,7 @@ describe('PermissionStore', () => {
                 'driver:kv',
             ]);
 
-            // A row written behind the store is invisible until a store
-            // write lands.
+            // A row written behind the store is invisible while the list is cached.
             await server.clients.db.write(
                 'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
                 [tokenUid, 'driver:fs'],
@@ -1452,13 +1451,6 @@ describe('PermissionStore', () => {
             expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
                 'driver:kv',
             ]);
-
-            await store.insertAccessTokenPerms(tokenUid, authorizer, [
-                { permission: 'driver:ai', extra: { note: 1 } },
-            ]);
-            expect((await store.listAccessTokenPerms(tokenUid)).sort()).toEqual(
-                ['driver:ai', 'driver:fs', 'driver:kv'],
-            );
 
             await store.deleteAccessTokenPerms(tokenUid);
             expect(await store.listAccessTokenPerms(tokenUid)).toEqual([]);
@@ -1586,38 +1578,47 @@ describe('PermissionStore', () => {
             }
         });
 
-        it('records the grants when they cannot be read back to cache', async () => {
-            const tokenUid = `tok-${uuidv4()}`;
-            await server.clients.redis.set(`perms:token:${tokenUid}`, '[]');
-            const pread = vi
-                .spyOn(server.clients.db, 'pread')
-                .mockRejectedValueOnce(new Error('primary unavailable'));
+        it('caches the grants it stores without reading them back', async () => {
+            const scoped = `tok-${uuidv4()}`;
+            const unscoped = `tok-${uuidv4()}`;
+            const pread = vi.spyOn(server.clients.db, 'pread');
             try {
                 await store.insertAccessTokenPerms(
-                    tokenUid,
+                    scoped,
                     { userId: 7, appId: null },
-                    [{ permission: 'fs:abc:read' }],
+                    [
+                        { permission: 'fs:abc:read' },
+                        { permission: 'fs:def:read' },
+                    ],
                 );
-                expect(pread).toHaveBeenCalledTimes(1);
+                // A token with no stored grants, as a full-access one is.
+                await store.insertAccessTokenPerms(
+                    unscoped,
+                    { userId: 7, appId: null },
+                    [],
+                );
+                expect(pread).not.toHaveBeenCalled();
             } finally {
                 pread.mockRestore();
             }
-            expect(await cachedTokenPerms(tokenUid)).toBeNull();
-            expect(await store.listAccessTokenPerms(tokenUid)).toEqual([
-                'fs:abc:read',
-            ]);
+            expect(await cachedTokenPerms(scoped)).toBe(
+                '["fs:abc:read","fs:def:read"]',
+            );
+            expect(await cachedTokenPerms(unscoped)).toBe('[]');
         });
 
         it('caches nothing when the token is deleted while its grants are being cached', async () => {
             const tokenUid = `tok-${uuidv4()}`;
             const db = server.clients.db;
-            const pread = db.pread.bind(db);
-            const seedRead = vi
-                .spyOn(db, 'pread')
+            const write = db.write.bind(db);
+            // The delete lands after the grants are stored, before they're cached.
+            const stored = vi
+                .spyOn(db, 'write')
                 .mockImplementationOnce(async (sql, params) => {
-                    const rows = await pread(sql, params);
+                    const result = await write(sql, params);
+                    stored.mockRestore();
                     await store.deleteAccessTokenPerms(tokenUid);
-                    return rows;
+                    return result;
                 });
             try {
                 await store.insertAccessTokenPerms(
@@ -1626,7 +1627,7 @@ describe('PermissionStore', () => {
                     [{ permission: 'fs:abc:read' }],
                 );
             } finally {
-                seedRead.mockRestore();
+                stored.mockRestore();
             }
             expect(await cachedTokenPerms(tokenUid)).toBeNull();
             expect(await store.listAccessTokenPerms(tokenUid)).toEqual([]);

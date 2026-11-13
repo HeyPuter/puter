@@ -1654,7 +1654,10 @@ export class PermissionStore extends PuterStore {
         return permissions.some((permission) => all.includes(permission));
     }
 
-    /** Record a new token's grants, chunked multi-row inserts. */
+    /**
+     * Record a new token's grants, once per token, in chunked multi-row
+     * inserts.
+     */
     async insertAccessTokenPerms(
         tokenUid: string,
         authorizer: { userId: number | null; appId: number | null },
@@ -1684,22 +1687,12 @@ export class PermissionStore extends PuterStore {
                 ]),
             );
         }
-        // Seeded from the primary so a check right after the mint finds it.
-        const cacheKey = this.#tokenCacheKey(tokenUid);
-        let perms: string[];
-        try {
-            const rows = await this.clients.db.pread(
-                'SELECT `permission` FROM `access_token_permissions` WHERE `token_uid` = ?',
-                [tokenUid],
-            );
-            perms = rows.map((r) => String(r.permission));
-        } catch {
-            // The grants are stored; the next read fills the cache.
-            await this.publishCacheKeys({ keys: [cacheKey], broadcast: true });
-            return;
-        }
-        await this.writeCacheUnlessDeleted([cacheKey], () =>
-            this.#cacheAccessTokenPerms(tokenUid, perms, true),
+        // Seeded with what was just stored, so a check right after the mint
+        // finds it without a read.
+        const perms = grants.map(({ permission }) => permission);
+        await this.writeCacheUnlessDeleted(
+            [this.#tokenCacheKey(tokenUid)],
+            () => this.#cacheAccessTokenPerms(tokenUid, perms, true),
         );
     }
 

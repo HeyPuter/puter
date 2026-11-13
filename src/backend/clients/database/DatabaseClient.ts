@@ -185,11 +185,14 @@ export class AbstractDatabaseClient extends PuterClient {
             );
         }
         const onReplica = await Promise.all(
-            reads.map(({ query, params = [] }) =>
-                this.replicaRead(query, params).catch(
-                    (): Record<string, unknown>[] => [],
-                ),
-            ),
+            reads.map(async ({ query, params = [] }) => {
+                try {
+                    return await this.replicaRead(query, params);
+                } catch {
+                    // A failed replica read counts as a miss.
+                    return [];
+                }
+            }),
         );
         if (onReplica.some((rows) => rows.length > 0)) return onReplica;
         return Promise.all(
