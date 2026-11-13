@@ -222,6 +222,9 @@ export default suite('teams', needsTeams({
                 const members = (await t.puter.teams.listMembers(team.uid)) as Array<Record<string, unknown>>;
                 t.assert.ok(members.length > 0, 'the member should see the roster');
                 for (const m of members) {
+                    // orgOwned shows the account view was served, not the username-only app view.
+                    t.assert.equal(typeof m.orgOwned, 'boolean');
+                    t.assert.ok(!('uuid' in m), `${String(m.username)} should carry no uuid`);
                     t.assert.ok(!('passwordPending' in m), `${String(m.username)} should carry no passwordPending`);
                 }
             } finally {

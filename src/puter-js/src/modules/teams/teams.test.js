@@ -145,6 +145,15 @@ describe('list forms', () => {
         expect('passwordPending' in cat).toBe(false);
     });
 
+    it('drops a non-boolean password_pending rather than coercing it', async () => {
+        routes({ 'GET /teams/t-1/members': { items: [1, 'true', null].map((value, i) => (
+            { username: `u${i}`, org_owned: true, created_at: 'x', password_pending: value }
+        )) } });
+        const members = await teams.listMembers('t-1');
+        expect(members).toHaveLength(3);
+        for (const m of members) expect('passwordPending' in m).toBe(false);
+    });
+
     it('keeps a false orgOwned for an account caller', async () => {
         routes({ 'GET /teams/t-1/members': { items: [
             { username: 'ann', org_owned: false, created_at: 'x', uuid: 'u-1' },
