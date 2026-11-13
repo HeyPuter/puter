@@ -115,6 +115,16 @@ afterEach(() => {
 });
 
 describe('ai.chat driver payloads', () => {
+    it.each(['fast', 'standard'])('forwards Claude speed %s to the driver', async (speed) => {
+        await ai.chat('hello', { model: 'claude-opus-4-8', speed });
+        expect(lastBody().args.speed).toBe(speed);
+    });
+
+    it('preserves serviceSpeed precedence alongside the native speed option', async () => {
+        await ai.chat('hello', { speed: 'fast', serviceSpeed: 'standard' });
+        expect(lastBody().args).toMatchObject({ speed: 'fast', serviceSpeed: 'standard' });
+    });
+
     it('chat(prompt) wraps the prompt in a single message', async () => {
         await ai.chat('hello');
         const body = lastBody();
