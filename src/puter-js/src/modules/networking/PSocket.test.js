@@ -336,6 +336,22 @@ describe('PSocket write', () => {
         expect(onDrain).not.toHaveBeenCalled();
     });
 
+    it('does not emit drain when an open handler closes the socket', async () => {
+        const stream = makeStream();
+        mockGetEpoxyClient.mockResolvedValue(makeClient(stream));
+
+        const socket = new PSocket('example.com', 80);
+        const onDrain = vi.fn();
+        const onClose = vi.fn();
+        socket.on('open', () => socket.close());
+        socket.on('drain', onDrain);
+        socket.on('close', onClose);
+        socket.write('backlog');
+
+        await until(() => expect(onClose).toHaveBeenCalledTimes(1));
+        expect(onDrain).not.toHaveBeenCalled();
+    });
+
     it('writes an ArrayBuffer', async () => {
         const { socket, stream } = await connected();
 

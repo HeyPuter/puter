@@ -49,6 +49,15 @@ An alternative way to listen to socket events.
 - `event` (`SocketEvent`) The event name to listen for. One of: `"open"`, `"data"`, `"drain"`, `"close"`, `"error"`.
 - `handler` (`Function`) The callback function to invoke when the event occurs. The callback parameters depend on the event type (see [Events](#events)).
 
+#### `socket.off(event, handler)`
+
+Remove a handler added with `socket.on()` or `socket.addListener()`.
+
+##### Parameters
+
+- `event` (`SocketEvent`) The event name the handler was added for. One of: `"open"`, `"data"`, `"drain"`, `"close"`, `"error"`.
+- `handler` (`Function`) The same function that was passed to `socket.on()` or `socket.addListener()`.
+
 ## Events
 
 #### `socket.on("open", callback)`
@@ -79,11 +88,11 @@ Fired when the socket is closed.
 
 #### `socket.on("drain", callback)`
 
-Fired when the write queue empties after writes were queued, meaning more data can be written without buffering. On a TLS socket the event is also `"drain"`.
+Fired right after the open event when data was written before the socket opened, once all of that data has been sent. Writes made after the socket opens aren't queued, so they don't fire this event.
 
 ##### Parameters
 
-- `callback` (Function) The callback to fire when queued writes have flushed.
+- `callback` (Function) The callback to fire when the data written before the socket opened has been sent.
 
 #### `socket.on("error", callback)`
 

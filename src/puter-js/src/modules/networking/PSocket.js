@@ -37,8 +37,8 @@ function normalizeError (reason) {
  * @typedef {Object} PSocketEventMap
  * @property {void} open Fires when the socket is initialized and ready to send data.
  * @property {Uint8Array} data Fires when the remote server sends data over the socket.
- * @property {void} drain Fires when the write queue empties after writes were
- * queued, meaning more data can be written without buffering.
+ * @property {void} drain Fires right after `open` once the writes made before the socket
+ * opened have been sent. Writes made after `open` are not queued and never fire it.
  * @property {Error} error Fires when the socket hits an error; a `close` follows shortly after. The
  * human-readable reason is on `error.message`.
  * @property {boolean} close Fires when the socket is closed. `true` if it closed due to an error.
@@ -226,9 +226,9 @@ export class PSocket extends EventListener {
         if (this.#closed || this.#closing) return;
         // A throwing handler must not read as a failed connect and retry.
         this.#emitFromListener(this.#eventName('open'));
-        // Like Node.js sockets, a backpressured write buffer that empties
-        // announces that writes can resume without buffering.
-        if ( flushedBacklog ) {
+        // The pre-open backlog has been sent. Skipped when an `open` handler
+        // closed the socket.
+        if ( flushedBacklog && !this.#closed && !this.#closing ) {
             this.#emitFromListener(this.#eventName('drain'));
         }
         void this.#readLoop();
@@ -250,8 +250,7 @@ export class PSocket extends EventListener {
                 const { payload, callback } = this.#pendingWrites.shift();
                 await this.#writePayload(payload, callback);
             }
-            // Whether writes were backpressured and the queue emptied, so the
-            // caller can be told writes have resumed.
+            // Whether a backlog was queued and fully sent.
             return queued && !this.#closed && !this.#closing;
         } finally {
             // Cleared in the same tick as the last queue check; a write
