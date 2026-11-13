@@ -344,6 +344,7 @@ Per minute unless stated:
 | Thumbnail read URLs | Valid for at least 6 days and 23 hours, refreshed hourly | Per URL |
 | `getReadURL()` (shared with all access-token creation) | 20/hour | |
 | `revokeReadURL()` | 60/min | |
+| File downloaded by [`showSaveFilePicker()`](/UI/showSaveFilePicker/) from a URL | 100 MiB, stopped after 60 s without data | Per call |
 
 Non-write operations (mkdir/shortcut/move/delete) inside a legacy `/batch` request also count against the Mutations limits above.
 
@@ -623,6 +624,8 @@ Counted per event, per region:
 Calls over any of these fail with `too_many_requests`. A share over the `kv.share.received` limit is still made, without notifying the holder. Listing pages hold up to 200 items, and a `fetch()` page defaults to 50 events and holds up to 200.
 
 A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients, and each one counts toward the named-recipient limit. A recipient who doesn't already have the share also counts toward the new-recipient limit, including a username that doesn't exist and a user the share is refused for. The call counts once toward the mint limit when it makes a share, changes one, or has any recipient who counts as new. A call where every recipient already has the share at the same access level and label counts only toward the named-recipient limit. When the recipients don't all fit in a limit, the whole call fails with `too_many_requests`, and the part that did fit still counts.
+
+A client that runs a function `handler` for [`onPersistent()`](/Events/onPersistent/) tells the server which ones it runs when it connects and each time one is added or removed. Each of those counts as one acknowledgement. One refused with `too_many_requests` is sent again after 10 seconds.
 
 Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit. Creating a [schedule](#schedules), or storing a notification with [`notify()`](/Notifications/notify/#send-it-later) and a `sendAt` more than 5 seconds ahead, counts toward the `subscribe` limit. Removing one counts toward `unsubscribe`, and listing or reading one toward the subscription listings.
 

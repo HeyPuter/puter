@@ -27,6 +27,7 @@ import { HANDLED_EVENT, ReceiptLog, handledHere } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
 import {
     currentWebPush,
+    forgetWebPushReceipt,
     removeWebPush,
     syncWebPush,
     unsubscribeWebPush,
@@ -491,9 +492,12 @@ export class NotificationsModule extends EventListener {
      * failed confirmation is tried again on the next load.
      *
      * @param {{ url: string; scope?: string }} worker
+     * @param {{ background?: boolean }} [options] `background` is a call without
+     *   a click: a browser the user removed in Puter rejects with
+     *   `push_device_removed`, and a rejected token opens no sign-in.
      * @internal
      */
-    async _enableWebPush(worker) {
+    async _enableWebPush(worker, { background = false } = {}) {
         await this.#userChange;
         this.#useWorker(worker);
         this.#listenForOptInChanges();
@@ -507,8 +511,8 @@ export class NotificationsModule extends EventListener {
             worker,
             onPending: pending,
             signal,
-            renewRemoved: true,
-            interactive: true,
+            renewRemoved: !background,
+            interactive: !background,
             withLock: withPushLock,
             onAnnounced: () => this.#recordOptIn(true),
             onSynced: (endpoint) => this.#noteSynced(worker, endpoint),
@@ -614,6 +618,16 @@ export class NotificationsModule extends EventListener {
                 );
             }
         });
+    }
+
+    /**
+     * Sign-out in the Puter GUI: forgets the receipt, so the next account to
+     * sign in confirms this browser itself. Never throws.
+     *
+     * @internal
+     */
+    async _forgetPushReceipt() {
+        await forgetWebPushReceipt(this.puter, workerFor('gui'));
     }
 
     /** Another user signing in here ends push for the last one, as sign-out. */
@@ -908,6 +922,7 @@ export class NotificationsModule extends EventListener {
         } catch {
             // Already gone, or the browser can't tell.
         }
+        await forgetWebPushReceipt(this.puter, worker);
         await this.#recordOptIn(false);
     }
 

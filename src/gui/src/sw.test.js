@@ -21,15 +21,55 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+    HANDLERS_STORE,
+    PUSH_DB_NAME,
+    RECEIPT_PREFIX,
+    SERVER_KEY_ENTRY,
+    SERVER_KEYS_ENTRY,
+    SUBSCRIPTION_CHANGED_PREFIX,
+} from '../../puter-js/src/modules/notifications/lib/pushStore.js';
 
 // The worker is a classic script; run it as one, against a stand-in scope.
 const SOURCE = readFileSync(fileURLToPath(new URL('./sw.js', import.meta.url)), 'utf8');
 const ORIGIN = 'https://puter.test';
 const DEFAULT_ICON = `${ORIGIN}/favicons/android-icon-192x192.png`;
 
-const loadWorker = ({ windows = [] } = {}) => {
+/** IndexedDB with one store's worth of entries, answering on a microtask. */
+const fakeIdb = (entries = {}) => {
+    const map = new Map(Object.entries(entries));
+    const state = { map, broken: false };
+    const later = (run) => {
+        const req = {};
+        queueMicrotask(() => {
+            try {
+                if ( state.broken ) throw new Error('IndexedDB is not available');
+                req.result = run();
+                req.onsuccess?.();
+            } catch ( e ) {
+                req.error = e;
+                req.onerror?.();
+            }
+        });
+        return req;
+    };
+    const store = {
+        get: (key) => later(() => map.get(key)),
+        put: (value, key) => later(() => void map.set(key, value)),
+        delete: (key) => later(() => void map.delete(key)),
+    };
+    state.open = () => later(() => ({
+        transaction: () => ({ objectStore: () => store }),
+        close: () => {},
+        createObjectStore: () => {},
+    }));
+    return state;
+};
+
+const loadWorker = ({ windows = [], handlers = {}, subscription = null } = {}) => {
     const listeners = {};
     const shown = [];
+    const idb = fakeIdb(handlers);
     const scope = {
         location: { origin: ORIGIN },
         addEventListener: (type, fn) => {
@@ -37,9 +77,14 @@ const loadWorker = ({ windows = [] } = {}) => {
         },
         skipWaiting: vi.fn(),
         registration: {
+            scope: `${ORIGIN}/`,
             showNotification: vi.fn(async (title, options) => {
                 shown.push({ title, options });
             }),
+            pushManager: {
+                getSubscription: vi.fn(async () => subscription),
+                subscribe: vi.fn(async () => ({ endpoint: 'https://push.example/new' })),
+            },
         },
         clients: {
             claim: vi.fn(async () => {}),
@@ -56,6 +101,8 @@ const loadWorker = ({ windows = [] } = {}) => {
         Date: { now: () => globalThis.Date.now() },
         setTimeout: (...args) => globalThis.setTimeout(...args),
         clearTimeout: (...args) => globalThis.clearTimeout(...args),
+        atob,
+        indexedDB: idb,
         self: scope,
     });
     vm.runInContext(SOURCE, context);
@@ -66,7 +113,7 @@ const loadWorker = ({ windows = [] } = {}) => {
         listeners[type]({ ...event, waitUntil: (p) => { pending = p; } });
         await pending;
     };
-    return { context, scope, listeners, shown, fire };
+    return { context, scope, listeners, shown, fire, idb };
 };
 
 const pushData = (payload) => ({ json: () => (typeof payload === 'string' ? JSON.parse(payload) : payload) });
@@ -313,6 +360,94 @@ describe('service worker notificationclick', () => {
 });
 
 describe('service worker pushsubscriptionchange', () => {
+    const KEY = Buffer.from([4, 9, 8, 7]).toString('base64url');
+    const OTHER_KEY = Buffer.from([4, 1, 2]).toString('base64url');
+    const CHANGED = `${SUBSCRIPTION_CHANGED_PREFIX}${ORIGIN}/`;
+    const RECEIPT = `${RECEIPT_PREFIX}${ORIGIN}/`;
+    const keyOf = (value) => ({ options: { applicationServerKey: new Uint8Array(Buffer.from(value, 'base64url')).buffer } });
+    const pushOn = { [SERVER_KEY_ENTRY]: KEY, [RECEIPT]: { endpoint: 'https://push.example/1', receipt: 'r.sig' } };
+
+    it('keeps its own copy of the entries puter.js stores', () => {
+        for ( const [name, value] of Object.entries({
+            DB_NAME: PUSH_DB_NAME,
+            HANDLERS: HANDLERS_STORE,
+            SERVER_KEY: SERVER_KEY_ENTRY,
+            SERVER_KEYS: SERVER_KEYS_ENTRY,
+            CHANGED_PREFIX: SUBSCRIPTION_CHANGED_PREFIX,
+            RECEIPT_PREFIX,
+        }) ) {
+            expect(SOURCE).toContain(`const ${name} = '${value}';`);
+        }
+    });
+
+    it('keeps the new subscription the browser gave, marks it with the old endpoint and forgets the receipt', async () => {
+        const win = windowClient(`${ORIGIN}/desktop`);
+        const worker = loadWorker({ windows: [win], handlers: pushOn });
+        await worker.fire('pushsubscriptionchange', { oldSubscription: keyOf(KEY), newSubscription: { endpoint: 'https://push.example/2' } });
+        expect(worker.idb.map.get(CHANGED)).toEqual({ at: expect.any(Number), oldEndpoint: 'https://push.example/1' });
+        expect(worker.idb.map.has(RECEIPT)).toBe(false);
+        expect(worker.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(win.postMessage).toHaveBeenCalledWith({ type: 'puter-push-subscription-changed' });
+    });
+
+    it('marks the endpoint of the subscription the browser ended, over the receipt`s', async () => {
+        const worker = loadWorker({ handlers: pushOn });
+        await worker.fire('pushsubscriptionchange', { oldSubscription: { ...keyOf(KEY), endpoint: 'https://push.example/old' } });
+        expect(worker.idb.map.get(CHANGED)).toEqual({ at: expect.any(Number), oldEndpoint: 'https://push.example/old' });
+    });
+
+    it('keeps the earlier endpoint of a mark no page handled yet', async () => {
+        const worker = loadWorker({ handlers: { ...pushOn, [CHANGED]: { at: 1, oldEndpoint: 'https://push.example/first' } } });
+        await worker.fire('pushsubscriptionchange', { oldSubscription: { ...keyOf(KEY), endpoint: 'https://push.example/second' } });
+        expect(worker.idb.map.get(CHANGED)).toEqual({ at: expect.any(Number), oldEndpoint: 'https://push.example/first' });
+    });
+
+    it('subscribes again with Puter`s stored key when the browser dropped it', async () => {
+        const worker = loadWorker({ handlers: pushOn });
+        await worker.fire('pushsubscriptionchange', { oldSubscription: keyOf(KEY), newSubscription: null });
+        expect(worker.idb.map.has(CHANGED)).toBe(true);
+        const { subscribe } = worker.scope.registration.pushManager;
+        expect(subscribe).toHaveBeenCalledTimes(1);
+        expect([...subscribe.mock.calls[0][0].applicationServerKey]).toEqual([...Buffer.from(KEY, 'base64url')]);
+        expect(subscribe.mock.calls[0][0].userVisibleOnly).toBe(true);
+    });
+
+    it('subscribes nothing where push was turned off, which leaves no old endpoint', async () => {
+        const worker = loadWorker({ handlers: { [SERVER_KEY_ENTRY]: KEY } });
+        await worker.fire('pushsubscriptionchange', {});
+        expect(worker.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('subscribes nothing when the browser already has a subscription again', async () => {
+        const worker = loadWorker({ handlers: pushOn, subscription: { endpoint: 'https://push.example/3' } });
+        await worker.fire('pushsubscriptionchange', {});
+        expect(worker.idb.map.has(CHANGED)).toBe(true);
+        expect(worker.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('leaves a subscription made with another key, and keeps nothing before Puter subscribed here', async () => {
+        const other = loadWorker({ handlers: pushOn });
+        await other.fire('pushsubscriptionchange', { oldSubscription: keyOf(OTHER_KEY) });
+        expect(other.idb.map.has(CHANGED)).toBe(false);
+        expect(other.idb.map.has(RECEIPT)).toBe(true);
+        expect(other.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+
+        const fresh = loadWorker();
+        await fresh.fire('pushsubscriptionchange', {});
+        expect(fresh.idb.map.has(CHANGED)).toBe(false);
+        expect(fresh.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('still tells the open windows when IndexedDB fails', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const win = windowClient(`${ORIGIN}/`);
+        const worker = loadWorker({ windows: [win], handlers: pushOn });
+        worker.idb.broken = true;
+        await worker.fire('pushsubscriptionchange', {});
+        expect(win.postMessage).toHaveBeenCalledWith({ type: 'puter-push-subscription-changed' });
+        warn.mockRestore();
+    });
+
     it('tells every window on this origin, and no other', async () => {
         const desktop = windowClient(`${ORIGIN}/desktop`);
         const hidden = windowClient(`${ORIGIN}/`);
